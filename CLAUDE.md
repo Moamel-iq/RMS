@@ -21,10 +21,24 @@ Docker/Celery), the installation plan wins. See ADR-010.
 
 - Python 3.14, Django 5.2 LTS, PostgreSQL 18
 - Django Ninja for the API
+- Django templates + htmx 2.0.4 (vendored, no CDN, no Node) — ADR-011
 - pytest-django, factory_boy, Hypothesis
 - Ruff and mypy
 - venv + pip-tools for dependencies
 - Windows development through PyCharm
+
+## Frontend rules
+
+- Arabic is the source language: message IDs are the Arabic strings. English
+  is a translation target. `gettext` is not installed, so `compilemessages`
+  cannot run yet.
+- CSS logical properties only (`padding-inline-start`, `text-align: start`).
+  Never `left`/`right` on the inline axis — one stylesheet serves RTL and LTR.
+- Never put `dir="auto"` on an empty input: it resolves to LTR and puts the
+  padding on the wrong side of a right-to-left field.
+- htmx views return the fragment with HTTP 200 on validation failure (htmx
+  does not swap error responses) and `HX-Redirect` on success.
+- Vendored JS is upgraded deliberately, never by a transitive bump.
 
 ## Architecture rules
 

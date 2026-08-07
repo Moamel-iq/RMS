@@ -3,13 +3,14 @@
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import URLPattern, URLResolver, path
+from django.urls import URLPattern, URLResolver, include, path
 
 from config.api import api
 
 urlpatterns: list[URLPattern | URLResolver] = [
     path("admin/", admin.site.urls),
     path("api/v1/", api.urls),
+    path("", include("apps.users.urls")),
 ]
 
 if settings.DEBUG:

@@ -1,0 +1,16 @@
+{% load i18n static %}<!doctype html>
+{# LANGUAGE_BIDI is true for Arabic, so one template serves both directions. #}
+<html lang="{{ LANGUAGE_CODE }}" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}{% translate "نظام خان مندي" %}{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+    {# htmx is vendored, not loaded from a CDN: no third-party request on a login page. #}
+    <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
+    {% block head %}{% endblock %}
+  </head>
+  <body>
+    {% block content %}{% endblock %}
+  </body>
+</html>

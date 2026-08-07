@@ -9,9 +9,11 @@ Architecture decisions live in [docs/decisions/](docs/decisions/README.md).
 
 ## Status
 
-Phase 0 (Foundations), Task 0.1 — bootstrap and health check. The database has
-not been migrated yet: the custom `User` model (Task 0.2) must exist before the
-first `migrate`.
+Phase 0 (Foundations), Task 0.2 complete — custom `User` model, phone/username
+authentication, and the Arabic RTL sign-in screen. The first migration has been
+applied.
+
+Next: Task 0.3, organization and branch foundations.
 
 ## Setup from a fresh clone
 

@@ -10,6 +10,7 @@ consequences, date, and related requirements.
 | [ADR-001](ADR-001-django-5-2-lts-python-3-14.md) | Django 5.2 LTS on Python 3.14 |
 | [ADR-002](ADR-002-postgresql-18.md) | PostgreSQL 18 as the only database |
 | [ADR-010](ADR-010-windows-native-development-environment.md) | Windows-native development environment and pip-tools |
+| [ADR-011](ADR-011-htmx-frontend.md) | Django templates + htmx for the frontend |
 
 ## Reserved, not yet written
 

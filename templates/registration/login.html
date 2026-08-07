@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "تسجيل الدخول" %} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block content %}
+  <main class="auth-shell">
+    <div class="auth-stack">
+
+      <div class="brand">
+        <svg class="brand__mark" width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+          <path fill="#e35205" d="M16 4h8v12h12v8H24v12h-8V24H4v-8h12z"/>
+        </svg>
+        <span class="brand__word">{% translate "خان" %}<span class="brand__word--accent">{% translate "مندي" %}</span></span>
+      </div>
+
+      <div class="card">
+        <h1 class="card__title">{% translate "تسجيل الدخول" %}</h1>
+        <p class="card__subtitle">{% translate "أهلاً بك في نظام خان مندي" %}</p>
+
+        {% include "partials/login_form.html" %}
+
+        <p class="card__meta">
+          {% translate "نسيت كلمة المرور؟ راجع مسؤول النظام." %}
+        </p>
+      </div>
+
+    </div>
+  </main>
+{% endblock %}

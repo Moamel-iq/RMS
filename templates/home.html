@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "الرئيسية" %} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block content %}
+  <main class="page">
+    <div class="page__header">
+      <h1>{% blocktranslate with name=user.get_username %}أهلاً {{ name }}{% endblocktranslate %}</h1>
+      <form method="post" action="{% url 'users:logout' %}">
+        {% csrf_token %}
+        <button class="linkish" type="submit">{% translate "تسجيل الخروج" %}</button>
+      </form>
+    </div>
+    <p>{% translate "لم تُبنَ الوحدات بعد. هذه صفحة مؤقتة تثبت أن تسجيل الدخول يعمل." %}</p>
+  </main>
+{% endblock %}
