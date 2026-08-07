@@ -1,0 +1,106 @@
+[project]
+name = "khan-mandi-rms"
+version = "0.1.0"
+description = "Khan Mandi Restaurant Management System"
+requires-python = ">=3.14"
+
+# Dependencies are managed with pip-tools via requirements*.in / requirements*.txt,
+# not declared here. See requirements.in.
+
+# ---------------------------------------------------------------------------
+# Ruff — linting, import ordering, and formatting
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+extend-exclude = [".venv", "migrations"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "S",   # flake8-bandit
+    "DJ",  # flake8-django
+]
+ignore = [
+    "E501",  # line length is handled by the formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately use assert, and fixtures shadow names.
+"tests/**" = ["S101"]
+"**/tests/**" = ["S101"]
+# Settings modules use star imports by design.
+"config/settings/*.py" = ["F403", "F405"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "config"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+python_files = ["test_*.py", "*_test.py", "tests.py"]
+testpaths = ["tests", "apps"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    # Warnings are surfaced, not swallowed. A DeprecationWarning during a
+    # Django upgrade is information, not noise.
+    "-W", "default",
+]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.14"
+plugins = ["mypy_django_plugin.main"]
+strict = true
+warn_unreachable = true
+exclude = ["migrations/", "\\.venv/"]
+
+[[tool.mypy.overrides]]
+# Generated migrations are not hand-written code and are not type-checked.
+module = "*.migrations.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# django-environ ships no py.typed marker.
+module = "environ.*"
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings.test"
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+branch = true
+source = ["apps", "config"]
+omit = [
+    "*/migrations/*",
+    "*/tests/*",
+    "config/wsgi.py",
+    "config/asgi.py",
+    "manage.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

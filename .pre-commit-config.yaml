@@ -1,0 +1,48 @@
+# Order matters: format, then lint-fix, then type, then the slower project checks.
+# Run manually with:
+#   & .\.venv\Scripts\pre-commit.exe run --all-files
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      # Secret handling.
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.2
+    hooks:
+      - id: ruff-format
+      - id: ruff-check
+        args: [--fix]
+
+  - repo: local
+    hooks:
+      # Windows paths use backslashes: pre-commit's `system` language resolves a
+      # forward-slash relative entry against PATH and fails with WinError 2.
+      - id: forbid-env-file
+        name: refuse to commit .env
+        entry: .venv\\Scripts\\python.exe scripts/check_no_env_committed.py
+        language: system
+        pass_filenames: true
+
+      - id: mypy
+        name: mypy
+        entry: .venv\\Scripts\\mypy.exe apps config tests
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: migrations-check
+        name: makemigrations --check
+        entry: .venv\\Scripts\\python.exe manage.py makemigrations --check --dry-run
+        language: system
+        types: [python]
+        pass_filenames: false
