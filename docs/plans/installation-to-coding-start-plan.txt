@@ -1,0 +1,1693 @@
+KHAN MANDI RESTAURANT MANAGEMENT SYSTEM
+WINDOWS INSTALLATION AND CODING START PLAN
+Prepared: 7 August 2026
+
+======================================================================
+1. PURPOSE
+======================================================================
+
+This plan takes the project from a clean Windows computer to the first
+safe coding milestone for the Khan Mandi Restaurant Management System.
+
+The recommended development path is:
+
+- Windows 11, native development.
+- PyCharm as the IDE.
+- Git and a private GitHub repository.
+- Python 3.14, latest patch release.
+- Django 5.2 LTS, latest security patch in the 5.2 series.
+- PostgreSQL 18, latest supported minor release.
+- Django Ninja for the API.
+- Standard Python virtual environment plus pip-tools.
+- pytest, factory_boy, Hypothesis, Ruff, mypy, and pre-commit.
+- Claude Code connected to PyCharm through the official JetBrains
+  integration.
+- Local PostgreSQL first. Docker, Redis, Celery, and PDF tooling are
+  added only when the project reaches the feature that needs them.
+
+The goal is not merely to make Django display its welcome page. The goal
+is to create a reproducible, tested, secure foundation that can support
+inventory, purchases, recipes, sales, accounting, HR, and reports
+without needing a restart later.
+
+======================================================================
+2. FIXED TECHNICAL DECISIONS
+======================================================================
+
+Use these decisions unless a written Architecture Decision Record changes
+one of them:
+
+1. Python:
+   Python 3.14, latest 3.14.x patch.
+   Python 3.14.7 was current when this plan was prepared.
+
+2. Django:
+   Django 5.2 LTS, always upgraded to the latest 5.2.x security release.
+   Use a compatible version constraint such as Django~=5.2.0 in the
+   direct dependency file, then lock the exact installed version.
+
+3. Database:
+   PostgreSQL 18, latest 18.x minor release.
+   PostgreSQL 18.4 was current when this plan was prepared.
+   Do not use PostgreSQL 19 beta for this project.
+
+4. API:
+   Django Ninja with typed request and response schemas.
+
+5. Package management:
+   Python venv + pip-tools.
+   Direct dependencies live in requirements.in and requirements-dev.in.
+   Exact dependency versions are generated into requirements.txt and
+   requirements-dev.txt.
+
+6. Project architecture:
+   - Thin API/view layer.
+   - Service layer for commands and business transactions.
+   - Selector/query layer for complex reads.
+   - Database constraints for invariants that the database can enforce.
+   - transaction.atomic() around each complete posting operation.
+   - No financial or stock business logic hidden in serializers, views,
+     admin actions, signals, or model save() methods.
+   - Signals are not used for essential financial posting.
+
+7. Financial rules:
+   - Decimal for money, quantities, rates, percentages, unit costs, and
+     conversion factors.
+   - Never use float for financial or stock calculations.
+   - Posted stock and accounting ledger effects are append-only.
+   - Corrections use reversal and replacement transactions.
+   - Moving weighted-average inventory costing.
+   - Negative stock is rejected during normal posting.
+   - Every money- or stock-touching service must have tests.
+
+8. Branch design:
+   - Organization is the top business boundary.
+   - Branch is a child of Organization.
+   - Not every table receives a Branch foreign key automatically.
+   - Global/master records and branch-owned transaction records are
+     modeled deliberately.
+   - Branch-local business date is separate from timestamp and supports
+     operations after midnight.
+
+9. Language and time:
+   - UTF-8 everywhere.
+   - English and Arabic are supported.
+   - System timezone: Asia/Baghdad.
+   - USE_TZ remains enabled.
+   - Store timestamps in timezone-aware form.
+   - Arabic/RTL support is included from the foundation, not postponed
+     until reports.
+
+10. AI usage:
+    - Claude works one small task at a time.
+    - Claude first plans and writes or updates tests.
+    - You review every diff involving stock, money, commissions, payroll,
+      unit conversions, dates, and permissions.
+    - Claude may never reset a database, delete migrations, reveal
+      secrets, or bypass safety permissions without explicit approval.
+
+======================================================================
+3. EXPECTED END STATE OF THIS SETUP
+======================================================================
+
+Before Inventory coding begins, the repository must have:
+
+- A clean Git history and private remote repository.
+- A local Python virtual environment selected in PyCharm.
+- Locked runtime and development dependencies.
+- A Django project connected to PostgreSQL, not SQLite.
+- Split local, test, and production settings.
+- A custom User model created before the first migration.
+- Organization, Branch, membership/role, and base audit foundations.
+- Initial unit-of-measure foundations.
+- A thin accounting journal kernel interface with balance validation.
+- A Django Ninja API and a basic health endpoint.
+- Django admin working.
+- pytest, Ruff, mypy, coverage, and pre-commit configured.
+- A green local quality gate.
+- A green CI workflow.
+- CLAUDE.md with the architecture rules and project commands.
+- The SRS and architecture documents stored in readable project
+  documentation.
+- No credentials, passwords, database dumps, or .env files committed.
+
+======================================================================
+4. STAGE 0 — PROTECT EXISTING WORK
+======================================================================
+
+Before installing or generating anything:
+
+1. Decide whether this is a clean repository or a continuation of an
+   existing repository.
+
+2. If an earlier Khan Mandi codebase already exists:
+   - Make a complete backup.
+   - Run git status before changing anything.
+   - Commit or safely copy uncommitted work.
+   - Do not generate a second Django project inside the existing project.
+   - Do not overwrite existing migrations.
+   - Do not mix the old experiment and the production rewrite without a
+     deliberate migration plan.
+
+3. Recommended new project folder:
+
+   C:\Dev\khan-mandi-rms
+
+   If Windows does not allow that location, use:
+
+   C:\Users\<YOUR_WINDOWS_USER>\Projects\khan-mandi-rms
+
+4. Do not place the active repository inside OneDrive, Google Drive, or
+   another synchronized folder. Sync clients can lock files, duplicate
+   temporary files, interfere with the virtual environment, and create
+   confusing Git changes.
+
+5. Repository name may contain hyphens:
+
+   khan-mandi-rms
+
+   Python package and app names must not contain hyphens. Use names such
+   as:
+
+   config
+   core
+   users
+   organizations
+   units
+   accounting
+   inventory
+
+======================================================================
+5. STAGE 1 — INSTALL GIT FOR WINDOWS
+======================================================================
+
+Install the latest stable Git for Windows.
+
+During installation:
+
+- Allow Git to be used from the command line and third-party software.
+- Install Git Bash.
+- Keep the secure credential manager enabled.
+- Use the bundled OpenSSH unless your organization requires another one.
+
+Restart PyCharm and all terminals after installation.
+
+Verify in PowerShell:
+
+    git --version
+    where.exe git
+
+Configure your identity:
+
+    git config --global user.name "Moamel Mohammed"
+    git config --global user.email "YOUR_GITHUB_EMAIL"
+    git config --global init.defaultBranch main
+
+Do not put access tokens or passwords into Git configuration files.
+
+After the repository is created, normalize line endings through a
+.gitattributes file instead of relying only on a machine-wide setting.
+
+Recommended .gitattributes content:
+
+    * text=auto eol=lf
+    *.bat text eol=crlf
+    *.cmd text eol=crlf
+    *.ps1 text eol=crlf
+
+======================================================================
+6. STAGE 2 — INSTALL PYTHON
+======================================================================
+
+Install the official 64-bit Python 3.14 release for Windows.
+
+Required installation results:
+
+- The Python launcher/install manager is available.
+- pip is available.
+- venv is available.
+- Python can be started from PowerShell.
+- Long path support should be enabled where the installer offers it.
+
+Verify:
+
+    py list
+    py -3.14 --version
+    py -3.14 -m pip --version
+
+Expected major/minor version:
+
+    Python 3.14.x
+
+Do not install project packages globally. All Django packages belong
+inside the project virtual environment.
+
+Do not use the Microsoft Store Python interpreter for this project when
+a normal official installation is available. A normal installation gives
+more predictable paths and permissions.
+
+======================================================================
+7. STAGE 3 — INSTALL POSTGRESQL
+======================================================================
+
+Install PostgreSQL 18 using the supported Windows installer.
+
+Select:
+
+- PostgreSQL Server.
+- Command Line Tools.
+- pgAdmin.
+- Stack Builder is optional and is not required for the first milestone.
+
+Recommended local settings:
+
+- Port: 5432, unless another PostgreSQL instance already uses it.
+- Locale: keep a modern UTF-8-compatible default.
+- Superuser: postgres.
+- Password: create a strong password and store it in a password manager.
+
+Never use the postgres superuser as the Django application user.
+
+After installation:
+
+1. Confirm the PostgreSQL Windows service is running.
+
+2. Verify from SQL Shell or by using the full path:
+
+    "C:\Program Files\PostgreSQL\18\bin\psql.exe" --version
+
+3. Open SQL Shell as the postgres administrator and create a local
+   development role and database:
+
+    CREATE ROLE khan_mandi_dev
+        WITH LOGIN
+        CREATEDB
+        NOSUPERUSER
+        NOCREATEROLE;
+
+    \password khan_mandi_dev
+
+    CREATE DATABASE khan_mandi_dev
+        WITH OWNER = khan_mandi_dev
+        ENCODING = 'UTF8';
+
+    \q
+
+Why CREATEDB is allowed here:
+Django's automated tests may create a temporary test database. This is
+acceptable for the local development role. A production application role
+must not receive CREATEDB, CREATEROLE, or SUPERUSER privileges.
+
+Use a unique strong password. Do not copy a sample password from a plan,
+prompt, README, or chat.
+
+Optional connection verification:
+
+    "C:\Program Files\PostgreSQL\18\bin\psql.exe" ^
+        -h 127.0.0.1 -p 5432 -U khan_mandi_dev -d khan_mandi_dev
+
+Inside psql:
+
+    SELECT current_database(), current_user, version();
+    \q
+
+======================================================================
+8. STAGE 4 — INSTALL AND CONFIGURE PYCHARM
+======================================================================
+
+Install the current stable PyCharm for Windows.
+
+Recommended setup:
+
+- Open the repository folder itself, not its parent.
+- Enable the bundled Django support.
+- Enable Git integration.
+- Use UTF-8 file encoding.
+- Use the project virtual environment interpreter.
+- Do not let PyCharm silently create a second virtual environment.
+
+After the virtual environment is created later, configure it in PyCharm:
+
+1. File or Settings.
+2. Python | Interpreter.
+3. Add Interpreter.
+4. Add Local Interpreter.
+5. Existing environment.
+6. Select:
+
+   C:\Dev\khan-mandi-rms\.venv\Scripts\python.exe
+
+7. Confirm that the interpreter shown in PyCharm belongs to this project.
+
+Enable Django support after startproject has created the project:
+
+- Settings.
+- Python | Django.
+- Enable Django support.
+- Django project root: repository root.
+- Settings file: the selected local settings module.
+- Manage script: manage.py.
+
+Important:
+A virtual environment does not need to be activated for PyCharm to use
+it. PyCharm calls .venv\Scripts\python.exe directly.
+
+======================================================================
+9. STAGE 5 — INSTALL CLAUDE CODE AND CONNECT IT TO PYCHARM
+======================================================================
+
+Use the native Windows Claude Code installation.
+
+Run in Windows PowerShell:
+
+    irm https://claude.ai/install.ps1 | iex
+
+Restart PyCharm after installation.
+
+Verify:
+
+    claude --version
+    where.exe claude
+
+Install the official Claude Code plugin in PyCharm:
+
+1. Settings.
+2. Plugins.
+3. Marketplace.
+4. Search for "Claude Code".
+5. Install.
+6. Restart PyCharm completely.
+
+Open PyCharm's integrated terminal in the repository root and run:
+
+    claude
+
+On first use, sign in through the browser with the paid Claude account.
+A paid Claude subscription can authenticate Claude Code directly; an API
+key is not required for this route.
+
+If Claude is started in an external terminal, connect it to PyCharm:
+
+    claude
+
+Then inside Claude Code:
+
+    /ide
+
+Start with the default/manual permission mode. Review requested commands
+and file edits. Do not use:
+
+    --dangerously-skip-permissions
+
+Claude must be started from the same repository root that PyCharm opened.
+Otherwise, it may read or edit the wrong directory.
+
+======================================================================
+10. STAGE 6 — CREATE THE REPOSITORY AND VIRTUAL ENVIRONMENT
+======================================================================
+
+Open PowerShell and create the project folder:
+
+    New-Item -ItemType Directory -Force C:\Dev\khan-mandi-rms | Out-Null
+    Set-Location C:\Dev\khan-mandi-rms
+
+Initialize Git:
+
+    git init
+    git config core.autocrlf false
+
+Create the virtual environment:
+
+    py -3.14 -m venv .venv
+
+Do not stop if PowerShell blocks Activate.ps1. Activation is optional.
+
+Use the interpreter directly:
+
+    & .\.venv\Scripts\python.exe --version
+    & .\.venv\Scripts\python.exe -m pip --version
+
+Upgrade packaging tools:
+
+    & .\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel pip-tools
+
+Optional activation method:
+
+    .\.venv\Scripts\Activate.ps1
+
+If PowerShell blocks activation, continue using the explicit
+.\.venv\Scripts\python.exe commands. This is the recommended approach
+because it does not require changing the execution policy.
+
+Only when you deliberately choose to allow locally created scripts, the
+least broad common change is:
+
+    Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+
+This change is not required for the project. Do not set the system-wide
+policy to Unrestricted or Bypass.
+
+======================================================================
+11. STAGE 7 — CREATE DEPENDENCY FILES
+======================================================================
+
+Create requirements.in with direct runtime dependencies:
+
+    Django~=5.2.0
+    django-ninja
+    django-environ
+    django-simple-history
+    psycopg[binary]
+
+Create requirements-dev.in:
+
+    -r requirements.in
+    factory-boy
+    freezegun
+    hypothesis
+    pip-tools
+    pre-commit
+    pytest
+    pytest-cov
+    pytest-django
+    ruff
+    mypy
+    django-stubs[compatible-mypy]
+
+Compile exact dependency locks:
+
+    & .\.venv\Scripts\pip-compile.exe requirements.in --output-file=requirements.txt
+    & .\.venv\Scripts\pip-compile.exe requirements-dev.in --output-file=requirements-dev.txt
+
+Install the complete development environment:
+
+    & .\.venv\Scripts\pip-sync.exe requirements-dev.txt
+
+Verify:
+
+    & .\.venv\Scripts\python.exe -m django --version
+    & .\.venv\Scripts\python.exe -c "import psycopg; print(psycopg.__version__)"
+    & .\.venv\Scripts\pytest.exe --version
+    & .\.venv\Scripts\ruff.exe --version
+    & .\.venv\Scripts\mypy.exe --version
+
+Dependency rules:
+
+- Add a direct package to an .in file.
+- Recompile the lock file.
+- Run pip-sync.
+- Commit both the .in and generated .txt files.
+- Do not manually edit generated lock files.
+- Do not run pip freeze as the primary dependency strategy.
+- Do not install random packages during Claude sessions without reviewing
+  why they are needed.
+
+Packages intentionally postponed:
+
+- Celery and Redis: add when the first real background job is implemented.
+- Playwright/Chromium: add when the first Arabic PDF report is prototyped.
+- openpyxl: add when the first controlled Excel import is implemented.
+- Docker: add after the local Phase 0 foundation is stable.
+- Frontend frameworks: decide after API and workflow requirements are
+  confirmed.
+
+======================================================================
+12. STAGE 8 — CREATE THE DJANGO PROJECT
+======================================================================
+
+Create the Django project without relying on django-admin being in PATH:
+
+    & .\.venv\Scripts\python.exe -m django startproject config .
+
+Verify the generated project:
+
+    & .\.venv\Scripts\python.exe manage.py check
+
+Do not run migrate yet.
+
+The custom User model must be created and AUTH_USER_MODEL must be
+configured before the first database migration.
+
+Create the initial folder structure:
+
+    apps\
+    config\
+    docs\
+        architecture\
+        decisions\
+        plans\
+        requirements\
+        specs\
+    tests\
+
+Add apps\__init__.py.
+
+Recommended final high-level structure:
+
+    khan-mandi-rms\
+    |-- .claude\
+    |-- .github\
+    |   `-- workflows\
+    |-- apps\
+    |   |-- accounting\
+    |   |-- core\
+    |   |-- organizations\
+    |   |-- units\
+    |   `-- users\
+    |-- config\
+    |   |-- settings\
+    |   |   |-- __init__.py
+    |   |   |-- base.py
+    |   |   |-- local.py
+    |   |   |-- production.py
+    |   |   `-- test.py
+    |   |-- api.py
+    |   |-- urls.py
+    |   |-- asgi.py
+    |   `-- wsgi.py
+    |-- docs\
+    |-- locale\
+    |-- tests\
+    |-- .env.example
+    |-- .gitattributes
+    |-- .gitignore
+    |-- CLAUDE.md
+    |-- manage.py
+    |-- pyproject.toml
+    |-- requirements.in
+    |-- requirements.txt
+    |-- requirements-dev.in
+    |-- requirements-dev.txt
+    `-- README.md
+
+Do not create inventory, purchasing, recipe, sales, HR, or reporting apps
+in the first bootstrap commit. Create only the foundation apps required
+for Phase 0.
+
+======================================================================
+13. STAGE 9 — CONFIGURE ENVIRONMENT VARIABLES AND SETTINGS
+======================================================================
+
+Create .env.example with placeholders only:
+
+    DJANGO_SECRET_KEY=replace-me
+    DJANGO_DEBUG=True
+    DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost
+
+    DB_NAME=khan_mandi_dev
+    DB_USER=khan_mandi_dev
+    DB_PASSWORD=replace-me
+    DB_HOST=127.0.0.1
+    DB_PORT=5432
+
+Create a local .env with the real values.
+
+Generate a strong local Django secret:
+
+    & .\.venv\Scripts\python.exe -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+
+Copy the generated value into .env only.
+
+Add .env to .gitignore before the first commit.
+
+Split settings into:
+
+- config.settings.base
+- config.settings.local
+- config.settings.test
+- config.settings.production
+
+Base settings must include:
+
+- INSTALLED_APPS for the selected foundation apps.
+- Django Ninja integration through the URL/API configuration.
+- django-simple-history configuration.
+- AUTH_USER_MODEL before the first migration.
+- TIME_ZONE = "Asia/Baghdad".
+- USE_TZ = True.
+- USE_I18N = True.
+- English and Arabic language definitions.
+- LocaleMiddleware in the correct middleware order.
+- LOCALE_PATHS.
+- DEFAULT_AUTO_FIELD.
+- Secure password validators.
+- Templates, static files, and media foundations.
+- PostgreSQL database settings sourced from environment variables.
+- Logging that does not expose passwords or secret values.
+
+Local settings:
+
+- DEBUG enabled only through local environment.
+- Local allowed hosts.
+- Developer-friendly email backend if email is needed.
+
+Test settings:
+
+- Test database configuration.
+- Fast but explicit password hashing only for tests.
+- Deterministic settings.
+- No production external services.
+
+Production settings:
+
+- DEBUG must be false.
+- Secret key required from the environment.
+- Secure cookies and proxy/HTTPS settings configured later for the actual
+  deployment environment.
+- No fallback development secrets.
+- No broad wildcard allowed hosts.
+
+Add a startup validation that fails clearly when required production
+environment variables are absent.
+
+======================================================================
+14. STAGE 10 — CREATE FOUNDATION APPS IN THE CORRECT ORDER
+======================================================================
+
+Create and implement these apps one task at a time.
+
+A. apps.core
+
+Purpose:
+
+- Common abstract timestamp model.
+- Safe shared utilities.
+- Correlation/request ID support later.
+- No generic "everything" model dumping ground.
+- No business-specific logic.
+
+B. apps.users
+
+Create the custom User model before the first migration.
+
+Recommended starting point:
+
+- Extend Django AbstractUser.
+- Keep authentication simple initially.
+- Add only fields required by the SRS.
+- Do not make branch ownership a single field directly on User.
+- Model organization/branch membership separately.
+
+Immediately set:
+
+    AUTH_USER_MODEL = "users.User"
+
+Do this before running migrate.
+
+C. apps.organizations
+
+Initial concepts:
+
+- Organization.
+- Branch.
+- Organization membership.
+- Branch membership or branch access assignment.
+- Role/permission mapping.
+- Branch timezone.
+- Branch business-day cutoff time.
+- Bilingual names where required.
+- Active/inactive status.
+- Uniqueness constrained within the correct organization.
+
+Do not implement every operational location here. Warehouse, kitchen
+location, and cash point can be introduced by their owning modules unless
+the SRS requires a shared location abstraction.
+
+D. apps.units
+
+Initial concepts:
+
+- Unit dimension, such as MASS, VOLUME, COUNT, LENGTH.
+- Unit of measure.
+- Base conversion within a dimension.
+- Decimal conversion factors.
+- Validation that incompatible dimensions cannot convert.
+- Item-specific package conversions are added with the Item model in
+  Inventory.
+- Production yield is not a unit conversion.
+
+Examples:
+
+- kg to g is a unit conversion.
+- one rice sack to 30 kg is item/package-specific.
+- 10 kg raw meat to 8.7 kg cooked output is production yield.
+
+E. apps.accounting
+
+At this stage, create only the thin accounting kernel and invariants,
+not the complete chart of accounts.
+
+The first kernel must support or define:
+
+- Journal entry header.
+- Journal lines.
+- Debit and credit decimal amounts.
+- Source document type and ID.
+- Organization and branch context where applicable.
+- Accounting date and document date.
+- Idempotency key.
+- Draft and posted state.
+- Balanced-entry validation.
+- Atomic posting.
+- Reversal reference.
+- No edit/delete of posted lines.
+
+Do not let Inventory, Purchasing, HR, or Sales construct arbitrary
+accounting logic in their views. Accounting posting policies will map
+domain events to journal lines.
+
+======================================================================
+15. STAGE 11 — FIRST MIGRATION GATE
+======================================================================
+
+Before the first migrate command, confirm all of the following:
+
+[ ] apps.users exists.
+[ ] User extends AbstractUser or an approved custom base.
+[ ] AUTH_USER_MODEL points to users.User.
+[ ] PostgreSQL is configured.
+[ ] SQLite is not the active database.
+[ ] .env exists locally and is ignored by Git.
+[ ] python manage.py check passes.
+[ ] No business app has been generated prematurely.
+
+Then create migrations:
+
+    & .\.venv\Scripts\python.exe manage.py makemigrations
+
+Review every generated migration file.
+
+Then apply:
+
+    & .\.venv\Scripts\python.exe manage.py migrate
+
+Create an administrator:
+
+    & .\.venv\Scripts\python.exe manage.py createsuperuser
+
+Run:
+
+    & .\.venv\Scripts\python.exe manage.py runserver
+
+Verify:
+
+- Admin login works.
+- Database records are stored in PostgreSQL.
+- No SQLite database file was created or used.
+- Arabic text can be saved and read.
+- Timezone-aware timestamps display correctly.
+
+If the default Django auth migrations were already applied before the
+custom User model was configured and the database contains no valuable
+data, recreate the empty development database and migrate correctly.
+Do not delete migrations or drop a database containing real data.
+
+======================================================================
+16. STAGE 12 — ADD THE FIRST API AND HEALTH CHECK
+======================================================================
+
+Create a versioned Django Ninja API:
+
+    /api/v1/
+
+Create a small health endpoint:
+
+    GET /api/v1/health
+
+The endpoint may report:
+
+- status: ok
+- application version
+- database availability
+
+Do not expose:
+
+- database passwords
+- host secrets
+- stack traces
+- environment variables
+- internal filesystem paths
+- detailed production infrastructure information
+
+Add tests for:
+
+- HTTP 200 when the application and database are healthy.
+- Stable response schema.
+- No secret values in the response.
+
+This endpoint proves that URL routing, Django Ninja, typed schemas,
+settings, and the PostgreSQL connection work together.
+
+======================================================================
+17. STAGE 13 — CONFIGURE TESTING AND CODE QUALITY
+======================================================================
+
+Place configuration in pyproject.toml where supported.
+
+Configure pytest-django:
+
+- DJANGO_SETTINGS_MODULE = config.settings.test
+- Clear test file naming.
+- Coverage for apps and important config code.
+- Warnings visible rather than silently ignored.
+
+Minimum test categories for Phase 0:
+
+1. User model:
+   - User creation.
+   - Superuser creation.
+   - Authentication behavior.
+   - No accidental dependency on the default auth.User model.
+
+2. Organization and Branch:
+   - Branch belongs to one organization.
+   - Required uniqueness rules.
+   - Inactive branch behavior.
+   - User cannot access an unassigned branch.
+   - Cross-organization access is rejected.
+
+3. Units:
+   - Positive Decimal conversion factor.
+   - Same-dimension conversion works.
+   - Cross-dimension conversion fails.
+   - Float input is rejected or normalized according to the written
+     policy.
+   - Precision and rounding policy is tested.
+
+4. Accounting kernel:
+   - Balanced entry posts.
+   - Unbalanced entry is rejected.
+   - A duplicate idempotency key does not double-post.
+   - A failure rolls back the entire transaction.
+   - Posted lines cannot be edited or deleted through normal services.
+   - Reversal references the original entry.
+
+5. API:
+   - Health endpoint schema and status.
+   - Authentication/authorization foundations where applicable.
+
+6. Settings:
+   - Test uses PostgreSQL configuration.
+   - Production settings reject missing secrets.
+   - Timezone is Asia/Baghdad.
+
+Configure Ruff for:
+
+- Linting.
+- Import order.
+- Formatting.
+- Reasonable Django exclusions.
+- Migrations excluded from inappropriate formatting rewrites.
+
+Configure mypy with django-stubs.
+
+Configure pre-commit to run at least:
+
+- Trailing whitespace checks.
+- End-of-file checks.
+- YAML/TOML validation.
+- Ruff lint.
+- Ruff format check.
+- Secret detection or an approved equivalent.
+- Optional mypy on the appropriate scope.
+
+Install hooks:
+
+    & .\.venv\Scripts\pre-commit.exe install
+
+Run the complete local quality gate:
+
+    & .\.venv\Scripts\python.exe manage.py check
+    & .\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
+    & .\.venv\Scripts\ruff.exe check .
+    & .\.venv\Scripts\ruff.exe format --check .
+    & .\.venv\Scripts\mypy.exe apps config
+    & .\.venv\Scripts\pytest.exe --cov=apps --cov=config
+    & .\.venv\Scripts\pre-commit.exe run --all-files
+
+Do not continue to Inventory while this gate is red.
+
+======================================================================
+18. STAGE 14 — CREATE .GITIGNORE AND SECURITY BOUNDARIES
+======================================================================
+
+At minimum, ignore:
+
+    .env
+    .env.*
+    !.env.example
+    .venv/
+    __pycache__/
+    *.py[cod]
+    .pytest_cache/
+    .mypy_cache/
+    .ruff_cache/
+    .coverage
+    htmlcov/
+    *.sqlite3
+    media/
+    staticfiles/
+    .idea/
+    *.log
+    *.dump
+    *.backup
+    *.sql
+
+Review the list before committing. Do not ignore migration files.
+
+Never commit:
+
+- .env
+- database passwords
+- Django secret keys
+- Claude/API tokens
+- production certificates
+- employee personal documents
+- payroll exports
+- real supplier invoices
+- database dumps
+- generated media containing personal or financial data
+
+Use synthetic fixtures for automated tests.
+
+If real SRS or business documents are committed, use a private repository
+and confirm that every collaborator is authorized to access them.
+
+======================================================================
+19. STAGE 15 — ADD DOCUMENTATION AND ARCHITECTURE DECISIONS
+======================================================================
+
+Store the authoritative documents in readable form.
+
+Recommended files:
+
+    docs/requirements/SRS.md
+    docs/architecture/architecture-charter.md
+    docs/plans/development-environment-and-coding-start-plan.txt
+
+Convert the important content of DOCX/PDF requirements into Markdown so
+Claude Code and developers can search and diff it reliably. Keep the
+original source document separately when required.
+
+Create Architecture Decision Records:
+
+    docs/decisions/ADR-001-django-5-2-lts-python-3-14.md
+    docs/decisions/ADR-002-postgresql-18.md
+    docs/decisions/ADR-003-service-selector-architecture.md
+    docs/decisions/ADR-004-append-only-ledgers.md
+    docs/decisions/ADR-005-moving-weighted-average-costing.md
+    docs/decisions/ADR-006-decimal-and-rounding-policy.md
+    docs/decisions/ADR-007-organization-and-branch-boundaries.md
+    docs/decisions/ADR-008-business-date-and-timezone.md
+    docs/decisions/ADR-009-arabic-rtl-and-pdf-strategy.md
+
+Each ADR should state:
+
+- Status.
+- Context.
+- Decision.
+- Alternatives considered.
+- Consequences.
+- Date.
+- Related SRS requirements.
+
+Create a requirement traceability template:
+
+    Requirement ID
+    Requirement summary
+    Module
+    Model/service/API
+    Test references
+    Status
+    Notes
+
+Claude should update traceability as features are implemented.
+
+======================================================================
+20. STAGE 16 — CREATE CLAUDE.md
+======================================================================
+
+Create CLAUDE.md in the repository root.
+
+Recommended content:
+
+----------------------------------------------------------------------
+# Khan Mandi RMS — Claude Code Instructions
+
+## Authoritative sources
+
+Read these before architectural or business decisions:
+
+1. docs/requirements/SRS.md
+2. docs/architecture/architecture-charter.md
+3. docs/decisions/
+4. The current module specification in docs/specs/
+
+When sources conflict, stop implementation, identify the conflict, and
+report it. Do not silently invent a business rule.
+
+## Stack
+
+- Python 3.14
+- Django 5.2 LTS
+- PostgreSQL 18
+- Django Ninja
+- pytest-django, factory_boy, Hypothesis
+- Ruff and mypy
+- Windows development through PyCharm
+
+## Architecture rules
+
+- Thin API/views.
+- Commands and state changes live in explicit service functions.
+- Complex reads live in selectors/query services.
+- Posted inventory and accounting effects are append-only.
+- Corrections use reversal and replacement.
+- Use Decimal, never float, for money, quantities, rates, unit costs,
+  percentages, and conversions.
+- Use moving weighted-average inventory costing.
+- Reject negative stock during normal posting.
+- Use transaction.atomic() for complete posting operations.
+- Use idempotency for operations that may be retried.
+- Never hide essential posting logic in signals or model save().
+- Do not add Branch FK to every model automatically.
+- Enforce organization/branch access in services and queries.
+- Use Asia/Baghdad and a separate branch business date.
+- Preserve Arabic text and RTL requirements.
+- Every money- or stock-touching function requires tests.
+- Prefer database constraints for enforceable invariants.
+- Use reversal, never deletion, for posted financial records.
+
+## Safety rules
+
+Never do any of the following without explicit human approval:
+
+- Delete migration files.
+- Reset, flush, or drop a database.
+- Run destructive SQL.
+- Read, print, copy, or commit .env secrets.
+- Commit personal employee, payroll, supplier, or investor data.
+- Install a new dependency.
+- Modify multiple modules in one task.
+- Use --dangerously-skip-permissions.
+- Change an accepted accounting, costing, or rounding policy.
+- Mark tests as skipped merely to make the suite pass.
+
+## Working method
+
+For each task:
+
+1. Read the related requirements and ADRs.
+2. Restate the acceptance criteria.
+3. Identify edge cases and migration impact.
+4. Write or update tests first.
+5. Implement the smallest complete change.
+6. Run the project quality commands.
+7. Show git diff and summarize risks.
+8. Do not commit unless asked.
+
+## Commands
+
+Use the virtual environment explicitly on Windows:
+
+- .\.venv\Scripts\python.exe manage.py check
+- .\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
+- .\.venv\Scripts\pytest.exe
+- .\.venv\Scripts\ruff.exe check .
+- .\.venv\Scripts\ruff.exe format --check .
+- .\.venv\Scripts\mypy.exe apps config
+- .\.venv\Scripts\pre-commit.exe run --all-files
+
+## Definition of done
+
+A task is not complete until:
+
+- Acceptance criteria are satisfied.
+- Tests cover normal and failure paths.
+- All tests pass.
+- Ruff and mypy pass.
+- No unexplained migration is pending.
+- No secret or real personal data is added.
+- Documentation and traceability are updated.
+- The diff contains only the requested concern.
+----------------------------------------------------------------------
+
+Update CLAUDE.md when project commands or permanent architecture rules
+change. Do not put temporary task details or secrets into it.
+
+======================================================================
+21. STAGE 17 — INITIALIZE GIT AND MAKE SAFE COMMITS
+======================================================================
+
+Before the first commit:
+
+    git status
+    git diff
+
+Confirm .env and .venv are ignored:
+
+    git check-ignore -v .env
+    git check-ignore -v .venv
+
+Recommended initial commits, kept separate:
+
+1. chore: initialize repository documentation and ignore rules
+2. build: add locked Python dependencies
+3. chore: bootstrap Django project and settings
+4. feat: add custom user model
+5. feat: add organization and branch foundations
+6. feat: add unit-of-measure foundations
+7. feat: add audit foundations
+8. feat: add accounting journal kernel
+9. feat: add API health endpoint and admin setup
+10. ci: add automated quality checks
+
+Do not let Claude generate all ten commits as one task.
+
+For a solo developer, use:
+
+- main as the stable branch.
+- Short-lived feature branches for each concern.
+- Pull requests for review where practical.
+
+Example:
+
+    git switch -c phase-0/custom-user
+
+After review and a green quality gate:
+
+    git add .
+    git commit -m "feat: add custom user model"
+
+======================================================================
+22. STAGE 18 — CREATE A PRIVATE GITHUB REPOSITORY AND CI
+======================================================================
+
+Create an empty private GitHub repository named:
+
+    khan-mandi-rms
+
+Do not initialize the remote with another README or .gitignore when the
+local repository already contains them.
+
+Add the remote:
+
+    git remote add origin YOUR_PRIVATE_REPOSITORY_URL
+    git remote -v
+    git push -u origin main
+
+Add a CI workflow under:
+
+    .github/workflows/ci.yml
+
+The CI job should:
+
+- Run on pull requests and pushes to main.
+- Use Python 3.14.
+- Start a PostgreSQL 18 service.
+- Install requirements-dev.txt.
+- Set test-only environment variables.
+- Run Django system checks.
+- Check for missing migrations.
+- Run Ruff lint and format checks.
+- Run mypy.
+- Run pytest with coverage.
+- Fail on any step.
+
+Do not put a real database password or Django secret in the workflow.
+Use disposable test-only values or repository secrets where genuinely
+required.
+
+Protect the main branch after CI works:
+
+- Require CI to pass before merge.
+- Prevent accidental force pushes.
+- Require review when collaborators are added.
+
+======================================================================
+23. STAGE 19 — FIRST CLAUDE CODE SESSION
+======================================================================
+
+Open the repository in PyCharm.
+
+Open the integrated terminal at the repository root:
+
+    claude
+
+First prompt — planning only:
+
+----------------------------------------------------------------------
+Read CLAUDE.md, docs/requirements/SRS.md,
+docs/architecture/architecture-charter.md, and all accepted ADRs.
+
+Do not edit files yet.
+
+Inspect the repository and produce a Phase 0 readiness report covering:
+
+1. Installed stack and version compatibility.
+2. Repository structure.
+3. Dependency locking.
+4. PostgreSQL configuration.
+5. Settings separation.
+6. Custom User timing before the first migration.
+7. Test, lint, type-check, and CI configuration.
+8. Security or secret-handling risks.
+9. Any conflict between the SRS and architecture documents.
+10. The smallest ordered implementation tasks needed to reach the
+    Phase 0 definition of done.
+
+For each task, give acceptance criteria, tests, expected files, risks,
+and commands. Do not propose Inventory implementation yet.
+----------------------------------------------------------------------
+
+Review the plan yourself.
+
+Second prompt — first implementation task only:
+
+----------------------------------------------------------------------
+Implement Phase 0 Task 0.1 only: repository/Django bootstrap and the
+health-check foundation.
+
+Requirements:
+
+- Follow CLAUDE.md.
+- Do not run the first migrate until the custom User model is configured.
+- Use PostgreSQL, never SQLite.
+- Use split settings for local, test, and production.
+- Read secrets only from environment variables.
+- Configure pytest, Ruff, mypy, and pre-commit.
+- Add a typed Django Ninja GET /api/v1/health endpoint.
+- Add tests for configuration and the health response.
+- Do not implement Organization, Branch, Units, Accounting, Inventory,
+  Purchases, Recipes, Sales, HR, or Reports in this task.
+- Do not install new dependencies without asking.
+- Do not commit.
+
+Before editing, restate the acceptance criteria and list the files you
+will change. After editing, run the complete local quality gate and show
+a concise diff summary.
+----------------------------------------------------------------------
+
+Do not ask Claude to "build the whole ERP." Keep every prompt limited to
+one concern and one reviewable diff.
+
+======================================================================
+24. STAGE 20 — PHASE 0 CODING ORDER
+======================================================================
+
+Implement the foundation in this exact order.
+
+TASK 0.1 — Bootstrap and health check
+
+Deliver:
+
+- Project structure.
+- Settings split.
+- Environment loading.
+- PostgreSQL connection.
+- Django Ninja root API.
+- Health endpoint.
+- pytest/Ruff/mypy/pre-commit.
+- Basic CI.
+- No first migrate until Task 0.2 is ready.
+
+TASK 0.2 — Custom User
+
+Deliver:
+
+- Custom User model.
+- Manager methods where needed.
+- Admin integration.
+- AUTH_USER_MODEL.
+- User and authentication tests.
+- First migration may proceed only after this task passes review.
+
+TASK 0.3 — Organization, Branch, and Access Membership
+
+Deliver:
+
+- Organization.
+- Branch.
+- Membership/access models.
+- Branch business-day cutoff and timezone.
+- Bilingual names where required.
+- Database uniqueness constraints.
+- Service and selector access rules.
+- Cross-organization isolation tests.
+- Admin screens.
+
+TASK 0.4 — Unit-of-Measure Foundation
+
+Deliver:
+
+- Dimension model or approved enum.
+- Units.
+- Decimal conversion service.
+- Same-dimension validation.
+- Precision/rounding tests.
+- No item package conversion yet.
+- No production yield inside UoM.
+
+TASK 0.5 — Audit Foundation
+
+Deliver:
+
+- Created/updated timestamps.
+- Actor tracking strategy.
+- Request/correlation ID strategy.
+- History integration for appropriate mutable master data.
+- Clear distinction between model history and immutable posted ledgers.
+- Tests proving audit records are produced through approved paths.
+
+TASK 0.6 — Accounting Journal Kernel
+
+Deliver:
+
+- Journal entry and line concepts.
+- Balanced debit/credit invariant.
+- Idempotency.
+- Atomic posting service.
+- Draft/post/reverse lifecycle.
+- Protection from editing posted records.
+- No full chart of accounts yet.
+- No module-specific posting rules yet.
+
+TASK 0.7 — Permissions, Admin, and API Foundations
+
+Deliver:
+
+- Least-privilege access.
+- Branch-aware authorization helpers.
+- Admin registration and safe filters.
+- API error schema.
+- Authentication foundation.
+- No broad queryset leakage across organizations or branches.
+
+TASK 0.8 — Phase 0 Completion
+
+Deliver:
+
+- Green local quality gate.
+- Green CI.
+- Documentation and traceability updated.
+- Fresh clone setup documented and tested.
+- First tagged foundation release or accepted main commit.
+
+Only after Task 0.8 is complete should Inventory specification and
+implementation begin.
+
+======================================================================
+25. DEFINITION OF DONE BEFORE INVENTORY
+======================================================================
+
+Installation checks:
+
+[ ] git --version succeeds.
+[ ] py -3.14 --version succeeds.
+[ ] PostgreSQL 18 service is running.
+[ ] psql can connect as khan_mandi_dev.
+[ ] PyCharm uses .venv\Scripts\python.exe.
+[ ] claude --version succeeds.
+[ ] Claude Code is connected to PyCharm.
+[ ] No PowerShell activation is required.
+
+Repository checks:
+
+[ ] Repository is outside OneDrive.
+[ ] Private remote repository exists.
+[ ] .gitattributes exists.
+[ ] .gitignore protects secrets and local files.
+[ ] .env is ignored.
+[ ] Requirements are locked.
+[ ] SRS and architecture documents are readable in docs/.
+[ ] CLAUDE.md exists.
+[ ] ADRs record permanent decisions.
+
+Django checks:
+
+[ ] PostgreSQL is the active database.
+[ ] Custom User was created before first migrate.
+[ ] Organization/Branch access foundations exist.
+[ ] UoM foundation exists.
+[ ] Accounting kernel balance rule exists.
+[ ] Asia/Baghdad is configured.
+[ ] Arabic text persists correctly.
+[ ] Admin login works.
+[ ] /api/v1/health works.
+
+Quality checks:
+
+[ ] manage.py check passes.
+[ ] No unexpected migration is pending.
+[ ] Ruff passes.
+[ ] Ruff format check passes.
+[ ] mypy passes.
+[ ] pytest passes.
+[ ] Coverage report is generated.
+[ ] pre-commit passes.
+[ ] CI passes.
+[ ] git status is clean.
+[ ] No secret or real personal data is committed.
+
+Architecture checks:
+
+[ ] No float is used in money/stock domain code.
+[ ] No essential financial logic is in signals.
+[ ] Service layer owns state changes.
+[ ] Posted ledger behavior is immutable.
+[ ] Atomicity and idempotency have tests.
+[ ] Organization/branch isolation has tests.
+[ ] Claude generated only small reviewed changes.
+
+If any item is false, fix the foundation before starting Inventory.
+
+======================================================================
+26. DAILY DEVELOPMENT WORKFLOW
+======================================================================
+
+Use this loop for every coding task:
+
+1. Pull the latest stable code.
+
+       git switch main
+       git pull
+
+2. Create a short-lived feature branch.
+
+       git switch -c inventory/item-master
+
+3. Read the relevant SRS requirement, module spec, and ADR.
+
+4. Ask Claude for a plan only.
+
+5. Review the plan and remove anything outside the requested scope.
+
+6. Ask Claude to write or update tests first.
+
+7. Watch the relevant test fail for the correct reason.
+
+8. Implement the smallest complete service/model/API slice.
+
+9. Run focused tests.
+
+10. Run the complete quality gate.
+
+11. Inspect:
+
+       git status
+       git diff
+       git diff --stat
+
+12. Review financial, stock, date, permissions, and conversion code line
+    by line.
+
+13. Commit one concern.
+
+14. Push and let CI run.
+
+15. Merge only when local and CI checks are green.
+
+Never accept "tests pass" from Claude without seeing the command output
+or running the commands yourself.
+
+======================================================================
+27. COMMON WINDOWS PROBLEMS
+======================================================================
+
+PROBLEM:
+django-admin is not recognized.
+
+SOLUTION:
+Use the project interpreter directly:
+
+    & .\.venv\Scripts\python.exe -m django startproject config .
+
+PROBLEM:
+Activate.ps1 cannot be loaded because running scripts is disabled.
+
+SOLUTION:
+Do not activate. Configure PyCharm to use:
+
+    .venv\Scripts\python.exe
+
+Run commands with the explicit executable path.
+
+PROBLEM:
+No module named django.
+
+SOLUTION:
+PyCharm or the terminal is using the wrong interpreter. Verify:
+
+    & .\.venv\Scripts\python.exe -m django --version
+
+PROBLEM:
+psql is not recognized.
+
+SOLUTION:
+Use the full executable path:
+
+    "C:\Program Files\PostgreSQL\18\bin\psql.exe"
+
+Or add PostgreSQL's bin directory to PATH, then restart terminals.
+
+PROBLEM:
+Password authentication failed for user khan_mandi_dev.
+
+SOLUTION:
+Check:
+
+- DB_USER in .env.
+- DB_PASSWORD in .env.
+- Correct port.
+- Correct database name.
+- PostgreSQL service status.
+- The role password through \password.
+- No hidden whitespace copied into .env.
+
+Do not solve this by using the postgres superuser in Django.
+
+PROBLEM:
+PyCharm shows unresolved Django imports.
+
+SOLUTION:
+Select:
+
+    <project>\.venv\Scripts\python.exe
+
+Then refresh/synchronize the interpreter packages.
+
+PROBLEM:
+Claude command is not found inside PyCharm.
+
+SOLUTION:
+
+- Restart PyCharm completely.
+- Run where.exe claude in a normal PowerShell window.
+- Check the Claude Code plugin setting for the command path.
+- Use the full path if necessary.
+- Reopen the project terminal.
+
+PROBLEM:
+Claude Code cannot detect PyCharm.
+
+SOLUTION:
+
+- Install/restart the official JetBrains plugin.
+- Start Claude from PyCharm's integrated terminal, or use /ide from an
+  external Claude session.
+- Ensure Claude and PyCharm point to the same project folder.
+
+PROBLEM:
+Django created db.sqlite3.
+
+SOLUTION:
+Stop. Verify the local settings module and PostgreSQL environment values.
+Remove an unused local SQLite file only after confirming that it contains
+no needed data. Never continue business development with an accidental
+SQLite configuration.
+
+PROBLEM:
+Migrations were applied before AUTH_USER_MODEL was configured.
+
+SOLUTION:
+For an empty local development database only, recreate the database and
+apply migrations after the custom User model is configured. For any
+database containing valuable data, create a reviewed migration plan;
+never delete migrations or drop data casually.
+
+======================================================================
+28. WHAT NOT TO DO AT THE START
+======================================================================
+
+Do not:
+
+- Build all modules in parallel.
+- Start Recipes before Purchases and costing foundations exist.
+- Start Accounting reports before postings exist.
+- Skip the Sales module.
+- Use SQLite for convenience.
+- Use the postgres superuser from Django.
+- Put the repository in OneDrive.
+- Commit .env.
+- Store balances as independently editable numbers.
+- Use float for price, quantity, commission, or cost.
+- calculate unit conversions with ad hoc constants in views.
+- Use signals for critical stock or journal posting.
+- edit or delete posted movements.
+- allow negative stock merely to make a transaction pass.
+- run migrate before the custom User model.
+- accept a large Claude diff without review.
+- ask Claude to install unexplained packages.
+- let Claude reset the database.
+- use real payroll or supplier data in tests.
+- add Docker, Celery, Redis, a frontend framework, and PDF rendering all
+  at once.
+
+======================================================================
+29. THE NEXT STEP AFTER THIS PLAN
+======================================================================
+
+After all Phase 0 definition-of-done checks pass, begin Inventory using a
+written specification before code.
+
+Inventory starts with:
+
+- Item categories.
+- Item master.
+- Base stock unit.
+- Item-specific purchase/package conversions.
+- Warehouses and stock locations.
+- Opening balances.
+- Stock movement ledger.
+- Receipts, issues, transfers, waste, counts, and adjustments.
+- Moving weighted-average costing.
+- Negative-stock prevention.
+- Idempotent atomic posting.
+- Full tests and audit trail.
+
+Do not begin Suppliers/Purchases until the Inventory ledger can receive a
+tested stock movement and calculate a reliable balance.
+
+======================================================================
+30. FINAL START COMMAND CHECKLIST
+======================================================================
+
+From the project root, these commands should work without activation:
+
+    & .\.venv\Scripts\python.exe --version
+    & .\.venv\Scripts\python.exe -m django --version
+    & .\.venv\Scripts\python.exe manage.py check
+    & .\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
+    & .\.venv\Scripts\pytest.exe
+    & .\.venv\Scripts\ruff.exe check .
+    & .\.venv\Scripts\ruff.exe format --check .
+    & .\.venv\Scripts\mypy.exe apps config
+    & .\.venv\Scripts\pre-commit.exe run --all-files
+    & .\.venv\Scripts\python.exe manage.py runserver
+
+Then, in another PyCharm terminal:
+
+    claude
+
+At that point the environment is ready, the foundation is controlled,
+and coding can proceed one tested module at a time.
