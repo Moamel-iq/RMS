@@ -1,0 +1,17 @@
+# Development and test dependencies.
+# Recompile with:
+#   & .\.venv\Scripts\pip-compile.exe requirements-dev.in --output-file=requirements-dev.txt
+
+-r requirements.in
+
+factory-boy
+freezegun
+hypothesis
+pip-tools
+pre-commit
+pytest
+pytest-cov
+pytest-django
+ruff
+mypy
+django-stubs[compatible-mypy]

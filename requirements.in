@@ -1,0 +1,12 @@
+# Direct runtime dependencies.
+# Add packages here, then recompile:
+#   & .\.venv\Scripts\pip-compile.exe requirements.in --output-file=requirements.txt
+# Never edit requirements.txt by hand.
+
+# Django 5.2 LTS. Pinned to >=5.2.8 because Python 3.14 support was added in
+# 5.2.8; a resolution below that would silently break on this interpreter.
+Django~=5.2.8
+django-ninja
+django-environ
+django-simple-history
+psycopg[binary]
