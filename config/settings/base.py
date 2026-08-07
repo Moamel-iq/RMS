@@ -53,12 +53,13 @@ THIRD_PARTY_APPS = [
 ]
 
 # Foundation apps are added by their own tasks:
-#   Task 0.2  apps.users
 #   Task 0.3  apps.organizations
 #   Task 0.4  apps.units
 #   Task 0.5  apps.core (audit foundation)
 #   Task 0.6  apps.accounting
-LOCAL_APPS: list[str] = []
+LOCAL_APPS: list[str] = [
+    "apps.users",
+]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -67,11 +68,17 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 # Custom user model
 # ---------------------------------------------------------------------------
 
-# AUTH_USER_MODEL = "users.User"
-#
-# DELIBERATELY NOT SET YET. It is delivered by Task 0.2, and the first
-# `migrate` must not run before it exists. Setting it here while apps.users
-# is absent would break `manage.py check`.
+AUTH_USER_MODEL = "users.User"
+
+# Users sign in with either a username or an Iraqi mobile number. The backend
+# subclasses ModelBackend, so permission resolution is unchanged.
+AUTHENTICATION_BACKENDS = [
+    "apps.users.backends.PhoneOrUsernameBackend",
+]
+
+LOGIN_URL = "users:login"
+LOGIN_REDIRECT_URL = "users:home"
+LOGOUT_REDIRECT_URL = "users:login"
 
 
 # ---------------------------------------------------------------------------
@@ -81,9 +88,11 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    # LocaleMiddleware must sit after SessionMiddleware (it reads the session
-    # language) and before CommonMiddleware (which relies on the active locale).
-    "django.middleware.locale.LocaleMiddleware",
+    # Must sit after SessionMiddleware and before CommonMiddleware, which
+    # relies on the active locale. Replaces django.middleware.locale.
+    # LocaleMiddleware so the browser's Accept-Language cannot flip an
+    # Arabic RTL interface into a left-to-right layout.
+    "config.middleware.ExplicitLocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -164,7 +173,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # The restaurant *business date* is a separate concept delivered in a later
 # task; it is never derived as date(timestamp).
 
-LANGUAGE_CODE = "en"
+# Arabic is the primary language of the business, so it is the default and the
+# source language for message IDs. English is the translation target.
+LANGUAGE_CODE = "ar"
 TIME_ZONE = "Asia/Baghdad"
 
 USE_I18N = True
@@ -184,7 +195,7 @@ LOCALE_PATHS = [BASE_DIR / "locale"]
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else []
+STATICFILES_DIRS = [BASE_DIR / "static"]
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"

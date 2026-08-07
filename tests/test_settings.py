@@ -46,12 +46,26 @@ class TestInternationalization:
         assert codes == {"en", "ar"}
 
     def test_locale_middleware_ordered_correctly(self) -> None:
-        """LocaleMiddleware must follow Session and precede Common."""
+        """The locale middleware must follow Session and precede Common."""
         order = list(settings.MIDDLEWARE)
         session = order.index("django.contrib.sessions.middleware.SessionMiddleware")
-        locale = order.index("django.middleware.locale.LocaleMiddleware")
+        locale = order.index("config.middleware.ExplicitLocaleMiddleware")
         common = order.index("django.middleware.common.CommonMiddleware")
         assert session < locale < common
+
+    def test_browser_language_negotiation_is_not_used(self) -> None:
+        """
+        Django's LocaleMiddleware honours Accept-Language. That would render
+        the Arabic interface in a left-to-right layout for anyone with an
+        English browser, so it must not be installed.
+        """
+        assert "django.middleware.locale.LocaleMiddleware" not in settings.MIDDLEWARE
+
+    def test_default_language_is_arabic(self) -> None:
+        """Asserted against base settings; the test module overrides it to en."""
+        from config.settings import base
+
+        assert base.LANGUAGE_CODE == "ar"
 
 
 class TestSecretHandling:

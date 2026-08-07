@@ -34,9 +34,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests legitimately use assert, and fixtures shadow names.
-"tests/**" = ["S101"]
-"**/tests/**" = ["S101"]
+# Tests legitimately use assert, and the "passwords" in them are fixtures, not
+# credentials. Real secrets are caught by the detect-private-key hook and the
+# .env guard, not by flagging every test literal.
+"tests/**" = ["S101", "S105", "S106"]
+"**/tests/**" = ["S101", "S105", "S106"]
 # Settings modules use star imports by design.
 "config/settings/*.py" = ["F403", "F405"]
 
@@ -82,6 +84,14 @@ ignore_errors = true
 # django-environ ships no py.typed marker.
 module = "environ.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# UserAdmin, UserCreationForm, and UserChangeForm are generic in django-stubs
+# but not subscriptable at runtime: writing UserAdmin[User] raises TypeError
+# when Django imports the module. Narrowly disabled here rather than adding
+# django-stubs-ext as a production dependency purely to satisfy the checker.
+module = ["apps.users.admin", "apps.users.forms"]
+disallow_any_generics = false
 
 [tool.django-stubs]
 django_settings_module = "config.settings.test"
