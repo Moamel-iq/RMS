@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: khan_mandi_test
+          POSTGRES_USER: khan_mandi_test
+          # Disposable, test-only. Never a real credential.
+          POSTGRES_PASSWORD: ci-test-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      # Test-only key. Production reads its key from the platform secret store.
+      DJANGO_SECRET_KEY: ci-only-not-a-real-secret-key-do-not-reuse
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: 127.0.0.1,localhost
+      DB_NAME: khan_mandi_test
+      DB_USER: khan_mandi_test
+      DB_PASSWORD: ci-test-password
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Django system checks
+        run: python manage.py check
+
+      - name: No missing migrations
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: mypy
+        run: mypy apps config tests
+
+      - name: pytest
+        run: pytest --cov=apps --cov=config --cov-report=term-missing
