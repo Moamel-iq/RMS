@@ -5,40 +5,46 @@ Used wherever one amount must be split: a document-level discount, an
 application commission, a shared expense, a landed cost spread over receipt
 lines.
 
-The guarantee, and the only reason this module exists:
+Two guarantees:
 
-    sum(allocate_proportionally(total, weights)) == quantize_money(total)
+  1. The parts sum exactly to the whole.
 
-exactly, for every input. Naive allocation — multiply each line by a rate and
-round it — does not hold that. Three lines splitting 100.000 by thirds each
-give 33.333, summing to 99.999. The missing 0.001 has to land somewhere
-deliberate, or it silently becomes a reconciliation failure that someone
-chases months later.
+         sum(part.amount for part in allocate(...)) == quantize_money(total)
 
-Method: largest remainder (Hamilton).
+     Naive allocation does not hold that. Three lines splitting 1000.000 by
+     thirds each give 333.333, summing to 999.999. The missing 0.001 has to
+     land somewhere deliberate, or it becomes a reconciliation failure that
+     someone chases months later.
 
-    1. Compute each line's exact share at high precision.
-    2. Floor each to a whole quantum of 0.001 IQD.
-    3. The residual — total minus the sum of the floors — is a whole number of
-       quanta, always fewer than the number of lines.
-    4. Give one extra quantum to the lines with the largest fractional
-       remainders, until the residual is exhausted.
-    5. Ties break on line order, so the same input always produces the same
-       output. The caller must pass lines in a stable order — line sequence or
-       primary key.
+  2. The same economic input always produces the same result.
+
+     Correctness does NOT depend on the order the caller happens to pass
+     lines in, nor on a queryset's implicit ordering. Every line carries an
+     explicit `sequence`, and residual priority is decided by:
+
+         remainder DESC, then sequence ASC
+
+     A missing, duplicate, or invalid sequence is rejected rather than
+     silently tolerated. Persisted lines pass their document line sequence;
+     unpersisted callers must assign deterministic sequences before calling.
+
+Method: largest remainder (Hamilton). Compute exact shares at high precision,
+floor each to a whole quantum of 0.001 IQD, then hand the residual out one
+quantum at a time by the priority above.
 
 Exactness is structural, not approximate: the residual is derived by
-subtraction from the target, so whatever rounding happened in step 1 cannot
-change the total.
+subtracting the floors from the target, so whatever rounding happened while
+computing shares cannot change the sum.
 
-Residuals that come from an external settlement or cash rounding are NOT this
-module's business. Those are a real gain or loss and post to an explicit cash
-rounding account — see `apps.core.money.apply_cash_settlement_rounding`.
+Residuals from an external settlement or cash rounding are NOT this module's
+business. Those are a real gain or loss and post to an explicit cash rounding
+account — see `apps.core.money.apply_cash_settlement_rounding`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from decimal import Decimal, localcontext
 
 from django.core.exceptions import ValidationError
@@ -51,49 +57,102 @@ from apps.core.money import MONEY_QUANTUM, ensure_money_decimal, quantize_money
 _WORKING_PRECISION = 60
 
 
-def allocate_proportionally(
-    total: object,
-    weights: Sequence[object],
-) -> list[Decimal]:
+@dataclass(frozen=True)
+class AllocationItem:
     """
-    Split `total` across lines in proportion to `weights`.
+    One line participating in an allocation.
 
-    Returns one amount per weight, each quantized to 0.001 IQD, summing
-    exactly to `quantize_money(total)`.
-
-    Weights must be non-negative and must not all be zero. They are usually
-    line net amounts, but any non-negative measure works — a landed cost split
-    by weight or by volume, for instance.
+    `sequence` is the deterministic tie-break key and is required. For a
+    persisted document line it is that line's own sequence number. For lines
+    not yet persisted the caller assigns them, and must do so deterministically
+    — the same economic input has to yield the same sequences every run.
     """
-    if len(weights) == 0:
+
+    sequence: int
+    weight: Decimal
+
+
+@dataclass(frozen=True)
+class AllocationResult:
+    """The amount allocated to one line, identified by its sequence."""
+
+    sequence: int
+    amount: Decimal
+
+
+def _validate_sequences(items: Sequence[AllocationItem]) -> None:
+    seen: set[int] = set()
+    for position, item in enumerate(items):
+        sequence = item.sequence
+
+        # bool is a subclass of int; True arriving as a sequence is a bug.
+        if isinstance(sequence, bool) or not isinstance(sequence, int):
+            raise ValidationError(
+                _("Allocation item at position %(position)s has a non-integer sequence."),
+                code="invalid_allocation_sequence",
+                params={"position": position},
+            )
+        if sequence < 0:
+            raise ValidationError(
+                _("Allocation sequence must not be negative: %(sequence)s"),
+                code="invalid_allocation_sequence",
+                params={"sequence": sequence},
+            )
+        if sequence in seen:
+            raise ValidationError(
+                _("Duplicate allocation sequence: %(sequence)s"),
+                code="duplicate_allocation_sequence",
+                params={"sequence": sequence},
+            )
+        seen.add(sequence)
+
+
+def allocate(total: object, items: Sequence[AllocationItem]) -> list[AllocationResult]:
+    """
+    Split `total` across `items` in proportion to their weights.
+
+    Returns one result per item, ordered by sequence ascending, each amount
+    quantized to 0.001 IQD and together summing exactly to
+    `quantize_money(total)`.
+
+    Weights must be non-negative and must not all be zero.
+    """
+    if len(items) == 0:
         raise ValidationError(
             _("Cannot allocate an amount across zero lines."),
             code="no_lines_to_allocate",
         )
 
-    amount = quantize_money(total, field="allocated total")
-    parsed_weights = [
-        ensure_money_decimal(weight, field=f"weight[{index}]")
-        for index, weight in enumerate(weights)
-    ]
+    _validate_sequences(items)
 
-    for index, weight in enumerate(parsed_weights):
+    amount = quantize_money(total, field="allocated total")
+
+    weights = [
+        ensure_money_decimal(item.weight, field=f"weight[sequence={item.sequence}]")
+        for item in items
+    ]
+    for item, weight in zip(items, weights, strict=True):
         if weight < 0:
             raise ValidationError(
-                _("Allocation weight %(index)s is negative: %(value)s"),
+                _("Allocation weight for sequence %(sequence)s is negative: %(value)s"),
                 code="negative_allocation_weight",
-                params={"index": index, "value": str(weight)},
+                params={"sequence": item.sequence, "value": str(weight)},
             )
 
-    weight_total = sum(parsed_weights, Decimal("0"))
+    weight_total = sum(weights, Decimal("0"))
     if weight_total == 0:
         raise ValidationError(
             _("Cannot allocate proportionally when every weight is zero."),
             code="zero_allocation_weights",
         )
 
+    # Sort by sequence up front so nothing downstream depends on the order the
+    # caller passed, including the order results come back in.
+    ordered = sorted(zip(items, weights, strict=True), key=lambda pair: pair[0].sequence)
+
     if amount == 0:
-        return [Decimal("0").quantize(MONEY_QUANTUM) for _ in parsed_weights]
+        zero = Decimal("0").quantize(MONEY_QUANTUM)
+        return [AllocationResult(item.sequence, zero) for item, _weight in ordered]
 
     # Work on the magnitude and restore the sign at the end, so a credit note
     # allocates the mirror image of the invoice it reverses.
@@ -107,14 +166,14 @@ def allocate_proportionally(
     remainders: list[Decimal] = []
     with localcontext() as context:
         context.prec = _WORKING_PRECISION
-        for weight in parsed_weights:
+        for _item, weight in ordered:
             exact_units = (Decimal(target_units) * weight) / weight_total
             floor_units = int(exact_units.to_integral_value(rounding="ROUND_FLOOR"))
             floors.append(floor_units)
             remainders.append(exact_units - floor_units)
 
     residual = target_units - sum(floors)
-    if residual < 0 or residual > len(parsed_weights):
+    if residual < 0 or residual > len(ordered):
         # Unreachable at 60 digits of working precision; a guard rather than a
         # silent miscount if that assumption is ever wrong.
         raise ValidationError(
@@ -123,40 +182,40 @@ def allocate_proportionally(
             params={"residual": residual},
         )
 
-    # Largest remainder first; ties fall back to line order so the result is
-    # reproducible.
-    order = sorted(
-        range(len(parsed_weights)),
-        key=lambda index: (-remainders[index], index),
+    # remainder DESC, then sequence ASC. The sequence is the tie-break, so two
+    # runs over the same economic input can never differ.
+    priority = sorted(
+        range(len(ordered)),
+        key=lambda index: (-remainders[index], ordered[index][0].sequence),
     )
-    for index in order[:residual]:
+    for index in priority[:residual]:
         floors[index] += 1
 
-    allocated = [quantize_money(sign * units * MONEY_QUANTUM) for units in floors]
+    results = [
+        AllocationResult(item.sequence, quantize_money(sign * units * MONEY_QUANTUM))
+        for (item, _weight), units in zip(ordered, floors, strict=True)
+    ]
 
     # The guarantee this module exists for. Checked, not assumed.
-    if sum(allocated, Decimal("0")) != amount:
+    if sum((result.amount for result in results), Decimal("0")) != amount:
         raise ValidationError(
             _("Allocation does not sum to the source amount."),
             code="allocation_does_not_balance",
         )
 
-    return allocated
+    return results
 
 
 def allocate_by_rate(
-    total: object,
-    weights: Sequence[object],
-    *,
-    rate: object,
-) -> list[Decimal]:
+    total: object, items: Sequence[AllocationItem], *, rate: object
+) -> list[AllocationResult]:
     """
     Allocate `total * rate` across lines — a commission or a discount.
 
-    The rate is applied to the total first and the product is allocated once,
+    The rate is applied to the total first and the product allocated once,
     rather than applying the rate line by line. Rating each line separately
-    would round every line independently, and those roundings do not add up to
+    rounds every line independently, and those roundings do not add back up to
     the rate applied to the total.
     """
     amount = ensure_money_decimal(total, field="total") * ensure_money_decimal(rate, field="rate")
-    return allocate_proportionally(amount, weights)
+    return allocate(amount, items)

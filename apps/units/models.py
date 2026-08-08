@@ -24,6 +24,7 @@ from decimal import Decimal
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
+from simple_history.models import HistoricalRecords
 
 from apps.core.models import TimeStampedModel
 from apps.core.quantity import FACTOR_PLACES
@@ -80,6 +81,10 @@ class UnitOfMeasure(TimeStampedModel):
     )
 
     is_active = models.BooleanField(_("active"), default=True)
+
+    #: A changed factor restates every quantity ever converted through it, so
+    #: the previous value has to remain provable.
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = _("unit of measure")

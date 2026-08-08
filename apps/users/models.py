@@ -15,6 +15,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
+from simple_history.models import HistoricalRecords
 
 from apps.users.managers import UserManager
 from apps.users.phone import CANONICAL_PATTERN, validate_iraqi_mobile
@@ -37,6 +38,12 @@ class User(AbstractUser):
         validators=[validate_iraqi_mobile],
         help_text=_("Iraqi mobile number, stored as +9647XXXXXXXXX."),
     )
+
+    #: Password and session data are excluded. A password hash copied into a
+    #: history table would outlive every rotation and defeat the point of
+    #: rotating it; last_login churns a history row on every sign-in for no
+    #: audit value.
+    history = HistoricalRecords(excluded_fields=["password", "last_login"])
 
     objects: UserManager = UserManager()  # type: ignore[misc]
 

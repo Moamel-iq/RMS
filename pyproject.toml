@@ -81,8 +81,8 @@ module = "*.migrations.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-# django-environ ships no py.typed marker.
-module = "environ.*"
+# Neither ships a py.typed marker.
+module = ["environ.*", "simple_history.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -95,6 +95,7 @@ module = [
     "apps.users.forms",
     "apps.organizations.admin",
     "apps.units.admin",
+    "apps.core.admin",
 ]
 disallow_any_generics = false
 

@@ -140,15 +140,59 @@ def quantize_rate(value: object, *, field: str = "rate") -> Decimal:
     return _quantize(ensure_money_decimal(value, field=field), _RATE_EXPONENT, field=field)
 
 
-def money_for_display(value: object, *, field: str = "amount") -> Decimal:
-    """
-    Reduce an amount to whole IQD for the screen or a printed document.
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
+#
+# Every renderer returns a STRING, never a Decimal. That is the enforcement,
+# not a convention: a rendered amount cannot be summed, compared numerically,
+# or written back to a column, so a report physically cannot derive a
+# discrepancy from display rounding.
+#
+# Reconciliation, audit, and ledger diagnostics must compare the stored
+# Decimal values via quantize_money — never these.
 
-    DISPLAY ONLY. The result must never be stored, summed, or fed back into a
-    calculation: a document whose lines were each display-rounded would no
-    longer sum to its own total.
+
+def _render(value: object, places: int, *, grouped: bool, field: str) -> str:
+    amount = _quantize(
+        ensure_money_decimal(value, field=field),
+        Decimal(1).scaleb(-places),
+        field=field,
+    )
+    return f"{amount:,.{places}f}" if grouped else f"{amount:.{places}f}"
+
+
+def money_display(value: object, *, field: str = "amount") -> str:
     """
-    return _quantize(ensure_money_decimal(value, field=field), _DISPLAY_EXPONENT, field=field)
+    Whole IQD with thousands separators, for normal operational screens and
+    printed documents. `1250.001` renders as `1,250`.
+
+    NEVER for reconciliation, audit, ledger diagnostics, or exports — those
+    must see the stored third decimal. Use `money_audit` or `money_export`.
+    """
+    return _render(value, MONEY_DISPLAY_PLACES, grouped=True, field=field)
+
+
+def money_audit(value: object, *, field: str = "amount") -> str:
+    """
+    Full stored precision with thousands separators, for ledger, audit, and
+    reconciliation screens. `1250.001` renders as `1,250.001`.
+
+    These views must expose the third decimal, or an operator reconciling by
+    eye will chase a difference that only exists in the rounding.
+    """
+    return _render(value, MONEY_PLACES, grouped=True, field=field)
+
+
+def money_export(value: object, *, field: str = "amount") -> str:
+    """
+    Full stored precision, ungrouped, for CSV and accounting exports.
+    `1250.001` renders as `1250.001`.
+
+    Ungrouped on purpose: a thousands separator inside a CSV field either
+    breaks the delimiter or is re-parsed as a different number.
+    """
+    return _render(value, MONEY_PLACES, grouped=False, field=field)
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 """
 Proportional allocation.
 
-The single invariant that matters: the parts sum exactly to the whole, for
-every input. Everything else is a detail of how the residual is placed.
+Two invariants: the parts sum exactly to the whole, and the same economic
+input always produces the same result regardless of the order it arrives in.
 """
 
 from __future__ import annotations
@@ -14,139 +14,201 @@ from django.core.exceptions import ValidationError
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
-from apps.core.allocation import allocate_by_rate, allocate_proportionally
+from apps.core.allocation import AllocationItem, AllocationResult, allocate, allocate_by_rate
 from apps.core.money import quantize_money
 
 
-class TestTheGuarantee:
+def items(*weights: str, start: int = 1) -> list[AllocationItem]:
+    """Build items with explicit, deterministic sequences."""
+    return [
+        AllocationItem(sequence=start + offset, weight=Decimal(weight))
+        for offset, weight in enumerate(weights)
+    ]
+
+
+def amounts(results: list[AllocationResult]) -> list[Decimal]:
+    return [result.amount for result in results]
+
+
+class TestTheSumGuarantee:
     def test_thirds_of_a_thousand_still_sum_to_a_thousand(self) -> None:
         """
         The case naive allocation gets wrong: 1000/3 three ways rounds to
         333.333 each, summing to 999.999. The missing 0.001 must land
         somewhere deliberate.
         """
-        parts = allocate_proportionally("1000", ["1", "1", "1"])
-        assert sum(parts) == Decimal("1000.000")
-        assert parts == [Decimal("333.334"), Decimal("333.333"), Decimal("333.333")]
+        results = allocate("1000", items("1", "1", "1"))
+        assert sum(amounts(results)) == Decimal("1000.000")
+        assert amounts(results) == [
+            Decimal("333.334"),
+            Decimal("333.333"),
+            Decimal("333.333"),
+        ]
 
     def test_sevenths_sum_exactly(self) -> None:
-        parts = allocate_proportionally("100", ["1"] * 7)
-        assert sum(parts) == Decimal("100.000")
+        assert sum(amounts(allocate("100", items(*["1"] * 7)))) == Decimal("100.000")
 
     def test_uneven_weights_sum_exactly(self) -> None:
-        parts = allocate_proportionally("1000", ["3", "5", "7", "11"])
-        assert sum(parts) == Decimal("1000.000")
+        results = allocate("1000", items("3", "5", "7", "11"))
+        assert sum(amounts(results)) == Decimal("1000.000")
 
     def test_allocation_is_proportional(self) -> None:
-        parts = allocate_proportionally("1000", ["1", "3"])
-        assert parts == [Decimal("250.000"), Decimal("750.000")]
+        assert amounts(allocate("1000", items("1", "3"))) == [
+            Decimal("250.000"),
+            Decimal("750.000"),
+        ]
 
 
-class TestDeterminism:
-    def test_the_same_input_always_gives_the_same_output(self) -> None:
-        first = allocate_proportionally("1000", ["1", "1", "1"])
-        second = allocate_proportionally("1000", ["1", "1", "1"])
-        assert first == second
+class TestSequenceIsTheTieBreak:
+    def test_results_come_back_ordered_by_sequence(self) -> None:
+        scrambled = [
+            AllocationItem(sequence=3, weight=Decimal("1")),
+            AllocationItem(sequence=1, weight=Decimal("1")),
+            AllocationItem(sequence=2, weight=Decimal("1")),
+        ]
+        results = allocate("1000", scrambled)
+        assert [result.sequence for result in results] == [1, 2, 3]
 
-    def test_ties_break_on_line_order(self) -> None:
+    def test_caller_order_does_not_change_the_outcome(self) -> None:
         """
-        Three equal weights, one spare quantum. It goes to the first line,
-        not an arbitrary one.
+        The whole point. The same economic input passed in any order must
+        allocate identically — a queryset's implicit ordering cannot be
+        allowed to move a dinar.
         """
-        parts = allocate_proportionally("1000", ["1", "1", "1"])
-        assert parts[0] > parts[1]
-        assert parts[1] == parts[2]
+        forward = [
+            AllocationItem(sequence=1, weight=Decimal("1")),
+            AllocationItem(sequence=2, weight=Decimal("1")),
+            AllocationItem(sequence=3, weight=Decimal("1")),
+        ]
+        reversed_order = list(reversed(forward))
+        assert allocate("1000", forward) == allocate("1000", reversed_order)
 
-    def test_reordering_lines_moves_the_residual_predictably(self) -> None:
-        parts = allocate_proportionally("100", ["1", "2", "2"])
-        reordered = allocate_proportionally("100", ["2", "2", "1"])
-        assert sum(parts) == sum(reordered) == Decimal("100.000")
+    def test_residual_goes_to_the_lowest_sequence_on_a_tie(self) -> None:
+        """Three equal weights, one spare quantum, tie on remainder."""
+        results = allocate("1000", items("1", "1", "1"))
+        by_sequence = {result.sequence: result.amount for result in results}
+        assert by_sequence[1] > by_sequence[2]
+        assert by_sequence[2] == by_sequence[3]
+
+    def test_sequence_not_position_decides_the_tie(self) -> None:
+        """Sequence 1 wins the residual even when passed last."""
+        scrambled = [
+            AllocationItem(sequence=9, weight=Decimal("1")),
+            AllocationItem(sequence=5, weight=Decimal("1")),
+            AllocationItem(sequence=1, weight=Decimal("1")),
+        ]
+        by_sequence = {r.sequence: r.amount for r in allocate("1000", scrambled)}
+        assert by_sequence[1] == Decimal("333.334")
+        assert by_sequence[5] == Decimal("333.333")
+        assert by_sequence[9] == Decimal("333.333")
+
+
+class TestSequenceValidation:
+    def test_duplicate_sequence_is_refused(self) -> None:
+        duplicated = [
+            AllocationItem(sequence=1, weight=Decimal("1")),
+            AllocationItem(sequence=1, weight=Decimal("1")),
+        ]
+        with pytest.raises(ValidationError) as exc:
+            allocate("100", duplicated)
+        assert exc.value.code == "duplicate_allocation_sequence"
+
+    def test_negative_sequence_is_refused(self) -> None:
+        with pytest.raises(ValidationError) as exc:
+            allocate("100", [AllocationItem(sequence=-1, weight=Decimal("1"))])
+        assert exc.value.code == "invalid_allocation_sequence"
+
+    @pytest.mark.parametrize("bad", [None, "1", 1.0, True])
+    def test_non_integer_sequence_is_refused(self, bad: object) -> None:
+        with pytest.raises(ValidationError) as exc:
+            allocate("100", [AllocationItem(sequence=bad, weight=Decimal("1"))])  # type: ignore[arg-type]
+        assert exc.value.code == "invalid_allocation_sequence"
+
+    def test_zero_is_a_valid_sequence(self) -> None:
+        """Zero-based line numbering is legitimate; only negatives are not."""
+        results = allocate("100", [AllocationItem(sequence=0, weight=Decimal("1"))])
+        assert amounts(results) == [Decimal("100.000")]
 
 
 class TestSignHandling:
     def test_a_credit_note_allocates_the_mirror_of_its_invoice(self) -> None:
         """A reversal must undo the original exactly, line for line."""
-        invoice = allocate_proportionally("1000", ["1", "1", "1"])
-        credit = allocate_proportionally("-1000", ["1", "1", "1"])
-        assert credit == [-part for part in invoice]
-        assert sum(invoice) + sum(credit) == Decimal("0.000")
+        invoice = allocate("1000", items("1", "1", "1"))
+        credit = allocate("-1000", items("1", "1", "1"))
+        assert amounts(credit) == [-amount for amount in amounts(invoice)]
+        assert sum(amounts(invoice)) + sum(amounts(credit)) == Decimal("0.000")
 
     def test_negative_totals_sum_exactly(self) -> None:
-        parts = allocate_proportionally("-1000", ["3", "5", "7"])
-        assert sum(parts) == Decimal("-1000.000")
+        assert sum(amounts(allocate("-1000", items("3", "5", "7")))) == Decimal("-1000.000")
 
 
 class TestEdgeCases:
     def test_zero_total_allocates_zero_everywhere(self) -> None:
-        parts = allocate_proportionally("0", ["1", "2", "3"])
-        assert parts == [Decimal("0.000")] * 3
+        assert amounts(allocate("0", items("1", "2", "3"))) == [Decimal("0.000")] * 3
 
     def test_single_line_receives_everything(self) -> None:
-        assert allocate_proportionally("1234.567", ["1"]) == [Decimal("1234.567")]
+        assert amounts(allocate("1234.567", items("1"))) == [Decimal("1234.567")]
 
     def test_a_zero_weight_line_normally_receives_nothing(self) -> None:
-        parts = allocate_proportionally("1000", ["1", "0", "1"])
-        assert parts[1] == Decimal("0.000")
-        assert sum(parts) == Decimal("1000.000")
+        results = allocate("1000", items("1", "0", "1"))
+        by_sequence = {r.sequence: r.amount for r in results}
+        assert by_sequence[2] == Decimal("0.000")
+        assert sum(amounts(results)) == Decimal("1000.000")
 
     def test_amount_smaller_than_the_line_count(self) -> None:
-        """0.002 IQD across five lines. Two lines get a quantum, three get none."""
-        parts = allocate_proportionally("0.002", ["1"] * 5)
-        assert sum(parts) == Decimal("0.002")
-        assert sorted(parts, reverse=True)[:2] == [Decimal("0.001"), Decimal("0.001")]
+        """0.002 IQD across five lines: two get a quantum, three get none."""
+        results = allocate("0.002", items(*["1"] * 5))
+        assert sum(amounts(results)) == Decimal("0.002")
+        assert sorted(amounts(results), reverse=True)[:2] == [
+            Decimal("0.001"),
+            Decimal("0.001"),
+        ]
 
     def test_no_lines_is_refused(self) -> None:
         with pytest.raises(ValidationError) as exc:
-            allocate_proportionally("100", [])
+            allocate("100", [])
         assert exc.value.code == "no_lines_to_allocate"
 
     def test_all_zero_weights_is_refused(self) -> None:
         """There is no proportional answer; failing beats inventing one."""
         with pytest.raises(ValidationError) as exc:
-            allocate_proportionally("100", ["0", "0"])
+            allocate("100", items("0", "0"))
         assert exc.value.code == "zero_allocation_weights"
 
     def test_negative_weight_is_refused(self) -> None:
         with pytest.raises(ValidationError) as exc:
-            allocate_proportionally("100", ["1", "-1"])
+            allocate("100", items("1", "-1"))
         assert exc.value.code == "negative_allocation_weight"
 
     def test_float_weights_are_refused(self) -> None:
         with pytest.raises(ValidationError):
-            allocate_proportionally("100", [1.5, 2.5])
+            allocate("100", [AllocationItem(sequence=1, weight=1.5)])  # type: ignore[arg-type]
 
 
 class TestRealCases:
     def test_delivery_application_commission(self) -> None:
         """
-        A 17.5% commission on a 47,350 IQD order spread over three items.
-        The parts must reconcile to the commission the application charges.
+        17.5% commission on a 47,350 IQD order across three items. The parts
+        must reconcile to the commission the application actually charges.
         """
         commission = quantize_money(Decimal("47350") * Decimal("0.175"))
-        parts = allocate_by_rate("47350", ["21000", "17350", "9000"], rate="0.175")
-        assert sum(parts) == commission
+        results = allocate_by_rate("47350", items("21000", "17350", "9000"), rate="0.175")
+        assert sum(amounts(results)) == commission
         assert commission == Decimal("8286.250")
 
     def test_document_discount_spread_over_lines(self) -> None:
-        lines = ["12500", "7250", "3300"]
-        parts = allocate_proportionally("2000", lines)
-        assert sum(parts) == Decimal("2000.000")
+        results = allocate("2000", items("12500", "7250", "3300"))
+        assert sum(amounts(results)) == Decimal("2000.000")
 
     def test_landed_freight_spread_by_weight(self) -> None:
         """Freight of 75,000 IQD split across receipt lines by kilogram."""
-        parts = allocate_proportionally("75000", ["30", "12.5", "7.5"])
-        assert sum(parts) == Decimal("75000.000")
+        results = allocate("75000", items("30", "12.5", "7.5"))
+        assert sum(amounts(results)) == Decimal("75000.000")
 
     def test_rate_is_applied_to_the_total_not_line_by_line(self) -> None:
-        """
-        Rating each line separately then rounding gives a different answer
-        from rating the total. The total is authoritative.
-        """
         lines = ["333.333", "333.333", "333.334"]
-        via_total = allocate_by_rate("1000", lines, rate="0.175")
-        line_by_line = sum(quantize_money(Decimal(line) * Decimal("0.175")) for line in lines)
-        assert sum(via_total) == quantize_money(Decimal("1000") * Decimal("0.175"))
-        assert sum(via_total) >= line_by_line - Decimal("0.002")
+        results = allocate_by_rate("1000", items(*lines), rate="0.175")
+        assert sum(amounts(results)) == quantize_money(Decimal("1000") * Decimal("0.175"))
 
 
 class TestAllocationProperties:
@@ -175,13 +237,15 @@ class TestAllocationProperties:
         # assume(), not pytest.skip(): skip inside @given abandons the whole
         # property, so the invariant would silently never be exercised.
         assume(sum(weights) != 0)
-        parts = allocate_proportionally(total, weights)
-        assert sum(parts) == quantize_money(total)
+        built = [
+            AllocationItem(sequence=index, weight=weight) for index, weight in enumerate(weights)
+        ]
+        assert sum(amounts(allocate(total, built))) == quantize_money(total)
 
     @given(
         total=st.decimals(
-            min_value=Decimal("0"),
-            max_value=Decimal("1000000"),
+            min_value=Decimal("-100000"),
+            max_value=Decimal("100000"),
             allow_nan=False,
             allow_infinity=False,
             places=3,
@@ -198,12 +262,14 @@ class TestAllocationProperties:
             max_size=10,
         ),
     )
-    def test_no_part_exceeds_the_whole_and_none_is_negative(
+    def test_shuffling_the_input_never_changes_the_result(
         self, total: Decimal, weights: list[Decimal]
     ) -> None:
-        parts = allocate_proportionally(total, weights)
-        assert all(part >= 0 for part in parts)
-        assert all(part <= quantize_money(total) for part in parts)
+        """Determinism, asserted over generated inputs rather than one example."""
+        built = [
+            AllocationItem(sequence=index, weight=weight) for index, weight in enumerate(weights)
+        ]
+        assert allocate(total, built) == allocate(total, list(reversed(built)))
 
     @given(
         total=st.decimals(
@@ -229,11 +295,14 @@ class TestAllocationProperties:
         self, total: Decimal, weights: list[Decimal]
     ) -> None:
         """Largest remainder never moves a line by more than 0.001."""
-        parts = allocate_proportionally(total, weights)
+        built = [
+            AllocationItem(sequence=index, weight=weight) for index, weight in enumerate(weights)
+        ]
+        results = allocate(total, built)
         weight_total = sum(weights)
-        for part, weight in zip(parts, weights, strict=True):
+        for result, weight in zip(results, weights, strict=True):
             exact = quantize_money(total) * weight / weight_total
-            assert abs(part - exact) <= Decimal("0.001")
+            assert abs(result.amount - exact) <= Decimal("0.001")
 
     @given(
         total=st.decimals(
@@ -257,6 +326,9 @@ class TestAllocationProperties:
     )
     def test_reversal_is_the_exact_mirror(self, total: Decimal, weights: list[Decimal]) -> None:
         """Posted records are corrected by reversal, so this must hold."""
-        forward = allocate_proportionally(total, weights)
-        backward = allocate_proportionally(-total, weights)
-        assert [-part for part in forward] == backward
+        built = [
+            AllocationItem(sequence=index, weight=weight) for index, weight in enumerate(weights)
+        ]
+        forward = allocate(total, built)
+        backward = allocate(-total, built)
+        assert [-result.amount for result in forward] == amounts(backward)

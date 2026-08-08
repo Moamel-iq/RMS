@@ -102,6 +102,10 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # Records the acting user on django-simple-history rows.
     "simple_history.middleware.HistoryRequestMiddleware",
+    # Binds actor and correlation id for the audit trail. Must follow
+    # AuthenticationMiddleware, or request.user is not resolved yet and every
+    # event would record no actor.
+    "apps.core.middleware.AuditContextMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

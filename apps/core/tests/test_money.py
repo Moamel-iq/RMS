@@ -21,7 +21,9 @@ from apps.core.money import (
     RATE_PLACES,
     UNIT_PRICE_PLACES,
     apply_cash_settlement_rounding,
-    money_for_display,
+    money_audit,
+    money_display,
+    money_export,
     quantize_money,
     quantize_rate,
     quantize_unit_price,
@@ -100,23 +102,77 @@ class TestHigherInternalPrecision:
         assert quantize_money(price) == Decimal("12.346")
 
 
-class TestDisplay:
+class TestRendering:
+    """
+    Renderers return strings, not Decimals. That is the enforcement: a
+    rendered amount cannot be summed, compared numerically, or written back to
+    a column, so a report physically cannot derive a discrepancy from display
+    rounding.
+    """
+
     @pytest.mark.parametrize(
         ("raw", "expected"),
-        [("1250.000", "1250"), ("1250.400", "1250"), ("1250.500", "1251"), ("-1250.500", "-1251")],
+        [
+            ("1250.000", "1,250"),
+            ("1250.001", "1,250"),
+            ("1250.400", "1,250"),
+            ("1250.500", "1,251"),
+            ("-1250.500", "-1,251"),
+            ("1234567.890", "1,234,568"),
+        ],
     )
-    def test_display_shows_whole_dinars(self, raw: str, expected: str) -> None:
-        assert money_for_display(raw) == Decimal(expected)
+    def test_normal_ui_shows_whole_dinars(self, raw: str, expected: str) -> None:
+        assert money_display(raw) == expected
 
-    def test_display_rounding_is_not_the_stored_value(self) -> None:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [("1250.001", "1,250.001"), ("1250.000", "1,250.000"), ("-980.250", "-980.250")],
+    )
+    def test_audit_views_expose_the_stored_third_decimal(self, raw: str, expected: str) -> None:
         """
-        Display rounding must never be stored or summed. A document whose
-        lines were each display-rounded would stop summing to its own total.
+        The worked example from the decision: stored 1250.001 shows as 1,250
+        on a normal screen and 1,250.001 on a reconciliation screen.
+        """
+        assert money_audit(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [("1250.001", "1250.001"), ("1234567.890", "1234567.890")],
+    )
+    def test_exports_keep_full_precision_and_drop_grouping(self, raw: str, expected: str) -> None:
+        """A thousands separator inside a CSV field breaks the delimiter."""
+        assert money_export(raw) == expected
+
+    def test_renderers_return_strings_not_decimals(self) -> None:
+        """The structural guard: rendered money cannot enter arithmetic."""
+        for rendered in (
+            money_display("1250.001"),
+            money_audit("1250.001"),
+            money_export("1250.001"),
+        ):
+            assert isinstance(rendered, str)
+
+    def test_rendered_values_cannot_be_summed_as_money(self) -> None:
+        """
+        Summing rendered strings concatenates rather than adding, so the
+        mistake is loud instead of producing a plausible wrong total.
         """
         lines = [Decimal("333.333"), Decimal("333.333"), Decimal("333.334")]
         assert sum(lines) == Decimal("1000.000")
-        displayed = [money_for_display(line) for line in lines]
-        assert sum(displayed) == Decimal("999")  # deliberately not 1000
+        with pytest.raises(TypeError):
+            sum(money_display(line) for line in lines)  # type: ignore[misc]
+
+    def test_reconciliation_must_compare_stored_values(self) -> None:
+        """
+        Three lines that reconcile exactly on stored values would appear to be
+        1 IQD short if compared after display rounding.
+        """
+        lines = [Decimal("333.333"), Decimal("333.333"), Decimal("333.334")]
+        total = Decimal("1000.000")
+        assert sum(lines) == total  # correct: stored Decimals
+        displayed_sum = sum(Decimal(money_display(line).replace(",", "")) for line in lines)
+        assert displayed_sum != total  # what a display-based check would claim
+        assert displayed_sum == Decimal("999")
 
 
 class TestCashRoundingIsOff:

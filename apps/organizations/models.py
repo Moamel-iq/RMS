@@ -17,6 +17,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
+from simple_history.models import HistoricalRecords
 
 from apps.core.models import TimeStampedModel
 
@@ -46,6 +47,11 @@ class Organization(TimeStampedModel):
     name_ar = models.CharField(_("name (Arabic)"), max_length=200)
     name_en = models.CharField(_("name (English)"), max_length=200)
     is_active = models.BooleanField(_("active"), default=True)
+
+    #: Mutable master data, so row history is kept. Posted ledger entries are
+    #: NOT historied — they are immutable by construction and corrected by
+    #: reversal, so a history table for them would only record tampering.
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = _("organization")
@@ -96,6 +102,10 @@ class Branch(TimeStampedModel):
     )
 
     is_active = models.BooleanField(_("active"), default=True)
+
+    #: Changing a branch's cutoff or timezone silently restates business dates,
+    #: so the previous values must remain visible.
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = _("branch")
@@ -159,6 +169,10 @@ class BranchMembership(TimeStampedModel):
     )
     role = models.CharField(_("role"), max_length=20, choices=Role.choices)
     is_active = models.BooleanField(_("active"), default=True)
+
+    #: Who held which post, and when. The separation-of-duties question an
+    #: auditor asks months later.
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = _("branch membership")
