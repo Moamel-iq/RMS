@@ -57,8 +57,17 @@ Docker/Celery), the installation plan wins. See ADR-010.
   quantity helpers — see ADR-012.
 - A document total is the SUM of its posted lines. Never round a total
   independently of its lines.
+- Render money with `money_display` (normal UI, 0 dp), `money_audit`
+  (ledger/reconciliation, 3 dp), or `money_export` (CSV, 3 dp, ungrouped).
+  All return `str`. Never reconcile or compare rendered values — compare the
+  stored Decimals.
 - Split an amount across lines with `apps/core/allocation.py`, never by
-  rating each line and rounding. Pass lines in a stable order.
+  rating each line and rounding. Every line needs an explicit unique
+  `AllocationItem.sequence`; residual priority is remainder DESC then
+  sequence ASC. Never depend on queryset order.
+- Audit anything consequential with `apps/core/services.record_audit_event`.
+  Actor and correlation id come from the ambient context, not arguments.
+  `AuditEvent` is append-only, enforced by a database trigger.
 - Nearest-250 rounding is OFF and applies to no accounting value. Cash
   settlement rounding, if ever enabled, touches only the cash payable and
   posts its difference to a cash rounding gain/loss account.

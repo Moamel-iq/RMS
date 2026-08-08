@@ -66,7 +66,21 @@ every task's definition of done.
 | MON-008 | A rate is applied to the total, not line by line | core | `allocation.allocate_by_rate` | `::test_rate_is_applied_to_the_total_not_line_by_line` | Done | |
 | MON-009 | Credit notes mirror their invoice line for line | core | sign handling in `allocation` | `::test_reversal_is_the_exact_mirror` | Done | Hypothesis property |
 | MON-010 | Nearest-250 rounding is off | core | `CASH_ROUNDING_ENABLED` | `::TestCashRoundingIsOff` | Done | Tripwire test |
-| MON-011 | Cash rounding residual posts to an explicit account | core | `apply_cash_settlement_rounding` returns `(rounded, adjustment)` | `::test_the_adjustment_always_reconciles` | Partial | Account does not exist until the chart of accounts is decided |
+| MON-011 | Cash rounding residual posts to an explicit account | core | `apply_cash_settlement_rounding` returns `(rounded, adjustment)` | `::test_the_adjustment_always_reconciles` | Partial | Account seeded in Task 0.6 (ADR-014) |
+| MON-012 | Rendered money cannot enter arithmetic | core | `money_display` / `money_audit` / `money_export` return `str` | `::TestRendering` | Done | Structural, not conventional |
+| MON-013 | Audit and export views expose the stored third decimal | core | `money_audit`, `money_export` | `::test_audit_views_expose_the_stored_third_decimal` | Done | |
+| MON-014 | Reconciliation compares stored values, never displayed | core | renderers return `str` | `::test_reconciliation_must_compare_stored_values` | Done | |
+| MON-015 | Allocation requires an explicit unique sequence | core | `AllocationItem.sequence`, `_validate_sequences` | `::TestSequenceValidation` | Done | Missing, duplicate, negative, non-integer all refused |
+| MON-016 | Caller order never changes an allocation | core | sort by sequence before allocating | `::test_caller_order_does_not_change_the_outcome`, `::test_shuffling_the_input_never_changes_the_result` | Done | Hypothesis property |
+| AUD-001 | Every audited action records actor, reason, and correlation | core | `record_audit_event` | `apps/core/tests/test_audit.py::TestRecording` | Done | Actor from context, not arguments |
+| AUD-002 | The audit trail is append-only | core | PostgreSQL trigger, migration `core.0002` | `::TestImmutability` | Done | ORM, bulk update, and raw SQL all refused |
+| AUD-003 | Events from one unit of work share a correlation id | core | `apps/core/context.py`, middleware | `::TestCorrelation` | Done | Echoed as `X-Correlation-ID` |
+| AUD-004 | Audit snapshots preserve Decimal exactness | core | `services._json_safe` | `::test_decimals_are_stored_as_strings_not_floats` | Done | Decimals stored as strings, never floats |
+| AUD-005 | Secrets are never captured in a snapshot | core | `NEVER_SNAPSHOT` | `::test_sensitive_fields_are_never_captured` | Done | |
+| AUD-006 | Actor identity survives a later rename | core | `actor_label` denormalised | `::test_the_actor_name_is_kept_as_text` | Done | |
+| AUD-007 | A user with audit events cannot be deleted | core | `on_delete=PROTECT` | `::test_an_actor_with_events_cannot_be_deleted` | Done | |
+| AUD-008 | Mutable master data keeps row history | organizations, units, users | `HistoricalRecords` | `::TestRowHistory` | Done | Password excluded from user history |
+| AUD-009 | Audit context never leaks between requests | core | middleware resets in `finally` | `::test_context_does_not_leak_between_requests` | Done | Reset even when the view raises |
 
 ## Not yet mapped
 

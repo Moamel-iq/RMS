@@ -11,6 +11,9 @@ consequences, date, and related requirements.
 | [ADR-002](ADR-002-postgresql-18.md) | PostgreSQL 18 as the only database |
 | [ADR-006](ADR-006-decimal-and-rounding-policy.md) | Decimal and rounding policy — quantities |
 | [ADR-012](ADR-012-monetary-precision-and-allocation.md) | Monetary precision, allocation, and cash rounding (IQD) |
+| [ADR-013](ADR-013-fiscal-year-and-accounting-periods.md) | Fiscal year and accounting periods — *implemented by Task 0.6* |
+| [ADR-014](ADR-014-chart-of-accounts.md) | Chart of accounts — *implemented by Task 0.6* |
+| [ADR-015](ADR-015-cost-centers-and-branch-dimension.md) | Cost centers and the branch dimension — *implemented by Task 0.6* |
 | [ADR-007](ADR-007-organization-and-branch-boundaries.md) | Organization and branch boundaries |
 | [ADR-008](ADR-008-business-date-and-timezone.md) | Business date and timezone (schema only — cutoff value open) |
 | [ADR-010](ADR-010-windows-native-development-environment.md) | Windows-native development environment and pip-tools |
@@ -34,14 +37,13 @@ Phase 0 tasks.
 Sourced from `docs/plans/phase-0-claude-code-prompts.md`. None of these have
 documented answers yet:
 
-1. **Fiscal year start month**, and period granularity (monthly or custom).
-   **Blocks Task 0.6.**
-2. **Chart of accounts** — the Iraqi unified accounting system, or a custom
-   restaurant chart? Account code format? **Blocks Task 0.6.** Must include a
-   **cash rounding gain/loss account** before cash settlement rounding is ever
-   enabled (ADR-012).
-3. Whether **cost centers** are required on every journal line or optional.
-   **Blocks Task 0.6.**
+1. **Cost center scope** — organization-wide or branch-scoped? The charter
+   places cost centers beneath Branch, but Delivery and Administration
+   plausibly span branches. **Blocks Task 0.6** (ADR-015 §Open).
+2. **The full chart of accounts** beyond the seed, and whether account codes
+   are unique per organization or globally (ADR-014 §Open).
+3. **Who may reopen a closed period**, and whether a second approver is
+   required (ADR-013 §Open).
 4. **Business day cutoff** — the actual start time for Al-Bunook; whether all
    branches share one cutoff; whether attendance and payroll use the same
    business date as sales. The *schema* is settled (ADR-008); only the values
@@ -59,3 +61,9 @@ documented answers yet:
 - **Conversion factor precision** — 12 places, confirmed; not to be reduced.
 - **Monetary precision, allocation, and cash rounding** — ADR-012.
   Nearest-250 rounding is OFF and must stay off for all accounting values.
+- **Fiscal year and period granularity** — ADR-013. January start, monthly,
+  no period 13.
+- **Chart of accounts structure and code format** — ADR-014. Custom
+  restaurant chart with optional statutory mapping.
+- **Cost center policy** — ADR-015. Branch required on every line, cost
+  center driven by `Account.requires_cost_center`.

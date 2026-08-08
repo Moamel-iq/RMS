@@ -9,13 +9,16 @@ Architecture decisions live in [docs/decisions/](docs/decisions/README.md).
 
 ## Status
 
-Phase 0 (Foundations), Task 0.4 complete — custom `User` model,
+Phase 0 (Foundations), Task 0.5 complete — custom `User` model,
 phone/username authentication, the Arabic RTL sign-in screen, the
 organization/branch hierarchy with branch-scoped access, the application
-shell, and units of measure with the quantity precision policy (ADR-006).
+shell, units of measure, the quantity and monetary precision policies, and
+the audit foundation.
 
-Next: Task 0.5, the audit foundation. Task 0.6 (accounting kernel) is
-**blocked** on the monetary precision decision — see
+Next: Task 0.6, the accounting kernel. Its contract is fixed by ADR-012,
+ADR-013, ADR-014, and ADR-015, and its required invariants are listed in
+[docs/specs/accounting-kernel-invariants.md](docs/specs/accounting-kernel-invariants.md).
+Three questions still block it — see
 [docs/decisions/README.md](docs/decisions/README.md).
 
 ## Setup from a fresh clone
