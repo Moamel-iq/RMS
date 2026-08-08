@@ -68,6 +68,27 @@ Docker/Celery), the installation plan wins. See ADR-010.
 - Audit anything consequential with `apps/core/services.record_audit_event`.
   Actor and correlation id come from the ambient context, not arguments.
   `AuditEvent` is append-only, enforced by a database trigger.
+- `previous_state` must be the authoritative persisted state immediately
+  BEFORE the mutation, and `new_state` the persisted state immediately after.
+  Never snapshot a ModelForm-bound instance: the form mutates it during
+  validation, so "before" would already hold the new values. Re-read from the
+  database. Wrap sensitive writes in `transaction.atomic()` and use
+  `select_for_update()` wherever concurrency could corrupt the history or the
+  accounting result.
+- Human-facing formatted values may use locale-aware formatting. **Technical
+  identities and re-enterable exact values must be locale-independent** —
+  conversion factors, account codes, identifiers, API decimals, and technical
+  rates. Django localises Decimals, so under Arabic a factor would render
+  `0,028349523125`; a comma there is ambiguous and invites a mis-typed
+  re-entry.
+
+## Editing existing files
+
+Never replace a non-trivial source file wholesale unless full replacement is
+explicitly intended. Inspect the file first, prefer targeted edits, then read
+`git diff` and run the focused tests. Be especially conservative with
+`services.py`, `models.py`, posting services, ledger logic, costing logic, and
+permissions.
 - Nearest-250 rounding is OFF and applies to no accounting value. Cash
   settlement rounding, if ever enabled, touches only the cash payable and
   posts its difference to a cash rounding gain/loss account.

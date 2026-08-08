@@ -4,20 +4,35 @@ The approved checklist Task 0.6 must satisfy. Each line is a test, not a
 guideline. Nothing in this list is optional and none of it may be relaxed to
 make a suite pass.
 
-| # | Invariant | Enforced where | ADR |
+**Status: all twelve enforced and tested as of Task 0.6.**
+
+| # | Invariant | Enforced where | Test |
 |---|---|---|---|
-| 1 | Journal entry debits equal credits, compared on **stored 3-decimal values** | Posting service **and** database constraint | ADR-012 |
-| 2 | No float anywhere in an accounting calculation | `apps/core/money.py` guards | ADR-012 |
-| 3 | No posting to a non-leaf account | Posting service + DB | ADR-014 |
-| 4 | No posting to a `CLOSED` period | Posting service | ADR-013 |
-| 5 | Every journal line belongs to exactly one branch | Non-null FK | ADR-015 |
-| 6 | Cost centers required per the account's `requires_cost_center` policy | Posting service | ADR-015 |
-| 7 | All allocation is deterministic | `apps/core/allocation.py` | ADR-012 |
-| 8 | Document total equals the sum of its stored posted lines | Posting service | ADR-012 |
-| 9 | UI rounding never affects ledger values | Renderers return `str` | ADR-012 |
-| 10 | Accounts, cost centers, and branches used by posted journals cannot be destructively deleted | `on_delete=PROTECT` | ADR-014, ADR-015 |
-| 11 | Posted journals are immutable; corrections are reversals | DB trigger + service | ADR-004 |
-| 12 | Posting, reversal, and period reopening are audit logged | `apps.core` audit foundation | Task 0.5 |
+| 1 | Journal entry debits equal credits, on **stored 3-decimal values** | `validate_balanced` + deferred constraint trigger `accounting_journalline_balance` | `TestBalance` |
+| 2 | No float anywhere in an accounting calculation | `apps/core/money.py::ensure_decimal` | `test_no_float_may_reach_an_amount` |
+| 3 | No posting to a non-leaf account | `validate_accounts_are_postable` + trigger `accounting_journalline_account_postable` | `TestPostableAccounts` |
+| 4 | No posting to a `CLOSED` period | `validate_period_accepts_postings` | `TestPeriods` |
+| 5 | Every journal line belongs to exactly one branch | Non-null FK on `JournalLine.branch` | `TestOrganizationIsolation` |
+| 6 | Cost centers required per `Account.requires_cost_center` | `validate_cost_centers` | `TestCostCenterPolicy` |
+| 7 | All allocation is deterministic | `apps/core/allocation.py` | `test_allocation.py` |
+| 8 | Document total equals the sum of its stored posted lines | `entry_total`, trial balance | `TestTrialBalance` |
+| 9 | UI rounding never affects ledger values | Renderers return `str` | `TestRendering` |
+| 10 | Accounts, cost centers, branches used by posted journals cannot be deleted | `on_delete=PROTECT` | `TestArchivingNotDeleting` |
+| 11 | Posted journals are immutable; corrections are reversals | Triggers `accounting_journalentry_no_change`, `accounting_journalline_no_change` | `TestImmutability`, `TestReversal` |
+| 12 | Posting, reversal, and period reopening are audit logged | `record_audit_event` in every service | `test_reopening_is_audited_with_its_reason`, `test_reversal_is_audited` |
+
+### Enforcement beyond the list
+
+- **Idempotency** — a unique `idempotency_key`; a retried command returns the
+  entry already posted rather than posting a second one.
+- **Atomicity** — the entry, its lines, and its audit event commit together or
+  not at all. A half-posted entry is worse than a failed one because it looks
+  complete.
+- **Gapless numbering** — `JournalNumberSequence` under `select_for_update`,
+  scoped per organization and year. `MAX(number)+1` would let two concurrent
+  postings claim the same number.
+- **Organization consistency** — journal, branch, account, and cost centre must
+  all belong to one organization.
 
 ## Already delivered by Task 0.5
 
