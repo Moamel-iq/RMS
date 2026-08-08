@@ -181,6 +181,11 @@ class AccountingPeriod(TimeStampedModel):
         verbose_name = _("accounting period")
         verbose_name_plural = _("accounting periods")
         ordering = ["fiscal_year__year", "period_number"]
+        permissions = [
+            ("soft_close_period", _("Can soft-close an accounting period")),
+            ("close_period", _("Can close an accounting period")),
+            ("reopen_period", _("Can reopen a closed accounting period")),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["fiscal_year", "period_number"],
@@ -237,6 +242,9 @@ class CostCenter(TimeStampedModel):
         verbose_name = _("cost center")
         verbose_name_plural = _("cost centers")
         ordering = ["organization__code", "code"]
+        permissions = [
+            ("manage_cost_centers", _("Can create and archive cost centers")),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["organization", "code"],
@@ -313,6 +321,9 @@ class Account(TimeStampedModel):
         verbose_name = _("account")
         verbose_name_plural = _("accounts")
         ordering = ["organization__code", "code"]
+        permissions = [
+            ("manage_accounts", _("Can create and archive accounts")),
+        ]
         constraints = [
             # Per organization, not global: two organizations may each run a
             # 1-01-01-001 and neither constrains the other's naming.
@@ -356,6 +367,32 @@ class Account(TimeStampedModel):
 
 class JournalEntryStatus(models.TextChoices):
     DRAFT = "DRAFT", _("مسودة")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class SourceEvent(models.TextChoices):
+    """
+    The upstream economic event that caused a journal to exist.
+
+    Deliberately a closed set, enforced by a check constraint as well as by
+    these choices. The source identity is what stops a retried purchase
+    invoice posting twice, and a free-text field would let a single typo —
+    `POSTEED` — slip past a uniqueness guarantee whose entire job is to catch
+    that retry.
+
+    Not the same thing as `JournalEntry.status`. Status is the lifecycle of
+    the journal itself; a source event is a fact about the document upstream
+    and never changes once recorded. `PURCHASE_INVOICE / 145 / POSTED` names
+    the original posting for invoice 145 forever, whatever later happens to
+    the journal that carries it.
+
+    Extend intentionally, with code and tests, when a module genuinely needs
+    another distinct accounting event for the same source object. VOIDED,
+    ADJUSTED, PAID, and SETTLED are deliberately absent until something
+    actually requires them.
+    """
+
     POSTED = "POSTED", _("مرحّل")
     REVERSED = "REVERSED", _("معكوس")
 
@@ -428,8 +465,25 @@ class JournalEntry(TimeStampedModel):
         help_text=_("Posted on the fiscal year-end date instead of a thirteenth period."),
     )
 
+    # --- Source identity -------------------------------------------------
+    # Together with `organization` these three name the upstream economic
+    # event this journal records: KM / PURCHASE_INVOICE / 145 / POSTED. All
+    # three or none of them — a half-populated identity is not an identity,
+    # and the uniqueness guarantee below would not cover it.
+    #
+    # `source_document_type` and `source_document_id` are the source type and
+    # source id. They keep their original names because `AuditEvent` already
+    # uses them and one vocabulary across the two is worth more than a
+    # shorter one here.
     source_document_type = models.CharField(_("source document type"), max_length=100, blank=True)
     source_document_id = models.CharField(_("source document id"), max_length=64, blank=True)
+    source_event = models.CharField(
+        _("source event"),
+        max_length=16,
+        blank=True,
+        choices=SourceEvent.choices,
+        help_text=_("Blank for a manual journal, which has no upstream document."),
+    )
 
     #: A retried posting command must not create a second entry.
     idempotency_key = models.CharField(_("idempotency key"), max_length=128, unique=True)
@@ -460,15 +514,73 @@ class JournalEntry(TimeStampedModel):
         verbose_name = _("journal entry")
         verbose_name_plural = _("journal entries")
         ordering = ["-accounting_date", "-id"]
+        permissions = [
+            ("view_journal", _("Can read journal entries and lines")),
+            ("create_draft", _("Can create a draft journal entry")),
+            ("edit_draft", _("Can amend a draft journal entry")),
+            ("post_journal", _("Can post a journal entry to the ledger")),
+            ("reverse_journal", _("Can reverse a posted journal entry")),
+            (
+                "post_soft_closed_adjustment",
+                _("Can post an adjustment into a soft-closed period"),
+            ),
+            (
+                "reverse_in_soft_closed_period",
+                _("Can reverse into a soft-closed period"),
+            ),
+        ]
         constraints = [
+            # Partial: a draft holds no entry number, because an abandoned
+            # draft must not burn one. Journal numbering is gapless, and a gap
+            # is indistinguishable from a deleted entry to anyone auditing it.
             models.UniqueConstraint(
                 fields=["organization", "entry_number"],
+                condition=~Q(entry_number=""),
                 name="journal_entry_number_unique_per_organization",
+            ),
+            # ...and the number is taken the moment it leaves draft.
+            models.CheckConstraint(
+                condition=Q(status=JournalEntryStatus.DRAFT) | ~Q(entry_number=""),
+                name="journal_entry_numbered_once_posted",
             ),
             # A posted entry must record when and by whom.
             models.CheckConstraint(
                 condition=~Q(status=JournalEntryStatus.POSTED) | Q(posted_at__isnull=False),
                 name="journal_entry_posted_has_timestamp",
+            ),
+            # The closed enum, at the database. A value the application does
+            # not know is not merely unexpected — it is a source identity that
+            # the uniqueness index below silently fails to constrain.
+            models.CheckConstraint(
+                condition=Q(source_event__in=["", *SourceEvent.values]),
+                name="journal_entry_source_event_is_known",
+            ),
+            # All three or none. A partially populated identity would fall
+            # outside the unique index and defeat the whole guarantee.
+            models.CheckConstraint(
+                condition=(
+                    Q(source_document_type="", source_document_id="", source_event="")
+                    | (
+                        ~Q(source_document_type="")
+                        & ~Q(source_document_id="")
+                        & ~Q(source_event="")
+                    )
+                ),
+                name="journal_entry_source_identity_complete_or_absent",
+            ),
+            # The durable protection against double posting: one economic
+            # event, one journal, per organization. Partial so that manual
+            # journals — which carry no source identity at all — do not
+            # collide with each other on three empty strings.
+            models.UniqueConstraint(
+                fields=[
+                    "organization",
+                    "source_document_type",
+                    "source_document_id",
+                    "source_event",
+                ],
+                condition=~Q(source_event=""),
+                name="journal_entry_source_event_unique_per_organization",
             ),
         ]
         indexes = [

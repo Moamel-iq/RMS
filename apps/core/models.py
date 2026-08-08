@@ -40,6 +40,11 @@ class AuditAction(models.TextChoices):
 
     CREATED = "CREATED", _("إنشاء")
     UPDATED = "UPDATED", _("تعديل")
+    #: A row genuinely removed. Rare and never applicable to posted ledger
+    #: state, which is immutable — this is for records that never reached it,
+    #: such as a discarded draft journal. Distinct from DEACTIVATED, which
+    #: keeps the row and withdraws it from use.
+    DELETED = "DELETED", _("حذف")
     DEACTIVATED = "DEACTIVATED", _("إيقاف")
     SUBMITTED = "SUBMITTED", _("إرسال")
     APPROVED = "APPROVED", _("اعتماد")

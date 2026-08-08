@@ -11,7 +11,7 @@ Reads only. Nothing here writes.
 
 from __future__ import annotations
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from apps.organizations.models import Branch, BranchMembership, Organization, Role
 from apps.users.models import User
@@ -20,6 +20,16 @@ from apps.users.models import User
 def accessible_branches(user: User) -> QuerySet[Branch]:
     """
     Active branches this user may act on, in active organizations.
+
+    Access arrives two ways: a membership at the branch itself, or
+    organization-wide authority over the organization that owns it. The second
+    is not a shortcut — an Accounting Manager holds authority over every branch
+    of their organization by definition, and without it they could reopen a
+    period covering all of them yet not post a single adjustment into any.
+
+    The containment runs one way only. Organization authority reaches every
+    branch; no accumulation of branch memberships ever adds up to organization
+    authority (see `apps.organizations.authorization.organization_scope`).
 
     An inactive membership, an inactive branch, or an inactive organization
     each remove access. Anonymous and inactive users get nothing.
@@ -34,7 +44,13 @@ def accessible_branches(user: User) -> QuerySet[Branch]:
     if user.is_superuser:
         return base
 
-    return base.filter(memberships__user=user, memberships__is_active=True).distinct()
+    return base.filter(
+        Q(memberships__user=user, memberships__is_active=True)
+        | Q(
+            organization__memberships__user=user,
+            organization__memberships__is_active=True,
+        )
+    ).distinct()
 
 
 def accessible_branch_ids(user: User) -> list[int]:

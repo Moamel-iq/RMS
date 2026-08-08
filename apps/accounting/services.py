@@ -12,6 +12,7 @@ from __future__ import annotations
 import calendar
 import datetime
 import re
+import uuid
 from collections.abc import Sequence
 from decimal import Decimal
 
@@ -34,6 +35,7 @@ from apps.accounting.models import (
     JournalLine,
     JournalNumberSequence,
     PeriodState,
+    SourceEvent,
 )
 from apps.accounting.validators import (
     PostingLine,
@@ -49,6 +51,7 @@ from apps.accounting.validators import (
     validate_organization_consistency,
     validate_parent_has_no_posting_history,
     validate_period_accepts_postings,
+    validate_source_identity,
 )
 from apps.core.models import AuditAction
 from apps.core.money import quantize_money
@@ -420,6 +423,22 @@ def create_cost_center(
 # ---------------------------------------------------------------------------
 
 
+def _entry_for_source(
+    *,
+    organization: Organization,
+    source_document_type: str,
+    source_document_id: str,
+    source_event: str,
+) -> JournalEntry | None:
+    """The entry already recording this economic event, if there is one."""
+    return JournalEntry.objects.filter(
+        organization=organization,
+        source_document_type=source_document_type,
+        source_document_id=source_document_id,
+        source_event=source_event,
+    ).first()
+
+
 def _next_entry_number(*, organization: Organization, year: int) -> str:
     """
     Take the next journal number under a row lock.
@@ -460,6 +479,7 @@ def post_entry(
     narration: str = "",
     source_document_type: str = "",
     source_document_id: str = "",
+    source_event: str = "",
     posting_rule_version: str = "",
     is_adjustment: bool = False,
     allow_closed_period: bool = False,
@@ -470,17 +490,54 @@ def post_entry(
     Atomic: the entry, its lines, and its audit event all commit or none do.
     A half-posted entry is worse than a failed one, because it looks complete.
 
-    Idempotent: the same key returns the entry already posted rather than
-    posting a second one. A retried request after a network timeout must not
-    double-post.
+    Idempotent on two independent keys, because they answer different
+    questions:
+
+    * `idempotency_key` — "is this the same *command* again?" A retried
+      request after a network timeout returns the entry already posted.
+    * `organization + source_document_type + source_document_id +
+      source_event` — "is this the same *economic event* again?" Purchase
+      invoice 145 can be posted once, whatever key the caller composes.
+
+    The two combine into one rule. Same key returns the existing entry, since
+    that is a retry. Same source identity under a *different* key is not a
+    retry — the caller believes this is a new command for an event already in
+    the ledger — so it raises `source_event_already_posted` rather than
+    silently returning something the caller did not ask for. Neither path can
+    produce a second journal, and neither surfaces a raw IntegrityError.
 
     `allow_closed_period` exists for the authorized correction path only —
     a reversal into a soft-closed period, for instance. It never bypasses a
     CLOSED period, which requires an explicit, audited reopening.
     """
+    validate_source_identity(
+        source_document_type=source_document_type,
+        source_document_id=source_document_id,
+        source_event=source_event,
+    )
+
     existing = JournalEntry.objects.filter(idempotency_key=idempotency_key).first()
     if existing is not None:
         return existing
+
+    if source_event:
+        already = _entry_for_source(
+            organization=organization,
+            source_document_type=source_document_type,
+            source_document_id=source_document_id,
+            source_event=source_event,
+        )
+        if already is not None:
+            raise ValidationError(
+                _("%(type)s %(id)s has already been recorded as %(event)s by entry %(entry)s."),
+                code="source_event_already_posted",
+                params={
+                    "type": source_document_type,
+                    "id": source_document_id,
+                    "event": source_event,
+                    "entry": already.entry_number,
+                },
+            )
 
     period = resolve_period(organization=organization, accounting_date=accounting_date)
 
@@ -513,6 +570,7 @@ def post_entry(
         idempotency_key=idempotency_key,
         source_document_type=source_document_type,
         source_document_id=source_document_id,
+        source_event=source_event,
         posting_rule_version=posting_rule_version,
         narration=narration,
         posted_at=timezone.now(),
@@ -585,6 +643,19 @@ def reverse_entry(
         )
     if not reason.strip():
         raise ValidationError(_("A reversal requires a reason."), code="reversal_reason_required")
+    if entry.source_event == SourceEvent.REVERSED:
+        # The reversal of a reversal would need to claim the same source
+        # identity its target already holds, and the accounting answer is not
+        # a third mirror anyway: post the corrected entry. Reported as a
+        # domain error rather than left to collide on the unique index.
+        raise ValidationError(
+            _(
+                "Entry %(number)s is itself a reversal. Post a replacement "
+                "entry instead of reversing it."
+            ),
+            code="cannot_reverse_a_reversal",
+            params={"number": entry.entry_number},
+        )
 
     mirrored = [
         PostingLine(
@@ -610,6 +681,11 @@ def reverse_entry(
         narration=reason.strip(),
         source_document_type=entry.source_document_type,
         source_document_id=entry.source_document_id,
+        # The same upstream document, a different economic event. This is what
+        # makes `PURCHASE_INVOICE / 145 / REVERSED` unique in its own right,
+        # so the reversal is protected against duplication exactly as the
+        # original posting is.
+        source_event=SourceEvent.REVERSED if entry.source_event else "",
         posting_rule_version=entry.posting_rule_version,
         # A reversal is a correction, so it may enter a soft-closed period.
         allow_closed_period=True,
@@ -640,3 +716,250 @@ def reverse_entry(
 def entry_total(entry: JournalEntry) -> Decimal:
     """The entry's debit total, which by construction equals its credit total."""
     return sum((line.debit for line in entry.lines.all()), Decimal("0")).quantize(Decimal("0.001"))
+
+
+# ---------------------------------------------------------------------------
+# 5. Drafts
+# ---------------------------------------------------------------------------
+#
+# A draft is a journal being written, not a journal. It is deliberately
+# allowed to be unbalanced: an entry is unbalanced between its first line and
+# its last, and refusing to save that state would mean the only way to build
+# an entry is to get it right in one action. The balance rule applies at the
+# moment of posting, and the database enforces it there as well as here.
+#
+# A draft holds no entry number. Journal numbering is gapless, and a draft
+# that is abandoned would otherwise leave a hole indistinguishable from a
+# deleted entry.
+
+
+def _write_lines(entry: JournalEntry, lines: Sequence[PostingLine]) -> None:
+    """Replace an entry's lines. Only ever called on a draft."""
+    entry.lines.all().delete()
+    for number, line in enumerate(lines, start=1):
+        JournalLine.objects.create(
+            entry=entry,
+            line_number=number,
+            account=line.account,
+            branch=line.branch,
+            cost_center=line.cost_center,
+            debit=quantize_money(line.debit),
+            credit=quantize_money(line.credit),
+            narration=line.narration,
+        )
+
+
+def _validate_draft_shape(*, organization: Organization, lines: Sequence[PostingLine]) -> None:
+    """
+    What must hold even for a half-written entry.
+
+    Balance, both-sides, and non-zero value are absent on purpose — those are
+    properties of a finished entry. Everything here is a property of a *line*,
+    and a line that names another organization's account or a group account is
+    wrong the moment it is written, not later.
+    """
+    validate_line_sides(lines)
+    validate_accounts_are_postable(lines)
+    validate_branches_are_active(lines)
+    validate_cost_centers(lines)
+    validate_organization_consistency(organization, lines)
+
+
+@transaction.atomic
+def create_draft(
+    *,
+    organization: Organization,
+    accounting_date: datetime.date,
+    lines: Sequence[PostingLine],
+    idempotency_key: str | None = None,
+    document_date: datetime.date | None = None,
+    narration: str = "",
+    is_adjustment: bool = False,
+) -> JournalEntry:
+    """
+    Start a journal entry without committing it to the ledger.
+
+    The period is resolved now so the draft cannot be dated outside the
+    calendar, but its state is not checked: whether the period still accepts
+    postings is a question for the moment of posting, which may be days later.
+
+    `idempotency_key` is optional here and required for posting. A duplicated
+    draft is a nuisance a user can delete; a duplicated posting is not
+    something anyone can delete.
+    """
+    period = resolve_period(organization=organization, accounting_date=accounting_date)
+    _validate_draft_shape(organization=organization, lines=lines)
+
+    entry = JournalEntry(
+        organization=organization,
+        period=period,
+        entry_number="",
+        accounting_date=accounting_date,
+        document_date=document_date or accounting_date,
+        status=JournalEntryStatus.DRAFT,
+        is_adjustment=is_adjustment,
+        idempotency_key=idempotency_key or f"draft:{uuid.uuid4()}",
+        narration=narration,
+    )
+    entry.save()
+    _write_lines(entry, lines)
+
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=entry,
+        branch=lines[0].branch if lines else None,
+        new_state=snapshot(entry),
+        reason=narration,
+        metadata={"line_count": len(lines)},
+    )
+    return entry
+
+
+@transaction.atomic
+def update_draft(
+    *,
+    entry: JournalEntry,
+    accounting_date: datetime.date | None = None,
+    lines: Sequence[PostingLine] | None = None,
+    document_date: datetime.date | None = None,
+    narration: str | None = None,
+    is_adjustment: bool | None = None,
+) -> JournalEntry:
+    """
+    Amend a draft. Refuses anything that has left draft.
+
+    Lines are replaced wholesale rather than patched. A partial line update
+    would need a stable line identity across edits, and line numbers are also
+    the deterministic tie-break for allocation — reusing one for a different
+    line would quietly change how a later residual is distributed.
+    """
+    if entry.status != JournalEntryStatus.DRAFT:
+        raise ValidationError(
+            _("Entry %(number)s is not a draft and cannot be amended."),
+            code="not_a_draft",
+            params={"number": entry.entry_number or entry.pk},
+        )
+
+    before = snapshot(JournalEntry.objects.get(pk=entry.pk))
+
+    if accounting_date is not None:
+        entry.period = resolve_period(
+            organization=entry.organization, accounting_date=accounting_date
+        )
+        entry.accounting_date = accounting_date
+    if document_date is not None:
+        entry.document_date = document_date
+    if narration is not None:
+        entry.narration = narration
+    if is_adjustment is not None:
+        entry.is_adjustment = is_adjustment
+    entry.save()
+
+    if lines is not None:
+        _validate_draft_shape(organization=entry.organization, lines=lines)
+        _write_lines(entry, lines)
+
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=entry,
+        branch=lines[0].branch if lines else None,
+        previous_state=before,
+        new_state=snapshot(entry),
+    )
+    return entry
+
+
+@transaction.atomic
+def post_draft(*, entry: JournalEntry, allow_closed_period: bool = False) -> JournalEntry:
+    """
+    Move a draft into the ledger.
+
+    Every posting rule runs here, on the lines as they now stand — the draft
+    was allowed to be unbalanced while it was being written, so this is the
+    first moment the finished entry is checked. It takes its gapless journal
+    number at this point and not before.
+    """
+    if entry.status != JournalEntryStatus.DRAFT:
+        raise ValidationError(
+            _("Entry %(number)s has already been posted."),
+            code="not_a_draft",
+            params={"number": entry.entry_number or entry.pk},
+        )
+
+    lines = [
+        PostingLine(
+            account=line.account,
+            branch=line.branch,
+            cost_center=line.cost_center,
+            debit=line.debit,
+            credit=line.credit,
+            narration=line.narration,
+        )
+        for line in entry.lines.select_related("account", "branch", "cost_center").order_by(
+            "line_number"
+        )
+    ]
+
+    validate_lines_present(lines)
+    validate_line_sides(lines)
+    validate_both_sides_present(lines)
+    validate_entry_has_value(lines)
+    validate_balanced(lines)
+    validate_accounts_are_postable(lines)
+    validate_branches_are_active(lines)
+    validate_cost_centers(lines)
+    validate_organization_consistency(entry.organization, lines)
+
+    period = entry.period
+    if not allow_closed_period:
+        validate_period_accepts_postings(period)
+    elif period.state == PeriodState.CLOSED:
+        raise ValidationError(
+            _("Period %(period)s is closed. Reopen it explicitly first."),
+            code="period_closed",
+            params={"period": str(period)},
+        )
+
+    entry.entry_number = _next_entry_number(
+        organization=entry.organization, year=period.fiscal_year.year
+    )
+    entry.status = JournalEntryStatus.POSTED
+    entry.posted_at = timezone.now()
+    entry.posted_by = _current_actor()
+    entry.save(update_fields=["entry_number", "status", "posted_at", "posted_by", "updated_at"])
+
+    record_audit_event(
+        action=AuditAction.POSTED,
+        target=entry,
+        branch=lines[0].branch,
+        new_state=snapshot(entry),
+        reason=entry.narration,
+        metadata={"entry_number": entry.entry_number, "line_count": len(lines)},
+    )
+    return entry
+
+
+@transaction.atomic
+def discard_draft(*, entry: JournalEntry, reason: str = "") -> None:
+    """
+    Delete a draft.
+
+    Only a draft. A posted entry is deleted by nothing and by nobody — the
+    trigger refuses it — and the correction for one is a reversal. The audit
+    event is recorded before the row goes, so the discard survives it.
+    """
+    if entry.status != JournalEntryStatus.DRAFT:
+        raise ValidationError(
+            _("Entry %(number)s is posted and cannot be deleted. Reverse it instead."),
+            code="not_a_draft",
+            params={"number": entry.entry_number or entry.pk},
+        )
+
+    record_audit_event(
+        action=AuditAction.DELETED,
+        target=entry,
+        previous_state=snapshot(entry),
+        reason=reason,
+    )
+    entry.lines.all().delete()
+    entry.delete()

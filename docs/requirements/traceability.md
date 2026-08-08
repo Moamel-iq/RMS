@@ -82,6 +82,44 @@ every task's definition of done.
 | AUD-008 | Mutable master data keeps row history | organizations, units, users | `HistoricalRecords` | `::TestRowHistory` | Done | Password excluded from user history |
 | AUD-009 | Audit context never leaks between requests | core | middleware resets in `finally` | `::test_context_does_not_leak_between_requests` | Done | Reset even when the view raises |
 
+## Task 0.7 — permissions, scope, API, idempotency
+
+| ID | Requirement | App | Implementation | Test | Status | Notes |
+|---|---|---|---|---|---|---|
+| PRM-001 | Twelve named accounting permissions exist | accounting | `Meta.permissions` on `JournalEntry`, `Account`, `CostCenter`, `AccountingPeriod` | `test_permissions.py::TestThePermissionsExist` | Done | Not Django add/change/delete |
+| PRM-002 | Roles carry permissions through groups | organizations | `permissions.sync_user_role_groups`, `role:<ROLE>` groups | `::TestRoleGroupsFollowMemberships` | Done | Recomputed, never incremented |
+| PRM-003 | ACCOUNTING_MANAGER holds `reopen_period` | accounting | `ROLE_PERMISSIONS` | `::test_accounting_manager_may_reopen` | Done | ADR-013 amendment |
+| PRM-004 | Branch Manager, Branch Accountant, Cashier, warehouse roles do not | accounting | `ROLE_PERMISSIONS` | `::test_no_other_role_may_reopen` | Done | Parametrised over every excluded role |
+| PRM-005 | Services check permission and scope, never a role name | accounting | `commands.py` | `test_security.py` | Done | No role string appears in a service |
+| SCP-001 | Organization scope comes from `OrganizationMembership` only | organizations | `authorization.organization_scope` | `::test_branch_authority_is_never_organization_authority` | Done | Branch memberships never accumulate |
+| SCP-002 | Organization authority reaches every branch in it | organizations | `selectors.accessible_branches` | `test_api.py::TestSoftClosedPeriodOverHttp` | Done | Containment is one-directional |
+| SCP-003 | A submitted `organization_id` cannot widen access | organizations | `authorization.resolve_organization` | `::test_1_submitting_a_foreign_organization_id_is_refused` | Done | 403, not a silent filter |
+| SCP-004 | A submitted `branch_id` cannot widen access | organizations | `authorization.resolve_branch` | `::test_2_submitting_a_foreign_branch_id_is_refused` | Done | Same organization, different branch |
+| SCP-005 | A foreign account or cost centre cannot be injected | accounting | `commands._scoped_account`, `_scoped_cost_center` | `::TestForeignObjectInjection` | Done | Filtered, not fetched-then-checked |
+| SCP-006 | Authority is needed at every branch an entry touches | accounting | `commands._require_at_every_branch` | `::test_an_entry_spanning_two_branches_needs_authority_at_both` | Done | Not "at least one" |
+| SCP-007 | Period acts require organization scope | accounting | `PERMISSION_SCOPE` | `::test_9_a_branch_accountant_cannot_close_a_period` | Done | Holds the permission, holds it nowhere |
+| API-001 | Commands, not writable CRUD, for posted ledger state | accounting | `apps/accounting/api.py` | `test_api.py` | Done | No PUT; PATCH is drafts only |
+| API-002 | The API never reaches the kernel directly | accounting | import boundary | `::test_14c_the_api_layer_never_imports_the_kernel_directly` | Done | Architectural test over the AST |
+| API-003 | Endpoints authenticate by default | config | `NinjaAPI(auth=django_auth)` | `::TestAuthenticationIsRequired` | Done | `/health` is the only exception |
+| API-004 | Errors map to 403 / 404 / 409 / 422 | config | `config/api.py` exception handlers | `test_api.py` | Done | Conflict codes listed explicitly |
+| API-005 | Money crosses the boundary as exact decimal strings | accounting | `LineIn` str fields, `money_export` | `::TestExactDecimalTransport` | Done | Checked against raw JSON, both directions |
+| API-006 | API decimals are never grouped or localised | accounting | `money_export` | `::test_amounts_are_never_grouped_or_localised` | Done | Technical identity, not display |
+| IDM-001 | One economic event, one journal, per organization | accounting | `journal_entry_source_event_unique_per_organization` | `::TestTheGuaranteeSurvivesACommit` | Done | Partial unique index, real COMMIT |
+| IDM-002 | `source_event` is a closed enum | accounting | `SourceEvent` + `journal_entry_source_event_is_known` | `::TestTheEnumIsClosed` | Done | Typos refused by app and database |
+| IDM-003 | A source identity is complete or absent | accounting | `validate_source_identity` + check constraint | `::TestIdentityIsCompleteOrAbsent` | Done | Manual journals carry none |
+| IDM-004 | A retry returns the existing journal | accounting | `post_entry` idempotency key | `::test_a_retried_command_returns_the_same_journal` | Done | |
+| IDM-005 | A conflicting reuse is a domain error, not an IntegrityError | accounting | `source_event_already_posted` | `::test_the_same_event_under_a_different_key_is_a_conflict` | Done | Names the entry that holds it |
+| IDM-006 | The same source id is allowed in another organization | accounting | organization in the index | `::test_the_same_source_id_is_allowed_in_another_organization` | Done | |
+| IDM-007 | POSTED and REVERSED coexist for one document | accounting | `reverse_entry` sets `SourceEvent.REVERSED` | `::TestPostedAndReversedCoexist` | Done | |
+| IDM-008 | Source identity is immutable once posted | accounting | immutability trigger | `::TestSourceIdentityIsImmutable` | Done | |
+| ADM-001 | Posted ledger state is read-only in the admin | accounting | `ReadOnlyAdminMixin` | `test_admin_lockdown.py` | Done | For superusers too |
+| ADM-002 | The admin URLs refuse, not just the permission methods | accounting | Django admin | `::TestTheAdminUrlsRefuse` | Done | POST to change and delete both checked |
+| LDG-001 | A posted entry is immutable on every column | accounting | migration `0005` allowlist trigger | `::test_no_other_posted_column_can_be_rewritten_either` | Done | **Fixes a Task 0.6 defect** |
+| LDG-002 | A draft promoted to POSTED is balanced | accounting | trigger `accounting_journalentry_balance_on_post` | `::test_an_unbalanced_draft_is_refused_at_posting_not_at_creation` | Done | The 0002 trigger fires on lines only |
+| LDG-003 | Drafts consume no journal number | accounting | partial unique + check constraint | `::test_create_amend_post` | Done | Numbering stays gapless |
+| LDG-004 | Soft-closed posting needs authority and a reason | accounting | `_require_soft_close_override` | `::TestSoftClosedPeriodOverHttp` | Done | Override audited separately |
+| LDG-005 | A reopening records actor, org, period, both states, reason | accounting | `reopen_accounting_period` | `::test_the_reopening_records_actor_organization_period_states_and_reason` | Done | |
+
 ## Not yet mapped
 
 The SRS has not been added to this repository. `docs/requirements/SRS.md` is

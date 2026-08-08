@@ -70,7 +70,7 @@ BUILD_ITEMS: tuple[BuildItem, ...] = (
     BuildItem("0.4", _("وحدات القياس"), BuildState.COMPLETE),
     BuildItem("0.5", _("أساس التدقيق"), BuildState.COMPLETE),
     BuildItem("0.6", _("نواة المحاسبة"), BuildState.COMPLETE),
-    BuildItem("0.7", _("الصلاحيات والواجهات"), BuildState.IN_PROGRESS),
-    BuildItem("0.8", _("إغلاق المرحلة ٠"), BuildState.NOT_STARTED),
+    BuildItem("0.7", _("الصلاحيات والواجهات"), BuildState.COMPLETE),
+    BuildItem("0.8", _("إغلاق المرحلة ٠"), BuildState.IN_PROGRESS),
     BuildItem("1", _("المرحلة ١ — المخزون"), BuildState.LOCKED),
 )

@@ -99,6 +99,24 @@ permissions.
 - Never hide essential posting logic in signals or `Model.save()`.
 - Do not add a Branch FK to every model automatically.
 - Enforce organization/branch access in services and queries.
+- Authorization is a **permission plus a scope**, never either alone — ADR-016.
+  Check both through `apps/organizations/authorization.py`. Never check a role
+  name in a service: role is an input to permission, not a substitute for it.
+- Resolve a submitted id **with** the caller (`resolve_branch(user, id)`),
+  never fetch-then-check. There must be no moment where an out-of-scope object
+  exists in a local variable.
+- Organization authority reaches every branch it owns; branch memberships
+  never accumulate into organization authority.
+- The API calls `apps/accounting/commands.py`, never `services.py`. The kernel
+  knows accounting; the command layer knows who is allowed.
+- An upstream-generated journal carries a complete source identity —
+  organization + type + id + `SourceEvent` — or none of it (ADR-017). Extend
+  `SourceEvent` with code and tests, never with a free string.
+- API money is a **string** in both directions. JSON numbers are binary floats
+  before any Python code sees them.
+- Prefer an allowlist of the permitted change over a blocklist of forbidden
+  fields in an immutability trigger. A blocklist has to be remembered; see
+  migration `accounting/0005` for what forgetting one cost.
 - Use `Asia/Baghdad`, and a separate branch business date. Never derive the
   business date as `date(timestamp)`.
 - Preserve Arabic text and RTL requirements.

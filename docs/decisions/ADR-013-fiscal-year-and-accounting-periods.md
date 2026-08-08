@@ -87,7 +87,46 @@ Task 0.7 (`accounting.post_soft_closed_adjustment`,
 and a recorded actor. Until then the capability exists and nothing restricts
 who may use it.
 
-## Open
+## Amendment — reopening authority (approved 2026-08-09, delivered by Task 0.7)
 
-- Who may reopen a period — which role, and whether a second approver is
-  required.
+**Reopening is an organization-level accounting permission**,
+`accounting.reopen_period`, and the default business role holding it is
+**ACCOUNTING_MANAGER** (Chief Accountant). Owner holds it too, as the post that
+answers for the ledger as a whole.
+
+It is **not** granted by default to Branch Manager, Branch Accountant,
+Cashier, or the warehouse roles. A branch accountant who could both post and
+reopen could undo their own close unobserved; that is the separation of duties
+the exclusion exists to keep.
+
+**Branch authority never reaches it.** A period spans every branch in the
+organization at once, so authority over one branch is authority over a part of
+something that has no parts. Organization scope comes from an explicit
+`OrganizationMembership` and never from an accumulation of branch memberships
+— see ADR-016.
+
+The service checks the **permission and the scope**, never the role name. Role
+is an input to permission, not a substitute for it, so a site that renames or
+adds roles changes one table and no accounting code.
+
+**Emergency authority.** A Django superuser satisfies both the permission and
+the scope, so they may reopen. That is deliberately not a bypass: they reach
+the same `reopen_period` service as anyone else, where a non-whitespace reason
+is required, reverse-chronological ordering still applies, the actor is
+captured, and the audit event is written. Emergency authority changes who may
+ask, never what is checked.
+
+Every reopening records actor, timestamp, organization, period, previous
+state, new state, and reason. A second `PERMISSION_OVERRIDE` event records the
+authority that permitted it, because "did the state change" and "who was
+allowed to change it" are different questions and an auditor asks the second.
+
+**Maker-checker is deliberately not an MVP blocker.** One authorized
+Accounting Manager is sufficient for Phase 0. The permission sits in front of
+an application service rather than inside the kernel, so a second-approver
+step can be added later without touching accounting logic.
+
+## Still open
+
+- Whether a second approver should eventually be required for a reopening.
+  The architecture allows it; nothing depends on it yet.

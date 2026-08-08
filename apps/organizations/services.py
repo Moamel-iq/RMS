@@ -14,7 +14,14 @@ from django.db import transaction
 
 from apps.core.models import AuditAction
 from apps.core.services import record_audit_event, snapshot
-from apps.organizations.models import Branch, BranchMembership, Organization, Role
+from apps.organizations.models import (
+    Branch,
+    BranchMembership,
+    Organization,
+    OrganizationMembership,
+    Role,
+)
+from apps.organizations.permissions import sync_user_role_groups
 from apps.users.models import User
 
 
@@ -158,6 +165,11 @@ def grant_branch_access(*, user: User, branch: Branch, role: Role | str) -> Bran
         membership.full_clean()
         membership.save(update_fields=["role", "is_active", "updated_at"])
 
+    # The role's permissions follow the membership. Recomputed from every
+    # membership the user holds, so re-granting a role they already have
+    # elsewhere cannot leave them with a stale permission set.
+    sync_user_role_groups(user)
+
     record_audit_event(
         action=AuditAction.ACCESS_GRANTED,
         target=membership,
@@ -183,6 +195,7 @@ def revoke_branch_access(*, user: User, branch: Branch) -> None:
     BranchMembership.objects.filter(user=user, branch=branch, is_active=True).update(
         is_active=False
     )
+    sync_user_role_groups(user)
     for membership in memberships:
         record_audit_event(
             action=AuditAction.ACCESS_REVOKED,
@@ -190,6 +203,72 @@ def revoke_branch_access(*, user: User, branch: Branch) -> None:
             branch=branch,
             previous_state=snapshot(membership),
             reason=f"{user} revoked at {branch.code}",
+        )
+
+
+@transaction.atomic
+def grant_organization_access(
+    *, user: User, organization: Organization, role: Role | str
+) -> OrganizationMembership:
+    """
+    Give a user authority across a whole organization, in a role.
+
+    Deliberately separate from `grant_branch_access` rather than a flag on it.
+    Organization authority reaches state that has no branch — a fiscal period
+    covers every branch at once — so granting it is a different decision, made
+    by a different person, and it should read that way at the call site.
+    """
+    membership, created = OrganizationMembership.objects.get_or_create(
+        user=user,
+        organization=organization,
+        defaults={"role": role, "is_active": True},
+    )
+    if not created:
+        before = snapshot(OrganizationMembership.objects.get(pk=membership.pk))
+        membership.role = role
+        membership.is_active = True
+        membership.full_clean()
+        membership.save(update_fields=["role", "is_active", "updated_at"])
+    else:
+        before = None
+
+    sync_user_role_groups(user)
+
+    record_audit_event(
+        action=AuditAction.ACCESS_GRANTED,
+        target=membership,
+        previous_state=before,
+        new_state=snapshot(membership),
+        reason=f"{user} granted {role} across {organization.code}",
+    )
+    return membership
+
+
+@transaction.atomic
+def revoke_organization_access(*, user: User, organization: Organization) -> None:
+    """
+    Withdraw organization-wide authority without deleting the row.
+
+    The row is what tells an auditor who was able to reopen a period last
+    March. Deleting it would erase exactly the fact they came to check.
+    """
+    memberships = list(
+        OrganizationMembership.objects.filter(user=user, organization=organization, is_active=True)
+    )
+    if not memberships:
+        return
+
+    OrganizationMembership.objects.filter(
+        user=user, organization=organization, is_active=True
+    ).update(is_active=False)
+    sync_user_role_groups(user)
+
+    for membership in memberships:
+        record_audit_event(
+            action=AuditAction.ACCESS_REVOKED,
+            target=membership,
+            previous_state=snapshot(membership),
+            reason=f"{user} revoked across {organization.code}",
         )
 
 

@@ -135,10 +135,15 @@ class Role(models.TextChoices):
     """
     Roles named in the separation-of-duties section of the architecture
     charter. NOT sourced from an SRS — no SRS exists. Approval thresholds are
-    not enforced yet; this only records who holds which post at which branch.
+    not enforced yet; this only records who holds which post.
+
+    A role is held either at a branch (`BranchMembership`) or across a whole
+    organization (`OrganizationMembership`). The role names what someone may
+    do; the membership names where.
     """
 
     OWNER = "OWNER", _("مالك")
+    ACCOUNTING_MANAGER = "ACCOUNTING_MANAGER", _("مدير الحسابات")
     MANAGER = "MANAGER", _("مدير")
     ACCOUNTANT = "ACCOUNTANT", _("محاسب")
     PURCHASING = "PURCHASING", _("مسؤول مشتريات")
@@ -189,3 +194,53 @@ class BranchMembership(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.user} @ {self.branch.code} ({self.get_role_display()})"
+
+
+class OrganizationMembership(TimeStampedModel):
+    """
+    Grants one user authority across a whole organization, in one role.
+
+    Not the same thing as holding the role at every branch. Some accounting
+    state is organization-level and has no branch to be scoped to: a fiscal
+    period spans every branch at once, so soft-closing, closing, or reopening
+    one from a single branch's authority would let one location stop or
+    reopen posting for all the others (ADR-013).
+
+    Branch authority never adds up to organization authority. A user who
+    happens to hold a role at all three branches today would silently lose
+    organization scope the moment a fourth branch opened, which is exactly the
+    kind of accidental permission change an audit cannot explain.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="organization_memberships",
+        verbose_name=_("user"),
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.PROTECT,
+        related_name="memberships",
+        verbose_name=_("organization"),
+    )
+    role = models.CharField(_("role"), max_length=20, choices=Role.choices)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    #: Who held organization-wide authority, and when. The first question an
+    #: auditor asks about a reopened period.
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("organization membership")
+        verbose_name_plural = _("organization memberships")
+        ordering = ["organization__code", "user__username"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "organization"],
+                name="org_membership_unique_per_user_and_organization",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} @ {self.organization.code} ({self.get_role_display()})"

@@ -49,14 +49,48 @@ deliberately no "adjustments must be dated at year end" constraint.
 
 **Soft-close semantics.** `OPEN` — normal rules. `SOFT_CLOSED` — routine
 posting blocked; specifically-authorized adjustments and reversals allowed.
-`CLOSED` — nothing posts or reverses. **The authorization that gates the
-soft-closed path does not exist yet**; today the capability is open to any
-caller. Task 0.7 supplies it.
+`CLOSED` — nothing posts or reverses. **Task 0.7 supplied the authorization**:
+`accounting.post_soft_closed_adjustment` and
+`accounting.reverse_in_soft_closed_period`, each held at organization scope,
+each requiring a non-empty reason, and each recording a `PERMISSION_OVERRIDE`
+audit event separate from the posting itself.
 
 **Both balance tests are kept on purpose.** The `SET CONSTRAINTS ALL
 IMMEDIATE` test is focused and fast; the `transaction=True` test reaches a
 genuine COMMIT. Without the second, the suite would be green while never once
 exercising the boundary the constraint actually fires at.
+
+### Task 0.7 additions
+
+| Rule | Where | Test |
+|---|---|---|
+| A posted entry is immutable on **every** column, not a remembered subset | `accounting_posted_entry_is_immutable`, migration `0005` | `test_a_posted_narration_cannot_be_rewritten`, `test_no_other_posted_column_can_be_rewritten_either` |
+| A draft promoted to POSTED is balanced and has ≥2 lines | Constraint trigger `accounting_journalentry_balance_on_post`, migration `0004` | `test_an_unbalanced_draft_is_refused_at_posting_not_at_creation` |
+| A draft holds no entry number; numbering stays gapless | Partial unique + `journal_entry_numbered_once_posted` | `test_create_amend_post` |
+| One economic event, one journal, per organization | `journal_entry_source_event_unique_per_organization` | `TestTheGuaranteeSurvivesACommit` |
+| A source identity is complete or absent | `journal_entry_source_identity_complete_or_absent`, `validate_source_identity` | `TestIdentityIsCompleteOrAbsent` |
+| `source_event` is a closed enum | `journal_entry_source_event_is_known` + `TextChoices` | `TestTheEnumIsClosed` |
+| Source identity is immutable once posted | Immutability trigger | `TestSourceIdentityIsImmutable` |
+| Posting into `SOFT_CLOSED` needs organization authority and a reason | `commands._require_soft_close_override` | `TestSoftClosedPeriodOverHttp` |
+| Reopening needs `accounting.reopen_period` at organization scope | `commands.reopen_accounting_period` | `test_11_...`, `test_12_...` |
+| A submitted id cannot widen access | `organizations/authorization.py` | `apps/accounting/tests/test_security.py` |
+
+**Two defects were found by these tests, not by review.**
+
+The first: the immutability trigger from 0002 permitted its two legitimate
+transitions by listing the columns that must *not* change. That is a blocklist,
+and it was missing `narration`, `document_date`, `is_adjustment`, `posted_at`,
+`posted_by`, and `posting_rule_version` — all editable on a posted entry, with
+no error, no history row, and no audit event. Migration `0005` inverts the
+test: each permitted transition now builds the row it expects and compares
+whole rows, so a column added later is covered without anyone remembering to
+add it.
+
+The second: organization-wide authority granted no branch access, so an
+Accounting Manager could reopen a period covering every branch and post an
+adjustment into none of them. `accessible_branches` now reaches branches
+through an organization membership as well as a branch one. The containment
+runs one way only — see ADR-016.
 
 ### Enforcement beyond the list
 
@@ -90,8 +124,10 @@ Invariant 12 depends on the audit foundation, which exists:
 - Quantity precision — ADR-006, `apps/core/quantity.py`.
 - Branch scoping and access — ADR-007, `apps/organizations/`.
 
-## Blocked before Task 0.6 can start
+## Previously blocked, now resolved
 
-- Whether cost centers are organization-wide or branch-scoped (ADR-015 §Open).
-- The full chart of accounts beyond the seed (ADR-014 §Open).
-- Who may reopen a closed period (ADR-013 §Open).
+- Whether cost centers are organization-wide or branch-scoped — **organization**
+  (ADR-015), settled before Task 0.6.
+- The full chart of accounts beyond the seed — **46 accounts seeded** (ADR-014).
+- Who may reopen a closed period — **ACCOUNTING_MANAGER at organization scope**
+  (ADR-013 amendment, delivered by Task 0.7).

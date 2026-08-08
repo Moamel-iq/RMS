@@ -1,7 +1,12 @@
 # Task 0.7 — permissions, API, and idempotent integration
 
-The approved design, recorded before implementation so it is not carried in a
-conversation. Nothing here is built yet unless a line says otherwise.
+**Status: delivered.** The design was recorded before implementation; this
+note and the marks below were added afterwards. Where the delivered system
+differs from the plan, the plan text is kept and the difference is stated —
+rewriting it to match would erase the decision.
+
+See ADR-016 (permission and scope model) and ADR-017 (source identity and
+idempotency) for the reasoning; this file is the task's checklist.
 
 ## 1. Domain permissions
 
@@ -87,10 +92,56 @@ for example `KM / PURCHASE_INVOICE / 145 / POSTED` — at most one posting, ever
 work is a derivation helper plus a `UniqueConstraint` over the four columns so
 the guarantee does not depend on every caller composing the key identically.
 
-**Not yet built.** Required before Phase 0 exit.
+**Built.** Delivered as a closed `SourceEvent` enum plus three constraints —
+`journal_entry_source_event_is_known`,
+`journal_entry_source_identity_complete_or_absent`, and the partial
+`journal_entry_source_event_unique_per_organization`. The columns are named
+`source_document_type` and `source_document_id` rather than
+`source_type`/`source_id`, because `AuditEvent` already uses those names and
+one vocabulary across the two is worth more than a shorter one here.
+
+No derivation helper was written: deriving the key from the identity would
+have made the two guarantees one, and they answer different questions — see
+ADR-017, "Retry versus conflict".
 
 ## 6. Exact Decimal transport
 
 API monetary values serialize as exact Decimal strings, never through binary
 float, and preserve stored precision even where the normal UI shows whole IQD.
 `apps/core/money.py::money_export` is the existing renderer for this.
+
+**Built, in both directions.** Amounts also *arrive* as strings and are parsed
+with `quantize_money`. Serializing exactly while accepting a JSON number would
+have left the hole open at the point it actually matters: JSON has one numeric
+type and it is binary floating point, so a bare `1250.001` in a request body
+has already been through a float before any Python code sees it.
+
+## 7. What was delivered
+
+| Section | State | Notes |
+|---|---|---|
+| 1. Twelve domain permissions | Built | Declared on the models that own them; groups synced on `post_migrate` |
+| 2. Organization and branch scoping | Built | `OrganizationMembership` added — a period has no branch to be scoped to (ADR-016) |
+| 3. Command API | Built | Plus `GET` list and detail, and `DELETE` for drafts per §4 |
+| 4. Writable versus read-only | Built | Accounting admin is read-only for everyone, superusers included |
+| 5. Idempotency | Built | See ADR-017 |
+| 6. Exact Decimal transport | Built | Strings inbound and outbound |
+
+### Beyond the plan
+
+Three things the plan did not anticipate, each forced by something found while
+building:
+
+- **`OrganizationMembership`.** The plan assumed branch memberships would
+  carry every scope. A period spans every branch at once, so there was nothing
+  for `reopen_period` to be scoped to. Branch authority deliberately does not
+  accumulate into it (ADR-016).
+- **A draft lifecycle in the kernel.** §3 lists create-draft and amend-draft
+  endpoints, and Task 0.6 had no draft services — `post_entry` created a
+  POSTED entry directly. `create_draft`, `update_draft`, `post_draft`, and
+  `discard_draft` were added, along with a constraint trigger that checks
+  balance at the DRAFT → POSTED transition: the 0002 balance trigger fires on
+  journal *lines*, and promoting a draft touches none.
+- **Drafts hold no entry number.** Journal numbering is gapless, so an
+  abandoned draft must not burn one. The unique constraint became partial and
+  a check constraint requires a number once the entry leaves draft.

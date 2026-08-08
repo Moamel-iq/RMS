@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.contrib import admin
+from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 
-from apps.organizations.models import Branch, BranchMembership, Organization
+from apps.organizations.models import (
+    Branch,
+    BranchMembership,
+    Organization,
+    OrganizationMembership,
+)
 
 
 class BranchInline(admin.TabularInline):
@@ -64,3 +72,31 @@ class BranchMembershipAdmin(admin.ModelAdmin):
     ordering = ("branch__code", "user__username")
     list_select_related = ("user", "branch")
     autocomplete_fields = ("user", "branch")
+
+
+@admin.register(OrganizationMembership)
+class OrganizationMembershipAdmin(admin.ModelAdmin):
+    """
+    Visible here, granted through `grant_organization_access`.
+
+    Read-only because the service also syncs the role groups that carry the
+    permissions. A row created directly here would look like authority and
+    grant none of it — a failure that presents as "the permission system is
+    broken" rather than as "this row was made the wrong way".
+    """
+
+    list_display = ("user", "organization", "role", "is_active", "created_at")
+    list_filter = ("is_active", "role", "organization")
+    search_fields = ("user__username", "user__phone", "organization__code")
+    ordering = ("organization__code", "user__username")
+    list_select_related = ("user", "organization")
+    actions = None
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False

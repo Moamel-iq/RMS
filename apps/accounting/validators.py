@@ -24,6 +24,7 @@ from apps.accounting.models import (
     AccountingPeriod,
     CostCenter,
     PeriodState,
+    SourceEvent,
 )
 from apps.core.money import quantize_money
 from apps.organizations.models import Branch, Organization
@@ -241,6 +242,49 @@ def validate_period_accepts_postings(period: AccountingPeriod) -> None:
             _("Period %(period)s is soft-closed to routine postings."),
             code="period_soft_closed",
             params={"period": str(period)},
+        )
+
+
+def validate_source_identity(
+    *, source_document_type: str, source_document_id: str, source_event: str
+) -> None:
+    """
+    A source identity is all three fields or none of them.
+
+    Together with the organization they name one upstream economic event —
+    `KM / PURCHASE_INVOICE / 145 / POSTED` — and that tuple is what stops a
+    retried purchase invoice becoming two journals. A half-populated identity
+    is not merely untidy: the unique index is partial on `source_event`, so an
+    entry carrying a type and an id but no event would sit *outside* the
+    guarantee while looking, to a reader, exactly like an entry inside it.
+
+    A manual journal has no upstream document and correctly carries none of
+    the three.
+    """
+    present = [
+        bool(source_document_type.strip()),
+        bool(source_document_id.strip()),
+        bool(source_event.strip()),
+    ]
+    if any(present) and not all(present):
+        raise ValidationError(
+            _(
+                "A source identity needs a type, an id, and an event, or none of "
+                "the three. Got type=%(type)r id=%(id)r event=%(event)r."
+            ),
+            code="incomplete_source_identity",
+            params={
+                "type": source_document_type,
+                "id": source_document_id,
+                "event": source_event,
+            },
+        )
+
+    if source_event and source_event not in SourceEvent.values:
+        raise ValidationError(
+            _("%(event)s is not a known source event."),
+            code="unknown_source_event",
+            params={"event": source_event},
         )
 
 
