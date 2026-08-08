@@ -9,12 +9,14 @@ Architecture decisions live in [docs/decisions/](docs/decisions/README.md).
 
 ## Status
 
-Phase 0 (Foundations), Task 0.3 complete — custom `User` model, phone/username
-authentication, the Arabic RTL sign-in screen, the organization/branch
-hierarchy with branch-scoped access, and the application shell.
+Phase 0 (Foundations), Task 0.4 complete — custom `User` model,
+phone/username authentication, the Arabic RTL sign-in screen, the
+organization/branch hierarchy with branch-scoped access, the application
+shell, and units of measure with the quantity precision policy (ADR-006).
 
-Next: Task 0.4, units of measure. Blocked on the rounding and precision
-decisions listed in [docs/decisions/README.md](docs/decisions/README.md).
+Next: Task 0.5, the audit foundation. Task 0.6 (accounting kernel) is
+**blocked** on the monetary precision decision — see
+[docs/decisions/README.md](docs/decisions/README.md).
 
 ## Setup from a fresh clone
 

@@ -9,6 +9,7 @@ consequences, date, and related requirements.
 |---|---|
 | [ADR-001](ADR-001-django-5-2-lts-python-3-14.md) | Django 5.2 LTS on Python 3.14 |
 | [ADR-002](ADR-002-postgresql-18.md) | PostgreSQL 18 as the only database |
+| [ADR-006](ADR-006-decimal-and-rounding-policy.md) | Decimal and rounding policy — **quantities only; money still open** |
 | [ADR-007](ADR-007-organization-and-branch-boundaries.md) | Organization and branch boundaries |
 | [ADR-008](ADR-008-business-date-and-timezone.md) | Business date and timezone (schema only — cutoff value open) |
 | [ADR-010](ADR-010-windows-native-development-environment.md) | Windows-native development environment and pip-tools |
@@ -25,7 +26,6 @@ Phase 0 tasks.
 | ADR-003 | Service / selector architecture | — (pattern already in CLAUDE.md; formalise before Task 0.6) |
 | ADR-004 | Append-only ledgers | Task 0.6 |
 | ADR-005 | Moving weighted-average costing | Phase 1 |
-| ADR-006 | Decimal and rounding policy | Task 0.4, Task 0.6 |
 | ADR-009 | Arabic, RTL, and PDF strategy | Phase 7 reporting |
 
 ## Open questions that must be answered before the ADRs above can be written
@@ -34,9 +34,13 @@ Sourced from `docs/plans/phase-0-claude-code-prompts.md`. None of these have
 documented answers yet:
 
 1. **IQD rounding** — decimal places stored, decimal places displayed,
-   rounding mode, and whether any amount rounds to the nearest 250 IQD.
-2. **Quantity precision** for base units, and the precision of unit conversion
-   factors.
+   rounding mode, whether line values or only document totals are rounded,
+   how residual differences are allocated, and whether any amount rounds to
+   the nearest 250 IQD. **Blocks Task 0.6 (accounting kernel).**
+   Quantity precision is settled; money deliberately shares none of it.
+2. **Conversion factor precision** — `FACTOR_PLACES = 12` is inferred, not
+   decided. Twelve stores one ounce exactly (0.028349523125 kg); everything
+   metric needs at most six. Confirm or reduce. See ADR-006 §Open.
 3. **Fiscal year start month**, and period granularity (monthly or custom).
 4. **Chart of accounts** — the Iraqi unified accounting system, or a custom
    restaurant chart? Account code format?

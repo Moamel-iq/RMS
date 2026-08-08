@@ -146,7 +146,7 @@ class TestShellRendering:
         """These are the only sections with an implementation behind them."""
         settings_module = MODULES_BY_KEY["settings"]
         available = [s for s in settings_module.sections if s.available]
-        assert len(available) == 4
+        assert len(available) == 5
         for section in available:
             assert section.url_name is not None
             assert reverse(section.url_name)

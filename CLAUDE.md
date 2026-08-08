@@ -49,6 +49,11 @@ Docker/Celery), the installation plan wins. See ADR-010.
 - Corrections use reversal and replacement, never edit or delete.
 - Use Decimal, never float, for money, quantities, rates, unit costs,
   percentages, and conversions.
+- Quantities go through `apps/core/quantity.py`: 3 dp stored, `ROUND_HALF_UP`
+  (ties away from zero), quantized ONCE at the storage boundary. Never
+  quantize an intermediate — see ADR-006 for the counterexample.
+- Money has its own precision and must NOT reuse the quantity helpers. That
+  policy is still undecided; do not invent one.
 - Use moving weighted-average inventory costing.
 - Reject negative stock during normal posting.
 - Use `transaction.atomic()` for complete posting operations.

@@ -42,6 +42,18 @@ every task's definition of done.
 | NAV-002 | Unbuilt sections are visible but inert | core | `templates/shell.html` | `::test_unbuilt_sections_are_inert` | Done | No links to 404s |
 | NAV-003 | Any module's sidebar can be previewed before it is built | core | `context_processors.shell` | `::test_every_module_sidebar_can_be_previewed` | Done | `?module=` |
 | NAV-004 | Unknown module parameter falls back safely | core | `context_processors.shell` | `::test_unknown_module_falls_back_instead_of_erroring` | Done | Allow-list of known keys |
+| QTY-001 | Quantities store at 3 dp, ROUND_HALF_UP | core | `apps/core/quantity.py::quantize_quantity` | `apps/core/tests/test_quantity.py::TestRoundingDirection` | Done | ADR-006 |
+| QTY-002 | Ties round away from zero, symmetrically | core | `QUANTITY_ROUNDING` | `::test_negative_ties_round_away_from_zero`, `::test_rounding_is_symmetric_in_magnitude` | Done | Required for reversals to cancel exactly |
+| QTY-003 | Rounding happens once, never mid-calculation | core, units | `convert` vs `convert_to_stored_quantity` | `::TestNoDoubleRounding`, `::test_convert_does_not_round` | Done | 1.00049999 distinguishes the paths |
+| QTY-004 | No float may enter a quantity path | core | `ensure_decimal` | `::TestFloatRejection` | Done | bool and non-finite rejected too |
+| QTY-005 | Arabic-Indic numerals accepted; mixed scripts refused | core | `normalize_digits` | `::TestArabicNumerals` | Done | Matters for Phase 8 OCR ingestion |
+| QTY-006 | Money cannot reuse quantity rounding | core | `apps/core/quantity.py` naming | — | Partial | Enforced by separation and naming; money module not yet written |
+| UOM-001 | Every dimension has exactly one base unit | units | `unit_one_base_per_dimension` | `apps/units/tests/test_models.py::TestSeed`, `::TestDatabaseConstraints` | Done | Partial unique index |
+| UOM-002 | Conversion factors are positive and base factor is 1 | units | `unit_factor_is_positive`, `unit_base_factor_is_one` | `::test_zero_factor_is_refused`, `::test_negative_factor_is_refused` | Done | DB-enforced |
+| UOM-003 | Cross-dimension conversion is refused | units | `services._require_same_dimension` | `apps/units/tests/test_conversion.py::TestDimensionSafety` | Done | A kg of rice is not a litre |
+| UOM-004 | Converting to base and back is lossless at 3 dp | units | `services.convert` | `::test_round_trip_is_lossless_within_the_declared_precision` | Done | Hypothesis property |
+| UOM-005 | Golden cases match hand calculation | units | `services.convert_to_stored_quantity` | `::TestGoldenCases` | Done | `docs/testing/golden-cases/units-conversion.md` |
+| UOM-006 | Packaging and yield are NOT unit conversions | units | seed list, module docstrings | `::test_packaging_units_are_deliberately_absent` | Done | Phase 1 and Phase 3 respectively |
 
 ## Not yet mapped
 

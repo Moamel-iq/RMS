@@ -53,14 +53,14 @@ THIRD_PARTY_APPS = [
 ]
 
 # Foundation apps are added by their own tasks:
-#   Task 0.4  apps.units
 #   Task 0.6  apps.accounting
-# apps.core currently holds only abstract models; Task 0.5 expands it into the
-# full audit foundation.
+# apps.core holds abstract models and the quantity precision policy; Task 0.5
+# expands it into the full audit foundation.
 LOCAL_APPS: list[str] = [
     "apps.core",
     "apps.users",
     "apps.organizations",
+    "apps.units",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

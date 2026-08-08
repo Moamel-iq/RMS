@@ -287,7 +287,11 @@ MODULES: tuple[Module, ...] = (
                 available=True,
             ),
             Section(label=_("المستخدمون"), url_name="admin:users_user_changelist", available=True),
-            Section(label=_("وحدات القياس")),
+            Section(
+                label=_("وحدات القياس"),
+                url_name="admin:units_unitofmeasure_changelist",
+                available=True,
+            ),
             Section(label=_("الفترات المالية")),
             Section(label=_("تسلسل المستندات")),
         ),
