@@ -120,5 +120,19 @@ class UnitOfMeasure(TimeStampedModel):
             ),
         ]
 
+    @property
+    def factor_display(self) -> str:
+        """
+        The factor as an exact, locale-independent string.
+
+        Django's number localisation renders a Decimal with the active
+        locale's separator, so under Arabic this field would read
+        `0,028349523125`. A conversion factor is a technical identity, not a
+        human-facing amount: a comma there is ambiguous and invites someone to
+        retype it as a different number. `normalize` drops trailing zeros and
+        `:f` keeps it out of exponent notation.
+        """
+        return f"{self.factor_to_base.normalize():f}"
+
     def __str__(self) -> str:
         return f"{self.code} — {self.name_ar}"

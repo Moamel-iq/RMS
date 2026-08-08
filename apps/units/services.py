@@ -36,10 +36,13 @@ from __future__ import annotations
 from decimal import Decimal, DivisionByZero, InvalidOperation
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
+from apps.core.models import AuditAction
 from apps.core.quantity import ensure_decimal, quantize_quantity
-from apps.units.models import UnitOfMeasure
+from apps.core.services import record_audit_event, snapshot
+from apps.units.models import Dimension, UnitOfMeasure
 
 
 def _require_same_dimension(from_unit: UnitOfMeasure, to_unit: UnitOfMeasure) -> None:
@@ -110,3 +113,72 @@ def convert_to_stored_quantity(
     in exactly one place and in exactly one direction.
     """
     return quantize_quantity(convert(quantity, from_unit=from_unit, to_unit=to_unit))
+
+
+# ---------------------------------------------------------------------------
+# Maintaining the unit list
+# ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def create_unit(
+    *,
+    code: str,
+    name_ar: str,
+    name_en: str,
+    dimension: Dimension | str,
+    factor_to_base: Decimal,
+    is_base: bool = False,
+) -> UnitOfMeasure:
+    unit = UnitOfMeasure(
+        code=code.strip().upper(),
+        name_ar=name_ar.strip(),
+        name_en=name_en.strip(),
+        dimension=dimension,
+        factor_to_base=factor_to_base,
+        is_base=is_base,
+    )
+    unit.full_clean()
+    unit.save()
+    record_audit_event(action=AuditAction.CREATED, target=unit, new_state=snapshot(unit))
+    return unit
+
+
+@transaction.atomic
+def update_unit(
+    *,
+    unit: UnitOfMeasure,
+    name_ar: str,
+    name_en: str,
+    factor_to_base: Decimal,
+    is_active: bool,
+) -> UnitOfMeasure:
+    """
+    Update a unit.
+
+    Code, dimension, and base status are not editable. Changing the factor
+    already restates every quantity ever converted through this unit, which is
+    why before and after are both captured; changing the dimension or which
+    unit is the base would invalidate conversions that have no way to know
+    they were computed under different rules.
+    """
+    # Re-read from the database: a ModelForm mutates its instance in place
+    # during validation, so an in-memory snapshot would already be the new
+    # values and the trail would show no change at all.
+    before = snapshot(UnitOfMeasure.objects.get(pk=unit.pk))
+    unit.name_ar = name_ar.strip()
+    unit.name_en = name_en.strip()
+    unit.factor_to_base = factor_to_base
+    unit.is_active = is_active
+    unit.full_clean()
+    unit.save()
+
+    factor_changed = before["factor_to_base"] != str(unit.factor_to_base)
+    record_audit_event(
+        action=AuditAction.UPDATED if is_active else AuditAction.DEACTIVATED,
+        target=unit,
+        previous_state=before,
+        new_state=snapshot(unit),
+        reason="conversion factor changed" if factor_changed else "",
+    )
+    return unit

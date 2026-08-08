@@ -1,0 +1,55 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+    </div>
+    {% block pageactions %}
+      {% if create_url %}
+        <a class="btn btn--primary" href="{{ create_url }}">{{ create_label }}</a>
+      {% endif %}
+    {% endblock %}
+  </div>
+
+  {% block toolbar %}
+    <form class="toolbar" method="get">
+      <div class="toolbar__search">
+        <input type="search" name="q" value="{{ search|default:'' }}"
+               placeholder="{% translate 'بحث' %}" aria-label="{% translate 'بحث' %}">
+      </div>
+      {% block filters %}{% endblock %}
+      <button class="btn btn--ghost" type="submit">{% translate "تطبيق" %}</button>
+    </form>
+  {% endblock %}
+
+  <div class="tablewrap">
+    <table class="table">
+      <thead><tr>{% block columns %}{% endblock %}</tr></thead>
+      <tbody>
+        {% block rows %}{% endblock %}
+      </tbody>
+    </table>
+    {% if is_paginated %}
+      <div class="toolbar" style="padding:14px 16px;margin:0">
+        {% if page_obj.has_previous %}
+          <a class="btn btn--ghost" href="?{% if search %}q={{ search }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">
+            {% translate "السابق" %}
+          </a>
+        {% endif %}
+        <span class="muted">
+          {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
+        </span>
+        {% if page_obj.has_next %}
+          <a class="btn btn--ghost" href="?{% if search %}q={{ search }}&amp;{% endif %}page={{ page_obj.next_page_number }}">
+            {% translate "التالي" %}
+          </a>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

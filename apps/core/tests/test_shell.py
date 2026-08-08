@@ -169,14 +169,29 @@ class TestShellRendering:
         assert response.status_code == 200
         assert response.context["active_module"].key == "home"
 
-    def test_settings_sections_link_to_real_admin_pages(self, client: Client, user: User) -> None:
+    def test_settings_sections_resolve(self, client: Client, user: User) -> None:
         """These are the only sections with an implementation behind them."""
         settings_module = MODULES_BY_KEY["settings"]
         available = [s for s in settings_module.sections if s.available]
-        assert len(available) == 5
+        assert len(available) == 7
         for section in available:
             assert section.url_name is not None
             assert reverse(section.url_name)
+
+    def test_foundation_screens_are_native_not_django_admin(self) -> None:
+        """
+        Django admin stays available as a developer tool, but the five
+        foundation screens must be the application's own.
+        """
+        settings_module = MODULES_BY_KEY["settings"]
+        native = [
+            s
+            for s in settings_module.sections
+            if s.available and not str(s.url_name).startswith("admin:")
+        ]
+        assert len(native) == 6
+        for section in native:
+            assert reverse(str(section.url_name)).startswith("/settings/")
 
 
 class TestShellShowsBranchAccess:

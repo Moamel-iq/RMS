@@ -15,6 +15,25 @@
       </p>
     </div>
 
+    {# Development visibility only. Remove with Phase 0 exit. #}
+    <div class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">{% translate "حالة البناء" %}</h2>
+        <span class="pill">{{ build_phase_label }}</span>
+      </div>
+      <div class="status">
+        {% for item in build_items %}
+          <div class="status__row{% if item.is_current %} status__row--current{% endif %}">
+            <span class="status__label">
+              <span class="status__key">{{ item.key }}</span>
+              <span>{{ item.label }}</span>
+            </span>
+            <span class="chip {{ item.chip_class }}">{{ item.state_label }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
     <div class="panel">
       <h2 class="panel__title">{% translate "الفروع المتاحة لك" %}</h2>
       {% if user_branches %}

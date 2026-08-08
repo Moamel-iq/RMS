@@ -9,6 +9,14 @@ from django.db.models import QuerySet
 
 from apps.core.models import AuditEvent
 
+#: The audit log is unbounded and grows forever, so it is always paginated.
+AUDIT_PAGE_SIZE = 50
+
+
+def audit_events() -> QuerySet[AuditEvent]:
+    """Every recorded event, newest first."""
+    return AuditEvent.objects.select_related("actor", "branch").all()
+
 
 def audit_trail_for(instance: models.Model) -> QuerySet[AuditEvent]:
     """Every recorded action against one object, newest first."""

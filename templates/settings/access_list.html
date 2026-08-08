@@ -1,0 +1,63 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block pageactions %}{% endblock %}
+
+{% block columns %}
+  <th>{% translate "المستخدم" %}</th>
+  <th>{% translate "الفرع" %}</th>
+  <th>{% translate "الدور" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th></th>
+{% endblock %}
+
+{% block rows %}
+  {% for membership in memberships %}
+    <tr>
+      <td><strong>{{ membership.user.username }}</strong></td>
+      <td>{{ membership.branch.name_ar }} <span class="muted">({{ membership.branch.code }})</span></td>
+      <td>{{ membership.get_role_display }}</td>
+      <td>
+        {% if membership.is_active %}
+          <span class="chip chip--on">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "مسحوب" %}</span>
+        {% endif %}
+      </td>
+      <td class="table__actions">
+        {% if membership.is_active %}
+          <form method="post">
+            {% csrf_token %}
+            <button class="linkish" type="submit" name="revoke" value="{{ membership.pk }}">
+              {% translate "سحب" %}
+            </button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="5"><p class="empty">{% translate "لا توجد صلاحيات ممنوحة." %}</p></td></tr>
+  {% endfor %}
+{% endblock %}
+
+{% block page %}
+  {{ block.super }}
+
+  <div class="panel" style="margin-block-start:16px">
+    <h2 class="panel__title">{% translate "منح صلاحية فرع" %}</h2>
+    <p class="muted">
+      {% translate "الصلاحية علاقة بين المستخدم والفرع، لأن المحاسب قد يغطي أكثر من فرع." %}
+    </p>
+    <form method="post" style="margin-block-start:16px">
+      {% csrf_token %}
+      <div class="formgrid">
+        {% for field in form %}
+          {% include "settings/_field.html" with field=field %}
+        {% endfor %}
+      </div>
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "منح" %}</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

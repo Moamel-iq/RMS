@@ -96,6 +96,14 @@ module = [
     "apps.organizations.admin",
     "apps.units.admin",
     "apps.core.admin",
+    "apps.organizations.forms",
+    "apps.units.forms",
+    # Django's class-based generic views are generic in django-stubs but not
+    # subscriptable at runtime, same as the admin classes above.
+    "apps.core.views",
+    "apps.organizations.views",
+    "apps.units.views",
+    "apps.users.views",
 ]
 disallow_any_generics = false
 

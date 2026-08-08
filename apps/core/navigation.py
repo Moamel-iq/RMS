@@ -268,30 +268,26 @@ MODULES: tuple[Module, ...] = (
         label=_("الإعدادات"),
         icon_name="settings",
         phase=_("الأساس"),
-        # Settings hands off to the Django admin until dedicated screens exist.
-        # Those pages render outside the shell, which is a known rough edge.
-        url_name="admin:index",
+        url_name="organizations:organization_list",
         available=True,
         sections=(
             Section(
                 label=_("المؤسسات"),
-                url_name="admin:organizations_organization_changelist",
+                url_name="organizations:organization_list",
                 available=True,
             ),
-            Section(
-                label=_("الفروع"), url_name="admin:organizations_branch_changelist", available=True
-            ),
+            Section(label=_("الفروع"), url_name="organizations:branch_list", available=True),
             Section(
                 label=_("صلاحيات الفروع"),
-                url_name="admin:organizations_branchmembership_changelist",
+                url_name="organizations:access_list",
                 available=True,
             ),
-            Section(label=_("المستخدمون"), url_name="admin:users_user_changelist", available=True),
-            Section(
-                label=_("وحدات القياس"),
-                url_name="admin:units_unitofmeasure_changelist",
-                available=True,
-            ),
+            Section(label=_("المستخدمون"), url_name="users:user_list", available=True),
+            Section(label=_("وحدات القياس"), url_name="units:unit_list", available=True),
+            Section(label=_("سجل التدقيق"), url_name="core:audit_list", available=True),
+            # Django admin stays reachable as a developer tool, not as the
+            # normal UI. It renders outside the shell by design.
+            Section(label=_("أدوات المطوّر"), url_name="admin:index", available=True),
             Section(label=_("الفترات المالية")),
             Section(label=_("تسلسل المستندات")),
         ),

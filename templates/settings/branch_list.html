@@ -1,0 +1,38 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "المؤسسة" %}</th>
+  <th>{% translate "المنطقة الزمنية" %}</th>
+  <th>{% translate "بداية يوم العمل" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th></th>
+{% endblock %}
+
+{% block rows %}
+  {% for branch in branches %}
+    <tr>
+      <td><strong>{{ branch.code }}</strong></td>
+      <td>{{ branch.name_ar }}</td>
+      <td>{{ branch.organization.name_ar }}</td>
+      <td>{{ branch.timezone }}</td>
+      <td class="table__num">{{ branch.business_day_start_time|time:"H:i" }}</td>
+      <td>
+        {% if branch.is_active %}
+          <span class="chip chip--on">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "موقوف" %}</span>
+        {% endif %}
+      </td>
+      <td class="table__actions">
+        <a class="linkish" href="{% url 'organizations:branch_update' branch.pk %}">
+          {% translate "تعديل" %}
+        </a>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="7"><p class="empty">{% translate "لا توجد فروع بعد." %}</p></td></tr>
+  {% endfor %}
+{% endblock %}

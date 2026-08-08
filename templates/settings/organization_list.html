@@ -1,0 +1,36 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم بالعربية" %}</th>
+  <th>{% translate "الاسم بالإنجليزية" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "الفروع" %}</th>
+  <th></th>
+{% endblock %}
+
+{% block rows %}
+  {% for organization in organizations %}
+    <tr>
+      <td><strong>{{ organization.code }}</strong></td>
+      <td>{{ organization.name_ar }}</td>
+      <td>{{ organization.name_en }}</td>
+      <td>
+        {% if organization.is_active %}
+          <span class="chip chip--on">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "موقوف" %}</span>
+        {% endif %}
+      </td>
+      <td class="table__num">{{ organization.branches.count }}</td>
+      <td class="table__actions">
+        <a class="linkish" href="{% url 'organizations:organization_update' organization.pk %}">
+          {% translate "تعديل" %}
+        </a>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6"><p class="empty">{% translate "لا توجد مؤسسات بعد." %}</p></td></tr>
+  {% endfor %}
+{% endblock %}

@@ -12,6 +12,8 @@ from datetime import time
 from django.conf import settings
 from django.db import transaction
 
+from apps.core.models import AuditAction
+from apps.core.services import record_audit_event, snapshot
 from apps.organizations.models import Branch, BranchMembership, Organization, Role
 from apps.users.models import User
 
@@ -25,6 +27,38 @@ def create_organization(*, code: str, name_ar: str, name_en: str) -> Organizatio
     )
     organization.full_clean()
     organization.save()
+    record_audit_event(
+        action=AuditAction.CREATED, target=organization, new_state=snapshot(organization)
+    )
+    return organization
+
+
+@transaction.atomic
+def update_organization(
+    *, organization: Organization, name_ar: str, name_en: str, is_active: bool
+) -> Organization:
+    """
+    Rename or deactivate an organization.
+
+    The code is not editable: it appears in document numbering and reports,
+    and changing it would silently rewrite what historic documents claim to
+    belong to.
+    """
+    # Re-read from the database. A ModelForm mutates its instance in place
+    # during validation, so an in-memory snapshot taken here would already
+    # hold the NEW values and the audit trail would record before == after.
+    before = snapshot(Organization.objects.get(pk=organization.pk))
+    organization.name_ar = name_ar.strip()
+    organization.name_en = name_en.strip()
+    organization.is_active = is_active
+    organization.full_clean()
+    organization.save(update_fields=["name_ar", "name_en", "is_active", "updated_at"])
+    record_audit_event(
+        action=AuditAction.UPDATED if is_active else AuditAction.DEACTIVATED,
+        target=organization,
+        previous_state=before,
+        new_state=snapshot(organization),
+    )
     return organization
 
 
@@ -55,6 +89,52 @@ def create_branch(
     )
     branch.full_clean()
     branch.save()
+    record_audit_event(
+        action=AuditAction.CREATED, target=branch, branch=branch, new_state=snapshot(branch)
+    )
+    return branch
+
+
+@transaction.atomic
+def update_branch(
+    *,
+    branch: Branch,
+    name_ar: str,
+    name_en: str,
+    business_day_start_time: time,
+    timezone: str,
+    is_active: bool,
+) -> Branch:
+    """
+    Update a branch.
+
+    Changing the timezone or the operating-day cutoff restates the business
+    date of everything already recorded against this branch, so the previous
+    values are captured in the audit event and in row history. Once the ledger
+    is live this needs a controlled process, not a form (ADR-008).
+    """
+    # Re-read: see the note in update_organization.
+    before = snapshot(Branch.objects.get(pk=branch.pk))
+    branch.name_ar = name_ar.strip()
+    branch.name_en = name_en.strip()
+    branch.business_day_start_time = business_day_start_time
+    branch.timezone = timezone
+    branch.is_active = is_active
+    branch.full_clean()
+    branch.save()
+
+    cutoff_changed = (
+        before["business_day_start_time"] != snapshot(branch)["business_day_start_time"]
+        or before["timezone"] != branch.timezone
+    )
+    record_audit_event(
+        action=AuditAction.UPDATED if is_active else AuditAction.DEACTIVATED,
+        target=branch,
+        branch=branch,
+        previous_state=before,
+        new_state=snapshot(branch),
+        reason="operating day changed" if cutoff_changed else "",
+    )
     return branch
 
 
@@ -77,6 +157,14 @@ def grant_branch_access(*, user: User, branch: Branch, role: Role | str) -> Bran
         membership.is_active = True
         membership.full_clean()
         membership.save(update_fields=["role", "is_active", "updated_at"])
+
+    record_audit_event(
+        action=AuditAction.ACCESS_GRANTED,
+        target=membership,
+        branch=branch,
+        new_state=snapshot(membership),
+        reason=f"{user} granted {role} at {branch.code}",
+    )
     return membership
 
 
@@ -88,9 +176,21 @@ def revoke_branch_access(*, user: User, branch: Branch) -> None:
     Deleting would erase the record that this person once held this post,
     which is exactly what an audit needs to see.
     """
+    memberships = list(BranchMembership.objects.filter(user=user, branch=branch, is_active=True))
+    if not memberships:
+        return
+
     BranchMembership.objects.filter(user=user, branch=branch, is_active=True).update(
         is_active=False
     )
+    for membership in memberships:
+        record_audit_event(
+            action=AuditAction.ACCESS_REVOKED,
+            target=membership,
+            branch=branch,
+            previous_state=snapshot(membership),
+            reason=f"{user} revoked at {branch.code}",
+        )
 
 
 @transaction.atomic

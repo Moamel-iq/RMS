@@ -239,10 +239,12 @@ class TestSnapshots:
 
 class TestSelectors:
     def test_trail_for_an_object(self, actor: User, branch: Branch) -> None:
+        # create_branch records its own CREATED event, so the fixture already
+        # contributed one before these two.
         with audit_context(actor=actor):
-            record_audit_event(action=AuditAction.CREATED, target=branch)
+            record_audit_event(action=AuditAction.APPROVED, target=branch)
             record_audit_event(action=AuditAction.UPDATED, target=branch)
-        assert audit_trail_for(branch).count() == 2
+        assert audit_trail_for(branch).count() == 3
 
     def test_trail_does_not_leak_other_objects(self, actor: User, branch: Branch) -> None:
         other = create_branch(
@@ -253,8 +255,13 @@ class TestSelectors:
             business_day_start_time=time(9, 0),
         )
         with audit_context(actor=actor):
-            record_audit_event(action=AuditAction.CREATED, target=branch)
-        assert audit_trail_for(other).count() == 0
+            record_audit_event(action=AuditAction.APPROVED, target=branch)
+
+        other_trail = audit_trail_for(other)
+        # Only its own creation; nothing recorded against the other branch.
+        assert other_trail.count() == 1
+        assert {event.target_id for event in other_trail} == {str(other.pk)}
+        assert AuditAction.APPROVED not in {event.action for event in other_trail}
 
     def test_events_for_actor(self, actor: User, branch: Branch) -> None:
         with audit_context(actor=actor):

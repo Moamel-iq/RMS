@@ -10,6 +10,9 @@ from config.api import api
 urlpatterns: list[URLPattern | URLResolver] = [
     path("admin/", admin.site.urls),
     path("api/v1/", api.urls),
+    path("settings/", include("apps.organizations.urls")),
+    path("settings/", include("apps.units.urls")),
+    path("settings/", include("apps.core.urls")),
     path("", include("apps.users.urls")),
 ]
 

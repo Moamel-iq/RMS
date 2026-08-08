@@ -586,6 +586,310 @@ a.subnav__item:hover {
   font-size: 14.5px;
 }
 
+/* ========================================================= settings pages */
+
+.pagehead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-block-end: 18px;
+}
+
+.pagehead__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.pagehead__hint {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--ink-muted);
+  max-width: 70ch;
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-block-end: 14px;
+}
+
+.toolbar__search {
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 200px;
+}
+
+.toolbar__search input {
+  width: 100%;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 14.5px;
+  color: var(--ink);
+  text-align: start;
+  padding-inline: 14px;
+}
+
+.toolbar__search input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(227, 82, 5, 0.1);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding-inline: 18px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn--primary {
+  background: var(--brand);
+  color: #fff;
+}
+
+.btn--primary:hover {
+  background: var(--brand-hover);
+}
+
+.btn--ghost {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.btn--ghost:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+/* Wide tables scroll inside their own container; the page never does. */
+.tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+
+.table th,
+.table td {
+  padding: 13px 16px;
+  text-align: start;
+  white-space: nowrap;
+}
+
+.table thead th {
+  background: #fafbfc;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink-muted);
+  border-block-end: 1px solid var(--line);
+}
+
+.table tbody tr + tr td {
+  border-block-start: 1px solid var(--line);
+}
+
+.table tbody tr:hover td {
+  background: #fdfaf7;
+}
+
+.table__num {
+  font-variant-numeric: tabular-nums;
+}
+
+.table__actions {
+  display: flex;
+  gap: 12px;
+}
+
+.empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--ink-muted);
+}
+
+/* ------------------------------------------------------------------ chips */
+
+.chip {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.chip--on {
+  color: #085d3a;
+  background: #e6f6ee;
+}
+
+.chip--off {
+  color: #912018;
+  background: var(--danger-tint);
+}
+
+.chip--neutral {
+  color: var(--ink-muted);
+  background: #f1f2f4;
+}
+
+.chip--brand {
+  color: var(--brand);
+  background: var(--brand-tint);
+}
+
+/* ------------------------------------------------------------------ forms */
+
+.formcard {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 26px;
+  max-width: 720px;
+}
+
+.formgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.formrow--wide {
+  grid-column: 1 / -1;
+}
+
+.formrow__label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-block-end: 8px;
+  text-align: start;
+}
+
+.formrow__help {
+  margin-block-start: 6px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+.formrow__error {
+  margin-block-start: 6px;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+.formrow input[type="text"],
+.formrow input[type="email"],
+.formrow input[type="password"],
+.formrow input[type="time"],
+.formrow input[type="number"],
+.formrow select,
+.formrow textarea {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  text-align: start;
+  padding: 10px 14px;
+}
+
+.formrow input:focus,
+.formrow select:focus,
+.formrow textarea:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(227, 82, 5, 0.1);
+}
+
+.formrow--invalid input,
+.formrow--invalid select,
+.formrow--invalid textarea {
+  border-color: var(--danger-line);
+  background: var(--danger-tint);
+}
+
+.formrow--check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.formrow--check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+}
+
+.formactions {
+  display: flex;
+  gap: 10px;
+  margin-block-start: 24px;
+  padding-block-start: 20px;
+  border-block-start: 1px solid var(--line);
+}
+
+/* --------------------------------------------------------- build status */
+
+.status {
+  display: grid;
+  gap: 6px;
+}
+
+.status__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 14px;
+}
+
+.status__row--current {
+  background: var(--brand-tint);
+  font-weight: 700;
+}
+
+.status__label {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.status__key {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
 .muted {
   color: var(--ink-muted);
 }

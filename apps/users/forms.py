@@ -45,6 +45,54 @@ class UserAdminChangeForm(PhoneNormalizingMixin, UserChangeForm):
         fields = "__all__"
 
 
+class UserAccountCreateForm(PhoneNormalizingMixin, forms.ModelForm):
+    """Create an account from the settings screens."""
+
+    password1 = forms.CharField(label=_("كلمة المرور"), widget=forms.PasswordInput, strip=False)
+    password2 = forms.CharField(
+        label=_("تأكيد كلمة المرور"), widget=forms.PasswordInput, strip=False
+    )
+
+    class Meta:
+        model = User
+        fields = ("username", "phone", "first_name", "last_name", "is_staff")
+        labels = {
+            "username": _("اسم المستخدم"),
+            "phone": _("رقم الهاتف"),
+            "first_name": _("الاسم الأول"),
+            "last_name": _("الاسم الأخير"),
+            "is_staff": _("يدخل إلى شاشات الإعدادات"),
+        }
+        help_texts = {"phone": _("رقم موبايل عراقي. يُخزَّن بصيغة ‎+9647XXXXXXXXX.")}
+
+    def clean(self) -> dict[str, object]:
+        # super().clean() is typed as possibly None; cleaned_data is the
+        # authoritative dict either way.
+        super().clean()
+        cleaned: dict[str, object] = self.cleaned_data
+        if cleaned.get("password1") != cleaned.get("password2"):
+            self.add_error("password2", _("كلمتا المرور غير متطابقتين."))
+        return cleaned
+
+
+class UserAccountUpdateForm(PhoneNormalizingMixin, forms.ModelForm):
+    """
+    Username is absent on purpose: it is what the audit trail shows as the
+    actor, and changing it makes historic events harder to attribute.
+    """
+
+    class Meta:
+        model = User
+        fields = ("phone", "first_name", "last_name", "is_active", "is_staff")
+        labels = {
+            "phone": _("رقم الهاتف"),
+            "first_name": _("الاسم الأول"),
+            "last_name": _("الاسم الأخير"),
+            "is_active": _("فعّال"),
+            "is_staff": _("يدخل إلى شاشات الإعدادات"),
+        }
+
+
 class LoginForm(AuthenticationForm):
     """
     Sign-in form accepting a phone number or a username in one field.

@@ -1,0 +1,7 @@
+{# One form field: label, control, help, errors. #}
+<div class="formrow{% if field.errors %} formrow--invalid{% endif %}{% if wide %} formrow--wide{% endif %}">
+  <label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+  {{ field }}
+  {% if field.help_text %}<p class="formrow__help">{{ field.help_text }}</p>{% endif %}
+  {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+</div>
