@@ -28,6 +28,10 @@ STANDARD_UNITS: list[tuple[str, str, str, str, str, bool]] = [
     ("G", "غرام", "Gram", Dimension.MASS, "0.001", False),
     ("MG", "مليغرام", "Milligram", Dimension.MASS, "0.000001", False),
     ("TON", "طن", "Tonne", Dimension.MASS, "1000", False),
+    # Imperial mass, for imported goods priced by the pound or ounce. These
+    # are why FACTOR_PLACES is 12: an ounce needs every one of them.
+    ("LB", "رطل", "Pound", Dimension.MASS, "0.45359237", False),
+    ("OZ", "أونصة", "Ounce", Dimension.MASS, "0.028349523125", False),
     # Volume — base litre
     ("L", "لتر", "Litre", Dimension.VOLUME, "1", True),
     ("ML", "مليلتر", "Millilitre", Dimension.VOLUME, "0.001", False),

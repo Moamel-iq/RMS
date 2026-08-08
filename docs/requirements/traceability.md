@@ -54,6 +54,19 @@ every task's definition of done.
 | UOM-004 | Converting to base and back is lossless at 3 dp | units | `services.convert` | `::test_round_trip_is_lossless_within_the_declared_precision` | Done | Hypothesis property |
 | UOM-005 | Golden cases match hand calculation | units | `services.convert_to_stored_quantity` | `::TestGoldenCases` | Done | `docs/testing/golden-cases/units-conversion.md` |
 | UOM-006 | Packaging and yield are NOT unit conversions | units | seed list, module docstrings | `::test_packaging_units_are_deliberately_absent` | Done | Phase 1 and Phase 3 respectively |
+| UOM-007 | Factors stored once to base; inverses derived | units | `factor_to_base` | `apps/units/tests/test_conversion.py::TestBaseHelpers` | Done | No independent reciprocals to disagree |
+| UOM-008 | 12-dp factor precision stores an ounce exactly | units | `FACTOR_PLACES` | `::test_an_ounce_is_stored_to_full_precision` | Done | Confirmed, not to be reduced |
+| MON-001 | Posted amounts store at 3 dp, ROUND_HALF_UP | core | `money.quantize_money` | `apps/core/tests/test_money.py::TestPostedAmountPrecision` | Done | ADR-012 |
+| MON-002 | IQD displays at 0 dp; display values are never stored | core | `money.money_for_display` | `::TestDisplay` | Done | |
+| MON-003 | Unit prices and rates keep 6 dp internally | core | `quantize_unit_price`, `quantize_rate` | `::TestHigherInternalPrecision` | Done | |
+| MON-004 | Money shares no rounding with quantities | core | separate modules and naming | `::test_money_precision_is_independent_of_quantity_precision` | Done | |
+| MON-005 | Reversals cancel exactly | core | `MONEY_ROUNDING` | `::test_rounding_is_symmetric_so_reversals_cancel` | Done | Ties away from zero |
+| MON-006 | Allocated lines sum exactly to the source amount | core | `allocation.allocate_proportionally` | `apps/core/tests/test_allocation.py::test_parts_always_sum_to_the_whole` | Done | Largest remainder; Hypothesis property |
+| MON-007 | Residual ties break on line order | core | `allocation` sort key | `::TestDeterminism` | Done | Caller must pass a stable order |
+| MON-008 | A rate is applied to the total, not line by line | core | `allocation.allocate_by_rate` | `::test_rate_is_applied_to_the_total_not_line_by_line` | Done | |
+| MON-009 | Credit notes mirror their invoice line for line | core | sign handling in `allocation` | `::test_reversal_is_the_exact_mirror` | Done | Hypothesis property |
+| MON-010 | Nearest-250 rounding is off | core | `CASH_ROUNDING_ENABLED` | `::TestCashRoundingIsOff` | Done | Tripwire test |
+| MON-011 | Cash rounding residual posts to an explicit account | core | `apply_cash_settlement_rounding` returns `(rounded, adjustment)` | `::test_the_adjustment_always_reconciles` | Partial | Account does not exist until the chart of accounts is decided |
 
 ## Not yet mapped
 

@@ -20,14 +20,26 @@ def seeded() -> None:
     call_command("seed_units", verbosity=0)
 
 
+SEEDED_UNIT_COUNT = 10
+
+
 class TestSeed:
     def test_seed_creates_the_standard_units(self, seeded: None) -> None:
-        assert UnitOfMeasure.objects.count() == 8
+        assert UnitOfMeasure.objects.count() == SEEDED_UNIT_COUNT
 
     def test_seed_is_idempotent(self, seeded: None) -> None:
         """Reference data must be reproducible; running twice changes nothing."""
         call_command("seed_units", verbosity=0)
-        assert UnitOfMeasure.objects.count() == 8
+        assert UnitOfMeasure.objects.count() == SEEDED_UNIT_COUNT
+
+    def test_an_ounce_is_stored_to_full_precision(self, seeded: None) -> None:
+        """
+        0.028349523125 needs twelve decimal places. Truncating it would make
+        every ounce conversion permanently wrong, which is why FACTOR_PLACES
+        is 12 rather than 6.
+        """
+        assert unit_by_code("OZ").factor_to_base == Decimal("0.028349523125")
+        assert unit_by_code("LB").factor_to_base == Decimal("0.45359237")
 
     def test_every_dimension_has_exactly_one_base_unit(self, seeded: None) -> None:
         for dimension in Dimension:
@@ -134,12 +146,12 @@ class TestDatabaseConstraints:
 class TestSelectors:
     def test_units_in_dimension(self, seeded: None) -> None:
         mass_codes = set(units_in_dimension(Dimension.MASS).values_list("code", flat=True))
-        assert mass_codes == {"KG", "G", "MG", "TON"}
+        assert mass_codes == {"KG", "G", "MG", "TON", "LB", "OZ"}
 
     def test_convertible_units_excludes_itself_and_other_dimensions(self, seeded: None) -> None:
         kg = unit_by_code("KG")
         codes = set(convertible_units(kg).values_list("code", flat=True))
-        assert codes == {"G", "MG", "TON"}
+        assert codes == {"G", "MG", "TON", "LB", "OZ"}
 
     def test_unknown_code_raises_clearly(self, seeded: None) -> None:
         with pytest.raises(ValidationError) as exc:

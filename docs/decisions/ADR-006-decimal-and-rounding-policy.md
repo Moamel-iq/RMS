@@ -1,6 +1,6 @@
 # ADR-006 — Decimal and rounding policy (quantities)
 
-- **Status:** Accepted for **quantities**. The monetary policy is **not decided**.
+- **Status:** Accepted. Covers **quantities**; the monetary policy is ADR-012.
 - **Date:** 2026-08-08
 - **Related:** ADR-004 (append-only ledgers), `docs/testing/golden-cases/units-conversion.md`
 
@@ -119,18 +119,14 @@ in a quantity has already lost the exactness the policy exists to preserve.
 
 ## Open — needs a decision
 
-1. **Monetary precision and rounding.** Not decided. Required before the
-   accounting kernel (Task 0.6). Specifically: decimal places stored for IQD,
-   places displayed, rounding mode, whether line values or only document
-   totals are rounded, how residual rounding differences are allocated, and
-   whether any amount rounds to the nearest 250 IQD.
-2. **Conversion factor precision.** `FACTOR_PLACES = 12` is **inferred, not
-   decided**. Twelve is the smallest value that stores one ounce exactly
-   (`0.028349523125` kg). Everything Khan Mandi plausibly uses today is
-   metric and needs at most six, so twelve is headroom rather than a
-   requirement — but a factor truncated below what it needs is wrong in every
-   conversion that uses it, permanently, so the generous default was chosen.
-   Confirm or reduce.
+1. ~~Monetary precision and rounding.~~ **Decided** — see
+   [ADR-012](ADR-012-monetary-precision-and-allocation.md).
+2. ~~Conversion factor precision.~~ **Confirmed at 12.** Not to be reduced.
+   Twelve is the smallest value that stores one ounce exactly
+   (`0.028349523125` kg). Factors are stored once, from each unit to its
+   dimension's base; inverse conversions are derived mathematically rather
+   than stored as independent reciprocals, so a unit pair can never carry two
+   factors that disagree.
 3. **Per-item fraction rules and minimum issue increments.** The charter lists
    these as conversion attributes. They are properties of an *item*, not of a
    unit — half a chicken is meaningful, half a cup is not, and both are COUNT

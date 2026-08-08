@@ -52,8 +52,16 @@ Docker/Celery), the installation plan wins. See ADR-010.
 - Quantities go through `apps/core/quantity.py`: 3 dp stored, `ROUND_HALF_UP`
   (ties away from zero), quantized ONCE at the storage boundary. Never
   quantize an intermediate — see ADR-006 for the counterexample.
-- Money has its own precision and must NOT reuse the quantity helpers. That
-  policy is still undecided; do not invent one.
+- Money goes through `apps/core/money.py`: posted lines 3 dp, display 0 dp,
+  unit prices and rates 6 dp, `ROUND_HALF_UP`. It shares nothing with the
+  quantity helpers — see ADR-012.
+- A document total is the SUM of its posted lines. Never round a total
+  independently of its lines.
+- Split an amount across lines with `apps/core/allocation.py`, never by
+  rating each line and rounding. Pass lines in a stable order.
+- Nearest-250 rounding is OFF and applies to no accounting value. Cash
+  settlement rounding, if ever enabled, touches only the cash payable and
+  posts its difference to a cash rounding gain/loss account.
 - Use moving weighted-average inventory costing.
 - Reject negative stock during normal posting.
 - Use `transaction.atomic()` for complete posting operations.
