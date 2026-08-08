@@ -75,6 +75,40 @@ def validate_line_sides(lines: Sequence[PostingLine]) -> None:
             )
 
 
+def validate_both_sides_present(lines: Sequence[PostingLine]) -> None:
+    """
+    At least one debit line and at least one credit line.
+
+    Balance alone is not enough. Two lines of zero balance perfectly and record
+    nothing; so would a set of debits that happened to sum to the same figure
+    as no credits at all. An entry has to move value in both directions to be
+    an entry.
+    """
+    has_debit = any(quantize_money(line.debit) > 0 for line in lines)
+    has_credit = any(quantize_money(line.credit) > 0 for line in lines)
+
+    if not has_debit or not has_credit:
+        raise ValidationError(
+            _("An entry needs at least one debit line and at least one credit line."),
+            code="one_sided_entry",
+        )
+
+
+def validate_entry_has_value(lines: Sequence[PostingLine]) -> None:
+    """
+    The entry moves a non-zero amount.
+
+    A balanced entry of zero passes every other check and means nothing. It is
+    noise in a ledger that has to reconcile.
+    """
+    total = sum((quantize_money(line.debit) for line in lines), Decimal("0"))
+    if total == 0:
+        raise ValidationError(
+            _("An entry must move a non-zero amount."),
+            code="zero_value_entry",
+        )
+
+
 def validate_balanced(lines: Sequence[PostingLine]) -> None:
     """
     Total debits equal total credits, compared on STORED 3-decimal values.
@@ -99,12 +133,25 @@ def validate_accounts_are_postable(lines: Sequence[PostingLine]) -> None:
 
     Posting to a parent stops its children summing to it, and from that point
     no report over the hierarchy can be trusted.
+
+    "An account with children never accepts postings" is structural rather
+    than checked: `is_postable` is true only for a four-segment detail code,
+    and no valid code extends one, so a postable account cannot acquire a
+    child. The explicit check here is the second lock.
     """
     for index, line in enumerate(lines, start=1):
+        # Postability first: it is the reason in almost every real case, and
+        # "this is a group account" is more useful than "this has children".
         if not line.account.is_postable:
             raise ValidationError(
                 _("Line %(line)s posts to %(code)s, which is a group account."),
                 code="account_not_postable",
+                params={"line": index, "code": line.account.code},
+            )
+        if line.account.children.exists():
+            raise ValidationError(
+                _("Line %(line)s posts to %(code)s, which has child accounts."),
+                code="account_has_children",
                 params={"line": index, "code": line.account.code},
             )
         if not line.account.is_active:
@@ -194,6 +241,27 @@ def validate_period_accepts_postings(period: AccountingPeriod) -> None:
             _("Period %(period)s is soft-closed to routine postings."),
             code="period_soft_closed",
             params={"period": str(period)},
+        )
+
+
+def validate_parent_has_no_posting_history(parent: Account) -> None:
+    """
+    An account that has ever received posted lines must never become a parent.
+
+    Adding a child beneath it would turn a posting account into a rollup, and
+    its own historic lines would then sit at a level that no longer accepts
+    them — the hierarchy would stop summing correctly from that day backwards.
+
+    Structurally this cannot happen while codes carry their level: only a
+    four-segment detail code is postable, and no valid code extends one. The
+    check exists so that a future change to the code scheme cannot quietly
+    open the hole.
+    """
+    if parent.journal_lines.exists():
+        raise ValidationError(
+            _("Account %(code)s already has posted lines and cannot become a parent."),
+            code="parent_has_posting_history",
+            params={"code": parent.code},
         )
 
 

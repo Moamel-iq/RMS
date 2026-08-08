@@ -140,6 +140,19 @@ class FiscalYear(TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.organization.code} {self.year}"
 
+    @property
+    def is_closed(self) -> bool:
+        """
+        Derived, never stored.
+
+        A stored flag would be a second source of truth that could disagree
+        with the periods it summarises — and the periods are the ones postings
+        are actually checked against. A year is closed when every period in it
+        is closed, and not a moment before.
+        """
+        periods = self.periods.all()
+        return bool(periods) and all(period.state == PeriodState.CLOSED for period in periods)
+
 
 class AccountingPeriod(TimeStampedModel):
     """

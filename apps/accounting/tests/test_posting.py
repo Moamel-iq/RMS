@@ -56,6 +56,20 @@ def sale_lines(
     ]
 
 
+def close_through(organization: Organization, period: AccountingPeriod) -> None:
+    """
+    Close every period up to and including this one, in order.
+
+    Closing is sequential now, so a test that wants March closed must close
+    January and February first.
+    """
+    earlier = AccountingPeriod.objects.filter(
+        fiscal_year__organization=organization, period_number__lte=period.period_number
+    ).order_by("period_number")
+    for each in earlier:
+        close_period(period=each, reason="month end")
+
+
 class TestBalance:
     def test_a_balanced_entry_posts(
         self,
@@ -621,7 +635,7 @@ class TestPeriods:
         hall: CostCenter,
     ) -> None:
         period = resolve_period(organization=organization, accounting_date=POSTING_DATE)
-        close_period(period=period, reason="month end")
+        close_through(organization, period)
 
         with pytest.raises(ValidationError) as exc:
             post_entry(
@@ -654,7 +668,7 @@ class TestPeriods:
 
     def test_reopening_requires_a_reason(self, organization: Organization) -> None:
         period = resolve_period(organization=organization, accounting_date=POSTING_DATE)
-        close_period(period=period)
+        close_through(organization, period)
         with pytest.raises(ValidationError) as exc:
             reopen_period(period=period, reason="   ")
         assert exc.value.code == "reopen_reason_required"
@@ -664,7 +678,7 @@ class TestPeriods:
     ) -> None:
         period = resolve_period(organization=organization, accounting_date=POSTING_DATE)
         with audit_context(actor=actor):
-            close_period(period=period, reason="month end")
+            close_through(organization, period)
             reopen_period(period=period, reason="supplier invoice arrived late")
 
         event = AuditEvent.objects.filter(action=AuditAction.PERIOD_REOPENED).latest("occurred_at")
@@ -680,7 +694,7 @@ class TestPeriods:
         hall: CostCenter,
     ) -> None:
         period = resolve_period(organization=organization, accounting_date=POSTING_DATE)
-        close_period(period=period)
+        close_through(organization, period)
         reopen_period(period=period, reason="late invoice")
         entry = post_entry(
             organization=organization,
@@ -899,7 +913,7 @@ class TestReversal:
         reverse_entry(entry=original, idempotency_key="once-rev", reason="error")
         with pytest.raises(ValidationError) as exc:
             reverse_entry(entry=original, idempotency_key="twice-rev", reason="again")
-        assert exc.value.code == "not_posted"
+        assert exc.value.code == "already_reversed"
         assert JournalEntry.objects.filter(reverses=original).count() == 1
 
     def test_reversal_is_audited(
@@ -960,7 +974,7 @@ class TestReversal:
             idempotency_key="closed-rev",
         )
         period = resolve_period(organization=organization, accounting_date=POSTING_DATE)
-        close_period(period=period)
+        close_through(organization, period)
 
         with pytest.raises(ValidationError) as exc:
             reverse_entry(entry=original, idempotency_key="closed-rev-r", reason="fix")

@@ -40,11 +40,14 @@ from apps.accounting.validators import (
     validate_account_parentage,
     validate_accounts_are_postable,
     validate_balanced,
+    validate_both_sides_present,
     validate_branches_are_active,
     validate_cost_centers,
+    validate_entry_has_value,
     validate_line_sides,
     validate_lines_present,
     validate_organization_consistency,
+    validate_parent_has_no_posting_history,
     validate_period_accepts_postings,
 )
 from apps.core.models import AuditAction
@@ -202,8 +205,63 @@ def _change_period_state(
     return period
 
 
+def _validate_close_order(period: AccountingPeriod) -> None:
+    """
+    A period cannot close while an earlier one in the same year is still open.
+
+    Closing out of order would let February be sealed while January is still
+    accepting entries, so January's closing figures — and every balance
+    carried forward from them — could still change afterwards.
+    """
+    earlier_open = (
+        AccountingPeriod.objects.filter(
+            fiscal_year=period.fiscal_year, period_number__lt=period.period_number
+        )
+        .exclude(state=PeriodState.CLOSED)
+        .order_by("period_number")
+        .first()
+    )
+    if earlier_open is not None:
+        raise ValidationError(
+            _("Period %(earlier)s must be closed before %(period)s."),
+            code="close_out_of_order",
+            params={"earlier": str(earlier_open), "period": str(period)},
+        )
+
+
+def _validate_reopen_order(period: AccountingPeriod) -> None:
+    """
+    A period cannot reopen while a later one is still closed.
+
+    Reverse chronology, and for the same reason: reopening January under a
+    sealed February would let January change beneath figures February has
+    already carried forward.
+    """
+    later_closed = (
+        AccountingPeriod.objects.filter(
+            fiscal_year=period.fiscal_year,
+            period_number__gt=period.period_number,
+            state=PeriodState.CLOSED,
+        )
+        .order_by("-period_number")
+        .first()
+    )
+    if later_closed is not None:
+        raise ValidationError(
+            _("Period %(later)s must be reopened before %(period)s."),
+            code="reopen_out_of_order",
+            params={"later": str(later_closed), "period": str(period)},
+        )
+
+
 def soft_close_period(*, period: AccountingPeriod, reason: str = "") -> AccountingPeriod:
-    """Stop routine posting; authorized corrections still pass."""
+    """
+    Stop routine posting. Specifically-authorized adjustments and reversals
+    still pass; that authorization arrives with the Task 0.7 permissions.
+
+    Not order-constrained: a soft close is reversible and carries no figures
+    forward, so sealing March before February is merely unusual, not unsound.
+    """
     return _change_period_state(
         period=period,
         new_state=PeriodState.SOFT_CLOSED,
@@ -214,6 +272,7 @@ def soft_close_period(*, period: AccountingPeriod, reason: str = "") -> Accounti
 
 def close_period(*, period: AccountingPeriod, reason: str = "") -> AccountingPeriod:
     """Close a period. Nothing posts into it without an authorized reopening."""
+    _validate_close_order(period)
     return _change_period_state(
         period=period,
         new_state=PeriodState.CLOSED,
@@ -235,6 +294,7 @@ def reopen_period(*, period: AccountingPeriod, reason: str) -> AccountingPeriod:
             _("Reopening a period requires a reason."),
             code="reopen_reason_required",
         )
+    _validate_reopen_order(period)
     return _change_period_state(
         period=period,
         new_state=PeriodState.OPEN,
@@ -291,6 +351,7 @@ def create_account(
                 code="missing_parent",
                 params={"parent": parent_code},
             )
+        validate_parent_has_no_posting_history(parent)
 
     if requires_cost_center is None:
         requires_cost_center = is_postable and default_requires_cost_center(account_class)
@@ -425,6 +486,8 @@ def post_entry(
 
     validate_lines_present(lines)
     validate_line_sides(lines)
+    validate_both_sides_present(lines)
+    validate_entry_has_value(lines)
     validate_balanced(lines)
     validate_accounts_are_postable(lines)
     validate_branches_are_active(lines)
@@ -505,6 +568,16 @@ def reverse_entry(
     replacement all stay visible, which is what makes the correction auditable
     rather than a quiet rewrite.
     """
+    # The explicit relationship is checked first so a second attempt returns
+    # `already_reversed` — the accurate domain error — rather than the generic
+    # `not_posted` it would otherwise hit, since the first reversal already
+    # moved the original to REVERSED.
+    if JournalEntry.objects.filter(reverses=entry).exists():
+        raise ValidationError(
+            _("Entry %(number)s has already been reversed."),
+            code="already_reversed",
+            params={"number": entry.entry_number},
+        )
     if entry.status != JournalEntryStatus.POSTED:
         raise ValidationError(
             _("Only a posted entry can be reversed."),
@@ -512,12 +585,6 @@ def reverse_entry(
         )
     if not reason.strip():
         raise ValidationError(_("A reversal requires a reason."), code="reversal_reason_required")
-    if hasattr(entry, "reversed_by"):
-        raise ValidationError(
-            _("Entry %(number)s has already been reversed."),
-            code="already_reversed",
-            params={"number": entry.entry_number},
-        )
 
     mirrored = [
         PostingLine(

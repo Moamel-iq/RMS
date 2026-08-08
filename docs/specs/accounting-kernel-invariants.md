@@ -21,6 +21,43 @@ make a suite pass.
 | 11 | Posted journals are immutable; corrections are reversals | Triggers `accounting_journalentry_no_change`, `accounting_journalline_no_change` | `TestImmutability`, `TestReversal` |
 | 12 | Posting, reversal, and period reopening are audit logged | `record_audit_event` in every service | `test_reopening_is_audited_with_its_reason`, `test_reversal_is_audited` |
 
+### Hardening pass (approved after the first Task 0.6 review)
+
+| Rule | Where | Test |
+|---|---|---|
+| An account that has received posted lines can never become a parent | `validate_parent_has_no_posting_history`, called from `create_account` | `TestHierarchyExclusivity` |
+| An account with children can never receive a line | `validate_accounts_are_postable` | `test_an_account_with_children_cannot_receive_a_line` |
+| An entry needs at least one debit **and** one credit line | `validate_both_sides_present` | `TestEntryShape` |
+| A balanced entry of zero is not a valid entry | `validate_entry_has_value` | `test_a_two_line_zero_value_entry_is_refused` |
+| Every line amount is strictly positive | `validate_line_sides` | `test_every_line_amount_must_be_positive` |
+| Closing is chronological: Jan → Feb → Mar | `_validate_close_order` | `TestPeriodOrdering` |
+| Reopening is reverse-chronological: Mar → Feb → Jan | `_validate_reopen_order` | `test_a_period_cannot_reopen_while_a_later_one_is_closed` |
+| Fiscal-year closure is **derived**, never stored | `FiscalYear.is_closed` property | `TestFiscalYearClosureIsDerived` |
+| A second reversal reports `already_reversed`, not `not_posted` | `reverse_entry` checks the relationship first | `TestReversalErrorAccuracy` |
+| The deferred balance trigger fires at a real COMMIT | `test_commit_boundary.py` (`transaction=True`) | `test_an_unbalancing_line_is_refused_at_commit` |
+
+**Hierarchy exclusivity is structural first.** Only a four-segment detail code
+is postable, and no valid code extends one, so a postable account cannot
+acquire a child and a parent cannot become postable. The explicit checks are
+the second lock, so a future change to the code scheme cannot quietly open the
+hole.
+
+**`is_adjustment` carries no date rule.** A month-end adjustment is a
+legitimate accounting act. A year-end adjustment is simply
+`is_adjustment=True` with `accounting_date = fiscal_year.end_date`. There is
+deliberately no "adjustments must be dated at year end" constraint.
+
+**Soft-close semantics.** `OPEN` — normal rules. `SOFT_CLOSED` — routine
+posting blocked; specifically-authorized adjustments and reversals allowed.
+`CLOSED` — nothing posts or reverses. **The authorization that gates the
+soft-closed path does not exist yet**; today the capability is open to any
+caller. Task 0.7 supplies it.
+
+**Both balance tests are kept on purpose.** The `SET CONSTRAINTS ALL
+IMMEDIATE` test is focused and fast; the `transaction=True` test reaches a
+genuine COMMIT. Without the second, the suite would be green while never once
+exercising the boundary the constraint actually fires at.
+
 ### Enforcement beyond the list
 
 - **Idempotency** — a unique `idempotency_key`; a retried command returns the

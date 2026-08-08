@@ -99,6 +99,34 @@ runtime would either crash mid-transaction or silently bury the residual.
 - **Allowing postings to group accounts** "just for corrections". This is how
   a trial balance stops reconciling to its own detail.
 
+## Amendment — hierarchy exclusivity (approved 2026-08-08)
+
+Codes carry their level, and the four levels are:
+
+```
+1            class
+1-01         group
+1-01-01      subgroup
+1-01-01-001  posting / detail account
+```
+
+Two invariants make the hierarchy trustworthy rather than decorative:
+
+- **An account that has ever received posted lines must never become a
+  parent.** Adding a child beneath it would turn a posting account into a
+  rollup, and its own historic lines would then sit at a level that no longer
+  accepts them — the hierarchy would stop summing correctly from that day
+  backwards.
+- **An account with children must never accept postings.**
+
+Both are *structural* first: only a four-segment code is postable and no valid
+code extends one, so neither state is reachable through the code scheme.
+`validate_parent_has_no_posting_history` and the children check in
+`validate_accounts_are_postable` are the second lock, so a future change to the
+code scheme cannot quietly open the hole.
+
+Archived codes stay reserved permanently, as already implemented.
+
 ## Consequences
 
 - The seed is deterministic reference data, like the units seed, so reports are

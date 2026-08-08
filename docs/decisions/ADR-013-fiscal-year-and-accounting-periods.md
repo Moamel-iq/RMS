@@ -55,8 +55,39 @@ timestamp, and the period affected.
   01:30 belongs to the previous business day, and the period is derived from
   the accounting date, not from the timestamp.
 
+## Amendment — period lifecycle ordering (approved 2026-08-08)
+
+**Closing is chronological.** A period cannot become `CLOSED` while an earlier
+period in the same fiscal year is not `CLOSED`. Sealing February while January
+still accepts entries would let January's closing figures — and every balance
+carried forward from them — change afterwards.
+
+**Reopening is reverse-chronological.** A `CLOSED` period cannot be reopened
+while a later period in the same year is still `CLOSED`, for the same reason
+in the other direction.
+
+```
+Close:   Jan -> Feb -> Mar -> ...
+Reopen:  ... -> Mar -> Feb -> Jan
+```
+
+Soft close is deliberately **not** order-constrained: it is reversible and
+carries no figures forward, so sealing March before February is unusual rather
+than unsound.
+
+**Fiscal-year closure is derived, never stored.** `FiscalYear.is_closed` is a
+property: true when every period in the year is `CLOSED`. A stored flag would
+be a second source of truth that could disagree with the periods postings are
+actually checked against.
+
+**Soft-close authorization.** `SOFT_CLOSED` blocks routine posting but permits
+specifically-authorized adjustments and reversals. Those permissions arrive in
+Task 0.7 (`accounting.post_soft_closed_adjustment`,
+`accounting.reverse_in_soft_closed_period`), each requiring a non-empty reason
+and a recorded actor. Until then the capability exists and nothing restricts
+who may use it.
+
 ## Open
 
 - Who may reopen a period — which role, and whether a second approver is
   required.
-- Whether `SOFT_CLOSED` blocks by role or by document type.
