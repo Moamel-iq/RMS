@@ -53,12 +53,14 @@ THIRD_PARTY_APPS = [
 ]
 
 # Foundation apps are added by their own tasks:
-#   Task 0.3  apps.organizations
 #   Task 0.4  apps.units
-#   Task 0.5  apps.core (audit foundation)
 #   Task 0.6  apps.accounting
+# apps.core currently holds only abstract models; Task 0.5 expands it into the
+# full audit foundation.
 LOCAL_APPS: list[str] = [
+    "apps.core",
     "apps.users",
+    "apps.organizations",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -123,6 +125,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "django.template.context_processors.i18n",
+                "apps.core.context_processors.shell",
             ],
         },
     },

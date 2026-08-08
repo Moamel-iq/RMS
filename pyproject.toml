@@ -90,7 +90,7 @@ ignore_missing_imports = true
 # but not subscriptable at runtime: writing UserAdmin[User] raises TypeError
 # when Django imports the module. Narrowly disabled here rather than adding
 # django-stubs-ext as a production dependency purely to satisfy the checker.
-module = ["apps.users.admin", "apps.users.forms"]
+module = ["apps.users.admin", "apps.users.forms", "apps.organizations.admin"]
 disallow_any_generics = false
 
 [tool.django-stubs]
