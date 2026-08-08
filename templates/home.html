@@ -1,30 +1,64 @@
 {% extends "shell.html" %}
 {% load i18n %}
 
-{% block title %}{% translate "الرئيسية" %} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ active_module.label }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="panel">
-    <h1 class="panel__title">
-      {% blocktranslate with name=user.get_username %}أهلاً {{ name }}{% endblocktranslate %}
-    </h1>
-    <p class="muted">
-      {% translate "الوحدات التشغيلية لم تُبنَ بعد. تظهر في القائمة الجانبية بترتيب مراحل التنفيذ المعتمد." %}
-    </p>
-  </div>
+  {% if active_module.key == "home" %}
 
-  <div class="panel">
-    <h2 class="panel__title">{% translate "الفروع المتاحة لك" %}</h2>
-    {% if user_branches %}
-      <ul>
-        {% for branch in user_branches %}
-          <li>{{ branch.name_ar }} — {{ branch.code }} ({{ branch.organization.name_ar }})</li>
+    <div class="panel">
+      <h1 class="panel__title">
+        {% blocktranslate with name=user.get_username %}أهلاً {{ name }}{% endblocktranslate %}
+      </h1>
+      <p class="muted">
+        {% translate "الوحدات التشغيلية لم تُبنَ بعد. اختر وحدة من الشريط الجانبي لمعرفة ما ستحتويه." %}
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__title">{% translate "الفروع المتاحة لك" %}</h2>
+      {% if user_branches %}
+        <ul>
+          {% for branch in user_branches %}
+            <li>{{ branch.name_ar }} — {{ branch.code }} ({{ branch.organization.name_ar }})</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">
+          {% translate "لا توجد فروع مسندة إليك. يمنح المسؤول الصلاحية من الإعدادات." %}
+        </p>
+      {% endif %}
+    </div>
+
+  {% else %}
+
+    {# A previewed module. The content area must say what the sidebar says, #}
+    {# or selecting a module looks like it did nothing at all.              #}
+    <div class="panel">
+      <div class="panel__head">
+        <h1 class="panel__title">{{ active_module.label }}</h1>
+        <span class="pill">{{ active_module.phase }}</span>
+      </div>
+      <p class="muted">
+        {% translate "هذه الوحدة لم تُبنَ بعد. القائمة الجانبية تعرض الشاشات التي ستحتويها عند تنفيذ مرحلتها." %}
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__title">{% translate "ما ستحتويه هذه الوحدة" %}</h2>
+      <ul class="planned">
+        {% for section in active_module.sections %}
+          <li class="planned__item">
+            <span>{{ section.label }}</span>
+            {% if section.available %}
+              <a class="linkish" href="{% url section.url_name %}">{% translate "متاح" %}</a>
+            {% else %}
+              <span class="subnav__badge">{% translate "قريباً" %}</span>
+            {% endif %}
+          </li>
         {% endfor %}
       </ul>
-    {% else %}
-      <p class="muted">
-        {% translate "لا توجد فروع مسندة إليك. يمنح المسؤول الصلاحية من الإعدادات." %}
-      </p>
-    {% endif %}
-  </div>
+    </div>
+
+  {% endif %}
 {% endblock %}

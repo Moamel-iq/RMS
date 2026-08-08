@@ -134,6 +134,33 @@ class TestShellRendering:
             for section in module.sections:
                 assert str(section.label) in body, f"{module.key}:{section.label}"
 
+    def test_the_content_area_follows_the_selected_module(self, client: Client, user: User) -> None:
+        """
+        The content panel must say what the sidebar says. Showing the home
+        page under an "المخزون" sidebar reads as the module having failed to
+        open.
+        """
+        client.force_login(user)
+        body = client.get(reverse("users:home"), {"module": "inventory"}).content.decode()
+        assert "هذه الوحدة لم تُبنَ بعد" in body
+        assert "المرحلة ١" in body
+        # The home page's own content must not still be sitting there.
+        assert "الفروع المتاحة لك" not in body
+
+    def test_the_content_area_lists_what_the_module_will_contain(
+        self, client: Client, user: User
+    ) -> None:
+        client.force_login(user)
+        body = client.get(reverse("users:home"), {"module": "sales"}).content.decode()
+        assert "تسويات التطبيقات" in body
+        assert "إقفال الكاشير" in body
+
+    def test_home_still_shows_the_home_content(self, client: Client, user: User) -> None:
+        client.force_login(user)
+        body = client.get(reverse("users:home")).content.decode()
+        assert "الفروع المتاحة لك" in body
+        assert "هذه الوحدة لم تُبنَ بعد" not in body
+
     def test_unknown_module_falls_back_instead_of_erroring(
         self, client: Client, user: User
     ) -> None:
