@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{# Application shell: module rail, section sidebar, top bar, content. #}
+{# In RTL the first flex child sits rightmost, so the rail leads.     #}
+
+{% block content %}
+  <div class="shell">
+
+    <nav class="rail" aria-label="{% translate 'الوحدات' %}">
+      <a class="rail__brand" href="{% url 'users:home' %}" aria-label="{% translate 'خان مندي' %}">
+        <svg width="26" height="26" viewBox="0 0 40 40" aria-hidden="true">
+          <path fill="#e35205" d="M16 4h8v12h12v8H24v12h-8V24H4v-8h12z"/>
+        </svg>
+      </a>
+
+      <ul class="rail__list">
+        {% for module in nav_modules %}
+          {# Modules with no pages yet still open their sidebar, so the shell #}
+          {# shows what each phase will contain instead of hiding it.        #}
+          <li>
+            <a class="rail__item{% if module.key == active_module.key %} is-active{% endif %}{% if not module.available %} is-unavailable{% endif %}"
+               href="{% if module.available %}{% url module.url_name %}{% else %}{% url 'users:home' %}?module={{ module.key }}{% endif %}"
+               {% if module.key == active_module.key %}aria-current="page"{% endif %}
+               {% if not module.available %}title="{% blocktranslate with phase=module.phase %}{{ phase }} — لم تُبنَ بعد{% endblocktranslate %}"{% endif %}>
+              <span class="rail__icon">{{ module.icon }}</span>
+              <span class="rail__label">{{ module.label }}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </nav>
+
+    <aside class="subnav" aria-label="{{ active_module.label }}">
+      <header class="subnav__header">
+        <h2 class="subnav__title">{{ active_module.label }}</h2>
+        <span class="subnav__phase">{{ active_module.phase }}</span>
+      </header>
+      <ul class="subnav__list">
+        {% for section in active_module.sections %}
+          <li>
+            {% if section.available %}
+              <a class="subnav__item" href="{% url section.url_name %}">{{ section.label }}</a>
+            {% else %}
+              <span class="subnav__item is-unavailable" aria-disabled="true">
+                {{ section.label }}
+                <span class="subnav__badge">{% translate "قريباً" %}</span>
+              </span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </aside>
+
+    <div class="shell__main">
+      <header class="topbar">
+        <form class="search" role="search" onsubmit="return false;">
+          <span class="search__icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+            </svg>
+          </span>
+          <input class="search__input" type="search" id="quick-search"
+                 placeholder="{% translate 'البحث السريع' %}"
+                 aria-label="{% translate 'البحث السريع' %}">
+          <kbd class="search__hint">Ctrl</kbd><kbd class="search__hint">K</kbd>
+        </form>
+
+        <div class="topbar__actions">
+          {% if user_branches %}
+            <div class="branchpill" title="{% translate 'الفروع المتاحة لك' %}">
+              {% for branch in user_branches %}
+                <span class="branchpill__item">{{ branch.name_ar }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <button class="iconbtn" type="button" aria-label="{% translate 'التنبيهات' %}">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7"/>
+              <path d="M13.7 20a2 2 0 0 1-3.4 0"/>
+            </svg>
+          </button>
+
+          <button class="iconbtn" type="button" aria-label="{% translate 'المساعدة' %}">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.8-.9 1.4v.4"/>
+              <path d="M12 17h.01"/>
+            </svg>
+          </button>
+
+          <form method="post" action="{% url 'users:logout' %}">
+            {% csrf_token %}
+            <button class="iconbtn" type="submit" aria-label="{% translate 'تسجيل الخروج' %}">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v2"/>
+                <path d="M11 12h10"/><path d="m18 9 3 3-3 3"/>
+              </svg>
+            </button>
+          </form>
+        </div>
+      </header>
+
+      <main class="content">
+        {% block page %}{% endblock %}
+      </main>
+    </div>
+
+  </div>
+
+  <script>
+    // Ctrl+K / Cmd+K focuses quick search.
+    document.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        document.getElementById("quick-search")?.focus();
+      }
+    });
+  </script>
+{% endblock %}

@@ -21,6 +21,7 @@
   --danger-line: #fda29b;
 
   --surface: #ffffff;
+  --rail-bg: #fbf7f3;
   --radius-card: 20px;
   --radius-field: 12px;
 
@@ -235,6 +236,326 @@ body {
   text-align: center;
   font-size: 15px;
   color: var(--ink-muted);
+}
+
+/* ============================================================ app shell */
+/*
+ * Three columns. In RTL the first flex child sits rightmost, so the rail
+ * leads the source order and lands on the right — flipping to LTR reverses
+ * the whole shell with no rule changes.
+ */
+
+.shell {
+  display: flex;
+  min-height: 100vh;
+  align-items: stretch;
+}
+
+.shell__main {
+  flex: 1;
+  min-width: 0; /* lets wide tables scroll instead of stretching the page */
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------ module rail */
+
+.rail {
+  flex: none;
+  width: 92px;
+  background: var(--rail-bg);
+  border-inline-start: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-block: 14px 20px;
+  gap: 10px;
+}
+
+.rail__brand {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  margin-block-end: 6px;
+}
+
+.rail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rail__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 11px 4px;
+  text-decoration: none;
+  color: var(--ink-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: center;
+  border-inline-end: 3px solid transparent;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.rail__item svg {
+  width: 22px;
+  height: 22px;
+}
+
+.rail__label {
+  line-height: 1.25;
+}
+
+a.rail__item:hover {
+  background: var(--brand-tint);
+  color: var(--ink);
+}
+
+.rail__item.is-active {
+  background: var(--brand-tint);
+  color: var(--brand);
+  /* The marker sits on the inline-end edge: the side facing the content. */
+  border-inline-end-color: var(--brand);
+}
+
+/* Not built yet, but still opens its sidebar so the phase can be previewed. */
+.rail__item.is-unavailable {
+  opacity: 0.45;
+}
+
+a.rail__item.is-unavailable:hover {
+  opacity: 0.85;
+}
+
+/* --------------------------------------------------------- section sidebar */
+
+.subnav {
+  flex: none;
+  width: 274px;
+  background: var(--surface);
+  border-inline-start: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: 100vh;
+}
+
+.subnav__header {
+  padding: 20px 20px 12px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.subnav__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.subnav__phase {
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.subnav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0 10px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.subnav__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 14.5px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+a.subnav__item:hover {
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+
+.subnav__item.is-unavailable {
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+
+.subnav__badge {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  background: #f1f2f4;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* ------------------------------------------------------------------ topbar */
+
+.topbar {
+  flex: none;
+  height: 66px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-inline: 20px;
+  background: var(--surface);
+  border-block-end: 1px solid var(--line);
+}
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-inline: auto;
+  width: min(420px, 100%);
+}
+
+.search__icon {
+  position: absolute;
+  inset-inline-start: 14px;
+  display: flex;
+  color: var(--ink-muted);
+  pointer-events: none;
+}
+
+.search__input {
+  width: 100%;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfbfc;
+  font: inherit;
+  font-size: 14.5px;
+  color: var(--ink);
+  text-align: start;
+  padding-inline-start: 42px;
+  padding-inline-end: 78px;
+}
+
+.search__input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(227, 82, 5, 0.1);
+  background: var(--surface);
+}
+
+.search__hint {
+  position: absolute;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: #f1f2f4;
+  border-radius: 6px;
+  padding: 3px 7px;
+  pointer-events: none;
+}
+
+.search__hint:nth-of-type(1) {
+  inset-inline-end: 44px;
+}
+
+.search__hint:nth-of-type(2) {
+  inset-inline-end: 12px;
+}
+
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iconbtn {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.iconbtn:hover {
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+
+.branchpill {
+  display: flex;
+  gap: 6px;
+  margin-inline-end: 6px;
+}
+
+.branchpill__item {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--brand);
+  background: var(--brand-tint);
+  border-radius: 999px;
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------------- content */
+
+.content {
+  flex: 1;
+  padding: 26px 24px;
+  overflow-x: auto;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 24px;
+}
+
+.panel + .panel {
+  margin-block-start: 16px;
+}
+
+.panel__title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+/* Narrow screens: the sidebar folds away, the rail stays. */
+@media (max-width: 900px) {
+  .subnav {
+    display: none;
+  }
 }
 
 /* ------------------------------------------------------------------ home */

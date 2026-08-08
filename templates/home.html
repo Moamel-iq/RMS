@@ -1,17 +1,30 @@
-{% extends "base.html" %}
+{% extends "shell.html" %}
 {% load i18n %}
 
 {% block title %}{% translate "الرئيسية" %} · {% translate "نظام خان مندي" %}{% endblock %}
 
-{% block content %}
-  <main class="page">
-    <div class="page__header">
-      <h1>{% blocktranslate with name=user.get_username %}أهلاً {{ name }}{% endblocktranslate %}</h1>
-      <form method="post" action="{% url 'users:logout' %}">
-        {% csrf_token %}
-        <button class="linkish" type="submit">{% translate "تسجيل الخروج" %}</button>
-      </form>
-    </div>
-    <p>{% translate "لم تُبنَ الوحدات بعد. هذه صفحة مؤقتة تثبت أن تسجيل الدخول يعمل." %}</p>
-  </main>
+{% block page %}
+  <div class="panel">
+    <h1 class="panel__title">
+      {% blocktranslate with name=user.get_username %}أهلاً {{ name }}{% endblocktranslate %}
+    </h1>
+    <p class="muted">
+      {% translate "الوحدات التشغيلية لم تُبنَ بعد. تظهر في القائمة الجانبية بترتيب مراحل التنفيذ المعتمد." %}
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2 class="panel__title">{% translate "الفروع المتاحة لك" %}</h2>
+    {% if user_branches %}
+      <ul>
+        {% for branch in user_branches %}
+          <li>{{ branch.name_ar }} — {{ branch.code }} ({{ branch.organization.name_ar }})</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">
+        {% translate "لا توجد فروع مسندة إليك. يمنح المسؤول الصلاحية من الإعدادات." %}
+      </p>
+    {% endif %}
+  </div>
 {% endblock %}

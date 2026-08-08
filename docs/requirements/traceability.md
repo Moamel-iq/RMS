@@ -26,6 +26,22 @@ every task's definition of done.
 | UI-003 | One stylesheet serves both directions | static | `static/css/app.css` | `::test_page_renders_ltr_when_english_is_selected` | Done | CSS logical properties |
 | UI-004 | No third-party requests on the login page | templates | `static/vendor/htmx.min.js` | `::test_htmx_is_served_locally_not_from_a_cdn` | Done | htmx 2.0.4 vendored |
 | UI-005 | Failed sign-in re-renders inline without losing input | users | `LoginView.form_invalid` | `apps/users/tests/test_login_views.py::TestHtmxLogin` | Done | htmx fragment swap |
+| ORG-001 | Branch belongs to exactly one organization | organizations | `Branch.organization` (PROTECT) | `apps/organizations/tests/test_models.py::TestBranch` | Done | ADR-007 |
+| ORG-002 | Branch codes are unique within an organization, not globally | organizations | `branch_code_unique_per_organization` | `::test_two_organizations_may_reuse_the_same_branch_code` | Done | |
+| ORG-003 | Bilingual names on organization and branch | organizations | `name_ar`, `name_en` | `::test_names_are_stored_in_both_languages` | Done | Stored data, not translated strings |
+| ORG-004 | Branch carries its own timezone and operating-day cutoff | organizations | `Branch.timezone`, `business_day_start_time` | `::test_unknown_timezones_are_rejected`, `::test_business_day_start_time_is_required` | Done | ADR-008; cutoff **value** still open |
+| ORG-005 | A user may hold access to several branches | organizations | `BranchMembership` | `::test_a_user_may_hold_several_branches` | Done | Why User has no branch field |
+| ORG-006 | One role per user per branch | organizations | `membership_unique_per_user_and_branch` | `::test_one_role_per_user_per_branch` | Done | |
+| ORG-007 | A user cannot access an unassigned branch | organizations | `selectors.can_access_branch` | `apps/organizations/tests/test_selectors.py::TestAccessIsGranted` | Done | |
+| ORG-008 | Cross-organization access is rejected | organizations | `selectors.accessible_branches` | `::test_member_does_not_see_another_organizations_branch` | Done | The isolation test |
+| ORG-009 | Inactive user, branch, or organization removes access | organizations | `selectors.accessible_branches` | `::TestAccessIsWithdrawn` | Done | |
+| ORG-010 | Revoking access preserves the record | organizations | `services.revoke_branch_access` | `::test_revoking_keeps_the_record` | Done | Deactivate, never delete |
+| ORG-011 | Organizations and branches cannot be deleted while referenced | organizations | `on_delete=PROTECT` | `::test_organization_cannot_be_deleted_while_branches_exist` | Done | |
+| ORG-012 | Superuser access is explicit and holds no implied role | organizations | `selectors.accessible_branches`, `role_at_branch` | `::TestSuperuser` | Done | |
+| NAV-001 | Shell shows every module in the approved build order | core | `apps/core/navigation.py` | `apps/core/tests/test_shell.py::TestNavigationDefinition` | Done | |
+| NAV-002 | Unbuilt sections are visible but inert | core | `templates/shell.html` | `::test_unbuilt_sections_are_inert` | Done | No links to 404s |
+| NAV-003 | Any module's sidebar can be previewed before it is built | core | `context_processors.shell` | `::test_every_module_sidebar_can_be_previewed` | Done | `?module=` |
+| NAV-004 | Unknown module parameter falls back safely | core | `context_processors.shell` | `::test_unknown_module_falls_back_instead_of_erroring` | Done | Allow-list of known keys |
 
 ## Not yet mapped
 

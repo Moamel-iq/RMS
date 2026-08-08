@@ -9,6 +9,8 @@ consequences, date, and related requirements.
 |---|---|
 | [ADR-001](ADR-001-django-5-2-lts-python-3-14.md) | Django 5.2 LTS on Python 3.14 |
 | [ADR-002](ADR-002-postgresql-18.md) | PostgreSQL 18 as the only database |
+| [ADR-007](ADR-007-organization-and-branch-boundaries.md) | Organization and branch boundaries |
+| [ADR-008](ADR-008-business-date-and-timezone.md) | Business date and timezone (schema only — cutoff value open) |
 | [ADR-010](ADR-010-windows-native-development-environment.md) | Windows-native development environment and pip-tools |
 | [ADR-011](ADR-011-htmx-frontend.md) | Django templates + htmx for the frontend |
 
@@ -24,8 +26,6 @@ Phase 0 tasks.
 | ADR-004 | Append-only ledgers | Task 0.6 |
 | ADR-005 | Moving weighted-average costing | Phase 1 |
 | ADR-006 | Decimal and rounding policy | Task 0.4, Task 0.6 |
-| ADR-007 | Organization and branch boundaries | Task 0.3 |
-| ADR-008 | Business date and timezone | Task 0.3 |
 | ADR-009 | Arabic, RTL, and PDF strategy | Phase 7 reporting |
 
 ## Open questions that must be answered before the ADRs above can be written
@@ -44,4 +44,10 @@ documented answers yet:
    Item.
 6. Whether one branch may hold **multiple warehouses** at go-live.
 7. Whether **cost centers** are required on every journal line or optional.
-8. **Business day cutoff** per branch — start time and close time.
+8. **Business day cutoff** — the actual start time for Al-Bunook; whether all
+   branches share one cutoff; whether attendance and payroll use the same
+   business date as sales. The *schema* is settled (ADR-008); only the values
+   are open, and no default is written into any migration.
+9. **Role list** — the roles in `apps/organizations/models.py::Role` are taken
+   from the charter's separation-of-duties examples, not from an SRS.
+   Approval thresholds are not enforced yet.

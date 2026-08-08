@@ -18,6 +18,7 @@ from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views.generic import TemplateView
 
+from apps.core.views import ModuleViewMixin
 from apps.users.forms import LoginForm
 
 #: Fragment swapped into the page by htmx when the form is redisplayed.
@@ -67,7 +68,8 @@ class LogoutView(DjangoLogoutView):
     """
 
 
-class HomeView(TemplateView):
-    """Placeholder landing page proving the authenticated session works."""
+class HomeView(ModuleViewMixin, TemplateView):
+    """Landing page. Shows the shell and the branches the user may act on."""
 
     template_name = "home.html"
+    module_key = "home"

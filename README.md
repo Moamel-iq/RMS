@@ -9,11 +9,12 @@ Architecture decisions live in [docs/decisions/](docs/decisions/README.md).
 
 ## Status
 
-Phase 0 (Foundations), Task 0.2 complete — custom `User` model, phone/username
-authentication, and the Arabic RTL sign-in screen. The first migration has been
-applied.
+Phase 0 (Foundations), Task 0.3 complete — custom `User` model, phone/username
+authentication, the Arabic RTL sign-in screen, the organization/branch
+hierarchy with branch-scoped access, and the application shell.
 
-Next: Task 0.3, organization and branch foundations.
+Next: Task 0.4, units of measure. Blocked on the rounding and precision
+decisions listed in [docs/decisions/README.md](docs/decisions/README.md).
 
 ## Setup from a fresh clone
 
