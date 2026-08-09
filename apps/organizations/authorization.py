@@ -19,12 +19,23 @@ the bug: it invites a code path that fetches, uses, and forgets to check.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
+from django.db.models import Q, QuerySet
 from django.utils.translation import gettext_lazy as _
 
-from apps.organizations.models import Branch, Organization, OrganizationMembership
+from apps.organizations.models import (
+    Branch,
+    Organization,
+    OrganizationMembership,
+    WarehouseScopeMode,
+)
 from apps.organizations.selectors import accessible_branches, can_access_branch
 from apps.users.models import User
+
+if TYPE_CHECKING:
+    from apps.inventory.models import Warehouse
 
 
 class OutOfScope(ObjectDoesNotExist):
@@ -131,6 +142,37 @@ def require_organization_permission(
         )
 
 
+def require_reachable_organization_permission(
+    user: User, permission: str, organization: Organization
+) -> None:
+    """
+    Raise unless the user reaches this organization and holds this permission.
+
+    **Weaker than `require_organization_permission` on purpose.** That one
+    demands an `OrganizationMembership` and is for genuinely organization-level
+    *acts* — closing a period, posting opening stock, overriding the
+    negative-stock rule — where authority over one branch is authority over a
+    part of something that has no parts.
+
+    This one is for organization-owned **master data**: the item master, the
+    categories, the packages, the conversions. A branch manager legitimately
+    maintains those, and requiring them to also hold organization-wide
+    authority would either lock them out or push every deployment into
+    granting organization membership far too widely — which would quietly
+    hand out period-closing authority as a side effect.
+
+    What limits who may edit shared master data is the permission itself.
+    """
+    # Raises OutOfScope (404) when the organization is not reachable at all.
+    resolve_organization(user, organization.pk)
+
+    if not user.is_authenticated or not user.is_active or not user.has_perm(permission):
+        raise PermissionMissing(
+            _("%(permission)s is not held in organization %(organization)s.")
+            % {"permission": permission, "organization": organization.code}
+        )
+
+
 def require_branch_permission(user: User, permission: str, branch: Branch) -> None:
     """Raise unless the user may exercise this permission at this branch."""
     if not can_access_branch(user, branch):
@@ -140,6 +182,86 @@ def require_branch_permission(user: User, permission: str, branch: Branch) -> No
             _("%(permission)s is not held at branch %(branch)s.")
             % {"permission": permission, "branch": branch.code}
         )
+
+
+def accessible_warehouses(user: User) -> QuerySet[Warehouse]:
+    """
+    Active warehouses this user may act on.
+
+    Reached three ways, and the third is the one that matters:
+
+    1. A `BranchMembership` in `ALL` mode — every warehouse in that branch,
+       **including ones created later**. That is why `ALL` is not expanded
+       into rows at grant time.
+    2. A `BranchMembership` in `SELECTED` mode — only the listed warehouses.
+    3. Organization-wide authority — every warehouse in the organization,
+       consistent with `accessible_branches`.
+
+    A superuser reaches all of them, made explicit so it is testable.
+    """
+    from apps.inventory.models import Warehouse
+
+    if not user.is_authenticated or not user.is_active:
+        return Warehouse.objects.none()
+
+    base = Warehouse.objects.filter(
+        is_active=True,
+        branch__is_active=True,
+        branch__organization__is_active=True,
+    )
+    if user.is_superuser:
+        return base
+
+    return base.filter(
+        # Organization-wide authority.
+        Q(
+            branch__organization__memberships__user=user,
+            branch__organization__memberships__is_active=True,
+        )
+        # A branch membership covering the whole branch.
+        | Q(
+            branch__memberships__user=user,
+            branch__memberships__is_active=True,
+            branch__memberships__warehouse_scope_mode=WarehouseScopeMode.ALL,
+        )
+        # A branch membership restricted to specific warehouses.
+        | Q(
+            membership_scopes__branch_membership__user=user,
+            membership_scopes__branch_membership__is_active=True,
+            membership_scopes__branch_membership__warehouse_scope_mode=(
+                WarehouseScopeMode.SELECTED
+            ),
+        )
+    ).distinct()
+
+
+def can_access_warehouse(user: User, warehouse: Warehouse) -> bool:
+    """Whether this user may act on this specific warehouse."""
+    return accessible_warehouses(user).filter(pk=warehouse.pk).exists()
+
+
+def require_warehouse_permission(user: User, permission: str, warehouse: Warehouse) -> None:
+    """
+    Raise unless the user may exercise this permission at this warehouse.
+
+    Same shape as the branch check: out of reach is a 404, reachable without
+    the permission is a 403.
+    """
+    if not can_access_warehouse(user, warehouse):
+        raise OutOfScope(_("Warehouse %(id)s does not exist.") % {"id": warehouse.pk})
+    if not user.is_authenticated or not user.is_active or not user.has_perm(permission):
+        raise PermissionMissing(
+            _("%(permission)s is not held at warehouse %(warehouse)s.")
+            % {"permission": permission, "warehouse": warehouse.code}
+        )
+
+
+def resolve_warehouse(user: User, warehouse_id: int) -> Warehouse:
+    """Turn a submitted warehouse id into one the caller may act on."""
+    warehouse = accessible_warehouses(user).filter(pk=warehouse_id).first()
+    if warehouse is None:
+        raise OutOfScope(_("Warehouse %(id)s does not exist.") % {"id": warehouse_id})
+    return warehouse
 
 
 def resolve_organization(user: User, organization_id: int) -> Organization:

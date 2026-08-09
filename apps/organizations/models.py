@@ -152,6 +152,13 @@ class Role(models.TextChoices):
     VIEWER = "VIEWER", _("مطّلع")
 
 
+class WarehouseScopeMode(models.TextChoices):
+    """How much of a branch's stock custody a membership reaches."""
+
+    ALL = "ALL", _("كل المخازن")
+    SELECTED = "SELECTED", _("مخازن محددة")
+
+
 class BranchMembership(TimeStampedModel):
     """
     Grants one user access to one branch in one role.
@@ -175,6 +182,20 @@ class BranchMembership(TimeStampedModel):
     role = models.CharField(_("role"), max_length=20, choices=Role.choices)
     is_active = models.BooleanField(_("active"), default=True)
 
+    #: How far inside the branch this membership reaches. `ALL` covers every
+    #: warehouse the branch has now and every one it opens later; `SELECTED`
+    #: covers only the rows in `BranchMembershipWarehouse`.
+    #:
+    #: The default is `ALL` so that introducing warehouse scope cannot
+    #: silently revoke anybody's access — restriction is opt-in, and that is
+    #: the safe direction to get wrong.
+    warehouse_scope_mode = models.CharField(
+        _("warehouse scope"),
+        max_length=10,
+        choices=WarehouseScopeMode.choices,
+        default=WarehouseScopeMode.ALL,
+    )
+
     #: Who held which post, and when. The separation-of-duties question an
     #: auditor asks months later.
     history = HistoricalRecords()
@@ -194,6 +215,48 @@ class BranchMembership(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.user} @ {self.branch.code} ({self.get_role_display()})"
+
+
+class BranchMembershipWarehouse(models.Model):
+    """
+    One warehouse a `SELECTED`-scope membership may reach.
+
+    Deliberately not a membership of its own and deliberately carrying no
+    role. A second role-bearing model would be a second place that grants
+    authority, and eventually two answers to "what may this person do here".
+    This only ever *narrows* what the branch membership already granted.
+
+    Rows are ignored while the membership is in `ALL` mode — kept rather than
+    deleted, so switching a membership to `SELECTED` and back does not lose
+    the operator's choices.
+    """
+
+    branch_membership = models.ForeignKey(
+        BranchMembership,
+        on_delete=models.CASCADE,
+        related_name="warehouse_scopes",
+        verbose_name=_("branch membership"),
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.CASCADE,
+        related_name="membership_scopes",
+        verbose_name=_("warehouse"),
+    )
+
+    class Meta:
+        verbose_name = _("branch membership warehouse")
+        verbose_name_plural = _("branch membership warehouses")
+        ordering = ["branch_membership_id", "warehouse__code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["branch_membership", "warehouse"],
+                name="branch_membership_warehouse_unique",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.branch_membership} -> {self.warehouse.code}"
 
 
 class OrganizationMembership(TimeStampedModel):

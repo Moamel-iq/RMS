@@ -124,21 +124,45 @@ MODULES: tuple[Module, ...] = (
         label=_("المخزون"),
         icon_name="box",
         phase=_("المرحلة ١"),
-        sections=_sections(
-            _("الأصناف"),
-            _("مجموعات الأصناف"),
-            _("المخازن ومواقع المطبخ"),
-            _("الأرصدة الافتتاحية"),
-            _("الإدخال المخزني"),
-            _("الصرف المخزني"),
-            _("التحويلات"),
-            _("المرتجعات"),
-            _("الهالك والتلف"),
-            _("الجرد"),
-            _("التسويات"),
-            _("حركة المخزون"),
-            _("تقييم المخزون"),
-            _("حدود إعادة الطلب"),
+        url_name="inventory:item_list",
+        available=True,
+        sections=(
+            # Task 1.1 — master data. Built and reachable.
+            Section(label=_("الأصناف"), url_name="inventory:item_list", available=True),
+            Section(
+                label=_("مجموعات الأصناف"),
+                url_name="inventory:category_list",
+                available=True,
+            ),
+            Section(
+                label=_("وحدات التعبئة"),
+                url_name="inventory:package_unit_list",
+                available=True,
+            ),
+            # The section the Task 1.0 review found missing from this rail.
+            Section(
+                label=_("تحويلات وحدات الصنف"),
+                url_name="inventory:conversion_list",
+                available=True,
+            ),
+            Section(label=_("المخازن"), url_name="inventory:warehouse_list", available=True),
+            # Task 1.2 onward — visible so the shape of the module is legible,
+            # inert because the ledger does not exist yet. A screen that showed
+            # an empty "stock on hand" would be a lie, not a placeholder.
+            *_sections(
+                _("مواقع التخزين الداخلية"),
+                _("الأرصدة الافتتاحية"),
+                _("الإدخال المخزني"),
+                _("الصرف المخزني"),
+                _("التحويلات"),
+                _("المرتجعات"),
+                _("الهالك والتلف"),
+                _("الجرد"),
+                _("التسويات"),
+                _("حركة المخزون"),
+                _("تقييم المخزون"),
+                _("حدود إعادة الطلب"),
+            ),
         ),
     ),
     Module(

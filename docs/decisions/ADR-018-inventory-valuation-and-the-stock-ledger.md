@@ -41,7 +41,7 @@ guarantee is therefore stated explicitly, one of:
 ```python
 UniqueConstraint(
     fields=("warehouse", "item", "lot"),
-    nulls_distinct=False,                     # Django 5.0+, PostgreSQL 15+
+    nulls_distinct=False,  # Django 5.0+, PostgreSQL 15+
     name="stock_balance_key_unique",
 )
 ```

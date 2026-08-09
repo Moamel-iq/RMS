@@ -116,7 +116,7 @@ applied by convention in six modules is a rule that six modules can forget:
 
 ```python
 source_document_type = source_document_type.strip().upper()
-source_document_id   = source_document_id.strip()
+source_document_id = source_document_id.strip()
 ```
 
 A value that becomes empty after stripping is rejected, not treated as absent.

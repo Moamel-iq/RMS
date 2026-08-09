@@ -1,0 +1,41 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <select name="item_type" aria-label="{% translate 'النوع' %}">
+    <option value="">{% translate "كل الأنواع" %}</option>
+    {% for value, label in item_types %}
+      <option value="{{ value }}" {% if value == selected_item_type %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "المجموعة" %}</th>
+  <th>{% translate "النوع" %}</th>
+  <th>{% translate "وحدة الأساس" %}</th>
+  <th>{% translate "الحالة" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for item in items %}
+    <tr>
+      <td><code>{{ item.code }}</code></td>
+      <td>{{ item.name_ar }}</td>
+      <td>{{ item.category.name_ar }}</td>
+      <td>{{ item.get_item_type_display }}</td>
+      <td><code>{{ item.base_unit.code }}</code></td>
+      <td>
+        {% if item.is_active %}
+          <span class="chip chip--on">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6">{% translate "لا توجد أصناف بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}
