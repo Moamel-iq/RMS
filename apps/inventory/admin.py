@@ -23,9 +23,14 @@ from django.utils.translation import gettext_lazy as _
 from apps.inventory.models import (
     BranchItemSetting,
     InventoryItem,
+    InventoryLot,
     ItemCategory,
     ItemPackageConversion,
     PackageUnit,
+    StockBalance,
+    StockLedgerEntry,
+    StockMovement,
+    ValuationLayer,
     Warehouse,
 )
 
@@ -130,3 +135,93 @@ class WarehouseAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     search_fields = ("code", "name_ar", "name_en")
     ordering = ("branch__code", "code")
     list_select_related = ("branch",)
+
+
+# ---------------------------------------------------------------------------
+# The ledger — read-only here, and refused by the database anyway
+# ---------------------------------------------------------------------------
+#
+# The lockdown below is the *second* line. A stock movement is insert-only at
+# the database (migration 0004), so an admin form that tried to save one would
+# raise rather than corrupt anything. Registering these read-only means an
+# administrator investigating an incident can read the ledger without being
+# offered an edit button that leads to a stack trace.
+
+
+@admin.register(InventoryLot)
+class InventoryLotAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    list_display = ("code", "item", "expiry_date", "received_on", "is_active")
+    list_filter = ("is_active", "organization")
+    search_fields = ("code", "supplier_lot_code", "item__code")
+    ordering = ("item__code", "code")
+    list_select_related = ("item",)
+
+
+@admin.register(StockLedgerEntry)
+class StockLedgerEntryAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    list_display = (
+        "id",
+        "organization",
+        "source_document_type",
+        "source_document_id",
+        "source_event",
+        "effective_at",
+        "posted_at",
+        "posted_by",
+    )
+    list_filter = ("source_event", "organization")
+    search_fields = ("source_document_id", "idempotency_key", "reference")
+    ordering = ("-posted_at",)
+    list_select_related = ("organization", "posted_by")
+
+
+@admin.register(StockMovement)
+class StockMovementAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    list_display = (
+        "posted_sequence",
+        "movement_type",
+        "warehouse",
+        "item",
+        "lot",
+        "base_quantity",
+        "quantity_after",
+        "effective_at",
+    )
+    list_filter = ("movement_type", "organization")
+    search_fields = ("item__code", "warehouse__code", "effect_key")
+    ordering = ("-posted_sequence",)
+    list_select_related = ("warehouse", "item", "lot", "entry")
+
+
+@admin.register(StockBalance)
+class StockBalanceAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    list_display = (
+        "warehouse",
+        "item",
+        "lot",
+        "quantity",
+        "value",
+        "average_cost",
+        "last_posted_sequence",
+    )
+    list_filter = ("organization", "is_frozen")
+    search_fields = ("item__code", "warehouse__code")
+    ordering = ("warehouse__code", "item__code")
+    list_select_related = ("warehouse", "item", "lot")
+
+
+@admin.register(ValuationLayer)
+class ValuationLayerAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    list_display = (
+        "posted_sequence",
+        "warehouse",
+        "item",
+        "lot",
+        "received_quantity",
+        "remaining_quantity",
+        "unit_cost",
+    )
+    list_filter = ("organization",)
+    search_fields = ("item__code", "warehouse__code")
+    ordering = ("-posted_sequence",)
+    list_select_related = ("warehouse", "item", "lot")

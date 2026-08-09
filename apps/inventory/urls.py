@@ -82,6 +82,10 @@ urlpatterns = [
         views.ItemConversionActionView.as_view(activate=True),
         name="conversion_reactivate",
     ),
+    # --- stock and movements (read only) -----------------------------------
+    path("stock/", views.StockOnHandView.as_view(), name="stock_list"),
+    path("movements/", views.MovementHistoryView.as_view(), name="movement_list"),
+    path("movements/<int:pk>/", views.MovementDetailView.as_view(), name="movement_detail"),
     # --- warehouses --------------------------------------------------------
     path("warehouses/", views.WarehouseListView.as_view(), name="warehouse_list"),
     path("warehouses/new/", views.WarehouseCreateView.as_view(), name="warehouse_create"),

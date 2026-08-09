@@ -25,6 +25,12 @@ from django.core.exceptions import ValidationError
 from django.http import HttpRequest
 from ninja import Router, Schema, Status
 
+from apps.inventory.commands import (
+    may_see_cost,
+    resolve_movement,
+    visible_movements,
+    visible_stock,
+)
 from apps.inventory.models import ConversionType, ItemType, WarehouseType
 from apps.inventory.permissions import (
     MANAGE_CATEGORIES,
@@ -33,6 +39,7 @@ from apps.inventory.permissions import (
     MANAGE_PACKAGE_UNITS,
     MANAGE_WAREHOUSES,
     VIEW_ITEM,
+    VIEW_STOCK,
 )
 from apps.inventory.selectors import (
     resolve_category,
@@ -410,3 +417,167 @@ def create_new_warehouse(request: HttpRequest, payload: WarehouseIn) -> Status[A
         warehouse_type=payload.warehouse_type,
     )
     return Status(201, warehouse)
+
+
+# ---------------------------------------------------------------------------
+# Stock and movements — READ ONLY
+# ---------------------------------------------------------------------------
+#
+# There is no POST, PATCH, or DELETE for a movement anywhere in this API, and
+# there must never be. Stock moves through a posting service that locks the
+# position, checks availability, computes the average, and writes an immutable
+# movement; a generic write endpoint over `StockMovement` would be a way to
+# put a row in the ledger without any of that happening.
+#
+# Cost is a separate permission from quantity. A storekeeper holds `view_stock`
+# and not `view_valuation`: they must know what they are moving and have no
+# business knowing what it cost. The value fields are **omitted**, not blanked
+# — a null where a number belongs still says "there is a number here".
+
+
+class StockOut(Schema):
+    warehouse_id: int
+    warehouse_code: str
+    branch_code: str
+    item_id: int
+    item_code: str
+    item_name_ar: str
+    base_unit_code: str
+    lot_id: int | None
+    lot_code: str | None
+    #: Exact strings. JSON's only numeric type is binary floating point, and a
+    #: quantity that has been through one is no longer the quantity that was
+    #: counted.
+    quantity: str
+    value: str | None = None
+    average_cost: str | None = None
+
+
+class MovementOut(Schema):
+    id: int
+    entry_id: int
+    posted_sequence: int
+    movement_type: str
+    warehouse_id: int
+    warehouse_code: str
+    item_id: int
+    item_code: str
+    lot_code: str | None
+    base_quantity: str
+    quantity_after: str
+    effective_at: datetime.datetime
+    posted_at: datetime.datetime
+    source_document_type: str
+    source_document_id: str
+    source_event: str
+    effect_key: str
+    unit_cost: str | None = None
+    inventory_value: str | None = None
+    average_after: str | None = None
+    reverses_movement_id: int | None = None
+
+
+def _serialize_balance(balance: Any, *, with_cost: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "warehouse_id": balance.warehouse_id,
+        "warehouse_code": balance.warehouse.code,
+        "branch_code": balance.warehouse.branch.code,
+        "item_id": balance.item_id,
+        "item_code": balance.item.code,
+        "item_name_ar": balance.item.name_ar,
+        "base_unit_code": balance.item.base_unit.code,
+        "lot_id": balance.lot_id,
+        "lot_code": balance.lot.code if balance.lot else None,
+        "quantity": f"{balance.quantity:f}",
+    }
+    if with_cost:
+        payload["value"] = f"{balance.value:f}"
+        payload["average_cost"] = f"{balance.average_cost:f}"
+    return payload
+
+
+def _serialize_movement(movement: Any, *, with_cost: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": movement.pk,
+        "entry_id": movement.entry_id,
+        "posted_sequence": int(movement.posted_sequence),
+        "movement_type": movement.movement_type,
+        "warehouse_id": movement.warehouse_id,
+        "warehouse_code": movement.warehouse.code,
+        "item_id": movement.item_id,
+        "item_code": movement.item.code,
+        "lot_code": movement.lot.code if movement.lot else None,
+        "base_quantity": f"{movement.base_quantity:f}",
+        "quantity_after": f"{movement.quantity_after:f}",
+        "effective_at": movement.effective_at,
+        "posted_at": movement.posted_at,
+        "source_document_type": movement.entry.source_document_type,
+        "source_document_id": movement.entry.source_document_id,
+        "source_event": movement.entry.source_event,
+        "effect_key": movement.effect_key,
+        "reverses_movement_id": movement.reverses_id,
+    }
+    if with_cost:
+        payload["unit_cost"] = f"{movement.unit_cost:f}"
+        payload["inventory_value"] = f"{movement.inventory_value:f}"
+        payload["average_after"] = f"{movement.average_after:f}"
+    return payload
+
+
+@router.get("/stock/", response=list[StockOut], summary="Stock on hand, scoped")
+def list_stock(
+    request: HttpRequest,
+    warehouse_id: int | None = None,
+    item_id: int | None = None,
+) -> Any:
+    actor = _actor(request)
+    if not actor.has_perm(VIEW_STOCK):
+        raise PermissionMissing(f"{VIEW_STOCK} is not held.")
+
+    balances = visible_stock(actor)
+    if warehouse_id is not None:
+        balances = balances.filter(warehouse_id=warehouse_id)
+    if item_id is not None:
+        balances = balances.filter(item_id=item_id)
+
+    with_cost = may_see_cost(actor)
+    return [
+        _serialize_balance(balance, with_cost=with_cost)
+        for balance in balances.order_by("warehouse__code", "item__code")
+    ]
+
+
+@router.get("/movements/", response=list[MovementOut], summary="Movement history, scoped")
+def list_movements(
+    request: HttpRequest,
+    warehouse_id: int | None = None,
+    item_id: int | None = None,
+    limit: int = 100,
+) -> Any:
+    actor = _actor(request)
+    if not actor.has_perm(VIEW_STOCK):
+        raise PermissionMissing(f"{VIEW_STOCK} is not held.")
+
+    movements = visible_movements(actor)
+    if warehouse_id is not None:
+        movements = movements.filter(warehouse_id=warehouse_id)
+    if item_id is not None:
+        movements = movements.filter(item_id=item_id)
+
+    with_cost = may_see_cost(actor)
+    capped = max(1, min(limit, 500))
+    return [
+        _serialize_movement(movement, with_cost=with_cost)
+        for movement in movements.order_by("-posted_sequence")[:capped]
+    ]
+
+
+@router.get("/movements/{movement_id}/", response=MovementOut, summary="One movement")
+def read_movement(request: HttpRequest, movement_id: int) -> Any:
+    actor = _actor(request)
+    if not actor.has_perm(VIEW_STOCK):
+        raise PermissionMissing(f"{VIEW_STOCK} is not held.")
+    # Resolved WITH the caller, so a foreign movement is a 404 and never a 403
+    # that would confirm the id names something real.
+    movement = resolve_movement(actor, movement_id)
+    return _serialize_movement(movement, with_cost=may_see_cost(actor))

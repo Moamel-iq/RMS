@@ -146,9 +146,14 @@ MODULES: tuple[Module, ...] = (
                 available=True,
             ),
             Section(label=_("المخازن"), url_name="inventory:warehouse_list", available=True),
-            # Task 1.2 onward — visible so the shape of the module is legible,
-            # inert because the ledger does not exist yet. A screen that showed
-            # an empty "stock on hand" would be a lie, not a placeholder.
+            # Task 1.2 — the ledger. Both screens read the movements that
+            # exist; they show an empty table until Tasks 1.3/1.4 create real
+            # business postings, which is the honest state rather than a
+            # placeholder.
+            Section(label=_("المخزون المتوفر"), url_name="inventory:stock_list", available=True),
+            Section(label=_("حركة المخزون"), url_name="inventory:movement_list", available=True),
+            # Task 1.3 onward — visible so the shape of the module is legible,
+            # inert because the documents that would fill them do not exist.
             *_sections(
                 _("مواقع التخزين الداخلية"),
                 _("الأرصدة الافتتاحية"),
@@ -159,7 +164,6 @@ MODULES: tuple[Module, ...] = (
                 _("الهالك والتلف"),
                 _("الجرد"),
                 _("التسويات"),
-                _("حركة المخزون"),
                 _("تقييم المخزون"),
                 _("حدود إعادة الطلب"),
             ),

@@ -46,6 +46,12 @@ else:
     _ListView = ListView
 
 from apps.core.views import ModuleViewMixin
+from apps.inventory.commands import (
+    may_see_cost,
+    resolve_movement,
+    visible_movements,
+    visible_stock,
+)
 from apps.inventory.forms import (
     InventoryItemForm,
     ItemCategoryForm,
@@ -62,6 +68,7 @@ from apps.inventory.permissions import (
     MANAGE_PACKAGE_UNITS,
     MANAGE_WAREHOUSES,
     VIEW_ITEM,
+    VIEW_STOCK,
 )
 from apps.inventory.selectors import (
     readable_warehouses,
@@ -923,4 +930,89 @@ class WarehouseActionView(InventoryActionView):
             name_ar=instance.name_ar,
             name_en=instance.name_en,
             is_active=self.activate,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Stock and movements — read only
+# ---------------------------------------------------------------------------
+#
+# There is no form on either screen. Stock moves through a posting service and
+# nowhere else, so a page that offered to edit a balance would be offering
+# something that cannot be done.
+#
+# Both may show an empty table until Tasks 1.3 and 1.4 create real business
+# postings. That is the honest state, and it is why the production seed
+# deliberately contains no demonstration movements: a stock figure nobody
+# posted is worse than no figure at all.
+
+
+class StockOnHandView(InventoryListView):
+    """What is held, where, and — for those who may see it — what it is worth."""
+
+    template_name = "inventory/stock_list.html"
+    context_object_name = "balances"
+    page_title = _("المخزون المتوفر")
+    page_hint = _("الرصيد لكل مخزن وصنف ودفعة. يُحتسب من حركات المخزون ولا يُحرَّر يدوياً.")
+    required_permission = VIEW_STOCK
+    search_fields = ("item__code", "item__name_ar", "warehouse__code")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_stock(self.actor).order_by("warehouse__code", "item__code")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        # A storekeeper sees quantities and not money. The columns are absent
+        # rather than blank: a blank cell still says a number belongs there.
+        context["show_cost"] = may_see_cost(self.actor)
+        return context
+
+
+class MovementHistoryView(InventoryListView):
+    """The ledger, newest first, in the order valuation was computed."""
+
+    template_name = "inventory/movement_list.html"
+    context_object_name = "movements"
+    page_title = _("حركة المخزون")
+    page_hint = _(
+        "سجل غير قابل للتعديل. التصحيح يكون بعكس الحركة لا بتحريرها، "
+        "والترتيب هو ترتيب الترحيل الذي احتُسب عليه التقييم."
+    )
+    required_permission = VIEW_STOCK
+    search_fields = ("item__code", "item__name_ar", "warehouse__code", "effect_key")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_movements(self.actor).order_by("-posted_sequence")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["show_cost"] = may_see_cost(self.actor)
+        return context
+
+
+class MovementDetailView(InventoryViewMixin, View):
+    """
+    One movement, with the arithmetic it was posted with and the document
+    behind it.
+
+    Shows `before` and `after` on both quantity and value, because that is
+    what makes a disputed figure answerable: the movement says what it found,
+    what it did, and what it left.
+    """
+
+    template_name = "inventory/movement_detail.html"
+    required_permission = VIEW_STOCK
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        movement = resolve_movement(self.actor, self.kwargs["pk"])
+        return render(
+            request,
+            self.template_name,
+            {
+                "movement": movement,
+                "entry": movement.entry,
+                "show_cost": may_see_cost(self.actor),
+                "page_title": _("تفاصيل الحركة"),
+                "back_url": reverse("inventory:movement_list"),
+            },
         )

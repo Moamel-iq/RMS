@@ -238,6 +238,35 @@ Task 1.0, not referenced from an earlier artefact.
 | INV-068 | A hidden action refuses a direct POST on its own merits | `InventoryWriteView.authorize` | `::TestButtonsAreNotTheProtection` | 1.1 | AT-008 | Done |
 | INV-069 | An unused conversion is corrected in place; a used one must be versioned | `update_item_conversion` | `::test_editing_corrects_an_unused_factor` | 1.1 | AT-011 | Done |
 | INV-070 | An archived warehouse stays readable and reactivatable | `readable_warehouses` | `::test_create_edit_archive_and_reactivate` | 1.1 | | Done |
+| INV-071 | Source identity is canonicalised centrally; `"145 "` == `"145"` | `apps/core/source_identity.py` | `test_ledger.py::TestSourceIdentityCanonicalisation` | 1.2 | AT-009 | Done |
+| INV-072 | `source_document_id` is NOT case-folded — it is the supplier's vocabulary | Same | `::test_case_is_folded_on_our_vocabulary_and_not_on_theirs` | 1.2 | AT-009 | Done |
+| INV-073 | A retry with the same payload returns the original posting | `_replay` + `request_fingerprint` | `::TestIdempotency` | 1.2 | AT-009 | Done |
+| INV-074 | A key reused with a changed payload is `idempotency_key_conflict` | Same | `::test_a_changed_payload_is_a_conflict` | 1.2 | AT-009 | Done |
+| INV-075 | The fingerprint excludes the server clock, so retries can match | `request_fingerprint` | `::test_the_same_payload_returns_the_original` | 1.2 | AT-009 | Done |
+| INV-076 | Effect keys are unique per posting, in service and in database | `UniqueConstraint(entry, effect_key)` | `::test_the_database_refuses_a_duplicate_effect_key_too` | 1.2 | AT-009 | Done |
+| INV-077 | Quantity zero implies value zero, by construction and by constraint | `apply_outbound` + check constraints | `::test_full_depletion_absorbs_the_exact_remaining_value` | 1.2 | AT-002 | Done |
+| INV-078 | A full depletion absorbs the exact remaining value | Same | `test_valuation_properties.py` | 1.2 | AT-002 | Done |
+| INV-079 | Negative stock is refused for everyone in Task 1.2 | `_require_available` | `::TestNegativeStockIsRefused` | 1.2 | | Done |
+| INV-080 | A reversal mirrors quantity and value, not today's average | `apply_reversal` | `::test_a_reversal_mirrors_the_original_exactly` | 1.2 | AT-011 | Done |
+| INV-081 | A reversal that would go negative is refused | `reverse_stock_entry` | `::test_a_reversal_that_would_go_negative_is_refused` | 1.2 | | Done |
+| INV-082 | A reversal cannot be reversed, and nothing is reversed twice | Same | `::TestReversal` | 1.2 | | Done |
+| INV-083 | `StockMovement` is insert-only at the database | Trigger `stock_movement_is_insert_only` | `::TestTheLedgerIsAppendOnly` | 1.2 | | Done |
+| INV-084 | A ledger entry is immutable except for its reversal back-link | Trigger `stock_entry_is_immutable` | `::test_an_entry_cannot_be_edited` | 1.2 | | Done |
+| INV-085 | The null-lot balance key is unique (`NULLS NOT DISTINCT`) | `stock_balance_key_unique` | `::test_the_null_lot_balance_is_unique` | 1.2 | | Done |
+| INV-086 | Concurrent issues cannot oversell | Advisory lock per stock key | `test_ledger_concurrency.py::TestConcurrentIssues` | 1.2 | | Done |
+| INV-087 | Concurrent first receipts create exactly one balance row | Same | `::TestConcurrentFirstReceipt` | 1.2 | | Done |
+| INV-088 | Multi-key events lock in canonical order and never deadlock | `_StockKey.sort_key` | `::TestDeterministicLockOrder` | 1.2 | | Done |
+| INV-089 | Posting requires an OPEN period; SOFT_CLOSED and CLOSED refuse | `_validate_period_is_open` | `::TestPeriodAndWarehouseState` | 1.2 | | Done |
+| INV-090 | A frozen stock position refuses postings | `_check_warehouse_is_not_frozen` | `::test_a_frozen_position_refuses_postings` | 1.2 | | Done |
+| INV-091 | Replaying the ledger reproduces the projection exactly | `reconciliation.verify_organization` | `::TestRebuild` | 1.2 | AT-007 | Done |
+| INV-092 | A corrupted projection is detected and never silently repaired | `verify_stock_ledger` | `::test_the_verify_command_reports_and_refuses_to_repair` | 1.2 | AT-007 | Done |
+| INV-093 | Item identity fields freeze once movements exist | `_item_has_movements` | `::TestPostedHistoryFreezesMasterData` | 1.2 | AT-011 | Done |
+| INV-094 | A conversion used by a posted movement must be versioned, not edited | `_conversion_has_movements` | `::test_a_used_conversion_cannot_be_edited_in_place` | 1.2 | AT-011 | Done |
+| INV-095 | No API path writes a stock movement | `config.api` routing table | `test_stock_screens_and_api.py::TestThereIsNoWritePath` | 1.2 | | Done |
+| INV-096 | Cost is a separate permission from quantity, and omitted not blanked | `may_see_cost` | `::test_a_storekeeper_sees_quantity_and_no_cost_at_all` | 1.2 | AT-008 | Done |
+| INV-097 | Lot required when tracked, prohibited when not; average is per lot | `_validate_lot` | `::TestLots` | 1.2 | | Done |
+| INV-098 | Expired lots cannot be issued, but can be wasted | `_validate_lot_is_not_expired` | `::test_an_expired_lot_cannot_be_issued` | 1.2 | | Done |
+| INV-099 | `ValuationAllocation` stays empty under moving average | Kernel writes none | `::test_no_allocation_is_fabricated_under_moving_average` | 1.2 | AT-002 | Done |
 
 ## Not yet mapped
 

@@ -30,6 +30,8 @@ from apps.inventory.models import (
     ItemCategory,
     ItemPackageConversion,
     PackageUnit,
+    StockBalance,
+    StockMovement,
     Warehouse,
     WarehouseType,
 )
@@ -331,19 +333,11 @@ def _item_has_movements(item: InventoryItem) -> bool:
     """
     Whether posted stock movements reference this item.
 
-    Always False until Task 1.2 creates `StockMovement`. Isolated here so the
-    guards that depend on it are written once, now, and become live the moment
-    the ledger exists — rather than being remembered later.
+    Written in Task 1.1 against a model that did not exist yet, so the guards
+    depending on it would go live the moment the ledger did rather than being
+    remembered later. Task 1.2 built the ledger, and this now answers for real.
     """
-    from django.apps import apps as django_apps
-
-    try:
-        movement_model = django_apps.get_model(  # type: ignore[misc]
-            "inventory", "StockMovement"
-        )
-    except LookupError:
-        return False
-    return bool(movement_model.objects.filter(item=item).exists())  # pragma: no cover
+    return StockMovement.objects.filter(item=item).exists()
 
 
 @transaction.atomic
@@ -492,21 +486,11 @@ def _conversion_has_movements(conversion: ItemPackageConversion) -> bool:
     """
     Whether posted stock movements were valued through this conversion.
 
-    Always False until Task 1.2 creates `StockMovement`. Isolated here for the
-    same reason as `_item_has_movements`: the guard is written once, now, and
-    goes live the moment the ledger exists.
+    Live from Task 1.2. A movement records which conversion produced its base
+    quantity, so "has anything been valued through this factor" is a question
+    the ledger answers rather than one the service has to infer.
     """
-    from django.apps import apps as django_apps
-
-    try:
-        movement_model = django_apps.get_model(  # type: ignore[misc]
-            "inventory", "StockMovement"
-        )
-    except LookupError:
-        return False
-    return bool(  # pragma: no cover - no ledger until Task 1.2
-        movement_model.objects.filter(source_conversion=conversion).exists()
-    )
+    return StockMovement.objects.filter(source_conversion=conversion).exists()
 
 
 def _periods_overlap(
@@ -801,6 +785,21 @@ def update_warehouse(
             code="system_warehouse_protected",
             params={"code": warehouse.code},
         )
+
+    # Archiving a warehouse that still holds goods would hide real stock: the
+    # value stays on the books and on the general ledger, while every screen
+    # and every reorder report stops seeing it, because custody scope covers
+    # active warehouses only. The goods have to be moved out first — which is
+    # also what has to happen physically.
+    if not is_active and warehouse.is_active:
+        holding = StockBalance.objects.filter(warehouse=warehouse).exclude(quantity=Decimal("0"))
+        first = holding.select_related("item").first()
+        if first is not None:
+            raise ValidationError(
+                _("Warehouse %(code)s still holds %(item)s. Move the stock out first."),
+                code="warehouse_still_holds_stock",
+                params={"code": warehouse.code, "item": first.item.code},
+            )
 
     before = snapshot(Warehouse.objects.get(pk=warehouse.pk))
     warehouse.name_ar = name_ar.strip()

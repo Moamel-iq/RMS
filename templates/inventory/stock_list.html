@@ -1,0 +1,42 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# Stock on hand. No actions: a balance is a projection of the movements and #}
+{# there is nothing here a person may edit.                                  #}
+{# The cost columns are OMITTED for a caller without view_valuation, not     #}
+{# blanked — an empty cell still says a number belongs there.                #}
+
+{% block columns %}
+  <th>{% translate "المخزن" %}</th>
+  <th>{% translate "الصنف" %}</th>
+  <th>{% translate "الدفعة" %}</th>
+  <th>{% translate "الكمية" %}</th>
+  <th>{% translate "الوحدة" %}</th>
+  {% if show_cost %}
+    <th>{% translate "متوسط الكلفة" %}</th>
+    <th>{% translate "القيمة" %}</th>
+  {% endif %}
+{% endblock %}
+
+{% block rows %}
+  {% for balance in balances %}
+    <tr>
+      <td><code>{{ balance.warehouse.code }}</code></td>
+      <td><code>{{ balance.item.code }}</code> {{ balance.item.name_ar }}</td>
+      <td>{% if balance.lot %}<code>{{ balance.lot.code }}</code>{% else %}—{% endif %}</td>
+      {# Technical values: a period, never a locale comma. #}
+      <td><code dir="ltr">{{ balance.quantity|stringformat:"f" }}</code></td>
+      <td>{{ balance.item.base_unit.code }}</td>
+      {% if show_cost %}
+        <td><code dir="ltr">{{ balance.average_cost|stringformat:"f" }}</code></td>
+        <td><code dir="ltr">{{ balance.value|stringformat:"f" }}</code></td>
+      {% endif %}
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="{% if show_cost %}7{% else %}5{% endif %}">
+        {% translate "لا يوجد مخزون بعد. تظهر الأرصدة بعد أول عملية ترحيل." %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endblock %}

@@ -58,6 +58,7 @@ from apps.accounting.validators import (
 from apps.core.models import AuditAction
 from apps.core.money import quantize_money
 from apps.core.services import record_audit_event, snapshot
+from apps.core.source_identity import canonical_source_identity
 from apps.organizations.models import Organization
 from apps.users.models import User
 
@@ -603,6 +604,17 @@ def post_entry(
     a reversal into a soft-closed period, for instance. It never bypasses a
     CLOSED period, which requires an explicit, audited reopening.
     """
+    # Canonicalise FIRST. Everything below — the completeness check, the
+    # fingerprint, the two uniqueness lookups, and the row itself — must see
+    # the same bytes, or `"145 "` posts a second journal beside `"145"` and
+    # the uniqueness guarantee misses the one retry it exists to catch.
+    source = canonical_source_identity(
+        source_document_type=source_document_type,
+        source_document_id=source_document_id,
+        source_event=source_event,
+    )
+    source_document_type, source_document_id, source_event = source.as_tuple()
+
     validate_source_identity(
         source_document_type=source_document_type,
         source_document_id=source_document_id,

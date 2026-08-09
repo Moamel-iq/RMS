@@ -71,12 +71,31 @@ Depends on: 1.1; decisions 5, 6, 8, 9.
 
 **Exit gate**
 
-- All 18 valuation cases from spec §9 tested individually.
-- Quantity zero implies value zero, proven including the divergent case.
-- Rebuild equals ledger replay, including after concurrent load.
-- Concurrency plan §10 green — all five tests, at a real COMMIT.
-- Movement immutability trigger uses an **allowlist**, per `accounting/0005`.
-- Closed-period posting refused; soft-closed needs the audited override.
+- Valuation cases 1–5, 8–10, and 13–18 from spec §9 tested individually.
+  **Cases 6, 7, 11, and 12 are deferred with their documents**: `RETURN_IN`,
+  `RETURN_OUT`, transfer, and transfer shortage are properties of documents
+  Tasks 1.3–1.6 create. The movement types exist and the kernel values them;
+  what does not exist is the original issue to return against or the in-transit
+  leg to dispatch into, so testing them now would test a fiction.
+- Quantity zero implies value zero, proven including the divergent case, and
+  again as a Hypothesis property over the whole input space.
+- Rebuild equals ledger replay; a corrupted projection is detected and the
+  command refuses to repair it.
+- Concurrency green at a real COMMIT: concurrent issues, concurrent first
+  receipts into an absent key, opposite-order multi-key events, in-flight
+  identical retries, and a raw duplicate null-lot balance.
+- Movement immutability is stricter than an allowlist: `StockMovement` is
+  **insert-only**, with no permitted update at all. The entry and layer
+  triggers do use whole-row allowlists, per `accounting/0005`.
+- **Amended:** posting requires an OPEN period. `SOFT_CLOSED` is refused with
+  no override, superseding the earlier "soft-closed needs the audited
+  override" line. A stock movement changes what the accounts will say, and a
+  period that has stopped accepting entries has stopped accepting the things
+  that cause them. The count-adjustment exception arrives in Task 1.6 attached
+  to a real count document, never to a flag.
+- **Amended:** negative stock is refused for everyone.
+  `inventory.override_negative_stock` stays reserved and non-operational until
+  a valuation policy for the variance it creates is approved.
 - No background job anywhere on the authoritative posting path.
 
 ---

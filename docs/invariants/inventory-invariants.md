@@ -85,3 +85,42 @@ Recorded so that nobody later "fixes" them:
   decreases stock — see invariant 8.
 - **FEFO/FIFO picking is not implemented.** Lot selection is manual in
   Release 1.
+## Implemented by Task 1.2, and where each one lives
+
+The kernel exists now, so each invariant has an address. Where a rule is
+enforced twice, both are listed on purpose: the service gives an operator a
+sentence they can act on, and the database is what still holds when a repair
+script bypasses the service.
+
+| Rule | Service | Database |
+|---|---|---|
+| Movements are insert-only | never updated | trigger `stock_movement_is_insert_only` |
+| Entries are immutable but for the reversal link | `post_stock_entry` | trigger `stock_entry_is_immutable` |
+| Source identity complete or absent | `canonical_source_identity` | `stock_entry_source_identity_all_or_none` |
+| Source identity immutable once posted | — | trigger, reported separately |
+| One posting per economic event | `_entry_for_source` lookup | `stock_entry_source_event_unique_per_organization` |
+| Idempotency keys scoped per organization | `_replay` | `stock_entry_idempotency_key_unique_per_organization` |
+| One effect per effect key per posting | duplicate check | `stock_movement_effect_key_unique_per_entry` |
+| Posted sequence unique per organization | counter row lock | `stock_movement_sequence_unique_per_organization` |
+| One balance row per stock position | advisory lock | `stock_balance_key_unique` (`NULLS NOT DISTINCT`) |
+| Quantity zero implies value zero | `apply_outbound` | `stock_balance_zero_quantity_has_zero_value` |
+| No negative stock in Task 1.2 | `_require_available` | `stock_balance_quantity_not_negative` |
+| Denormalised owner matches the warehouse | services | triggers on balance and movement |
+| Valuation layer cost is historical | never updated | trigger `valuation_layer_cost_is_historical` |
+
+## Deliberate non-invariants, added by Task 1.2
+
+- **`inventory.override_negative_stock` is reserved and not operational.** The
+  kernel consults no permission when refusing a negative position, because the
+  moving-average contract does not define how a later receipt settles the
+  variance one creates. Activating it later must relax
+  `stock_balance_quantity_not_negative` in the same migration.
+- **`ValuationAllocation` is empty by design.** A moving average consumes no
+  layer; writing allocations would fabricate evidence. The rows are derivable
+  from `posted_sequence` if a layered strategy is ever adopted.
+- **`ValuationLayer.remaining_quantity` is not a stock figure.** Under moving
+  average it stays at the received quantity, because nothing consumed it. The
+  balance row is the only authority on what is physically left.
+- **The posted sequence may have gaps in future.** It is gapless today because
+  the counter is a locked row; if that lock ever binds it will be replaced by
+  a PostgreSQL sequence, and nothing may come to depend on contiguity.
