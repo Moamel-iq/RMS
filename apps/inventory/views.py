@@ -50,21 +50,30 @@ from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
 from apps.accounting.permissions import VIEW_JOURNAL as ACCOUNTING_VIEW_JOURNAL
 from apps.core.views import ModuleViewMixin
 from apps.inventory.commands import (
+    DOCUMENT_PERMISSION,
+    add_document_line,
     add_opening_line,
     archive_inventory_role_mapping,
     close_inventory_role_mapping,
+    create_document,
     create_opening,
+    delete_document,
     delete_opening,
     map_inventory_role,
     may_see_cost,
+    post_document,
     post_opening,
+    remove_document_line,
     remove_opening_line,
+    resolve_document,
     resolve_movement,
     resolve_opening_document,
     return_opening_to_draft,
+    reverse_document,
     reverse_opening,
     submit_opening,
     update_opening,
+    visible_documents,
     visible_movements,
     visible_opening_documents,
     visible_stock,
@@ -76,13 +85,17 @@ from apps.inventory.forms import (
     ItemConversionForm,
     OpeningDocumentForm,
     OpeningLineForm,
+    OperationalDocumentForm,
+    OperationalLineForm,
     PackageUnitForm,
     SupersedeConversionForm,
     WarehouseForm,
 )
-from apps.inventory.models import ItemType
+from apps.inventory.models import InventoryDocumentStatus, ItemType
 from apps.inventory.opening import OpeningLineInput, ensure_opening_lot
+from apps.inventory.operations import DocumentLineInput
 from apps.inventory.permissions import (
+    CREATE_DRAFT_MOVEMENT,
     CREATE_OPENING_STOCK,
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
@@ -124,6 +137,7 @@ from apps.organizations.authorization import (
     branches_with_permission,
     has_branch_permission,
     has_organization_permission,
+    has_warehouse_permission,
     organizations_with_permission,
     require_branch_permission,
     require_organization_permission,
@@ -1428,6 +1442,245 @@ class OpeningActionView(InventoryViewMixin, View):
                 if line is None:
                     raise Http404("line does not exist")
                 remove_opening_line(actor=self.actor, line=line)
+                messages.success(request, _("حُذف السطر."))
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(message) for message in error.messages))
+        return HttpResponseRedirect(detail)
+
+
+# ---------------------------------------------------------------------------
+# Task 1.4 — operational documents
+# ---------------------------------------------------------------------------
+#
+# One set of views, parameterised by document type, mounted three times. The
+# type comes from the URL and never from the request body, so a receipt screen
+# cannot be talked into creating an issue.
+
+
+class OperationalListView(InventoryListView):
+    """Receipts, issues, or returns — whichever this route names."""
+
+    template_name = "inventory/operational_list.html"
+    context_object_name = "documents"
+    required_permission = VIEW_STOCK
+    search_fields = ("document_number", "evidence_reference", "warehouse__code")
+    manage_permission = CREATE_DRAFT_MOVEMENT
+    manage_scope = "branch"
+    document_type: str = ""
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_documents(self.actor, document_type=self.document_type)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["show_cost"] = may_see_cost(self.actor)
+        context["document_type"] = self.document_type
+        context["detail_url_name"] = f"inventory:{self.document_type.lower()}_detail"
+        return context
+
+
+class OperationalCreateView(InventoryViewMixin, View):
+    """The header first; lines are added on the document's own page."""
+
+    template_name = "inventory/master_form.html"
+    required_permission = CREATE_DRAFT_MOVEMENT
+    document_type: str = ""
+    page_title: Any = ""
+    page_hint: Any = ""
+
+    def _branches(self) -> QuerySet[Any]:
+        return branches_with_permission(self.actor, CREATE_DRAFT_MOVEMENT)
+
+    def _form(self, branch: Any, data: Any = None) -> Any:
+        return OperationalDocumentForm(
+            data=data, actor=self.actor, document_type=self.document_type, branch=branch
+        )
+
+    def _context(self, form: Any) -> dict[str, Any]:
+        return {
+            "form": form,
+            "page_title": self.page_title,
+            "page_hint": self.page_hint,
+            "cancel_url": reverse(f"inventory:{self.document_type.lower()}_list"),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        branch = self._branches().first()
+        if branch is None:
+            raise Http404("no branch is reachable for this action")
+        return render(request, self.template_name, self._context(self._form(branch)))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        branch = self._branches().first()
+        if branch is None:
+            raise Http404("no branch is reachable for this action")
+        form = self._form(branch, data=request.POST)
+        if form.is_valid():
+            try:
+                document = create_document(
+                    actor=self.actor,
+                    organization=branch.organization,
+                    branch=branch,
+                    warehouse=form.cleaned_data["warehouse"],
+                    document_type=self.document_type,
+                    effective_at=form.cleaned_data["effective_at"],
+                    evidence_reference=form.cleaned_data["evidence_reference"],
+                    narration=form.cleaned_data["narration"],
+                    cost_center=form.cleaned_data.get("cost_center"),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُنشئ المستند. أضف السطور ثم رحّله."))
+                return HttpResponseRedirect(
+                    reverse(f"inventory:{self.document_type.lower()}_detail", args=[document.pk])
+                )
+        return render(request, self.template_name, self._context(form))
+
+
+class OperationalDetailView(InventoryViewMixin, View):
+    """The document, its lines, its totals, and the actions its status allows."""
+
+    template_name = "inventory/operational_detail.html"
+    required_permission = VIEW_STOCK
+    document_type: str = ""
+
+    def _document(self) -> Any:
+        return resolve_document(self.actor, self.kwargs["pk"], document_type=self.document_type)
+
+    def _line_form(self, document: Any, data: Any = None, selected_item: Any = None) -> Any:
+        return OperationalLineForm(
+            data=data, actor=self.actor, document=document, selected_item=selected_item
+        )
+
+    def _context(self, document: Any, line_form: Any) -> dict[str, Any]:
+        lines = list(
+            document.lines.select_related(
+                "item",
+                "item__base_unit",
+                "lot",
+                "inventory_account",
+                "contra_account",
+                "movement",
+                "source_issue_line",
+                "source_issue_line__document",
+            ).order_by("sequence")
+        )
+        show_cost = may_see_cost(self.actor)
+        post_permission = DOCUMENT_PERMISSION[document.document_type]
+        return {
+            "document": document,
+            "lines": lines,
+            "show_cost": show_cost,
+            "total_value": (
+                sum((line.total_value or Decimal("0") for line in lines), Decimal("0"))
+                if show_cost
+                else None
+            ),
+            "line_form": line_form,
+            "is_draft": document.status == InventoryDocumentStatus.DRAFT,
+            "is_posted": document.status == InventoryDocumentStatus.POSTED,
+            "can_prepare": has_warehouse_permission(
+                self.actor, CREATE_DRAFT_MOVEMENT, document.warehouse
+            ),
+            "can_post": has_warehouse_permission(self.actor, post_permission, document.warehouse),
+            "can_reverse": has_warehouse_permission(
+                self.actor, REVERSE_MOVEMENT, document.warehouse
+            ),
+            "page_title": f"{document.get_document_type_display()} — {document}",
+            "back_url": reverse(f"inventory:{self.document_type.lower()}_list"),
+            "detail_url_name": f"inventory:{self.document_type.lower()}_detail",
+            "line_delete_url_name": f"inventory:{self.document_type.lower()}_line_delete",
+            "action_url_names": {
+                action: f"inventory:{self.document_type.lower()}_{action}"
+                for action in ("post", "reverse", "delete")
+            },
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = self._document()
+        # An item chosen on a previous submit narrows the conversion and
+        # source-issue selectors to what actually applies to it.
+        selected = None
+        raw_item = request.GET.get("item", "").strip()
+        if raw_item.isdigit():
+            selected = resolve_item(self.actor, int(raw_item))
+        return render(
+            request,
+            self.template_name,
+            self._context(document, self._line_form(document, selected_item=selected)),
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = self._document()
+        form = self._line_form(document, data=request.POST)
+        if form.is_valid():
+            item = form.cleaned_data["item"]
+            lot = None
+            try:
+                if form.cleaned_data["lot_code"]:
+                    lot = ensure_opening_lot(
+                        item=item,
+                        code=form.cleaned_data["lot_code"],
+                        expiry_date=form.cleaned_data["lot_expiry"],
+                    )
+                add_document_line(
+                    actor=self.actor,
+                    document=document,
+                    line=DocumentLineInput(
+                        item=item,
+                        lot=lot,
+                        package_conversion=form.cleaned_data["package_conversion"],
+                        entered_package_quantity=form.cleaned_data["entered_package_quantity"],
+                        measured_base_quantity=form.cleaned_data["measured_base_quantity"],
+                        base_quantity=form.cleaned_data["base_quantity"],
+                        unit_cost=form.cleaned_data.get("unit_cost"),
+                        source_issue_line=form.cleaned_data.get("source_issue_line"),
+                    ),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُضيف السطر."))
+                return HttpResponseRedirect(
+                    reverse(f"inventory:{self.document_type.lower()}_detail", args=[document.pk])
+                )
+        return render(request, self.template_name, self._context(document, form))
+
+
+class OperationalActionView(InventoryViewMixin, View):
+    """A POST-only lifecycle action. Every command re-checks authorization."""
+
+    required_permission = VIEW_STOCK
+    document_type: str = ""
+    action: str = ""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = resolve_document(self.actor, self.kwargs["pk"], document_type=self.document_type)
+        listing = reverse(f"inventory:{self.document_type.lower()}_list")
+        detail = reverse(f"inventory:{self.document_type.lower()}_detail", args=[document.pk])
+        try:
+            if self.action == "post":
+                post_document(actor=self.actor, document=document)
+                messages.success(request, _("رُحّل المستند إلى الدفترين."))
+            elif self.action == "reverse":
+                reverse_document(
+                    actor=self.actor, document=document, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, _("عُكس المستند بالكامل."))
+            elif self.action == "delete":
+                delete_document(
+                    actor=self.actor, document=document, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, _("حُذفت المسودة."))
+                return HttpResponseRedirect(listing)
+            elif self.action == "delete_line":
+                line = document.lines.filter(pk=self.kwargs["line_pk"]).first()
+                if line is None:
+                    raise Http404("line does not exist")
+                remove_document_line(actor=self.actor, line=line)
                 messages.success(request, _("حُذف السطر."))
         except ValidationError as error:
             messages.error(request, "؛ ".join(str(message) for message in error.messages))

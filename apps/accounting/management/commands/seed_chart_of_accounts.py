@@ -47,6 +47,11 @@ CHART: list[tuple[str, str, str]] = [
     ("2-01", "الذمم الدائنة", "Payables"),
     ("2-01-01", "ذمم الموردين", "Supplier payables"),
     ("2-01-01-001", "ذمم الموردين", "Accounts Payable"),
+    # Goods physically received that no supplier invoice has caught up with.
+    # A clearing liability, not a payable: nobody is owed a stated amount
+    # until the invoice arrives, and Procurement clears this against it.
+    ("2-01-02", "بضاعة مستلمة غير مفوترة", "Goods received not invoiced"),
+    ("2-01-02-001", "بضاعة مستلمة غير مفوترة", "Goods Received Not Invoiced"),
     # 3 Equity
     ("3", "حقوق الملكية", "Equity"),
     ("3-01", "رأس المال", "Capital"),
@@ -68,6 +73,14 @@ CHART: list[tuple[str, str, str]] = [
     ("5-01", "كلفة المواد", "Material cost"),
     ("5-01-01", "كلفة الأغذية", "Food cost"),
     ("5-01-01-001", "كلفة الأغذية", "Food COGS"),
+    # Consumption destinations. Separate leaves because what a thing is
+    # consumed *as* is what makes the figure useful: ingredients, packaging,
+    # and cleaning materials answer different questions about the same
+    # kitchen. Which item maps to which is an organization decision.
+    ("5-01-02", "استهلاك المواد", "Materials consumption"),
+    ("5-01-02-001", "استهلاك المواد الغذائية", "Food Materials Consumed"),
+    ("5-01-02-002", "استهلاك مواد التغليف", "Packaging Materials Consumed"),
+    ("5-01-02-003", "استهلاك المواد الاستهلاكية", "Consumables Consumed"),
     # 6 Operating expenses
     ("6", "المصروفات التشغيلية", "Operating expenses"),
     ("6-01", "المصروفات الإدارية", "Administrative expenses"),

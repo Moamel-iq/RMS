@@ -157,3 +157,103 @@ first and then asks for inventory locks.**
 - Enabling FIFO later, or any strategy that consumes layers, changes nothing
   here: roles and mappings are about *where* value posts, not how it is
   measured.
+
+## Amendments applied at Task 1.4 (2026-08-10)
+
+### 5. The reclassification guard needs a lock, not only a comparison
+
+The guard in §5 above compares the account resolution before and after a
+mapping change and refuses any difference over standing stock. Task 1.4 asked
+whether that alone closes the race against a concurrent posting. **It does
+not**, and the gap is real: the guard can only see *committed* stock, so a
+posting that had already read the old mapping and not yet committed is
+invisible to it. The mutation would commit, the posting would commit, and
+standing stock would sit in one account while every later posting used
+another — with nothing left to detect it.
+
+So the comparison is now wrapped in a lock, per organization:
+
+| Operation | Mode |
+|---|---|
+| Any stock posting that resolves an account | `pg_advisory_xact_lock_shared` |
+| Creating, amending, closing, or archiving a mapping | `pg_advisory_xact_lock` |
+| Moving an item between categories | `pg_advisory_xact_lock` |
+
+Shared, so concurrent postings do not serialise against each other — the cost
+is paid only by the rare mutation, which waits for the in-flight postings and
+blocks the next. The helpers live in `apps/core/locks.py`, beneath both
+`apps.accounting` and `apps.inventory`, because both take them and neither may
+import the other.
+
+**A mutation must take the advisory lock before its `SELECT ... FOR UPDATE`,
+and the order is not cosmetic.** A posting holds the shared lock and then
+writes a document line carrying `resolved_organization_mapping`, which needs a
+KEY SHARE lock on the mapping row. A mutation that took the row first and only
+then asked for the advisory lock would hold exactly what the posting waits for
+while waiting for exactly what the posting holds. That deadlock was observed —
+PostgreSQL detected and killed it — in the first run of the Task 1.4
+concurrency tests, and `begin_mapping_mutation` is the fix.
+
+### 6. The global lock order, extended
+
+Every combined service acquires in this order, and no official code path may
+invert it:
+
+    1. the source document row                   select_for_update
+    2. the organization's account-mapping lock   shared for postings,
+                                                 exclusive for mutations
+    3. source rows a document depends on         e.g. the issue lines a
+                                                 return goes back against
+    4. the stock keys, sorted canonically        advisory
+    5. the inventory posted-sequence counter
+    6. the domain document-number sequence
+    7. the journal-number sequence
+
+Steps 5 and 6 stay in that order because the stock kernel owns "keys then
+counter" as one unit; splitting it to interleave a document number would
+scatter the kernel's locking discipline across modules.
+
+### 7. Control-account continuity lives on the movement
+
+§4 says a posting snapshots the mapping it resolved. Task 1.4 makes the
+*account* itself a column on the effect:
+
+- **`StockMovement.control_account`** — the inventory-control account this
+  movement's value entered or left, captured at posting and immutable with the
+  rest of the row.
+- **`StockBalance.control_account`** — the account the position's current
+  stock cycle belongs to, cleared when the position empties.
+
+Three rules follow, and the third is the one that matters:
+
+1. An inbound into an **empty** position establishes the account. Nothing is
+   stranded, so a mapping changed since the position last emptied takes effect
+   exactly where it should.
+2. An inbound into **standing stock** must use the account already there, or
+   it is refused with `inventory_account_reclassification_required`. Blending
+   two accounts into one position would put its value in two places with no
+   journal between them.
+3. An **outbound leaves through the account it entered**, read from the
+   balance and never resolved afresh. This is what stops a consumption issue
+   crediting stock out of an account it was never in after the mapping moved.
+
+The column is nullable, and the null means something specific: a movement
+posted with no mapping in play at all — the bare kernel, exercised by its own
+tests. Every movement a business document posts carries one, and a test holds
+that line. Inventing an account for a posting that resolved none would be
+worse than recording that it had none, so this is deliberately a service
+invariant with a test rather than a `NOT NULL` that would force a fiction.
+
+Reconciliation now reads this column directly instead of walking from each
+movement to whichever document produced it — which also means a document type
+added later is attributed correctly without the reconciler learning about it.
+
+### 8. Two roles added, and why their scopes differ
+
+| Role | Scope | Reason |
+|---|---|---|
+| `GOODS_RECEIVED_NOT_INVOICED` | Organization default only | A clearing liability waiting for an invoice. Which item arrived says nothing about who is owed for it. |
+| `INVENTORY_CONSUMPTION` | Item/category override permitted | What a thing is consumed *as* is a property of the thing. Packaging, cleaning materials, and direct ingredients belong in different expense accounts, and one organization-wide answer would make the consumption figures useless for costing. |
+
+Seeding a role is not seeding a mapping. Posting fails with
+`account_role_unmapped` until an accounting manager maps them deliberately.

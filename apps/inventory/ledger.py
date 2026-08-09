@@ -24,17 +24,33 @@ backdated to the 3rd and posted on the 10th affects the average from the 10th
 forward; it does not re-price the issues of the 5th and 7th, which have been
 reported and reconciled already.
 
+## Dates
+
+Two timestamps, and only one of them dates anything. `effective_at` is the
+physical moment; the **business date** is the operational and accounting date,
+derived through the branch's timezone and operating-day cutoff (ADR-008). The
+accounting period is validated on the business date, so an event at 01:30 on
+1 August under an 03:00 cutoff needs the **July** period open and not the
+August one — it belongs to exactly one business day, so it may require exactly
+one period.
+
 ## Locking
 
-Two things must be serialised, and they are taken in a fixed order:
+Four things are serialised, and they are taken in a fixed order (ADR-019):
 
-1. the stock keys the posting touches, sorted canonically;
-2. then the organization's posted-order counter.
+1. the source document row, by the caller above this kernel;
+2. the organization's account-mapping lock, in **shared** mode — many
+   postings may hold it at once, and a mapping mutation takes the exclusive
+   form, so no posting can resolve an account while it is being re-homed;
+3. the stock keys the posting touches, sorted canonically;
+4. then the organization's posted-order counter.
 
 Always that order. A transaction holding a key and waiting for the counter,
 against one holding the counter and waiting for that key, is a deadlock — and
 it is the deadlock that a "lock the counter first, it's quick" instinct
-produces.
+produces. The mapping lock sits above the keys for the same reason: a mutation
+that took keys first and then asked for the mapping would invert the order
+against every posting.
 
 `select_for_update()` cannot lock a balance row that does not exist yet, and
 the first receipt into a new warehouse is exactly that case. So the key lock is
@@ -58,8 +74,9 @@ from django.db import connection, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from apps.accounting.models import PeriodState, SourceEvent
+from apps.accounting.models import Account, PeriodState, SourceEvent
 from apps.accounting.services import resolve_period
+from apps.core.locks import lock_account_mappings_shared
 from apps.core.models import AuditAction
 from apps.core.money import MONEY_PLACES, quantize_money, quantize_unit_price
 from apps.core.quantity import quantize_quantity
@@ -79,6 +96,7 @@ from apps.inventory.models import (
     ValuationLayer,
     Warehouse,
 )
+from apps.organizations.business_dates import business_date_for
 from apps.organizations.models import Organization
 
 if TYPE_CHECKING:
@@ -121,6 +139,16 @@ class MovementInput:
     #: the current average by definition.
     unit_cost: Decimal | None = None
     source_conversion: ItemPackageConversion | None = None
+    #: The inventory-control account this value should enter, resolved by the
+    #: document layer. Meaningful on an **inbound**: it establishes the
+    #: position's account when the position is empty, and must match the
+    #: standing account when it is not. An outbound ignores it — value leaves
+    #: the account it entered, which the position already knows (ADR-019 §5).
+    control_account: Account | None = None
+    #: An exact inbound value that must not be re-derived from
+    #: `quantity x unit_cost` — see `apply_inbound`. Set only where the caller
+    #: computed it against a posted movement, as a return does.
+    inbound_value: Decimal | None = None
 
 
 @dataclass
@@ -153,6 +181,9 @@ class _Position:
     quantity: Decimal = field(default_factory=lambda: ZERO)
     value: Decimal = field(default_factory=lambda: ZERO)
     average: Decimal = field(default_factory=lambda: ZERO)
+    #: The account this position's current stock cycle belongs to, or None
+    #: while the position is empty.
+    control_account: Account | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +207,12 @@ class ValuationStep:
 
 
 def apply_inbound(
-    *, quantity: Decimal, unit_cost: Decimal, before_quantity: Decimal, before_value: Decimal
+    *,
+    quantity: Decimal,
+    unit_cost: Decimal,
+    before_quantity: Decimal,
+    before_value: Decimal,
+    value_in: Decimal | None = None,
 ) -> ValuationStep:
     """
     Add goods at a known cost and re-blend the average.
@@ -188,8 +224,18 @@ def apply_inbound(
     The average is derived from the totals rather than the totals from the
     average. Deriving it the other way accumulates the rounding error of every
     receipt into the stored value, and the ledger stops summing.
+
+    `value_in` overrides the product when the caller holds an exact figure
+    that must not be re-derived — a return taking back the entire remaining
+    value of the issue it goes against. It is the inbound twin of the
+    full-depletion rule: both exist so that a closing movement lands on the
+    exact figure rather than near it, leaving no residual for anybody to
+    chase. It is never a caller's opinion about cost; it is arithmetic the
+    caller already did against a posted movement.
     """
-    value_in = quantize_money(quantity * unit_cost)
+    value_in = (
+        quantize_money(quantity * unit_cost) if value_in is None else quantize_money(value_in)
+    )
     after_quantity = quantize_quantity(before_quantity + quantity)
     after_value = quantize_money(before_value + value_in)
     after_average = (
@@ -403,6 +449,28 @@ def _lock_stock_key(key: _StockKey) -> None:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [key.canonical])
 
 
+def _lock_mappings(organization: Organization) -> None:
+    """
+    Hold the organization's account-mapping lock in **shared** mode.
+
+    Many postings hold it at once, so ordinary throughput is unaffected. A
+    mapping or category mutation takes the exclusive form, so the two cannot
+    interleave: a posting either resolves its accounts entirely before the
+    re-homing begins, or entirely after it has committed and been checked.
+
+    Without this, the Task 1.3 apply-then-verify guard has a real gap. That
+    guard re-resolves the *committed* stock it can see; a posting that had
+    already read the old mapping but not yet committed its balance row is
+    invisible to it, so the mutation would commit, the posting would commit,
+    and standing stock would sit in one account while its ledger claimed
+    another — with nothing left to detect it.
+
+    Taken here, inside the kernel, rather than being left to each caller: a
+    posting path that forgot it would reopen the window silently.
+    """
+    lock_account_mappings_shared(organization.pk)
+
+
 def acquire_stock_key_locks(effects: Sequence[MovementInput]) -> None:
     """
     Take the advisory locks these effects will need, in canonical order.
@@ -441,25 +509,57 @@ def _next_posted_sequence(*, organization: Organization) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _validate_period_is_open(
-    *, organization: Organization, effective_at: datetime.datetime
-) -> None:
+def _validate_period_is_open(*, organization: Organization, business_date: datetime.date) -> None:
     """
-    Stock postings need an OPEN period.
+    Stock postings need an OPEN period **for their business date**.
 
-    Task 1.2 has no soft-close override: a stock movement changes what the
-    accounts will say, and a period that has stopped accepting entries has
-    stopped accepting the things that cause them. The count-adjustment
-    exception arrives with the count document in Task 1.6, attached to a real
-    document rather than to a flag.
+    The business date, not `effective_at.date()`. An event at 01:30 on the 1st
+    of August under an 03:00 cutoff belongs to the 31st of July, and requiring
+    August as well would demand two open periods for an event that happened on
+    one business day — and would refuse a legitimate late-night posting the
+    moment the new month was closed ahead of it (ADR-008, amended at Task 1.4).
+
+    There is no soft-close override: a stock movement changes what the accounts
+    will say, and a period that has stopped accepting entries has stopped
+    accepting the things that cause them. The count-adjustment exception
+    arrives with the count document in Task 1.6, attached to a real document
+    rather than to a flag.
     """
-    period = resolve_period(organization=organization, accounting_date=effective_at.date())
+    period = resolve_period(organization=organization, accounting_date=business_date)
     if period.state != PeriodState.OPEN:
         raise ValidationError(
             _("Period %(period)s is %(state)s and does not accept stock postings."),
             code="period_not_open",
             params={"period": str(period), "state": period.state},
         )
+
+
+def _business_date_of(
+    effects: Sequence[MovementInput], *, moment: datetime.datetime
+) -> datetime.date:
+    """
+    The business date these effects fall on, derived from their own branches.
+
+    A fallback for callers with no document above them — the kernel's own
+    tests, and any future path that posts without one. Every document layer
+    passes its **stored snapshot** instead, so a later change to the branch
+    cutoff cannot move a posted document between periods.
+
+    Effects that resolve to different business dates are refused rather than
+    silently taking the first: two dates means two operational days, and a
+    single posting cannot belong to both.
+    """
+    dates = {
+        business_date_for(effect.warehouse.branch, moment): effect.warehouse.branch.code
+        for effect in effects
+    }
+    if len(dates) > 1:
+        raise ValidationError(
+            _("These effects fall on different business dates: %(dates)s."),
+            code="ambiguous_business_date",
+            params={"dates": ", ".join(sorted(str(date) for date in dates))},
+        )
+    return next(iter(dates))
 
 
 def _validate_effect(effect: MovementInput, *, organization: Organization) -> None:
@@ -601,14 +701,66 @@ def _load_position(key: _StockKey, *, effect: MovementInput) -> _Position:
     # Re-read under a row lock as well. The advisory lock already serialises
     # this key; the row lock keeps anything that reaches the row by another
     # path — a rebuild, a repair — behind the same queue.
-    locked = StockBalance.objects.select_for_update().get(pk=balance.pk)
+    # `of=("self",)` locks the balance row and not the joined account: the
+    # account is a nullable FK, so an unqualified FOR UPDATE would try to lock
+    # the nullable side of an outer join, which PostgreSQL refuses outright.
+    locked = (
+        StockBalance.objects.select_for_update(of=("self",))
+        .select_related("control_account")
+        .get(pk=balance.pk)
+    )
     return _Position(
         key=key,
         balance=locked,
         quantity=locked.quantity,
         value=locked.value,
         average=locked.average_cost,
+        control_account=locked.control_account,
     )
+
+
+def _control_account_for(effect: MovementInput, position: _Position) -> Account | None:
+    """
+    Which control account this effect's value moves through, and the refusal
+    when an inbound would blend two of them.
+
+    An **inbound** into standing stock must use the account the stock already
+    sits in. Letting a re-mapped receipt land in a different account would put
+    one position's value in two places with no journal between them — the
+    trial balance would drift by exactly the amount nobody reclassified, and
+    nothing downstream could tell which half was which.
+
+    An inbound into an *empty* position establishes the account: there is
+    nothing to strand, so a mapping changed since the position last emptied
+    takes effect exactly where it should.
+
+    An **outbound** leaves through the account it entered — never a fresh
+    resolution. This is what stops an ISSUE crediting stock to an account it
+    was never in (§D).
+    """
+    if effect.movement_type in INBOUND_MOVEMENT_TYPES:
+        if position.quantity > ZERO and position.control_account is not None:
+            if (
+                effect.control_account is not None
+                and effect.control_account.pk != position.control_account.pk
+            ):
+                raise ValidationError(
+                    _(
+                        "%(item)s in %(warehouse)s holds stock in account %(current)s; this "
+                        "posting resolves %(new)s. Reclassifying standing stock value needs "
+                        "an explicit GL reclassification, which does not exist yet."
+                    ),
+                    code="inventory_account_reclassification_required",
+                    params={
+                        "item": effect.item.code,
+                        "warehouse": effect.warehouse.code,
+                        "current": position.control_account.code,
+                        "new": effect.control_account.code,
+                    },
+                )
+            return position.control_account
+        return effect.control_account
+    return position.control_account or effect.control_account
 
 
 def _write_movement(
@@ -618,6 +770,7 @@ def _write_movement(
     step: ValuationStep,
     posted_sequence: int,
     movement_type: str,
+    control_account: Account | None = None,
     reverses: StockMovement | None = None,
 ) -> StockMovement:
     """Insert one immutable movement. Nothing ever updates one."""
@@ -629,6 +782,7 @@ def _write_movement(
         item=effect.item,
         lot=effect.lot,
         movement_type=movement_type,
+        control_account=control_account,
         effect_key=effect.effect_key.strip(),
         base_quantity=quantize_quantity(step.quantity_delta),
         inventory_value=quantize_money(step.value_delta),
@@ -652,6 +806,10 @@ def _save_position(position: _Position, *, movement: StockMovement, step: Valuat
     balance.quantity = step.quantity_after
     balance.value = step.value_after
     balance.average_cost = step.average_after
+    # The cycle's account identity: carried while stock stands, released when
+    # the position empties. Clearing it at zero is what lets the next inbound
+    # establish a newly effective mapping without a reclassification.
+    balance.control_account = movement.control_account if step.quantity_after > ZERO else None
     balance.last_movement = movement
     balance.last_posted_sequence = movement.posted_sequence
     balance.version += 1
@@ -660,6 +818,7 @@ def _save_position(position: _Position, *, movement: StockMovement, step: Valuat
             "quantity",
             "value",
             "average_cost",
+            "control_account",
             "last_movement",
             "last_posted_sequence",
             "version",
@@ -669,6 +828,7 @@ def _save_position(position: _Position, *, movement: StockMovement, step: Valuat
     position.quantity = step.quantity_after
     position.value = step.value_after
     position.average = step.average_after
+    position.control_account = balance.control_account
 
 
 def _record_layer(
@@ -705,6 +865,7 @@ def post_stock_entry(
     effects: Sequence[MovementInput],
     idempotency_key: str,
     effective_at: datetime.datetime | None = None,
+    business_date: datetime.date | None = None,
     source_document_type: str = "",
     source_document_id: str = "",
     source_event: str = "",
@@ -732,6 +893,12 @@ def post_stock_entry(
     | same key, different payload | `idempotency_key_conflict` |
     | same key, another organization | an independent posting |
     | same source identity, different key | `source_event_already_posted` |
+
+    `business_date` is the operational date the posting belongs to, and the
+    date its accounting period is checked against. Callers with a document
+    pass their **stored snapshot**, so a later change to the branch's cutoff
+    cannot move a posted document between periods; the kernel derives it from
+    the effects' own branches only when nobody above it has committed to one.
     """
     if not effects:
         raise ValidationError(_("A stock posting needs at least one effect."), code="no_effects")
@@ -797,12 +964,13 @@ def post_stock_entry(
                 },
             )
 
-    _validate_period_is_open(organization=organization, effective_at=moment)
+    effective_business_date = business_date or _business_date_of(effects, moment=moment)
+    _validate_period_is_open(organization=organization, business_date=effective_business_date)
 
     seen: set[str] = set()
     for effect in effects:
         _validate_effect(effect, organization=organization)
-        _validate_lot_is_not_expired(effect, on_date=moment.date())
+        _validate_lot_is_not_expired(effect, on_date=effective_business_date)
         if effect.effect_key.strip() in seen:
             raise ValidationError(
                 _("Effect key %(key)s appears twice in one posting."),
@@ -819,15 +987,19 @@ def post_stock_entry(
         idempotency_key=idempotency_key,
         request_fingerprint=fingerprint,
         effective_at=moment,
+        business_date=effective_business_date,
         posted_at=timezone.now(),
         posted_by=_current_actor(),
         reference=reference.strip(),
         reason=reason.strip(),
     )
 
-    # Lock every key first, in canonical order, then the counter. Two events
-    # naming the same two keys in opposite caller order take them in the same
-    # database order and cannot deadlock.
+    # The mapping lock first, then every key in canonical order, then the
+    # counter. Two events naming the same two keys in opposite caller order
+    # take them in the same database order and cannot deadlock; a mapping
+    # mutation waiting on the exclusive form cannot slip between a posting's
+    # account resolution and its commit.
+    _lock_mappings(organization)
     ordered = sorted(effects, key=lambda effect: _key_of(effect).sort_key)
     positions: dict[str, _Position] = {}
     for effect in ordered:
@@ -842,6 +1014,10 @@ def post_stock_entry(
         _check_warehouse_is_not_frozen(position)
         _assert_position_is_coherent(effect=effect, position=position)
 
+        # Resolved before the arithmetic, so a refused reclassification costs
+        # nothing and leaves nothing half-applied.
+        control_account = _control_account_for(effect, position)
+
         if effect.movement_type in INBOUND_MOVEMENT_TYPES:
             assert effect.unit_cost is not None  # noqa: S101 - guaranteed by _validate_effect
             step = apply_inbound(
@@ -849,6 +1025,7 @@ def post_stock_entry(
                 unit_cost=effect.unit_cost,
                 before_quantity=position.quantity,
                 before_value=position.value,
+                value_in=effect.inbound_value,
             )
         else:
             step = apply_outbound(
@@ -865,6 +1042,7 @@ def post_stock_entry(
             step=step,
             posted_sequence=sequence,
             movement_type=effect.movement_type,
+            control_account=control_account,
         )
         _save_position(position, movement=movement, step=step)
         if effect.movement_type in INBOUND_MOVEMENT_TYPES:
@@ -982,6 +1160,7 @@ def reverse_stock_entry(
     idempotency_key: str,
     reason: str,
     effective_at: datetime.datetime | None = None,
+    business_date: datetime.date | None = None,
 ) -> StockLedgerEntry:
     """
     Post the exact opposite of an entry, as a new immutable entry.
@@ -1021,8 +1200,6 @@ def reverse_stock_entry(
     if existing is not None:
         return existing
 
-    _validate_period_is_open(organization=organization, effective_at=moment)
-
     originals = list(
         entry.movements.select_related("warehouse", "warehouse__branch", "item", "lot").order_by(
             "posted_sequence"
@@ -1030,6 +1207,14 @@ def reverse_stock_entry(
     )
     if not originals:  # pragma: no cover - an entry always has movements
         raise ValidationError(_("Nothing to reverse."), code="no_movements")
+
+    # A reversal is dated by when it is *made*, not by what it corrects: it is
+    # a new economic event in the current period, and backdating it into the
+    # original's closed month is what the reversal exists to avoid.
+    reversal_business_date = business_date or _business_date_of(
+        [_effect_of(movement) for movement in originals], moment=moment
+    )
+    _validate_period_is_open(organization=organization, business_date=reversal_business_date)
 
     reversal = StockLedgerEntry.objects.create(
         organization=organization,
@@ -1042,6 +1227,7 @@ def reverse_stock_entry(
         idempotency_key=idempotency_key,
         request_fingerprint=fingerprint,
         effective_at=moment,
+        business_date=reversal_business_date,
         posted_at=timezone.now(),
         posted_by=_current_actor(),
         reference=entry.reference,
@@ -1049,6 +1235,7 @@ def reverse_stock_entry(
         reverses=entry,
     )
 
+    _lock_mappings(organization)
     ordered = sorted(
         originals,
         key=lambda movement: (
@@ -1098,6 +1285,9 @@ def reverse_stock_entry(
             step=step,
             posted_sequence=sequence,
             movement_type=MovementType.REVERSAL,
+            # The original's account, not a fresh resolution: a mirror moves
+            # the same money the same way back, whatever the chart says now.
+            control_account=original.control_account,
             reverses=original,
         )
         _save_position(position, movement=movement, step=step)
@@ -1127,4 +1317,5 @@ def _effect_of(movement: StockMovement) -> MovementInput:
         effect_key=f"reverse:{movement.effect_key}",
         lot=movement.lot,
         source_conversion=movement.source_conversion,
+        control_account=movement.control_account,
     )

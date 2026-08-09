@@ -29,11 +29,12 @@ from django import forms
 from django.db.models import QuerySet
 from django.utils.translation import gettext_lazy as _
 
-from apps.accounting.models import Account, AccountRole
+from apps.accounting.models import Account, AccountRole, CostCenter
 from apps.inventory.models import (
     MAX_CATEGORY_DEPTH,
     ConversionType,
     InventoryItem,
+    InventoryMovementDocumentLine,
     ItemCategory,
     ItemPackageConversion,
     ItemType,
@@ -42,6 +43,7 @@ from apps.inventory.models import (
     WarehouseType,
 )
 from apps.inventory.permissions import (
+    CREATE_DRAFT_MOVEMENT,
     CREATE_OPENING_STOCK,
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
@@ -717,3 +719,212 @@ class ReasonForm(forms.Form):
     """A stated reason, for return-to-draft and reversal."""
 
     reason = forms.CharField(label=_("السبب"), widget=forms.Textarea, max_length=500)
+
+
+# ---------------------------------------------------------------------------
+# Task 1.4 — operational documents
+# ---------------------------------------------------------------------------
+
+
+class OperationalDocumentForm(ScopedForm):
+    """
+    The header of a receipt, an issue, or a return.
+
+    One warehouse, one moment, one evidence reference. The cost-centre field
+    appears only for an issue: a receipt has no consumption destination, and a
+    return reuses the destination its original issue used.
+    """
+
+    scope_permission = CREATE_DRAFT_MOVEMENT
+
+    warehouse = forms.ModelChoiceField(queryset=Warehouse.objects.none(), label=_("المخزن"))
+    effective_at = forms.DateTimeField(
+        label=_("لحظة الحركة"),
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+        help_text=_("اللحظة الفعلية لدخول أو خروج البضاعة. يُشتق منها يوم العمل."),
+    )
+    evidence_reference = forms.CharField(
+        label=_("مرجع الإثبات"),
+        max_length=200,
+        help_text=_("رقم إشعار التسليم أو طلب الصرف أو إشعار الإرجاع."),
+    )
+    cost_center = forms.ModelChoiceField(
+        queryset=CostCenter.objects.none(),
+        label=_("مركز الكلفة"),
+        required=False,
+        help_text=_("وجهة الاستهلاك. مطلوب إذا كان حساب الاستهلاك يستلزمه."),
+    )
+    narration = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(
+        self, *args: Any, actor: User, document_type: str, branch: Branch, **kwargs: Any
+    ) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.organizations.authorization import accessible_warehouses
+
+        self.document_type = document_type
+        self.branch = branch
+        self.fields["warehouse"].queryset = (  # type: ignore[attr-defined]
+            accessible_warehouses(actor).filter(branch=branch, is_system=False).order_by("code")
+        )
+        from apps.inventory.models import InventoryDocumentType
+
+        if document_type == InventoryDocumentType.ISSUE:
+            self.fields["cost_center"].queryset = CostCenter.objects.filter(  # type: ignore[attr-defined]
+                organization_id=branch.organization_id, is_active=True
+            ).order_by("code")
+        else:
+            # Not merely hidden: removed, so a hand-made POST cannot set one
+            # on a document type the service would refuse it for.
+            del self.fields["cost_center"]
+
+    def clean_narration(self) -> str:
+        return str(self.cleaned_data.get("narration") or "")
+
+    def clean_effective_at(self) -> datetime.datetime:
+        from django.utils import timezone as django_timezone
+
+        value: datetime.datetime = self.cleaned_data["effective_at"]
+        if django_timezone.is_naive(value):
+            value = django_timezone.make_aware(value)
+        return value
+
+
+class OperationalLineForm(ScopedForm):
+    """
+    One line on an operational document.
+
+    The cost field appears for a receipt only. An issue and a return are
+    valued by the ledger, so offering a box for it would be offering an
+    opinion the posting will ignore — or worse, refuse.
+
+    The conversion selector is narrowed to the chosen item where the caller
+    has already picked one, so the list is what applies rather than every
+    conversion the organization has.
+    """
+
+    scope_permission = CREATE_DRAFT_MOVEMENT
+
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    lot_code = forms.CharField(
+        label=_("رمز الدفعة"),
+        max_length=64,
+        required=False,
+        help_text=_("مطلوب للأصناف التي تتتبع الدفعات."),
+    )
+    lot_expiry = forms.DateField(
+        label=_("تاريخ انتهاء الدفعة"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    package_conversion = forms.ModelChoiceField(
+        queryset=ItemPackageConversion.objects.none(),
+        label=_("عبوة الإدخال"),
+        required=False,
+        help_text=_("اختياري: إن كان العدّ بالعبوات."),
+    )
+    entered_package_quantity = forms.CharField(label=_("عدد العبوات"), required=False)
+    measured_base_quantity = forms.CharField(
+        label=_("الكمية الموزونة"),
+        required=False,
+        help_text=_("للعبوات المتغيرة فقط: قراءة الميزان بوحدة الأساس."),
+    )
+    base_quantity = forms.CharField(
+        label=_("الكمية بوحدة الأساس"),
+        required=False,
+        help_text=_("للإدخال المباشر بلا عبوة. نقطة عشرية، لا فاصلة."),
+    )
+    unit_cost = forms.CharField(
+        label=_("كلفة الوحدة"),
+        required=False,
+        help_text=_("دينار عراقي لوحدة الأساس الواحدة. نقطة عشرية."),
+    )
+    source_issue_line = forms.ModelChoiceField(
+        queryset=InventoryMovementDocumentLine.objects.none(),
+        label=_("سطر الصرف الأصلي"),
+        required=False,
+        help_text=_("الصرف الذي تعود منه البضاعة."),
+    )
+
+    def __init__(
+        self,
+        *args: Any,
+        actor: User,
+        document: Any,
+        selected_item: InventoryItem | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.inventory.commands import returnable_issue_lines
+        from apps.inventory.models import InventoryDocumentType
+
+        self.document = document
+        self.fields["item"].queryset = (  # type: ignore[attr-defined]
+            visible_items(actor)
+            .filter(organization_id=document.organization_id, is_active=True)
+            .order_by("code")
+        )
+
+        conversions = ItemPackageConversion.objects.filter(
+            organization_id=document.organization_id, is_active=True
+        ).select_related("item", "package_unit")
+        if selected_item is not None:
+            # Narrowed to the chosen item: a list of every conversion in the
+            # organization is a list of mostly wrong answers.
+            conversions = conversions.filter(item=selected_item)
+        self.fields["package_conversion"].queryset = conversions.order_by(  # type: ignore[attr-defined]
+            "item__code", "package_unit__code"
+        )
+
+        if document.document_type == InventoryDocumentType.RECEIPT:
+            del self.fields["source_issue_line"]
+        else:
+            del self.fields["unit_cost"]
+
+        if document.document_type == InventoryDocumentType.RETURN_IN:
+            sources = returnable_issue_lines(actor).filter(
+                document__warehouse_id=document.warehouse_id
+            )
+            if selected_item is not None:
+                sources = sources.filter(item=selected_item)
+            self.fields["source_issue_line"].queryset = sources  # type: ignore[attr-defined]
+            self.fields["source_issue_line"].required = True
+        elif "source_issue_line" in self.fields:
+            del self.fields["source_issue_line"]
+
+    def _decimal(self, raw: str, field: str) -> Decimal | None:
+        text = (raw or "").strip()
+        if not text:
+            return None
+        if "," in text:
+            self.add_error(field, _("استخدم النقطة العشرية لا الفاصلة."))
+            return None
+        try:
+            value = Decimal(text)
+        except ArithmeticError, ValueError:
+            self.add_error(field, _("قيمة عشرية غير صالحة."))
+            return None
+        if not value.is_finite():
+            self.add_error(field, _("قيمة عشرية غير صالحة."))
+            return None
+        return value
+
+    def clean_entered_package_quantity(self) -> Decimal | None:
+        return self._decimal(
+            self.cleaned_data.get("entered_package_quantity", ""), "entered_package_quantity"
+        )
+
+    def clean_measured_base_quantity(self) -> Decimal | None:
+        return self._decimal(
+            self.cleaned_data.get("measured_base_quantity", ""), "measured_base_quantity"
+        )
+
+    def clean_base_quantity(self) -> Decimal | None:
+        return self._decimal(self.cleaned_data.get("base_quantity", ""), "base_quantity")
+
+    def clean_unit_cost(self) -> Decimal | None:
+        value = self._decimal(self.cleaned_data.get("unit_cost", ""), "unit_cost")
+        if value is not None and value <= 0:
+            self.add_error("unit_cost", _("يجب أن تكون الكلفة أكبر من صفر."))
+            return None
+        return value

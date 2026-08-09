@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -57,6 +57,7 @@ from apps.accounting.models import (
 from apps.accounting.services import post_entry, resolve_period, reverse_entry
 from apps.accounting.validators import PostingLine, validate_period_accepts_postings
 from apps.core.context import get_actor
+from apps.core.locks import lock_account_mappings_shared
 from apps.core.models import AuditAction
 from apps.core.money import quantize_money, quantize_unit_price
 from apps.core.quantity import quantize_quantity
@@ -82,7 +83,11 @@ from apps.inventory.models import (
     StockMovement,
     Warehouse,
 )
-from apps.organizations.business_dates import business_date_for
+from apps.organizations.business_dates import (
+    business_date_for,
+    business_date_from_snapshot,
+    resolve_business_day,
+)
 from apps.organizations.models import Branch, Organization
 
 #: The rule identifier stamped on every opening journal. Bump it when the
@@ -521,10 +526,28 @@ def submit_opening_document(*, document: OpeningStockDocument) -> OpeningStockDo
         raise ValidationError(_("An empty opening cannot be submitted."), code="no_lines")
 
     before = snapshot(locked)
+    # The business date becomes authoritative here, with the branch settings
+    # that produced it. Posting replays this snapshot instead of re-deriving,
+    # so changing the branch's cutoff afterwards cannot move an approved
+    # document into a different accounting period (§B).
+    day = resolve_business_day(locked.branch, locked.cutoff_at)
+    locked.business_date = day.business_date
+    locked.business_date_timezone = day.timezone_name
+    locked.business_day_start = day.day_start
     locked.status = OpeningStockStatus.SUBMITTED
     locked.submitted_by = actor
     locked.submitted_at = timezone.now()
-    locked.save(update_fields=["status", "submitted_by", "submitted_at", "updated_at"])
+    locked.save(
+        update_fields=[
+            "business_date",
+            "business_date_timezone",
+            "business_day_start",
+            "status",
+            "submitted_by",
+            "submitted_at",
+            "updated_at",
+        ]
+    )
     record_audit_event(
         action=AuditAction.SUBMITTED,
         target=locked,
@@ -554,7 +577,21 @@ def return_opening_to_draft(*, document: OpeningStockDocument, reason: str) -> O
     locked.status = OpeningStockStatus.DRAFT
     locked.submitted_by = None
     locked.submitted_at = None
-    locked.save(update_fields=["status", "submitted_by", "submitted_at", "updated_at"])
+    # The snapshot is released with the submission that made it. A document
+    # back in draft may have its cutoff corrected, and resubmission derives a
+    # fresh business date from the branch as it stands then (§B).
+    locked.business_date_timezone = ""
+    locked.business_day_start = None
+    locked.save(
+        update_fields=[
+            "status",
+            "submitted_by",
+            "submitted_at",
+            "business_date_timezone",
+            "business_day_start",
+            "updated_at",
+        ]
+    )
     record_audit_event(
         action=AuditAction.REJECTED,
         target=locked,
@@ -684,16 +721,31 @@ def post_opening_document(*, document: OpeningStockDocument) -> OpeningStockDocu
             ),
         )
 
-    # The cutoff dates the stock; the derived business date dates the journal.
-    # Re-derived here so the posted figures agree with the branch's operating
-    # day as configured at the moment of posting, not at drafting.
-    locked.business_date = business_date_for(locked.branch, locked.cutoff_at)
+    # The business date was fixed at submission, with the branch settings that
+    # produced it. Replayed here, never re-derived: a cutoff changed between
+    # submission and approval must not move an approved document into another
+    # period behind the approver's back (§B).
+    if not locked.business_date_timezone or locked.business_day_start is None:
+        raise ValidationError(  # pragma: no cover - the DB constraint refuses this state
+            _("This document has no business-date snapshot. Return it to draft and resubmit."),
+            code="missing_business_date_snapshot",
+        )
+    locked.business_date = business_date_from_snapshot(
+        locked.cutoff_at,
+        timezone_name=locked.business_date_timezone,
+        day_start=locked.business_day_start,
+    )
     period = resolve_period(organization=locked.organization, accounting_date=locked.business_date)
     validate_period_accepts_postings(period)
 
     effects = [_effect_of(line) for line in lines]
 
-    # 2. The stock keys — before the history check, so no concurrent posting
+    # 2. The organization's account mappings, in shared mode — above the stock
+    # keys in the global order, so a mapping mutation can never interleave
+    # with the resolution below (ADR-019 §5).
+    lock_account_mappings_shared(locked.organization_id)
+
+    # 3. The stock keys — before the history check, so no concurrent posting
     # can slip an OPENING or a receipt in between the check and the post.
     acquire_stock_key_locks(effects)
     for line in lines:
@@ -721,13 +773,21 @@ def post_opening_document(*, document: OpeningStockDocument) -> OpeningStockDocu
         *(resolved.account for resolved in resolutions.values()), equity_mapping.account
     )
 
-    # 3. The stock entry: movements, balances, valuation layers, and the
+    # Each effect now names the account its value enters, so the movement
+    # records it immutably and a later mapping change cannot reinterpret it.
+    effects = [
+        replace(effect, control_account=resolutions[line.pk].account)
+        for line, effect in zip(lines, effects, strict=True)
+    ]
+
+    # 4. The stock entry: movements, balances, valuation layers, and the
     # posted-order counter — the kernel's own discipline, untouched.
     stock_entry = post_stock_entry(
         organization=locked.organization,
         effects=effects,
         idempotency_key=f"inventory-opening:{locked.public_id}",
         effective_at=locked.cutoff_at,
+        business_date=locked.business_date,
         source_document_type=SOURCE_DOCUMENT_TYPE,
         source_document_id=str(locked.public_id),
         source_event=SourceEvent.POSTED,
@@ -872,6 +932,10 @@ def reverse_opening_document(
         )
 
     now = timezone.now()
+    # A reversal is a new event happening *now*, so it takes today's business
+    # date from the branch as it stands — not the original's stored snapshot,
+    # which described a different day.
+    reversal_business_date = business_date_for(locked.branch, now)
 
     # Stock first, then journal — the same direction as posting. The kernel
     # enforces availability and refuses a second reversal on the unique
@@ -883,12 +947,13 @@ def reverse_opening_document(
         idempotency_key=f"inventory-opening-reverse:{locked.public_id}",
         reason=reason.strip(),
         effective_at=now,
+        business_date=reversal_business_date,
     )
     reversal_journal = reverse_entry(
         entry=locked.journal_entry,
         idempotency_key=f"inventory-opening-journal-reverse:{locked.public_id}",
         reason=reason.strip(),
-        accounting_date=business_date_for(locked.branch, now),
+        accounting_date=reversal_business_date,
     )
 
     locked.status = OpeningStockStatus.REVERSED

@@ -295,3 +295,28 @@ source.
 | INV-118 | Mapping authority is organization provenance; overrides share it | `MANAGE_ACCOUNT_MAPPINGS` | `::TestMappingAuthorization`, `::TestProvenanceRegression` | 1.3 | AT-008 | Done |
 | INV-119 | Opening cost fields follow `view_valuation`, omitted not blanked | `_serialize_opening` | `test_opening_api.py::TestDecimalsAndCostVisibility` | 1.3 | AT-008 | Done |
 | INV-120 | Negative-stock override granted to no default role while disabled | `NEGATIVE_STOCK_OVERRIDE_ENABLED` | `test_ledger.py::test_even_the_owner_is_refused…` | 1.3 | | Done |
+| INV-121 | Period validation uses the business date, not the calendar date | `_validate_period_is_open` | `test_business_date.py::TestPeriodValidationUsesTheBusinessDate` | 1.4 | | Done |
+| INV-122 | A submitted document's business date cannot silently change | submission snapshot | `::TestTheOpeningSnapshotIsStable` | 1.4 | | Done |
+| INV-123 | Return-to-draft releases the snapshot; resubmission recalculates | `return_opening_to_draft` | `::test_return_to_draft_releases_the_snapshot…` | 1.4 | | Done |
+| INV-124 | Postings hold the mapping lock shared; mutations exclusively | `apps/core/locks.py` | `test_mapping_concurrency.py` | 1.4 | | Done |
+| INV-125 | A mapping mutation cannot race a posting into stranded value | `begin_mapping_mutation` | `::TestMappingChangeCannotRaceWithPosting` | 1.4 | | Done |
+| INV-126 | Shared locks still allow concurrent postings | shared advisory lock | `::test_two_postings_overlap_rather_than_serialising` | 1.4 | | Done |
+| INV-127 | The global lock order does not deadlock | ADR-019 §6 | `::TestTheGlobalLockOrderDoesNotDeadlock` | 1.4 | | Done |
+| INV-128 | Every value-bearing movement carries its control account | `_control_account_for` | `test_business_date.py::TestTheMovementCarriesItsControlAccount` | 1.4 | | Done |
+| INV-129 | A receipt into standing stock preserves the control account | `_control_account_for` | `test_operations.py::TestControlAccountContinuity` | 1.4 | | Done |
+| INV-130 | Emptying a position releases its control-account identity | `_save_position` | `::test_emptying_the_position_releases_the_account` | 1.4 | | Done |
+| INV-131 | Receipt: Dr control, Cr GRNI, grouped per account | `_plan_receipt` | `::TestReceiptPosting` | 1.4 | AT-002 | Done |
+| INV-132 | Issue: Dr consumption, Cr the account the stock is in | `_plan_issue` | `::TestIssue` | 1.4 | AT-002 | Done |
+| INV-133 | Issue cost is the moving average; no entered cost accepted | `add_line` | `::test_a_user_supplied_unit_cost_is_refused` | 1.4 | | Done |
+| INV-134 | Return valued from the original issue, not today's average | `_plan_return` | `::TestReturnIn` | 1.4 | | Done |
+| INV-135 | The final return takes the exact remaining value, no residual | `_plan_return` | `::test_the_final_return_takes_the_exact_remaining_value` | 1.4 | | Done |
+| INV-136 | Cumulative returns cannot exceed the issue | `returnable` | `::test_cumulative_returns_cannot_exceed_the_issue` | 1.4 | | Done |
+| INV-137 | A return reuses the original accounts and cost centre | `_plan_return` | `::test_todays_mapping_is_not_used_for_the_return` | 1.4 | | Done |
+| INV-138 | An issue with active returns cannot be reversed | `reverse_document` | `::test_an_issue_with_active_returns_cannot_be_reversed` | 1.4 | | Done |
+| INV-139 | Reversal availability applies to receipts and returns | `reverse_stock_entry` | `::TestReversal` | 1.4 | | Done |
+| INV-140 | Gapless numbering per type and business year; failures burn none | `_next_document_number` | `::TestNumberingAndIdempotency` | 1.4 | | Done |
+| INV-141 | Source identity uses the immutable public id and line uid | `post_document` | `::test_source_identity_uses_the_immutable_public_id` | 1.4 | AT-009 | Done |
+| INV-142 | Posted documents and lines are database-immutable | triggers, `inventory/0010` | `::test_a_posted_receipt_is_immutable_at_the_database` | 1.4 | | Done |
+| INV-143 | A document id cannot cross between type series | route-bound type | `test_operations_api_and_screens.py::test_a_document_id_cannot_cross_between_series` | 1.4 | AT-008 | Done |
+| INV-144 | Cost is omitted for callers without view_valuation | `_serialize_document` | `::TestReceiptApi`, `::test_a_storekeeper_sees_no_recorded_cost` | 1.4 | AT-008 | Done |
+| INV-145 | Navigation offers only screens that resolve | `apps/core/navigation.py` | `::test_navigation_points_only_at_live_screens` | 1.4 | | Done |

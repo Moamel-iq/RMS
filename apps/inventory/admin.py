@@ -25,6 +25,8 @@ from apps.inventory.models import (
     InventoryAccountMapping,
     InventoryItem,
     InventoryLot,
+    InventoryMovementDocument,
+    InventoryMovementDocumentLine,
     ItemCategory,
     ItemPackageConversion,
     OpeningStockDocument,
@@ -40,9 +42,13 @@ from apps.inventory.models import (
 if TYPE_CHECKING:
     _ModelAdmin = admin.ModelAdmin[Any]
     _LineInline = admin.TabularInline[OpeningStockLine, OpeningStockDocument]
+    _MovementLineInline = admin.TabularInline[
+        InventoryMovementDocumentLine, InventoryMovementDocument
+    ]
 else:
     _ModelAdmin = admin.ModelAdmin
     _LineInline = admin.TabularInline
+    _MovementLineInline = admin.TabularInline
 
 
 class ReadOnlyAdminMixin:
@@ -304,6 +310,61 @@ class OpeningStockDocumentAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     ordering = ("-created_at",)
     list_select_related = ("organization", "branch", "submitted_by", "posted_by")
     inlines = [OpeningStockLineInline]
+
+    def get_readonly_fields(self, request: HttpRequest, obj: Any = None) -> tuple[str, ...]:
+        return tuple(field.name for field in self.model._meta.fields)
+
+
+class InventoryMovementLineInline(_MovementLineInline):
+    model = InventoryMovementDocumentLine
+    extra = 0
+    can_delete = False
+    fields = (
+        "sequence",
+        "item",
+        "lot",
+        "base_quantity",
+        "unit_cost",
+        "total_value",
+        "inventory_account",
+        "contra_account",
+        "movement",
+    )
+    readonly_fields = fields
+
+    def has_add_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+
+@admin.register(InventoryMovementDocument)
+class InventoryMovementDocumentAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    """
+    Read-only, and the database agrees: a POSTED document refuses every change
+    except its reversal transition, a REVERSED one refuses all of them, and
+    the lines freeze with their document.
+    """
+
+    list_display = (
+        "document_number",
+        "document_type",
+        "status",
+        "warehouse",
+        "business_date",
+        "cost_center",
+        "posted_by",
+        "organization",
+    )
+    list_filter = ("document_type", "status", "warehouse", "organization")
+    search_fields = ("document_number", "public_id", "evidence_reference")
+    ordering = ("-created_at",)
+    list_select_related = ("organization", "branch", "warehouse", "cost_center", "posted_by")
+    inlines = [InventoryMovementLineInline]
 
     def get_readonly_fields(self, request: HttpRequest, obj: Any = None) -> tuple[str, ...]:
         return tuple(field.name for field in self.model._meta.fields)

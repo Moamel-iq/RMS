@@ -160,3 +160,47 @@ enforcement discipline: the service explains, the database holds.
 - **The GL side of the reconciliation sums every journal line on a control
   account, not only inventory-sourced ones.** A manual journal against an
   inventory-control account is exactly the drift the report must surface.
+
+## Implemented by Task 1.4, and where each one lives
+
+The operational documents, and the two cross-cutting rules they forced.
+
+| Rule | Service | Database |
+|---|---|---|
+| The accounting period is judged on the **business date** | `_validate_period_is_open` | — (one open period per event, never two) |
+| A committed business date does not move when a branch cutoff changes | submission/posting snapshot | `opening_business_date_snapshot_present`, `inventory_document_business_date_snapshot_present` |
+| A posting and a mapping mutation cannot interleave | shared vs exclusive advisory lock | — (`pg_advisory_xact_lock[_shared]`, ADR-019 §5) |
+| A mutation takes the advisory lock before any row lock | `begin_mapping_mutation` | — (the inverse order deadlocks; observed and fixed) |
+| Value leaves through the account it entered | `_control_account_for` | `StockMovement.control_account`, immutable with the row |
+| An inbound into standing stock keeps that account | `_control_account_for` | — (`inventory_account_reclassification_required`) |
+| An empty position holds no account identity | `_save_position` | `stock_balance_empty_position_has_no_control_account` |
+| A receipt line states a cost; an issue and a return never do | `add_line` | trigger `inventory_movement_line_frozen_with_document` (INSERT only) |
+| A return names exactly one posted issue line | `_validate_return_source` | the same trigger |
+| Cumulative returns never exceed their issue | `returnable` under `select_for_update` | — (the issue-line row lock serialises concurrent returns) |
+| The final return takes the exact remaining value | `_plan_return` + `apply_inbound(value_in=…)` | — (no residual is left for anybody to chase) |
+| An issue with active returns cannot be reversed | `reverse_document` | — |
+| A posted document is immutable but for its reversal | status checks | trigger `inventory_movement_document_immutable` (allowlist) |
+| Lines freeze with their document | DRAFT-only line services | trigger `inventory_movement_line_frozen_with_document` |
+| A number exists exactly from posting, gapless per type and year | `_next_document_number` | `inventory_document_numbered_iff_posted` + partial unique |
+| One valuation key per document | duplicate check | `inventory_document_line_valuation_key_unique` (`NULLS NOT DISTINCT`) |
+
+## Deliberate non-invariants, added by Task 1.4
+
+- **`StockMovement.control_account` is nullable, and the null is meaningful.**
+  It records a movement posted with no mapping in play at all — the bare
+  kernel, exercised by its own tests. Every movement a business document posts
+  carries one, held by test rather than by `NOT NULL`, because inventing an
+  account for a posting that resolved none would be worse than recording that
+  it had none.
+- **A storekeeper may enter a receipt cost without holding
+  `view_valuation`.** The figure is on the delivery note in their hand. What
+  the permission withholds is the ledger's answer — what the organization
+  already paid and what the shelf is now worth — not the number they are
+  copying from paper.
+- **An issue carries one cost centre for the whole document.** Mixed
+  destinations need separate documents in Release 1. Per-line centres are a
+  later decision, not an oversight.
+- **`RETURN_OUT` is absent.** A supplier return must reconcile against a
+  supplier invoice, a payable, and a credit note, none of which exist yet; it
+  belongs to Procurement in Phase 2. `RETURN_IN` here means unused stock
+  coming back from a consumption issue, and nothing else.

@@ -51,6 +51,7 @@ from apps.accounting.models import (
     OrganizationAccountMapping,
 )
 from apps.accounting.services import mapping_is_used, resolve_default_account
+from apps.core.locks import lock_account_mappings_exclusive
 from apps.core.models import AuditAction
 from apps.core.services import record_audit_event, snapshot
 from apps.inventory.models import (
@@ -187,6 +188,20 @@ def resolve_inventory_account(
 # ---------------------------------------------------------------------------
 
 
+def _begin_mapping_mutation(organization: Organization) -> None:
+    """
+    Take the organization's mapping lock exclusively before anything reads the
+    resolution it is about to change.
+
+    Every override mutation and every category move that can affect account
+    resolution goes through here. Postings hold the same lock in shared mode,
+    so this waits for the in-flight ones and blocks the next — closing the
+    window the apply-then-verify guard cannot see into on its own
+    (ADR-019 §5).
+    """
+    lock_account_mappings_exclusive(organization.pk)
+
+
 def _no_verify() -> None:
     """The verifier for roles that carry no standing value: nothing to protect."""
 
@@ -274,7 +289,11 @@ def item_category_change_verifier(*, item: InventoryItem) -> Callable[[], None]:
     Captures the control resolution before the move; the returned verifier
     re-reads the item and re-resolves, so it judges what was actually saved.
     Items without standing stock move freely — there is no value to strand.
+
+    A category move changes what the resolver answers, so it is a mapping
+    mutation in everything but name and takes the same exclusive lock.
     """
+    _begin_mapping_mutation(item.organization)
     has_stock = StockBalance.objects.filter(item=item).exclude(quantity=0).exists()
     if not has_stock:
         return _no_verify
@@ -423,6 +442,7 @@ def create_inventory_mapping(
     effective_to: datetime.date | None = None,
 ) -> InventoryAccountMapping:
     """Record an item- or category-specific override of the organization default."""
+    _begin_mapping_mutation(organization)
     resolved_role = _role(role)
     _validate_override_shape(
         organization=organization,
@@ -537,6 +557,7 @@ def close_inventory_mapping(
     *, mapping: InventoryAccountMapping, effective_to: datetime.date, reason: str = ""
 ) -> InventoryAccountMapping:
     """End an override's effective range — permitted even when used."""
+    _begin_mapping_mutation(mapping.organization)
     locked = InventoryAccountMapping.objects.select_for_update().get(pk=mapping.pk)
     if effective_to < locked.effective_from:
         raise ValidationError(
@@ -568,6 +589,7 @@ def archive_inventory_mapping(
     *, mapping: InventoryAccountMapping, reason: str = ""
 ) -> InventoryAccountMapping:
     """Withdraw an override recorded in error and never used."""
+    _begin_mapping_mutation(mapping.organization)
     locked = InventoryAccountMapping.objects.select_for_update().get(pk=mapping.pk)
     if mapping_is_used(locked):
         raise ValidationError(

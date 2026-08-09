@@ -26,23 +26,38 @@ from django.http import HttpRequest
 from ninja import Router, Schema, Status
 
 from apps.inventory.commands import (
+    create_document,
     create_opening,
+    delete_document,
     delete_opening,
     may_see_cost,
+    post_document,
     post_opening,
+    replace_document_lines,
     replace_opening_lines,
+    resolve_document,
+    resolve_document_line,
     resolve_movement,
     resolve_opening_document,
     return_opening_to_draft,
+    reverse_document,
     reverse_opening,
     submit_opening,
+    update_document,
     update_opening,
+    visible_documents,
     visible_movements,
     visible_opening_documents,
     visible_stock,
 )
-from apps.inventory.models import ConversionType, ItemType, WarehouseType
+from apps.inventory.models import (
+    ConversionType,
+    InventoryDocumentType,
+    ItemType,
+    WarehouseType,
+)
 from apps.inventory.opening import OpeningLineInput
+from apps.inventory.operations import DocumentLineInput
 from apps.inventory.permissions import (
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
@@ -74,6 +89,7 @@ from apps.organizations.authorization import (
     require_reachable_organization_permission,
     resolve_branch,
     resolve_organization,
+    resolve_warehouse,
 )
 from apps.users.models import User
 
@@ -917,6 +933,379 @@ def reverse_opening_endpoint(request: HttpRequest, document_id: int, payload: Re
     document = resolve_opening_document(actor, document_id)
     reversed_document = reverse_opening(actor=actor, document=document, reason=payload.reason)
     return _serialize_opening(reversed_document, with_cost=may_see_cost(actor), with_lines=True)
+
+
+# ---------------------------------------------------------------------------
+# Operational documents: receipts, issues, returns-in
+# ---------------------------------------------------------------------------
+#
+# One shape, three mounted paths. The document type is fixed by the route
+# rather than taken from the payload: `/receipts/` posts receipts and nothing
+# else, so a caller cannot turn an issue into a receipt by editing a field,
+# and an id from one series can never resolve under another.
+
+
+class DocumentLineIn(Schema):
+    item_id: int
+    lot_id: int | None = None
+    package_conversion_id: int | None = None
+    #: Strings, both directions. JSON's only numeric type is binary floating
+    #: point, and a quantity through one is no longer the quantity counted.
+    entered_package_quantity: str | None = None
+    measured_base_quantity: str | None = None
+    base_quantity: str | None = None
+    #: Receipts only. An issue and a return are valued by the ledger.
+    unit_cost: str | None = None
+    #: Returns only: the posted issue line being returned against.
+    source_issue_line_id: int | None = None
+
+
+class DocumentLineOut(Schema):
+    id: int
+    sequence: int
+    item_id: int
+    item_code: str
+    item_name_ar: str
+    base_unit_code: str
+    lot_code: str | None
+    base_quantity: str
+    movement_id: int | None
+    inventory_account_code: str | None
+    contra_account_code: str | None
+    source_issue_line_id: int | None
+    unit_cost: str | None = None
+    total_value: str | None = None
+
+
+class DocumentOut(Schema):
+    id: int
+    public_id: str
+    document_number: str
+    document_type: str
+    status: str
+    organization_id: int
+    branch_id: int
+    branch_code: str
+    warehouse_id: int
+    warehouse_code: str
+    effective_at: datetime.datetime
+    business_date: datetime.date
+    evidence_reference: str
+    narration: str
+    cost_center_code: str | None
+    created_by: str | None
+    posted_by: str | None
+    posted_at: datetime.datetime | None
+    reversed_by: str | None
+    reversed_at: datetime.datetime | None
+    reversal_reason: str
+    stock_entry_id: int | None
+    journal_entry_number: str | None
+    reversal_journal_entry_number: str | None
+    line_count: int
+    total_value: str | None = None
+    lines: list[DocumentLineOut] = []
+
+
+class DocumentIn(Schema):
+    organization_id: int
+    branch_id: int
+    warehouse_id: int
+    effective_at: datetime.datetime
+    evidence_reference: str
+    narration: str = ""
+    cost_center_id: int | None = None
+    lines: list[DocumentLineIn] = []
+
+
+class DocumentPatch(Schema):
+    effective_at: datetime.datetime | None = None
+    evidence_reference: str | None = None
+    narration: str | None = None
+    cost_center_id: int | None = None
+    lines: list[DocumentLineIn] | None = None
+
+
+def _document_line_input(actor: User, payload: DocumentLineIn) -> DocumentLineInput:
+    """
+    One requested line, every identifier resolved with the caller.
+
+    The lot and the conversion are resolved *through the item*, so an id
+    belonging to another item — or another organization — is a 404 before the
+    domain service sees it. The source issue line is resolved through the
+    caller's warehouse scope for the same reason.
+    """
+    from apps.inventory.models import InventoryLot, ItemPackageConversion
+
+    item = resolve_item(actor, payload.item_id)
+
+    lot = None
+    if payload.lot_id is not None:
+        lot = InventoryLot.objects.filter(pk=payload.lot_id, item=item).first()
+        if lot is None:
+            raise ValidationError(f"Lot {payload.lot_id} does not exist.", code="unknown_lot")
+
+    conversion = None
+    if payload.package_conversion_id is not None:
+        conversion = ItemPackageConversion.objects.filter(
+            pk=payload.package_conversion_id, item=item
+        ).first()
+        if conversion is None:
+            raise ValidationError(
+                f"Conversion {payload.package_conversion_id} does not exist.",
+                code="unknown_conversion",
+            )
+
+    source_line = None
+    if payload.source_issue_line_id is not None:
+        source_line = resolve_document_line(actor, payload.source_issue_line_id)
+
+    return DocumentLineInput(
+        item=item,
+        lot=lot,
+        package_conversion=conversion,
+        entered_package_quantity=_optional_decimal(
+            payload.entered_package_quantity, field="entered_package_quantity"
+        ),
+        measured_base_quantity=_optional_decimal(
+            payload.measured_base_quantity, field="measured_base_quantity"
+        ),
+        base_quantity=_optional_decimal(payload.base_quantity, field="base_quantity"),
+        unit_cost=_optional_decimal(payload.unit_cost, field="unit_cost"),
+        source_issue_line=source_line,
+    )
+
+
+def _serialize_document_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": line.pk,
+        "sequence": line.sequence,
+        "item_id": line.item_id,
+        "item_code": line.item.code,
+        "item_name_ar": line.item.name_ar,
+        "base_unit_code": line.item.base_unit.code,
+        "lot_code": line.lot.code if line.lot else None,
+        "base_quantity": f"{line.base_quantity:f}",
+        "movement_id": line.movement_id,
+        "inventory_account_code": (
+            line.inventory_account.code if line.inventory_account_id else None
+        ),
+        "contra_account_code": line.contra_account.code if line.contra_account_id else None,
+        "source_issue_line_id": line.source_issue_line_id,
+    }
+    if with_cost:
+        payload["unit_cost"] = f"{line.unit_cost:f}" if line.unit_cost is not None else None
+        payload["total_value"] = f"{line.total_value:f}" if line.total_value is not None else None
+    return payload
+
+
+def _serialize_document(document: Any, *, with_cost: bool, with_lines: bool) -> dict[str, Any]:
+    lines = list(
+        document.lines.select_related(
+            "item", "item__base_unit", "lot", "inventory_account", "contra_account"
+        ).order_by("sequence")
+    )
+    payload: dict[str, Any] = {
+        "id": document.pk,
+        "public_id": str(document.public_id),
+        "document_number": document.document_number,
+        "document_type": document.document_type,
+        "status": document.status,
+        "organization_id": document.organization_id,
+        "branch_id": document.branch_id,
+        "branch_code": document.branch.code,
+        "warehouse_id": document.warehouse_id,
+        "warehouse_code": document.warehouse.code,
+        "effective_at": document.effective_at,
+        "business_date": document.business_date,
+        "evidence_reference": document.evidence_reference,
+        "narration": document.narration,
+        "cost_center_code": document.cost_center.code if document.cost_center_id else None,
+        "created_by": str(document.created_by) if document.created_by else None,
+        "posted_by": str(document.posted_by) if document.posted_by else None,
+        "posted_at": document.posted_at,
+        "reversed_by": str(document.reversed_by) if document.reversed_by else None,
+        "reversed_at": document.reversed_at,
+        "reversal_reason": document.reversal_reason,
+        "stock_entry_id": document.stock_entry_id,
+        "journal_entry_number": (
+            document.journal_entry.entry_number if document.journal_entry_id else None
+        ),
+        "reversal_journal_entry_number": (
+            document.reversal_journal_entry.entry_number
+            if document.reversal_journal_entry_id
+            else None
+        ),
+        "line_count": len(lines),
+        "lines": (
+            [_serialize_document_line(line, with_cost=with_cost) for line in lines]
+            if with_lines
+            else []
+        ),
+    }
+    if with_cost:
+        total = sum((line.total_value or Decimal("0") for line in lines), Decimal("0"))
+        payload["total_value"] = f"{total:f}"
+    return payload
+
+
+def _list_documents(request: HttpRequest, document_type: str, status: str | None) -> Any:
+    actor = _actor(request)
+    documents = visible_documents(actor, document_type=document_type)
+    if status is not None:
+        documents = documents.filter(status=status)
+    with_cost = may_see_cost(actor)
+    return [
+        _serialize_document(document, with_cost=with_cost, with_lines=False)
+        for document in documents
+    ]
+
+
+def _create_document(request: HttpRequest, document_type: str, payload: DocumentIn) -> Status[Any]:
+    from apps.accounting.models import CostCenter
+
+    actor = _actor(request)
+    organization = resolve_organization(actor, payload.organization_id)
+    branch = resolve_branch(actor, payload.branch_id)
+    warehouse = resolve_warehouse(actor, payload.warehouse_id)
+
+    cost_center = None
+    if payload.cost_center_id is not None:
+        cost_center = CostCenter.objects.filter(
+            pk=payload.cost_center_id, organization=organization
+        ).first()
+        if cost_center is None:
+            raise ValidationError(
+                f"Cost center {payload.cost_center_id} does not exist.",
+                code="unknown_cost_center",
+            )
+
+    document = create_document(
+        actor=actor,
+        organization=organization,
+        branch=branch,
+        warehouse=warehouse,
+        document_type=document_type,
+        effective_at=payload.effective_at,
+        evidence_reference=payload.evidence_reference,
+        narration=payload.narration,
+        cost_center=cost_center,
+    )
+    if payload.lines:
+        replace_document_lines(
+            actor=actor,
+            document=document,
+            lines=[_document_line_input(actor, line) for line in payload.lines],
+        )
+    document = resolve_document(actor, document.pk, document_type=document_type)
+    return Status(
+        201, _serialize_document(document, with_cost=may_see_cost(actor), with_lines=True)
+    )
+
+
+def _patch_document(
+    request: HttpRequest, document_type: str, document_id: int, payload: DocumentPatch
+) -> Any:
+    from apps.accounting.models import CostCenter
+
+    actor = _actor(request)
+    document = resolve_document(actor, document_id, document_type=document_type)
+
+    cost_center = None
+    if payload.cost_center_id is not None:
+        cost_center = CostCenter.objects.filter(
+            pk=payload.cost_center_id, organization=document.organization
+        ).first()
+        if cost_center is None:
+            raise ValidationError(
+                f"Cost center {payload.cost_center_id} does not exist.",
+                code="unknown_cost_center",
+            )
+
+    update_document(
+        actor=actor,
+        document=document,
+        effective_at=payload.effective_at,
+        evidence_reference=payload.evidence_reference,
+        narration=payload.narration,
+        cost_center=cost_center,
+    )
+    if payload.lines is not None:
+        replace_document_lines(
+            actor=actor,
+            document=document,
+            lines=[_document_line_input(actor, line) for line in payload.lines],
+        )
+    document = resolve_document(actor, document_id, document_type=document_type)
+    return _serialize_document(document, with_cost=may_see_cost(actor), with_lines=True)
+
+
+def _register_document_endpoints(path: str, document_type: str, label: str) -> None:
+    """
+    Mount one CRUD-plus-commands set for a document type.
+
+    Registered from a loop rather than written three times: the three sets are
+    identical apart from their path and type, and three hand-copied blocks
+    would drift the moment one gained a check the others needed.
+    """
+
+    @router.get(f"/{path}/", response=list[DocumentOut], summary=f"{label}s in scope")
+    def list_documents(request: HttpRequest, status: str | None = None) -> Any:
+        return _list_documents(request, document_type, status)
+
+    @router.post(f"/{path}/", response={201: DocumentOut}, summary=f"Create a draft {label}")
+    def create_endpoint(request: HttpRequest, payload: DocumentIn) -> Status[Any]:
+        return _create_document(request, document_type, payload)
+
+    @router.get(f"/{path}/{{document_id}}/", response=DocumentOut, summary=f"One {label}")
+    def read_endpoint(request: HttpRequest, document_id: int) -> Any:
+        actor = _actor(request)
+        document = resolve_document(actor, document_id, document_type=document_type)
+        return _serialize_document(document, with_cost=may_see_cost(actor), with_lines=True)
+
+    @router.patch(
+        f"/{path}/{{document_id}}/", response=DocumentOut, summary=f"Amend a draft {label}"
+    )
+    def patch_endpoint(request: HttpRequest, document_id: int, payload: DocumentPatch) -> Any:
+        return _patch_document(request, document_type, document_id, payload)
+
+    @router.delete(
+        f"/{path}/{{document_id}}/", response={204: None}, summary=f"Delete a draft {label}"
+    )
+    def delete_endpoint(request: HttpRequest, document_id: int) -> Status[None]:
+        actor = _actor(request)
+        document = resolve_document(actor, document_id, document_type=document_type)
+        delete_document(actor=actor, document=document)
+        return Status(204, None)
+
+    @router.post(
+        f"/{path}/{{document_id}}/post/",
+        response=DocumentOut,
+        summary=f"Post the {label} to both ledgers",
+    )
+    def post_endpoint(request: HttpRequest, document_id: int) -> Any:
+        actor = _actor(request)
+        document = resolve_document(actor, document_id, document_type=document_type)
+        posted = post_document(actor=actor, document=document)
+        return _serialize_document(posted, with_cost=may_see_cost(actor), with_lines=True)
+
+    @router.post(
+        f"/{path}/{{document_id}}/reverse/",
+        response=DocumentOut,
+        summary=f"Reverse the whole {label}",
+    )
+    def reverse_endpoint(request: HttpRequest, document_id: int, payload: ReasonIn) -> Any:
+        actor = _actor(request)
+        document = resolve_document(actor, document_id, document_type=document_type)
+        reversed_document = reverse_document(actor=actor, document=document, reason=payload.reason)
+        return _serialize_document(
+            reversed_document, with_cost=may_see_cost(actor), with_lines=True
+        )
+
+
+_register_document_endpoints("receipts", InventoryDocumentType.RECEIPT, "goods receipt")
+_register_document_endpoints("issues", InventoryDocumentType.ISSUE, "consumption issue")
+_register_document_endpoints("returns-in", InventoryDocumentType.RETURN_IN, "return-in")
 
 
 # ---------------------------------------------------------------------------

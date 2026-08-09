@@ -92,11 +92,21 @@ class TestTheRoleVocabulary:
             with transaction.atomic():
                 AccountRole.objects.filter(pk=control_role.pk).delete()
 
-    def test_only_inventory_control_is_item_overridable(self) -> None:
+    def test_only_the_two_item_scoped_roles_are_overridable(self) -> None:
+        """
+        `INVENTORY_CONTROL` because it is the one role whose account carries
+        standing stock value, and `INVENTORY_CONSUMPTION` (Task 1.4) because
+        what a thing is consumed *as* is a property of the thing — packaging,
+        cleaning materials, and ingredients belong in different expense
+        accounts. Everything else takes an organization default only, and a
+        role gaining item scope is a deliberate decision, not a default.
+        """
+        from apps.accounting.models import INVENTORY_CONSUMPTION
+
         item_scoped = set(
             AccountRole.objects.filter(mapping_scope="ITEM").values_list("code", flat=True)
         )
-        assert item_scoped == {INVENTORY_CONTROL}
+        assert item_scoped == {INVENTORY_CONTROL, INVENTORY_CONSUMPTION}
 
 
 class TestOrganizationMappings:

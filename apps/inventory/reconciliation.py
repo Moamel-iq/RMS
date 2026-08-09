@@ -25,6 +25,8 @@ from django.db.models import QuerySet
 from apps.accounting.models import Account, JournalLine
 from apps.core.money import quantize_money
 from apps.inventory.models import (
+    InventoryDocumentStatus,
+    InventoryMovementDocument,
     OpeningStockDocument,
     OpeningStockStatus,
     StockBalance,
@@ -277,19 +279,27 @@ def _control_account_of(movement: StockMovement) -> int | None:
     """
     The inventory-control account a movement's value actually entered.
 
-    An OPENING movement carries its opening line's snapshot. A REVERSAL
-    carries its original's, because a mirror moves the same money the same
-    way. Anything else — in Task 1.3 there is nothing else — is unattributed
-    and reported as such.
+    Read from the movement's own immutable column, which Task 1.4 added for
+    exactly this: the account is a fact captured at posting, not something to
+    be reconstructed by walking to whichever document produced it and hoping
+    the walk covers every kind. The document-line fallbacks below remain for
+    rows posted before that column existed.
     """
-    line = getattr(movement, "opening_line", None)
-    if line is not None:
-        return int(line.inventory_account_id) if line.inventory_account_id else None
-    if movement.reverses_id is not None:
-        original = movement.reverses
-        original_line = getattr(original, "opening_line", None)
-        if original_line is not None and original_line.inventory_account_id:
-            return int(original_line.inventory_account_id)
+    if movement.control_account_id is not None:
+        return int(movement.control_account_id)
+
+    for attribute in ("opening_line", "document_line"):
+        line = getattr(movement, attribute, None)
+        if line is not None and line.inventory_account_id:
+            return int(line.inventory_account_id)
+    original = movement.reverses
+    if original is not None:
+        if original.control_account_id is not None:
+            return int(original.control_account_id)
+        for attribute in ("opening_line", "document_line"):
+            line = getattr(original, attribute, None)
+            if line is not None and line.inventory_account_id:
+                return int(line.inventory_account_id)
     return None
 
 
@@ -310,7 +320,7 @@ def verify_inventory_against_gl(organization: Organization) -> list[Discrepancy]
     inventory_side: dict[tuple[int, int], Decimal] = {}
     unattributed: list[StockMovement] = []
     movements = StockMovement.objects.filter(organization=organization).select_related(
-        "reverses", "branch"
+        "reverses", "branch", "control_account"
     )
     for movement in movements:
         account_id = _control_account_of(movement)
@@ -362,13 +372,83 @@ def verify_inventory_against_gl(organization: Organization) -> list[Discrepancy]
     return problems
 
 
+def verify_operational_document(document: InventoryMovementDocument) -> list[Discrepancy]:
+    """
+    One posted receipt, issue, or return, across every representation of its
+    value:
+
+        sum of stored line values
+        == sum of its movement values
+        == the inventory side of its journal
+        == the contra side of its journal
+
+    Which side is the debit differs by type — inventory is debited by a
+    receipt and a return and credited by an issue — but the equality does not,
+    so one comparison covers all three.
+    """
+    if document.status not in (
+        InventoryDocumentStatus.POSTED,
+        InventoryDocumentStatus.REVERSED,
+    ):
+        return []
+    label = document.document_number or str(document.public_id)
+    problems: list[Discrepancy] = []
+
+    lines = list(document.lines.select_related("movement"))
+    line_total = sum((line.total_value or ZERO for line in lines), ZERO)
+
+    assert document.stock_entry is not None  # noqa: S101 - POSTED links one by constraint
+    movement_total = sum(
+        (abs(movement.inventory_value) for movement in document.stock_entry.movements.all()),
+        ZERO,
+    )
+    if movement_total != line_total:
+        problems.append(
+            Discrepancy(
+                scope=label, field="movement_total", expected=line_total, actual=movement_total
+            )
+        )
+
+    assert document.journal_entry is not None  # noqa: S101
+    journal_lines = list(document.journal_entry.lines.all())
+    debit_total = sum((row.debit for row in journal_lines), ZERO)
+    credit_total = sum((row.credit for row in journal_lines), ZERO)
+    if debit_total != line_total:
+        problems.append(
+            Discrepancy(
+                scope=label, field="journal_debits", expected=line_total, actual=debit_total
+            )
+        )
+    if credit_total != line_total:
+        problems.append(
+            Discrepancy(
+                scope=label, field="journal_credits", expected=line_total, actual=credit_total
+            )
+        )
+
+    for line in lines:
+        if line.movement is None or abs(line.movement.inventory_value) != (
+            line.total_value or ZERO
+        ):
+            problems.append(
+                Discrepancy(
+                    scope=f"{label}#{line.sequence}",
+                    field="line_vs_movement",
+                    expected=line.total_value or ZERO,
+                    actual=(abs(line.movement.inventory_value) if line.movement else "missing"),
+                )
+            )
+    return problems
+
+
 def verify_inventory_accounting(organization: Organization) -> list[str]:
     """
-    The full Task 1.3 reconciliation for one organization, as report lines.
+    The full reconciliation for one organization, as report lines.
 
-    Three comparisons: every posted opening against its own effects, the
-    balance projection against the ledger replay, and the inventory book
-    value against the general ledger. Read-only throughout.
+    Four comparisons: every posted opening against its own effects, every
+    posted operational document against its own effects, the balance
+    projection against the ledger replay, and the inventory book value against
+    the general ledger. Read-only throughout, and no repair mode anywhere.
     """
     lines: list[str] = []
     for document in OpeningStockDocument.objects.filter(
@@ -376,6 +456,11 @@ def verify_inventory_accounting(organization: Organization) -> list[str]:
         status__in=[OpeningStockStatus.POSTED, OpeningStockStatus.REVERSED],
     ):
         lines.extend(str(problem) for problem in verify_opening_document(document))
+    for operational in InventoryMovementDocument.objects.filter(
+        organization=organization,
+        status__in=[InventoryDocumentStatus.POSTED, InventoryDocumentStatus.REVERSED],
+    ):
+        lines.extend(str(problem) for problem in verify_operational_document(operational))
     lines.extend(str(mismatch) for mismatch in verify_organization(organization))
     lines.extend(str(problem) for problem in verify_inventory_against_gl(organization))
     return lines

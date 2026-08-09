@@ -74,6 +74,7 @@ CREATE_OPENING_STOCK = f"{APP_LABEL}.create_opening_stock"
 POST_OPENING_STOCK = f"{APP_LABEL}.post_opening_stock"
 POST_RECEIPT = f"{APP_LABEL}.post_receipt"
 POST_ISSUE = f"{APP_LABEL}.post_issue"
+POST_RETURN_IN = f"{APP_LABEL}.post_return_in"
 POST_TRANSFER = f"{APP_LABEL}.post_transfer"
 POST_WASTE = f"{APP_LABEL}.post_waste"
 CONDUCT_STOCK_COUNT = f"{APP_LABEL}.conduct_stock_count"
@@ -96,6 +97,7 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     POST_OPENING_STOCK,
     POST_RECEIPT,
     POST_ISSUE,
+    POST_RETURN_IN,
     POST_TRANSFER,
     POST_WASTE,
     CONDUCT_STOCK_COUNT,
@@ -131,6 +133,7 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # A movement names a warehouse, so posting is answered per warehouse.
     POST_RECEIPT: PermissionScope.WAREHOUSE,
     POST_ISSUE: PermissionScope.WAREHOUSE,
+    POST_RETURN_IN: PermissionScope.WAREHOUSE,
     POST_TRANSFER: PermissionScope.WAREHOUSE,
     POST_WASTE: PermissionScope.WAREHOUSE,
     CONDUCT_STOCK_COUNT: PermissionScope.WAREHOUSE,
@@ -186,6 +189,7 @@ _MANAGER = frozenset(
         CREATE_OPENING_STOCK,
         POST_RECEIPT,
         POST_ISSUE,
+        POST_RETURN_IN,
         POST_TRANSFER,
         POST_WASTE,
         CONDUCT_STOCK_COUNT,
@@ -197,6 +201,11 @@ _MANAGER = frozenset(
 
 #: Moves goods. Deliberately **cannot see cost**, cannot approve their own
 #: count, and cannot waste, adjust, reverse, or override.
+#:
+#: `post_return_in` sits here because returning unused stock to the shelf is
+#: the same custody act as issuing it, done backwards — the storekeeper who
+#: handed the goods out is the one who takes them back. It carries no cost
+#: decision at all: a return is valued from the issue it reverses.
 _STOREKEEPER = frozenset(
     {
         VIEW_ITEM,
@@ -204,6 +213,7 @@ _STOREKEEPER = frozenset(
         CREATE_DRAFT_MOVEMENT,
         POST_RECEIPT,
         POST_ISSUE,
+        POST_RETURN_IN,
         POST_TRANSFER,
         CONDUCT_STOCK_COUNT,
     }

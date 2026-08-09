@@ -151,7 +151,7 @@ Depends on: 1.2; decisions 10, 11, 13.
 
 ### Task 1.4 — Receipts, issues, returns, and reversal
 
-`RECEIPT`, `ISSUE`, `RETURN_IN`, `RETURN_OUT`, `REVERSAL`.
+`RECEIPT`, `ISSUE`, `RETURN_IN`, `REVERSAL`.
 
 Manual receipts only. **This is not procurement** — no supplier, no purchase
 order, no invoice, no payable. A receipt here records what physically entered
@@ -165,6 +165,29 @@ Depends on: 1.3.
 - `RETURN_IN` values at the **original issue's** cost, linked to it.
 - Negative stock refused on every outbound path.
 - Every movement type's accounting matches the spec §8 table.
+
+**Implementation notes (2026-08-10):**
+
+- **`RETURN_OUT` moved out of this task** and into Procurement (Phase 2). A
+  supplier return has to reconcile against a supplier invoice, a payable, and
+  a credit note, none of which exist yet; implementing the stock half now
+  would leave the accounting half to be retrofitted around it. `RETURN_IN`
+  here means unused stock coming back from a consumption issue.
+- Three cross-cutting fixes landed first, each described in an ADR amendment:
+  period validation on the **business date** (ADR-008), the mapping-mutation
+  **lock** that closes the race the Task 1.3 guard could not see (ADR-019 §5),
+  and **control-account continuity** on the movement and balance (ADR-019 §7).
+- One shared `InventoryMovementDocument` with a type discriminator rather than
+  three models: the three share their whole lifecycle, numbering, locking,
+  API, and screens, and differ only per line.
+- Two roles added: `GOODS_RECEIVED_NOT_INVOICED` (organization default only)
+  and `INVENTORY_CONSUMPTION` (item-overridable). Seeding a role is not
+  seeding a mapping — posting fails with `account_role_unmapped` until an
+  accounting manager configures them.
+- Receipts, issues, and returns post **directly from draft**: the approved
+  role map already trusts a storekeeper with warehouse operations, and
+  maker-checker stays with opening stock, which declares what the ledger
+  starts from rather than moving what is already in it.
 
 ---
 

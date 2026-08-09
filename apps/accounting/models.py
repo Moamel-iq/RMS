@@ -693,9 +693,9 @@ class AccountRole(TimeStampedModel):
         return f"{self.code} — {self.name_ar}"
 
 
-#: The seven approved inventory roles. Constants rather than an enum so a
-#: posting service can name one without importing the model, and so the seed
-#: migration and the services provably spell them identically.
+#: The approved inventory roles. Constants rather than an enum so a posting
+#: service can name one without importing the model, and so the seed migration
+#: and the services provably spell them identically.
 INVENTORY_CONTROL = "INVENTORY_CONTROL"
 INVENTORY_OPENING_EQUITY = "INVENTORY_OPENING_EQUITY"
 INVENTORY_COUNT_VARIANCE = "INVENTORY_COUNT_VARIANCE"
@@ -703,12 +703,23 @@ INVENTORY_WASTE_EXPENSE = "INVENTORY_WASTE_EXPENSE"
 INVENTORY_IN_TRANSIT = "INVENTORY_IN_TRANSIT"
 INVENTORY_SHORTAGE_LOSS = "INVENTORY_SHORTAGE_LOSS"
 INVENTORY_ADJUSTMENT = "INVENTORY_ADJUSTMENT"
+#: Added by Task 1.4, one per operational document that needs a second side.
+GOODS_RECEIVED_NOT_INVOICED = "GOODS_RECEIVED_NOT_INVOICED"
+INVENTORY_CONSUMPTION = "INVENTORY_CONSUMPTION"
 
 #: `(code, name_ar, name_en, mapping_scope)` for the seed migration and the
-#: fresh-database test. Only `INVENTORY_CONTROL` is item-overridable in
-#: Release 1: it is the one role whose account carries standing stock value,
-#: and the only one the reclassification guard protects. Widening another
-#: role's scope is a deliberate later decision, not a default.
+#: fresh-database test.
+#:
+#: Two roles are item-overridable. `INVENTORY_CONTROL`, because it is the one
+#: role whose account carries standing stock value. `INVENTORY_CONSUMPTION`,
+#: because what a thing is consumed *as* is a property of the thing —
+#: packaging, cleaning materials, and direct ingredients belong in different
+#: expense accounts, and one organization-wide answer would make the
+#: consumption figures useless for costing.
+#:
+#: `GOODS_RECEIVED_NOT_INVOICED` is deliberately organization-only: it is a
+#: liability-side clearing account waiting for an invoice, and which item
+#: arrived says nothing about who is owed for it.
 SYSTEM_INVENTORY_ROLES: tuple[tuple[str, str, str, str], ...] = (
     (INVENTORY_CONTROL, "مخزون - حساب المراقبة", "Inventory control", "ITEM"),
     (
@@ -722,6 +733,13 @@ SYSTEM_INVENTORY_ROLES: tuple[tuple[str, str, str, str], ...] = (
     (INVENTORY_IN_TRANSIT, "بضاعة بالطريق", "Inventory in transit", "ORGANIZATION"),
     (INVENTORY_SHORTAGE_LOSS, "عجز التحويلات", "Inventory shortage loss", "ORGANIZATION"),
     (INVENTORY_ADJUSTMENT, "تسويات المخزون", "Inventory adjustment", "ORGANIZATION"),
+    (
+        GOODS_RECEIVED_NOT_INVOICED,
+        "بضاعة مستلمة غير مفوترة",
+        "Goods received not invoiced",
+        "ORGANIZATION",
+    ),
+    (INVENTORY_CONSUMPTION, "استهلاك المخزون", "Inventory consumption", "ITEM"),
 )
 
 

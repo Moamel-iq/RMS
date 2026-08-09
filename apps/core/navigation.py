@@ -167,14 +167,30 @@ MODULES: tuple[Module, ...] = (
                 url_name="inventory:reconciliation",
                 available=True,
             ),
-            # Task 1.4 onward — visible so the shape of the module is legible,
+            # Task 1.4 — the operational documents.
+            Section(
+                label=_("استلام مخزني غير مفوتر"),
+                url_name="inventory:inventory_receipt_list",
+                available=True,
+            ),
+            Section(
+                label=_("صرف مخزني للاستهلاك"),
+                url_name="inventory:inventory_issue_list",
+                available=True,
+            ),
+            Section(
+                label=_("إرجاع من صرف سابق"),
+                url_name="inventory:inventory_return_in_list",
+                available=True,
+            ),
+            # Task 1.5 onward — visible so the shape of the module is legible,
             # inert because the documents that would fill them do not exist.
+            # "المرتجعات" is gone from this list: returns from a prior issue
+            # are live above, and supplier returns belong to Procurement,
+            # where they reconcile against an invoice and a credit note.
             *_sections(
                 _("مواقع التخزين الداخلية"),
-                _("الإدخال المخزني"),
-                _("الصرف المخزني"),
                 _("التحويلات"),
-                _("المرتجعات"),
                 _("الهالك والتلف"),
                 _("الجرد"),
                 _("التسويات"),

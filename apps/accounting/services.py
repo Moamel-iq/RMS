@@ -58,6 +58,7 @@ from apps.accounting.validators import (
     validate_period_accepts_postings,
     validate_source_identity,
 )
+from apps.core.locks import lock_account_mappings_exclusive
 from apps.core.models import AuditAction
 from apps.core.money import quantize_money
 from apps.core.services import record_audit_event, snapshot
@@ -480,9 +481,35 @@ def register_mapping_guard(guard: MappingGuard) -> None:
         _MAPPING_GUARDS.append(guard)
 
 
+def begin_mapping_mutation(organization: Organization) -> None:
+    """
+    Claim the organization's mapping lock exclusively.
+
+    **The first statement of every mapping mutation, before any
+    `select_for_update`.** Two reasons, and the second is the one that bites.
+
+    The guards below compare the account resolution before and after a change,
+    but they can only see *committed* stock; a posting already holding the old
+    mapping and not yet committed would be invisible to them. The exclusive
+    lock waits for every in-flight posting in this organization and blocks the
+    next, so there is no such window (ADR-019 §5).
+
+    And the order is not cosmetic. A posting holds this lock in shared mode
+    and then writes a document line carrying `resolved_organization_mapping`,
+    which needs a KEY SHARE lock on the mapping row. A mutation that took the
+    row with `SELECT ... FOR UPDATE` first and only then asked for the
+    advisory lock would hold exactly what the posting is waiting for while
+    waiting for exactly what the posting holds — a deadlock PostgreSQL
+    detects and kills. Taking the advisory lock first makes the cycle
+    impossible.
+    """
+    lock_account_mappings_exclusive(organization.pk)
+
+
 def _guard_verifiers(
     organization: Organization, account_role: AccountRole
 ) -> list[Callable[[], None]]:
+    """Capture each domain's "before" state. The lock is already held."""
     return [guard(organization, account_role) for guard in _MAPPING_GUARDS]
 
 
@@ -569,6 +596,7 @@ def create_account_mapping(
     effective_to: datetime.date | None = None,
 ) -> OrganizationAccountMapping:
     """Map a role to one of the organization's postable accounts, from a date."""
+    begin_mapping_mutation(organization)
     if not account_role.is_active:
         raise ValidationError(
             _("Role %(code)s is not active."),
@@ -629,6 +657,7 @@ def amend_account_mapping(
     restate what they meant. The correction for one is `close_account_mapping`
     followed by a new version.
     """
+    begin_mapping_mutation(mapping.organization)
     locked = OrganizationAccountMapping.objects.select_for_update().get(pk=mapping.pk)
     if mapping_is_used(locked):
         raise ValidationError(
@@ -682,6 +711,7 @@ def close_account_mapping(
     correction path — because it changes what the mapping says about the
     future, never about the postings that already snapshotted it.
     """
+    begin_mapping_mutation(mapping.organization)
     locked = OrganizationAccountMapping.objects.select_for_update().get(pk=mapping.pk)
     if effective_to < locked.effective_from:
         raise ValidationError(
@@ -714,6 +744,7 @@ def archive_account_mapping(
     A used mapping cannot be archived: rows that postings snapshotted must
     stay readable, and the way to stop one applying is to close its range.
     """
+    begin_mapping_mutation(mapping.organization)
     locked = OrganizationAccountMapping.objects.select_for_update().get(pk=mapping.pk)
     if mapping_is_used(locked):
         raise ValidationError(

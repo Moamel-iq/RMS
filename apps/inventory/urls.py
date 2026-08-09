@@ -7,8 +7,10 @@ reserved, and a row that has been referenced stays readable.
 """
 
 from django.urls import path
+from django.utils.translation import gettext_lazy as _
 
 from apps.inventory import views
+from apps.inventory.models import InventoryDocumentType
 
 app_name = "inventory"
 
@@ -155,3 +157,83 @@ urlpatterns = [
         name="warehouse_reactivate",
     ),
 ]
+
+
+# --- operational documents (Task 1.4) ---------------------------------------
+#
+# Three identical route sets, generated rather than written out three times.
+# The document type is bound into the view here, so it comes from the URL and
+# never from a request body a caller controls: `/receipts/` posts receipts and
+# an id from one series cannot resolve under another.
+
+_OPERATIONAL_SCREENS = (
+    (
+        "receipts",
+        InventoryDocumentType.RECEIPT,
+        _("استلام مخزني غير مفوتر"),
+        _("بضاعة دخلت المخزن ولم تُفوتر بعد. ليست فاتورة مورد ولا ذمة عليه."),
+        _("استلام جديد"),
+    ),
+    (
+        "issues",
+        InventoryDocumentType.ISSUE,
+        _("صرف مخزني للاستهلاك"),
+        _("بضاعة تخرج من العهدة للاستهلاك النهائي. ليست تحويلاً بين المخازن."),
+        _("صرف جديد"),
+    ),
+    (
+        "returns-in",
+        InventoryDocumentType.RETURN_IN,
+        _("إرجاع من صرف سابق"),
+        _("بضاعة غير مستهلكة تعود للمخزن بكلفة الصرف الأصلي. ليست عكس قيد."),
+        _("إرجاع جديد"),
+    ),
+)
+
+for _path, _type, _title, _hint, _create_label in _OPERATIONAL_SCREENS:
+    _slug = _type.lower()
+    urlpatterns += [
+        path(
+            f"{_path}/",
+            views.OperationalListView.as_view(
+                document_type=_type,
+                page_title=_title,
+                page_hint=_hint,
+                create_url_name=f"inventory:{_slug}_create",
+                create_label=_create_label,
+            ),
+            name=f"{_slug}_list",
+        ),
+        path(
+            f"{_path}/new/",
+            views.OperationalCreateView.as_view(
+                document_type=_type, page_title=_create_label, page_hint=_hint
+            ),
+            name=f"{_slug}_create",
+        ),
+        path(
+            f"{_path}/<int:pk>/",
+            views.OperationalDetailView.as_view(document_type=_type),
+            name=f"{_slug}_detail",
+        ),
+        path(
+            f"{_path}/<int:pk>/post/",
+            views.OperationalActionView.as_view(document_type=_type, action="post"),
+            name=f"{_slug}_post",
+        ),
+        path(
+            f"{_path}/<int:pk>/reverse/",
+            views.OperationalActionView.as_view(document_type=_type, action="reverse"),
+            name=f"{_slug}_reverse",
+        ),
+        path(
+            f"{_path}/<int:pk>/delete/",
+            views.OperationalActionView.as_view(document_type=_type, action="delete"),
+            name=f"{_slug}_delete",
+        ),
+        path(
+            f"{_path}/<int:pk>/lines/<int:line_pk>/delete/",
+            views.OperationalActionView.as_view(document_type=_type, action="delete_line"),
+            name=f"{_slug}_line_delete",
+        ),
+    ]

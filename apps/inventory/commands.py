@@ -29,6 +29,7 @@ from __future__ import annotations
 import datetime
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db.models import QuerySet
@@ -37,7 +38,7 @@ from django.utils.translation import gettext_lazy as _
 from apps.accounting.models import Account, AccountRole
 from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
 from apps.core.context import audit_context
-from apps.inventory import opening
+from apps.inventory import opening, operations
 from apps.inventory.accounts import (
     archive_inventory_mapping,
     close_inventory_mapping,
@@ -47,7 +48,11 @@ from apps.inventory.ledger import MovementInput, post_stock_entry, reverse_stock
 from apps.inventory.models import (
     INBOUND_MOVEMENT_TYPES,
     InventoryAccountMapping,
+    InventoryDocumentStatus,
+    InventoryDocumentType,
     InventoryItem,
+    InventoryMovementDocument,
+    InventoryMovementDocumentLine,
     ItemCategory,
     MovementType,
     OpeningStockDocument,
@@ -55,12 +60,15 @@ from apps.inventory.models import (
     StockBalance,
     StockLedgerEntry,
     StockMovement,
+    Warehouse,
 )
 from apps.inventory.permissions import (
+    CREATE_DRAFT_MOVEMENT,
     CREATE_OPENING_STOCK,
     POST_ISSUE,
     POST_OPENING_STOCK,
     POST_RECEIPT,
+    POST_RETURN_IN,
     POST_TRANSFER,
     POST_WASTE,
     REVERSE_MOVEMENT,
@@ -477,3 +485,205 @@ def reverse_opening(
     require_organization_permission(actor, REVERSE_MOVEMENT, document.organization)
     with _acting_as(actor):
         return opening.reverse_opening_document(document=document, reason=reason)
+
+
+# ---------------------------------------------------------------------------
+# Operational documents: receipt, issue, return-in (Task 1.4)
+# ---------------------------------------------------------------------------
+#
+# Every act is answered at the **warehouse** the goods move through, because
+# that is what a movement names and what custody actually means. Preparing a
+# draft needs `create_draft_movement` at the branch; posting needs the
+# type's own permission at the warehouse; reversing needs `reverse_movement`.
+
+#: Which permission each document type's posting requires.
+DOCUMENT_PERMISSION: dict[str, str] = {
+    InventoryDocumentType.RECEIPT: POST_RECEIPT,
+    InventoryDocumentType.ISSUE: POST_ISSUE,
+    InventoryDocumentType.RETURN_IN: POST_RETURN_IN,
+}
+
+
+def visible_documents(
+    actor: User, *, document_type: str | None = None
+) -> QuerySet[InventoryMovementDocument]:
+    """
+    Operational documents at warehouses the caller has custody of.
+
+    Scoped by `accessible_warehouses` rather than by branch, so a membership
+    restricted to one warehouse sees that warehouse's documents and not the
+    branch's whole traffic.
+    """
+    if not actor.is_authenticated or not actor.is_active:
+        return InventoryMovementDocument.objects.none()
+    if not actor.has_perm(VIEW_STOCK):
+        return InventoryMovementDocument.objects.none()
+    documents = InventoryMovementDocument.objects.filter(
+        warehouse__in=accessible_warehouses(actor)
+    ).select_related(
+        "organization",
+        "branch",
+        "warehouse",
+        "cost_center",
+        "created_by",
+        "posted_by",
+        "reversed_by",
+        "stock_entry",
+        "journal_entry",
+        "reversal_journal_entry",
+    )
+    if document_type is not None:
+        documents = documents.filter(document_type=document_type)
+    return documents.order_by("-created_at", "-id")
+
+
+def resolve_document(
+    actor: User, document_id: int, *, document_type: str | None = None
+) -> InventoryMovementDocument:
+    """A document id resolved with its caller — foreign or absent is one 404."""
+    document = visible_documents(actor, document_type=document_type).filter(pk=document_id).first()
+    if document is None:
+        raise OutOfScope(_("Document %(id)s does not exist.") % {"id": document_id})
+    return document
+
+
+def resolve_document_line(actor: User, line_id: int) -> InventoryMovementDocumentLine:
+    """A line id resolved through its document's scope."""
+    line = (
+        InventoryMovementDocumentLine.objects.filter(
+            pk=line_id, document__warehouse__in=accessible_warehouses(actor)
+        )
+        .select_related("document", "document__warehouse", "item", "lot")
+        .first()
+    )
+    if line is None:
+        raise OutOfScope(_("Line %(id)s does not exist.") % {"id": line_id})
+    return line
+
+
+def create_document(
+    *,
+    actor: User,
+    organization: Organization,
+    branch: Branch,
+    warehouse: Warehouse,
+    document_type: str,
+    effective_at: datetime.datetime,
+    evidence_reference: str,
+    narration: str = "",
+    cost_center: Any = None,
+) -> InventoryMovementDocument:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, warehouse)
+    with _acting_as(actor):
+        return operations.create_document(
+            organization=organization,
+            branch=branch,
+            warehouse=warehouse,
+            document_type=document_type,
+            effective_at=effective_at,
+            evidence_reference=evidence_reference,
+            narration=narration,
+            cost_center=cost_center,
+        )
+
+
+def update_document(
+    *,
+    actor: User,
+    document: InventoryMovementDocument,
+    effective_at: datetime.datetime | None = None,
+    evidence_reference: str | None = None,
+    narration: str | None = None,
+    cost_center: Any = None,
+    clear_cost_center: bool = False,
+) -> InventoryMovementDocument:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, document.warehouse)
+    with _acting_as(actor):
+        return operations.update_document(
+            document=document,
+            effective_at=effective_at,
+            evidence_reference=evidence_reference,
+            narration=narration,
+            cost_center=cost_center,
+            clear_cost_center=clear_cost_center,
+        )
+
+
+def delete_document(*, actor: User, document: InventoryMovementDocument, reason: str = "") -> None:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, document.warehouse)
+    with _acting_as(actor):
+        operations.delete_document(document=document, reason=reason)
+
+
+def add_document_line(
+    *,
+    actor: User,
+    document: InventoryMovementDocument,
+    line: operations.DocumentLineInput,
+) -> Any:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, document.warehouse)
+    with _acting_as(actor):
+        return operations.add_line(document=document, line=line)
+
+
+def remove_document_line(*, actor: User, line: Any, reason: str = "") -> None:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, line.document.warehouse)
+    with _acting_as(actor):
+        operations.delete_line(line=line, reason=reason)
+
+
+def replace_document_lines(
+    *,
+    actor: User,
+    document: InventoryMovementDocument,
+    lines: Sequence[operations.DocumentLineInput],
+) -> InventoryMovementDocument:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, document.warehouse)
+    with _acting_as(actor):
+        return operations.replace_lines(document=document, lines=lines)
+
+
+def post_document(*, actor: User, document: InventoryMovementDocument) -> InventoryMovementDocument:
+    """
+    Post at the warehouse, with the permission this document type needs.
+
+    A return is authorized as its own act rather than as an issue done
+    backwards: putting stock back is a different decision from taking it out,
+    and a deployment that trusts one and not the other must be able to say so.
+    """
+    permission = DOCUMENT_PERMISSION.get(document.document_type)
+    if permission is None:  # pragma: no cover - the model constrains the type
+        raise ValidationError(
+            _("%(type)s has no permission mapping."),
+            code="unmapped_document_type",
+            params={"type": document.document_type},
+        )
+    require_warehouse_permission(actor, permission, document.warehouse)
+    with _acting_as(actor):
+        return operations.post_document(document=document)
+
+
+def reverse_document(
+    *, actor: User, document: InventoryMovementDocument, reason: str
+) -> InventoryMovementDocument:
+    require_warehouse_permission(actor, REVERSE_MOVEMENT, document.warehouse)
+    with _acting_as(actor):
+        return operations.reverse_document(document=document, reason=reason)
+
+
+def returnable_issue_lines(actor: User) -> QuerySet[Any]:
+    """
+    Posted issue lines with something still returnable, for the return form.
+
+    Filtered in Python on the remaining quantity because it is an aggregate
+    over sibling rows; the queryset itself stays scoped in SQL.
+    """
+    return (
+        InventoryMovementDocumentLine.objects.filter(
+            document__document_type=InventoryDocumentType.ISSUE,
+            document__status=InventoryDocumentStatus.POSTED,
+            document__warehouse__in=accessible_warehouses(actor),
+        )
+        .select_related("document", "document__warehouse", "item", "item__base_unit", "lot")
+        .order_by("-document__business_date", "-document_id", "sequence")
+    )

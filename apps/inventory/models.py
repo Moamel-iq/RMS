@@ -291,6 +291,7 @@ class InventoryItem(TimeStampedModel):
             ("post_opening_stock", _("Can post opening stock")),
             ("post_receipt", _("Can post a stock receipt")),
             ("post_issue", _("Can post a stock issue")),
+            ("post_return_in", _("Can return previously issued stock to inventory")),
             ("post_transfer", _("Can post a stock transfer")),
             ("post_waste", _("Can post stock waste")),
             ("conduct_stock_count", _("Can conduct a stock count")),
@@ -657,6 +658,10 @@ class MovementType(models.TextChoices):
     OPENING = "OPENING", _("رصيد افتتاحي")
     RECEIPT = "RECEIPT", _("إدخال")
     ISSUE = "ISSUE", _("صرف")
+    #: Unused stock coming back from a consumption issue. Valued at the
+    #: original issue's cost, never today's average, so the pair nets to zero
+    #: (spec §8). Added by Task 1.4 with the document that produces it.
+    RETURN_IN = "RETURN_IN", _("إرجاع من صرف")
     TRANSFER_OUT = "TRANSFER_OUT", _("تحويل صادر")
     TRANSFER_IN = "TRANSFER_IN", _("تحويل وارد")
     WASTE = "WASTE", _("هالك")
@@ -675,6 +680,7 @@ INBOUND_MOVEMENT_TYPES = frozenset(
     {
         MovementType.OPENING,
         MovementType.RECEIPT,
+        MovementType.RETURN_IN,
         MovementType.TRANSFER_IN,
         MovementType.COUNT_GAIN,
         MovementType.PRODUCTION_IN,
@@ -854,6 +860,13 @@ class StockLedgerEntry(TimeStampedModel):
     #: When it happened in the business. May be backdated within an OPEN
     #: period; it never re-prices anything already posted (ADR-018 §5).
     effective_at = models.DateTimeField(_("effective at"))
+    #: The operational day this posting belongs to, derived through the
+    #: branch's timezone and operating-day cutoff — **not** `effective_at`'s
+    #: calendar date (ADR-008). This is the date the accounting period is
+    #: validated against and the date daily reporting groups by. A posting at
+    #: 01:30 on the 1st under an 03:00 cutoff belongs to the previous day and
+    #: requires only that day's period to be open.
+    business_date = models.DateField(_("business date"), db_index=True)
     #: When it entered the ledger.
     posted_at = models.DateTimeField(_("posted at"))
     posted_by = models.ForeignKey(
@@ -1072,6 +1085,28 @@ class StockMovement(models.Model):
         verbose_name=_("source conversion"),
     )
 
+    #: The inventory-control account this movement's value entered or left —
+    #: captured at posting and immutable with the rest of the row.
+    #:
+    #: This is what makes an ISSUE creditable without re-resolving anything:
+    #: the value leaves the account it actually entered, so a mapping changed
+    #: since cannot credit stock to an account it never sat in. Reconciliation
+    #: reads it for the same reason.
+    #:
+    #: Nullable, and the null means something specific: a movement posted with
+    #: no account mapping in play at all — the bare kernel, exercised by its
+    #: own tests. Every movement a business document posts carries one, and a
+    #: test holds that line. Inventing an account for a posting that resolved
+    #: none would be worse than recording that it had none.
+    control_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_movements",
+        verbose_name=_("inventory control account"),
+    )
+
     effective_at = models.DateTimeField(_("effective at"))
     posted_at = models.DateTimeField(_("posted at"), auto_now_add=True)
 
@@ -1193,6 +1228,27 @@ class StockBalance(TimeStampedModel):
         default=Decimal("0"),
     )
 
+    #: The inventory-control account this position's **current** stock cycle
+    #: belongs to, or NULL when the position is empty.
+    #:
+    #: A cycle runs from the first inbound into an empty position until the
+    #: position empties again. Within one cycle the account cannot change: a
+    #: receipt into standing stock must use the same account the stock already
+    #: sits in, or the two would blend and no journal would ever have moved
+    #: the difference. At zero there is nothing to strand, so the identity is
+    #: cleared and the next inbound may establish a newly effective account.
+    #:
+    #: Derived state, and deliberately so — it is recoverable by replaying the
+    #: movements' own `control_account`, which `rebuild`/`verify` checks.
+    control_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_balances",
+        verbose_name=_("inventory control account"),
+    )
+
     last_movement = models.ForeignKey(
         StockMovement,
         on_delete=models.PROTECT,
@@ -1244,6 +1300,15 @@ class StockBalance(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(quantity__gt=Decimal("0")) | Q(value=Decimal("0")),
                 name="stock_balance_zero_quantity_has_zero_value",
+            ),
+            # An empty position holds no control-account identity. The
+            # converse — positive quantity always naming an account — is a
+            # service rule rather than a constraint, because the bare kernel
+            # legitimately posts with no mapping resolved at all; see
+            # `StockMovement.control_account`.
+            models.CheckConstraint(
+                condition=Q(quantity__gt=Decimal("0")) | Q(control_account__isnull=True),
+                name="stock_balance_empty_position_has_no_control_account",
             ),
         ]
         indexes = [
@@ -1520,6 +1585,18 @@ class InventoryDocumentType(models.TextChoices):
     """Business documents this module numbers. Grows one value per task."""
 
     OPENING = "INVENTORY_OPENING", _("رصيد افتتاحي")
+    RECEIPT = "INVENTORY_RECEIPT", _("استلام مخزني غير مفوتر")
+    ISSUE = "INVENTORY_ISSUE", _("صرف مخزني للاستهلاك")
+    RETURN_IN = "INVENTORY_RETURN_IN", _("إرجاع من صرف سابق")
+
+
+#: The visible prefix each document type numbers with, per business year.
+DOCUMENT_NUMBER_PREFIX: dict[str, str] = {
+    InventoryDocumentType.OPENING: "OPN",
+    InventoryDocumentType.RECEIPT: "RCV",
+    InventoryDocumentType.ISSUE: "ISS",
+    InventoryDocumentType.RETURN_IN: "RTN",
+}
 
 
 class InventoryDocumentSequence(models.Model):
@@ -1613,9 +1690,20 @@ class OpeningStockDocument(TimeStampedModel):
     #: declaration.
     cutoff_at = models.DateTimeField(_("cutoff at"))
     #: Derived from the cutoff through the branch's timezone and operating-day
-    #: start (ADR-008). Stored so the document says which business day it
-    #: belongs to without re-deriving under a possibly-changed branch setting.
+    #: start (ADR-008). On a DRAFT this is a preview, recalculated whenever the
+    #: cutoff changes. It becomes **authoritative at submission**, together
+    #: with the two snapshot fields below, and posting uses what was stored
+    #: rather than re-deriving: a branch whose cutoff is changed after a
+    #: document was submitted must not silently move that document into a
+    #: different accounting period.
     business_date = models.DateField(_("business date"))
+    #: The branch settings the authoritative `business_date` was derived with.
+    #: Empty while the document is a DRAFT; set at submission; cleared again by
+    #: return-to-draft so a resubmission recalculates honestly.
+    business_date_timezone = models.CharField(
+        _("business date timezone"), max_length=64, blank=True
+    )
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
 
     #: The count sheet, signed stocktake, or file reference the figures came
     #: from. Required: an opening nobody can trace to evidence is a rumour.
@@ -1722,6 +1810,13 @@ class OpeningStockDocument(TimeStampedModel):
                 condition=Q(status=OpeningStockStatus.DRAFT)
                 | (Q(submitted_by__isnull=False) & Q(submitted_at__isnull=False)),
                 name="opening_submitted_fields_present",
+            ),
+            # ...and the business-date snapshot it was committed to, so a
+            # submitted document can never be posted against a re-derived date.
+            models.CheckConstraint(
+                condition=Q(status=OpeningStockStatus.DRAFT)
+                | (~Q(business_date_timezone="") & Q(business_day_start__isnull=False)),
+                name="opening_business_date_snapshot_present",
             ),
             models.CheckConstraint(
                 condition=~Q(status__in=[OpeningStockStatus.POSTED, OpeningStockStatus.REVERSED])
@@ -1930,6 +2025,457 @@ class OpeningStockLine(TimeStampedModel):
                 condition=Q(measured_base_quantity__isnull=True)
                 | Q(package_conversion__isnull=False),
                 name="opening_line_measured_needs_package",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.document_id}#{self.sequence}: {self.item_id} {self.base_quantity}"
+
+
+# ===========================================================================
+# Task 1.4 — operational documents: receipt, issue, return-in
+# ===========================================================================
+#
+# **One model with a type discriminator, not three.** The three documents
+# share their whole lifecycle — draft, post, reverse — their numbering, their
+# source-identity shape, their locking order, their scope resolution, their
+# API surface, and their screens. What differs is per *line*: a receipt
+# carries an entered cost, an issue carries none and takes its value from the
+# moving average, and a return carries neither and takes its value from the
+# issue it returns against.
+#
+# Three models would triple the lifecycle machinery to vary the smaller half,
+# and a defect fixed in one copy would live on in the other two. The
+# conditional invariants stay legible because each is a check constraint keyed
+# on `document_type`, listed together where they can be read against each
+# other rather than scattered across three files.
+#
+# The opening document stays separate: it is genuinely a different shape —
+# maker-checker, no direct-from-draft posting, and the only movement type
+# permitted to create quantity for a key with no history.
+
+
+class InventoryDocumentStatus(models.TextChoices):
+    """
+    Draft, posted, reversed.
+
+    No SUBMITTED step: a receipt and an issue are custody acts by the person
+    holding the goods, and the approved role map already trusts a storekeeper
+    with them. Maker-checker belongs to opening stock, which declares what the
+    ledger starts from rather than moving what is already in it.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class InventoryMovementDocument(TimeStampedModel):
+    """
+    A receipt, an issue, or a return of previously issued stock.
+
+    One warehouse per document, one business date, one cost centre where the
+    accounting needs one. `public_id` is the immutable identity every ledger
+    effect carries; `document_number` is display metadata, gapless within the
+    business year and assigned only at posting.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="inventory_documents",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="inventory_documents",
+        verbose_name=_("branch"),
+    )
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        related_name="inventory_documents",
+        verbose_name=_("warehouse"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    document_number = models.CharField(_("document number"), max_length=32, blank=True)
+    document_type = models.CharField(
+        _("document type"), max_length=32, choices=InventoryDocumentType.choices
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=InventoryDocumentStatus.choices,
+        default=InventoryDocumentStatus.DRAFT,
+    )
+
+    #: The physical moment the goods moved.
+    effective_at = models.DateTimeField(_("effective at"))
+    #: The operational day it belongs to. Snapshotted at posting together with
+    #: the branch settings that derived it, so a later cutoff change cannot
+    #: move a posted document between periods (ADR-008).
+    business_date = models.DateField(_("business date"))
+    business_date_timezone = models.CharField(
+        _("business date timezone"), max_length=64, blank=True
+    )
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+
+    evidence_reference = models.CharField(
+        _("evidence reference"),
+        max_length=200,
+        help_text=_("Delivery note, requisition, or return slip. Required."),
+    )
+    narration = models.TextField(_("narration"), blank=True)
+
+    #: Where consumption lands, for an issue. Snapshotted onto the journal
+    #: lines at posting; a return reuses the original issue's rather than
+    #: today's, so the pair nets to zero in the same managerial bucket.
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_documents",
+        verbose_name=_("cost center"),
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_inventory_documents",
+        verbose_name=_("created by"),
+    )
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_inventory_documents",
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_inventory_documents",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    stock_entry = models.ForeignKey(
+        StockLedgerEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_documents",
+        verbose_name=_("stock ledger entry"),
+    )
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_documents",
+        verbose_name=_("journal entry"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_inventory_documents",
+        verbose_name=_("reversal journal entry"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("inventory movement document")
+        verbose_name_plural = _("inventory movement documents")
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(evidence_reference=""),
+                name="inventory_document_evidence_reference_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    document_type__in=[
+                        InventoryDocumentType.RECEIPT,
+                        InventoryDocumentType.ISSUE,
+                        InventoryDocumentType.RETURN_IN,
+                    ]
+                ),
+                name="inventory_document_type_is_operational",
+            ),
+            # A number exists exactly from the moment of posting. Numbering is
+            # gapless, and a numbered draft that was abandoned would leave a
+            # hole indistinguishable from a deleted document.
+            models.CheckConstraint(
+                condition=(
+                    (Q(status=InventoryDocumentStatus.DRAFT) & Q(document_number=""))
+                    | (~Q(status=InventoryDocumentStatus.DRAFT) & ~Q(document_number=""))
+                ),
+                name="inventory_document_numbered_iff_posted",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "document_number"],
+                condition=~Q(document_number=""),
+                name="inventory_document_number_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=InventoryDocumentStatus.DRAFT)
+                | (Q(posted_by__isnull=False) & Q(posted_at__isnull=False)),
+                name="inventory_document_posted_fields_present",
+            ),
+            # ...and the business-date snapshot it was posted against.
+            models.CheckConstraint(
+                condition=Q(status=InventoryDocumentStatus.DRAFT)
+                | (~Q(business_date_timezone="") & Q(business_day_start__isnull=False)),
+                name="inventory_document_business_date_snapshot_present",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=InventoryDocumentStatus.REVERSED)
+                | (
+                    Q(reversed_by__isnull=False)
+                    & Q(reversed_at__isnull=False)
+                    & ~Q(reversal_reason="")
+                ),
+                name="inventory_document_reversed_fields_present",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "document_type", "status"],
+                name="inv_doc_org_type_status_idx",
+            ),
+            models.Index(fields=["warehouse", "business_date"], name="inv_doc_wh_date_idx"),
+        ]
+
+    def __str__(self) -> str:
+        label = self.document_number or str(self.public_id)
+        return f"{label} ({self.get_status_display()})"
+
+    @property
+    def source_document_type(self) -> str:
+        """The ledger source type — the document type is already exactly it."""
+        return str(self.document_type)
+
+
+class InventoryMovementDocumentLine(TimeStampedModel):
+    """
+    One item on a receipt, issue, or return.
+
+    `line_uid` is the stable identity the movement's `effect_key` is built
+    from, so reordering a draft's lines can never change what a posted effect
+    claims to be.
+
+    The three cost stories, in one place:
+
+    * **Receipt** — the operator enters `unit_cost`; `total_value` follows
+      from it and the base quantity.
+    * **Issue** — nothing is entered. Both are written at posting from the
+      moving average the kernel computed, which is the only cost that exists.
+    * **Return** — nothing is entered either. Both come from the issue being
+      returned against, so the pair nets to zero however the average has moved
+      since.
+    """
+
+    document = models.ForeignKey(
+        InventoryMovementDocument,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("document"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, unique=True, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.PROTECT,
+        related_name="document_lines",
+        verbose_name=_("item"),
+    )
+    lot = models.ForeignKey(
+        InventoryLot,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="document_lines",
+        verbose_name=_("lot"),
+    )
+
+    package_conversion = models.ForeignKey(
+        ItemPackageConversion,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="document_lines",
+        verbose_name=_("package conversion"),
+    )
+    entered_package_quantity = models.DecimalField(
+        _("entered package quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    measured_base_quantity = models.DecimalField(
+        _("measured base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    base_quantity = models.DecimalField(
+        _("base quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+
+    #: Entered for a receipt; written at posting for an issue or a return.
+    unit_cost = models.DecimalField(
+        _("unit cost"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+        null=True,
+        blank=True,
+    )
+    total_value = models.DecimalField(
+        _("total value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    #: The issue line this return goes back against. Required on a RETURN_IN
+    #: and forbidden elsewhere — a return with no original has no cost to take
+    #: and no quantity to be bounded by.
+    source_issue_line = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="return_lines",
+        verbose_name=_("source issue line"),
+    )
+
+    # --- Written at posting -----------------------------------------------
+    #: The inventory-control account this line's value entered or left.
+    inventory_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_document_lines",
+        verbose_name=_("inventory account"),
+    )
+    #: The other side: GRNI for a receipt, the consumption account for an
+    #: issue, and for a return the consumption account **the original issue
+    #: used** — never a fresh resolution.
+    contra_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_document_contra_lines",
+        verbose_name=_("contra account"),
+    )
+    #: The cost centre the contra side was posted with, snapshotted so a
+    #: return can reuse it exactly.
+    contra_cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_document_lines",
+        verbose_name=_("contra cost center"),
+    )
+    resolved_mapping = models.ForeignKey(
+        InventoryAccountMapping,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="document_lines",
+        verbose_name=_("resolved inventory mapping"),
+    )
+    resolved_organization_mapping = models.ForeignKey(
+        "accounting.OrganizationAccountMapping",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_document_lines",
+        verbose_name=_("resolved organization mapping"),
+    )
+    movement = models.OneToOneField(
+        StockMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="document_line",
+        verbose_name=_("stock movement"),
+    )
+    journal_line = models.ForeignKey(
+        "accounting.JournalLine",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_document_lines",
+        verbose_name=_("journal line"),
+    )
+
+    class Meta:
+        verbose_name = _("inventory document line")
+        verbose_name_plural = _("inventory document lines")
+        ordering = ["document_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "sequence"], name="inventory_document_line_sequence_unique"
+            ),
+            # One valuation key per document. Two lines for one shelf is two
+            # claims about one position, and `nulls_distinct=False` keeps the
+            # lot-less case honest exactly as StockBalance does.
+            models.UniqueConstraint(
+                fields=["document", "item", "lot"],
+                nulls_distinct=False,
+                name="inventory_document_line_valuation_key_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(base_quantity__gt=Decimal("0")),
+                name="inventory_document_line_quantity_is_positive",
+            ),
+            # Null until posting for an issue or a return; never zero or
+            # negative once written. Positive quantity at zero value would put
+            # free stock on the books.
+            models.CheckConstraint(
+                condition=Q(unit_cost__isnull=True) | Q(unit_cost__gt=Decimal("0")),
+                name="inventory_document_line_unit_cost_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_value__isnull=True) | Q(total_value__gt=Decimal("0")),
+                name="inventory_document_line_value_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(entered_package_quantity__isnull=True)
+                | Q(entered_package_quantity__gt=Decimal("0")),
+                name="inventory_document_line_package_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(measured_base_quantity__isnull=True)
+                | Q(measured_base_quantity__gt=Decimal("0")),
+                name="inventory_document_line_measured_positive",
+            ),
+            # A measured weight makes sense only against a package entry.
+            models.CheckConstraint(
+                condition=Q(measured_base_quantity__isnull=True)
+                | Q(package_conversion__isnull=False),
+                name="inventory_document_line_measured_needs_package",
             ),
         ]
 
