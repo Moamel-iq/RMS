@@ -121,7 +121,9 @@ class TestTheFoundationsCooperate:
 
         # --- 1. Seeded reference data -------------------------------------
         assert UnitOfMeasure.objects.count() == 10
-        assert Account.objects.filter(organization=organization).count() == 46
+        # 54: the Phase 0 chart of 46 plus the Task 1.3 inventory and
+        # opening-equity branches (1-03…, 3-02…).
+        assert Account.objects.filter(organization=organization).count() == 54
         assert CostCenter.objects.filter(organization=organization).count() == 6
         assert AccountingPeriod.objects.filter(fiscal_year__organization=organization).count() == 12
 

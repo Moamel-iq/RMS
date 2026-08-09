@@ -593,7 +593,7 @@ class TestNegativeStockIsRefused:
             _post(organization, [_issue(main_store, rice, "1")], "k1")
         assert refused.value.code == "insufficient_stock"
 
-    def test_even_a_user_holding_the_override_is_refused(
+    def test_even_the_owner_is_refused_and_no_role_holds_the_override(
         self,
         organization: Organization,
         branch: Branch,
@@ -603,26 +603,32 @@ class TestNegativeStockIsRefused:
     ) -> None:
         """
         `override_negative_stock` is reserved vocabulary and deliberately **not
-        operational** in Task 1.2.
+        operational**.
 
-        The approved moving-average contract does not define how a later
-        receipt settles the valuation variance a negative position creates, and
-        a permission cannot make an undefined accounting state valid. An OWNER
-        holds the permission; the posting is refused anyway, because the kernel
-        consults no permission at all — which is the strongest form of "not yet
-        activated": there is nothing to switch on by accident.
+        Two layers, both asserted. While `NEGATIVE_STOCK_OVERRIDE_ENABLED` is
+        False no default role — OWNER included — is granted the permission, so
+        a role cannot even *look* like it can do something the kernel refuses
+        (Task 1.3 §B.2). And the kernel consults no permission at all, so a
+        deliberate direct grant would change nothing either. Activating the
+        override is an architectural decision with its own approval, tests,
+        audit, and a migration relaxing the database constraint.
         """
         from apps.inventory.commands import post_stock_movements
+        from apps.inventory.permissions import NEGATIVE_STOCK_OVERRIDE_ENABLED
+        from apps.organizations.authorization import roles_granting
         from apps.organizations.models import Role
         from apps.organizations.services import grant_branch_access
         from apps.users.models import User
 
         from .conftest import PASSWORD
 
+        assert NEGATIVE_STOCK_OVERRIDE_ENABLED is False
+        assert roles_granting("inventory.override_negative_stock") == set()
+
         owner = User.objects.create_user(username="owner", password=PASSWORD)
         grant_branch_access(user=owner, branch=branch, role=Role.OWNER)
         owner = User.objects.get(pk=owner.pk)
-        assert owner.has_perm("inventory.override_negative_stock")
+        assert not owner.has_perm("inventory.override_negative_stock")
 
         with pytest.raises(ValidationError) as refused:
             post_stock_movements(

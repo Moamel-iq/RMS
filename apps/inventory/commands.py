@@ -34,16 +34,30 @@ from django.core.exceptions import ValidationError
 from django.db.models import QuerySet
 from django.utils.translation import gettext_lazy as _
 
+from apps.accounting.models import Account, AccountRole
+from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
 from apps.core.context import audit_context
+from apps.inventory import opening
+from apps.inventory.accounts import (
+    archive_inventory_mapping,
+    close_inventory_mapping,
+    create_inventory_mapping,
+)
 from apps.inventory.ledger import MovementInput, post_stock_entry, reverse_stock_entry
 from apps.inventory.models import (
     INBOUND_MOVEMENT_TYPES,
+    InventoryAccountMapping,
+    InventoryItem,
+    ItemCategory,
     MovementType,
+    OpeningStockDocument,
+    OpeningStockLine,
     StockBalance,
     StockLedgerEntry,
     StockMovement,
 )
 from apps.inventory.permissions import (
+    CREATE_OPENING_STOCK,
     POST_ISSUE,
     POST_OPENING_STOCK,
     POST_RECEIPT,
@@ -56,10 +70,13 @@ from apps.inventory.permissions import (
 from apps.organizations.authorization import (
     OutOfScope,
     accessible_warehouses,
+    branches_with_permission,
+    require_branch_permission,
     require_organization_permission,
     require_warehouse_permission,
+    resolve_organization,
 )
-from apps.organizations.models import Organization
+from apps.organizations.models import Branch, Organization
 from apps.users.models import User
 
 #: Which permission each movement type needs at the warehouse it touches.
@@ -237,3 +254,226 @@ def stock_value_of(balance: StockBalance) -> tuple[str, str]:
 
 def is_inbound(movement_type: str) -> bool:
     return movement_type in INBOUND_MOVEMENT_TYPES
+
+
+# ---------------------------------------------------------------------------
+# Inventory account-mapping overrides (Task 1.3)
+# ---------------------------------------------------------------------------
+#
+# The overrides use the same `accounting.manage_account_mappings` authority as
+# the organization defaults, checked the same way: an OrganizationMembership
+# role that carries it. Choosing where an item's value posts is one decision
+# regardless of which table records it.
+
+
+def visible_inventory_mappings(
+    actor: User, organization_id: int
+) -> QuerySet[InventoryAccountMapping]:
+    """One organization's overrides, for a caller who reaches it."""
+    organization = resolve_organization(actor, organization_id)
+    return (
+        InventoryAccountMapping.objects.filter(organization=organization)
+        .select_related("account_role", "account", "item", "category")
+        .order_by("account_role__code", "-version")
+    )
+
+
+def _resolve_inventory_mapping(actor: User, mapping_id: int) -> InventoryAccountMapping:
+    mapping = (
+        InventoryAccountMapping.objects.filter(pk=mapping_id)
+        .select_related("organization", "account_role", "account", "item", "category")
+        .first()
+    )
+    if mapping is None:
+        raise OutOfScope(_("Account mapping %(id)s does not exist.") % {"id": mapping_id})
+    resolve_organization(actor, mapping.organization_id)
+    return mapping
+
+
+def map_inventory_role(
+    *,
+    actor: User,
+    organization: Organization,
+    role: AccountRole,
+    account: Account,
+    item: InventoryItem | None = None,
+    category: ItemCategory | None = None,
+    effective_from: datetime.date,
+    effective_to: datetime.date | None = None,
+) -> InventoryAccountMapping:
+    """Record an item/category override, with organization authority."""
+    require_organization_permission(actor, MANAGE_ACCOUNT_MAPPINGS, organization)
+    with _acting_as(actor):
+        return create_inventory_mapping(
+            organization=organization,
+            role=role,
+            account=account,
+            item=item,
+            category=category,
+            effective_from=effective_from,
+            effective_to=effective_to,
+        )
+
+
+def close_inventory_role_mapping(
+    *, actor: User, mapping_id: int, effective_to: datetime.date, reason: str = ""
+) -> InventoryAccountMapping:
+    mapping = _resolve_inventory_mapping(actor, mapping_id)
+    require_organization_permission(actor, MANAGE_ACCOUNT_MAPPINGS, mapping.organization)
+    with _acting_as(actor):
+        return close_inventory_mapping(mapping=mapping, effective_to=effective_to, reason=reason)
+
+
+def archive_inventory_role_mapping(
+    *, actor: User, mapping_id: int, reason: str = ""
+) -> InventoryAccountMapping:
+    mapping = _resolve_inventory_mapping(actor, mapping_id)
+    require_organization_permission(actor, MANAGE_ACCOUNT_MAPPINGS, mapping.organization)
+    with _acting_as(actor):
+        return archive_inventory_mapping(mapping=mapping, reason=reason)
+
+
+# ---------------------------------------------------------------------------
+# Opening stock documents (Task 1.3)
+# ---------------------------------------------------------------------------
+#
+# Preparing is branch work (`create_opening_stock` at the document's branch);
+# posting is organization authority (`post_opening_stock` through an
+# OrganizationMembership); reversal likewise (`reverse_movement` held through
+# an OrganizationMembership — undoing the ledger's starting point is not a
+# branch decision). Maker-checker is enforced in the domain service on the
+# recorded acts, so holding every permission changes nothing.
+
+
+def visible_opening_documents(actor: User) -> QuerySet[OpeningStockDocument]:
+    """
+    Openings at branches where a post the caller holds carries `view_stock`.
+
+    Provenance-scoped like the master-data screens: a viewer post in another
+    organization contributes nothing here.
+    """
+    return (
+        OpeningStockDocument.objects.filter(branch__in=branches_with_permission(actor, VIEW_STOCK))
+        .select_related(
+            "organization",
+            "branch",
+            "created_by",
+            "submitted_by",
+            "posted_by",
+            "reversed_by",
+            "stock_entry",
+            "journal_entry",
+            "reversal_journal_entry",
+        )
+        .order_by("-created_at", "-id")
+    )
+
+
+def resolve_opening_document(actor: User, document_id: int) -> OpeningStockDocument:
+    """A document id resolved with its caller — foreign or absent is one 404."""
+    document = visible_opening_documents(actor).filter(pk=document_id).first()
+    if document is None:
+        raise OutOfScope(_("Opening document %(id)s does not exist.") % {"id": document_id})
+    return document
+
+
+def create_opening(
+    *,
+    actor: User,
+    organization: Organization,
+    branch: Branch,
+    cutoff_at: datetime.datetime,
+    evidence_reference: str,
+    narration: str = "",
+) -> OpeningStockDocument:
+    require_branch_permission(actor, CREATE_OPENING_STOCK, branch)
+    with _acting_as(actor):
+        return opening.create_opening_document(
+            organization=organization,
+            branch=branch,
+            cutoff_at=cutoff_at,
+            evidence_reference=evidence_reference,
+            narration=narration,
+        )
+
+
+def update_opening(
+    *,
+    actor: User,
+    document: OpeningStockDocument,
+    cutoff_at: datetime.datetime | None = None,
+    evidence_reference: str | None = None,
+    narration: str | None = None,
+) -> OpeningStockDocument:
+    require_branch_permission(actor, CREATE_OPENING_STOCK, document.branch)
+    with _acting_as(actor):
+        return opening.update_opening_document(
+            document=document,
+            cutoff_at=cutoff_at,
+            evidence_reference=evidence_reference,
+            narration=narration,
+        )
+
+
+def delete_opening(*, actor: User, document: OpeningStockDocument, reason: str = "") -> None:
+    require_branch_permission(actor, CREATE_OPENING_STOCK, document.branch)
+    with _acting_as(actor):
+        opening.delete_opening_document(document=document, reason=reason)
+
+
+def add_opening_line(
+    *, actor: User, document: OpeningStockDocument, line: opening.OpeningLineInput
+) -> OpeningStockLine:
+    require_branch_permission(actor, CREATE_OPENING_STOCK, document.branch)
+    with _acting_as(actor):
+        return opening.add_opening_line(document=document, line=line)
+
+
+def remove_opening_line(*, actor: User, line: OpeningStockLine, reason: str = "") -> None:
+    require_branch_permission(actor, CREATE_OPENING_STOCK, line.document.branch)
+    with _acting_as(actor):
+        opening.delete_opening_line(line=line, reason=reason)
+
+
+def replace_opening_lines(
+    *,
+    actor: User,
+    document: OpeningStockDocument,
+    lines: Sequence[opening.OpeningLineInput],
+) -> OpeningStockDocument:
+    require_branch_permission(actor, CREATE_OPENING_STOCK, document.branch)
+    with _acting_as(actor):
+        return opening.replace_opening_lines(document=document, lines=lines)
+
+
+def submit_opening(*, actor: User, document: OpeningStockDocument) -> OpeningStockDocument:
+    require_branch_permission(actor, CREATE_OPENING_STOCK, document.branch)
+    with _acting_as(actor):
+        return opening.submit_opening_document(document=document)
+
+
+def return_opening_to_draft(
+    *, actor: User, document: OpeningStockDocument, reason: str
+) -> OpeningStockDocument:
+    require_branch_permission(actor, CREATE_OPENING_STOCK, document.branch)
+    with _acting_as(actor):
+        return opening.return_opening_to_draft(document=document, reason=reason)
+
+
+def post_opening(*, actor: User, document: OpeningStockDocument) -> OpeningStockDocument:
+    """
+    Post to both ledgers. Organization authority — setting the ledger's
+    starting point covers every branch's figures at once — and maker-checker
+    on top of it: the submitter is refused whatever they hold.
+    """
+    require_organization_permission(actor, POST_OPENING_STOCK, document.organization)
+    with _acting_as(actor):
+        return opening.post_opening_document(document=document)
+
+
+def reverse_opening(
+    *, actor: User, document: OpeningStockDocument, reason: str
+) -> OpeningStockDocument:
+    require_organization_permission(actor, REVERSE_MOVEMENT, document.organization)
+    with _acting_as(actor):
+        return opening.reverse_opening_document(document=document, reason=reason)

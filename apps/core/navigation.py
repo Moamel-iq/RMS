@@ -147,16 +147,30 @@ MODULES: tuple[Module, ...] = (
             ),
             Section(label=_("المخازن"), url_name="inventory:warehouse_list", available=True),
             # Task 1.2 — the ledger. Both screens read the movements that
-            # exist; they show an empty table until Tasks 1.3/1.4 create real
-            # business postings, which is the honest state rather than a
-            # placeholder.
+            # exist; they show an empty table until real business postings
+            # fill them, which is the honest state rather than a placeholder.
             Section(label=_("المخزون المتوفر"), url_name="inventory:stock_list", available=True),
             Section(label=_("حركة المخزون"), url_name="inventory:movement_list", available=True),
-            # Task 1.3 onward — visible so the shape of the module is legible,
+            # Task 1.3 — opening stock, mapping overrides, reconciliation.
+            Section(
+                label=_("الأرصدة الافتتاحية"),
+                url_name="inventory:opening_list",
+                available=True,
+            ),
+            Section(
+                label=_("ربط حسابات المخزون"),
+                url_name="inventory:mapping_list",
+                available=True,
+            ),
+            Section(
+                label=_("مطابقة المخزون والأستاذ"),
+                url_name="inventory:reconciliation",
+                available=True,
+            ),
+            # Task 1.4 onward — visible so the shape of the module is legible,
             # inert because the documents that would fill them do not exist.
             *_sections(
                 _("مواقع التخزين الداخلية"),
-                _("الأرصدة الافتتاحية"),
                 _("الإدخال المخزني"),
                 _("الصرف المخزني"),
                 _("التحويلات"),
@@ -233,20 +247,36 @@ MODULES: tuple[Module, ...] = (
         label=_("المحاسبة"),
         icon_name="ledger",
         phase=_("المرحلة ٥"),
-        sections=_sections(
-            _("دليل الحسابات"),
-            _("قيود اليومية"),
-            _("الصناديق"),
-            _("الحسابات البنكية"),
-            _("ذمم الموردين"),
-            _("ذمم التطبيقات"),
-            _("المصروفات"),
-            _("المستحقات والمقدمات"),
-            _("الفترات المحاسبية"),
-            _("ميزان المراجعة"),
-            _("دفتر الأستاذ"),
-            _("قائمة الدخل"),
-            _("الميزانية العمومية"),
+        # Reachable for the two Task 1.3 screens; the rest of the module's
+        # sections stay visibly inert until Phase 5 builds them.
+        url_name="accounting:mapping_list",
+        available=True,
+        sections=(
+            Section(
+                label=_("الأدوار المحاسبية"),
+                url_name="accounting:role_list",
+                available=True,
+            ),
+            Section(
+                label=_("ربط الحسابات"),
+                url_name="accounting:mapping_list",
+                available=True,
+            ),
+            *_sections(
+                _("دليل الحسابات"),
+                _("قيود اليومية"),
+                _("الصناديق"),
+                _("الحسابات البنكية"),
+                _("ذمم الموردين"),
+                _("ذمم التطبيقات"),
+                _("المصروفات"),
+                _("المستحقات والمقدمات"),
+                _("الفترات المحاسبية"),
+                _("ميزان المراجعة"),
+                _("دفتر الأستاذ"),
+                _("قائمة الدخل"),
+                _("الميزانية العمومية"),
+            ),
         ),
     ),
     Module(

@@ -44,15 +44,18 @@ from django.utils.translation import gettext_lazy as _
 from apps.accounting.models import (
     Account,
     AccountingPeriod,
+    AccountRole,
     CostCenter,
     JournalEntry,
     JournalEntryStatus,
+    OrganizationAccountMapping,
     PeriodState,
 )
 from apps.accounting.permissions import (
     CLOSE_PERIOD,
     CREATE_DRAFT,
     EDIT_DRAFT,
+    MANAGE_ACCOUNT_MAPPINGS,
     POST_JOURNAL,
     POST_SOFT_CLOSED_ADJUSTMENT,
     REOPEN_PERIOD,
@@ -62,7 +65,11 @@ from apps.accounting.permissions import (
     VIEW_JOURNAL,
 )
 from apps.accounting.services import (
+    amend_account_mapping,
+    archive_account_mapping,
+    close_account_mapping,
     close_period,
+    create_account_mapping,
     create_draft,
     discard_draft,
     post_draft,
@@ -515,6 +522,126 @@ def list_journal_entries(
         entries = entries.filter(status=status)
 
     return entries.select_related("organization", "period").order_by("-accounting_date", "-id")
+
+
+# ---------------------------------------------------------------------------
+# Account-mapping commands (ADR-019)
+# ---------------------------------------------------------------------------
+#
+# `accounting.manage_account_mappings` is ORGANIZATION authority: which
+# account carries a role decides where every branch's postings land, so it is
+# held through an OrganizationMembership, never assembled from branch posts,
+# and never satisfied by a global Django grant alone.
+
+
+def list_account_roles(*, actor: User) -> QuerySet[AccountRole]:
+    """The system vocabulary. Global, read-only, and visible to any signed-in user."""
+    if not actor.is_authenticated or not actor.is_active:
+        return AccountRole.objects.none()
+    return AccountRole.objects.order_by("domain", "code")
+
+
+def list_account_mappings(
+    *, actor: User, organization_id: int
+) -> QuerySet[OrganizationAccountMapping]:
+    """One organization's default mappings, for a caller who reaches it."""
+    organization = resolve_organization(actor, organization_id)
+    return (
+        OrganizationAccountMapping.objects.filter(organization=organization)
+        .select_related("account_role", "account", "organization")
+        .order_by("account_role__code", "-version")
+    )
+
+
+def _resolve_mapping(actor: User, mapping_id: int) -> OrganizationAccountMapping:
+    """A mapping id, resolved against the caller's reach — foreign is a 404."""
+    mapping = (
+        OrganizationAccountMapping.objects.filter(pk=mapping_id)
+        .select_related("organization", "account_role", "account")
+        .first()
+    )
+    if mapping is None:
+        raise OutOfScope(_("Account mapping %(id)s does not exist.") % {"id": mapping_id})
+    resolve_organization(actor, mapping.organization_id)
+    return mapping
+
+
+def _resolve_role(role_id: int) -> AccountRole:
+    role = AccountRole.objects.filter(pk=role_id).first()
+    if role is None:
+        raise OutOfScope(_("Account role %(id)s does not exist.") % {"id": role_id})
+    return role
+
+
+@transaction.atomic
+def map_account_role(
+    *,
+    actor: User,
+    organization_id: int,
+    account_role_id: int,
+    account_id: int,
+    effective_from: datetime.date,
+    effective_to: datetime.date | None = None,
+) -> OrganizationAccountMapping:
+    """Create an organization default mapping, with organization authority."""
+    organization = resolve_organization(actor, organization_id)
+    require_organization_permission(actor, MANAGE_ACCOUNT_MAPPINGS, organization)
+    role = _resolve_role(account_role_id)
+    account = _scoped_account(organization, account_id)
+    with _acting_as(actor):
+        return create_account_mapping(
+            organization=organization,
+            account_role=role,
+            account=account,
+            effective_from=effective_from,
+            effective_to=effective_to,
+        )
+
+
+@transaction.atomic
+def amend_account_role_mapping(
+    *,
+    actor: User,
+    mapping_id: int,
+    account_id: int | None = None,
+    effective_from: datetime.date | None = None,
+    effective_to: datetime.date | None = None,
+    clear_effective_to: bool = False,
+) -> OrganizationAccountMapping:
+    """Correct an unused mapping."""
+    mapping = _resolve_mapping(actor, mapping_id)
+    require_organization_permission(actor, MANAGE_ACCOUNT_MAPPINGS, mapping.organization)
+    account = _scoped_account(mapping.organization, account_id) if account_id is not None else None
+    with _acting_as(actor):
+        return amend_account_mapping(
+            mapping=mapping,
+            account=account,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            clear_effective_to=clear_effective_to,
+        )
+
+
+@transaction.atomic
+def close_account_role_mapping(
+    *, actor: User, mapping_id: int, effective_to: datetime.date, reason: str = ""
+) -> OrganizationAccountMapping:
+    """End a mapping's effective range — the correction path for a used one."""
+    mapping = _resolve_mapping(actor, mapping_id)
+    require_organization_permission(actor, MANAGE_ACCOUNT_MAPPINGS, mapping.organization)
+    with _acting_as(actor):
+        return close_account_mapping(mapping=mapping, effective_to=effective_to, reason=reason)
+
+
+@transaction.atomic
+def archive_account_role_mapping(
+    *, actor: User, mapping_id: int, reason: str = ""
+) -> OrganizationAccountMapping:
+    """Withdraw an unused mapping recorded in error."""
+    mapping = _resolve_mapping(actor, mapping_id)
+    require_organization_permission(actor, MANAGE_ACCOUNT_MAPPINGS, mapping.organization)
+    with _acting_as(actor):
+        return archive_account_mapping(mapping=mapping, reason=reason)
 
 
 # ---------------------------------------------------------------------------

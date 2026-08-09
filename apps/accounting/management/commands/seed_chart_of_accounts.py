@@ -34,6 +34,14 @@ CHART: list[tuple[str, str, str]] = [
     ("1-02-01-001", "ذمم بالي", "Bally Receivable"),
     ("1-02-01-002", "ذمم توترز", "Toters Receivable"),
     ("1-02-01-003", "ذمم طلبات", "Talabat Receivable"),
+    # Inventory control and in-transit (Task 1.3). Accounts only: which of
+    # them carries INVENTORY_CONTROL is an OrganizationAccountMapping the
+    # organization records deliberately, never something this seed decides.
+    ("1-03", "المخزون", "Inventory"),
+    ("1-03-01", "مخزون المواد", "Materials inventory"),
+    ("1-03-01-001", "مخزون المواد والسلع", "Inventory Control"),
+    ("1-03-02", "بضاعة بالطريق", "Goods in transit"),
+    ("1-03-02-001", "بضاعة بالطريق", "Goods in Transit"),
     # 2 Liabilities
     ("2", "الالتزامات", "Liabilities"),
     ("2-01", "الذمم الدائنة", "Payables"),
@@ -44,6 +52,9 @@ CHART: list[tuple[str, str, str]] = [
     ("3-01", "رأس المال", "Capital"),
     ("3-01-01", "رأس المال", "Capital"),
     ("3-01-01-001", "رأس المال", "Owner Capital"),
+    ("3-02", "أرصدة افتتاحية", "Opening balances"),
+    ("3-02-01", "أرصدة افتتاحية", "Opening balances"),
+    ("3-02-01-001", "أرصدة افتتاحية - مخزون", "Inventory Opening Equity"),
     # 4 Revenue
     ("4", "الإيرادات", "Revenue"),
     ("4-01", "إيرادات المبيعات", "Sales revenue"),

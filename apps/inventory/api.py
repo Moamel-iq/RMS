@@ -26,12 +26,23 @@ from django.http import HttpRequest
 from ninja import Router, Schema, Status
 
 from apps.inventory.commands import (
+    create_opening,
+    delete_opening,
     may_see_cost,
+    post_opening,
+    replace_opening_lines,
     resolve_movement,
+    resolve_opening_document,
+    return_opening_to_draft,
+    reverse_opening,
+    submit_opening,
+    update_opening,
     visible_movements,
+    visible_opening_documents,
     visible_stock,
 )
 from apps.inventory.models import ConversionType, ItemType, WarehouseType
+from apps.inventory.opening import OpeningLineInput
 from apps.inventory.permissions import (
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
@@ -581,3 +592,367 @@ def read_movement(request: HttpRequest, movement_id: int) -> Any:
     # that would confirm the id names something real.
     movement = resolve_movement(actor, movement_id)
     return _serialize_movement(movement, with_cost=may_see_cost(actor))
+
+
+# ---------------------------------------------------------------------------
+# Opening stock documents — commands, not CRUD over ledger rows
+# ---------------------------------------------------------------------------
+#
+# The API authenticates, resolves scope, parses exact Decimal strings, and
+# calls the command layer. It writes no StockMovement, no StockBalance, no
+# JournalEntry, and no JournalLine — the atomic posting service does, behind
+# the lifecycle these endpoints drive.
+
+
+class OpeningLineIn(Schema):
+    warehouse_id: int
+    item_id: int
+    #: Strings, both directions. JSON's only numeric type is binary floating
+    #: point, and a unit cost that has been through one is a different cost.
+    unit_cost: str
+    lot_id: int | None = None
+    package_conversion_id: int | None = None
+    entered_package_quantity: str | None = None
+    measured_base_quantity: str | None = None
+    base_quantity: str | None = None
+
+
+class OpeningLineOut(Schema):
+    id: int
+    sequence: int
+    warehouse_id: int
+    warehouse_code: str
+    item_id: int
+    item_code: str
+    item_name_ar: str
+    base_unit_code: str
+    lot_code: str | None
+    base_quantity: str
+    movement_id: int | None
+    inventory_account_code: str | None
+    unit_cost: str | None = None
+    total_value: str | None = None
+
+
+class OpeningOut(Schema):
+    id: int
+    public_id: str
+    document_number: str
+    status: str
+    organization_id: int
+    branch_id: int
+    branch_code: str
+    cutoff_at: datetime.datetime
+    business_date: datetime.date
+    evidence_reference: str
+    narration: str
+    created_by: str | None
+    submitted_by: str | None
+    submitted_at: datetime.datetime | None
+    posted_by: str | None
+    posted_at: datetime.datetime | None
+    reversed_by: str | None
+    reversed_at: datetime.datetime | None
+    reversal_reason: str
+    stock_entry_id: int | None
+    journal_entry_number: str | None
+    reversal_journal_entry_number: str | None
+    line_count: int
+    total_value: str | None = None
+    lines: list[OpeningLineOut] = []
+
+
+class OpeningIn(Schema):
+    organization_id: int
+    branch_id: int
+    cutoff_at: datetime.datetime
+    evidence_reference: str
+    narration: str = ""
+    lines: list[OpeningLineIn] = []
+
+
+class OpeningPatch(Schema):
+    cutoff_at: datetime.datetime | None = None
+    evidence_reference: str | None = None
+    narration: str | None = None
+    #: Wholesale replacement, DRAFT only — the same shape journal drafts use.
+    lines: list[OpeningLineIn] | None = None
+
+
+class ReasonIn(Schema):
+    reason: str
+
+
+def _optional_decimal(value: str | None, *, field: str) -> Decimal | None:
+    return _decimal(value, field=field) if value is not None else None
+
+
+def _line_input(actor: User, payload: OpeningLineIn) -> OpeningLineInput:
+    """
+    One requested line, every identifier resolved with the caller.
+
+    The lot and the conversion are resolved *through the item*, so an id
+    belonging to another item — or another organization — is a 404 before the
+    domain service ever sees it.
+    """
+    from apps.inventory.models import InventoryLot, ItemPackageConversion
+    from apps.organizations.authorization import resolve_warehouse
+
+    warehouse = resolve_warehouse(actor, payload.warehouse_id)
+    item = resolve_item(actor, payload.item_id)
+
+    lot = None
+    if payload.lot_id is not None:
+        lot = InventoryLot.objects.filter(pk=payload.lot_id, item=item).first()
+        if lot is None:
+            raise ValidationError(f"Lot {payload.lot_id} does not exist.", code="unknown_lot")
+
+    conversion = None
+    if payload.package_conversion_id is not None:
+        conversion = ItemPackageConversion.objects.filter(
+            pk=payload.package_conversion_id, item=item
+        ).first()
+        if conversion is None:
+            raise ValidationError(
+                f"Conversion {payload.package_conversion_id} does not exist.",
+                code="unknown_conversion",
+            )
+
+    return OpeningLineInput(
+        warehouse=warehouse,
+        item=item,
+        lot=lot,
+        package_conversion=conversion,
+        unit_cost=_decimal(payload.unit_cost, field="unit_cost"),
+        entered_package_quantity=_optional_decimal(
+            payload.entered_package_quantity, field="entered_package_quantity"
+        ),
+        measured_base_quantity=_optional_decimal(
+            payload.measured_base_quantity, field="measured_base_quantity"
+        ),
+        base_quantity=_optional_decimal(payload.base_quantity, field="base_quantity"),
+    )
+
+
+def _serialize_opening_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": line.pk,
+        "sequence": line.sequence,
+        "warehouse_id": line.warehouse_id,
+        "warehouse_code": line.warehouse.code,
+        "item_id": line.item_id,
+        "item_code": line.item.code,
+        "item_name_ar": line.item.name_ar,
+        "base_unit_code": line.item.base_unit.code,
+        "lot_code": line.lot.code if line.lot else None,
+        "base_quantity": f"{line.base_quantity:f}",
+        "movement_id": line.movement_id,
+        "inventory_account_code": line.inventory_account.code if line.inventory_account else None,
+    }
+    if with_cost:
+        payload["unit_cost"] = f"{line.unit_cost:f}"
+        payload["total_value"] = f"{line.total_value:f}"
+    return payload
+
+
+def _serialize_opening(document: Any, *, with_cost: bool, with_lines: bool) -> dict[str, Any]:
+    lines = list(
+        document.lines.select_related(
+            "warehouse", "item", "item__base_unit", "lot", "inventory_account"
+        ).order_by("sequence")
+    )
+    payload: dict[str, Any] = {
+        "id": document.pk,
+        "public_id": str(document.public_id),
+        "document_number": document.document_number,
+        "status": document.status,
+        "organization_id": document.organization_id,
+        "branch_id": document.branch_id,
+        "branch_code": document.branch.code,
+        "cutoff_at": document.cutoff_at,
+        "business_date": document.business_date,
+        "evidence_reference": document.evidence_reference,
+        "narration": document.narration,
+        "created_by": str(document.created_by) if document.created_by else None,
+        "submitted_by": str(document.submitted_by) if document.submitted_by else None,
+        "submitted_at": document.submitted_at,
+        "posted_by": str(document.posted_by) if document.posted_by else None,
+        "posted_at": document.posted_at,
+        "reversed_by": str(document.reversed_by) if document.reversed_by else None,
+        "reversed_at": document.reversed_at,
+        "reversal_reason": document.reversal_reason,
+        "stock_entry_id": document.stock_entry_id,
+        "journal_entry_number": (
+            document.journal_entry.entry_number if document.journal_entry_id else None
+        ),
+        "reversal_journal_entry_number": (
+            document.reversal_journal_entry.entry_number
+            if document.reversal_journal_entry_id
+            else None
+        ),
+        "line_count": len(lines),
+        "lines": (
+            [_serialize_opening_line(line, with_cost=with_cost) for line in lines]
+            if with_lines
+            else []
+        ),
+    }
+    if with_cost:
+        total = sum((line.total_value for line in lines), Decimal("0"))
+        payload["total_value"] = f"{total:f}"
+    return payload
+
+
+@router.get("/openings/", response=list[OpeningOut], summary="Opening documents in scope")
+def list_openings(request: HttpRequest, status: str | None = None) -> Any:
+    actor = _actor(request)
+    documents = visible_opening_documents(actor)
+    if status is not None:
+        documents = documents.filter(status=status)
+    with_cost = may_see_cost(actor)
+    return [
+        _serialize_opening(document, with_cost=with_cost, with_lines=False)
+        for document in documents
+    ]
+
+
+@router.post("/openings/", response={201: OpeningOut}, summary="Create a draft opening")
+def create_opening_endpoint(request: HttpRequest, payload: OpeningIn) -> Status[Any]:
+    actor = _actor(request)
+    organization = resolve_organization(actor, payload.organization_id)
+    branch = resolve_branch(actor, payload.branch_id)
+    document = create_opening(
+        actor=actor,
+        organization=organization,
+        branch=branch,
+        cutoff_at=payload.cutoff_at,
+        evidence_reference=payload.evidence_reference,
+        narration=payload.narration,
+    )
+    if payload.lines:
+        replace_opening_lines(
+            actor=actor,
+            document=document,
+            lines=[_line_input(actor, line) for line in payload.lines],
+        )
+    document = resolve_opening_document(actor, document.pk)
+    return Status(201, _serialize_opening(document, with_cost=may_see_cost(actor), with_lines=True))
+
+
+@router.get("/openings/{document_id}/", response=OpeningOut, summary="One opening")
+def read_opening(request: HttpRequest, document_id: int) -> Any:
+    actor = _actor(request)
+    document = resolve_opening_document(actor, document_id)
+    return _serialize_opening(document, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.patch("/openings/{document_id}/", response=OpeningOut, summary="Amend a draft opening")
+def patch_opening(request: HttpRequest, document_id: int, payload: OpeningPatch) -> Any:
+    actor = _actor(request)
+    document = resolve_opening_document(actor, document_id)
+    update_opening(
+        actor=actor,
+        document=document,
+        cutoff_at=payload.cutoff_at,
+        evidence_reference=payload.evidence_reference,
+        narration=payload.narration,
+    )
+    if payload.lines is not None:
+        replace_opening_lines(
+            actor=actor,
+            document=document,
+            lines=[_line_input(actor, line) for line in payload.lines],
+        )
+    document = resolve_opening_document(actor, document_id)
+    return _serialize_opening(document, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.delete("/openings/{document_id}/", response={204: None}, summary="Delete a draft opening")
+def delete_opening_endpoint(request: HttpRequest, document_id: int) -> Status[None]:
+    actor = _actor(request)
+    document = resolve_opening_document(actor, document_id)
+    delete_opening(actor=actor, document=document)
+    return Status(204, None)
+
+
+@router.post("/openings/{document_id}/submit/", response=OpeningOut, summary="Submit for posting")
+def submit_opening_endpoint(request: HttpRequest, document_id: int) -> Any:
+    actor = _actor(request)
+    document = resolve_opening_document(actor, document_id)
+    submitted = submit_opening(actor=actor, document=document)
+    return _serialize_opening(submitted, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.post(
+    "/openings/{document_id}/return-to-draft/",
+    response=OpeningOut,
+    summary="Return a submitted opening for correction",
+)
+def return_opening_endpoint(request: HttpRequest, document_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    document = resolve_opening_document(actor, document_id)
+    returned = return_opening_to_draft(actor=actor, document=document, reason=payload.reason)
+    return _serialize_opening(returned, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.post(
+    "/openings/{document_id}/post/",
+    response=OpeningOut,
+    summary="Post to the stock ledger and the general ledger",
+)
+def post_opening_endpoint(request: HttpRequest, document_id: int) -> Any:
+    actor = _actor(request)
+    document = resolve_opening_document(actor, document_id)
+    posted = post_opening(actor=actor, document=document)
+    return _serialize_opening(posted, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.post(
+    "/openings/{document_id}/reverse/",
+    response=OpeningOut,
+    summary="Reverse the whole opening",
+)
+def reverse_opening_endpoint(request: HttpRequest, document_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    document = resolve_opening_document(actor, document_id)
+    reversed_document = reverse_opening(actor=actor, document=document, reason=payload.reason)
+    return _serialize_opening(reversed_document, with_cost=may_see_cost(actor), with_lines=True)
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation — read only, no repair endpoint exists
+# ---------------------------------------------------------------------------
+
+
+class ReconciliationOut(Schema):
+    organization_code: str
+    is_clean: bool
+    mismatches: list[str]
+
+
+@router.get(
+    "/reconciliation/",
+    response=ReconciliationOut,
+    summary="Inventory-to-GL reconciliation, scoped and read-only",
+)
+def reconciliation_report(request: HttpRequest, organization_id: int) -> Any:
+    from apps.inventory.reconciliation import verify_inventory_accounting
+
+    actor = _actor(request)
+    organization = resolve_organization(actor, organization_id)
+    # Reconciliation reads both cost and ledger figures, so it needs both
+    # halves of that story.
+    from apps.accounting.permissions import VIEW_JOURNAL
+    from apps.inventory.permissions import VIEW_VALUATION
+
+    if not actor.has_perm(VIEW_VALUATION):
+        raise PermissionMissing(f"{VIEW_VALUATION} is not held.")
+    if not actor.has_perm(VIEW_JOURNAL):
+        raise PermissionMissing(f"{VIEW_JOURNAL} is not held.")
+
+    mismatches = verify_inventory_accounting(organization)
+    return {
+        "organization_code": organization.code,
+        "is_clean": not mismatches,
+        "mismatches": mismatches,
+    }

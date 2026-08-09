@@ -12,6 +12,7 @@ must satisfy, and ADR-012 through ADR-015 for the decisions behind them.
 
 from __future__ import annotations
 
+import datetime
 from decimal import Decimal
 
 from django.conf import settings
@@ -613,6 +614,197 @@ class JournalEntry(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.entry_number} ({self.get_status_display()})"
+
+
+class AccountRoleDomain(models.TextChoices):
+    """
+    Which module's posting rules refer to a role.
+
+    Closed and extended intentionally: Purchases, Sales, and Payroll add their
+    own values when their posting rules arrive, never before.
+    """
+
+    INVENTORY = "INVENTORY", _("المخزون")
+
+
+class AccountRoleMappingScope(models.TextChoices):
+    """
+    How specifically a role may be mapped.
+
+    `ORGANIZATION` — the organization default is the only mapping; the concept
+    has no meaningful per-item answer (opening equity, in-transit).
+
+    `ITEM` — the owning domain may override the organization default per item
+    or per item category. The override rows live in that domain's own app;
+    this model never references them.
+    """
+
+    ORGANIZATION = "ORGANIZATION", _("افتراضي المؤسسة فقط")
+    ITEM = "ITEM", _("قابل للتخصيص حسب الصنف")
+
+
+class AccountRole(TimeStampedModel):
+    """
+    A named economic purpose an account can serve — the vocabulary posting
+    rules speak (ADR-019).
+
+    **Global and system-owned, not organization data.** `INVENTORY_CONTROL`
+    means the same thing in every organization; which *account* carries it is
+    the organization's decision, recorded in `OrganizationAccountMapping`.
+    Posting services refer to these codes and never to an account primary key
+    or account code — that is the entire point of the indirection.
+
+    System codes are locale-independent technical identifiers: never renamed,
+    never deleted, reserved forever. A database trigger backs this up.
+    """
+
+    code = models.CharField(_("code"), max_length=64, unique=True)
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200)
+    domain = models.CharField(_("domain"), max_length=20, choices=AccountRoleDomain.choices)
+    mapping_scope = models.CharField(
+        _("mapping scope"),
+        max_length=16,
+        choices=AccountRoleMappingScope.choices,
+        default=AccountRoleMappingScope.ORGANIZATION,
+    )
+    #: Seeded by migration, never by a user. A user-creatable "system" role
+    #: would let an ordinary label claim the protections of the vocabulary.
+    is_system = models.BooleanField(_("system role"), default=False)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("account role")
+        verbose_name_plural = _("account roles")
+        ordering = ["domain", "code"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN), name="account_role_code_format"
+            ),
+            models.CheckConstraint(
+                condition=~Q(name_ar="") & ~Q(name_en=""),
+                name="account_role_names_not_empty",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name_ar}"
+
+
+#: The seven approved inventory roles. Constants rather than an enum so a
+#: posting service can name one without importing the model, and so the seed
+#: migration and the services provably spell them identically.
+INVENTORY_CONTROL = "INVENTORY_CONTROL"
+INVENTORY_OPENING_EQUITY = "INVENTORY_OPENING_EQUITY"
+INVENTORY_COUNT_VARIANCE = "INVENTORY_COUNT_VARIANCE"
+INVENTORY_WASTE_EXPENSE = "INVENTORY_WASTE_EXPENSE"
+INVENTORY_IN_TRANSIT = "INVENTORY_IN_TRANSIT"
+INVENTORY_SHORTAGE_LOSS = "INVENTORY_SHORTAGE_LOSS"
+INVENTORY_ADJUSTMENT = "INVENTORY_ADJUSTMENT"
+
+#: `(code, name_ar, name_en, mapping_scope)` for the seed migration and the
+#: fresh-database test. Only `INVENTORY_CONTROL` is item-overridable in
+#: Release 1: it is the one role whose account carries standing stock value,
+#: and the only one the reclassification guard protects. Widening another
+#: role's scope is a deliberate later decision, not a default.
+SYSTEM_INVENTORY_ROLES: tuple[tuple[str, str, str, str], ...] = (
+    (INVENTORY_CONTROL, "مخزون - حساب المراقبة", "Inventory control", "ITEM"),
+    (
+        INVENTORY_OPENING_EQUITY,
+        "أرصدة افتتاحية - مخزون",
+        "Inventory opening equity",
+        "ORGANIZATION",
+    ),
+    (INVENTORY_COUNT_VARIANCE, "فروقات الجرد", "Inventory count variance", "ORGANIZATION"),
+    (INVENTORY_WASTE_EXPENSE, "هالك المخزون", "Inventory waste expense", "ORGANIZATION"),
+    (INVENTORY_IN_TRANSIT, "بضاعة بالطريق", "Inventory in transit", "ORGANIZATION"),
+    (INVENTORY_SHORTAGE_LOSS, "عجز التحويلات", "Inventory shortage loss", "ORGANIZATION"),
+    (INVENTORY_ADJUSTMENT, "تسويات المخزون", "Inventory adjustment", "ORGANIZATION"),
+)
+
+
+class OrganizationAccountMapping(TimeStampedModel):
+    """
+    The organization's effective-dated default: this role posts to this
+    account, from this date to that one.
+
+    Item- and category-specific overrides deliberately do **not** live here.
+    They belong to the domain that owns the item concept (`apps.inventory`),
+    which imports accounting — never the reverse (ADR-019).
+
+    A mapping that has been used by a posting is immutable except for closing
+    its effective range; the correction is a new version. The rows a posting
+    snapshotted stay readable forever, which is what makes "which account did
+    this movement post to" answerable years later.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="account_mappings",
+        verbose_name=_("organization"),
+    )
+    account_role = models.ForeignKey(
+        AccountRole,
+        on_delete=models.PROTECT,
+        related_name="organization_mappings",
+        verbose_name=_("account role"),
+    )
+    account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        related_name="role_mappings",
+        verbose_name=_("account"),
+    )
+    effective_from = models.DateField(_("effective from"))
+    effective_to = models.DateField(_("effective to"), null=True, blank=True)
+    #: Incremented per `(organization, role)` when a mapping is superseded, so
+    #: the history reads as a sequence of decisions rather than a pile of rows.
+    version = models.PositiveIntegerField(_("version"), default=1)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("organization account mapping")
+        verbose_name_plural = _("organization account mappings")
+        ordering = ["organization__code", "account_role__code", "-effective_from"]
+        permissions = [
+            ("manage_account_mappings", _("Can manage account role mappings")),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(effective_to__isnull=True)
+                | Q(effective_to__gte=models.F("effective_from")),
+                name="org_account_mapping_period_is_ordered",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "account_role", "version"],
+                name="org_account_mapping_version_unique",
+            ),
+            # The overlap rule itself needs a range type and is added as an
+            # EXCLUDE constraint by the migration, as the conversion overlap was.
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "account_role", "is_active"],
+                name="org_mapping_role_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.organization.code}: {self.account_role.code} -> {self.account.code} "
+            f"v{self.version}"
+        )
+
+    def covers(self, on_date: datetime.date) -> bool:
+        """Whether this mapping is in effect on the given date."""
+        if on_date < self.effective_from:
+            return False
+        return self.effective_to is None or on_date <= self.effective_to
 
 
 class JournalLine(models.Model):

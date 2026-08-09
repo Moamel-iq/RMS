@@ -1023,15 +1023,22 @@ Dr   Inventory control account       (resolved by mapping, never a hard-coded id
 Cr   Opening balance equity / opening clearing account
 ```
 
-Source identity, using the Phase 0 contract unchanged:
+Source identity, using the Phase 0 contract unchanged *(amended, Task 1.3:
+the id is the document's **immutable UUID**, not the human number — drafts
+carry no number, the gapless number is assigned only at posting, and an
+identity must exist before the thing it identifies is numbered)*:
 
 ```
 organization          = the organization
 source_document_type  = "INVENTORY_OPENING"
-source_document_id    = the opening document's number
+source_document_id    = str(document.public_id)      # immutable UUID
 source_event          = SourceEvent.POSTED
-idempotency_key       = "inventory-opening:<document number>"
+idempotency_key       = "inventory-opening:<public_id>"
 ```
+
+The human `document_number` (`OPN-2026-000001`) is display metadata for
+drill-down; movement effect keys use the stable line identity
+`opening-line:<line uid>`, never the mutable line order.
 
 Requirements: a signed cutoff timestamp; source evidence (count sheet
 reference); approval by `inventory.post_opening_stock`; per line the item,
@@ -1108,8 +1115,8 @@ warehouse scope cannot silently lock out existing users.
 
 | Role | Inventory permissions |
 |---|---|
-| **OWNER** | All eighteen — a trusted operational proprietor |
-| **ACCOUNTING_MANAGER** | `view_item`, `view_stock`, `view_valuation`, `post_opening_stock`, `approve_stock_count`, `post_adjustment`, `reverse_movement`, `override_negative_stock` |
+| **OWNER** | Everything **except `override_negative_stock`** — see the amendment below |
+| **ACCOUNTING_MANAGER** | `view_item`, `view_stock`, `view_valuation`, `create_opening_stock`, `post_opening_stock`, `approve_stock_count`, `post_adjustment`, `reverse_movement` |
 | **MANAGER** | `view_item`, `manage_categories`, `manage_items`, `manage_conversions`, `manage_warehouses`, `view_stock`, `view_valuation`, `create_draft_movement`, `post_receipt`, `post_issue`, `post_transfer`, `post_waste`, `conduct_stock_count`, `approve_stock_count`, `post_adjustment`, `reverse_movement` |
 | **STOREKEEPER** | `view_item`, `view_stock`, `create_draft_movement`, `post_receipt`, `post_issue`, `post_transfer`, `conduct_stock_count` |
 | **PURCHASING** | `view_item`, `view_stock`, `view_valuation` |
@@ -1135,6 +1142,18 @@ The separations that matter, each deliberate:
 
 **Role names are mapping defaults and never appear in a domain service.** A
 deployment changes this table; no inventory code changes with it.
+
+***(Amended, Task 1.3)* `override_negative_stock` is granted to no role at
+all while `NEGATIVE_STOCK_OVERRIDE_ENABLED` is False.** The kernel refuses
+negative stock for everyone and consults no permission; the code stays
+reserved vocabulary only. No current role — OWNER and ACCOUNTING_MANAGER
+included — can use it, no command or UI exposes it, and enabling it later is
+an explicit architectural/security decision with its own approval, tests,
+reason, actor, audit, exception reporting, and a migration relaxing the
+`stock_balance_quantity_not_negative` constraint. The nineteenth permission
+gained a twentieth sibling in Task 1.3: `create_opening_stock` (branch
+scope), so preparing an opening and posting it are separable acts under
+maker-checker.
 
 ## 13. API and UI contract (§T)
 

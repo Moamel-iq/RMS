@@ -22,10 +22,13 @@ from django.utils.translation import gettext_lazy as _
 
 from apps.inventory.models import (
     BranchItemSetting,
+    InventoryAccountMapping,
     InventoryItem,
     InventoryLot,
     ItemCategory,
     ItemPackageConversion,
+    OpeningStockDocument,
+    OpeningStockLine,
     PackageUnit,
     StockBalance,
     StockLedgerEntry,
@@ -36,8 +39,10 @@ from apps.inventory.models import (
 
 if TYPE_CHECKING:
     _ModelAdmin = admin.ModelAdmin[Any]
+    _LineInline = admin.TabularInline[OpeningStockLine, OpeningStockDocument]
 else:
     _ModelAdmin = admin.ModelAdmin
+    _LineInline = admin.TabularInline
 
 
 class ReadOnlyAdminMixin:
@@ -225,3 +230,80 @@ class ValuationLayerAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     search_fields = ("item__code", "warehouse__code")
     ordering = ("-posted_sequence",)
     list_select_related = ("warehouse", "item", "lot")
+
+
+@admin.register(InventoryAccountMapping)
+class InventoryAccountMappingAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    list_display = (
+        "account_role",
+        "target",
+        "account",
+        "effective_from",
+        "effective_to",
+        "version",
+        "is_active",
+        "organization",
+    )
+    list_filter = ("account_role", "is_active", "organization")
+    search_fields = ("item__code", "category__code", "account__code")
+    ordering = ("organization__code", "account_role__code", "-version")
+    list_select_related = ("organization", "account_role", "account", "item", "category")
+
+    @admin.display(description=_("target"))
+    def target(self, obj: InventoryAccountMapping) -> str:
+        return obj.item.code if obj.item is not None else str(obj.category)
+
+
+class OpeningStockLineInline(_LineInline):
+    model = OpeningStockLine
+    extra = 0
+    can_delete = False
+    fields = (
+        "sequence",
+        "warehouse",
+        "item",
+        "lot",
+        "base_quantity",
+        "unit_cost",
+        "total_value",
+        "inventory_account",
+        "movement",
+    )
+    readonly_fields = fields
+
+    def has_add_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+
+@admin.register(OpeningStockDocument)
+class OpeningStockDocumentAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    """
+    Read-only, and the database agrees: a POSTED document refuses every
+    change except its reversal transition, a REVERSED one refuses all of
+    them, and the lines freeze with their document.
+    """
+
+    list_display = (
+        "document_number",
+        "public_id",
+        "status",
+        "branch",
+        "business_date",
+        "submitted_by",
+        "posted_by",
+        "organization",
+    )
+    list_filter = ("status", "branch", "organization")
+    search_fields = ("document_number", "public_id", "evidence_reference")
+    ordering = ("-created_at",)
+    list_select_related = ("organization", "branch", "submitted_by", "posted_by")
+    inlines = [OpeningStockLineInline]
+
+    def get_readonly_fields(self, request: HttpRequest, obj: Any = None) -> tuple[str, ...]:
+        return tuple(field.name for field in self.model._meta.fields)

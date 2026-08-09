@@ -19,6 +19,7 @@ See `docs/tasks/task-1-0-inventory-domain-spec.md` for the approved design,
 from __future__ import annotations
 
 import datetime
+import uuid
 from decimal import Decimal
 
 from django.conf import settings
@@ -286,6 +287,7 @@ class InventoryItem(TimeStampedModel):
             ("view_stock", _("Can view stock on hand")),
             ("view_valuation", _("Can view inventory cost and valuation")),
             ("create_draft_movement", _("Can create a draft stock movement")),
+            ("create_opening_stock", _("Can prepare and submit an opening stock document")),
             ("post_opening_stock", _("Can post opening stock")),
             ("post_receipt", _("Can post a stock receipt")),
             ("post_issue", _("Can post a stock issue")),
@@ -1399,3 +1401,537 @@ class ValuationAllocation(models.Model):
 
     def __str__(self) -> str:
         return f"{self.movement_id} <- {self.layer_id}: {self.quantity}"
+
+
+# ===========================================================================
+# Task 1.3 — account mapping overrides and the opening-stock document
+# ===========================================================================
+#
+# The dependency rule these models exist to respect (ADR-019): inventory
+# imports accounting, never the reverse. `AccountRole` and the organization
+# default mapping live in `apps.accounting`; the item- and category-specific
+# **overrides** live here, because they reference `InventoryItem` and
+# `ItemCategory`, which accounting must not know exist.
+
+
+class InventoryAccountMapping(TimeStampedModel):
+    """
+    An item- or category-specific override of the organization's account
+    mapping, for roles that permit one.
+
+    Exactly one target: an item, or a category — never both, never neither.
+    An organization-wide default does not belong here; it belongs to
+    `accounting.OrganizationAccountMapping`, and a second place to record one
+    would eventually give two answers.
+
+    Used mappings are immutable except for closing the effective range. The
+    posting that resolved one snapshots it, and the snapshot must stay
+    readable.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="inventory_account_mappings",
+        verbose_name=_("organization"),
+    )
+    account_role = models.ForeignKey(
+        "accounting.AccountRole",
+        on_delete=models.PROTECT,
+        related_name="inventory_mappings",
+        verbose_name=_("account role"),
+    )
+    account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        related_name="inventory_mappings",
+        verbose_name=_("account"),
+    )
+    item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="account_mappings",
+        verbose_name=_("item"),
+    )
+    category = models.ForeignKey(
+        ItemCategory,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="account_mappings",
+        verbose_name=_("category"),
+    )
+    effective_from = models.DateField(_("effective from"))
+    effective_to = models.DateField(_("effective to"), null=True, blank=True)
+    version = models.PositiveIntegerField(_("version"), default=1)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("inventory account mapping")
+        verbose_name_plural = _("inventory account mappings")
+        ordering = ["organization__code", "account_role__code", "-effective_from"]
+        constraints = [
+            # One target, exactly. A row naming both would make precedence
+            # ambiguous; a row naming neither would be an organization default
+            # hiding in the wrong table.
+            models.CheckConstraint(
+                condition=(
+                    (Q(item__isnull=False) & Q(category__isnull=True))
+                    | (Q(item__isnull=True) & Q(category__isnull=False))
+                ),
+                name="inventory_mapping_one_target",
+            ),
+            models.CheckConstraint(
+                condition=Q(effective_to__isnull=True)
+                | Q(effective_to__gte=models.F("effective_from")),
+                name="inventory_mapping_period_is_ordered",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "account_role", "item", "category", "version"],
+                nulls_distinct=False,
+                name="inventory_mapping_version_unique",
+            ),
+            # The overlap rule needs a range type and COALESCE over the
+            # nullable target columns; the migration adds it as EXCLUDE.
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "account_role", "is_active"],
+                name="inv_mapping_role_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        target = self.item.code if self.item is not None else str(self.category)
+        return f"{self.account_role.code}[{target}] -> {self.account.code} v{self.version}"
+
+    def covers(self, on_date: datetime.date) -> bool:
+        """Whether this mapping is in effect on the given date."""
+        if on_date < self.effective_from:
+            return False
+        return self.effective_to is None or on_date <= self.effective_to
+
+
+class InventoryDocumentType(models.TextChoices):
+    """Business documents this module numbers. Grows one value per task."""
+
+    OPENING = "INVENTORY_OPENING", _("رصيد افتتاحي")
+
+
+class InventoryDocumentSequence(models.Model):
+    """
+    Gapless per-organization, per-type, per-fiscal-year document numbering.
+
+    Same shape and same reasoning as `accounting.JournalNumberSequence`: a
+    counter row taken under `select_for_update`, because MAX+1 lets two
+    concurrent postings claim one number. Drafts hold no number — the number
+    is taken at the moment of posting and never before, so an abandoned draft
+    cannot burn one.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="inventory_document_sequences",
+    )
+    document_type = models.CharField(
+        _("document type"), max_length=32, choices=InventoryDocumentType.choices
+    )
+    year = models.PositiveSmallIntegerField()
+    last_number = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = _("inventory document sequence")
+        verbose_name_plural = _("inventory document sequences")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "document_type", "year"],
+                name="inventory_document_sequence_unique_scope",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.organization.code} {self.document_type} {self.year}: {self.last_number}"
+
+
+class OpeningStockStatus(models.TextChoices):
+    DRAFT = "DRAFT", _("مسودة")
+    SUBMITTED = "SUBMITTED", _("مقدَّم")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class OpeningStockDocument(TimeStampedModel):
+    """
+    The business document that declares what the stock ledger starts from.
+
+    **Not a receipt.** A receipt records goods arriving from somewhere; an
+    opening declares a starting position that predates the ledger, and it is
+    the only movement allowed to create quantity for a key with no history.
+
+    Identity is `public_id`, immutable from birth — it is the source document
+    id every ledger effect carries. The human `document_number` is display
+    metadata, assigned gaplessly at posting and never before, so an abandoned
+    draft cannot burn a number.
+
+    Lifecycle: DRAFT → SUBMITTED → POSTED → REVERSED. Maker-checker is a rule
+    about the *acts*, not the permissions: the user who submitted cannot be
+    the user who posts, even holding both permissions.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="opening_stock_documents",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="opening_stock_documents",
+        verbose_name=_("branch"),
+    )
+
+    #: The immutable internal identity. THIS is the ledger's
+    #: `source_document_id`; the human number below is presentation.
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    document_number = models.CharField(_("document number"), max_length=32, blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=OpeningStockStatus.choices,
+        default=OpeningStockStatus.DRAFT,
+    )
+
+    #: The declared moment the counted position was true. Timezone-aware and
+    #: explicit — an opening without a stated cutoff is an opinion, not a
+    #: declaration.
+    cutoff_at = models.DateTimeField(_("cutoff at"))
+    #: Derived from the cutoff through the branch's timezone and operating-day
+    #: start (ADR-008). Stored so the document says which business day it
+    #: belongs to without re-deriving under a possibly-changed branch setting.
+    business_date = models.DateField(_("business date"))
+
+    #: The count sheet, signed stocktake, or file reference the figures came
+    #: from. Required: an opening nobody can trace to evidence is a rumour.
+    evidence_reference = models.CharField(_("evidence reference"), max_length=200)
+    narration = models.TextField(_("narration"), blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_opening_documents",
+        verbose_name=_("created by"),
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="submitted_opening_documents",
+        verbose_name=_("submitted by"),
+    )
+    submitted_at = models.DateTimeField(_("submitted at"), null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_opening_documents",
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_opening_documents",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    #: Written at posting, inside the same transaction as the effects they
+    #: name. The document is the drill-down hub: document → stock entry →
+    #: movements, and document → journal entry → lines.
+    stock_entry = models.ForeignKey(
+        StockLedgerEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opening_documents",
+        verbose_name=_("stock ledger entry"),
+    )
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opening_documents",
+        verbose_name=_("journal entry"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_opening_documents",
+        verbose_name=_("reversal journal entry"),
+    )
+
+    class Meta:
+        verbose_name = _("opening stock document")
+        verbose_name_plural = _("opening stock documents")
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(evidence_reference=""),
+                name="opening_evidence_reference_not_empty",
+            ),
+            # A number exists exactly from the moment of posting. Numbering is
+            # gapless, and a numbered draft that was abandoned would leave a
+            # hole indistinguishable from a deleted document.
+            models.CheckConstraint(
+                condition=(
+                    (
+                        Q(status__in=[OpeningStockStatus.DRAFT, OpeningStockStatus.SUBMITTED])
+                        & Q(document_number="")
+                    )
+                    | (
+                        Q(status__in=[OpeningStockStatus.POSTED, OpeningStockStatus.REVERSED])
+                        & ~Q(document_number="")
+                    )
+                ),
+                name="opening_numbered_iff_posted",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "document_number"],
+                condition=~Q(document_number=""),
+                name="opening_number_unique_per_organization",
+            ),
+            # Everything past DRAFT records who submitted and when.
+            models.CheckConstraint(
+                condition=Q(status=OpeningStockStatus.DRAFT)
+                | (Q(submitted_by__isnull=False) & Q(submitted_at__isnull=False)),
+                name="opening_submitted_fields_present",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status__in=[OpeningStockStatus.POSTED, OpeningStockStatus.REVERSED])
+                | (Q(posted_by__isnull=False) & Q(posted_at__isnull=False)),
+                name="opening_posted_fields_present",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=OpeningStockStatus.REVERSED)
+                | (
+                    Q(reversed_by__isnull=False)
+                    & Q(reversed_at__isnull=False)
+                    & ~Q(reversal_reason="")
+                ),
+                name="opening_reversed_fields_present",
+            ),
+            # Maker-checker, at the database as well as in the service. NULLs
+            # pass — the rule binds at the moment both parties exist.
+            models.CheckConstraint(
+                condition=Q(posted_by__isnull=True)
+                | Q(submitted_by__isnull=True)
+                | ~Q(posted_by=models.F("submitted_by")),
+                name="opening_submitter_is_not_poster",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="opening_org_status_idx"),
+            models.Index(fields=["branch", "status"], name="opening_branch_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        label = self.document_number or str(self.public_id)
+        return f"{label} ({self.get_status_display()})"
+
+
+class OpeningStockLine(TimeStampedModel):
+    """
+    One counted position: a quantity of one item, in one warehouse, at a cost.
+
+    `line_uid` is the stable identity the movement's `effect_key` is built
+    from — `opening-line:<uid>` — so re-ordering lines in a draft can never
+    change what a posted effect claims to be.
+
+    The resolved mapping and account are written at posting and never
+    re-resolved: reconciliation reads what *was* resolved, not what today's
+    mapping would say.
+    """
+
+    document = models.ForeignKey(
+        OpeningStockDocument,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("document"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, unique=True, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        related_name="opening_lines",
+        verbose_name=_("warehouse"),
+    )
+    item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.PROTECT,
+        related_name="opening_lines",
+        verbose_name=_("item"),
+    )
+    lot = models.ForeignKey(
+        InventoryLot,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opening_lines",
+        verbose_name=_("lot"),
+    )
+
+    #: How the quantity was entered, when it came in packages. The conversion
+    #: is snapshotted by FK, so a later factor version cannot restate what
+    #: this line meant.
+    package_conversion = models.ForeignKey(
+        ItemPackageConversion,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opening_lines",
+        verbose_name=_("package conversion"),
+    )
+    entered_package_quantity = models.DecimalField(
+        _("entered package quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    #: The scale reading, for VARIABLE packaging. Authoritative when present.
+    measured_base_quantity = models.DecimalField(
+        _("measured base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    #: The authoritative counted quantity, in the item's base unit.
+    base_quantity = models.DecimalField(
+        _("base quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    unit_cost = models.DecimalField(
+        _("unit cost"), max_digits=UNIT_PRICE_MAX_DIGITS, decimal_places=UNIT_PRICE_PLACES
+    )
+    #: `quantize_money(base_quantity × unit_cost)` — the exact figure the
+    #: movement and the journal both carry. Stored, never re-derived, so the
+    #: three can be compared rather than assumed equal.
+    total_value = models.DecimalField(
+        _("total value"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+
+    # --- Written at posting -----------------------------------------------
+    resolved_mapping = models.ForeignKey(
+        InventoryAccountMapping,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opening_lines",
+        verbose_name=_("resolved inventory mapping"),
+    )
+    resolved_organization_mapping = models.ForeignKey(
+        "accounting.OrganizationAccountMapping",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_opening_lines",
+        verbose_name=_("resolved organization mapping"),
+    )
+    #: The inventory-control account this line's value entered. Immutable
+    #: history: reconciliation groups by THIS, never by today's mapping.
+    inventory_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opening_stock_lines",
+        verbose_name=_("inventory account"),
+    )
+    movement = models.OneToOneField(
+        StockMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opening_line",
+        verbose_name=_("stock movement"),
+    )
+    #: The grouped debit line this value is inside. Several lines resolving to
+    #: one account legitimately share one journal line.
+    journal_line = models.ForeignKey(
+        "accounting.JournalLine",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opening_lines",
+        verbose_name=_("journal line"),
+    )
+
+    class Meta:
+        verbose_name = _("opening stock line")
+        verbose_name_plural = _("opening stock lines")
+        ordering = ["document_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "sequence"], name="opening_line_sequence_unique"
+            ),
+            # One valuation key per document. Two lines for one shelf is two
+            # claims about one starting position, and `nulls_distinct=False`
+            # keeps the lot-less case honest exactly as StockBalance does.
+            models.UniqueConstraint(
+                fields=["document", "warehouse", "item", "lot"],
+                nulls_distinct=False,
+                name="opening_line_valuation_key_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(base_quantity__gt=Decimal("0")),
+                name="opening_line_quantity_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_cost__gt=Decimal("0")),
+                name="opening_line_unit_cost_is_positive",
+            ),
+            # Positive quantity at zero value is refused: free stock on the
+            # books understates cost of sales for as long as it lasts.
+            models.CheckConstraint(
+                condition=Q(total_value__gt=Decimal("0")),
+                name="opening_line_value_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(entered_package_quantity__isnull=True)
+                | Q(entered_package_quantity__gt=Decimal("0")),
+                name="opening_line_package_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(measured_base_quantity__isnull=True)
+                | Q(measured_base_quantity__gt=Decimal("0")),
+                name="opening_line_measured_positive",
+            ),
+            # A measured weight makes sense only against a package entry.
+            models.CheckConstraint(
+                condition=Q(measured_base_quantity__isnull=True)
+                | Q(package_conversion__isnull=False),
+                name="opening_line_measured_needs_package",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.document_id}#{self.sequence}: {self.item_id} {self.base_quantity}"

@@ -378,6 +378,18 @@ def update_item(
             code="item_locked_by_movements",
         )
 
+    # An item holding stock cannot quietly move to a category that resolves to
+    # a different inventory-control account: the standing value would stay in
+    # the old account while every new posting used the new one, and no journal
+    # ever moved the money (ADR-019 §G). Compared before the save so a refusal
+    # leaves nothing behind.
+    if category.pk != item.category_id:
+        from apps.inventory.accounts import item_category_change_verifier
+
+        verify_control_account = item_category_change_verifier(item=item)
+    else:
+        verify_control_account = None
+
     item.name_ar = name_ar.strip()
     item.name_en = name_en.strip()
     item.category = category
@@ -391,6 +403,8 @@ def update_item(
     item.is_active = is_active
     item.full_clean()
     item.save()
+    if verify_control_account is not None:
+        verify_control_account()
 
     record_audit_event(
         action=AuditAction.UPDATED if is_active else AuditAction.DEACTIVATED,

@@ -25,6 +25,7 @@ refused on its merits and not on whether the operator saw a link.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from django.contrib import messages
@@ -45,30 +46,54 @@ if TYPE_CHECKING:
 else:
     _ListView = ListView
 
+from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
+from apps.accounting.permissions import VIEW_JOURNAL as ACCOUNTING_VIEW_JOURNAL
 from apps.core.views import ModuleViewMixin
 from apps.inventory.commands import (
+    add_opening_line,
+    archive_inventory_role_mapping,
+    close_inventory_role_mapping,
+    create_opening,
+    delete_opening,
+    map_inventory_role,
     may_see_cost,
+    post_opening,
+    remove_opening_line,
     resolve_movement,
+    resolve_opening_document,
+    return_opening_to_draft,
+    reverse_opening,
+    submit_opening,
+    update_opening,
     visible_movements,
+    visible_opening_documents,
     visible_stock,
 )
 from apps.inventory.forms import (
     InventoryItemForm,
+    InventoryMappingForm,
     ItemCategoryForm,
     ItemConversionForm,
+    OpeningDocumentForm,
+    OpeningLineForm,
     PackageUnitForm,
     SupersedeConversionForm,
     WarehouseForm,
 )
 from apps.inventory.models import ItemType
+from apps.inventory.opening import OpeningLineInput, ensure_opening_lot
 from apps.inventory.permissions import (
+    CREATE_OPENING_STOCK,
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
     MANAGE_ITEMS,
     MANAGE_PACKAGE_UNITS,
     MANAGE_WAREHOUSES,
+    POST_OPENING_STOCK,
+    REVERSE_MOVEMENT,
     VIEW_ITEM,
     VIEW_STOCK,
+    VIEW_VALUATION,
 )
 from apps.inventory.selectors import (
     readable_warehouses,
@@ -97,8 +122,11 @@ from apps.inventory.services import (
 )
 from apps.organizations.authorization import (
     branches_with_permission,
+    has_branch_permission,
+    has_organization_permission,
     organizations_with_permission,
     require_branch_permission,
+    require_organization_permission,
     require_reachable_organization_permission,
 )
 from apps.users.models import User
@@ -1014,5 +1042,451 @@ class MovementDetailView(InventoryViewMixin, View):
                 "show_cost": may_see_cost(self.actor),
                 "page_title": _("تفاصيل الحركة"),
                 "back_url": reverse("inventory:movement_list"),
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# Task 1.3 — inventory account-mapping overrides
+# ---------------------------------------------------------------------------
+
+
+class InventoryMappingListView(InventoryListView):
+    """Item/category overrides. The organization defaults live in accounting."""
+
+    template_name = "inventory/inventory_mapping_list.html"
+    context_object_name = "mappings"
+    page_title = _("ربط حسابات المخزون")
+    page_hint = _(
+        "تخصيص حساب المراقبة لصنف أو مجموعة. الافتراضي على مستوى المؤسسة يُدار في شاشة "
+        "المحاسبة، والربط المستعمَل يُغلق نطاقه ولا يُعدَّل."
+    )
+    required_permission = MANAGE_ACCOUNT_MAPPINGS
+    search_fields = ("item__code", "category__code", "account__code")
+    create_url_name = "inventory:mapping_create"
+    create_label = _("تخصيص جديد")
+    manage_permission = MANAGE_ACCOUNT_MAPPINGS
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        from apps.inventory.models import InventoryAccountMapping
+
+        return (
+            InventoryAccountMapping.objects.filter(
+                organization__in=organizations_with_permission(self.actor, MANAGE_ACCOUNT_MAPPINGS)
+            )
+            .select_related("organization", "account_role", "account", "item", "category")
+            .order_by("organization__code", "account_role__code", "-version")
+        )
+
+
+class InventoryMappingCreateView(InventoryWriteView):
+    form_class = InventoryMappingForm
+    required_permission = MANAGE_ACCOUNT_MAPPINGS
+    success_url_name = "inventory:mapping_list"
+    page_title = _("تخصيص حساب لصنف أو مجموعة")
+    page_hint = _("يتقدم التخصيص على افتراضي المؤسسة: الصنف أولاً، ثم أقرب مجموعة أعلى.")
+    success_message = _("تم التخصيص.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_organization_permission(
+            self.actor, MANAGE_ACCOUNT_MAPPINGS, form.cleaned_data["organization"]
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        map_inventory_role(
+            actor=self.actor,
+            organization=form.cleaned_data["organization"],
+            role=form.cleaned_data["account_role"],
+            account=form.cleaned_data["account"],
+            item=form.cleaned_data["item"],
+            category=form.cleaned_data["category"],
+            effective_from=form.cleaned_data["effective_from"],
+            effective_to=form.cleaned_data["effective_to"],
+        )
+
+
+class InventoryMappingCloseView(InventoryViewMixin, View):
+    """End an override's effective range, with a stated reason."""
+
+    template_name = "inventory/mapping_close.html"
+    required_permission = MANAGE_ACCOUNT_MAPPINGS
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        from apps.accounting.forms import CloseMappingForm
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": CloseMappingForm(),
+                "page_title": _("إغلاق نطاق التخصيص"),
+                "cancel_url": reverse("inventory:mapping_list"),
+            },
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        from apps.accounting.forms import CloseMappingForm
+
+        form = CloseMappingForm(data=request.POST)
+        if form.is_valid():
+            try:
+                close_inventory_role_mapping(
+                    actor=self.actor,
+                    mapping_id=self.kwargs["pk"],
+                    effective_to=form.cleaned_data["effective_to"],
+                    reason=form.cleaned_data["reason"],
+                )
+            except ValidationError as error:
+                messages.error(request, "؛ ".join(str(message) for message in error.messages))
+            else:
+                messages.success(request, _("أُغلق نطاق التخصيص."))
+            return HttpResponseRedirect(reverse("inventory:mapping_list"))
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "page_title": _("إغلاق نطاق التخصيص"),
+                "cancel_url": reverse("inventory:mapping_list"),
+            },
+        )
+
+
+class InventoryMappingArchiveView(InventoryViewMixin, View):
+    required_permission = MANAGE_ACCOUNT_MAPPINGS
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        try:
+            archive_inventory_role_mapping(
+                actor=self.actor,
+                mapping_id=self.kwargs["pk"],
+                reason=request.POST.get("reason", ""),
+            )
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(message) for message in error.messages))
+        else:
+            messages.success(request, _("أُرشف التخصيص."))
+        return HttpResponseRedirect(reverse("inventory:mapping_list"))
+
+
+# ---------------------------------------------------------------------------
+# Task 1.3 — opening stock documents
+# ---------------------------------------------------------------------------
+
+
+class OpeningListView(InventoryListView):
+    template_name = "inventory/opening_list.html"
+    context_object_name = "documents"
+    page_title = _("الأرصدة الافتتاحية")
+    page_hint = _("مستند لكل فرع بلحظة جرد واحدة. من قدّم المستند لا يرحّله — مبدأ المُعِدّ والمُعتمِد.")
+    required_permission = VIEW_STOCK
+    search_fields = ("document_number", "evidence_reference", "branch__code")
+    manage_permission = CREATE_OPENING_STOCK
+    manage_scope = "branch"
+    create_url_name = "inventory:opening_create"
+    create_label = _("رصيد افتتاحي جديد")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_opening_documents(self.actor)
+
+
+class OpeningCreateView(InventoryViewMixin, View):
+    """The header first; the lines are added on the document's own page."""
+
+    template_name = "inventory/master_form.html"
+    required_permission = CREATE_OPENING_STOCK
+
+    def _context(self, form: Any) -> dict[str, Any]:
+        return {
+            "form": form,
+            "page_title": _("رصيد افتتاحي جديد"),
+            "page_hint": _("لحظة جرد واحدة للمستند كله، ومرجع إثبات إلزامي."),
+            "cancel_url": reverse("inventory:opening_list"),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return render(
+            request, self.template_name, self._context(OpeningDocumentForm(actor=self.actor))
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        form = OpeningDocumentForm(data=request.POST, actor=self.actor)
+        if form.is_valid():
+            branch = form.cleaned_data["branch"]
+            try:
+                require_branch_permission(self.actor, CREATE_OPENING_STOCK, branch)
+                document = create_opening(
+                    actor=self.actor,
+                    organization=branch.organization,
+                    branch=branch,
+                    cutoff_at=form.cleaned_data["cutoff_at"],
+                    evidence_reference=form.cleaned_data["evidence_reference"],
+                    narration=form.cleaned_data["narration"],
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُنشئ المستند. أضف السطور ثم قدّمه."))
+                return HttpResponseRedirect(reverse("inventory:opening_detail", args=[document.pk]))
+        return render(request, self.template_name, self._context(form))
+
+
+class OpeningDetailView(InventoryViewMixin, View):
+    """
+    The document, its lines, its totals, and the actions its status allows.
+
+    Buttons are decided by the same checks the commands enforce; hiding one is
+    presentation, and a hand-made POST to a hidden action is refused on its
+    merits by the command layer.
+    """
+
+    template_name = "inventory/opening_detail.html"
+    required_permission = VIEW_STOCK
+
+    def _document(self) -> Any:
+        return resolve_opening_document(self.actor, self.kwargs["pk"])
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = self._document()
+        return render(
+            request, self.template_name, self._context(document, self._line_form(document))
+        )
+
+    def _line_form(self, document: Any, data: Any = None) -> Any:
+        return OpeningLineForm(data=data, actor=self.actor, branch=document.branch)
+
+    def _context(self, document: Any, line_form: Any) -> dict[str, Any]:
+        from apps.inventory.models import OpeningStockStatus
+
+        lines = list(
+            document.lines.select_related(
+                "warehouse", "item", "item__base_unit", "lot", "inventory_account", "movement"
+            ).order_by("sequence")
+        )
+        show_cost = may_see_cost(self.actor)
+        can_prepare = has_branch_permission(self.actor, CREATE_OPENING_STOCK, document.branch)
+        can_post = has_organization_permission(
+            self.actor, POST_OPENING_STOCK, document.organization
+        )
+        return {
+            "document": document,
+            "lines": lines,
+            "show_cost": show_cost,
+            "total_value": (
+                sum((line.total_value for line in lines), Decimal("0")) if show_cost else None
+            ),
+            "line_form": line_form,
+            "is_draft": document.status == OpeningStockStatus.DRAFT,
+            "is_submitted": document.status == OpeningStockStatus.SUBMITTED,
+            "is_posted": document.status == OpeningStockStatus.POSTED,
+            "can_prepare": can_prepare,
+            "can_post": (
+                can_post
+                and document.submitted_by_id is not None
+                and document.submitted_by_id != self.actor.pk
+            ),
+            "can_reverse": has_organization_permission(
+                self.actor, REVERSE_MOVEMENT, document.organization
+            ),
+            "page_title": _("رصيد افتتاحي") + f" — {document}",
+            "back_url": reverse("inventory:opening_list"),
+        }
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Adding one line, from the embedded form."""
+        document = self._document()
+        form = self._line_form(document, data=request.POST)
+        if form.is_valid():
+            item = form.cleaned_data["item"]
+            lot = None
+            try:
+                if form.cleaned_data["lot_code"]:
+                    lot = ensure_opening_lot(
+                        item=item,
+                        code=form.cleaned_data["lot_code"],
+                        expiry_date=form.cleaned_data["lot_expiry"],
+                    )
+                add_opening_line(
+                    actor=self.actor,
+                    document=document,
+                    line=OpeningLineInput(
+                        warehouse=form.cleaned_data["warehouse"],
+                        item=item,
+                        lot=lot,
+                        package_conversion=form.cleaned_data["package_conversion"],
+                        entered_package_quantity=form.cleaned_data["entered_package_quantity"],
+                        measured_base_quantity=form.cleaned_data["measured_base_quantity"],
+                        base_quantity=form.cleaned_data["base_quantity"],
+                        unit_cost=form.cleaned_data["unit_cost"] or Decimal("0"),
+                    ),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُضيف السطر."))
+                return HttpResponseRedirect(reverse("inventory:opening_detail", args=[document.pk]))
+        return render(request, self.template_name, self._context(document, form))
+
+
+class OpeningUpdateView(InventoryViewMixin, View):
+    """Edit a draft's header."""
+
+    template_name = "inventory/master_form.html"
+    required_permission = CREATE_OPENING_STOCK
+
+    def _context(self, form: Any, document: Any) -> dict[str, Any]:
+        return {
+            "form": form,
+            "page_title": _("تعديل الرصيد الافتتاحي"),
+            "cancel_url": reverse("inventory:opening_detail", args=[document.pk]),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = resolve_opening_document(self.actor, self.kwargs["pk"])
+        form = OpeningDocumentForm(
+            actor=self.actor,
+            initial={
+                "branch": document.branch,
+                "cutoff_at": document.cutoff_at,
+                "evidence_reference": document.evidence_reference,
+                "narration": document.narration,
+            },
+        )
+        form.fields["branch"].disabled = True
+        form.fields["branch"].queryset = type(document.branch).objects.filter(  # type: ignore[attr-defined]
+            pk=document.branch_id
+        )
+        return render(request, self.template_name, self._context(form, document))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = resolve_opening_document(self.actor, self.kwargs["pk"])
+        form = OpeningDocumentForm(data=request.POST, actor=self.actor)
+        form.fields["branch"].disabled = True
+        form.fields["branch"].queryset = type(document.branch).objects.filter(  # type: ignore[attr-defined]
+            pk=document.branch_id
+        )
+        form.initial["branch"] = document.branch
+        if form.is_valid():
+            try:
+                update_opening(
+                    actor=self.actor,
+                    document=document,
+                    cutoff_at=form.cleaned_data["cutoff_at"],
+                    evidence_reference=form.cleaned_data["evidence_reference"],
+                    narration=form.cleaned_data["narration"],
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("حُفظ المستند."))
+                return HttpResponseRedirect(reverse("inventory:opening_detail", args=[document.pk]))
+        return render(request, self.template_name, self._context(form, document))
+
+
+class OpeningActionView(InventoryViewMixin, View):
+    """
+    A POST-only lifecycle action on one document.
+
+    `action` names the command; reason-bearing actions read `reason` from the
+    POST body. Every command re-checks authorization — this view only routes.
+    """
+
+    required_permission = VIEW_STOCK
+    action: str = ""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = resolve_opening_document(self.actor, self.kwargs["pk"])
+        detail = reverse("inventory:opening_detail", args=[document.pk])
+        try:
+            if self.action == "submit":
+                submit_opening(actor=self.actor, document=document)
+                messages.success(request, _("قُدّم المستند للاعتماد."))
+            elif self.action == "return":
+                return_opening_to_draft(
+                    actor=self.actor, document=document, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, _("أُعيد المستند إلى المسودة."))
+            elif self.action == "post":
+                post_opening(actor=self.actor, document=document)
+                messages.success(request, _("رُحّل الرصيد الافتتاحي إلى الدفترين."))
+            elif self.action == "reverse":
+                reverse_opening(
+                    actor=self.actor, document=document, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, _("عُكس المستند بالكامل."))
+            elif self.action == "delete":
+                delete_opening(
+                    actor=self.actor, document=document, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, _("حُذفت المسودة."))
+                return HttpResponseRedirect(reverse("inventory:opening_list"))
+            elif self.action == "delete_line":
+                line = document.lines.filter(pk=self.kwargs["line_pk"]).first()
+                if line is None:
+                    raise Http404("line does not exist")
+                remove_opening_line(actor=self.actor, line=line)
+                messages.success(request, _("حُذف السطر."))
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(message) for message in error.messages))
+        return HttpResponseRedirect(detail)
+
+
+class ReconciliationView(InventoryViewMixin, View):
+    """
+    Inventory against the general ledger, read-only.
+
+    Requires both halves of the story: `inventory.view_valuation` for the
+    stock values and `accounting.view_journal` for the GL. There is no repair
+    button because there is no repair — a mismatch is investigated.
+    """
+
+    template_name = "inventory/reconciliation.html"
+    required_permission = VIEW_VALUATION
+
+    def test_func(self) -> bool:
+        user = self.request.user
+        return bool(
+            user.is_authenticated
+            and user.has_perm(VIEW_VALUATION)
+            and user.has_perm(ACCOUNTING_VIEW_JOURNAL)
+        )
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        from apps.inventory.reconciliation import verify_inventory_accounting
+        from apps.organizations.authorization import organization_scope, resolve_organization
+        from apps.organizations.models import Organization
+        from apps.organizations.selectors import accessible_branches
+
+        reachable_ids = set(organization_scope(self.actor))
+        reachable_ids.update(
+            accessible_branches(self.actor).values_list("organization_id", flat=True)
+        )
+        organizations = Organization.objects.filter(pk__in=reachable_ids, is_active=True).order_by(
+            "code"
+        )
+
+        selected = None
+        mismatches: list[str] | None = None
+        raw = request.GET.get("organization", "").strip()
+        if raw.isdigit():
+            selected = resolve_organization(self.actor, int(raw))
+            mismatches = verify_inventory_accounting(selected)
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "page_title": _("مطابقة المخزون مع الأستاذ"),
+                "page_hint": _(
+                    "ثلاث مقارنات للقراءة فقط: كل مستند مع آثاره، والأرصدة مع إعادة "
+                    "بناء الدفتر، وقيمة المخزون مع حسابات المراقبة. الاختلاف عيب "
+                    "يُحقَّق فيه ولا يُصلَّح تلقائياً."
+                ),
+                "organizations": organizations,
+                "selected": selected,
+                "mismatches": mismatches,
             },
         )

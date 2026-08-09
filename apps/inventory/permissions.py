@@ -1,11 +1,12 @@
 """
-The nineteen inventory permissions, their scope, and which role holds them.
+The twenty inventory permissions, their scope, and which role holds them.
 
 Eighteen were approved with Task 1.0. The nineteenth, `manage_package_units`,
 follows from the amendment that made `PackageUnit` its own model: a model
-nobody may administer is a model nobody can populate. It sits with
-`manage_categories` in every role, since both are organization master data of
-the same weight.
+nobody may administer is a model nobody can populate. The twentieth,
+`create_opening_stock`, arrived with the Task 1.3 opening document: preparing
+a branch's opening list and *posting* it to the ledger are different acts, and
+maker-checker needs them separable.
 
 Identical machinery to `apps/accounting/permissions.py`, and deliberately so:
 a permission says *what*, a membership says *where*, and neither alone is
@@ -21,6 +22,16 @@ from enum import Enum
 from apps.organizations.models import Role
 
 APP_LABEL = "inventory"
+
+#: Release 1 policy: the kernel refuses negative stock for everyone, and no
+#: code path consults `inventory.override_negative_stock`. The permission code
+#: stays reserved so the vocabulary is stable, but while this is False it is
+#: granted to **no role by default**, exposed by no command and no UI, and no
+#: documentation should imply that any role can currently use it. Turning it
+#: on is an architectural decision with its own approval, tests, reason,
+#: actor, audit and exception reporting — and it must relax the
+#: `stock_balance_quantity_not_negative` constraint in the same migration.
+NEGATIVE_STOCK_OVERRIDE_ENABLED = False
 
 
 class PermissionScope(Enum):
@@ -48,7 +59,7 @@ class PermissionScope(Enum):
     WAREHOUSE = "WAREHOUSE"
 
 
-# --- The nineteen ---------------------------------------------------------
+# --- The twenty -----------------------------------------------------------
 
 VIEW_ITEM = f"{APP_LABEL}.view_item"
 MANAGE_CATEGORIES = f"{APP_LABEL}.manage_categories"
@@ -59,6 +70,7 @@ MANAGE_WAREHOUSES = f"{APP_LABEL}.manage_warehouses"
 VIEW_STOCK = f"{APP_LABEL}.view_stock"
 VIEW_VALUATION = f"{APP_LABEL}.view_valuation"
 CREATE_DRAFT_MOVEMENT = f"{APP_LABEL}.create_draft_movement"
+CREATE_OPENING_STOCK = f"{APP_LABEL}.create_opening_stock"
 POST_OPENING_STOCK = f"{APP_LABEL}.post_opening_stock"
 POST_RECEIPT = f"{APP_LABEL}.post_receipt"
 POST_ISSUE = f"{APP_LABEL}.post_issue"
@@ -80,6 +92,7 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_STOCK,
     VIEW_VALUATION,
     CREATE_DRAFT_MOVEMENT,
+    CREATE_OPENING_STOCK,
     POST_OPENING_STOCK,
     POST_RECEIPT,
     POST_ISSUE,
@@ -107,6 +120,11 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     VIEW_STOCK: PermissionScope.BRANCH,
     VIEW_VALUATION: PermissionScope.BRANCH,
     CREATE_DRAFT_MOVEMENT: PermissionScope.BRANCH,
+    # Preparing a branch's opening list is branch work; POSTING it is the
+    # organization-authority act. The split is what lets a branch manager
+    # prepare and submit while only accounting authority sets the ledger's
+    # starting point.
+    CREATE_OPENING_STOCK: PermissionScope.BRANCH,
     APPROVE_STOCK_COUNT: PermissionScope.BRANCH,
     POST_ADJUSTMENT: PermissionScope.BRANCH,
     REVERSE_MOVEMENT: PermissionScope.BRANCH,
@@ -125,27 +143,35 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
 
 # --- Which role holds what ------------------------------------------------
 
-_FULL = frozenset(ALL_PERMISSIONS)
+#: Everything except the disabled override. While
+#: `NEGATIVE_STOCK_OVERRIDE_ENABLED` is False the permission is granted to no
+#: role at all — a default grant of a non-operational authority would let a
+#: role *look* like it can do something the kernel refuses for everyone, and
+#: the moment the feature is enabled the grant would spring to life without
+#: anyone deciding it should.
+_FULL = frozenset(ALL_PERMISSIONS) - {OVERRIDE_NEGATIVE_STOCK}
 
 #: Sees and approves everything; performs no warehouse operations. No
 #: receipt, issue, transfer, or count — they answer for the figures, they do
-#: not move the goods.
+#: not move the goods. Prepares and posts openings, subject to maker-checker:
+#: whichever accounting manager submitted a document, a different user posts it.
 _ACCOUNTING_MANAGER = frozenset(
     {
         VIEW_ITEM,
         VIEW_STOCK,
         VIEW_VALUATION,
+        CREATE_OPENING_STOCK,
         POST_OPENING_STOCK,
         APPROVE_STOCK_COUNT,
         POST_ADJUSTMENT,
         REVERSE_MOVEMENT,
-        OVERRIDE_NEGATIVE_STOCK,
     }
 )
 
 #: Runs a branch end to end. Holds both conduct and approve for a count, and
 #: is still refused when approving their own — maker-checker is enforced on
-#: the act, not on the permission.
+#: the act, not on the permission. Prepares and submits the branch's opening
+#: document; posting it is accounting authority and is deliberately absent.
 _MANAGER = frozenset(
     {
         VIEW_ITEM,
@@ -157,6 +183,7 @@ _MANAGER = frozenset(
         VIEW_STOCK,
         VIEW_VALUATION,
         CREATE_DRAFT_MOVEMENT,
+        CREATE_OPENING_STOCK,
         POST_RECEIPT,
         POST_ISSUE,
         POST_TRANSFER,

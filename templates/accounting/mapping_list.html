@@ -1,0 +1,49 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# Organization default mappings. A used mapping is closed, never edited;    #}
+{# the item/category overrides live in the inventory module's own screen.    #}
+
+{% block toolbar %}{% endblock %}
+
+{% block columns %}
+  <th>{% translate "المؤسسة" %}</th>
+  <th>{% translate "الدور" %}</th>
+  <th>{% translate "الحساب" %}</th>
+  <th>{% translate "سارٍ من" %}</th>
+  <th>{% translate "سارٍ حتى" %}</th>
+  <th>{% translate "الإصدار" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for mapping in mappings %}
+    <tr>
+      <td><code>{{ mapping.organization.code }}</code></td>
+      <td><code dir="ltr">{{ mapping.account_role.code }}</code></td>
+      <td><code dir="ltr">{{ mapping.account.code }}</code> {{ mapping.account.name_ar }}</td>
+      <td>{{ mapping.effective_from|date:"Y-m-d" }}</td>
+      <td>{% if mapping.effective_to %}{{ mapping.effective_to|date:"Y-m-d" }}{% else %}—{% endif %}</td>
+      <td>{{ mapping.version }}</td>
+      <td>{% if mapping.is_active %}{% translate "فعّال" %}{% else %}{% translate "مؤرشف" %}{% endif %}</td>
+      <td>
+        {% if mapping.is_active %}
+          <div class="rowactions">
+            <a class="btn btn--ghost btn--sm" href="{% url 'accounting:mapping_close' mapping.pk %}">
+              {% translate "إغلاق النطاق" %}
+            </a>
+            <form method="post" action="{% url 'accounting:mapping_archive' mapping.pk %}">
+              {% csrf_token %}
+              <button class="btn btn--ghost btn--sm" type="submit">{% translate "أرشفة" %}</button>
+            </form>
+          </div>
+        {% else %}
+          —
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="8">{% translate "لا ربط بعد. الترحيل يتوقف حتى يُربط الدور بحساب." %}</td></tr>
+  {% endfor %}
+{% endblock %}

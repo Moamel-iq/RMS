@@ -124,3 +124,39 @@ script bypasses the service.
 - **The posted sequence may have gaps in future.** It is gapless today because
   the counter is a locked row; if that lock ever binds it will be replaced by
   a PostgreSQL sequence, and nothing may come to depend on contiguity.
+
+## Implemented by Task 1.3, and where each one lives
+
+The first combined inventory + accounting posting. The same double
+enforcement discipline: the service explains, the database holds.
+
+| Rule | Service | Database |
+|---|---|---|
+| System account-role codes are reserved | admin read-only, no rename service | trigger `accounting_system_role_reserved` |
+| Mapping ranges cannot overlap (defaults) | `_validate_no_mapping_overlap` | EXCLUDE `org_account_mapping_no_overlapping_periods` |
+| Override ranges cannot overlap, NULL targets included | `_validate_no_override_overlap` | EXCLUDE `inventory_mapping_no_overlapping_periods` (COALESCE) |
+| An override targets exactly one of item/category | `_validate_override_shape` | `inventory_mapping_one_target` |
+| A used mapping is immutable but for closing its range | `mapping_is_used` checks | PROTECT FKs from snapshot columns |
+| Resolution never guesses | `resolve_default_account`, `resolve_inventory_account` | — (`account_role_unmapped` before any effect) |
+| Standing stock value cannot be re-homed by a mapping change | reclassification guard, both apps via the hook | — (apply-then-verify inside the transaction) |
+| One valuation key per opening document | duplicate check | `opening_line_valuation_key_unique` (`NULLS NOT DISTINCT`) |
+| Opening lines are positive in quantity, cost, and value | line validation | three CHECK constraints |
+| An opening is the first movement for its keys | history check under the advisory locks | — (the locks make the check race-free) |
+| The submitter cannot post their own opening | `post_opening_document` | `opening_submitter_is_not_poster` |
+| A number exists exactly from the moment of posting | `_next_document_number` | `opening_numbered_iff_posted` + partial unique |
+| A posted document is immutable but for its reversal | status checks | trigger `inventory_opening_document_immutable` (allowlist) |
+| Lines freeze with their document | DRAFT-only line services | trigger `inventory_opening_line_frozen_with_document` |
+| Line value == movement value == journal line share | one stored figure, passed through | reconciliation reports any drift |
+| Reconciliation reads history by the account it entered | snapshot on the line | never re-resolved through today's mapping |
+
+## Deliberate non-invariants, added by Task 1.3
+
+- **The reconciliation command repairs nothing.** `verify_inventory_accounting`
+  reports and exits non-zero; overwriting a balance or posting a balancing
+  journal would erase the evidence it exists to find.
+- **A FIFO cutover is possible, not free.** Layers and posted order make past
+  allocations computable; adopting a layered strategy is a controlled cutover
+  with a rebuild policy, never a configuration toggle (ADR-018 §3, amended).
+- **The GL side of the reconciliation sums every journal line on a control
+  account, not only inventory-sourced ones.** A manual journal against an
+  inventory-control account is exactly the drift the report must surface.

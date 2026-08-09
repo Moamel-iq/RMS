@@ -119,6 +119,34 @@ Depends on: 1.2; decisions 10, 11, 13.
   same key in another organization is independent (AT-009).
 - Mixed opening dates refused.
 
+**Implementation notes (2026-08-09):**
+
+- ADR-019 records the durable architecture: role vocabulary and organization
+  defaults in `apps.accounting`; item/category overrides and the resolver in
+  `apps.inventory`; dependency direction inventory → accounting only, with a
+  guard hook instead of a reverse import.
+- "Mixed opening dates refused" is satisfied structurally: the cutoff is a
+  **document** field, so a line cannot carry its own date at all.
+- The opening's source identity is the document's immutable UUID, not the
+  human number — drafts carry no number, and the gapless `OPN-<year>-<n>`
+  number is assigned only inside the posting transaction (spec §11 amended).
+- The combined posting's lock order is document row → stock keys → stock
+  counter → document number → journal number. The document-number step sits
+  AFTER the stock counter, deviating from the suggested order, because the
+  kernel owns "keys then counter" as one unit; the order is global and
+  concurrency-tested (ADR-019).
+- Maker-checker (`submitted_by != posted_by`) is enforced in the service and
+  by a database constraint; a posted document and its lines are frozen by
+  whole-row-allowlist triggers.
+- An `INVENTORY_CONTROL` mapping change that would re-home the standing value
+  of an item with stock is refused (`inventory_account_reclassification_required`)
+  until a real GL reclassification workflow exists — through the override
+  services, the accounting default services, and item category moves alike.
+- `inventory.override_negative_stock` is now granted to **no role by
+  default** while `NEGATIVE_STOCK_OVERRIDE_ENABLED` is False (§B.2 of the
+  task brief); the Task 1.2 exit-gate line about the reserved permission
+  stands, strengthened.
+
 ---
 
 ### Task 1.4 — Receipts, issues, returns, and reversal

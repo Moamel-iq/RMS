@@ -1,5 +1,5 @@
 """
-The twelve accounting permissions, their scope, and which role holds them.
+The thirteen accounting permissions, their scope, and which role holds them.
 
 Django's `add`/`change`/`delete` describe table access, not accounting acts.
 "May amend a draft" and "may post it to the ledger" are different authorities
@@ -33,7 +33,7 @@ class PermissionScope(Enum):
     BRANCH = "BRANCH"
 
 
-# --- The twelve -----------------------------------------------------------
+# --- The thirteen ---------------------------------------------------------
 
 VIEW_JOURNAL = f"{APP_LABEL}.view_journal"
 CREATE_DRAFT = f"{APP_LABEL}.create_draft"
@@ -42,6 +42,7 @@ POST_JOURNAL = f"{APP_LABEL}.post_journal"
 REVERSE_JOURNAL = f"{APP_LABEL}.reverse_journal"
 MANAGE_ACCOUNTS = f"{APP_LABEL}.manage_accounts"
 MANAGE_COST_CENTERS = f"{APP_LABEL}.manage_cost_centers"
+MANAGE_ACCOUNT_MAPPINGS = f"{APP_LABEL}.manage_account_mappings"
 SOFT_CLOSE_PERIOD = f"{APP_LABEL}.soft_close_period"
 CLOSE_PERIOD = f"{APP_LABEL}.close_period"
 REOPEN_PERIOD = f"{APP_LABEL}.reopen_period"
@@ -56,6 +57,7 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     REVERSE_JOURNAL,
     MANAGE_ACCOUNTS,
     MANAGE_COST_CENTERS,
+    MANAGE_ACCOUNT_MAPPINGS,
     SOFT_CLOSE_PERIOD,
     CLOSE_PERIOD,
     REOPEN_PERIOD,
@@ -75,6 +77,11 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # (ADR-014, ADR-015). One branch must not reshape what the others post to.
     MANAGE_ACCOUNTS: PermissionScope.ORGANIZATION,
     MANAGE_COST_CENTERS: PermissionScope.ORGANIZATION,
+    # A role mapping decides which account every branch's postings land in, so
+    # it is organization authority for the same reason the chart itself is
+    # (ADR-019). Held through an OrganizationMembership, never assembled from
+    # branch posts or a global Django grant.
+    MANAGE_ACCOUNT_MAPPINGS: PermissionScope.ORGANIZATION,
     # A period covers every branch at once. Closing one from a single branch's
     # authority would stop the other branches posting.
     SOFT_CLOSE_PERIOD: PermissionScope.ORGANIZATION,

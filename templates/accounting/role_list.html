@@ -1,0 +1,33 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# The system role vocabulary. Read-only by design: posting rules refer to  #}
+{# these codes, and the database trigger refuses renaming or deleting them. #}
+
+{% block toolbar %}{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "المجال" %}</th>
+  <th>{% translate "نطاق الربط" %}</th>
+  <th>{% translate "الحالة" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for role in roles %}
+    <tr>
+      {# A technical identity: always LTR, never localised. #}
+      <td><code dir="ltr">{{ role.code }}</code></td>
+      <td>{{ role.name_ar }}</td>
+      <td>{{ role.get_domain_display }}</td>
+      <td>{{ role.get_mapping_scope_display }}</td>
+      <td>
+        {% if role.is_active %}{% translate "فعّال" %}{% else %}{% translate "موقوف" %}{% endif %}
+        {% if role.is_system %}· {% translate "نظامي" %}{% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="5">{% translate "لا أدوار بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

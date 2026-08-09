@@ -22,8 +22,14 @@ from decimal import Decimal
 
 from django.db.models import QuerySet
 
+from apps.accounting.models import Account, JournalLine
 from apps.core.money import quantize_money
-from apps.inventory.models import StockBalance, StockMovement
+from apps.inventory.models import (
+    OpeningStockDocument,
+    OpeningStockStatus,
+    StockBalance,
+    StockMovement,
+)
 from apps.organizations.models import Organization
 
 ZERO = Decimal("0")
@@ -179,3 +185,197 @@ def verify_organization(organization: Organization) -> list[Mismatch]:
         )
 
     return mismatches
+
+
+# ---------------------------------------------------------------------------
+# Task 1.3 — the accounting side of the mirror
+# ---------------------------------------------------------------------------
+#
+# Three read-only comparisons, and the same rule for all of them: a mismatch
+# is a defect to report, never a figure to repair. Nothing here writes a
+# balance or a journal.
+#
+# Historical effects are attributed to the account **they actually posted
+# to** — the immutable snapshot on the opening line — and never re-resolved
+# through today's mapping. Re-resolving would make the report agree with the
+# chart instead of with history, which is the exact failure reconciliation
+# exists to catch.
+
+
+@dataclass(frozen=True)
+class Discrepancy:
+    """One reconciliation failure, in operator-readable terms."""
+
+    scope: str
+    field: str
+    expected: Decimal | int | str
+    actual: Decimal | int | str
+
+    def __str__(self) -> str:
+        return f"{self.scope}: {self.field} expected={self.expected} actual={self.actual}"
+
+
+def verify_opening_document(document: OpeningStockDocument) -> list[Discrepancy]:
+    """
+    One posted opening, across every representation of its value:
+
+        sum of stored line values
+        == sum of its OPENING movement values
+        == sum of its inventory debit journal lines
+        == its opening-equity credit
+    """
+    if document.status not in (OpeningStockStatus.POSTED, OpeningStockStatus.REVERSED):
+        return []
+    label = document.document_number or str(document.public_id)
+    problems: list[Discrepancy] = []
+
+    line_total = sum((line.total_value for line in document.lines.all()), ZERO)
+
+    assert document.stock_entry is not None  # noqa: S101 - POSTED links one by constraint
+    movement_total = sum(
+        (movement.inventory_value for movement in document.stock_entry.movements.all()), ZERO
+    )
+    if movement_total != line_total:
+        problems.append(
+            Discrepancy(
+                scope=label, field="movement_total", expected=line_total, actual=movement_total
+            )
+        )
+
+    assert document.journal_entry is not None  # noqa: S101
+    journal_lines = list(document.journal_entry.lines.all())
+    debit_total = sum((journal_line.debit for journal_line in journal_lines), ZERO)
+    credit_total = sum((journal_line.credit for journal_line in journal_lines), ZERO)
+    if debit_total != line_total:
+        problems.append(
+            Discrepancy(
+                scope=label, field="journal_debits", expected=line_total, actual=debit_total
+            )
+        )
+    if credit_total != line_total:
+        problems.append(
+            Discrepancy(
+                scope=label, field="opening_equity_credit", expected=line_total, actual=credit_total
+            )
+        )
+
+    # Per-line: each stored value equals the movement it became.
+    for line in document.lines.select_related("movement"):
+        if line.movement is None or line.movement.inventory_value != line.total_value:
+            problems.append(
+                Discrepancy(
+                    scope=f"{label}#{line.sequence}",
+                    field="line_vs_movement",
+                    expected=line.total_value,
+                    actual=line.movement.inventory_value if line.movement else "missing",
+                )
+            )
+    return problems
+
+
+def _control_account_of(movement: StockMovement) -> int | None:
+    """
+    The inventory-control account a movement's value actually entered.
+
+    An OPENING movement carries its opening line's snapshot. A REVERSAL
+    carries its original's, because a mirror moves the same money the same
+    way. Anything else — in Task 1.3 there is nothing else — is unattributed
+    and reported as such.
+    """
+    line = getattr(movement, "opening_line", None)
+    if line is not None:
+        return int(line.inventory_account_id) if line.inventory_account_id else None
+    if movement.reverses_id is not None:
+        original = movement.reverses
+        original_line = getattr(original, "opening_line", None)
+        if original_line is not None and original_line.inventory_account_id:
+            return int(original_line.inventory_account_id)
+    return None
+
+
+def verify_inventory_against_gl(organization: Organization) -> list[Discrepancy]:
+    """
+    Current inventory book value, grouped by the control account attached to
+    the posted effects, against the GL balance of each such account per
+    branch.
+
+    The GL side sums **every** journal line on those accounts — including
+    lines no inventory posting created. That is deliberate: a manual journal
+    against an inventory-control account is precisely the kind of drift this
+    report exists to surface.
+    """
+    problems: list[Discrepancy] = []
+
+    # Inventory side: sum movement values per (branch, control account).
+    inventory_side: dict[tuple[int, int], Decimal] = {}
+    unattributed: list[StockMovement] = []
+    movements = StockMovement.objects.filter(organization=organization).select_related(
+        "reverses", "branch"
+    )
+    for movement in movements:
+        account_id = _control_account_of(movement)
+        if account_id is None:
+            unattributed.append(movement)
+            continue
+        key = (movement.branch_id, account_id)
+        inventory_side[key] = inventory_side.get(key, ZERO) + movement.inventory_value
+
+    for movement in unattributed:
+        problems.append(
+            Discrepancy(
+                scope=f"{organization.code}/movement#{movement.posted_sequence}",
+                field="unattributed_movement_value",
+                expected="a control account",
+                actual=str(movement.inventory_value),
+            )
+        )
+
+    # GL side: the balance of each involved account per branch.
+    account_ids = {account_id for (_branch_id, account_id) in inventory_side}
+    gl_side: dict[tuple[int, int], Decimal] = {}
+    gl_lines = JournalLine.objects.filter(
+        account__organization=organization, account_id__in=account_ids
+    ).select_related("branch")
+    for journal_line in gl_lines:
+        key = (journal_line.branch_id, journal_line.account_id)
+        gl_side[key] = gl_side.get(key, ZERO) + (journal_line.debit - journal_line.credit)
+
+    branches = {branch.pk: branch.code for branch in organization.branches.all()}
+    accounts = {account.pk: account.code for account in Account.objects.filter(pk__in=account_ids)}
+
+    for key in sorted(set(inventory_side) | set(gl_side)):
+        branch_id, account_id = key
+        stock_value = quantize_money(inventory_side.get(key, ZERO))
+        gl_value = quantize_money(gl_side.get(key, ZERO))
+        if stock_value != gl_value:
+            problems.append(
+                Discrepancy(
+                    scope=(
+                        f"{organization.code}/{branches.get(branch_id, branch_id)}/"
+                        f"{accounts.get(account_id, account_id)}"
+                    ),
+                    field="inventory_vs_gl",
+                    expected=stock_value,
+                    actual=gl_value,
+                )
+            )
+    return problems
+
+
+def verify_inventory_accounting(organization: Organization) -> list[str]:
+    """
+    The full Task 1.3 reconciliation for one organization, as report lines.
+
+    Three comparisons: every posted opening against its own effects, the
+    balance projection against the ledger replay, and the inventory book
+    value against the general ledger. Read-only throughout.
+    """
+    lines: list[str] = []
+    for document in OpeningStockDocument.objects.filter(
+        organization=organization,
+        status__in=[OpeningStockStatus.POSTED, OpeningStockStatus.REVERSED],
+    ):
+        lines.extend(str(problem) for problem in verify_opening_document(document))
+    lines.extend(str(mismatch) for mismatch in verify_organization(organization))
+    lines.extend(str(problem) for problem in verify_inventory_against_gl(organization))
+    return lines

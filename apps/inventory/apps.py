@@ -27,3 +27,12 @@ class InventoryConfig(AppConfig):
 
     def ready(self) -> None:
         post_migrate.connect(_sync_role_groups, sender=self)
+
+        # Registered at ready so the rule holds no matter which screen or
+        # service changes an organization default: an INVENTORY_CONTROL
+        # mapping change that would re-home standing stock value is refused
+        # (ADR-019 §G). Accounting exposes the hook; it never imports us.
+        from apps.accounting.services import register_mapping_guard
+        from apps.inventory.accounts import organization_mapping_guard
+
+        register_mapping_guard(organization_mapping_guard)

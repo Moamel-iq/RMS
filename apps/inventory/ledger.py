@@ -403,6 +403,25 @@ def _lock_stock_key(key: _StockKey) -> None:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [key.canonical])
 
 
+def acquire_stock_key_locks(effects: Sequence[MovementInput]) -> None:
+    """
+    Take the advisory locks these effects will need, in canonical order.
+
+    For a caller that must inspect ledger state *before* posting — the opening
+    document checks that no key has prior history — and must not let a
+    concurrent posting slip between the inspection and the post. PostgreSQL
+    advisory locks are re-entrant within a session, so `post_stock_entry`
+    re-acquiring the same keys later in the transaction is a no-op, and the
+    global lock order (document row → stock keys → counters) is preserved.
+    """
+    keys: dict[str, _StockKey] = {}
+    for effect in effects:
+        key = _key_of(effect)
+        keys.setdefault(key.canonical, key)
+    for key in sorted(keys.values(), key=lambda key: key.sort_key):
+        _lock_stock_key(key)
+
+
 def _next_posted_sequence(*, organization: Organization) -> int:
     """
     Take the organization's next posted-order number under a row lock.

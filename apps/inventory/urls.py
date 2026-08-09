@@ -86,6 +86,60 @@ urlpatterns = [
     path("stock/", views.StockOnHandView.as_view(), name="stock_list"),
     path("movements/", views.MovementHistoryView.as_view(), name="movement_list"),
     path("movements/<int:pk>/", views.MovementDetailView.as_view(), name="movement_detail"),
+    # --- account-mapping overrides (Task 1.3) -------------------------------
+    path("account-mappings/", views.InventoryMappingListView.as_view(), name="mapping_list"),
+    path(
+        "account-mappings/new/",
+        views.InventoryMappingCreateView.as_view(),
+        name="mapping_create",
+    ),
+    path(
+        "account-mappings/<int:pk>/close/",
+        views.InventoryMappingCloseView.as_view(),
+        name="mapping_close",
+    ),
+    path(
+        "account-mappings/<int:pk>/archive/",
+        views.InventoryMappingArchiveView.as_view(),
+        name="mapping_archive",
+    ),
+    # --- opening stock documents (Task 1.3) ---------------------------------
+    path("openings/", views.OpeningListView.as_view(), name="opening_list"),
+    path("openings/new/", views.OpeningCreateView.as_view(), name="opening_create"),
+    path("openings/<int:pk>/", views.OpeningDetailView.as_view(), name="opening_detail"),
+    path("openings/<int:pk>/edit/", views.OpeningUpdateView.as_view(), name="opening_update"),
+    path(
+        "openings/<int:pk>/submit/",
+        views.OpeningActionView.as_view(action="submit"),
+        name="opening_submit",
+    ),
+    path(
+        "openings/<int:pk>/return/",
+        views.OpeningActionView.as_view(action="return"),
+        name="opening_return",
+    ),
+    path(
+        "openings/<int:pk>/post/",
+        views.OpeningActionView.as_view(action="post"),
+        name="opening_post",
+    ),
+    path(
+        "openings/<int:pk>/reverse/",
+        views.OpeningActionView.as_view(action="reverse"),
+        name="opening_reverse",
+    ),
+    path(
+        "openings/<int:pk>/delete/",
+        views.OpeningActionView.as_view(action="delete"),
+        name="opening_delete",
+    ),
+    path(
+        "openings/<int:pk>/lines/<int:line_pk>/delete/",
+        views.OpeningActionView.as_view(action="delete_line"),
+        name="opening_line_delete",
+    ),
+    # --- reconciliation (read only) -----------------------------------------
+    path("reconciliation/", views.ReconciliationView.as_view(), name="reconciliation"),
     # --- warehouses --------------------------------------------------------
     path("warehouses/", views.WarehouseListView.as_view(), name="warehouse_list"),
     path("warehouses/new/", views.WarehouseCreateView.as_view(), name="warehouse_create"),

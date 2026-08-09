@@ -20,11 +20,13 @@ pytestmark = pytest.mark.django_db
 
 class TestSeed:
     def test_the_chart_is_seeded(self, organization: Organization, chart: None) -> None:
-        assert Account.objects.filter(organization=organization).count() == 46
+        # 54: the original 46 plus the Task 1.3 inventory branch (1-03…) and
+        # the opening-equity branch (3-02…), eight accounts across the two.
+        assert Account.objects.filter(organization=organization).count() == 54
 
     def test_the_seed_is_idempotent(self, organization: Organization, chart: None) -> None:
         call_command("seed_chart_of_accounts", organization="KM", verbosity=0)
-        assert Account.objects.filter(organization=organization).count() == 46
+        assert Account.objects.filter(organization=organization).count() == 54
 
     def test_the_cash_rounding_account_exists_though_the_policy_is_off(
         self, organization: Organization, chart: None

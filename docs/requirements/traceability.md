@@ -274,3 +274,24 @@ The SRS has not been added to this repository. `docs/requirements/SRS.md` is
 referenced by `CLAUDE.md` but does not exist. Until it is supplied, requirement
 IDs above are local to the bootstrap and are not traceable to a business
 source.
+| INV-100 | AccountRole vocabulary seeded, system codes immutable | `accounting/0008`, trigger | `test_account_mappings.py::TestTheRoleVocabulary` | 1.3 | | Done |
+| INV-101 | Posting rules refer to role codes, never account ids | `apps/inventory/opening.py` | `::test_source_identity_uses_the_immutable_public_id` | 1.3 | | Done |
+| INV-102 | Organization mapping: same-org postable active account, no overlap | `create_account_mapping` | `::TestOrganizationMappings` | 1.3 | | Done |
+| INV-103 | Used mappings immutable; corrections close and version | `mapping_is_used` | `::test_an_unused_mapping_may_be_amended_or_archived` | 1.3 | | Done |
+| INV-104 | Resolver precedence item → nearest ancestor → default → unmapped | `resolve_inventory_account` | `test_inventory_account_mappings.py::TestResolverPrecedence` | 1.3 | | Done |
+| INV-105 | Reclassification guard over standing stock, all three doors | `apps/inventory/accounts.py` | `::TestTheReclassificationGuard` | 1.3 | | Done |
+| INV-106 | Opening lifecycle DRAFT→SUBMITTED→POSTED→REVERSED, maker-checker | `apps/inventory/opening.py` | `test_opening_stock.py::TestMakerChecker` | 1.3 | | Done |
+| INV-107 | Opening posts stock, valuation, and journal in one transaction | `post_opening_document` | `::test_a_missing_mapping_rolls_the_whole_posting_back` | 1.3 | AT-002 | Done |
+| INV-108 | Opening value equals its journal exactly, per account group | grouped stored sums | `::test_grouped_debits_when_items_resolve_to_different_accounts` | 1.3 | AT-002 | Done |
+| INV-109 | Opening is the first movement for its valuation keys | history check under locks | `::test_a_key_with_prior_movement_history_is_refused` | 1.3 | | Done |
+| INV-110 | Gapless opening numbers, assigned only at posting | `_next_document_number` | `::test_document_numbering_is_gapless_across_a_failed_attempt` | 1.3 | | Done |
+| INV-111 | Source identity uses the immutable public id; effect keys use line uids | `post_opening_document` | `::test_the_effect_key_is_the_stable_line_identity` | 1.3 | AT-009 | Done |
+| INV-112 | Whole-document reversal mirrors stock and GL exactly, availability applies | `reverse_opening_document` | `::TestReversal` | 1.3 | | Done |
+| INV-113 | Posted opening and its lines are database-immutable | triggers, `inventory/0006` | `::test_a_posted_document_is_immutable_at_the_database` | 1.3 | | Done |
+| INV-114 | Inventory-to-GL reconciliation by the account history entered | `verify_inventory_against_gl` | `::TestReconciliation` | 1.3 | AT-002 | Done |
+| INV-115 | Reconciliation reports, never repairs | `verify_inventory_accounting` | `::test_the_management_command_reports_and_exits_nonzero_on_mismatch` | 1.3 | | Done |
+| INV-116 | Combined posting lock order is fixed and deadlock-free | ADR-019, `opening.py` docstring | `test_opening_concurrency.py` | 1.3 | | Done |
+| INV-117 | Concurrent duplicate post yields one economic event | document row lock | `::test_a_concurrent_duplicate_post_creates_one_economic_event` | 1.3 | AT-009 | Done |
+| INV-118 | Mapping authority is organization provenance; overrides share it | `MANAGE_ACCOUNT_MAPPINGS` | `::TestMappingAuthorization`, `::TestProvenanceRegression` | 1.3 | AT-008 | Done |
+| INV-119 | Opening cost fields follow `view_valuation`, omitted not blanked | `_serialize_opening` | `test_opening_api.py::TestDecimalsAndCostVisibility` | 1.3 | AT-008 | Done |
+| INV-120 | Negative-stock override granted to no default role while disabled | `NEGATIVE_STOCK_OVERRIDE_ENABLED` | `test_ledger.py::test_even_the_owner_is_refused…` | 1.3 | | Done |

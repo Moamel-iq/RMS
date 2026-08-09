@@ -66,15 +66,25 @@ warehouse-level cost must not have to be recomputed by weighted aggregation on
 every read.
 
 ### 3. Moving weighted average, behind a strategy boundary
+*(amended at Task 1.3 to match the implemented behaviour)*
 
-`MOVING_WEIGHTED_AVERAGE` is the Release 1 method. `ValuationLayer` and
-`ValuationAllocation` are nevertheless recorded from the first posting, even
-though the average does not need them.
+`MOVING_WEIGHTED_AVERAGE` is the Release 1 method. **`ValuationLayer` records
+every inbound cost fact from the first posting; `ValuationAllocation` records
+nothing and stays empty.** A moving average does not consume a layer — it
+charges the blended cost of everything on hand — so an allocation row under
+this method would fabricate FIFO-layer consumption that never happened.
+`ValuationAllocation` remains empty until a valuation strategy that actually
+allocates layers is enabled, and an invariant test holds the line: posting an
+outbound movement under moving average creates no allocation rows.
 
-That is the whole point: with layers captured, introducing FIFO later is a new
-consumption strategy over data that already exists. Without them it is a
-migration of history that cannot be reconstructed, because the information was
-never written down.
+The layers are still the point: with inbound cost facts captured, and with
+the immutable movement history alongside them, a future FIFO cutover is
+**possible** — the consumption for past periods is derivable from data that
+already exists. Stated honestly, though: switching to FIFO is a **controlled
+cutover with an explicit rebuild policy** — recomputing allocations, agreeing
+a cutover date, and reconciling the restated values — not a configuration
+toggle with zero migration work. What the layers buy is that the cutover is
+*computable*; nothing makes it free.
 
 ### 4. Quantity zero implies value zero, by construction
 

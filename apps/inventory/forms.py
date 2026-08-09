@@ -29,6 +29,7 @@ from django import forms
 from django.db.models import QuerySet
 from django.utils.translation import gettext_lazy as _
 
+from apps.accounting.models import Account, AccountRole
 from apps.inventory.models import (
     MAX_CATEGORY_DEPTH,
     ConversionType,
@@ -41,6 +42,7 @@ from apps.inventory.models import (
     WarehouseType,
 )
 from apps.inventory.permissions import (
+    CREATE_OPENING_STOCK,
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
     MANAGE_ITEMS,
@@ -490,3 +492,228 @@ class WarehouseForm(ScopedForm):
 
     def clean_name_en(self) -> str:
         return str(self.cleaned_data.get("name_en") or "")
+
+
+# ---------------------------------------------------------------------------
+# Task 1.3 — account-mapping overrides and opening stock
+# ---------------------------------------------------------------------------
+
+
+class InventoryMappingForm(ScopedForm):
+    """
+    An item- or category-specific override of the organization default.
+
+    Exactly one target. The role list is limited to roles that permit
+    overrides at all — offering INVENTORY_OPENING_EQUITY here would offer
+    something the service refuses.
+    """
+
+    organization = forms.ModelChoiceField(queryset=Organization.objects.none(), label=_("المؤسسة"))
+    account_role = forms.ModelChoiceField(
+        queryset=AccountRole.objects.none(), label=_("الدور المحاسبي")
+    )
+    account = forms.ModelChoiceField(queryset=Account.objects.none(), label=_("الحساب"))
+    item = forms.ModelChoiceField(
+        queryset=InventoryItem.objects.none(),
+        label=_("الصنف"),
+        required=False,
+        help_text=_("حدد صنفاً أو مجموعة — واحداً فقط."),
+    )
+    category = forms.ModelChoiceField(
+        queryset=ItemCategory.objects.none(), label=_("المجموعة"), required=False
+    )
+    effective_from = forms.DateField(
+        label=_("سارٍ من"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    effective_to = forms.DateField(
+        label=_("سارٍ حتى"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text=_("اتركه فارغاً إذا كان سارياً حتى إشعار آخر."),
+    )
+
+    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.accounting.models import AccountRoleMappingScope
+        from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
+
+        organizations = organizations_with_permission(actor, MANAGE_ACCOUNT_MAPPINGS).order_by(
+            "code"
+        )
+        self.fields["organization"].queryset = organizations  # type: ignore[attr-defined]
+        self.fields["account_role"].queryset = AccountRole.objects.filter(  # type: ignore[attr-defined]
+            is_active=True, mapping_scope=AccountRoleMappingScope.ITEM
+        ).order_by("code")
+        self.fields["account"].queryset = (  # type: ignore[attr-defined]
+            Account.objects.filter(organization__in=organizations, is_postable=True, is_active=True)
+            .select_related("organization")
+            .order_by("organization__code", "code")
+        )
+        self.fields["item"].queryset = (  # type: ignore[attr-defined]
+            InventoryItem.objects.filter(organization__in=organizations, is_active=True)
+            .select_related("organization")
+            .order_by("code")
+        )
+        self.fields["category"].queryset = (  # type: ignore[attr-defined]
+            ItemCategory.objects.filter(organization__in=organizations, is_active=True)
+            .select_related("organization")
+            .order_by("code")
+        )
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean()  # type: ignore[assignment]
+        item = cleaned.get("item")
+        category = cleaned.get("category")
+        if (item is None) == (category is None):
+            self.add_error(None, _("حدد صنفاً أو مجموعة — واحداً فقط، لا كليهما ولا لا شيء."))
+        starts = cleaned.get("effective_from")
+        ends = cleaned.get("effective_to")
+        if starts and ends and ends < starts:
+            self.add_error("effective_to", _("تاريخ الانتهاء قبل تاريخ البدء."))
+        return cleaned
+
+
+class OpeningDocumentForm(ScopedForm):
+    """The opening document's header. The lines are added on the detail screen."""
+
+    scope_permission = CREATE_OPENING_STOCK
+
+    branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع"))
+    cutoff_at = forms.DateTimeField(
+        label=_("لحظة الجرد"),
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+        help_text=_("اللحظة التي كان العدّ صحيحاً فيها. يُشتق منها يوم العمل."),
+    )
+    evidence_reference = forms.CharField(
+        label=_("مرجع الإثبات"),
+        max_length=200,
+        help_text=_("رقم محضر الجرد الموقّع أو مرجع الملف."),
+    )
+    narration = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.fields["branch"].queryset = self.branch_choices()  # type: ignore[attr-defined]
+
+    def clean_narration(self) -> str:
+        return str(self.cleaned_data.get("narration") or "")
+
+    def clean_cutoff_at(self) -> datetime.datetime:
+        from django.utils import timezone as django_timezone
+
+        value: datetime.datetime = self.cleaned_data["cutoff_at"]
+        if django_timezone.is_naive(value):
+            # A datetime-local input carries no zone; Django's current zone —
+            # the branches operate in Asia/Baghdad — is the honest reading.
+            value = django_timezone.make_aware(value)
+        return value
+
+
+class OpeningLineForm(ScopedForm):
+    """
+    One counted position.
+
+    Quantities and costs are typed as text and parsed as exact Decimals — a
+    locale-aware number widget would accept a comma and change the count.
+    A new lot may be named here, because opening stock legitimately introduces
+    lots that predate the ledger.
+    """
+
+    scope_permission = CREATE_OPENING_STOCK
+
+    warehouse = forms.ModelChoiceField(queryset=Warehouse.objects.none(), label=_("المخزن"))
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    lot_code = forms.CharField(
+        label=_("رمز الدفعة"),
+        max_length=64,
+        required=False,
+        help_text=_("مطلوب للأصناف التي تتتبع الدفعات. الدفعة الجديدة تُنشأ من هنا."),
+    )
+    lot_expiry = forms.DateField(
+        label=_("تاريخ انتهاء الدفعة"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    package_conversion = forms.ModelChoiceField(
+        queryset=ItemPackageConversion.objects.none(),
+        label=_("عبوة الإدخال"),
+        required=False,
+        help_text=_("اختياري: إن كان العدّ بالعبوات. يجب أن تعود للصنف نفسه."),
+    )
+    entered_package_quantity = forms.CharField(label=_("عدد العبوات"), required=False)
+    measured_base_quantity = forms.CharField(
+        label=_("الكمية الموزونة"),
+        required=False,
+        help_text=_("للعبوات المتغيرة فقط: قراءة الميزان بوحدة الأساس."),
+    )
+    base_quantity = forms.CharField(
+        label=_("الكمية بوحدة الأساس"),
+        required=False,
+        help_text=_("للإدخال المباشر بلا عبوة. نقطة عشرية، لا فاصلة."),
+    )
+    unit_cost = forms.CharField(
+        label=_("كلفة الوحدة"), help_text=_("دينار عراقي لوحدة الأساس الواحدة. نقطة عشرية.")
+    )
+
+    def __init__(self, *args: Any, actor: User, branch: Branch, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.organizations.authorization import accessible_warehouses
+
+        self.fields["warehouse"].queryset = (  # type: ignore[attr-defined]
+            accessible_warehouses(actor).filter(branch=branch, is_system=False).order_by("code")
+        )
+        self.fields["item"].queryset = (  # type: ignore[attr-defined]
+            visible_items(actor)
+            .filter(organization_id=branch.organization_id, is_active=True)
+            .order_by("code")
+        )
+        self.fields["package_conversion"].queryset = (  # type: ignore[attr-defined]
+            ItemPackageConversion.objects.filter(
+                organization_id=branch.organization_id, is_active=True
+            )
+            .select_related("item", "package_unit")
+            .order_by("item__code", "package_unit__code")
+        )
+
+    def _decimal(self, raw: str, field: str) -> Decimal | None:
+        text = (raw or "").strip()
+        if not text:
+            return None
+        if "," in text:
+            self.add_error(field, _("استخدم النقطة العشرية لا الفاصلة."))
+            return None
+        try:
+            value = Decimal(text)
+        except ArithmeticError, ValueError:
+            self.add_error(field, _("قيمة عشرية غير صالحة."))
+            return None
+        if not value.is_finite():
+            self.add_error(field, _("قيمة عشرية غير صالحة."))
+            return None
+        return value
+
+    def clean_entered_package_quantity(self) -> Decimal | None:
+        return self._decimal(
+            self.cleaned_data.get("entered_package_quantity", ""), "entered_package_quantity"
+        )
+
+    def clean_measured_base_quantity(self) -> Decimal | None:
+        return self._decimal(
+            self.cleaned_data.get("measured_base_quantity", ""), "measured_base_quantity"
+        )
+
+    def clean_base_quantity(self) -> Decimal | None:
+        return self._decimal(self.cleaned_data.get("base_quantity", ""), "base_quantity")
+
+    def clean_unit_cost(self) -> Decimal | None:
+        value = self._decimal(self.cleaned_data.get("unit_cost", ""), "unit_cost")
+        if value is not None and value <= 0:
+            self.add_error("unit_cost", _("يجب أن تكون الكلفة أكبر من صفر."))
+            return None
+        return value
+
+
+class ReasonForm(forms.Form):
+    """A stated reason, for return-to-draft and reversal."""
+
+    reason = forms.CharField(label=_("السبب"), widget=forms.Textarea, max_length=500)
