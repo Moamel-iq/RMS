@@ -6,6 +6,7 @@
   <th>{% translate "الاسم" %}</th>
   <th>{% translate "معامل التحويل" %}</th>
   <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
 {% endblock %}
 
 {% block rows %}
@@ -21,8 +22,9 @@
           <span class="chip chip--off">{% translate "مؤرشفة" %}</span>
         {% endif %}
       </td>
+      {% include "inventory/_rowactions.html" with row=unit owner_id=unit.organization_id edit_url="inventory:package_unit_update" archive_url="inventory:package_unit_archive" reactivate_url="inventory:package_unit_reactivate" %}
     </tr>
   {% empty %}
-    <tr><td colspan="4">{% translate "لا توجد وحدات تعبئة بعد." %}</td></tr>
+    <tr><td colspan="5">{% translate "لا توجد وحدات تعبئة بعد." %}</td></tr>
   {% endfor %}
 {% endblock %}

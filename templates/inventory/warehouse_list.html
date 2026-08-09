@@ -7,6 +7,7 @@
   <th>{% translate "الفرع" %}</th>
   <th>{% translate "النوع" %}</th>
   <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
 {% endblock %}
 
 {% block rows %}
@@ -28,8 +29,17 @@
           <span class="chip chip--off">{% translate "مؤرشف" %}</span>
         {% endif %}
       </td>
+      {# The in-transit warehouse offers no actions at all. Renaming or       #}
+      {# archiving the home of stock that has left one branch and not yet     #}
+      {# arrived at another would break transfers that are mid-flight, so the #}
+      {# service refuses it and the screen does not pretend otherwise.        #}
+      {% if warehouse.is_system %}
+        <td><span class="muted">{% translate "محمي" %}</span></td>
+      {% else %}
+        {% include "inventory/_rowactions.html" with row=warehouse owner_id=warehouse.branch_id edit_url="inventory:warehouse_update" archive_url="inventory:warehouse_archive" reactivate_url="inventory:warehouse_reactivate" %}
+      {% endif %}
     </tr>
   {% empty %}
-    <tr><td colspan="5">{% translate "لا توجد مخازن بعد." %}</td></tr>
+    <tr><td colspan="6">{% translate "لا توجد مخازن بعد." %}</td></tr>
   {% endfor %}
 {% endblock %}

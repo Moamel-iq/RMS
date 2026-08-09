@@ -450,6 +450,13 @@ def create_item_conversion(
             code="factor_not_positive",
         )
 
+    # Serialise every conversion write for this item. Two concurrent creates
+    # would otherwise read the same `latest.version` and both write version 3
+    # — or both clear the default purchase package and both set their own,
+    # leaving two. The item row is the natural lock: it is the thing both
+    # writers are re-shaping, and locking it keeps other items unblocked.
+    InventoryItem.objects.select_for_update().filter(pk=item.pk).first()
+
     if is_default_purchase_package:
         ItemPackageConversion.objects.filter(
             item=item, is_default_purchase_package=True, is_active=True
@@ -477,6 +484,152 @@ def create_item_conversion(
     conversion.save()
     record_audit_event(
         action=AuditAction.CREATED, target=conversion, new_state=snapshot(conversion)
+    )
+    return conversion
+
+
+def _conversion_has_movements(conversion: ItemPackageConversion) -> bool:
+    """
+    Whether posted stock movements were valued through this conversion.
+
+    Always False until Task 1.2 creates `StockMovement`. Isolated here for the
+    same reason as `_item_has_movements`: the guard is written once, now, and
+    goes live the moment the ledger exists.
+    """
+    from django.apps import apps as django_apps
+
+    try:
+        movement_model = django_apps.get_model(  # type: ignore[misc]
+            "inventory", "StockMovement"
+        )
+    except LookupError:
+        return False
+    return bool(  # pragma: no cover - no ledger until Task 1.2
+        movement_model.objects.filter(source_conversion=conversion).exists()
+    )
+
+
+def _periods_overlap(
+    a_from: datetime.date,
+    a_to: datetime.date | None,
+    b_from: datetime.date,
+    b_to: datetime.date | None,
+) -> bool:
+    """Whether two closed date ranges touch. `None` means still open."""
+    return (b_to is None or a_from <= b_to) and (a_to is None or b_from <= a_to)
+
+
+def _conflicting_conversion(
+    *,
+    conversion: ItemPackageConversion,
+    effective_from: datetime.date,
+    effective_to: datetime.date | None,
+) -> ItemPackageConversion | None:
+    """
+    An active sibling whose period would overlap the proposed one.
+
+    The database refuses the overlap outright — an `EXCLUDE USING gist`
+    constraint makes it unrepresentable — but an `IntegrityError` reaches the
+    operator as a failed page, not as a sentence they can act on. This finds
+    the offending row first so the form can name it.
+    """
+    siblings = ItemPackageConversion.objects.filter(
+        item_id=conversion.item_id,
+        package_unit_id=conversion.package_unit_id,
+        is_active=True,
+    ).exclude(pk=conversion.pk)
+    for sibling in siblings:
+        if _periods_overlap(
+            effective_from, effective_to, sibling.effective_from, sibling.effective_to
+        ):
+            return sibling
+    return None
+
+
+@transaction.atomic
+def update_item_conversion(
+    *,
+    conversion: ItemPackageConversion,
+    factor_to_base: Decimal,
+    effective_from: datetime.date,
+    effective_to: datetime.date | None = None,
+    conversion_type: str | None = None,
+    allows_fractional: bool | None = None,
+    minimum_increment: Decimal | None = None,
+    is_default_purchase_package: bool | None = None,
+    is_active: bool = True,
+) -> ItemPackageConversion:
+    """
+    Correct a conversion that has not yet valued anything.
+
+    A typed factor caught before the first posting is a **mistake**, and
+    versioning a mistake would leave the wrong number readable as though it had
+    once been true. Once a movement has been valued through it, the same edit
+    is a restatement of history and is refused — `supersede_item_conversion` is
+    the only way forward from there.
+
+    Reactivating is validated, not merely permitted: an archived row whose
+    period now overlaps a live one would be refused by the database, and a
+    caller deserves to be told which row it collides with.
+    """
+    if _conversion_has_movements(conversion):
+        raise ValidationError(
+            _("This conversion has already valued posted movements; supersede it instead."),
+            code="conversion_locked_by_movements",
+        )
+    if factor_to_base <= 0:
+        raise ValidationError(
+            _("A conversion factor must be greater than zero."),
+            code="factor_not_positive",
+        )
+
+    # Re-read: a ModelForm mutates its instance during validation, so an
+    # in-memory snapshot here would already hold the new values.
+    before = snapshot(ItemPackageConversion.objects.get(pk=conversion.pk))
+    InventoryItem.objects.select_for_update().filter(pk=conversion.item_id).first()
+
+    if is_active:
+        clash = _conflicting_conversion(
+            conversion=conversion, effective_from=effective_from, effective_to=effective_to
+        )
+        if clash is not None:
+            raise ValidationError(
+                _("Version %(version)s already covers part of this period."),
+                code="conversion_period_overlap",
+                params={"version": clash.version},
+            )
+
+    wants_default = (
+        conversion.is_default_purchase_package
+        if is_default_purchase_package is None
+        else is_default_purchase_package
+    )
+    if wants_default and is_active:
+        ItemPackageConversion.objects.filter(
+            item_id=conversion.item_id, is_default_purchase_package=True, is_active=True
+        ).exclude(pk=conversion.pk).update(is_default_purchase_package=False)
+
+    conversion.factor_to_base = factor_to_base
+    conversion.effective_from = effective_from
+    conversion.effective_to = effective_to
+    if conversion_type is not None:
+        conversion.conversion_type = conversion_type
+    if allows_fractional is not None:
+        conversion.allows_fractional = allows_fractional
+    conversion.minimum_increment = minimum_increment
+    # A default that is not active is not a default: the partial unique
+    # constraint only covers active rows, so leaving the flag set would let an
+    # archived row silently become the default again on reactivation.
+    conversion.is_default_purchase_package = wants_default and is_active
+    conversion.is_active = is_active
+    conversion.full_clean()
+    conversion.save()
+
+    record_audit_event(
+        action=AuditAction.UPDATED if is_active else AuditAction.DEACTIVATED,
+        target=conversion,
+        previous_state=before,
+        new_state=snapshot(conversion),
     )
     return conversion
 

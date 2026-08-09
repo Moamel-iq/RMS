@@ -230,6 +230,14 @@ Task 1.0, not referenced from an earlier artefact.
 | INV-060 | Source identity normalised centrally; `"145 "` == `"145"` | Accounting service | `::test_source_id_normalisation` | 1.2 | AT-009 | Specified |
 | INV-061 | A reversal that decreases stock passes the availability check | Posting service | `::test_reversal_respects_availability` | 1.4 | | Specified |
 | INV-062 | Every report names its cutoff semantics | Report contract | `::test_report_declares_cutoff_mode` | 1.7 | AT-011 | Specified |
+| INV-063 | A permission is carried by a post held **in the target organization** | `roles_in_organization` + `roles_granting` | `test_permission_provenance.py::TestTheProvenanceRule` | 1.1 | AT-008 | Done |
+| INV-064 | A global group or direct user permission authorizes no organization | Same | `::test_a_hand_made_group_authorizes_no_organization` | 1.1 | AT-008 | Done |
+| INV-065 | Organization *authority* comes only from an `OrganizationMembership` role | `organization_authority_roles` | `::TestOrganizationAuthorityProvenance` | 1.1 | AT-008 | Done |
+| INV-066 | Button visibility never differs from what the write allows | `organizations_with_permission` | `::TestBulkAnswersMatchTheSingleCheck` | 1.1 | AT-008 | Done |
+| INV-067 | Master-data screens write through services only; no `form.save()` | `apps/inventory/views.py` | `::TestTheWritePathIsStructurallySafe` | 1.1 | | Done |
+| INV-068 | A hidden action refuses a direct POST on its own merits | `InventoryWriteView.authorize` | `::TestButtonsAreNotTheProtection` | 1.1 | AT-008 | Done |
+| INV-069 | An unused conversion is corrected in place; a used one must be versioned | `update_item_conversion` | `::test_editing_corrects_an_unused_factor` | 1.1 | AT-011 | Done |
+| INV-070 | An archived warehouse stays readable and reactivatable | `readable_warehouses` | `::test_create_edit_archive_and_reactivate` | 1.1 | | Done |
 
 ## Not yet mapped
 

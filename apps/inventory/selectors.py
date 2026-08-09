@@ -76,6 +76,42 @@ def visible_warehouses(user: User) -> QuerySet[Warehouse]:
     return accessible_warehouses(user).select_related("branch", "branch__organization")
 
 
+def readable_warehouses(user: User) -> QuerySet[Warehouse]:
+    """
+    Every warehouse in the caller's branches — **archived ones included**.
+
+    Deliberately different from `visible_warehouses`, which delegates to
+    `accessible_warehouses` and answers custody: where stock may actually
+    move. Custody is only ever about active warehouses.
+
+    A management screen needs the other answer. An archived warehouse still
+    holds its code, its history is still referenced by everything posted
+    against it, and a screen that hid it would make a reserved code look free
+    and leave no way to reactivate what was archived by mistake.
+
+    Scoped by branch, matching `manage_warehouses`, which is branch-scoped.
+    Warehouse-level narrowing restricts custody, not the right to read the
+    branch's own structure.
+    """
+    return Warehouse.objects.filter(branch__in=accessible_branches(user)).select_related(
+        "branch", "branch__organization"
+    )
+
+
+def resolve_manageable_warehouse(user: User, warehouse_id: int) -> Warehouse:
+    """
+    Turn a submitted warehouse id into one the caller may manage.
+
+    Reads from `readable_warehouses`, so an archived warehouse can still be
+    reached and reactivated. Whether the caller may *change* it is a separate
+    question, answered against the branch by `require_branch_permission`.
+    """
+    warehouse = readable_warehouses(user).filter(pk=warehouse_id).first()
+    if warehouse is None:
+        raise OutOfScope(_("Warehouse %(id)s does not exist.") % {"id": warehouse_id})
+    return warehouse
+
+
 def visible_branch_item_settings(user: User) -> QuerySet[BranchItemSetting]:
     return BranchItemSetting.objects.filter(branch__in=accessible_branches(user)).select_related(
         "branch", "item"

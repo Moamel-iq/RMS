@@ -17,6 +17,7 @@
   <th>{% translate "النوع" %}</th>
   <th>{% translate "وحدة الأساس" %}</th>
   <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
 {% endblock %}
 
 {% block rows %}
@@ -34,8 +35,9 @@
           <span class="chip chip--off">{% translate "مؤرشف" %}</span>
         {% endif %}
       </td>
+      {% include "inventory/_rowactions.html" with row=item owner_id=item.organization_id edit_url="inventory:item_update" archive_url="inventory:item_archive" reactivate_url="inventory:item_reactivate" %}
     </tr>
   {% empty %}
-    <tr><td colspan="6">{% translate "لا توجد أصناف بعد." %}</td></tr>
+    <tr><td colspan="7">{% translate "لا توجد أصناف بعد." %}</td></tr>
   {% endfor %}
 {% endblock %}

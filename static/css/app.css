@@ -930,3 +930,45 @@ a.subnav__item:hover {
 .linkish:hover {
   text-decoration: underline;
 }
+
+/* ------------------------------------------------------------------ flash */
+/* Outcome of the last write. Logical properties only, so the accent sits on
+   the leading edge in both RTL and LTR without a second rule. */
+
+.flash {
+  margin-block-end: 18px;
+  padding: 13px 16px;
+  border-radius: var(--radius-field);
+  border: 1px solid #a6e0c1;
+  border-inline-start-width: 4px;
+  background: #e6f6ee;
+  color: #085d3a;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: start;
+}
+
+.flash--error {
+  border-color: var(--danger-line);
+  background: var(--danger-tint);
+  color: #912018;
+}
+
+/* ------------------------------------------------------------ row actions */
+
+.rowactions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  /* Not `wrap`: the table would then size the column to one button's width
+     and stack the rest. The tablewrap already scrolls horizontally, so a wide
+     actions column costs nothing and a stacked one is unreadable. */
+  flex-wrap: nowrap;
+}
+
+.btn--sm {
+  height: 32px;
+  padding-inline: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
