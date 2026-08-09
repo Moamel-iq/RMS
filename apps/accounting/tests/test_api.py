@@ -347,6 +347,7 @@ class TestPeriodCommandsOverHttp:
             fiscal_year__organization=organization, period_number=1
         )
 
+        # 403, not 404: January belongs to the organization they work in.
         response = _post(client, f"{PERIODS}/{january.pk}/close/", {"reason": "mine now"})
 
         assert response.status_code == 403
@@ -382,7 +383,7 @@ class TestPeriodCommandsOverHttp:
 
 
 class TestScopeOverHttp:
-    def test_a_foreign_organization_id_in_the_body_is_a_403(
+    def test_a_foreign_organization_id_in_the_body_is_a_404(
         self,
         rival_accountant: User,
         client_for: Any,
@@ -393,17 +394,18 @@ class TestScopeOverHttp:
         hall: CostCenter,
     ) -> None:
         """
-        403 and not 404. The caller's authority is what is insufficient; a 404
-        would send an honest client hunting for a record that is there.
+        404, not 403. Answering "forbidden" about another organization's
+        record confirms it is real, and a caller who can enumerate ids then
+        has a census of somebody else's documents.
         """
         client = client_for(rival_accountant)
 
         response = _post(client, ENTRIES, _draft_payload(organization, cash, sales, branch, hall))
 
-        assert response.status_code == 403
-        assert response.json()["code"] == "forbidden"
+        assert response.status_code == 404
+        assert response.json()["code"] == "not_found"
 
-    def test_a_foreign_entry_id_in_the_path_is_a_403(
+    def test_a_foreign_entry_id_in_the_path_is_a_404(
         self,
         rival_accountant: User,
         client_for: Any,
@@ -426,7 +428,7 @@ class TestScopeOverHttp:
         )
         client = client_for(rival_accountant)
 
-        assert client.get(f"{ENTRIES}{entry.pk}/").status_code == 403
+        assert client.get(f"{ENTRIES}{entry.pk}/").status_code == 404
 
     def test_the_list_shows_only_what_the_caller_may_see(
         self,

@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import CommandError
 from django.db import transaction
 
 from apps.accounting.models import Account, CostCenter
 from apps.accounting.services import create_account, create_cost_center
+from apps.core.console import SeedCommand
 from apps.organizations.models import Organization
 
 #: code, Arabic, English. Ordered parents-first.
@@ -92,7 +93,7 @@ COST_CENTERS: list[tuple[str, str, str]] = [
 ]
 
 
-class Command(BaseCommand):
+class Command(SeedCommand):
     help = "Seed the restaurant chart of accounts and cost centres for an organization."
 
     def add_arguments(self, parser: Any) -> None:

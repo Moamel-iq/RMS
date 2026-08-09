@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import calendar
 import datetime
+import hashlib
+import json
 import re
 import uuid
 from collections.abc import Sequence
@@ -423,6 +425,90 @@ def create_cost_center(
 # ---------------------------------------------------------------------------
 
 
+def _idempotency_fingerprint(
+    *,
+    command: str,
+    accounting_date: datetime.date,
+    document_date: datetime.date | None,
+    is_adjustment: bool,
+    source_document_type: str,
+    source_document_id: str,
+    source_event: str,
+    lines: Sequence[PostingLine],
+) -> str:
+    """
+    A digest of what the command actually asks for.
+
+    The key answers "have I seen this request id before". This answers "and
+    was it the same request". Without it, a caller who reused a key with
+    different lines — a corrected amount, a different account — would silently
+    receive the earlier journal and believe their correction had posted.
+
+    What goes in is the financial substance: the dates, the source identity,
+    and every line's account, branch, cost centre, and both amounts. Narration
+    is deliberately excluded — it describes the entry without changing what it
+    does to the ledger, and a client that regenerates descriptive text on
+    retry should not be told its retry is a conflict.
+
+    Amounts are quantized and stringified. A float in a fingerprint would make
+    two identical requests hash differently on different machines.
+    """
+    payload = {
+        "command": command,
+        "accounting_date": accounting_date.isoformat(),
+        "document_date": (document_date or accounting_date).isoformat(),
+        "is_adjustment": is_adjustment,
+        "source": [source_document_type, source_document_id, source_event],
+        "lines": [
+            [
+                line.account.pk,
+                line.branch.pk,
+                line.cost_center.pk if line.cost_center is not None else None,
+                str(quantize_money(line.debit)),
+                str(quantize_money(line.credit)),
+            ]
+            for line in lines
+        ],
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _replay(
+    *,
+    organization: Organization,
+    idempotency_key: str,
+    fingerprint: str,
+) -> JournalEntry | None:
+    """
+    The entry this key already produced in this organization, if any.
+
+    Scoped to the organization in the query itself. A lookup on the key alone
+    would return another organization's journal to whoever guessed their key,
+    which is a tenancy leak dressed up as a convenience.
+
+    A key that comes back with a different fingerprint is not a retry. It is
+    the same request id used for a different request, and returning the
+    earlier entry would answer a question the caller did not ask.
+    """
+    existing = JournalEntry.objects.filter(
+        organization=organization, idempotency_key=idempotency_key
+    ).first()
+    if existing is None:
+        return None
+
+    if existing.idempotency_fingerprint != fingerprint:
+        raise ValidationError(
+            _(
+                "Idempotency key %(key)s was already used in %(organization)s for a "
+                "different operation."
+            ),
+            code="idempotency_key_conflict",
+            params={"key": idempotency_key, "organization": organization.code},
+        )
+    return existing
+
+
 def _entry_for_source(
     *,
     organization: Organization,
@@ -499,12 +585,19 @@ def post_entry(
       source_event` — "is this the same *economic event* again?" Purchase
       invoice 145 can be posted once, whatever key the caller composes.
 
-    The two combine into one rule. Same key returns the existing entry, since
-    that is a retry. Same source identity under a *different* key is not a
-    retry — the caller believes this is a new command for an event already in
-    the ledger — so it raises `source_event_already_posted` rather than
-    silently returning something the caller did not ask for. Neither path can
-    produce a second journal, and neither surfaces a raw IntegrityError.
+    Both are scoped to the organization, and the key is checked against a
+    fingerprint of the request as well as against itself:
+
+    | Presented | Result |
+    |---|---|
+    | same key, same request | the existing entry |
+    | same key, different request | `idempotency_key_conflict` |
+    | same key, another organization | an independent operation |
+    | same source identity, different key | `source_event_already_posted` |
+
+    A key alone was never enough. Matching on it and returning would let a
+    caller reuse a key with corrected lines and receive the uncorrected
+    journal, believing the correction had posted.
 
     `allow_closed_period` exists for the authorized correction path only —
     a reversal into a soft-closed period, for instance. It never bypasses a
@@ -516,7 +609,21 @@ def post_entry(
         source_event=source_event,
     )
 
-    existing = JournalEntry.objects.filter(idempotency_key=idempotency_key).first()
+    fingerprint = _idempotency_fingerprint(
+        command="post_entry",
+        accounting_date=accounting_date,
+        document_date=document_date,
+        is_adjustment=is_adjustment,
+        source_document_type=source_document_type,
+        source_document_id=source_document_id,
+        source_event=source_event,
+        lines=lines,
+    )
+    existing = _replay(
+        organization=organization,
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+    )
     if existing is not None:
         return existing
 
@@ -568,6 +675,7 @@ def post_entry(
         status=JournalEntryStatus.POSTED,
         is_adjustment=is_adjustment,
         idempotency_key=idempotency_key,
+        idempotency_fingerprint=fingerprint,
         source_document_type=source_document_type,
         source_document_id=source_document_id,
         source_event=source_event,
@@ -785,10 +893,31 @@ def create_draft(
 
     `idempotency_key` is optional here and required for posting. A duplicated
     draft is a nuisance a user can delete; a duplicated posting is not
-    something anyone can delete.
+    something anyone can delete. When a key *is* supplied it carries the same
+    guarantee as posting: same key and same request returns the existing
+    draft, same key and a different request is a conflict.
     """
     period = resolve_period(organization=organization, accounting_date=accounting_date)
     _validate_draft_shape(organization=organization, lines=lines)
+
+    fingerprint = _idempotency_fingerprint(
+        command="create_draft",
+        accounting_date=accounting_date,
+        document_date=document_date,
+        is_adjustment=is_adjustment,
+        source_document_type="",
+        source_document_id="",
+        source_event="",
+        lines=lines,
+    )
+    if idempotency_key is not None:
+        existing = _replay(
+            organization=organization,
+            idempotency_key=idempotency_key,
+            fingerprint=fingerprint,
+        )
+        if existing is not None:
+            return existing
 
     entry = JournalEntry(
         organization=organization,
@@ -799,6 +928,7 @@ def create_draft(
         status=JournalEntryStatus.DRAFT,
         is_adjustment=is_adjustment,
         idempotency_key=idempotency_key or f"draft:{uuid.uuid4()}",
+        idempotency_fingerprint=fingerprint,
         narration=narration,
     )
     entry.save()

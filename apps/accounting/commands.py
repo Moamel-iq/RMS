@@ -76,7 +76,8 @@ from apps.core.context import audit_context, get_correlation_id
 from apps.core.models import AuditAction
 from apps.core.services import record_audit_event, snapshot
 from apps.organizations.authorization import (
-    ScopeError,
+    OutOfScope,
+    PermissionMissing,
     has_organization_scope,
     organization_scope,
     require_branch_permission,
@@ -136,10 +137,7 @@ def _scoped_account(organization: Organization, account_id: int) -> Account:
     """
     account = Account.objects.filter(organization=organization, pk=account_id).first()
     if account is None:
-        raise ScopeError(
-            _("Account %(id)s does not belong to %(organization)s.")
-            % {"id": account_id, "organization": organization.code}
-        )
+        raise OutOfScope(_("Account %(id)s does not exist.") % {"id": account_id})
     return account
 
 
@@ -147,10 +145,7 @@ def _scoped_cost_center(organization: Organization, cost_center_id: int) -> Cost
     """A cost centre id, resolved inside one organization (ADR-015)."""
     cost_center = CostCenter.objects.filter(organization=organization, pk=cost_center_id).first()
     if cost_center is None:
-        raise ScopeError(
-            _("Cost center %(id)s does not belong to %(organization)s.")
-            % {"id": cost_center_id, "organization": organization.code}
-        )
+        raise OutOfScope(_("Cost center %(id)s does not exist.") % {"id": cost_center_id})
     return cost_center
 
 
@@ -174,10 +169,7 @@ def _resolve_lines(
     for line in lines:
         branch = resolve_branch(actor, line.branch_id)
         if branch.organization_id != organization.pk:
-            raise ScopeError(
-                _("Branch %(branch)s does not belong to %(organization)s.")
-                % {"branch": branch.code, "organization": organization.code}
-            )
+            raise OutOfScope(_("Branch %(id)s does not exist.") % {"id": line.branch_id})
         resolved.append(
             PostingLine(
                 account=_scoped_account(organization, line.account_id),
@@ -233,7 +225,10 @@ def _resolve_entry(actor: User, entry_id: int) -> JournalEntry:
         .first()
     )
     if entry is None:
-        raise JournalEntry.DoesNotExist(f"journal entry {entry_id} does not exist")
+        # Same exception and same wording as the out-of-scope case below:
+        # a caller must not be able to tell a missing entry from one that
+        # belongs to another organization.
+        raise OutOfScope(_("Journal entry %(id)s does not exist.") % {"id": entry_id})
 
     # Raises if the organization itself is out of reach, which covers the
     # cross-organization case before any branch is considered.
@@ -245,7 +240,7 @@ def _resolve_entry(actor: User, entry_id: int) -> JournalEntry:
     reachable = set(accessible_branch_ids(actor))
     touched = {line.branch_id for line in entry.lines.all()}
     if not touched or not touched.issubset(reachable):
-        raise ScopeError(_("Journal entry %(id)s is outside your access.") % {"id": entry_id})
+        raise OutOfScope(_("Journal entry %(id)s does not exist.") % {"id": entry_id})
     return entry
 
 
@@ -257,7 +252,7 @@ def _resolve_period(actor: User, period_id: int) -> AccountingPeriod:
         .first()
     )
     if period is None:
-        raise AccountingPeriod.DoesNotExist(f"accounting period {period_id} does not exist")
+        raise OutOfScope(_("Accounting period %(id)s does not exist.") % {"id": period_id})
     resolve_organization(actor, period.fiscal_year.organization_id)
     return period
 
@@ -496,7 +491,7 @@ def list_journal_entries(
     the caller is not entitled to.
     """
     if not actor.has_perm(VIEW_JOURNAL):
-        raise ScopeError(_("%(permission)s is not held.") % {"permission": VIEW_JOURNAL})
+        raise PermissionMissing(_("%(permission)s is not held.") % {"permission": VIEW_JOURNAL})
 
     branch_ids = accessible_branch_ids(actor)
     organization_ids = set(organization_scope(actor))

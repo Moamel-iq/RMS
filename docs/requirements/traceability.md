@@ -120,6 +120,25 @@ every task's definition of done.
 | LDG-004 | Soft-closed posting needs authority and a reason | accounting | `_require_soft_close_override` | `::TestSoftClosedPeriodOverHttp` | Done | Override audited separately |
 | LDG-005 | A reopening records actor, org, period, both states, reason | accounting | `reopen_accounting_period` | `::test_the_reopening_records_actor_organization_period_states_and_reason` | Done | |
 
+## Task 0.8 — Phase 0 exit gate
+
+| ID | Requirement | App | Implementation | Test | Status | Notes |
+|---|---|---|---|---|---|---|
+| EXIT-001 | ACCOUNTANT holds no structural authority by default | accounting | `ROLE_PERMISSIONS` | `test_permissions.py::test_the_accountant_holds_no_structural_authority` | Done | Chart, cost centres, and all period acts are Manager/Owner |
+| EXIT-002 | OWNER means proprietor, not passive investor | — | ADR-016 amendment | — | Documented | No investor role invented; boundary recorded |
+| EXIT-003 | Out-of-scope objects answer 404 | organizations | `OutOfScope(ObjectDoesNotExist)` | `test_security.py::TestCrossOrganization`, `TestCrossBranch` | Done | Same code and wording as a missing row |
+| EXIT-004 | In-scope without authority answers 403 | organizations | `PermissionMissing(PermissionDenied)` | `::test_9_a_branch_accountant_cannot_close_a_period` | Done | Reaching is weaker than scope |
+| EXIT-005 | Idempotency keys are unique per organization | accounting | `journal_entry_idempotency_key_unique_per_organization` | `test_idempotency.py::TestKeysAreScopedToTheOrganization` | Done | **Fixes a cross-tenant leak** |
+| EXIT-006 | A replay is verified against the request | accounting | `idempotency_fingerprint`, `_replay` | `::TestSameKeyDifferentRequest` | Done | `idempotency_key_conflict` |
+| EXIT-007 | A key cannot reach another organization's journal | accounting | org-scoped lookup + selector | `::test_a_key_cannot_be_used_to_discover_another_organizations_journal` | Done | |
+| EXIT-008 | `source_document_id` carries any identifier type | accounting | `CharField(max_length=64)` | — | Verified, unchanged | int, UUID, or external ref (ADR-017) |
+| EXIT-009 | Losing one of two memberships keeps the role, drops the scope | organizations | `sync_user_role_groups` | `::TestMultiMembershipRecomputation` | Done | Branch and organization variants |
+| EXIT-010 | Global permissions never substitute for object scope | organizations | `authorization.py` | `::test_a_global_permission_never_substitutes_for_scope` | Done | |
+| EXIT-011 | Native foundation screens exist inside the shell | organizations, units, users, core | `urls.py` + `navigation.py` | `apps/core/tests/test_foundation_screens.py` | Done | Org, branch, access, users, units, audit |
+| EXIT-012 | A fresh database migrates from zero and seeds | all | migrations + seed commands | Verified manually on `khan_mandi_freshcheck` | Done | 10 units, 46 accounts, 6 cost centres, 8 role groups |
+| EXIT-013 | Seeding survives a non-UTF-8 console | core, units | `apps.core.console.SeedCommand` | `tests/test_phase_0_exit.py::test_seeding_survives_a_console_that_cannot_render_arabic` | Done | **Fixes a fresh-install failure** |
+| EXIT-014 | The foundations cooperate end to end | all | — | `tests/test_phase_0_exit.py::TestTheFoundationsCooperate` | Done | Services and API, no ORM shortcuts |
+
 ## Not yet mapped
 
 The SRS has not been added to this repository. `docs/requirements/SRS.md` is

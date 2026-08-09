@@ -399,7 +399,14 @@ class TestBuildStatusCard:
         assert "حالة البناء" in body
         assert "نواة المحاسبة" in body
 
-    def test_phase_one_is_shown_as_locked(self, client: Client, staff: User) -> None:
+    def test_phase_one_is_shown_as_ready_once_phase_zero_closes(
+        self, client: Client, staff: User
+    ) -> None:
+        """
+        Was "locked" until the Task 0.8 exit gate passed. Ready is a different
+        claim from not-started: it says the phase before it is finished.
+        """
         client.force_login(staff)
         body = client.get(reverse("users:home")).content.decode()
-        assert "مقفل" in body
+        assert "جاهز للبدء" in body
+        assert "مقفل" not in body

@@ -102,6 +102,12 @@ permissions.
 - Authorization is a **permission plus a scope**, never either alone — ADR-016.
   Check both through `apps/organizations/authorization.py`. Never check a role
   name in a service: role is an input to permission, not a substitute for it.
+- Out of scope is **404** (`OutOfScope`); in scope without authority is **403**
+  (`PermissionMissing`). A 403 about another organization's record confirms it
+  exists, and ids are sequential.
+- Idempotency keys are unique **per organization** and matched against a
+  fingerprint of the request, never on the key alone. A key match with a
+  different fingerprint is `idempotency_key_conflict`, not a retry.
 - Resolve a submitted id **with** the caller (`resolve_branch(user, id)`),
   never fetch-then-check. There must be no moment where an out-of-scope object
   exists in a local variable.
@@ -117,6 +123,10 @@ permissions.
 - Prefer an allowlist of the permitted change over a blocklist of forbidden
   fields in an immutability trigger. A blocklist has to be remembered; see
   migration `accounting/0005` for what forgetting one cost.
+- A seed or reference-data command must subclass `apps.core.console.SeedCommand`
+  and print through `self.write`. Arabic output to a Windows cp1252 console
+  raises `UnicodeEncodeError`, and inside an atomic command that rolls back
+  everything already seeded — a crash caused entirely by the logging.
 - Use `Asia/Baghdad`, and a separate branch business date. Never derive the
   business date as `date(timestamp)`.
 - Preserve Arabic text and RTL requirements.

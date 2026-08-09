@@ -90,14 +90,30 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
 
 # --- Which role holds what ------------------------------------------------
 
-#: The full accounting authority. Held by the posts that answer for the
-#: ledger as a whole.
+#: The full accounting authority. Held by the posts that answer for the ledger
+#: as a whole.
+#:
+#: **OWNER means the trusted organization proprietor** — the person
+#: accountable for the books, not a shareholder. A passive investor or
+#: shareholder must NOT be given this role: their need is to read statements,
+#: and this grants the authority to post, reverse, close, and reopen. When a
+#: passive-investor role is genuinely required it belongs in its own read-only
+#: reporting role; conflating the two would hand mutation powers to somebody
+#: whose only legitimate interest is disclosure.
 _FULL = frozenset(ALL_PERMISSIONS)
 
-#: Day-to-day accounting. Note what is absent: `reopen_period` and both
-#: soft-closed override permissions. Reopening a closed period lets history be
-#: added to after the fact, and an accountant who can both post and reopen can
-#: undo their own close unobserved. It is the Accounting Manager's decision.
+#: Day-to-day accounting, and nothing structural.
+#:
+#: An accountant records transactions. They do not decide the shape of the
+#: chart, the managerial dimensions, or when a period stops accepting entries
+#: — all three are organization-level structural decisions that affect every
+#: branch at once, and `AccountingPeriod` in particular is organization-scoped
+#: state. `manage_accounts`, `manage_cost_centers`, and every period act are
+#: therefore ACCOUNTING_MANAGER / OWNER authority by default.
+#:
+#: These are defaults, not kernel rules. A deployment that wants a senior
+#: accountant to hold more grants it deliberately, by changing this table or
+#: by adding the permission to that user — no accounting code changes.
 _ACCOUNTANT = frozenset(
     {
         VIEW_JOURNAL,
@@ -105,10 +121,6 @@ _ACCOUNTANT = frozenset(
         EDIT_DRAFT,
         POST_JOURNAL,
         REVERSE_JOURNAL,
-        MANAGE_ACCOUNTS,
-        MANAGE_COST_CENTERS,
-        SOFT_CLOSE_PERIOD,
-        CLOSE_PERIOD,
     }
 )
 

@@ -42,6 +42,7 @@ from apps.accounting.services import (
     resolve_period,
 )
 from apps.accounting.validators import PostingLine
+from apps.organizations.authorization import OutOfScope, PermissionMissing
 from apps.organizations.models import Branch, Organization
 from apps.users.models import User
 
@@ -133,7 +134,7 @@ class TestCrossOrganization:
         holds. What they do not hold is Khan Mandi, and no identifier in the
         request body can supply it.
         """
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(OutOfScope):
             create_draft_entry(
                 actor=rival_accountant,
                 organization_id=organization.pk,
@@ -152,7 +153,7 @@ class TestCrossOrganization:
     ) -> None:
         entry = _posted_entry(organization, cash, sales, branch, hall)
 
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(OutOfScope):
             read_journal_entry(actor=rival_accountant, entry_id=entry.pk)
 
     def test_a_foreign_organizations_period_is_inaccessible(
@@ -160,7 +161,7 @@ class TestCrossOrganization:
     ) -> None:
         period = resolve_period(organization=organization, accounting_date=POSTING_DATE)
 
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(OutOfScope):
             soft_close_accounting_period(
                 actor=rival_accountant, period_id=period.pk, reason="not mine"
             )
@@ -184,7 +185,7 @@ class TestCrossBranch:
         reach the organization, so this is the case a naive organization-only
         check would let through.
         """
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(OutOfScope):
             create_draft_entry(
                 actor=branch_accountant_elsewhere,
                 organization_id=organization.pk,
@@ -203,7 +204,7 @@ class TestCrossBranch:
     ) -> None:
         entry = _posted_entry(organization, cash, sales, branch, hall)
 
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(OutOfScope):
             read_journal_entry(actor=branch_accountant_elsewhere, entry_id=entry.pk)
 
     def test_an_entry_spanning_two_branches_needs_authority_at_both(
@@ -235,7 +236,7 @@ class TestCrossBranch:
             idempotency_key="two-branch",
         )
 
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(OutOfScope):
             read_journal_entry(actor=accountant, entry_id=entry.pk)
 
 
@@ -256,7 +257,7 @@ class TestForeignObjectInjection:
         A real account, a real id, belonging to the rival's chart. Refused at
         resolution — it is never even in the queryset the command looks in.
         """
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(OutOfScope):
             create_draft_entry(
                 actor=accountant,
                 organization_id=organization.pk,
@@ -285,7 +286,7 @@ class TestForeignObjectInjection:
         branch: Branch,
         other_hall: CostCenter,
     ) -> None:
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(OutOfScope):
             create_draft_entry(
                 actor=accountant,
                 organization_id=organization.pk,
@@ -311,7 +312,7 @@ class TestForeignObjectInjection:
         other_branch: Branch,
         hall: CostCenter,
     ) -> None:
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(OutOfScope):
             create_draft_entry(
                 actor=accountant,
                 organization_id=organization.pk,
@@ -387,13 +388,15 @@ class TestUnauthorizedActs:
         self, accountant: User, organization: Organization
     ) -> None:
         """
-        They hold `accounting.close_period` — closing is accountant work — but
-        they hold it nowhere, because a period is organization state.
+        403, not 404: the period belongs to an organization they reach through
+        their branch, so it is not foreign to them. What they lack is the
+        organization-level authority to seal it — closing a period stops every
+        branch posting, not just theirs.
         """
         period = resolve_period(organization=organization, accounting_date=POSTING_DATE)
-        assert accountant.has_perm("accounting.close_period")
+        assert not accountant.has_perm("accounting.close_period")
 
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(PermissionMissing):
             close_accounting_period(actor=accountant, period_id=period.pk, reason="month end")
 
     def test_10_a_cashier_cannot_reopen_a_period(
@@ -417,7 +420,7 @@ class TestUnauthorizedActs:
         _close_through(organization, period)
 
         assert not accountant.has_perm("accounting.reopen_period")
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(PermissionMissing):
             reopen_accounting_period(
                 actor=accountant, period_id=period.pk, reason="reopening March"
             )
@@ -457,7 +460,7 @@ class TestUnauthorizedActs:
         period = resolve_period(organization=organization, accounting_date=POSTING_DATE)
         _close_through(organization, period)
 
-        with pytest.raises(PermissionDenied):
+        with pytest.raises(OutOfScope):
             reopen_accounting_period(
                 actor=rival_manager, period_id=period.pk, reason="reaching across"
             )

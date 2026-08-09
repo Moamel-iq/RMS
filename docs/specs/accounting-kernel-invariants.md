@@ -92,6 +92,34 @@ adjustment into none of them. `accessible_branches` now reaches branches
 through an organization membership as well as a branch one. The containment
 runs one way only — see ADR-016.
 
+### Task 0.8 additions (Phase 0 exit gate)
+
+| Rule | Where | Test |
+|---|---|---|
+| An idempotency key is unique per **organization** | `journal_entry_idempotency_key_unique_per_organization` | `test_idempotency.py::TestKeysAreScopedToTheOrganization` |
+| A replay is verified against a fingerprint of the request | `services._replay`, `_idempotency_fingerprint` | `::TestSameKeyDifferentRequest` |
+| A key never returns another organization's journal | org-scoped lookup and selector | `::test_a_key_cannot_be_used_to_discover_another_organizations_journal` |
+| Out of scope answers 404; in scope without authority answers 403 | `OutOfScope`, `PermissionMissing` | `test_security.py`, `test_api.py` |
+| A seed survives a console that cannot encode Arabic | `apps.core.console.SeedCommand` | `tests/test_phase_0_exit.py` |
+| The foundations cooperate end to end | — | `tests/test_phase_0_exit.py::TestTheFoundationsCooperate` |
+
+**Two more defects found by tests rather than review.**
+
+`idempotency_key` was globally unique and matched on the key alone. Both
+halves were wrong, and together they were a cross-tenant read: posting into
+organization B with a key organization A had already used returned *A's
+journal*. Keys are frequently predictable — upstream modules build them from
+document numbers — so this was reachable by guessing a string. It is now
+unique per organization, looked up per organization, and matched against a
+fingerprint of the request.
+
+`seed_units` printed Arabic to stdout inside an `@transaction.atomic` command.
+On a Windows cp1252 console that raises `UnicodeEncodeError`, which rolled
+back every unit already written: a fresh install ended with a traceback and an
+empty table. No test caught it because the development database already held
+units and pytest captures stdout as UTF-8; it took a genuinely empty database
+on a real console.
+
 ### Enforcement beyond the list
 
 - **Idempotency** — a unique `idempotency_key`; a retried command returns the

@@ -30,6 +30,7 @@ from apps.organizations.models import Branch, Organization, Role
 from apps.organizations.permissions import role_group_name, roles_held_by
 from apps.organizations.services import (
     grant_branch_access,
+    grant_organization_access,
     revoke_branch_access,
     revoke_organization_access,
 )
@@ -110,11 +111,48 @@ class TestRoleMapping:
         """
         assert REOPEN_PERIOD not in permissions_for_role(role)
 
-    def test_the_branch_accountant_may_post_but_not_override_a_soft_close(self) -> None:
+    def test_the_branch_accountant_records_transactions_and_nothing_structural(
+        self,
+    ) -> None:
+        """
+        An accountant records transactions. The shape of the chart, the
+        managerial dimensions, and when a period stops accepting entries are
+        organization-level structural decisions affecting every branch at
+        once — Accounting Manager authority by default.
+        """
         granted = permissions_for_role(Role.ACCOUNTANT)
-        assert "accounting.post_journal" in granted
-        assert "accounting.post_soft_closed_adjustment" not in granted
-        assert "accounting.reverse_in_soft_closed_period" not in granted
+
+        assert granted == frozenset(
+            {
+                "accounting.view_journal",
+                "accounting.create_draft",
+                "accounting.edit_draft",
+                "accounting.post_journal",
+                "accounting.reverse_journal",
+            }
+        )
+
+    @pytest.mark.parametrize(
+        "permission",
+        [
+            "accounting.manage_accounts",
+            "accounting.manage_cost_centers",
+            "accounting.soft_close_period",
+            "accounting.close_period",
+            "accounting.reopen_period",
+            "accounting.post_soft_closed_adjustment",
+            "accounting.reverse_in_soft_closed_period",
+        ],
+    )
+    def test_the_accountant_holds_no_structural_authority(self, permission: str) -> None:
+        assert permission not in permissions_for_role(Role.ACCOUNTANT)
+
+    def test_those_seven_remain_manager_and_owner_authority(self) -> None:
+        for role in (Role.ACCOUNTING_MANAGER, Role.OWNER):
+            granted = permissions_for_role(role)
+            assert "accounting.manage_accounts" in granted
+            assert "accounting.close_period" in granted
+            assert "accounting.reopen_period" in granted
 
     def test_operational_roles_hold_no_accounting_authority(self) -> None:
         assert permissions_for_role(Role.CASHIER) == frozenset()
@@ -190,6 +228,113 @@ class TestRoleGroupsFollowMemberships:
         revoke_branch_access(user=user, branch=branch)
 
         assert user.groups.filter(name="night-shift").exists()
+
+
+class TestMultiMembershipRecomputation:
+    """
+    Django groups are global; scope is per membership. The two must be able to
+    disagree, and the disagreement has to resolve in the right direction.
+
+    The dangerous case is one user holding the same role in two places. Strip
+    the group when the *first* membership ends and you silently disarm them
+    where they still work; keep the branch scope when the membership ends and
+    you have left a door open. Both halves are checked here, in order.
+    """
+
+    def test_the_full_two_branch_sequence(self, branch: Branch, second_branch: Branch) -> None:
+        user = User.objects.create_user(username="covers-two", password="pw-1234")
+        grant_branch_access(user=user, branch=branch, role=Role.ACCOUNTANT)
+        grant_branch_access(user=user, branch=second_branch, role=Role.ACCOUNTANT)
+
+        user = User.objects.get(pk=user.pk)
+        assert user.has_perm("accounting.post_journal")
+        assert has_branch_permission(user, "accounting.post_journal", branch)
+        assert has_branch_permission(user, "accounting.post_journal", second_branch)
+
+        # --- Branch A membership ends -------------------------------------
+        revoke_branch_access(user=user, branch=branch)
+        user = User.objects.get(pk=user.pk)
+
+        # The global permission REMAINS: Karrada still requires it.
+        assert user.has_perm("accounting.post_journal")
+        assert user.groups.filter(name=role_group_name(Role.ACCOUNTANT)).exists()
+        # Bunook scope is gone immediately, even though the permission is not.
+        assert not has_branch_permission(user, "accounting.post_journal", branch)
+        assert has_branch_permission(user, "accounting.post_journal", second_branch)
+
+        # --- Branch B membership ends too ---------------------------------
+        revoke_branch_access(user=user, branch=second_branch)
+        user = User.objects.get(pk=user.pk)
+
+        # Now nothing requires the role, so the group authority goes.
+        assert not user.has_perm("accounting.post_journal")
+        assert not user.groups.filter(name=role_group_name(Role.ACCOUNTANT)).exists()
+        assert not has_branch_permission(user, "accounting.post_journal", second_branch)
+
+    def test_the_organization_equivalent(
+        self, organization: Organization, other_organization: Organization
+    ) -> None:
+        user = User.objects.create_user(username="two-orgs", password="pw-1234")
+        grant_organization_access(
+            user=user, organization=organization, role=Role.ACCOUNTING_MANAGER
+        )
+        grant_organization_access(
+            user=user, organization=other_organization, role=Role.ACCOUNTING_MANAGER
+        )
+
+        user = User.objects.get(pk=user.pk)
+        assert has_organization_permission(user, REOPEN_PERIOD, organization)
+        assert has_organization_permission(user, REOPEN_PERIOD, other_organization)
+
+        revoke_organization_access(user=user, organization=organization)
+        user = User.objects.get(pk=user.pk)
+
+        assert user.has_perm(REOPEN_PERIOD)  # the rival still requires it
+        assert not has_organization_permission(user, REOPEN_PERIOD, organization)
+        assert has_organization_permission(user, REOPEN_PERIOD, other_organization)
+
+        revoke_organization_access(user=user, organization=other_organization)
+        user = User.objects.get(pk=user.pk)
+
+        assert not user.has_perm(REOPEN_PERIOD)
+        assert not has_organization_permission(user, REOPEN_PERIOD, other_organization)
+
+    def test_a_branch_role_kept_elsewhere_does_not_keep_organization_scope(
+        self, organization: Organization, branch: Branch
+    ) -> None:
+        """
+        The group survives on a branch membership. Organization scope does not
+        come from a group at all, so it goes with the organization membership
+        and nothing else can hold it open.
+        """
+        user = User.objects.create_user(username="mixed", password="pw-1234")
+        grant_branch_access(user=user, branch=branch, role=Role.ACCOUNTING_MANAGER)
+        grant_organization_access(
+            user=user, organization=organization, role=Role.ACCOUNTING_MANAGER
+        )
+
+        revoke_organization_access(user=user, organization=organization)
+        user = User.objects.get(pk=user.pk)
+
+        assert user.has_perm(REOPEN_PERIOD)  # branch membership keeps the group
+        assert not has_organization_scope(user, organization)
+        assert not has_organization_permission(user, REOPEN_PERIOD, organization)
+
+    def test_a_global_permission_never_substitutes_for_scope(
+        self, branch: Branch, second_branch: Branch, organization: Organization
+    ) -> None:
+        """
+        The claim in one assertion. `has_perm` is True everywhere, and it
+        authorizes exactly one branch and no organization.
+        """
+        user = User.objects.create_user(username="one-branch", password="pw-1234")
+        grant_branch_access(user=user, branch=branch, role=Role.ACCOUNTANT)
+        user = User.objects.get(pk=user.pk)
+
+        assert user.has_perm("accounting.post_journal")
+        assert has_branch_permission(user, "accounting.post_journal", branch)
+        assert not has_branch_permission(user, "accounting.post_journal", second_branch)
+        assert not has_organization_scope(user, organization)
 
 
 class TestPermissionIsNotAuthorization:

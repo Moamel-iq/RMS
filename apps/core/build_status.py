@@ -24,7 +24,12 @@ class BuildState:
     COMPLETE = "COMPLETE"
     IN_PROGRESS = "IN_PROGRESS"
     NOT_STARTED = "NOT_STARTED"
+    #: Blocked by an earlier phase that is not finished.
     LOCKED = "LOCKED"
+    #: Unblocked and not begun. Distinct from LOCKED, which says the phase
+    #: before it is unfinished, and from NOT_STARTED, which says nothing about
+    #: whether it may start.
+    READY = "READY"
 
 
 STATE_LABELS: dict[str, Label] = {
@@ -32,6 +37,7 @@ STATE_LABELS: dict[str, Label] = {
     BuildState.IN_PROGRESS: _("قيد التنفيذ"),
     BuildState.NOT_STARTED: _("لم يبدأ"),
     BuildState.LOCKED: _("مقفل"),
+    BuildState.READY: _("جاهز للبدء"),
 }
 
 STATE_CHIPS = {
@@ -39,6 +45,7 @@ STATE_CHIPS = {
     BuildState.IN_PROGRESS: "chip--brand",
     BuildState.NOT_STARTED: "chip--neutral",
     BuildState.LOCKED: "chip--off",
+    BuildState.READY: "chip--brand",
 }
 
 
@@ -71,6 +78,7 @@ BUILD_ITEMS: tuple[BuildItem, ...] = (
     BuildItem("0.5", _("أساس التدقيق"), BuildState.COMPLETE),
     BuildItem("0.6", _("نواة المحاسبة"), BuildState.COMPLETE),
     BuildItem("0.7", _("الصلاحيات والواجهات"), BuildState.COMPLETE),
-    BuildItem("0.8", _("إغلاق المرحلة ٠"), BuildState.IN_PROGRESS),
-    BuildItem("1", _("المرحلة ١ — المخزون"), BuildState.LOCKED),
+    BuildItem("0.8", _("إغلاق المرحلة ٠"), BuildState.COMPLETE),
+    # Unlocked by the Task 0.8 exit gate. Not started.
+    BuildItem("1", _("المرحلة ١ — المخزون"), BuildState.READY),
 )

@@ -485,8 +485,23 @@ class JournalEntry(TimeStampedModel):
         help_text=_("Blank for a manual journal, which has no upstream document."),
     )
 
+    # --- Idempotency ------------------------------------------------------
     #: A retried posting command must not create a second entry.
-    idempotency_key = models.CharField(_("idempotency key"), max_length=128, unique=True)
+    #:
+    #: Unique **per organization**, not globally. A global unique key is a
+    #: tenancy leak in two directions: one organization's choice of key would
+    #: block another's, and a replay lookup that matched on the key alone would
+    #: hand back a journal belonging to somebody else entirely.
+    idempotency_key = models.CharField(_("idempotency key"), max_length=128)
+
+    #: A digest of the command that produced this entry — its dates, its source
+    #: identity, and its lines. A replay is only a replay if it asks for the
+    #: same thing; matching on the key alone would let a caller reuse a key
+    #: with different lines and silently receive the earlier journal instead of
+    #: the one they asked for.
+    idempotency_fingerprint = models.CharField(
+        _("idempotency fingerprint"), max_length=64, blank=True
+    )
 
     posting_rule_version = models.CharField(_("posting rule version"), max_length=32, blank=True)
     narration = models.TextField(_("narration"), blank=True)
@@ -547,6 +562,12 @@ class JournalEntry(TimeStampedModel):
             models.CheckConstraint(
                 condition=~Q(status=JournalEntryStatus.POSTED) | Q(posted_at__isnull=False),
                 name="journal_entry_posted_has_timestamp",
+            ),
+            # Per organization. Two organizations may each use "invoice-145"
+            # as a key without one blocking or revealing the other's journal.
+            models.UniqueConstraint(
+                fields=["organization", "idempotency_key"],
+                name="journal_entry_idempotency_key_unique_per_organization",
             ),
             # The closed enum, at the database. A value the application does
             # not know is not merely unexpected — it is a source identity that

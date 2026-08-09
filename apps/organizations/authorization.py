@@ -19,7 +19,7 @@ the bug: it invites a code path that fetches, uses, and forgets to check.
 
 from __future__ import annotations
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.utils.translation import gettext_lazy as _
 
 from apps.organizations.models import Branch, Organization, OrganizationMembership
@@ -27,13 +27,28 @@ from apps.organizations.selectors import accessible_branches, can_access_branch
 from apps.users.models import User
 
 
-class ScopeError(PermissionDenied):
+class OutOfScope(ObjectDoesNotExist):
     """
-    The caller named a place they do not reach.
+    The caller named something outside their organization or branch scope.
 
-    A subclass of PermissionDenied rather than a 404: the API answers 403 so
-    the caller learns their authority is insufficient, instead of being told
-    the record does not exist and retrying forever.
+    Deliberately an `ObjectDoesNotExist`, so the API answers **404**. Outside
+    the caller's tenancy, a record does not exist as far as they are
+    concerned, and saying "403" about it confirms that it is real — which
+    turns any id-guessing loop into a census of another organization's
+    documents, invoice numbers, and account ids.
+
+    The messages here never say *why* something is unreachable. A missing
+    record and a record belonging to someone else must be indistinguishable,
+    or the status code is the only thing that was fixed.
+    """
+
+
+class PermissionMissing(PermissionDenied):
+    """
+    The caller reaches the object but may not perform this act on it.
+
+    **403**, and the honest answer: they can see this journal, they simply may
+    not post it. Nothing is disclosed that they were not already entitled to.
     """
 
 
@@ -89,9 +104,28 @@ def has_branch_permission(user: User, permission: str, branch: Branch) -> bool:
 def require_organization_permission(
     user: User, permission: str, organization: Organization
 ) -> None:
-    """Raise unless the user may exercise this permission over this organization."""
+    """
+    Raise unless the user may exercise this permission over this organization.
+
+    Two different failures, and the difference is *reachability*, not
+    authority:
+
+    * The caller cannot reach this organization at all — no membership in it,
+      and no branch of it. It is not theirs to know about, so **404**.
+    * The caller reaches it, through an organization or a branch membership,
+      but lacks organization-level authority for this act. A branch
+      accountant asking to close a period in their own organization is told
+      **403** — the period is not foreign to them, they simply may not.
+
+    Note that reaching an organization is deliberately weaker than holding
+    organization *scope*. Reaching it only decides whether they may be told
+    "no"; it never grants anything.
+    """
+    # Raises OutOfScope (404) when the organization is not reachable at all.
+    resolve_organization(user, organization.pk)
+
     if not has_organization_permission(user, permission, organization):
-        raise ScopeError(
+        raise PermissionMissing(
             _("%(permission)s is not held over organization %(organization)s.")
             % {"permission": permission, "organization": organization.code}
         )
@@ -99,8 +133,10 @@ def require_organization_permission(
 
 def require_branch_permission(user: User, permission: str, branch: Branch) -> None:
     """Raise unless the user may exercise this permission at this branch."""
-    if not has_branch_permission(user, permission, branch):
-        raise ScopeError(
+    if not can_access_branch(user, branch):
+        raise OutOfScope(_("Branch %(id)s does not exist.") % {"id": branch.pk})
+    if not user.is_authenticated or not user.is_active or not user.has_perm(permission):
+        raise PermissionMissing(
             _("%(permission)s is not held at branch %(branch)s.")
             % {"permission": permission, "branch": branch.code}
         )
@@ -111,14 +147,15 @@ def resolve_organization(user: User, organization_id: int) -> Organization:
     Turn a submitted organization id into an organization the caller reaches.
 
     Reaching an organization means holding organization-wide authority in it,
-    or working at one of its branches. Everything else raises, whether the row
-    exists or not — a caller who cannot reach it learns the same thing either
-    way.
+    or working at one of its branches. Everything else raises `OutOfScope`,
+    whether the row exists or not, and with the same message either way — an
+    organization the caller cannot reach must be indistinguishable from one
+    that was never created.
     """
     reachable = set(organization_scope(user))
     reachable.update(accessible_branches(user).values_list("organization_id", flat=True))
     if organization_id not in reachable:
-        raise ScopeError(_("Organization %(id)s is outside your access.") % {"id": organization_id})
+        raise OutOfScope(_("Organization %(id)s does not exist.") % {"id": organization_id})
     return Organization.objects.get(pk=organization_id)
 
 
@@ -126,5 +163,5 @@ def resolve_branch(user: User, branch_id: int) -> Branch:
     """Turn a submitted branch id into a branch the caller may act on."""
     branch = accessible_branches(user).filter(pk=branch_id).first()
     if branch is None:
-        raise ScopeError(_("Branch %(id)s is outside your access.") % {"id": branch_id})
+        raise OutOfScope(_("Branch %(id)s does not exist.") % {"id": branch_id})
     return branch

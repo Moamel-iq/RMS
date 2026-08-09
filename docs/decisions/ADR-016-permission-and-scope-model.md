@@ -98,9 +98,9 @@ checked against, so "who was allowed" and "who is recorded" cannot disagree.
 - **Object-level permissions (django-guardian).** A row per user per object.
   Correct in general and far more machinery than a two-level hierarchy needs;
   the scope here is structural, not per-record.
-- **404 for out-of-scope objects** instead of 403. Hides existence, and sends
-  an honest client hunting for a record that is there. A caller who probes
-  learns the same thing after two requests either way. See Consequences.
+- **403 for out-of-scope objects** instead of 404. Tells an honest client
+  plainly that their authority is insufficient, and tells a dishonest one that
+  the record is real. **Rejected — see the amendment below.**
 
 ## Consequences
 
@@ -112,9 +112,64 @@ checked against, so "who was allowed" and "who is recorded" cannot disagree.
 - New modules add permissions to the existing role groups. They do not invent
   a parallel scoping mechanism, and `apps/organizations/authorization.py` is
   the only place that answers "may this user act here".
-- Out-of-scope access returns **403 and not 404**, which confirms a record
-  exists to a caller who cannot read it. Accepted deliberately: this is an
-  internal ERP where the alternative sends honest clients into retry loops.
 - `role_at_branch` still answers only about branch memberships. An
   organization member holds no branch *post*, which is the honest answer;
   authorization does not use it.
+
+## Amendment — role defaults (approved 2026-08-09, Task 0.8)
+
+| Role | Accounting permissions by default |
+|---|---|
+| OWNER | all twelve |
+| ACCOUNTING_MANAGER | all twelve |
+| ACCOUNTANT | `view_journal`, `create_draft`, `edit_draft`, `post_journal`, `reverse_journal` |
+| MANAGER, PURCHASING, VIEWER | `view_journal` |
+| CASHIER, STOREKEEPER | none |
+
+**An accountant records transactions and decides nothing structural.** The
+shape of the chart, the managerial dimensions, and when a period stops
+accepting entries are organization-level decisions that affect every branch at
+once — `manage_accounts`, `manage_cost_centers`, and all five period-and-
+override permissions are ACCOUNTING_MANAGER / OWNER authority.
+
+These are **defaults, not kernel rules**. A deployment wanting a senior
+accountant to hold more grants it deliberately; no accounting code changes.
+
+**OWNER means the trusted organization proprietor** — the person accountable
+for the books. A passive investor or shareholder must not hold this role: their
+legitimate interest is disclosure, and OWNER carries the authority to post,
+reverse, close, and reopen. A read-only reporting role for shareholders is a
+real future need and deliberately does **not** exist yet; when it arrives it
+must be its own role rather than a relabelling of this one.
+
+## Amendment — out of scope is 404, not 403 (approved 2026-08-09, Task 0.8)
+
+The original decision answered 403 for anything the caller could not reach.
+That is reversed. Two distinct answers now:
+
+| Situation | Answer | Exception |
+|---|---|---|
+| Outside the caller's organization or branch scope | **404** | `OutOfScope(ObjectDoesNotExist)` |
+| Inside their scope, lacking authority for this act | **403** | `PermissionMissing(PermissionDenied)` |
+
+**Why the reversal.** A 403 about another organization's record confirms that
+the record is real. Ids are sequential, so a caller who can enumerate them and
+read the status code obtains a census of a competitor's journals, invoice
+numbers, accounts, and cost centres without ever reading a field. The status
+code was the leak.
+
+Outside a caller's tenancy, a record does not exist *as far as they are
+concerned*, and the API says exactly that — same code, same wording, whether
+the row is absent or simply not theirs. Anything less makes the two
+distinguishable and the fix cosmetic.
+
+**Reaching is weaker than scope.** `require_organization_permission` answers
+404 only when the caller cannot reach the organization at all — no membership
+in it and no branch of it. A branch accountant asking to close a period in
+their *own* organization gets 403: the period is not foreign to them, they
+simply may not seal it for every other branch. Reaching decides whether they
+may be told "no"; it never grants anything.
+
+The cost is the one the original decision named: an honest client who has
+genuinely lost access sees 404 and may look for a record that exists. That is
+accepted. Confirming a competitor's data exists is the worse failure.

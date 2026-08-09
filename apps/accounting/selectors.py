@@ -111,8 +111,16 @@ def entries_for_period(period: AccountingPeriod) -> QuerySet[JournalEntry]:
     return JournalEntry.objects.filter(period=period).select_related("organization")
 
 
-def entry_by_idempotency_key(key: str) -> JournalEntry | None:
-    return JournalEntry.objects.filter(idempotency_key=key).first()
+def entry_by_idempotency_key(*, organization: Organization, key: str) -> JournalEntry | None:
+    """
+    The entry a key produced, within one organization.
+
+    The organization is required, not optional. A lookup on the key alone
+    would return another organization's journal to anyone who guessed their
+    key — and keys are frequently predictable, because upstream modules build
+    them from document numbers.
+    """
+    return JournalEntry.objects.filter(organization=organization, idempotency_key=key).first()
 
 
 def chart_of_accounts(*, organization: Organization) -> QuerySet[Account]:

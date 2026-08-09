@@ -16,9 +16,9 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from django.core.management.base import BaseCommand
 from django.db import transaction
 
+from apps.core.console import SeedCommand
 from apps.units.models import Dimension, UnitOfMeasure
 
 #: code, ar, en, dimension, factor to base, is base
@@ -41,7 +41,7 @@ STANDARD_UNITS: list[tuple[str, str, str, str, str, bool]] = [
 ]
 
 
-class Command(BaseCommand):
+class Command(SeedCommand):
     help = "Create or update the standard units of measure. Idempotent."
 
     @transaction.atomic
@@ -63,7 +63,7 @@ class Command(BaseCommand):
             )
             if created:
                 created_count += 1
-                self.stdout.write(f"  + {unit.code:<6} {name_ar}")
+                self.write(f"  + {unit.code:<6} {name_ar}")
             else:
                 updated_count += 1
 

@@ -51,6 +51,7 @@ CONFLICT_CODES = frozenset(
     {
         "already_reversed",
         "cannot_reverse_a_reversal",
+        "idempotency_key_conflict",
         "not_a_draft",
         "source_event_already_posted",
     }
@@ -88,12 +89,14 @@ def _error_code(exc: ValidationError) -> str:
 @api.exception_handler(PermissionDenied)
 def on_permission_denied(request: HttpRequest, exc: PermissionDenied) -> Any:
     """
-    403, never 404.
+    403 — reachable, but not permitted.
 
-    Naming a branch the caller cannot reach is answered with "you may not",
-    not "it does not exist". A 404 would send an honest client into a retry
-    loop looking for a record that is there, and tells a dishonest one the
-    same thing anyway after two requests.
+    The caller is inside the organization or branch and lacks the authority
+    for this particular act: they may read this journal, they may not post it.
+    Nothing is disclosed that they were not already entitled to see.
+
+    Being outside the scope entirely is a different answer — `OutOfScope` is
+    an `ObjectDoesNotExist` and lands on the 404 handler below.
     """
     return api.create_response(
         request,
@@ -114,6 +117,14 @@ def on_validation_error(request: HttpRequest, exc: ValidationError) -> Any:
 
 @api.exception_handler(ObjectDoesNotExist)
 def on_missing(request: HttpRequest, exc: ObjectDoesNotExist) -> Any:
+    """
+    404 — it does not exist, as far as this caller is concerned.
+
+    Covers both a genuinely absent row and one outside the caller's tenancy,
+    deliberately with the same code and the same wording. Answering 403 for
+    the second confirms the record is real, which turns an id-guessing loop
+    into a census of another organization's documents and invoice numbers.
+    """
     return api.create_response(request, {"code": "not_found", "message": str(exc)}, status=404)
 
 

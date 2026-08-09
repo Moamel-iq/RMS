@@ -64,12 +64,42 @@ Two keys answer two questions, and the service combines them into one rule:
 
 | Presented | Meaning | Result |
 |---|---|---|
-| Same `idempotency_key` | the same *command* again | the existing entry is returned |
+| Same key, same request, same organization | a retry | the existing entry is returned |
+| Same key, **different** request | a key reused for something else | `idempotency_key_conflict` |
+| Same key, another organization | unrelated work | an independent operation |
 | Same source identity, different key | a new command for an event already recorded | `source_event_already_posted` |
 
-Neither path can create a second journal, and neither surfaces a raw
-`IntegrityError`. The conflict is a domain error naming the entry that already
-holds the event, so an operator can go and look at it.
+Neither path can create a second journal, and none surfaces a raw
+`IntegrityError`. A conflict names the entry that already holds the event, so
+an operator can go and look at it.
+
+### The key is scoped and verified (Task 0.8)
+
+`idempotency_key` was globally unique and matched on its own. Both were wrong.
+
+**Unique per organization.** A global key is a tenancy leak in two directions:
+one organization's choice of key blocks another's, and — far worse — a replay
+lookup matching on the key alone returned *another organization's journal* to
+whoever guessed the string. Keys are frequently predictable, because upstream
+modules build them from document numbers, so guessing is realistic rather than
+theoretical. The constraint is now
+`UNIQUE (organization, idempotency_key)` and every lookup filters by
+organization in the query itself.
+
+**Matched against a fingerprint.** `idempotency_fingerprint` is a SHA-256
+digest of what the command actually asks for: the command name, the accounting
+and document dates, the adjustment flag, the source identity, and every line's
+account, branch, cost centre, and both amounts. A key that returns with a
+different fingerprint is not a retry — it is one request id used for two
+different requests — and returning the earlier entry would let a caller correct
+an amount, keep the key, and receive the *uncorrected* journal while believing
+their correction had posted.
+
+Narration is deliberately outside the fingerprint. It describes the entry
+without changing what it does to the ledger, and a client that regenerates
+descriptive text on retry should not be told its retry is a conflict. Amounts
+enter the digest quantized and stringified: a float would make two identical
+requests hash differently on different machines.
 
 ### Immutable once posted
 
@@ -94,7 +124,13 @@ accounting answer was never a third mirror: post a replacement entry.
 - **`idempotency_key` alone**, as Task 0.6 left it. Unique, and it depends on
   every caller composing the key identically forever. Two modules with two
   conventions produce two journals for one invoice and neither is wrong on its
-  own terms.
+  own terms. It was also globally unique and matched without verifying the
+  request — see "The key is scoped and verified" above.
+- **A key derived from the source identity**, so the two guarantees become
+  one. Tempting and wrong: they answer different questions. A derived key
+  cannot distinguish "the same command again" from "a second command about the
+  same event", and the second is exactly the case that must be refused rather
+  than silently answered.
 - **A free-text `source_event`.** Flexible, and one typo silently defeats the
   uniqueness guarantee.
 - **Reusing `status` as the source event.** They look similar until the first
@@ -117,3 +153,9 @@ accounting answer was never a third mirror: post a replacement entry.
 - The index is partial, so manual journals are unconstrained by it and remain
   protected by `idempotency_key` alone.
 - Reversing a reversal is refused. Replacement is the documented correction.
+- `source_document_id` is a `CharField(max_length=64)`, and stays one. That is
+  the canonical type-agnostic representation the decision needs: it carries an
+  integer primary key, a UUID (36 characters), an external system's reference,
+  or an imported document number, without any module having to agree with any
+  other about primary-key types. Reviewed in Task 0.8 and deliberately not
+  changed — integers are the case it would have been *wrong* to model.
