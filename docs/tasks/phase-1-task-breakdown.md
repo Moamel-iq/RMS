@@ -1,6 +1,6 @@
 # Phase 1 — Inventory: task breakdown and exit gates
 
-Proposed by Task 1.0. The order is dependency-driven, not size-driven, and the
+Approved 2026-08-09. The order is dependency-driven, not size-driven, and the
 governing principle is the same one that made Phase 0 work: **the ledger must
 be trustworthy before anything is allowed to depend on it.**
 
@@ -22,19 +22,20 @@ movement type before four more are added on top of it.
 
 ## The tasks
 
-### Task 1.0 — Domain specification *(this task)*
+### Task 1.0 — Domain specification — **COMPLETE**
 
 Specification, invariants, task breakdown, decision table. No code.
 
-**Exit:** the decision table is approved, or amended and then approved.
+**Exit met:** all fourteen decisions approved with amendments on 2026-08-09.
 
 ---
 
 ### Task 1.1 — Master data: categories, items, conversions, warehouses
 
-`ItemCategory`, `InventoryItem`, `ItemUnitConversion`, `Warehouse`,
-`BranchItemSetting`, the 18 permissions with organization/branch/**warehouse**
-scope, the command API, and the first four native screens.
+`ItemCategory`, `PackageUnit`, `InventoryItem`, `ItemPackageConversion`,
+`BranchItemSetting`, `Warehouse`, the `BranchMembership` warehouse-scope
+extension, the 18 permissions with organization/branch/**warehouse** scope,
+service-only master-data writes, the API, and five native screens.
 
 Depends on: 1.0 decisions 1–5, 7, 14.
 
@@ -43,8 +44,14 @@ Depends on: 1.0 decisions 1–5, 7, 14.
 - Item code unique per organization; archived codes reserved.
 - Leaf-only category rule enforced with a test for each direction.
 - `base_unit` cannot change once movements exist (tested against a movement).
+- `PackageUnit` carries no factor; conversions resolve **directly** to the
+  item's base unit with no chaining.
 - `FIXED` and `VARIABLE` conversions both validated; overlap refused by the
-  exclusion constraint.
+  exclusion constraint; one default purchase package per item.
+- Category guards: cycles, depth >3, non-leaf items, items-then-children, and
+  children-then-items all refused.
+- Warehouse scope: `SELECTED` restricts, `ALL` includes future warehouses,
+  selection cannot cross branches, system `IN_TRANSIT` protected.
 - Warehouse scope enforced; a foreign branch's warehouse is a **404**.
 - No float in storage or transport; decimals as exact strings both ways.
 - Screens render inside the shell, RTL, no Django admin for normal users.

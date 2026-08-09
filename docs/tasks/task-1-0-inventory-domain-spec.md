@@ -1,10 +1,12 @@
 # Task 1.0 — Inventory domain specification
 
-- **Status:** Proposed. Specification only — no models, migrations, services,
-  API, or UI are created by this task.
+- **Status:** **Accepted with amendments (2026-08-09).** Specification only —
+  Task 1.0 created no models, migrations, services, API, or UI. The amendments
+  applied at approval are marked *(amended)* where they changed a
+  recommendation.
 - **Date:** 2026-08-09
 - **Branch:** `phase/1-inventory`, from `phase-0-complete` (`7073f95`)
-- **Related:** ADR-006, ADR-007, ADR-008, ADR-012 – ADR-017,
+- **Related:** ADR-006, ADR-007, ADR-008, ADR-012 – ADR-018,
   `docs/invariants/inventory-invariants.md`,
   `docs/tasks/phase-1-task-breakdown.md`
 
@@ -31,13 +33,34 @@ Read for this specification:
 
 **Two things the task brief assumed exist, and do not.**
 
-1. **There is no SRS.** `docs/requirements/SRS.md` is referenced by `CLAUDE.md`
-   and has never been added. `docs/requirements/` contains only
-   `traceability.md`. Every requirement below is therefore traceable to the
+1. **There is no SRS. SRS reconciliation is DEFERRED.**
+   `docs/requirements/SRS.md` is referenced by `CLAUDE.md` and has never been
+   added. Searched again at the start of Task 1.1 across the whole Desktop
+   tree: the only documents present are the architecture plan, the
+   installation plan, the environment bootstrap note, and three operational
+   PDFs (a purchase request, a July claim statement, a contract). None is a
+   requirements specification.
+
+   **The correct statement of what has been checked is therefore:**
+
+   > No contradiction was found against the architecture plan, the approved
+   > ADRs, and the current implementation. Reconciliation against the
+   > authoritative SRS has not been completed because the SRS is absent from
+   > the repository.
+
+   Any stronger claim — "nothing contradicts the SRS" — is unsupportable and
+   must not appear in this repository. Every requirement below traces to the
    architecture plan or to an ADR, never to a business requirements document,
-   and the requirement IDs remain local to this repository. This is unchanged
-   from Phase 0 and is recorded again here because a specification that
-   implies an SRS exists would be misleading.
+   and the `INV-*` and `AT-*` identifiers remain **repository-local** until an
+   authoritative SRS is supplied and mapped.
+
+   When the SRS arrives: place the original under
+   `docs/requirements/source/`, preserve it byte-for-byte, record its
+   filename, version or date, and SHA-256, and re-derive traceability from it.
+   Do not rewrite its content.
+
+   Task 1.1 proceeds under the approved architecture baseline. That is a
+   deliberate, recorded limitation, not an oversight.
 2. **The `AT-xxx` acceptance identifiers do not exist anywhere** in the
    repository or in the source documents. They are *established* by this task
    from the descriptions supplied with it, not referenced. See §14.
@@ -87,12 +110,29 @@ as four different economic events. A module that trims inconsistently between
 its normal path and its retry path would double-post, and the constraint that
 exists to prevent exactly that would not fire.
 
-**Recommendation (Task 1.2, before any inventory module emits a source
-identity):** normalise on write in `post_entry` — `strip()` both
-`source_document_type` and `source_document_id`, and upper-case
-`source_document_type` only. Do **not** case-fold `source_document_id`:
-external systems issue case-sensitive references, and folding them would merge
-two genuinely different documents.
+**Approved (Task 1.2, before any inventory module emits a source identity).**
+Normalise **centrally in the accounting service**, not in each caller — a rule
+applied by convention in six modules is a rule that six modules can forget:
+
+```python
+source_document_type = source_document_type.strip().upper()
+source_document_id   = source_document_id.strip()
+```
+
+A value that becomes empty after stripping is rejected, not treated as absent.
+
+`source_document_id` is **not** case-folded. External systems issue
+case-sensitive references, and folding `abc-1` into `ABC-1` would merge two
+genuinely different documents — the opposite failure, and a worse one.
+
+Regression tests must prove that `"145 "` and `"145"` cannot become two source
+identities after normalisation.
+
+**Prefer the immutable internal document UUID or primary key as
+`source_document_id`.** The human-readable document number is kept separately
+for display and drill-down. A human number can be renumbered, re-sequenced
+after a correction, or reused across years; an internal identifier cannot, and
+the source identity must outlive any presentation decision.
 
 Compatibility impact: none for existing rows. Phase 0 wrote no source
 identities outside tests, verified by
@@ -113,7 +153,7 @@ Recommended ownership, checked against the architecture plan §9 and against
 | `ItemCategory` | Organization | Reporting rollups must be comparable across branches |
 | `InventoryItem` | Organization | The architecture plan lists a shared item master; two branches buying the same rice must cost it under one item |
 | Item code | Organization (unique per organization) | Matches `Account`, `CostCenter`, `Branch` |
-| `ItemUnitConversion` | Organization, per item | A sack of rice is 30 kg everywhere in the organization |
+| `ItemPackageConversion` | Organization, per item | A sack of rice is 30 kg everywhere in the organization |
 | Costing policy | Organization, overridable per item | One default, deliberate exceptions |
 | Reason codes | Organization | Waste and adjustment analysis is organization-wide |
 | Inventory account mapping | Organization | The chart is organization-owned (ADR-014) |
@@ -149,17 +189,30 @@ warehouse's branch, and the cost centre is required exactly where
 | `tracks_lots` | Bool default False | Opt-in |
 | `tracks_expiry` | Bool default False | Requires `tracks_lots` |
 | `shelf_life_days` | PositiveSmallInt null | Only meaningful with `tracks_expiry` |
-| `is_variable_weight` | Bool default False | Package quantity measured at receipt (§5) |
-| `allows_negative_stock` | Bool default False | Per-item escape hatch; still needs the permission |
 | `costing_method` | Char(24) choices | `MOVING_WEIGHTED_AVERAGE` only in Release 1 |
-| `inventory_account` | FK PROTECT null | Overrides the category mapping when set |
 | `notes` | Text blank | |
 | `created_at` / `updated_at` | From `TimeStampedModel` | |
 | `history` | `HistoricalRecords()` | Mutable master data, per ADR-007 practice |
 
+### Three fields deliberately removed at approval
+
+| Removed | Why |
+|---|---|
+| `inventory_account` | Account resolution belongs **exclusively** to `AccountRole` / `AccountMapping` (§11). A foreign key here would be a second, competing resolution path, and the first time the two disagreed nobody would know which one posted |
+| `allows_negative_stock` | A permanent field that automatically permits negative stock is not an exception — it is a silent, standing bypass with no actor and no reason. An override is a **per-posting** decision (§10) |
+| `is_variable_weight` | **Derived**, not stored: an item is variable-weight when it has an active `VARIABLE` package conversion. Storing it duplicates a fact that already exists and invites the two to disagree. If a query or screen later proves it is needed for performance, it may be added *with* a consistency guarantee — not before |
+
 Deliberately **absent** from Release 1: barcode/GTIN, supplier preferences,
 purchase price lists, tax codes, images, min/max order quantities. Each
 belongs to a later phase and none is needed to make the ledger trustworthy.
+
+### Immutable once posted movements exist
+
+`organization`, `base_unit`, `tracks_lots`, `costing_method`, and any change
+to `tracks_expiry` that alters the valuation identity are frozen the moment
+the item has posted movement history. Each of them changes what a stored
+quantity or a stored value *means*, so changing one silently restates history
+that is already reported and reconciled.
 
 ### Decisions and justification
 
@@ -168,6 +221,19 @@ as text. Consistent with `Organization`, `Branch`, and `CostCenter`
 (`^[A-Z0-9][A-Z0-9_-]*$`) with `.` added because supplier catalogues use it.
 Not the `C-GG-SS-AAA` account shape: an item code carries no hierarchy, and
 imposing one would force a re-code every time an item is re-categorised.
+
+**Canonicalised before validation and storage:**
+
+```python
+code = code.strip().upper()
+```
+
+Only the canonical form is ever stored, which makes uniqueness
+case-insensitive **economically** without needing a functional index or a
+case-insensitive collation: `rice-272`, `Rice-272`, and `RICE-272 ` are one
+code, because they are one thing on one shelf. A whitespace-only code, or one
+that canonicalises to empty, is refused — the pattern requires a leading
+alphanumeric, so padding cannot smuggle a duplicate past the constraint.
 
 **2. Generated, manual, or both.** **Both.** The UI offers
 `<CATEGORY_CODE>-NNNN` from a per-category sequence, and the operator may
@@ -183,28 +249,60 @@ sheet, which is worse than an inconsistent code.
 (ADR-014). A reissued code makes every historic movement, count sheet, and
 printed label ambiguous.
 
-**5. Category hierarchy.** **Parent/child, maximum depth 3, items on leaves
-only.** Restaurant reporting genuinely needs `Food > Meat > Beef`. The
-leaf-only rule is the same invariant `ADR-014` enforces for accounts and it
-exists for the same reason: an item hanging on a parent stops its children
-summing to it, and no category report can be trusted afterwards. **Requires
-approval** — it is the one item-master rule that constrains day-to-day data
-entry.
+**5. Category hierarchy — approved.** Organization-owned, parent/child,
+**maximum depth 3**, items on **leaves only**. Restaurant reporting genuinely
+needs `Food > Meat > Beef`. The leaf-only rule is the same invariant ADR-014
+enforces for accounts and exists for the same reason: an item hanging on a
+parent stops its children summing to it, and no category report can be trusted
+afterwards.
 
-**6. `ItemType` — closed, five values.**
+Six guards, each a test:
+
+| Guard | Error code |
+|---|---|
+| Category code unique per organization | constraint |
+| No cycles — a category cannot be its own ancestor | `category_cycle` |
+| Depth never exceeds 3 | `category_too_deep` |
+| Items may reference leaf categories only | `category_not_leaf` |
+| **A category holding items cannot acquire children** | `category_has_items` |
+| **A category with children cannot receive items** | `category_has_children` |
+
+The last two are the pair that makes the hierarchy trustworthy rather than
+decorative, and they mirror the hierarchy-exclusivity rules already enforced
+on the chart of accounts. **Re-parenting is checked for both depth and
+cycles** — a move is the operation that creates an illegal tree, not the
+initial insert.
+
+Archived categories stay readable, and a category referenced by any item
+cannot be deleted (`on_delete=PROTECT`).
+
+**6. `ItemType` — closed, six values.** *(Amended: `FINISHED_GOOD` is
+required.)*
 
 | Value | Meaning | Why it exists now |
 |---|---|---|
 | `RAW_MATERIAL` | Rice, meat, oil | The bulk of stock |
 | `SEMI_FINISHED` | Prepared sauce, marinated meat | Produced then consumed; Phase 3 needs the vocabulary and re-typing an item with movement history is a re-classification problem |
+| `FINISHED_GOOD` | A produced output that is **physically stored and countable** — trays of baked bread, bottled sauce made in-house, packed catering portions held for tomorrow | Real stock that a count sheet must reach |
 | `GOODS_FOR_RESALE` | Bottled water, canned drinks | Bought and sold untransformed — genuinely not a raw material |
 | `PACKAGING` | Containers, cups, bags | Consumed per sale, not part of the recipe yield |
 | `CONSUMABLE` | Cleaning supplies, gloves | Stocked and issued, never costed into a dish |
 
-`FINISHED_GOOD` is deliberately **absent**. A plated dish is produced on
-demand and never held in stock; it is a menu item belonging to Recipes and
-Sales, not a row in the stock ledger. Adding it now would invite someone to
-stock-count the mandi.
+**`FINISHED_GOOD` does not mean "menu item".** The two are separate domains
+and neither implies the other:
+
+| | Lives in | Counted on a shelf? |
+|---|---|---|
+| `InventoryItem` (`FINISHED_GOOD`) | Inventory | **Yes** — it is physical stock |
+| Menu item | Sales / Recipes (Phase 3–4) | No — produced to order |
+
+A plated Chicken Mandi is a menu item and is **not** automatically an
+`InventoryItem`. It is assembled on demand and never stored. Conversely a tray
+of bread baked this morning and held for tomorrow *is* a `FINISHED_GOOD`
+inventory item and must be countable and valued.
+
+The link between the two — a menu item consuming inventory through a recipe —
+is a Phase 3 relationship between two separate models, never a shared row.
 
 **7. Can `base_unit` change once posted movements exist?** **No — never**,
 enforced in the service and by a guard identical in spirit to
@@ -245,23 +343,81 @@ partial unique index ensuring one base per dimension. That is necessary and
 insufficient. A *carton* is not a dimension member; it is a package whose
 content differs per item.
 
-### Proposed model — `ItemUnitConversion`
+### A package unit is not a unit of measure
+
+**Amended at approval, and this is the central correction.** `CARTON`,
+`SACK`, `CONTAINER`, and `CAN` must **never** be modelled as
+`UnitOfMeasure` rows with a `factor_to_base`. A `UnitOfMeasure` carries a
+*global, dimensional* factor — 1 kg is 1000 g everywhere, forever. A carton of
+chicken and a carton of oil have nothing in common but the word.
+
+Putting a package into `UnitOfMeasure` would force one universal factor for
+"carton", and every item whose carton differs would then be silently wrong.
+
+So there are two separate concepts:
+
+| | `UnitOfMeasure` (exists, Phase 0) | `PackageUnit` (new) |
+|---|---|---|
+| Examples | KG, G, L, ML, PIECE, DOZEN | CARTON, SACK, CONTAINER, CAN, TRAY |
+| Has a global factor | **Yes** — `factor_to_base` within a dimension | **No — none, ever** |
+| Belongs to a dimension | Yes (MASS / VOLUME / COUNT) | No |
+| Scope | Global reference data | Organization |
+| Converts | Within its dimension | Only through `ItemPackageConversion` |
+
+`PackageUnit` deliberately has **no factor field at all**. The absence is the
+guarantee: there is nowhere to write a universal conversion, so nobody can.
+
+### `PackageUnit`
+
+| Field | Type | Notes |
+|---|---|---|
+| `organization` | FK PROTECT | |
+| `code` | Char(20) | Canonical uppercase, unique per organization |
+| `name_ar` / `name_en` | Char(100) | |
+| `is_active` | Bool | |
+| `history` | `HistoricalRecords()` | |
+
+### `ItemPackageConversion`
 
 | Field | Type | Notes |
 |---|---|---|
 | `organization` | FK PROTECT | Denormalised from item for scoping |
 | `item` | FK PROTECT | Owner |
-| `from_unit` | FK PROTECT → `UnitOfMeasure` | The package or purchase unit |
-| `factor_to_base` | Decimal(24, **12**) | How many base units in one `from_unit` |
+| `package_unit` | FK PROTECT → `PackageUnit` | |
 | `conversion_type` | Char(8) choices | `FIXED` or `VARIABLE` |
+| `factor_to_base` | Decimal(24, **12**) | Exact for `FIXED`; a **planning estimate only** for `VARIABLE` |
 | `effective_from` | Date | |
 | `effective_to` | Date null | Null = open-ended |
 | `allows_fractional` | Bool default True | Half a sack yes; half a can no |
 | `minimum_increment` | Decimal(18,3) null | Smallest orderable/issuable step |
-| `is_default_purchase_unit` | Bool default False | At most one per item, enforced by a partial unique index |
-| `version` | PositiveInt | Increments per (item, from_unit); snapshotted on every posting |
+| `is_default_purchase_package` | Bool default False | At most one active per item, partial unique index |
+| `version` | PositiveInt | Increments per (item, package_unit); snapshotted on every posting |
 | `is_active` | Bool | |
 | `history` | `HistoricalRecords()` | |
+
+### Every conversion resolves DIRECTLY to the item's base unit
+
+**No chains.** If tomato paste has base unit `KG`:
+
+```
+1 CAN     ->  0.800000000000 KG      direct
+1 CARTON  -> 24.000000000000 KG      direct
+```
+
+and never:
+
+```
+CARTON -> CAN -> KG        ← forbidden
+```
+
+A chain has to be resolved at posting time, and every link is a place where a
+version, an effective date, or a rounding step can disagree with the others.
+Two direct factors are trivially auditable; a chain is a small graph traversal
+inside a posting service. If a carton's content changes from 30 cans to 24,
+the carton's direct factor is versioned — the can's factor is untouched,
+because a can did not change.
+
+Entry in the item's own base unit needs no conversion row at all.
 
 ### FIXED versus VARIABLE
 
@@ -269,10 +425,11 @@ content differs per item.
 quantity arithmetically.
 
 ```
-Rice:          1 SACK    = 30.000000000000 KG
-Chicken:       1 CARTON  = 10.000000000000 PIECE
-Oil:           1 CARTON  = 20.000000000000 L
-Tomato paste:  1 CARTON  = 12.000000000000 CAN   (CAN itself → KG by a second FIXED row)
+Rice          (base KG):     1 SACK    = 30.000000000000 KG
+Chicken       (base PIECE):  1 CARTON  = 10.000000000000 PIECE
+Oil           (base L):      1 CARTON  = 20.000000000000 L
+Tomato paste  (base KG):     1 CAN     =  0.800000000000 KG
+                             1 CARTON  = 24.000000000000 KG   <- direct, not via CAN
 ```
 
 Entered 3 SACK → base `3 × 30 = 90.000 KG`. Deterministic, and the factor is
@@ -294,16 +451,17 @@ supplies only the package count for a `VARIABLE` conversion is refused with
 `measured_quantity_required`. This is the rule that stops 1 container silently
 becoming exactly 18.000 kg forever.
 
-`InventoryItem.is_variable_weight` is a convenience flag for the UI; the
-authoritative behaviour is per conversion row, because the same item can have
-a fixed retail pack and a variable bulk container.
+There is **no `is_variable_weight` field on the item.** An item is
+variable-weight when it has an active `VARIABLE` conversion, derived on
+demand. The same item legitimately has both a fixed retail pack and a variable
+bulk container, so a single item-level flag could not have been true anyway.
 
 ### Effective dating, versioning, and overlap
 
-- Rows are effective-dated on `(item, from_unit)`. **Overlapping active
-  periods for one `(item, from_unit)` are refused** by an exclusion
+- Rows are effective-dated on `(item, package_unit)`. **Overlapping active
+  periods for one `(item, package_unit)` are refused** by an exclusion
   constraint — PostgreSQL `EXCLUDE USING gist` on
-  `(item WITH =, from_unit WITH =, daterange(effective_from, effective_to) WITH &&)`.
+  `(item WITH =, package_unit WITH =, daterange(effective_from, effective_to) WITH &&)`.
   Two answers to "how many kilograms in a sack today" is not a data problem to
   resolve at query time; it is a data problem to prevent.
 - Changing a factor **never updates a row in place once it has posting
@@ -341,18 +499,23 @@ reciprocal is a rounding error waiting to be multiplied back.
 
 ### Validation against the base unit
 
-`from_unit` must either share the item's base-unit **dimension** (kg → g, both
-MASS) or be a `COUNT`-dimension package unit. A `VOLUME` unit on a `MASS`-based
-item is refused: litres of meat is not a conversion, it is a data error. The
-existing `_require_same_dimension` in `apps/units/services.py` covers the first
-case and is reused rather than reimplemented.
+A `PackageUnit` has no dimension, so nothing to validate against — that is
+precisely why the factor must be item-specific. What **is** validated: the
+factor is strictly positive, and it resolves to the item's own `base_unit`
+and no other.
+
+Entry in a plain `UnitOfMeasure` other than the base unit still goes through
+`apps/units/services.py`, which already refuses a cross-dimension conversion
+(`_require_same_dimension`) — litres of meat remains a data error, and that
+check is reused rather than reimplemented.
 
 ### Worked edge cases
 
 | Case | Behaviour |
 |---|---|
 | Entry in the base unit itself | No conversion row needed; `conversion` null, factor `1.000000000000` |
-| Item has no conversion for the entered unit | Refused, `no_conversion_for_unit` — never silently assume 1:1 |
+| Item has no conversion for the entered package | Refused, `no_conversion_for_package` — never silently assume 1:1 |
+| A package factor is requested via another package | Impossible: chains are not modelled |
 | `allows_fractional = False`, entered `2.5 CAN` | Refused, `fractional_not_allowed` |
 | Conversion expired at the effective date | Refused, `no_effective_conversion` — with the date named |
 | Backdated posting into a period with an older factor | The factor effective **on the movement's effective date** is used, not today's |
@@ -386,15 +549,23 @@ moving a box from bin A to bin B inside one store would revalue stock, and a
 warehouse-level cost would have to be recomputed by weighted aggregation on
 every read. A bin is a *findability* concept; it carries no economics.
 
-**5. Is `IN_TRANSIT` a system warehouse?** Yes — one per branch, created
-automatically, `is_system = True`, `system_type = IN_TRANSIT`. It cannot be
-created, renamed, or archived by a user, and nothing may post to it except
-transfer dispatch and transfer receipt.
+**5. Warehouse type — a closed enum** *(amended)*.
 
-**6. May users create arbitrary system warehouse types?** No. `system_type` is
-a closed enum (`IN_TRANSIT` only in Release 1) and is settable only by
-migration or a seeding command. A user-creatable "system" flag is a way to
-make an ordinary warehouse exempt from the rules that protect the ledger.
+| Type | Meaning | User-creatable |
+|---|---|---|
+| `PHYSICAL` | Main Store, Kitchen Store, any real place | Yes |
+| `PRODUCTION_WIP` | Work in progress during production | Yes |
+| `IN_TRANSIT` | Stock dispatched and not yet received | **No — system-controlled** |
+
+`IN_TRANSIT` is created automatically, one per branch. A system warehouse
+**cannot be renamed, archived, or converted into a normal warehouse by a
+normal user**, and once Task 1.5 exists it accepts only approved transfer
+commands. Warehouse codes are canonical uppercase and unique **per branch**.
+
+**6. May users create arbitrary system warehouse types?** No. `warehouse_type`
+is closed and `is_system` is set only by migration or a seeding command. A
+user-settable "system" flag is a way to make an ordinary warehouse exempt from
+the rules that protect the ledger.
 
 **7. May one branch reach another branch's warehouse?** Not through generic
 scope. A branch-to-branch transfer requires the acting user to hold
@@ -403,6 +574,30 @@ scope. A branch-to-branch transfer requires the acting user to hold
 `apps/accounting/commands.py`, reused rather than reinvented. Anything else
 would require weakening branch scope, which Phase 0 spent considerable effort
 making airtight.
+
+### Warehouse authorization scope *(amended)*
+
+Warehouse scope **extends `BranchMembership`** rather than introducing an
+independent role-bearing membership. A second role-bearing model would mean
+two places that grant authority, and eventually two answers to "what may this
+person do here".
+
+```
+BranchMembership.warehouse_scope_mode :  ALL | SELECTED
+BranchMembershipWarehouse             :  (branch_membership, warehouse)
+```
+
+| Rule | |
+|---|---|
+| `ALL` | Every warehouse in that branch, **including ones created later** |
+| `SELECTED` | Only the explicitly listed warehouses |
+| Cross-branch selection | Refused — a selected warehouse must belong to the membership's own branch |
+| Organization authority | Reaches organization-owned master data per its permissions; it does not silently confer warehouse custody |
+| Django groups | Never substitute for organization, branch, or warehouse scope |
+
+**Existing memberships default to `ALL`,** so the migration cannot silently
+revoke anybody's access. Restriction is opt-in; that direction is the safe one
+to get wrong.
 
 **8. How branch-to-branch transfer works later.** Two movements and one
 document, never a single instantaneous hop:
@@ -524,7 +719,7 @@ the movement row; a transfer is two rows, not one row with two warehouses.
 | `WASTE` | − | − | WH | — | At current avg | Dr Waste expense / Cr Inventory | **Yes** | **Yes** |
 | `COUNT_ADJUSTMENT` | ± | ± | WH | WH | Gains at current avg; losses at current avg | Dr/Cr Count variance | **Yes** | No (it *is* the correction) |
 | `MANUAL_ADJUSTMENT` | ± | ± | WH | WH | Gains need an explicit unit cost | Dr/Cr Adjustment account | **Yes** | Only on decrease |
-| `REVERSAL` | ∓ | ∓ | mirrors | mirrors | **At the original movement's value** | Mirrors the original | Yes | No |
+| `REVERSAL` | ∓ | ∓ | mirrors | mirrors | **At the original movement's value** | Mirrors the original | Yes | **Yes, when the mirror decreases stock** |
 
 Nothing is added speculatively. `TRANSFER_SHORTAGE` earns its place because
 without it a dispatch that never fully arrives leaves value stranded in
@@ -538,6 +733,22 @@ a link to the issuing movement.
 
 **`REVERSAL` restores the original's value exactly**, not the current average.
 A reversal must be value-neutral against its original or it is not a reversal.
+
+***(Amended)* A reversal is not exempt from the negative-stock check.** The
+`REVERSAL` row in the table above shows "No" for the availability check only
+where the mirror *increases* stock. Where the mirror **decreases** current
+stock, the check applies in full:
+
+| Reversing | Mirror direction | Availability check |
+|---|---|---|
+| An untouched receipt | decrease | **Applies** — and passes, the goods are still there |
+| A receipt whose goods were already issued | decrease | **Applies and refuses** — the stock is gone |
+| An issue | increase | Not applicable |
+
+Correcting a consumed receipt means correcting the dependent effects first, or
+using an explicitly authorised exception. Exempting reversals would make
+"reverse the receipt" the standard route to a negative balance, which is the
+single thing the check exists to prevent.
 
 ---
 
@@ -672,7 +883,30 @@ behaviour and it is what an auditor expects, but it must be a conscious
 decision because it surprises people who expect a spreadsheet's recalculation.
 Where a genuine restatement is required, the answer is an explicit
 `MANUAL_ADJUSTMENT` revaluation with its own audit trail — visible, not
-implicit.
+implicit. **No periodic revaluation engine is built in Release 1.**
+
+### Three timestamps, and two report modes that must be named
+
+Every movement retains all three:
+
+| Field | Meaning |
+|---|---|
+| `effective_at` | when it happened in the business |
+| `posted_at` | when it entered the ledger |
+| `posted_sequence` | the total order valuation was computed in |
+
+They give two legitimate historical views, answering different questions:
+
+| Mode | Ordered by | Answers |
+|---|---|---|
+| **Effective-date view** | `effective_at`, as currently known | "What did we hold on the 5th, given everything we now know?" |
+| **Posted-as-of view** | `posted_sequence` up to a cutoff | "What did the books say on the 5th, as they stood then?" |
+
+**Every report must state which cutoff semantics it uses. A report labelled
+only "as of" is forbidden.** The two views diverge exactly when a backdated
+movement exists — which is exactly the situation someone is investigating when
+they run the report — so an unlabelled "as of" is at its least trustworthy
+precisely when it matters most.
 
 ### Rebuild
 
@@ -707,11 +941,27 @@ T1: post −8 → 2             T2: post −8 → −6      ← both "validated"
 - Transaction boundary: `transaction.atomic()` around document → movements →
   balance updates → journal entry, exactly as `post_entry` already does.
   `ATOMIC_REQUESTS` stays `False`; the boundary is the service, not the request.
-- Database backstop: `CHECK (quantity >= 0)` on `StockBalance` for items whose
-  policy forbids negative stock cannot be a plain check constraint (the policy
-  is per item), so it is enforced by a trigger that reads the item's
-  `allows_negative_stock`. The service check produces the actionable error; the
-  trigger holds when someone bypasses the service.
+- Database backstop — **and an honest limit on what it can be.** A plain
+  `CHECK (quantity >= 0)` on `StockBalance` cannot be used: an *authorised*
+  override legitimately produces a negative balance, and an unconditional
+  check would block the one exception the design exists to permit. The balance
+  row also cannot express the rule on its own, because it does not know which
+  posting drove it negative.
+
+  So the enforcement is layered, and the layers are not equally strong:
+
+  | Layer | What it guarantees |
+  |---|---|
+  | Service check inside the row lock | The primary gate. No unauthorised posting can go negative |
+  | `StockMovement.negative_stock_override` + `PERMISSION_OVERRIDE` audit event | Every negative balance is attributable to a named actor and a reason |
+  | Reconciliation test and standing exception report | **Any** negative balance traces to an authorised override — a divergence is a defect |
+
+  The third layer is a test and a report rather than a constraint. That is a
+  genuine weakening compared with the accounting kernel's triggers, and it is
+  recorded here rather than glossed: the rule is conditional on facts outside
+  the row being checked, so it cannot be a row constraint. Task 1.2 decides
+  whether a statement-level trigger joining movement to balance is worth its
+  cost.
 - Retry/conflict: a lock wait is a wait, not a failure. Deadlock is prevented
   by ordering rather than retried. `SELECT ... FOR UPDATE NOWAIT` is **not**
   used — a busy warehouse would surface spurious failures to storekeepers.
@@ -751,6 +1001,8 @@ otherwise fail.
 | Variance | `counted − book`, computed, never entered |
 | Approval | `inventory.approve_stock_count`, distinct from conducting it |
 | Adjustment | One `COUNT_ADJUSTMENT` movement per varying line, on approval |
+| **Gain valuation** *(amended)* | At the current average **only if** quantity is positive and the average is positive. If quantity is zero, or the average is zero or undefined, an **explicit approved unit cost is required** — never quantity at zero value |
+| **Maker-checker** *(amended)* | `approver_id != conductor_id`, enforced always — including when one person holds both permissions. Holding both is a convenience, not a licence to sign off your own count |
 | Accounting | Variance to a count-variance account by the standard mapping |
 | Reopening | A closed count is never edited; a new count is performed |
 | Audit | Actor, cutoff, both quantities, variance, approver, reason |
@@ -802,7 +1054,8 @@ key, and §P forbids hard-coding either.
 | Component | Shape |
 |---|---|
 | `AccountRole` | Closed enum: `INVENTORY_CONTROL`, `INVENTORY_OPENING_EQUITY`, `INVENTORY_COUNT_VARIANCE`, `INVENTORY_WASTE_EXPENSE`, `INVENTORY_IN_TRANSIT`, `INVENTORY_SHORTAGE_LOSS`, `INVENTORY_ADJUSTMENT` |
-| `AccountMapping` | `(organization, role, item_category null, effective_from, effective_to) → Account`; most specific match wins, category before organization default |
+| `AccountMapping` | `(organization, role, item null, item_category null, effective_from, effective_to) → Account` |
+| Resolver priority *(amended)* | **item-specific → item-category → organization default → `account_role_unmapped`.** Most specific wins; there is no fallback to a guess |
 | `resolve_account(role, *, organization, category, on_date)` | Selector; raises `account_role_unmapped` naming the role — never falls back to a guess |
 | Effective dating | Yes. A chart change mid-year must not restate prior postings |
 
@@ -811,7 +1064,10 @@ there rather than in `apps/inventory`: the chart is organization-owned
 accounting property, and Purchases, Sales, and Payroll will all need the same
 resolver. Building it inside Inventory would guarantee a second one later.
 
-**It is recorded as a Task 1.3 prerequisite, not built now.**
+**It is a Task 1.3 prerequisite and is not built in Task 1.1.** Correspondingly
+`InventoryItem` carries **no** `inventory_account` foreign key — account
+resolution has exactly one home, and a second one on the item would compete
+with it silently.
 
 ---
 
@@ -848,24 +1104,37 @@ default when a user holds branch access but no warehouse restriction is
 **all warehouses in that branch** — restriction is opt-in, so introducing
 warehouse scope cannot silently lock out existing users.
 
-### Recommended role map — requires explicit approval
+### Approved default role map
 
-| Role | Permissions |
+| Role | Inventory permissions |
 |---|---|
-| OWNER | All eighteen |
-| ACCOUNTING_MANAGER | All except `post_receipt`/`post_issue`/`post_transfer`/`conduct_stock_count` — sees and approves everything, performs no warehouse operations |
-| MANAGER | View item, view stock, view valuation, create draft, post receipt/issue/transfer/waste, conduct and **approve** count |
-| STOREKEEPER | View item, view stock, create draft, post receipt/issue/transfer, conduct count. **No** valuation, **no** approval, **no** adjustment, **no** waste |
-| PURCHASING | View item, view stock, view valuation, manage items/categories/conversions, post receipt |
-| ACCOUNTANT | View item, view stock, view valuation, post opening stock. **No** operational posting |
-| VIEWER | View item, view stock only. **No** valuation |
+| **OWNER** | All eighteen — a trusted operational proprietor |
+| **ACCOUNTING_MANAGER** | `view_item`, `view_stock`, `view_valuation`, `post_opening_stock`, `approve_stock_count`, `post_adjustment`, `reverse_movement`, `override_negative_stock` |
+| **MANAGER** | `view_item`, `manage_categories`, `manage_items`, `manage_conversions`, `manage_warehouses`, `view_stock`, `view_valuation`, `create_draft_movement`, `post_receipt`, `post_issue`, `post_transfer`, `post_waste`, `conduct_stock_count`, `approve_stock_count`, `post_adjustment`, `reverse_movement` |
+| **STOREKEEPER** | `view_item`, `view_stock`, `create_draft_movement`, `post_receipt`, `post_issue`, `post_transfer`, `conduct_stock_count` |
+| **PURCHASING** | `view_item`, `view_stock`, `view_valuation` |
+| **ACCOUNTANT** | `view_item`, `view_stock`, `view_valuation` |
+| **VIEWER** | `view_item`, `view_stock` |
 
-Three deliberate separations: a storekeeper counts but does not approve their
-own count; a storekeeper cannot see cost; an accountant cannot move stock.
-None of this is finalised — **the role map is a recommendation requiring your
-approval**, exactly as the Task 0.7 map was.
+The separations that matter, each deliberate:
 
----
+- **A storekeeper never sees cost.** No `view_valuation`. They also cannot
+  approve a count, post waste, adjust, reverse, or override.
+- **`MANAGER` holds both conduct and approve — and still cannot approve their
+  own count.** Maker-checker is enforced on the *act*
+  (`approver_id != conductor_id`), not on the permission. Holding both is a
+  convenience for a small branch, never a licence to sign off your own work.
+- **`PURCHASING` gets no master-data mutation and no receipt posting.**
+  Ordering and taking custody are different jobs; whoever chose the supplier
+  should not also confirm what arrived.
+- **A normal `ACCOUNTANT` cannot post opening stock.** It sets the ledger's
+  starting point, so it sits with `ACCOUNTING_MANAGER` and `OWNER`.
+- **`ACCOUNTING_MANAGER` performs no warehouse operations** — no receipt,
+  issue, transfer, or count. They see everything and approve; they do not
+  move stock.
+
+**Role names are mapping defaults and never appear in a domain service.** A
+deployment changes this table; no inventory code changes with it.
 
 ## 13. API and UI contract (§T)
 
@@ -971,31 +1240,37 @@ task.
 
 ---
 
-## 15. Decision table (§W)
+## 15. Decision table — resolved (§W)
 
-| # | Decision | Approved rule today | Recommendation | Alternatives | Consequence | Blocks 1.1? | Approver |
-|---|---|---|---|---|---|---|---|
-| 1 | Item-code format | None | `^[A-Z0-9][A-Z0-9._-]*$`, ≤32, unique per org, generated **or** manual, reserved forever | Account-style hierarchical code; auto-only | Codes on shelf labels stay usable | **Yes** | You |
-| 2 | Category hierarchy | None | Parent/child, depth ≤3, **items on leaves only** | Flat list; any depth; items anywhere | Rollups always sum; constrains data entry | **Yes** | You |
-| 3 | `ItemType` enum | None | 5 values; **no `FINISHED_GOOD`** | Add `FINISHED_GOOD`; free text | Dishes cannot be stock-counted by mistake | **Yes** | You |
-| 4 | Warehouse vs location | Architecture plan puts warehouse under branch | Warehouse branch-owned and **owns valuation**; location warehouse-owned, quantity only, deferred to 1.7 | Value per bin; no bins ever | Bin moves never revalue stock | **Yes** | You |
-| 5 | Valuation key | Plan: Org+Branch+Warehouse+Item | `(warehouse, item, lot)`; org/branch derivable and denormalised | Include branch explicitly; include location | One row per physical position | **Yes** | You |
-| 6 | Lot/expiry | None | Opt-in per item; **average held per lot** when enabled; manual lot selection; no FEFO | Always track; FEFO from day one | Cost matches the physical unit issued | No (1.2) | You |
-| 7 | Fixed vs variable packages | Plan §3 requires item-specific conversions | Both; `VARIABLE` **requires** a measured base quantity at posting | Fixed only; always measure | 1 container never silently becomes 18.000 kg | **Yes** | You |
-| 8 | Backdated movements | Plan: "must not silently rewrite history" | Effective date backdatable within an OPEN period; **valuation follows posting order** | Full retro-recalculation; reject backdating | Past valuation is what was known then | No (1.2) | **You — durable** |
-| 9 | Negative-stock override | Plan: prohibit negative stock | Organization-scoped permission + reason + actor + audit + exception report | Per-branch; no override at all | Override is visible and rare | No (1.2) | You |
-| 10 | Inventory account mapping | **Nothing exists** | New `AccountRole` + effective-dated `AccountMapping` in `apps/accounting` | Hard-coded codes; settings dict | No hard-coded account ids | No — **blocks 1.3** | You |
-| 11 | Opening cutoff and source | None | One cutoff per document; evidence reference; approval; reversal-only correction | Per-line dates | An opening balance means one moment | No (1.3) | You |
-| 12 | Count freeze | `HARD_FREEZE` given | Warehouse-level freeze; blind count; approval separate from counting | Soft freeze; snapshot-only | Count arithmetic is trustworthy | No (1.6) | You |
-| 13 | `source_document_id` durability | `varchar(64)` | **Keep.** Add `strip()` normalisation in Task 1.2; do **not** case-fold the id | Change to UUID; to integer | Already type-agnostic | No — **do before 1.3** | Confirm |
+**All fourteen decisions were approved on 2026-08-09.** Where approval changed
+the recommendation, the amendment is stated; the original is kept so the change
+is visible rather than quietly overwritten.
 
-Additional decision surfaced while writing this specification:
+| # | Decision | Resolution | Amended at approval? |
+|---|---|---|---|
+| 1 | Item-code format | `^[A-Z0-9][A-Z0-9._-]*$`, ≤32, unique per organization, manual **or** generated, reserved forever | **Yes** — canonicalised `strip().upper()` before validation and storage; whitespace-only refused |
+| 2 | Category hierarchy | Organization-owned, parent/child, depth ≤3, items on leaves only | **Yes** — six explicit guards added, including "a category with items cannot acquire children" and re-parent depth/cycle checks |
+| 3 | `ItemType` enum | Closed, **six** values | **Yes** — `FINISHED_GOOD` is **required**, meaning physically stored and countable output. It does **not** mean menu item; those remain separate domains |
+| 4 | Warehouse vs location | Warehouse branch-owned and owns valuation; location warehouse-owned, quantity only, deferred to 1.7 | **Yes** — closed `warehouse_type`: `PHYSICAL`, `PRODUCTION_WIP`, `IN_TRANSIT`; codes unique per branch |
+| 5 | Valuation key | `(warehouse, item, lot)`; organization and branch derivable | **Yes** — null-lot uniqueness stated explicitly (`nulls_distinct=False`, or two partial constraints); never left to SQL NULL semantics |
+| 6 | Lot/expiry | Opt-in per item; average per lot when enabled; manual selection; no FEFO | No |
+| 7 | Fixed vs variable packages | Both; `VARIABLE` requires a measured base quantity at posting | **Yes** — packages are a **separate `PackageUnit` model with no factor field**, never `UnitOfMeasure` rows; all conversions resolve **directly** to the item's base unit, no chains |
+| 8 | Backdated movements | Backdatable within an OPEN period; valuation follows posting order | **Yes** — three timestamps retained (`effective_at`, `posted_at`, `posted_sequence`); reports must name which cutoff they use; bare "as of" forbidden |
+| 9 | Negative-stock override | Organization-scoped permission + reason + actor + audit + exception report | **Yes** — **no permanent per-item flag.** Override is a per-posting exception. Reversals that decrease stock are **not** exempt |
+| 10 | Inventory account mapping | `AccountRole` + effective-dated `AccountMapping` in `apps/accounting`, a Task 1.3 prerequisite | **Yes** — resolver priority item → category → organization default → `account_role_unmapped`; **no `InventoryItem.inventory_account`** |
+| 11 | Opening cutoff and source | One cutoff per document; evidence; approval; reversal-only correction | No |
+| 12 | Count freeze | Warehouse-level `HARD_FREEZE`; blind count; approval separate from counting | **Yes** — maker-checker enforced (`approver_id != conductor_id`) even when one person holds both permissions; positive gains need an explicit unit cost where the average is zero or undefined |
+| 13 | `source_document_id` durability | Keep `varchar(64)` — already type-agnostic | **Yes** — normalise **centrally in the accounting service**; prefer the immutable internal UUID/PK, keep the human number separately |
+| 14 | Warehouse permission scope | Extend `BranchMembership` with `warehouse_scope_mode` (`ALL` / `SELECTED`) plus `BranchMembershipWarehouse` | **Yes** — no independent role-bearing `WarehouseMembership`; existing memberships default to `ALL` |
 
-| # | Decision | Recommendation | Blocks | Approver |
-|---|---|---|---|---|
-| 14 | Warehouse-level permission scope | Extend the Phase 0 layer with warehouse scope; default = all warehouses in an accessible branch | 1.1 | You |
+### Still open
 
----
+Nothing blocks Task 1.1.
+
+**Deferred, and honestly so:** reconciliation against an authoritative SRS,
+because no SRS exists in this repository (§0). The `INV-*` and `AT-*`
+identifiers remain repository-local acceptance identifiers until one is
+supplied.
 
 ## 16. What Task 1.0 deliberately did not do
 

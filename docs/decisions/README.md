@@ -20,12 +20,7 @@ consequences, date, and related requirements.
 | [ADR-011](ADR-011-htmx-frontend.md) | Django templates + htmx for the frontend |
 | [ADR-016](ADR-016-permission-and-scope-model.md) | Permission and scope model — *implemented by Task 0.7* |
 | [ADR-017](ADR-017-source-identity-and-idempotency.md) | Source identity and idempotency — *implemented by Task 0.7* |
-
-## Proposed
-
-| ADR | Title |
-|---|---|
-| [ADR-018](ADR-018-inventory-valuation-and-the-stock-ledger.md) | Inventory valuation and the stock ledger — *awaiting approval of the Task 1.0 decision table* |
+| [ADR-018](ADR-018-inventory-valuation-and-the-stock-ledger.md) | Inventory valuation and the stock ledger — *ledger delivered by Task 1.2* |
 
 ## Reserved, not yet written
 

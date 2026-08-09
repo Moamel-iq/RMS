@@ -141,7 +141,9 @@ every task's definition of done.
 
 ## Phase 1 — Inventory (specified by Task 1.0, none implemented)
 
-Every row below is **Specified**, not Done. Task 1.0 is specification only;
+Task 1.0's decisions were **approved with amendments on 2026-08-09**; the
+rows below reflect the approved design. Status is **Specified** until the
+owning task implements it;
 the "Implementation" column names what is proposed, and the "Test" column what
 must exist before the owning task may close. See
 `docs/tasks/task-1-0-inventory-domain-spec.md` and
@@ -206,6 +208,28 @@ Task 1.0, not referenced from an earlier artefact.
 | INV-038 | Location quantities sum to warehouse quantity | Reconciliation test | `::test_locations_sum_to_warehouse` | 1.7 | | Specified |
 | INV-039 | A fresh database receives inventory reference data | Seed command | `::test_fresh_database_seeds_inventory` | 1.7 | | Specified |
 | INV-040 | No writable CRUD bypasses the posting services | Command API + read-only admin | `::test_no_crud_bypass` | 1.1 | AT-008 | Specified |
+| INV-041 | Category codes unique per organization; cycles rejected | Service guard + constraint | `::test_category_cycle_rejected` | 1.1 | | Specified |
+| INV-042 | Category depth never exceeds 3, including on re-parent | Service guard | `::test_category_depth_limit` | 1.1 | | Specified |
+| INV-043 | A category with items cannot acquire children | Service guard | `::test_category_with_items_gains_no_children` | 1.1 | | Specified |
+| INV-044 | A category with children cannot receive items | Service guard | `::test_category_with_children_takes_no_items` | 1.1 | | Specified |
+| INV-045 | Item code canonicalised `strip().upper()` before storage | `create_item` / `update_item` | `::test_item_code_canonicalised` | 1.1 | | Specified |
+| INV-046 | `tracks_expiry` requires `tracks_lots` | Check constraint | `::test_expiry_requires_lots` | 1.1 | | Specified |
+| INV-047 | `FINISHED_GOOD` exists and is not a menu item | `ItemType` enum | `::test_finished_good_is_not_a_menu_item` | 1.1 | | Specified |
+| INV-048 | A package unit carries no universal factor | `PackageUnit` has no factor field | `::test_package_unit_has_no_factor` | 1.1 | | Specified |
+| INV-049 | Conversions resolve directly to base; no chaining | `ItemPackageConversion` | `::test_no_conversion_chaining` | 1.1 | | Specified |
+| INV-050 | One active default purchase package per item | Partial unique index | `::test_one_default_purchase_package` | 1.1 | | Specified |
+| INV-051 | Overlapping conversion periods rejected | `EXCLUDE USING gist` | `::test_overlapping_conversion_refused` | 1.1 | | Specified |
+| INV-052 | `BranchItemSetting` unique per (branch, item) | `UniqueConstraint` | `::test_branch_item_setting_unique` | 1.1 | | Specified |
+| INV-053 | `SELECTED` warehouse scope restricts access | `BranchMembership.warehouse_scope_mode` | `::test_selected_warehouse_scope` | 1.1 | AT-008 | Specified |
+| INV-054 | `ALL` warehouse scope includes newly created warehouses | Same | `::test_all_scope_includes_new_warehouse` | 1.1 | AT-008 | Specified |
+| INV-055 | A warehouse selection cannot cross branches | Service guard | `::test_warehouse_selection_same_branch` | 1.1 | AT-008 | Specified |
+| INV-056 | A system `IN_TRANSIT` warehouse is protected from normal users | Service guard | `::test_system_warehouse_protected` | 1.1 | | Specified |
+| INV-057 | Warehouse code unique per branch, canonical uppercase | `UniqueConstraint` | `::test_warehouse_code_unique_per_branch` | 1.1 | | Specified |
+| INV-058 | A count approver is never the conductor | `approver_id != conductor_id` | `::test_count_maker_checker` | 1.6 | | Specified |
+| INV-059 | A positive count gain never posts at zero value | Explicit unit cost required | `::test_count_gain_needs_a_cost` | 1.6 | | Specified |
+| INV-060 | Source identity normalised centrally; `"145 "` == `"145"` | Accounting service | `::test_source_id_normalisation` | 1.2 | AT-009 | Specified |
+| INV-061 | A reversal that decreases stock passes the availability check | Posting service | `::test_reversal_respects_availability` | 1.4 | | Specified |
+| INV-062 | Every report names its cutoff semantics | Report contract | `::test_report_declares_cutoff_mode` | 1.7 | AT-011 | Specified |
 
 ## Not yet mapped
 
