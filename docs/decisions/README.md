@@ -18,6 +18,14 @@ consequences, date, and related requirements.
 | [ADR-008](ADR-008-business-date-and-timezone.md) | Business date and timezone (schema only — cutoff value open) |
 | [ADR-010](ADR-010-windows-native-development-environment.md) | Windows-native development environment and pip-tools |
 | [ADR-011](ADR-011-htmx-frontend.md) | Django templates + htmx for the frontend |
+| [ADR-016](ADR-016-permission-and-scope-model.md) | Permission and scope model — *implemented by Task 0.7* |
+| [ADR-017](ADR-017-source-identity-and-idempotency.md) | Source identity and idempotency — *implemented by Task 0.7* |
+
+## Proposed
+
+| ADR | Title |
+|---|---|
+| [ADR-018](ADR-018-inventory-valuation-and-the-stock-ledger.md) | Inventory valuation and the stock ledger — *awaiting approval of the Task 1.0 decision table* |
 
 ## Reserved, not yet written
 
@@ -48,9 +56,14 @@ documented answers yet:
    branches share one cutoff; whether attendance and payroll use the same
    business date as sales. The *schema* is settled (ADR-008); only the values
    are open, and no default is written into any migration.
-5. **Inventory valuation scope** — confirm Organization + Branch + Warehouse +
-   Item. Phase 1.
-6. Whether one branch may hold **multiple warehouses** at go-live. Phase 1.
+5. **Inventory valuation scope** — proposed by ADR-018 as `(warehouse, item,
+   lot)`, with organization and branch derivable from the warehouse. This is
+   the same scope the architecture plan names, stated in its minimal form.
+   Awaiting approval.
+6. Whether one branch may hold **multiple warehouses** at go-live — the
+   Task 1.0 specification assumes yes (Main Store, Kitchen Store,
+   Production, and a system In-Transit warehouse per branch). Awaiting
+   approval.
 7. **Role list** — the roles in `apps/organizations/models.py::Role` are taken
    from the charter's separation-of-duties examples, not from an SRS.
    Approval thresholds are not enforced yet.

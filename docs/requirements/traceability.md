@@ -139,6 +139,74 @@ every task's definition of done.
 | EXIT-013 | Seeding survives a non-UTF-8 console | core, units | `apps.core.console.SeedCommand` | `tests/test_phase_0_exit.py::test_seeding_survives_a_console_that_cannot_render_arabic` | Done | **Fixes a fresh-install failure** |
 | EXIT-014 | The foundations cooperate end to end | all | — | `tests/test_phase_0_exit.py::TestTheFoundationsCooperate` | Done | Services and API, no ORM shortcuts |
 
+## Phase 1 — Inventory (specified by Task 1.0, none implemented)
+
+Every row below is **Specified**, not Done. Task 1.0 is specification only;
+the "Implementation" column names what is proposed, and the "Test" column what
+must exist before the owning task may close. See
+`docs/tasks/task-1-0-inventory-domain-spec.md` and
+`docs/invariants/inventory-invariants.md`.
+
+### Phase 1 acceptance criteria
+
+These `AT-*` identifiers appear nowhere in the repository or in the source
+documents. They are **established here** from the descriptions supplied with
+Task 1.0, not referenced from an earlier artefact.
+
+| AT | Meaning |
+|---|---|
+| AT-002 | Inventory value reconciles to the general ledger |
+| AT-007 | Stock balance rebuilds exactly from the movement ledger |
+| AT-008 | Scope and privacy — no cross-tenant read or write |
+| AT-009 | Idempotency — one economic event, one effect |
+| AT-011 | Historical effective data is not silently restated |
+| AT-012 | Import atomicity |
+
+### Requirements
+
+| ID | Requirement | Implementation | Test | Task | AT | Status |
+|---|---|---|---|---|---|---|
+| INV-001 | Item code unique per organization; archived codes reserved | `UniqueConstraint(organization, code)` | `::test_item_code_unique_per_organization` | 1.1 | AT-008 | Specified |
+| INV-002 | A foreign organization's item cannot be injected | `_scoped_item` resolver | `::test_foreign_item_injection_blocked` | 1.1 | AT-008 | Specified |
+| INV-003 | A foreign branch's warehouse is unreachable (404) | `resolve_warehouse` via Phase 0 authorization | `::test_foreign_branch_warehouse_blocked` | 1.1 | AT-008 | Specified |
+| INV-004 | Base UoM dimension validated against the entered unit | Reuses `units.services._require_same_dimension` | `::test_base_uom_dimension_validation` | 1.1 | | Specified |
+| INV-005 | Base UoM immutable once movements exist | Service guard | `::test_base_unit_locked_after_movement` | 1.1 | | Specified |
+| INV-006 | Fixed package conversion applies exactly | `ItemUnitConversion` `FIXED` | `::test_fixed_package_conversion` | 1.1 | | Specified |
+| INV-007 | Variable package requires a measured base quantity | `VARIABLE` + `measured_quantity_required` | `::test_variable_weight_requires_measurement` | 1.1 | | Specified |
+| INV-008 | Overlapping conversion periods refused | `EXCLUDE USING gist` | `::test_overlapping_conversion_refused` | 1.1 | | Specified |
+| INV-009 | Conversion snapshot stays historical after the master changes | Factor + version stored on the movement | `::test_conversion_snapshot_is_historical` | 1.2 | AT-011 | Specified |
+| INV-010 | No float in inventory storage or transport | `quantity.py` / `money.py`; string API decimals | `::test_no_float_transport` | 1.1 | | Specified |
+| INV-011 | Arabic locale does not change technical decimal strings | Locale-independent rendering | `::test_locale_does_not_change_decimals` | 1.1 | | Specified |
+| INV-012 | Posted stock movements are immutable | Allowlist trigger, per `accounting/0005` | `::test_posted_movement_immutable` | 1.2 | | Specified |
+| INV-013 | Every movement carries the full required column set | Non-null columns | `::test_movement_records_everything` | 1.2 | | Specified |
+| INV-014 | Valuation key is `(warehouse, item, lot)` | `UniqueConstraint` on `StockBalance` | `::test_valuation_key` | 1.2 | | Specified |
+| INV-015 | Moving weighted average — all 18 cases | Valuation engine | `::TestMovingWeightedAverage` | 1.2 | | Specified |
+| INV-016 | Quantity zero implies value zero | Full-depletion rule | `::test_full_depletion_leaves_no_residual` | 1.2 | AT-007 | Specified |
+| INV-017 | `StockBalance` rebuilds exactly from the ledger | Rebuild command | `::test_rebuild_equals_ledger` | 1.2 | AT-007 | Specified |
+| INV-018 | Negative stock refused by default | Service check inside the lock + trigger | `::test_negative_stock_blocked` | 1.2 | | Specified |
+| INV-019 | Concurrent issues cannot create negative stock | `select_for_update` in deterministic order | `::test_concurrent_issue_cannot_go_negative` | 1.2 | | Specified |
+| INV-020 | Negative-stock override needs permission, reason, actor, audit | `inventory.override_negative_stock` | `::test_unauthorized_override_rejected` | 1.2 | AT-008 | Specified |
+| INV-021 | Closed-period movements refused | Reuses `validate_period_accepts_postings` | `::test_closed_period_movement_rejected` | 1.2 | AT-011 | Specified |
+| INV-022 | Backdated valuation follows posting order, not effective date | Documented policy + test | `::test_backdated_does_not_restate_history` | 1.2 | AT-011 | Specified |
+| INV-023 | COMMIT-boundary constraints exercised | `transaction=True` tests | `::test_commit_boundary` | 1.2 | | Specified |
+| INV-024 | Audit captures authoritative before/after state | `record_audit_event` with DB re-read | `::test_audit_before_and_after` | 1.2 | | Specified |
+| INV-025 | No hard-coded account ids in inventory posting | `AccountRole` + `AccountMapping` | `::test_no_hardcoded_accounts` | 1.3 | | Specified |
+| INV-026 | Opening value equals its journal entry | Atomic opening posting | `::test_opening_equals_journal` | 1.3 | AT-002 | Specified |
+| INV-027 | Inventory control reconciles to inventory valuation | Reconciliation report | `::test_inventory_reconciles_to_gl` | 1.3 | AT-002 | Specified |
+| INV-028 | Duplicate source event cannot double-post | Source identity (ADR-017) | `::test_duplicate_source_event` | 1.3 | AT-009 | Specified |
+| INV-029 | Same key + changed payload conflicts | Idempotency fingerprint | `::test_key_with_changed_payload_conflicts` | 1.3 | AT-009 | Specified |
+| INV-030 | Same key in another organization is independent | Org-scoped key | `::test_key_independent_across_organizations` | 1.3 | AT-009 | Specified |
+| INV-031 | Reversal restores quantity and value exactly | `REVERSAL` at the original's value | `::test_reversal_restores_exactly` | 1.4 | | Specified |
+| INV-032 | `RETURN_IN` values at the original issue cost | Link to the issuing movement | `::test_return_in_uses_original_cost` | 1.4 | | Specified |
+| INV-033 | Transfer dispatch reconciles to receipt plus shortage | In-transit accounting | `::test_transfer_reconciles` | 1.5 | AT-002 | Specified |
+| INV-034 | Inter-branch transfer needs authority at both branches | `_require_at_every_branch` pattern | `::test_transfer_needs_both_branches` | 1.5 | AT-008 | Specified |
+| INV-035 | Posting to a frozen warehouse refused | `freeze_state` guard | `::test_frozen_warehouse_refuses_posting` | 1.6 | | Specified |
+| INV-036 | Conducting and approving a count are separate permissions | Two permissions | `::test_count_approval_is_separated` | 1.6 | | Specified |
+| INV-037 | Import rollback is atomic | Import boundary | `::test_import_rollback_is_atomic` | 1.7 | AT-012 | Specified |
+| INV-038 | Location quantities sum to warehouse quantity | Reconciliation test | `::test_locations_sum_to_warehouse` | 1.7 | | Specified |
+| INV-039 | A fresh database receives inventory reference data | Seed command | `::test_fresh_database_seeds_inventory` | 1.7 | | Specified |
+| INV-040 | No writable CRUD bypasses the posting services | Command API + read-only admin | `::test_no_crud_bypass` | 1.1 | AT-008 | Specified |
+
 ## Not yet mapped
 
 The SRS has not been added to this repository. `docs/requirements/SRS.md` is
