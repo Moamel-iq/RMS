@@ -1,0 +1,199 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# One opening document: header, lines, totals, and the actions its status  #}
+{# allows this caller. Buttons mirror the command layer's checks; a POST to #}
+{# a hidden action is refused on its merits, not on its visibility.         #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      <p class="pagehead__hint">
+        {{ document.get_status_display }}
+        · {% translate "الفرع" %} <code>{{ document.branch.code }}</code>
+        · {% translate "يوم العمل" %} {{ document.business_date|date:"Y-m-d" }}
+        · {% translate "الإثبات" %} {{ document.evidence_reference }}
+      </p>
+    </div>
+    <div class="rowactions">
+      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+      {% if is_draft and can_prepare %}
+        <a class="btn btn--ghost" href="{% url 'inventory:opening_update' document.pk %}">
+          {% translate "تعديل الترويسة" %}
+        </a>
+        <form method="post" action="{% url 'inventory:opening_submit' document.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--primary" type="submit">{% translate "تقديم للاعتماد" %}</button>
+        </form>
+        <form method="post" action="{% url 'inventory:opening_delete' document.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--ghost" type="submit">{% translate "حذف المسودة" %}</button>
+        </form>
+      {% endif %}
+      {% if is_submitted and can_post %}
+        <form method="post" action="{% url 'inventory:opening_post' document.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--primary" type="submit">
+            {% translate "ترحيل إلى الدفترين" %}
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if is_submitted and can_prepare %}
+    <form class="formcard" method="post" action="{% url 'inventory:opening_return' document.pk %}">
+      {% csrf_token %}
+      <div class="formgrid">
+        <div class="formrow">
+          <label class="formrow__label" for="return-reason">
+            {% translate "إعادة إلى المسودة — السبب" %}
+          </label>
+          <textarea id="return-reason" name="reason" rows="2" required></textarea>
+        </div>
+      </div>
+      <div class="formactions">
+        <button class="btn btn--ghost" type="submit">{% translate "إعادة إلى المسودة" %}</button>
+      </div>
+    </form>
+  {% endif %}
+
+  {% if is_posted and can_reverse %}
+    <form class="formcard" method="post" action="{% url 'inventory:opening_reverse' document.pk %}">
+      {% csrf_token %}
+      <div class="formgrid">
+        <div class="formrow">
+          <label class="formrow__label" for="reverse-reason">
+            {% translate "عكس المستند كاملاً — السبب" %}
+          </label>
+          <textarea id="reverse-reason" name="reason" rows="2" required></textarea>
+        </div>
+      </div>
+      <div class="formactions">
+        <button class="btn btn--ghost" type="submit">{% translate "عكس المستند" %}</button>
+      </div>
+    </form>
+  {% endif %}
+
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>{% translate "المخزن" %}</th>
+          <th>{% translate "الصنف" %}</th>
+          <th>{% translate "الدفعة" %}</th>
+          <th>{% translate "الكمية" %}</th>
+          <th>{% translate "الوحدة" %}</th>
+          {% if show_cost %}
+            <th>{% translate "كلفة الوحدة" %}</th>
+            <th>{% translate "القيمة" %}</th>
+            <th>{% translate "حساب المراقبة" %}</th>
+          {% endif %}
+          <th>{% translate "الحركة" %}</th>
+          {% if is_draft and can_prepare %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in lines %}
+          <tr>
+            <td>{{ line.sequence }}</td>
+            <td><code>{{ line.warehouse.code }}</code></td>
+            <td><code>{{ line.item.code }}</code> {{ line.item.name_ar }}</td>
+            <td>{% if line.lot %}<code>{{ line.lot.code }}</code>{% else %}—{% endif %}</td>
+            {# Technical values: a period, never a locale comma. #}
+            <td><code dir="ltr">{{ line.base_quantity|stringformat:"f" }}</code></td>
+            <td>{{ line.item.base_unit.code }}</td>
+            {% if show_cost %}
+              <td><code dir="ltr">{{ line.unit_cost|stringformat:"f" }}</code></td>
+              <td><code dir="ltr">{{ line.total_value|stringformat:"f" }}</code></td>
+              <td>
+                {% if line.inventory_account %}
+                  <code dir="ltr">{{ line.inventory_account.code }}</code>
+                {% else %}
+                  <span class="muted">{% translate "يُحسم عند الترحيل" %}</span>
+                {% endif %}
+              </td>
+            {% endif %}
+            <td>
+              {% if line.movement %}
+                <a href="{% url 'inventory:movement_detail' line.movement.pk %}">
+                  #{{ line.movement.posted_sequence }}
+                </a>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            {% if is_draft and can_prepare %}
+              <td>
+                <form method="post"
+                      action="{% url 'inventory:opening_line_delete' document.pk line.pk %}">
+                  {% csrf_token %}
+                  <button class="btn btn--ghost btn--sm" type="submit">
+                    {% translate "حذف" %}
+                  </button>
+                </form>
+              </td>
+            {% endif %}
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="{% if show_cost %}11{% else %}8{% endif %}">
+              {% translate "لا سطور بعد. مستند فارغ لا يُقدَّم." %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+      {% if show_cost and lines %}
+        <tfoot>
+          <tr>
+            <td colspan="7">{% translate "الإجمالي" %}</td>
+            <td><code dir="ltr">{{ total_value|stringformat:"f" }}</code></td>
+            <td colspan="{% if is_draft and can_prepare %}3{% else %}2{% endif %}"></td>
+          </tr>
+        </tfoot>
+      {% endif %}
+    </table>
+  </div>
+
+  {% if document.journal_entry %}
+    <div class="formcard">
+      <p>
+        {% translate "قيد اليومية:" %}
+        <code dir="ltr">{{ document.journal_entry.entry_number }}</code>
+        {% if document.reversal_journal_entry %}
+          · {% translate "قيد العكس:" %}
+          <code dir="ltr">{{ document.reversal_journal_entry.entry_number }}</code>
+        {% endif %}
+      </p>
+      {% if document.reversal_reason %}
+        <p class="muted">{% translate "سبب العكس:" %} {{ document.reversal_reason }}</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if is_draft and can_prepare %}
+    <form class="formcard" method="post" novalidate>
+      {% csrf_token %}
+      <h2 class="pagehead__title" style="font-size:1.05rem">{% translate "إضافة سطر" %}</h2>
+
+      {% if line_form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in line_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in line_form %}
+          {% include "settings/_field.html" with field=field %}
+        {% endfor %}
+      </div>
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

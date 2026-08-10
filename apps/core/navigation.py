@@ -124,21 +124,89 @@ MODULES: tuple[Module, ...] = (
         label=_("المخزون"),
         icon_name="box",
         phase=_("المرحلة ١"),
-        sections=_sections(
-            _("الأصناف"),
-            _("مجموعات الأصناف"),
-            _("المخازن ومواقع المطبخ"),
-            _("الأرصدة الافتتاحية"),
-            _("الإدخال المخزني"),
-            _("الصرف المخزني"),
-            _("التحويلات"),
-            _("المرتجعات"),
-            _("الهالك والتلف"),
-            _("الجرد"),
-            _("التسويات"),
-            _("حركة المخزون"),
-            _("تقييم المخزون"),
-            _("حدود إعادة الطلب"),
+        url_name="inventory:item_list",
+        available=True,
+        sections=(
+            # Task 1.1 — master data. Built and reachable.
+            Section(label=_("الأصناف"), url_name="inventory:item_list", available=True),
+            Section(
+                label=_("مجموعات الأصناف"),
+                url_name="inventory:category_list",
+                available=True,
+            ),
+            Section(
+                label=_("وحدات التعبئة"),
+                url_name="inventory:package_unit_list",
+                available=True,
+            ),
+            # The section the Task 1.0 review found missing from this rail.
+            Section(
+                label=_("تحويلات وحدات الصنف"),
+                url_name="inventory:conversion_list",
+                available=True,
+            ),
+            Section(label=_("المخازن"), url_name="inventory:warehouse_list", available=True),
+            # Task 1.2 — the ledger. Both screens read the movements that
+            # exist; they show an empty table until real business postings
+            # fill them, which is the honest state rather than a placeholder.
+            Section(label=_("المخزون المتوفر"), url_name="inventory:stock_list", available=True),
+            Section(label=_("حركة المخزون"), url_name="inventory:movement_list", available=True),
+            # Task 1.3 — opening stock, mapping overrides, reconciliation.
+            Section(
+                label=_("الأرصدة الافتتاحية"),
+                url_name="inventory:opening_list",
+                available=True,
+            ),
+            Section(
+                label=_("ربط حسابات المخزون"),
+                url_name="inventory:mapping_list",
+                available=True,
+            ),
+            Section(
+                label=_("مطابقة المخزون والأستاذ"),
+                url_name="inventory:reconciliation",
+                available=True,
+            ),
+            # Task 1.4 — the operational documents.
+            Section(
+                label=_("استلام مخزني غير مفوتر"),
+                url_name="inventory:inventory_receipt_list",
+                available=True,
+            ),
+            Section(
+                label=_("صرف مخزني للاستهلاك"),
+                url_name="inventory:inventory_issue_list",
+                available=True,
+            ),
+            Section(
+                label=_("إرجاع من صرف سابق"),
+                url_name="inventory:inventory_return_in_list",
+                available=True,
+            ),
+            # Task 1.5 — transfers and the in-transit report.
+            Section(
+                label=_("التحويلات المخزنية"),
+                url_name="inventory:transfer_list",
+                available=True,
+            ),
+            Section(
+                label=_("بضاعة بالطريق"),
+                url_name="inventory:in_transit",
+                available=True,
+            ),
+            # Task 1.6 onward — visible so the shape of the module is legible,
+            # inert because the documents that would fill them do not exist.
+            # "المرتجعات" is gone from this list: returns from a prior issue
+            # are live above, and supplier returns belong to Procurement,
+            # where they reconcile against an invoice and a credit note.
+            *_sections(
+                _("مواقع التخزين الداخلية"),
+                _("الهالك والتلف"),
+                _("الجرد"),
+                _("التسويات"),
+                _("تقييم المخزون"),
+                _("حدود إعادة الطلب"),
+            ),
         ),
     ),
     Module(
@@ -205,20 +273,36 @@ MODULES: tuple[Module, ...] = (
         label=_("المحاسبة"),
         icon_name="ledger",
         phase=_("المرحلة ٥"),
-        sections=_sections(
-            _("دليل الحسابات"),
-            _("قيود اليومية"),
-            _("الصناديق"),
-            _("الحسابات البنكية"),
-            _("ذمم الموردين"),
-            _("ذمم التطبيقات"),
-            _("المصروفات"),
-            _("المستحقات والمقدمات"),
-            _("الفترات المحاسبية"),
-            _("ميزان المراجعة"),
-            _("دفتر الأستاذ"),
-            _("قائمة الدخل"),
-            _("الميزانية العمومية"),
+        # Reachable for the two Task 1.3 screens; the rest of the module's
+        # sections stay visibly inert until Phase 5 builds them.
+        url_name="accounting:mapping_list",
+        available=True,
+        sections=(
+            Section(
+                label=_("الأدوار المحاسبية"),
+                url_name="accounting:role_list",
+                available=True,
+            ),
+            Section(
+                label=_("ربط الحسابات"),
+                url_name="accounting:mapping_list",
+                available=True,
+            ),
+            *_sections(
+                _("دليل الحسابات"),
+                _("قيود اليومية"),
+                _("الصناديق"),
+                _("الحسابات البنكية"),
+                _("ذمم الموردين"),
+                _("ذمم التطبيقات"),
+                _("المصروفات"),
+                _("المستحقات والمقدمات"),
+                _("الفترات المحاسبية"),
+                _("ميزان المراجعة"),
+                _("دفتر الأستاذ"),
+                _("قائمة الدخل"),
+                _("الميزانية العمومية"),
+            ),
         ),
     ),
     Module(

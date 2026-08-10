@@ -41,7 +41,7 @@ guarantee is therefore stated explicitly, one of:
 ```python
 UniqueConstraint(
     fields=("warehouse", "item", "lot"),
-    nulls_distinct=False,                     # Django 5.0+, PostgreSQL 15+
+    nulls_distinct=False,  # Django 5.0+, PostgreSQL 15+
     name="stock_balance_key_unique",
 )
 ```
@@ -66,15 +66,25 @@ warehouse-level cost must not have to be recomputed by weighted aggregation on
 every read.
 
 ### 3. Moving weighted average, behind a strategy boundary
+*(amended at Task 1.3 to match the implemented behaviour)*
 
-`MOVING_WEIGHTED_AVERAGE` is the Release 1 method. `ValuationLayer` and
-`ValuationAllocation` are nevertheless recorded from the first posting, even
-though the average does not need them.
+`MOVING_WEIGHTED_AVERAGE` is the Release 1 method. **`ValuationLayer` records
+every inbound cost fact from the first posting; `ValuationAllocation` records
+nothing and stays empty.** A moving average does not consume a layer — it
+charges the blended cost of everything on hand — so an allocation row under
+this method would fabricate FIFO-layer consumption that never happened.
+`ValuationAllocation` remains empty until a valuation strategy that actually
+allocates layers is enabled, and an invariant test holds the line: posting an
+outbound movement under moving average creates no allocation rows.
 
-That is the whole point: with layers captured, introducing FIFO later is a new
-consumption strategy over data that already exists. Without them it is a
-migration of history that cannot be reconstructed, because the information was
-never written down.
+The layers are still the point: with inbound cost facts captured, and with
+the immutable movement history alongside them, a future FIFO cutover is
+**possible** — the consumption for past periods is derivable from data that
+already exists. Stated honestly, though: switching to FIFO is a **controlled
+cutover with an explicit rebuild policy** — recomputing allocations, agreeing
+a cutover date, and reconciling the restated values — not a configuration
+toggle with zero migration work. What the layers buy is that the cutover is
+*computable*; nothing makes it free.
 
 ### 4. Quantity zero implies value zero, by construction
 
@@ -223,3 +233,76 @@ as long as it lasted.
 ## Open
 
 Nothing blocking. The two questions raised at proposal are resolved above.
+## Amendments applied at implementation (Task 1.2, 2026-08-09)
+
+**5. The posted-order counter is an organization-scoped row, and it costs
+throughput.** Valuation follows posting order, so the ledger needs a total
+order two concurrent postings cannot both claim. `StockPostingSequence` is one
+row per organization, taken under `SELECT ... FOR UPDATE`: gapless,
+deterministic, and scoped to the organization it orders.
+
+Stated plainly rather than buried: taking that lock **serialises postings
+within one organization** for the rest of their transaction. That is a
+stronger bound than the Consequences section above anticipated, where
+contention was per `(warehouse, item, lot)`. It is accepted at restaurant
+volumes — a branch posts tens of movements a day, not thousands a second — and
+it buys a sequence with no gaps and no dependence on commit order. If it ever
+binds, the replacement is a PostgreSQL sequence per organization, trading
+gaplessness for concurrency; nothing above the model depends on the numbers
+being contiguous.
+
+The lock order is fixed and must stay fixed: **stock keys first, in canonical
+`(warehouse, item, lot)` order, then the counter.** The reverse would deadlock
+a transaction holding a key and waiting for the counter against one holding
+the counter and waiting for that key.
+
+**6. Absent balance rows are locked with a PostgreSQL advisory lock.**
+`SELECT ... FOR UPDATE` on a row that does not exist locks nothing, and the
+first receipt into a new warehouse is exactly that case — two concurrent ones
+would both find no balance and both insert. `pg_advisory_xact_lock` over a
+canonical key string exists whether or not the row does, and is released by
+commit or rollback with no cleanup path to forget. A hash collision between
+two different keys costs needless serialisation and never costs correctness.
+
+**7. Negative stock is refused outright in Task 1.2, for everyone.**
+`inventory.override_negative_stock` is reserved vocabulary and is **not
+operational**: the kernel consults no permission at all. The reason is not
+caution but definition — the approved moving-average contract does not say how
+a later receipt settles the valuation variance a negative position creates,
+and a permission cannot make an undefined accounting state valid.
+
+A database `CHECK (quantity >= 0)` on `StockBalance` backs this up. **A later
+task that activates the override must relax that constraint in the same
+migration**, or the override would be refused by the very database it is meant
+to be an exception to.
+
+**8. `ValuationAllocation` exists and is deliberately empty.** A moving
+average does not consume a layer — it charges the blended cost of everything
+on hand — so recording that an issue "took 30 kg from the layer received on
+the 3rd" would be a fabrication that looks like evidence. The outbound cost
+authority is, and stays, the moving-average snapshot on `StockMovement`.
+
+The table exists because the allocation for a past period is **derivable**:
+layers and outbound movements both carry `posted_sequence`, so a future FIFO
+migration can compute the consumption it needs from the ledger it already has.
+Every row it ever holds must name the strategy that produced it.
+
+**9. Source identity is canonicalised centrally, and asymmetrically.**
+`apps/core/source_identity.py` is the single normaliser for accounting,
+inventory, and the audit trail:
+
+| Field | Rule | Why |
+|---|---|---|
+| `source_document_type` | `strip().upper()` | our vocabulary |
+| `source_document_id` | `strip()` only | **theirs** — `AB-1042` and `ab-1042` can be two real supplier invoices |
+| `source_event` | `strip().upper()` | our vocabulary |
+
+A whitespace-only value is refused rather than read as "absent": swallowing it
+would move the posting outside the uniqueness guarantee while leaving it
+looking like a manual entry.
+
+**10. A request fingerprint never contains a server-generated timestamp.** The
+fingerprint hashes the *caller's* `effective_at`, which is `None` when they
+sent none. Hashing the resolved `timezone.now()` instead would give every
+retry a different fingerprint and turn idempotency into a permanent
+`idempotency_key_conflict` — the exact opposite of what it is for.

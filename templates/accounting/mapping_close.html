@@ -1,0 +1,31 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# End a mapping's effective range. The correction path for a used mapping:  #}
+{# the row itself stays readable forever, because postings snapshotted it.   #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      <p class="pagehead__hint">
+        {% translate "الترحيلات السابقة تحتفظ بحسابها. الإغلاق يغيّر المستقبل فقط، ثم يُنشأ إصدار جديد." %}
+      </p>
+    </div>
+  </div>
+
+  <form class="formcard" method="post" novalidate>
+    {% csrf_token %}
+    <div class="formgrid">
+      {% for field in form %}
+        {% include "settings/_field.html" with field=field %}
+      {% endfor %}
+    </div>
+    <div class="formactions">
+      <button class="btn btn--primary" type="submit">{% translate "إغلاق النطاق" %}</button>
+      <a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
+    </div>
+  </form>
+{% endblock %}

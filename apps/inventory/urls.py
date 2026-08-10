@@ -1,0 +1,310 @@
+"""
+Inventory screens, mounted inside the shell.
+
+Archive and reactivate are separate POST-only routes rather than a `DELETE`.
+Nothing in this module is ever destroyed: a code that has been used stays
+reserved, and a row that has been referenced stays readable.
+"""
+
+from django.urls import path
+from django.utils.translation import gettext_lazy as _
+
+from apps.inventory import views
+from apps.inventory.models import InventoryDocumentType
+
+app_name = "inventory"
+
+urlpatterns = [
+    # --- categories --------------------------------------------------------
+    path("categories/", views.ItemCategoryListView.as_view(), name="category_list"),
+    path("categories/new/", views.ItemCategoryCreateView.as_view(), name="category_create"),
+    path("categories/<int:pk>/", views.ItemCategoryUpdateView.as_view(), name="category_update"),
+    path(
+        "categories/<int:pk>/archive/",
+        views.ItemCategoryActionView.as_view(activate=False),
+        name="category_archive",
+    ),
+    path(
+        "categories/<int:pk>/reactivate/",
+        views.ItemCategoryActionView.as_view(activate=True),
+        name="category_reactivate",
+    ),
+    # --- package units -----------------------------------------------------
+    path("package-units/", views.PackageUnitListView.as_view(), name="package_unit_list"),
+    path("package-units/new/", views.PackageUnitCreateView.as_view(), name="package_unit_create"),
+    path(
+        "package-units/<int:pk>/",
+        views.PackageUnitUpdateView.as_view(),
+        name="package_unit_update",
+    ),
+    path(
+        "package-units/<int:pk>/archive/",
+        views.PackageUnitActionView.as_view(activate=False),
+        name="package_unit_archive",
+    ),
+    path(
+        "package-units/<int:pk>/reactivate/",
+        views.PackageUnitActionView.as_view(activate=True),
+        name="package_unit_reactivate",
+    ),
+    # --- items -------------------------------------------------------------
+    path("items/", views.ItemListView.as_view(), name="item_list"),
+    path("items/new/", views.ItemCreateView.as_view(), name="item_create"),
+    path("items/<int:pk>/", views.ItemUpdateView.as_view(), name="item_update"),
+    path(
+        "items/<int:pk>/archive/",
+        views.ItemActionView.as_view(activate=False),
+        name="item_archive",
+    ),
+    path(
+        "items/<int:pk>/reactivate/",
+        views.ItemActionView.as_view(activate=True),
+        name="item_reactivate",
+    ),
+    # --- item package conversions ------------------------------------------
+    path("conversions/", views.ItemConversionListView.as_view(), name="conversion_list"),
+    path("conversions/new/", views.ItemConversionCreateView.as_view(), name="conversion_create"),
+    path(
+        "conversions/<int:pk>/",
+        views.ItemConversionUpdateView.as_view(),
+        name="conversion_update",
+    ),
+    path(
+        "conversions/<int:pk>/supersede/",
+        views.ItemConversionSupersedeView.as_view(),
+        name="conversion_supersede",
+    ),
+    path(
+        "conversions/<int:pk>/archive/",
+        views.ItemConversionActionView.as_view(activate=False),
+        name="conversion_archive",
+    ),
+    path(
+        "conversions/<int:pk>/reactivate/",
+        views.ItemConversionActionView.as_view(activate=True),
+        name="conversion_reactivate",
+    ),
+    # --- stock and movements (read only) -----------------------------------
+    path("stock/", views.StockOnHandView.as_view(), name="stock_list"),
+    path("movements/", views.MovementHistoryView.as_view(), name="movement_list"),
+    path("movements/<int:pk>/", views.MovementDetailView.as_view(), name="movement_detail"),
+    # --- account-mapping overrides (Task 1.3) -------------------------------
+    path("account-mappings/", views.InventoryMappingListView.as_view(), name="mapping_list"),
+    path(
+        "account-mappings/new/",
+        views.InventoryMappingCreateView.as_view(),
+        name="mapping_create",
+    ),
+    path(
+        "account-mappings/<int:pk>/close/",
+        views.InventoryMappingCloseView.as_view(),
+        name="mapping_close",
+    ),
+    path(
+        "account-mappings/<int:pk>/archive/",
+        views.InventoryMappingArchiveView.as_view(),
+        name="mapping_archive",
+    ),
+    # --- opening stock documents (Task 1.3) ---------------------------------
+    path("openings/", views.OpeningListView.as_view(), name="opening_list"),
+    path("openings/new/", views.OpeningCreateView.as_view(), name="opening_create"),
+    path("openings/<int:pk>/", views.OpeningDetailView.as_view(), name="opening_detail"),
+    path("openings/<int:pk>/edit/", views.OpeningUpdateView.as_view(), name="opening_update"),
+    path(
+        "openings/<int:pk>/submit/",
+        views.OpeningActionView.as_view(action="submit"),
+        name="opening_submit",
+    ),
+    path(
+        "openings/<int:pk>/return/",
+        views.OpeningActionView.as_view(action="return"),
+        name="opening_return",
+    ),
+    path(
+        "openings/<int:pk>/post/",
+        views.OpeningActionView.as_view(action="post"),
+        name="opening_post",
+    ),
+    path(
+        "openings/<int:pk>/reverse/",
+        views.OpeningActionView.as_view(action="reverse"),
+        name="opening_reverse",
+    ),
+    path(
+        "openings/<int:pk>/delete/",
+        views.OpeningActionView.as_view(action="delete"),
+        name="opening_delete",
+    ),
+    path(
+        "openings/<int:pk>/lines/<int:line_pk>/delete/",
+        views.OpeningActionView.as_view(action="delete_line"),
+        name="opening_line_delete",
+    ),
+    # --- reconciliation (read only) -----------------------------------------
+    path("reconciliation/", views.ReconciliationView.as_view(), name="reconciliation"),
+    # --- warehouses --------------------------------------------------------
+    path("warehouses/", views.WarehouseListView.as_view(), name="warehouse_list"),
+    path("warehouses/new/", views.WarehouseCreateView.as_view(), name="warehouse_create"),
+    path("warehouses/<int:pk>/", views.WarehouseUpdateView.as_view(), name="warehouse_update"),
+    path(
+        "warehouses/<int:pk>/archive/",
+        views.WarehouseActionView.as_view(activate=False),
+        name="warehouse_archive",
+    ),
+    path(
+        "warehouses/<int:pk>/reactivate/",
+        views.WarehouseActionView.as_view(activate=True),
+        name="warehouse_reactivate",
+    ),
+]
+
+
+# --- operational documents (Task 1.4) ---------------------------------------
+#
+# Three identical route sets, generated rather than written out three times.
+# The document type is bound into the view here, so it comes from the URL and
+# never from a request body a caller controls: `/receipts/` posts receipts and
+# an id from one series cannot resolve under another.
+
+_OPERATIONAL_SCREENS = (
+    (
+        "receipts",
+        InventoryDocumentType.RECEIPT,
+        _("استلام مخزني غير مفوتر"),
+        _("بضاعة دخلت المخزن ولم تُفوتر بعد. ليست فاتورة مورد ولا ذمة عليه."),
+        _("استلام جديد"),
+    ),
+    (
+        "issues",
+        InventoryDocumentType.ISSUE,
+        _("صرف مخزني للاستهلاك"),
+        _("بضاعة تخرج من العهدة للاستهلاك النهائي. ليست تحويلاً بين المخازن."),
+        _("صرف جديد"),
+    ),
+    (
+        "returns-in",
+        InventoryDocumentType.RETURN_IN,
+        _("إرجاع من صرف سابق"),
+        _("بضاعة غير مستهلكة تعود للمخزن بكلفة الصرف الأصلي. ليست عكس قيد."),
+        _("إرجاع جديد"),
+    ),
+)
+
+for _path, _type, _title, _hint, _create_label in _OPERATIONAL_SCREENS:
+    _slug = _type.lower()
+    urlpatterns += [
+        path(
+            f"{_path}/",
+            views.OperationalListView.as_view(
+                document_type=_type,
+                page_title=_title,
+                page_hint=_hint,
+                create_url_name=f"inventory:{_slug}_create",
+                create_label=_create_label,
+            ),
+            name=f"{_slug}_list",
+        ),
+        path(
+            f"{_path}/new/",
+            views.OperationalCreateView.as_view(
+                document_type=_type, page_title=_create_label, page_hint=_hint
+            ),
+            name=f"{_slug}_create",
+        ),
+        path(
+            f"{_path}/<int:pk>/",
+            views.OperationalDetailView.as_view(document_type=_type),
+            name=f"{_slug}_detail",
+        ),
+        path(
+            f"{_path}/<int:pk>/post/",
+            views.OperationalActionView.as_view(document_type=_type, action="post"),
+            name=f"{_slug}_post",
+        ),
+        path(
+            f"{_path}/<int:pk>/reverse/",
+            views.OperationalActionView.as_view(document_type=_type, action="reverse"),
+            name=f"{_slug}_reverse",
+        ),
+        path(
+            f"{_path}/<int:pk>/delete/",
+            views.OperationalActionView.as_view(document_type=_type, action="delete"),
+            name=f"{_slug}_delete",
+        ),
+        path(
+            f"{_path}/<int:pk>/lines/<int:line_pk>/delete/",
+            views.OperationalActionView.as_view(document_type=_type, action="delete_line"),
+            name=f"{_slug}_line_delete",
+        ),
+    ]
+
+
+# --- transfers (Task 1.5) ---------------------------------------------------
+#
+# A receipt and a shortage live under their own top-level paths once they
+# exist, and are *created* under their transfer's path. The nesting is where
+# the route constrains the object: `/transfers/7/receipts/new/` can only make
+# a receipt against transfer 7, and a receipt id from another transfer 404s
+# rather than resolving quietly.
+
+urlpatterns += [
+    path("transfers/", views.TransferListView.as_view(), name="transfer_list"),
+    path("transfers/new/", views.TransferCreateView.as_view(), name="transfer_create"),
+    path("transfers/<int:pk>/", views.TransferDetailView.as_view(), name="transfer_detail"),
+    path(
+        "transfers/<int:pk>/dispatch/",
+        views.TransferDispatchView.as_view(),
+        name="transfer_dispatch",
+    ),
+    path(
+        "transfers/<int:pk>/reverse-dispatch/",
+        views.TransferActionView.as_view(action="reverse"),
+        name="transfer_reverse",
+    ),
+    path(
+        "transfers/<int:pk>/delete/",
+        views.TransferActionView.as_view(action="delete"),
+        name="transfer_delete",
+    ),
+    path(
+        "transfers/<int:pk>/lines/<int:line_pk>/delete/",
+        views.TransferActionView.as_view(action="delete_line"),
+        name="transfer_line_delete",
+    ),
+    path(
+        "transfers/<int:pk>/receipts/new/",
+        views.TransferReceiptCreateView.as_view(),
+        name="transfer_receipt_create",
+    ),
+    path(
+        "transfer-receipts/<int:pk>/",
+        views.TransferReceiptDetailView.as_view(),
+        name="transfer_receipt_detail",
+    ),
+    path(
+        "transfer-receipts/<int:pk>/post/",
+        views.TransferReceiptActionView.as_view(action="post"),
+        name="transfer_receipt_post",
+    ),
+    path(
+        "transfer-receipts/<int:pk>/reverse/",
+        views.TransferReceiptActionView.as_view(action="reverse"),
+        name="transfer_receipt_reverse",
+    ),
+    path(
+        "transfer-receipts/<int:pk>/delete/",
+        views.TransferReceiptActionView.as_view(action="delete"),
+        name="transfer_receipt_delete",
+    ),
+    path(
+        "transfers/<int:pk>/shortage/",
+        views.TransferShortageCreateView.as_view(),
+        name="transfer_shortage_create",
+    ),
+    path(
+        "transfer-shortages/<int:pk>/reverse/",
+        views.TransferShortageActionView.as_view(action="reverse"),
+        name="transfer_shortage_reverse",
+    ),
+    path("in-transit/", views.InTransitView.as_view(), name="in_transit"),
+]

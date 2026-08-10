@@ -14,9 +14,15 @@ def _sync_role_groups(sender: Any, **kwargs: Any) -> None:
     forgets to hand it to a role produces the worst kind of failure: an
     authority nobody holds, discovered by an accountant who cannot close a
     period.
+
+    The system account-role vocabulary is re-asserted here too: a test-suite
+    flush truncates data-migration rows and replays only post_migrate, and a
+    database without `INVENTORY_CONTROL` cannot post an opening.
     """
     from apps.accounting.permissions import sync_role_groups
+    from apps.accounting.services import sync_system_account_roles
 
+    sync_system_account_roles()
     sync_role_groups()
 
 

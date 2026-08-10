@@ -34,16 +34,32 @@ CHART: list[tuple[str, str, str]] = [
     ("1-02-01-001", "ذمم بالي", "Bally Receivable"),
     ("1-02-01-002", "ذمم توترز", "Toters Receivable"),
     ("1-02-01-003", "ذمم طلبات", "Talabat Receivable"),
+    # Inventory control and in-transit (Task 1.3). Accounts only: which of
+    # them carries INVENTORY_CONTROL is an OrganizationAccountMapping the
+    # organization records deliberately, never something this seed decides.
+    ("1-03", "المخزون", "Inventory"),
+    ("1-03-01", "مخزون المواد", "Materials inventory"),
+    ("1-03-01-001", "مخزون المواد والسلع", "Inventory Control"),
+    ("1-03-02", "بضاعة بالطريق", "Goods in transit"),
+    ("1-03-02-001", "بضاعة بالطريق", "Goods in Transit"),
     # 2 Liabilities
     ("2", "الالتزامات", "Liabilities"),
     ("2-01", "الذمم الدائنة", "Payables"),
     ("2-01-01", "ذمم الموردين", "Supplier payables"),
     ("2-01-01-001", "ذمم الموردين", "Accounts Payable"),
+    # Goods physically received that no supplier invoice has caught up with.
+    # A clearing liability, not a payable: nobody is owed a stated amount
+    # until the invoice arrives, and Procurement clears this against it.
+    ("2-01-02", "بضاعة مستلمة غير مفوترة", "Goods received not invoiced"),
+    ("2-01-02-001", "بضاعة مستلمة غير مفوترة", "Goods Received Not Invoiced"),
     # 3 Equity
     ("3", "حقوق الملكية", "Equity"),
     ("3-01", "رأس المال", "Capital"),
     ("3-01-01", "رأس المال", "Capital"),
     ("3-01-01-001", "رأس المال", "Owner Capital"),
+    ("3-02", "أرصدة افتتاحية", "Opening balances"),
+    ("3-02-01", "أرصدة افتتاحية", "Opening balances"),
+    ("3-02-01-001", "أرصدة افتتاحية - مخزون", "Inventory Opening Equity"),
     # 4 Revenue
     ("4", "الإيرادات", "Revenue"),
     ("4-01", "إيرادات المبيعات", "Sales revenue"),
@@ -57,6 +73,14 @@ CHART: list[tuple[str, str, str]] = [
     ("5-01", "كلفة المواد", "Material cost"),
     ("5-01-01", "كلفة الأغذية", "Food cost"),
     ("5-01-01-001", "كلفة الأغذية", "Food COGS"),
+    # Consumption destinations. Separate leaves because what a thing is
+    # consumed *as* is what makes the figure useful: ingredients, packaging,
+    # and cleaning materials answer different questions about the same
+    # kitchen. Which item maps to which is an organization decision.
+    ("5-01-02", "استهلاك المواد", "Materials consumption"),
+    ("5-01-02-001", "استهلاك المواد الغذائية", "Food Materials Consumed"),
+    ("5-01-02-002", "استهلاك مواد التغليف", "Packaging Materials Consumed"),
+    ("5-01-02-003", "استهلاك المواد الاستهلاكية", "Consumables Consumed"),
     # 6 Operating expenses
     ("6", "المصروفات التشغيلية", "Operating expenses"),
     ("6-01", "المصروفات الإدارية", "Administrative expenses"),
@@ -64,6 +88,14 @@ CHART: list[tuple[str, str, str]] = [
     ("6-01-01-001", "الرواتب", "Salaries"),
     ("6-01-02", "الإيجار", "Rent"),
     ("6-01-02-001", "الإيجار", "Rent"),
+    # Stock that left one branch and never reached the other (Task 1.5). An
+    # operating expense rather than a cost-of-sales line, because nothing was
+    # sold: the goods were lost. Its class makes a cost centre mandatory, which
+    # is exactly right — a loss nobody's department carries is a loss nobody
+    # investigates.
+    ("6-02", "خسائر تشغيلية", "Operating losses"),
+    ("6-02-01", "خسائر المخزون", "Inventory losses"),
+    ("6-02-01-001", "عجز التحويلات", "Transfer Shortage Loss"),
     # 7 Other income and expense
     ("7", "إيرادات ومصروفات أخرى", "Other income and expense"),
     ("7-09", "فروقات وتسويات", "Differences and adjustments"),

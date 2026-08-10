@@ -1,0 +1,33 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block columns %}
+  <th>{% translate "الصنف" %}</th>
+  <th>{% translate "العبوة" %}</th>
+  <th>{% translate "المعامل إلى وحدة الأساس" %}</th>
+  <th>{% translate "النوع" %}</th>
+  <th>{% translate "سارٍ من" %}</th>
+  <th>{% translate "الإصدار" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% translate "إصدار جديد" as new_version_label %}
+  {% for conversion in conversions %}
+    <tr>
+      <td><code>{{ conversion.item.code }}</code> {{ conversion.item.name_ar }}</td>
+      <td><code>{{ conversion.package_unit.code }}</code></td>
+      {# Technical identity: rendered with a period, never a locale comma. #}
+      <td><code dir="ltr">{{ conversion.factor_display }}</code></td>
+      <td>{{ conversion.get_conversion_type_display }}</td>
+      <td>{{ conversion.effective_from|date:"Y-m-d" }}</td>
+      <td>{{ conversion.version }}</td>
+      {# "New version" sits beside "edit" because they are different acts:  #}
+      {# a correction rewrites a factor nothing was valued at, a version    #}
+      {# records that the packaging itself changed.                         #}
+      {% include "inventory/_rowactions.html" with row=conversion owner_id=conversion.organization_id edit_url="inventory:conversion_update" archive_url="inventory:conversion_archive" reactivate_url="inventory:conversion_reactivate" extra_url="inventory:conversion_supersede" extra_label=new_version_label %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="7">{% translate "لا توجد تحويلات بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

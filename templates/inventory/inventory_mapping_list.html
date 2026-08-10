@@ -1,0 +1,54 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# Item/category overrides of the inventory account mappings. The           #}
+{# organization defaults are managed on the accounting module's screen.     #}
+
+{% block columns %}
+  <th>{% translate "الدور" %}</th>
+  <th>{% translate "الهدف" %}</th>
+  <th>{% translate "الحساب" %}</th>
+  <th>{% translate "سارٍ من" %}</th>
+  <th>{% translate "سارٍ حتى" %}</th>
+  <th>{% translate "الإصدار" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for mapping in mappings %}
+    <tr>
+      <td><code dir="ltr">{{ mapping.account_role.code }}</code></td>
+      <td>
+        {% if mapping.item %}
+          <code>{{ mapping.item.code }}</code> {{ mapping.item.name_ar }}
+        {% else %}
+          <code>{{ mapping.category.code }}</code> {{ mapping.category.name_ar }}
+          ({% translate "مجموعة" %})
+        {% endif %}
+      </td>
+      <td><code dir="ltr">{{ mapping.account.code }}</code> {{ mapping.account.name_ar }}</td>
+      <td>{{ mapping.effective_from|date:"Y-m-d" }}</td>
+      <td>{% if mapping.effective_to %}{{ mapping.effective_to|date:"Y-m-d" }}{% else %}—{% endif %}</td>
+      <td>{{ mapping.version }}</td>
+      <td>{% if mapping.is_active %}{% translate "فعّال" %}{% else %}{% translate "مؤرشف" %}{% endif %}</td>
+      <td>
+        {% if mapping.is_active %}
+          <div class="rowactions">
+            <a class="btn btn--ghost btn--sm" href="{% url 'inventory:mapping_close' mapping.pk %}">
+              {% translate "إغلاق النطاق" %}
+            </a>
+            <form method="post" action="{% url 'inventory:mapping_archive' mapping.pk %}">
+              {% csrf_token %}
+              <button class="btn btn--ghost btn--sm" type="submit">{% translate "أرشفة" %}</button>
+            </form>
+          </div>
+        {% else %}
+          —
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="8">{% translate "لا تخصيصات. الأصناف تتبع افتراضي المؤسسة." %}</td></tr>
+  {% endfor %}
+{% endblock %}

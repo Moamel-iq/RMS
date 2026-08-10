@@ -230,6 +230,43 @@ Task 1.0, not referenced from an earlier artefact.
 | INV-060 | Source identity normalised centrally; `"145 "` == `"145"` | Accounting service | `::test_source_id_normalisation` | 1.2 | AT-009 | Specified |
 | INV-061 | A reversal that decreases stock passes the availability check | Posting service | `::test_reversal_respects_availability` | 1.4 | | Specified |
 | INV-062 | Every report names its cutoff semantics | Report contract | `::test_report_declares_cutoff_mode` | 1.7 | AT-011 | Specified |
+| INV-063 | A permission is carried by a post held **in the target organization** | `roles_in_organization` + `roles_granting` | `test_permission_provenance.py::TestTheProvenanceRule` | 1.1 | AT-008 | Done |
+| INV-064 | A global group or direct user permission authorizes no organization | Same | `::test_a_hand_made_group_authorizes_no_organization` | 1.1 | AT-008 | Done |
+| INV-065 | Organization *authority* comes only from an `OrganizationMembership` role | `organization_authority_roles` | `::TestOrganizationAuthorityProvenance` | 1.1 | AT-008 | Done |
+| INV-066 | Button visibility never differs from what the write allows | `organizations_with_permission` | `::TestBulkAnswersMatchTheSingleCheck` | 1.1 | AT-008 | Done |
+| INV-067 | Master-data screens write through services only; no `form.save()` | `apps/inventory/views.py` | `::TestTheWritePathIsStructurallySafe` | 1.1 | | Done |
+| INV-068 | A hidden action refuses a direct POST on its own merits | `InventoryWriteView.authorize` | `::TestButtonsAreNotTheProtection` | 1.1 | AT-008 | Done |
+| INV-069 | An unused conversion is corrected in place; a used one must be versioned | `update_item_conversion` | `::test_editing_corrects_an_unused_factor` | 1.1 | AT-011 | Done |
+| INV-070 | An archived warehouse stays readable and reactivatable | `readable_warehouses` | `::test_create_edit_archive_and_reactivate` | 1.1 | | Done |
+| INV-071 | Source identity is canonicalised centrally; `"145 "` == `"145"` | `apps/core/source_identity.py` | `test_ledger.py::TestSourceIdentityCanonicalisation` | 1.2 | AT-009 | Done |
+| INV-072 | `source_document_id` is NOT case-folded — it is the supplier's vocabulary | Same | `::test_case_is_folded_on_our_vocabulary_and_not_on_theirs` | 1.2 | AT-009 | Done |
+| INV-073 | A retry with the same payload returns the original posting | `_replay` + `request_fingerprint` | `::TestIdempotency` | 1.2 | AT-009 | Done |
+| INV-074 | A key reused with a changed payload is `idempotency_key_conflict` | Same | `::test_a_changed_payload_is_a_conflict` | 1.2 | AT-009 | Done |
+| INV-075 | The fingerprint excludes the server clock, so retries can match | `request_fingerprint` | `::test_the_same_payload_returns_the_original` | 1.2 | AT-009 | Done |
+| INV-076 | Effect keys are unique per posting, in service and in database | `UniqueConstraint(entry, effect_key)` | `::test_the_database_refuses_a_duplicate_effect_key_too` | 1.2 | AT-009 | Done |
+| INV-077 | Quantity zero implies value zero, by construction and by constraint | `apply_outbound` + check constraints | `::test_full_depletion_absorbs_the_exact_remaining_value` | 1.2 | AT-002 | Done |
+| INV-078 | A full depletion absorbs the exact remaining value | Same | `test_valuation_properties.py` | 1.2 | AT-002 | Done |
+| INV-079 | Negative stock is refused for everyone in Task 1.2 | `_require_available` | `::TestNegativeStockIsRefused` | 1.2 | | Done |
+| INV-080 | A reversal mirrors quantity and value, not today's average | `apply_reversal` | `::test_a_reversal_mirrors_the_original_exactly` | 1.2 | AT-011 | Done |
+| INV-081 | A reversal that would go negative is refused | `reverse_stock_entry` | `::test_a_reversal_that_would_go_negative_is_refused` | 1.2 | | Done |
+| INV-082 | A reversal cannot be reversed, and nothing is reversed twice | Same | `::TestReversal` | 1.2 | | Done |
+| INV-083 | `StockMovement` is insert-only at the database | Trigger `stock_movement_is_insert_only` | `::TestTheLedgerIsAppendOnly` | 1.2 | | Done |
+| INV-084 | A ledger entry is immutable except for its reversal back-link | Trigger `stock_entry_is_immutable` | `::test_an_entry_cannot_be_edited` | 1.2 | | Done |
+| INV-085 | The null-lot balance key is unique (`NULLS NOT DISTINCT`) | `stock_balance_key_unique` | `::test_the_null_lot_balance_is_unique` | 1.2 | | Done |
+| INV-086 | Concurrent issues cannot oversell | Advisory lock per stock key | `test_ledger_concurrency.py::TestConcurrentIssues` | 1.2 | | Done |
+| INV-087 | Concurrent first receipts create exactly one balance row | Same | `::TestConcurrentFirstReceipt` | 1.2 | | Done |
+| INV-088 | Multi-key events lock in canonical order and never deadlock | `_StockKey.sort_key` | `::TestDeterministicLockOrder` | 1.2 | | Done |
+| INV-089 | Posting requires an OPEN period; SOFT_CLOSED and CLOSED refuse | `_validate_period_is_open` | `::TestPeriodAndWarehouseState` | 1.2 | | Done |
+| INV-090 | A frozen stock position refuses postings | `_check_warehouse_is_not_frozen` | `::test_a_frozen_position_refuses_postings` | 1.2 | | Done |
+| INV-091 | Replaying the ledger reproduces the projection exactly | `reconciliation.verify_organization` | `::TestRebuild` | 1.2 | AT-007 | Done |
+| INV-092 | A corrupted projection is detected and never silently repaired | `verify_stock_ledger` | `::test_the_verify_command_reports_and_refuses_to_repair` | 1.2 | AT-007 | Done |
+| INV-093 | Item identity fields freeze once movements exist | `_item_has_movements` | `::TestPostedHistoryFreezesMasterData` | 1.2 | AT-011 | Done |
+| INV-094 | A conversion used by a posted movement must be versioned, not edited | `_conversion_has_movements` | `::test_a_used_conversion_cannot_be_edited_in_place` | 1.2 | AT-011 | Done |
+| INV-095 | No API path writes a stock movement | `config.api` routing table | `test_stock_screens_and_api.py::TestThereIsNoWritePath` | 1.2 | | Done |
+| INV-096 | Cost is a separate permission from quantity, and omitted not blanked | `may_see_cost` | `::test_a_storekeeper_sees_quantity_and_no_cost_at_all` | 1.2 | AT-008 | Done |
+| INV-097 | Lot required when tracked, prohibited when not; average is per lot | `_validate_lot` | `::TestLots` | 1.2 | | Done |
+| INV-098 | Expired lots cannot be issued, but can be wasted | `_validate_lot_is_not_expired` | `::test_an_expired_lot_cannot_be_issued` | 1.2 | | Done |
+| INV-099 | `ValuationAllocation` stays empty under moving average | Kernel writes none | `::test_no_allocation_is_fabricated_under_moving_average` | 1.2 | AT-002 | Done |
 
 ## Not yet mapped
 
@@ -237,3 +274,81 @@ The SRS has not been added to this repository. `docs/requirements/SRS.md` is
 referenced by `CLAUDE.md` but does not exist. Until it is supplied, requirement
 IDs above are local to the bootstrap and are not traceable to a business
 source.
+| INV-100 | AccountRole vocabulary seeded, system codes immutable | `accounting/0008`, trigger | `test_account_mappings.py::TestTheRoleVocabulary` | 1.3 | | Done |
+| INV-101 | Posting rules refer to role codes, never account ids | `apps/inventory/opening.py` | `::test_source_identity_uses_the_immutable_public_id` | 1.3 | | Done |
+| INV-102 | Organization mapping: same-org postable active account, no overlap | `create_account_mapping` | `::TestOrganizationMappings` | 1.3 | | Done |
+| INV-103 | Used mappings immutable; corrections close and version | `mapping_is_used` | `::test_an_unused_mapping_may_be_amended_or_archived` | 1.3 | | Done |
+| INV-104 | Resolver precedence item → nearest ancestor → default → unmapped | `resolve_inventory_account` | `test_inventory_account_mappings.py::TestResolverPrecedence` | 1.3 | | Done |
+| INV-105 | Reclassification guard over standing stock, all three doors | `apps/inventory/accounts.py` | `::TestTheReclassificationGuard` | 1.3 | | Done |
+| INV-106 | Opening lifecycle DRAFT→SUBMITTED→POSTED→REVERSED, maker-checker | `apps/inventory/opening.py` | `test_opening_stock.py::TestMakerChecker` | 1.3 | | Done |
+| INV-107 | Opening posts stock, valuation, and journal in one transaction | `post_opening_document` | `::test_a_missing_mapping_rolls_the_whole_posting_back` | 1.3 | AT-002 | Done |
+| INV-108 | Opening value equals its journal exactly, per account group | grouped stored sums | `::test_grouped_debits_when_items_resolve_to_different_accounts` | 1.3 | AT-002 | Done |
+| INV-109 | Opening is the first movement for its valuation keys | history check under locks | `::test_a_key_with_prior_movement_history_is_refused` | 1.3 | | Done |
+| INV-110 | Gapless opening numbers, assigned only at posting | `_next_document_number` | `::test_document_numbering_is_gapless_across_a_failed_attempt` | 1.3 | | Done |
+| INV-111 | Source identity uses the immutable public id; effect keys use line uids | `post_opening_document` | `::test_the_effect_key_is_the_stable_line_identity` | 1.3 | AT-009 | Done |
+| INV-112 | Whole-document reversal mirrors stock and GL exactly, availability applies | `reverse_opening_document` | `::TestReversal` | 1.3 | | Done |
+| INV-113 | Posted opening and its lines are database-immutable | triggers, `inventory/0006` | `::test_a_posted_document_is_immutable_at_the_database` | 1.3 | | Done |
+| INV-114 | Inventory-to-GL reconciliation by the account history entered | `verify_inventory_against_gl` | `::TestReconciliation` | 1.3 | AT-002 | Done |
+| INV-115 | Reconciliation reports, never repairs | `verify_inventory_accounting` | `::test_the_management_command_reports_and_exits_nonzero_on_mismatch` | 1.3 | | Done |
+| INV-116 | Combined posting lock order is fixed and deadlock-free | ADR-019, `opening.py` docstring | `test_opening_concurrency.py` | 1.3 | | Done |
+| INV-117 | Concurrent duplicate post yields one economic event | document row lock | `::test_a_concurrent_duplicate_post_creates_one_economic_event` | 1.3 | AT-009 | Done |
+| INV-118 | Mapping authority is organization provenance; overrides share it | `MANAGE_ACCOUNT_MAPPINGS` | `::TestMappingAuthorization`, `::TestProvenanceRegression` | 1.3 | AT-008 | Done |
+| INV-119 | Opening cost fields follow `view_valuation`, omitted not blanked | `_serialize_opening` | `test_opening_api.py::TestDecimalsAndCostVisibility` | 1.3 | AT-008 | Done |
+| INV-120 | Negative-stock override granted to no default role while disabled | `NEGATIVE_STOCK_OVERRIDE_ENABLED` | `test_ledger.py::test_even_the_owner_is_refused…` | 1.3 | | Done |
+| INV-121 | Period validation uses the business date, not the calendar date | `_validate_period_is_open` | `test_business_date.py::TestPeriodValidationUsesTheBusinessDate` | 1.4 | | Done |
+| INV-122 | A submitted document's business date cannot silently change | submission snapshot | `::TestTheOpeningSnapshotIsStable` | 1.4 | | Done |
+| INV-123 | Return-to-draft releases the snapshot; resubmission recalculates | `return_opening_to_draft` | `::test_return_to_draft_releases_the_snapshot…` | 1.4 | | Done |
+| INV-124 | Postings hold the mapping lock shared; mutations exclusively | `apps/core/locks.py` | `test_mapping_concurrency.py` | 1.4 | | Done |
+| INV-125 | A mapping mutation cannot race a posting into stranded value | `begin_mapping_mutation` | `::TestMappingChangeCannotRaceWithPosting` | 1.4 | | Done |
+| INV-126 | Shared locks still allow concurrent postings | shared advisory lock | `::test_two_postings_overlap_rather_than_serialising` | 1.4 | | Done |
+| INV-127 | The global lock order does not deadlock | ADR-019 §6 | `::TestTheGlobalLockOrderDoesNotDeadlock` | 1.4 | | Done |
+| INV-128 | Every value-bearing movement carries its control account | `_control_account_for` | `test_business_date.py::TestTheMovementCarriesItsControlAccount` | 1.4 | | Done |
+| INV-129 | A receipt into standing stock preserves the control account | `_control_account_for` | `test_operations.py::TestControlAccountContinuity` | 1.4 | | Done |
+| INV-130 | Emptying a position releases its control-account identity | `_save_position` | `::test_emptying_the_position_releases_the_account` | 1.4 | | Done |
+| INV-131 | Receipt: Dr control, Cr GRNI, grouped per account | `_plan_receipt` | `::TestReceiptPosting` | 1.4 | AT-002 | Done |
+| INV-132 | Issue: Dr consumption, Cr the account the stock is in | `_plan_issue` | `::TestIssue` | 1.4 | AT-002 | Done |
+| INV-133 | Issue cost is the moving average; no entered cost accepted | `add_line` | `::test_a_user_supplied_unit_cost_is_refused` | 1.4 | | Done |
+| INV-134 | Return valued from the original issue, not today's average | `_plan_return` | `::TestReturnIn` | 1.4 | | Done |
+| INV-135 | The final return takes the exact remaining value, no residual | `_plan_return` | `::test_the_final_return_takes_the_exact_remaining_value` | 1.4 | | Done |
+| INV-136 | Cumulative returns cannot exceed the issue | `returnable` | `::test_cumulative_returns_cannot_exceed_the_issue` | 1.4 | | Done |
+| INV-137 | A return reuses the original accounts and cost centre | `_plan_return` | `::test_todays_mapping_is_not_used_for_the_return` | 1.4 | | Done |
+| INV-138 | An issue with active returns cannot be reversed | `reverse_document` | `::test_an_issue_with_active_returns_cannot_be_reversed` | 1.4 | | Done |
+| INV-139 | Reversal availability applies to receipts and returns | `reverse_stock_entry` | `::TestReversal` | 1.4 | | Done |
+| INV-140 | Gapless numbering per type and business year; failures burn none | `_next_document_number` | `::TestNumberingAndIdempotency` | 1.4 | | Done |
+| INV-141 | Source identity uses the immutable public id and line uid | `post_document` | `::test_source_identity_uses_the_immutable_public_id` | 1.4 | AT-009 | Done |
+| INV-142 | Posted documents and lines are database-immutable | triggers, `inventory/0010` | `::test_a_posted_receipt_is_immutable_at_the_database` | 1.4 | | Done |
+| INV-143 | A document id cannot cross between type series | route-bound type | `test_operations_api_and_screens.py::test_a_document_id_cannot_cross_between_series` | 1.4 | AT-008 | Done |
+| INV-144 | Cost is omitted for callers without view_valuation | `_serialize_document` | `::TestReceiptApi`, `::test_a_storekeeper_sees_no_recorded_cost` | 1.4 | AT-008 | Done |
+| INV-145 | Navigation offers only screens that resolve | `apps/core/navigation.py` | `::test_navigation_points_only_at_live_screens` | 1.4 | | Done |
+| INV-146 | Goods stay on the source branch's books until received | in-transit warehouse of the source branch | `test_transfers.py::test_a_cross_branch_dispatch_stays_on_the_source_branch_books` | 1.5 | | Done |
+| INV-147 | A user can never select the in-transit warehouse | `_validate_transfer_endpoints` + trigger | `::test_the_in_transit_warehouse_cannot_be_chosen`, `::test_the_database_refuses_a_raw_in_transit_endpoint` | 1.5 | | Done |
+| INV-148 | Cross-organization transfer is refused | `_validate_transfer_endpoints` | `::test_a_cross_organization_transfer_is_refused` | 1.5 | | Done |
+| INV-149 | Dispatch carries the exact outbound value into transit | `_post_dispatch_effects` | `::test_a_full_depletion_carries_its_entire_remaining_value` | 1.5 | | Done |
+| INV-150 | A receipt is valued from its own transfer, not the pooled average | `allocate`, `outbound_value` | `::test_the_pooled_in_transit_average_is_not_used` | 1.5 | | Done |
+| INV-151 | The final receipt or closure takes the exact remainder | `allocate` | `::test_the_final_receipt_takes_the_exact_remaining_value` | 1.5 | | Done |
+| INV-152 | Receipts plus shortage always equal the dispatch | `allocate` | `::test_receipts_plus_shortage_equal_the_dispatch` | 1.5 | | Done |
+| INV-153 | Over-receipt is refused against the locked remaining basis | `_allocate_receipt` | `::test_over_receipt_is_refused` | 1.5 | | Done |
+| INV-154 | Same-branch receipt posts one branch-local journal | `_post_receipt_journals` | `::test_the_same_branch_receipt_journal_is_one_branch_local_entry` | 1.5 | AT-002 | Done |
+| INV-155 | Cross-branch receipt posts two journals, each branch balanced | `_post_receipt_journals` | `::test_a_cross_branch_receipt_writes_two_balanced_journals` | 1.5 | AT-002 | Done |
+| INV-156 | Inter-branch clearing nets to zero for a complete event | ADR-020 §9 | `::test_inter_branch_clearing_nets_to_zero` | 1.5 | | Done |
+| INV-157 | Each side of a receipt is dated by its own branch's business day | `post_receipt` | `::test_the_two_branches_may_resolve_to_different_dates` | 1.5 | | Done |
+| INV-158 | Either branch's closed period rolls the whole receipt back | `_period_for` | `::test_a_closed_source_period_refuses_the_whole_receipt`, `::test_a_closed_destination_period_…` | 1.5 | | Done |
+| INV-159 | An unmapped role rolls back every stock and document effect | `_resolve_receipt_accounts` | `::test_an_unmapped_clearing_role_rolls_everything_back` | 1.5 | | Done |
+| INV-160 | A shortage closure needs permission, reason and cost centre | `create_shortage`, model constraints | `::TestShortage` | 1.5 | AT-008 | Done |
+| INV-161 | A storekeeper cannot close a shortage | `CLOSE_TRANSFER_SHORTAGE` role map | `::test_a_storekeeper_cannot_close_a_shortage` | 1.5 | AT-008 | Done |
+| INV-162 | At most one active closure per transfer | partial unique index | `::test_only_one_closure_can_be_active`, `test_transfer_concurrency.py::test_two_closures_leave_at_most_one_active` | 1.5 | | Done |
+| INV-163 | Reversing a receipt restores in-transit exactly | `reverse_receipt` | `::test_reversing_a_receipt_restores_transit_exactly` | 1.5 | | Done |
+| INV-164 | Consumed destination stock blocks a receipt reversal | `reverse_stock_entry` availability | `::test_consumed_destination_stock_blocks_a_receipt_reversal` | 1.5 | | Done |
+| INV-165 | Dispatch reversal is refused while any child is active | `reverse_dispatch` | `::test_a_dispatch_cannot_be_reversed_while_a_receipt_stands` | 1.5 | | Done |
+| INV-166 | The transfer's status is computed from its posted children | `recompute_transfer_status` | `::TestReceipt`, `::TestReversal` | 1.5 | | Done |
+| INV-167 | The dispatch conversion snapshot is authoritative at receipt | `add_receipt_line` | `::test_the_dispatch_conversion_snapshot_survives_a_new_factor` | 1.5 | | Done |
+| INV-168 | A lot survives the journey unchanged | valuation key | `::test_the_lot_survives_the_journey` | 1.5 | | Done |
+| INV-169 | Each side of a receipt carries its own source identity | `TRANSFER_RECEIPT_{SOURCE,DESTINATION}_TYPE` | `::test_the_source_identities_are_distinct_per_side` | 1.5 | AT-009 | Done |
+| INV-170 | Posted transfers, receipts and closures are database-immutable | triggers, `inventory/0013` | `::TestIdentityAndImmutability` | 1.5 | | Done |
+| INV-171 | A journalled posting names an account for every dinar it moved | deferred constraint trigger | `::test_a_journalled_posting_names_an_account_for_every_dinar` | 1.5 | | Done |
+| INV-172 | The bare kernel still posts without any control account | conditional invariant | `::test_a_bare_kernel_posting_still_needs_no_account` | 1.5 | | Done |
+| INV-173 | Stock keys are locked canonically across a whole event | `acquire_stock_key_locks` | `test_transfer_concurrency.py::test_two_cross_branch_receipts_do_not_deadlock` | 1.5 | | Done |
+| INV-174 | Concurrent receipts never resolve more than was dispatched | line row lock + deferred trigger | `::test_two_receipts_never_exceed_the_dispatch` | 1.5 | | Done |
+| INV-175 | Transfer subledger and in-transit ledger both reconcile | `verify_transfer`, `verify_in_transit` | `test_transfers.py::TestReads` | 1.5 | AT-011 | Done |
+| INV-176 | A receipt id under another transfer's route is a 404 | `resolve_receipt(transfer=…)` | `::test_a_receipt_id_under_another_transfer_is_a_404` | 1.5 | AT-008 | Done |
+| INV-177 | Transfer cost fields are omitted without view_valuation | `_serialize_transfer` | `test_transfer_api_and_screens.py::test_cost_is_omitted_without_view_valuation` | 1.5 | AT-008 | Done |

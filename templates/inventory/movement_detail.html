@@ -1,0 +1,120 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# One movement, with the arithmetic it was posted with.                     #}
+{# Before and after are both shown: that is what makes a disputed figure     #}
+{# answerable — the movement says what it found, what it did, and what it    #}
+{# left behind.                                                              #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">
+        {{ page_title }} <code dir="ltr">#{{ movement.posted_sequence }}</code>
+      </h1>
+      <p class="pagehead__hint">
+        {% translate "حركة مرحّلة — لا تُعدَّل ولا تُحذف. التصحيح يكون بعكسها." %}
+      </p>
+    </div>
+    <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+  </div>
+
+  <div class="tablewrap">
+    <table class="table">
+      <tbody>
+        <tr><th>{% translate "النوع" %}</th><td>{{ movement.get_movement_type_display }}</td></tr>
+        <tr>
+          <th>{% translate "المخزن" %}</th>
+          <td><code>{{ movement.warehouse.code }}</code> — {{ movement.warehouse.name_ar }}
+              ({{ movement.warehouse.branch.name_ar }})</td>
+        </tr>
+        <tr>
+          <th>{% translate "الصنف" %}</th>
+          <td><code>{{ movement.item.code }}</code> — {{ movement.item.name_ar }}</td>
+        </tr>
+        <tr>
+          <th>{% translate "الدفعة" %}</th>
+          <td>{% if movement.lot %}<code>{{ movement.lot.code }}</code>
+              {% if movement.lot.expiry_date %}
+                — {% translate "تنتهي" %} {{ movement.lot.expiry_date|date:"Y-m-d" }}
+              {% endif %}
+              {% else %}—{% endif %}</td>
+        </tr>
+        <tr>
+          <th>{% translate "الكمية" %}</th>
+          <td><code dir="ltr">{{ movement.base_quantity|stringformat:"f" }}</code>
+              {{ movement.item.base_unit.code }}</td>
+        </tr>
+        <tr>
+          <th>{% translate "الرصيد قبل / بعد" %}</th>
+          <td><code dir="ltr">{{ movement.quantity_before|stringformat:"f" }}</code>
+              →
+              <code dir="ltr">{{ movement.quantity_after|stringformat:"f" }}</code></td>
+        </tr>
+        {% if show_cost %}
+          <tr>
+            <th>{% translate "كلفة الوحدة" %}</th>
+            <td><code dir="ltr">{{ movement.unit_cost|stringformat:"f" }}</code></td>
+          </tr>
+          <tr>
+            <th>{% translate "قيمة الحركة" %}</th>
+            <td><code dir="ltr">{{ movement.inventory_value|stringformat:"f" }}</code></td>
+          </tr>
+          <tr>
+            <th>{% translate "القيمة قبل / بعد" %}</th>
+            <td><code dir="ltr">{{ movement.value_before|stringformat:"f" }}</code>
+                →
+                <code dir="ltr">{{ movement.value_after|stringformat:"f" }}</code></td>
+          </tr>
+          <tr>
+            <th>{% translate "المتوسط قبل / بعد" %}</th>
+            <td><code dir="ltr">{{ movement.average_before|stringformat:"f" }}</code>
+                →
+                <code dir="ltr">{{ movement.average_after|stringformat:"f" }}</code></td>
+          </tr>
+        {% endif %}
+        <tr>
+          <th>{% translate "تاريخ الأثر" %}</th>
+          <td>{{ movement.effective_at|date:"Y-m-d H:i" }}</td>
+        </tr>
+        <tr>
+          <th>{% translate "تاريخ الترحيل" %}</th>
+          <td>{{ movement.posted_at|date:"Y-m-d H:i" }}</td>
+        </tr>
+        <tr>
+          <th>{% translate "مفتاح الأثر" %}</th>
+          <td><code dir="ltr">{{ movement.effect_key }}</code></td>
+        </tr>
+        <tr>
+          <th>{% translate "المستند المصدر" %}</th>
+          <td>
+            {% if entry.source_event %}
+              <code dir="ltr">{{ entry.source_document_type }}/{{ entry.source_document_id }}/{{ entry.source_event }}</code>
+            {% else %}
+              <span class="muted">{% translate "ترحيل يدوي بلا مستند" %}</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th>{% translate "رحّلها" %}</th>
+          <td>{{ entry.posted_by|default:"—" }}</td>
+        </tr>
+        {% if entry.reason %}
+          <tr><th>{% translate "السبب" %}</th><td>{{ entry.reason }}</td></tr>
+        {% endif %}
+        {% if movement.reverses_id %}
+          <tr>
+            <th>{% translate "تعكس الحركة" %}</th>
+            <td>
+              <a href="{% url 'inventory:movement_detail' movement.reverses_id %}">
+                <code dir="ltr">#{{ movement.reverses.posted_sequence }}</code>
+              </a>
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

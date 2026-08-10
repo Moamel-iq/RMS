@@ -1,0 +1,74 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# The confirmation before the goods leave. Its own page rather than a       #}
+{# button because dispatch is the moment value leaves a shelf and enters a   #}
+{# state nobody can sell from.                                               #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      <p class="pagehead__hint">{{ page_hint }}</p>
+    </div>
+    <div class="rowactions">
+      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+    </div>
+  </div>
+
+  <dl class="factgrid">
+    <div>
+      <dt>{% translate "من" %}</dt>
+      <dd>
+        <code>{{ transfer.source_warehouse.code }}</code>
+        {{ transfer.source_warehouse.branch.name_ar }}
+      </dd>
+    </div>
+    <div>
+      <dt>{% translate "إلى" %}</dt>
+      <dd>
+        <code>{{ transfer.destination_warehouse.code }}</code>
+        {{ transfer.destination_warehouse.branch.name_ar }}
+      </dd>
+    </div>
+    <div><dt>{% translate "مرجع الإثبات" %}</dt><dd>{{ transfer.evidence_reference }}</dd></div>
+  </dl>
+
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>{% translate "الصنف" %}</th>
+          <th>{% translate "الدفعة" %}</th>
+          <th>{% translate "الكمية" %}</th>
+          <th>{% translate "الوحدة" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in lines %}
+          <tr>
+            <td>{{ line.sequence }}</td>
+            <td><code>{{ line.item.code }}</code> {{ line.item.name_ar }}</td>
+            <td>{% if line.lot %}<code>{{ line.lot.code }}</code>{% else %}—{% endif %}</td>
+            <td dir="ltr">{{ line.base_quantity }}</td>
+            <td>{{ line.item.base_unit.code }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5">{% translate "لا سطور. أضف سطراً قبل الإرسال." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if can_dispatch and lines %}
+    <form class="formcard" method="post">
+      {% csrf_token %}
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "تأكيد الإرسال" %}</button>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

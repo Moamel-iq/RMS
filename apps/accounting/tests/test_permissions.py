@@ -40,7 +40,7 @@ pytestmark = pytest.mark.django_db
 
 
 class TestThePermissionsExist:
-    def test_all_twelve_are_migrated(self) -> None:
+    def test_all_thirteen_are_migrated(self) -> None:
         codenames = set(
             Permission.objects.filter(content_type__app_label="accounting").values_list(
                 "codename", flat=True
@@ -49,9 +49,10 @@ class TestThePermissionsExist:
         for permission in ALL_PERMISSIONS:
             assert permission.split(".", 1)[1] in codenames, permission
 
-    def test_there_are_exactly_twelve(self) -> None:
-        assert len(ALL_PERMISSIONS) == 12
-        assert len(set(ALL_PERMISSIONS)) == 12
+    def test_there_are_exactly_thirteen(self) -> None:
+        # Twelve from Task 0.7 plus `manage_account_mappings` (Task 1.3).
+        assert len(ALL_PERMISSIONS) == 13
+        assert len(set(ALL_PERMISSIONS)) == 13
 
     def test_every_permission_declares_a_scope(self) -> None:
         assert set(PERMISSION_SCOPE) == set(ALL_PERMISSIONS)

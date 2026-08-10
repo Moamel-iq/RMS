@@ -107,6 +107,14 @@
       </header>
 
       <main class="content">
+        {# Outcome of the last write, surfaced once. A redirect that looked #}
+        {# identical to a failed save would leave the operator guessing.    #}
+        {% if messages %}
+          {% for message in messages %}
+            <div class="flash{% if message.tags == 'error' %} flash--error{% endif %}"
+                 role="status">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
         {% block page %}{% endblock %}
       </main>
     </div>

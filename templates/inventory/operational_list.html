@@ -1,0 +1,42 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# Receipts, issues, or returns — one template, whichever route mounted it.  #}
+{# The number appears only after posting; a draft is identified by its       #}
+{# immutable public id.                                                      #}
+
+{% block columns %}
+  <th>{% translate "الرقم" %}</th>
+  <th>{% translate "المخزن" %}</th>
+  <th>{% translate "يوم العمل" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "مركز الكلفة" %}</th>
+  <th>{% translate "المُرحِّل" %}</th>
+  <th>{% translate "مرجع الإثبات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for document in documents %}
+    <tr>
+      <td>
+        <a href="{% url detail_url_name document.pk %}">
+          {% if document.document_number %}
+            <code dir="ltr">{{ document.document_number }}</code>
+          {% else %}
+            <code dir="ltr">{{ document.public_id|truncatechars:13 }}</code>
+          {% endif %}
+        </a>
+      </td>
+      <td><code>{{ document.warehouse.code }}</code></td>
+      <td>{{ document.business_date|date:"Y-m-d" }}</td>
+      <td>{{ document.get_status_display }}</td>
+      <td>{% if document.cost_center %}<code>{{ document.cost_center.code }}</code>{% else %}—{% endif %}</td>
+      <td>{{ document.posted_by|default:"—" }}</td>
+      <td>{{ document.evidence_reference }}</td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="7">{% translate "لا مستندات بعد." %}</td>
+    </tr>
+  {% endfor %}
+{% endblock %}

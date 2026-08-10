@@ -1,0 +1,56 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# Read-only, and there is no repair button because there is no repair:      #}
+{# a mismatch is a defect somebody investigates with the evidence intact.    #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      <p class="pagehead__hint">{{ page_hint }}</p>
+    </div>
+  </div>
+
+  <form class="toolbar" method="get">
+    <label class="muted" for="organization-select">{% translate "المؤسسة" %}</label>
+    <select id="organization-select" name="organization">
+      <option value="">{% translate "اختر المؤسسة" %}</option>
+      {% for organization in organizations %}
+        <option value="{{ organization.pk }}"
+                {% if selected and selected.pk == organization.pk %}selected{% endif %}>
+          {{ organization.code }} — {{ organization.name_ar }}
+        </option>
+      {% endfor %}
+    </select>
+    <button class="btn btn--primary" type="submit">{% translate "تحقّق" %}</button>
+  </form>
+
+  {% if selected %}
+    {% if mismatches %}
+      <div class="alert" role="alert">
+        <p>
+          {% blocktranslate count counter=mismatches|length with total=mismatches|length %}اختلاف واحد. الاختلاف عيب — لا يُصلَّح تلقائياً.{% plural %}{{ total }} اختلافات. الاختلاف عيب — لا يُصلَّح تلقائياً.{% endblocktranslate %}
+        </p>
+      </div>
+      <div class="tablewrap">
+        <table class="table">
+          <thead><tr><th>{% translate "التفاصيل" %}</th></tr></thead>
+          <tbody>
+            {% for mismatch in mismatches %}
+              <tr><td><code dir="ltr">{{ mismatch }}</code></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="formcard">
+        <p>
+          {% blocktranslate with code=selected.code %}المؤسسة {{ code }} متطابقة: كل مستند يساوي آثاره، والأرصدة تساوي إعادة بناء الدفتر، وقيمة المخزون تساوي حسابات المراقبة في الأستاذ.{% endblocktranslate %}
+        </p>
+      </div>
+    {% endif %}
+  {% endif %}
+{% endblock %}

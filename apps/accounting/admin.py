@@ -31,10 +31,12 @@ from apps.accounting.models import (
     Account,
     AccountingPeriod,
     AccountingSettings,
+    AccountRole,
     CostCenter,
     FiscalYear,
     JournalEntry,
     JournalLine,
+    OrganizationAccountMapping,
 )
 
 if TYPE_CHECKING:
@@ -231,3 +233,31 @@ class FiscalYearAdmin(ReadOnlyAdminMixin, _ModelAdmin):
 class AccountingSettingsAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     list_display = ("organization", "fiscal_year_start_month")
     list_select_related = ("organization",)
+
+
+@admin.register(AccountRole)
+class AccountRoleAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    """System vocabulary. Renaming or deleting a system role is refused by
+    the database trigger regardless of what any admin form attempted."""
+
+    list_display = ("code", "name_ar", "domain", "mapping_scope", "is_system", "is_active")
+    list_filter = ("domain", "mapping_scope", "is_system")
+    search_fields = ("code", "name_ar", "name_en")
+    ordering = ("domain", "code")
+
+
+@admin.register(OrganizationAccountMapping)
+class OrganizationAccountMappingAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    list_display = (
+        "organization",
+        "account_role",
+        "account",
+        "effective_from",
+        "effective_to",
+        "version",
+        "is_active",
+    )
+    list_filter = ("organization", "account_role", "is_active")
+    search_fields = ("account_role__code", "account__code")
+    ordering = ("organization__code", "account_role__code", "-version")
+    list_select_related = ("organization", "account_role", "account")

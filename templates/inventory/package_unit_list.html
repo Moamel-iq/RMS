@@ -1,0 +1,30 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "معامل التحويل" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for unit in package_units %}
+    <tr>
+      <td><code>{{ unit.code }}</code></td>
+      <td>{{ unit.name_ar }}</td>
+      <td class="muted">{% translate "يُحدَّد لكل صنف" %}</td>
+      <td>
+        {% if unit.is_active %}
+          <span class="chip chip--on">{% translate "فعّالة" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "مؤرشفة" %}</span>
+        {% endif %}
+      </td>
+      {% include "inventory/_rowactions.html" with row=unit owner_id=unit.organization_id edit_url="inventory:package_unit_update" archive_url="inventory:package_unit_archive" reactivate_url="inventory:package_unit_reactivate" %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="5">{% translate "لا توجد وحدات تعبئة بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

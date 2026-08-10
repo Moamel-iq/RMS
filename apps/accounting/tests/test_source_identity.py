@@ -250,7 +250,7 @@ class TestPostedAndReversedCoexist:
 
 
 class TestTheEnumIsClosed:
-    @pytest.mark.parametrize("event", ["POSTEED", "posted", "VOIDED", "PAID", "SETTLED"])
+    @pytest.mark.parametrize("event", ["POSTEED", "VOIDED", "PAID", "SETTLED"])
     def test_an_unknown_source_event_is_refused(
         self,
         organization: Organization,
@@ -269,6 +269,33 @@ class TestTheEnumIsClosed:
             _post_invoice(organization, cash, sales, branch, hall, event=event)
 
         assert caught.value.code == "unknown_source_event"
+
+    @pytest.mark.parametrize("event", ["posted", " Posted ", "REVERSED "])
+    def test_but_case_and_padding_are_canonicalised_rather_than_refused(
+        self,
+        organization: Organization,
+        cash: Account,
+        sales: Account,
+        branch: Branch,
+        hall: CostCenter,
+        event: str,
+    ) -> None:
+        """
+        Changed by the Task 1.2 source-identity amendment, deliberately.
+
+        `posted` used to be refused as an unknown event. It is now canonicalised
+        to `POSTED` before validation, because `source_event` is **our**
+        vocabulary and folding its case loses nothing — while leaving it
+        unfolded meant `"POSTED"` and `"posted"` were two different economic
+        events for the same document, and the uniqueness guarantee missed the
+        second one.
+
+        `source_document_id` is deliberately *not* folded the same way: that is
+        the supplier's vocabulary, and `AB-1042` and `ab-1042` can be two real
+        invoices.
+        """
+        entry = _post_invoice(organization, cash, sales, branch, hall, event=event)
+        assert entry.source_event == event.strip().upper()
 
     def test_the_database_refuses_one_too(
         self,

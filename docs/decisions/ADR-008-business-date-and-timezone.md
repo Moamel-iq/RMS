@@ -69,3 +69,53 @@ any transactional module ships:
    calendar date.
 
 Until these are answered, no default is written into a migration.
+
+## Amendment applied at Task 1.4 (2026-08-10) — what the business date *governs*
+
+The schema was settled here; what nobody had written down was which of the two
+timestamps a posting is actually judged by. The inventory kernel was validating
+the accounting period against `effective_at.date()` — the physical calendar
+date — while the document layer validated it against the business date. Both,
+in other words. That is now fixed, and the rule is:
+
+    effective_at    the physical moment the event happened
+    business_date   the authoritative operational and accounting date
+
+**The business date governs everything that dates a document**: accounting-period
+validation, inventory-period validation, account-mapping effective-date
+selection, item-conversion effective-date selection, document numbering by
+business year, daily operational reporting, and the accounting date of the
+journal. `effective_at` is retained beside it, always, and substituted for it
+nowhere.
+
+**An event requires exactly one open period — its own.** Under an 03:00 cutoff,
+a receipt at 01:30 on 1 August belongs to the 31 July operating day. July must
+be open. August must **not** additionally be required, and is not: demanding
+the calendar month as well would refuse a legitimate late-night posting the
+moment the new month was closed ahead of it, for an event that happened on one
+business day and belongs in one set of figures.
+
+### Snapshots: a committed date does not move
+
+The Consequences section above notes that changing a branch's cutoff
+retroactively reassigns business dates, and that this needs a controlled
+procedure. Task 1.4 supplies the half that protects documents already in
+flight: **anything that has committed to a business date also stores the
+timezone and cutoff it was derived with**, and re-derives only from those.
+
+| Document state | Behaviour |
+|---|---|
+| Opening stock, DRAFT | Business date is a preview, recalculated as the cutoff field changes |
+| Opening stock, SUBMITTED | Date **and** snapshot fixed; posting replays the snapshot |
+| Opening stock, returned to draft | Snapshot released; resubmission derives afresh |
+| Operational documents (post directly from draft) | Date and snapshot fixed at posting |
+
+So an approver who reads "31 July" on a submitted document posts 31 July, even
+if the branch cutoff was changed in between. Moving a submitted document to a
+different period is then a deliberate act — return it to draft and resubmit —
+rather than something that happens behind the approver's back.
+
+`apps/organizations/business_dates.py` is the single implementation:
+`resolve_business_day` produces a date with its snapshot, and
+`business_date_from_snapshot` replays one. Deriving a business date any other
+way, and `date(timestamp)` above all, remains a defect.

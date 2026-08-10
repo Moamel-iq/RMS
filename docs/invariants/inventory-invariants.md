@@ -85,3 +85,175 @@ Recorded so that nobody later "fixes" them:
   decreases stock — see invariant 8.
 - **FEFO/FIFO picking is not implemented.** Lot selection is manual in
   Release 1.
+## Implemented by Task 1.2, and where each one lives
+
+The kernel exists now, so each invariant has an address. Where a rule is
+enforced twice, both are listed on purpose: the service gives an operator a
+sentence they can act on, and the database is what still holds when a repair
+script bypasses the service.
+
+| Rule | Service | Database |
+|---|---|---|
+| Movements are insert-only | never updated | trigger `stock_movement_is_insert_only` |
+| Entries are immutable but for the reversal link | `post_stock_entry` | trigger `stock_entry_is_immutable` |
+| Source identity complete or absent | `canonical_source_identity` | `stock_entry_source_identity_all_or_none` |
+| Source identity immutable once posted | — | trigger, reported separately |
+| One posting per economic event | `_entry_for_source` lookup | `stock_entry_source_event_unique_per_organization` |
+| Idempotency keys scoped per organization | `_replay` | `stock_entry_idempotency_key_unique_per_organization` |
+| One effect per effect key per posting | duplicate check | `stock_movement_effect_key_unique_per_entry` |
+| Posted sequence unique per organization | counter row lock | `stock_movement_sequence_unique_per_organization` |
+| One balance row per stock position | advisory lock | `stock_balance_key_unique` (`NULLS NOT DISTINCT`) |
+| Quantity zero implies value zero | `apply_outbound` | `stock_balance_zero_quantity_has_zero_value` |
+| No negative stock in Task 1.2 | `_require_available` | `stock_balance_quantity_not_negative` |
+| Denormalised owner matches the warehouse | services | triggers on balance and movement |
+| Valuation layer cost is historical | never updated | trigger `valuation_layer_cost_is_historical` |
+
+## Deliberate non-invariants, added by Task 1.2
+
+- **`inventory.override_negative_stock` is reserved and not operational.** The
+  kernel consults no permission when refusing a negative position, because the
+  moving-average contract does not define how a later receipt settles the
+  variance one creates. Activating it later must relax
+  `stock_balance_quantity_not_negative` in the same migration.
+- **`ValuationAllocation` is empty by design.** A moving average consumes no
+  layer; writing allocations would fabricate evidence. The rows are derivable
+  from `posted_sequence` if a layered strategy is ever adopted.
+- **`ValuationLayer.remaining_quantity` is not a stock figure.** Under moving
+  average it stays at the received quantity, because nothing consumed it. The
+  balance row is the only authority on what is physically left.
+- **The posted sequence may have gaps in future.** It is gapless today because
+  the counter is a locked row; if that lock ever binds it will be replaced by
+  a PostgreSQL sequence, and nothing may come to depend on contiguity.
+
+## Implemented by Task 1.3, and where each one lives
+
+The first combined inventory + accounting posting. The same double
+enforcement discipline: the service explains, the database holds.
+
+| Rule | Service | Database |
+|---|---|---|
+| System account-role codes are reserved | admin read-only, no rename service | trigger `accounting_system_role_reserved` |
+| Mapping ranges cannot overlap (defaults) | `_validate_no_mapping_overlap` | EXCLUDE `org_account_mapping_no_overlapping_periods` |
+| Override ranges cannot overlap, NULL targets included | `_validate_no_override_overlap` | EXCLUDE `inventory_mapping_no_overlapping_periods` (COALESCE) |
+| An override targets exactly one of item/category | `_validate_override_shape` | `inventory_mapping_one_target` |
+| A used mapping is immutable but for closing its range | `mapping_is_used` checks | PROTECT FKs from snapshot columns |
+| Resolution never guesses | `resolve_default_account`, `resolve_inventory_account` | — (`account_role_unmapped` before any effect) |
+| Standing stock value cannot be re-homed by a mapping change | reclassification guard, both apps via the hook | — (apply-then-verify inside the transaction) |
+| One valuation key per opening document | duplicate check | `opening_line_valuation_key_unique` (`NULLS NOT DISTINCT`) |
+| Opening lines are positive in quantity, cost, and value | line validation | three CHECK constraints |
+| An opening is the first movement for its keys | history check under the advisory locks | — (the locks make the check race-free) |
+| The submitter cannot post their own opening | `post_opening_document` | `opening_submitter_is_not_poster` |
+| A number exists exactly from the moment of posting | `_next_document_number` | `opening_numbered_iff_posted` + partial unique |
+| A posted document is immutable but for its reversal | status checks | trigger `inventory_opening_document_immutable` (allowlist) |
+| Lines freeze with their document | DRAFT-only line services | trigger `inventory_opening_line_frozen_with_document` |
+| Line value == movement value == journal line share | one stored figure, passed through | reconciliation reports any drift |
+| Reconciliation reads history by the account it entered | snapshot on the line | never re-resolved through today's mapping |
+
+## Deliberate non-invariants, added by Task 1.3
+
+- **The reconciliation command repairs nothing.** `verify_inventory_accounting`
+  reports and exits non-zero; overwriting a balance or posting a balancing
+  journal would erase the evidence it exists to find.
+- **A FIFO cutover is possible, not free.** Layers and posted order make past
+  allocations computable; adopting a layered strategy is a controlled cutover
+  with a rebuild policy, never a configuration toggle (ADR-018 §3, amended).
+- **The GL side of the reconciliation sums every journal line on a control
+  account, not only inventory-sourced ones.** A manual journal against an
+  inventory-control account is exactly the drift the report must surface.
+
+## Implemented by Task 1.4, and where each one lives
+
+The operational documents, and the two cross-cutting rules they forced.
+
+| Rule | Service | Database |
+|---|---|---|
+| The accounting period is judged on the **business date** | `_validate_period_is_open` | — (one open period per event, never two) |
+| A committed business date does not move when a branch cutoff changes | submission/posting snapshot | `opening_business_date_snapshot_present`, `inventory_document_business_date_snapshot_present` |
+| A posting and a mapping mutation cannot interleave | shared vs exclusive advisory lock | — (`pg_advisory_xact_lock[_shared]`, ADR-019 §5) |
+| A mutation takes the advisory lock before any row lock | `begin_mapping_mutation` | — (the inverse order deadlocks; observed and fixed) |
+| Value leaves through the account it entered | `_control_account_for` | `StockMovement.control_account`, immutable with the row |
+| An inbound into standing stock keeps that account | `_control_account_for` | — (`inventory_account_reclassification_required`) |
+| An empty position holds no account identity | `_save_position` | `stock_balance_empty_position_has_no_control_account` |
+| A receipt line states a cost; an issue and a return never do | `add_line` | trigger `inventory_movement_line_frozen_with_document` (INSERT only) |
+| A return names exactly one posted issue line | `_validate_return_source` | the same trigger |
+| Cumulative returns never exceed their issue | `returnable` under `select_for_update` | — (the issue-line row lock serialises concurrent returns) |
+| The final return takes the exact remaining value | `_plan_return` + `apply_inbound(value_in=…)` | — (no residual is left for anybody to chase) |
+| An issue with active returns cannot be reversed | `reverse_document` | — |
+| A posted document is immutable but for its reversal | status checks | trigger `inventory_movement_document_immutable` (allowlist) |
+| Lines freeze with their document | DRAFT-only line services | trigger `inventory_movement_line_frozen_with_document` |
+| A number exists exactly from posting, gapless per type and year | `_next_document_number` | `inventory_document_numbered_iff_posted` + partial unique |
+| One valuation key per document | duplicate check | `inventory_document_line_valuation_key_unique` (`NULLS NOT DISTINCT`) |
+
+## Deliberate non-invariants, added by Task 1.4
+
+- **`StockMovement.control_account` is nullable, and the null is meaningful.**
+  It records a movement posted with no mapping in play at all — the bare
+  kernel, exercised by its own tests. Every movement a business document posts
+  carries one, held by test rather than by `NOT NULL`, because inventing an
+  account for a posting that resolved none would be worse than recording that
+  it had none.
+- **A storekeeper may enter a receipt cost without holding
+  `view_valuation`.** The figure is on the delivery note in their hand. What
+  the permission withholds is the ledger's answer — what the organization
+  already paid and what the shelf is now worth — not the number they are
+  copying from paper.
+- **An issue carries one cost centre for the whole document.** Mixed
+  destinations need separate documents in Release 1. Per-line centres are a
+  later decision, not an oversight.
+- **`RETURN_OUT` is absent.** A supplier return must reconcile against a
+  supplier invoice, a payable, and a credit note, none of which exist yet; it
+  belongs to Procurement in Phase 2. `RETURN_IN` here means unused stock
+  coming back from a consumption issue, and nothing else.
+
+## Implemented by Task 1.5, and where each one lives
+
+Transfers, in-transit custody, partial receipts, and shortage closures. See
+ADR-020 for the reasoning behind each.
+
+| Rule | Service | Database |
+|---|---|---|
+| Goods stay on the source branch's books until received | dispatch into the **source** branch's in-transit warehouse | — |
+| The two ends are distinct, active, same-organization, non-system | `_validate_transfer_endpoints` | `stock_transfer_warehouses_differ` + trigger `stock_transfer_warehouses_valid` |
+| One in-transit warehouse per branch, never user-created | `ensure_in_transit_warehouse` | `warehouse_one_in_transit_per_branch`, `warehouse_in_transit_iff_system` |
+| One valuation key per transfer | duplicate check in `add_transfer_line` | `transfer_line_valuation_key_unique` (`NULLS NOT DISTINCT`) |
+| Dispatch carries the exact outbound value into transit | `_post_dispatch_effects` with `inbound_value` | — (no gain or loss from movement alone) |
+| A receipt takes its own transfer's allocated value | `allocate` + `MovementInput.outbound_value` | — |
+| An exact outbound value the position cannot fund is refused | `_require_exact_outbound_is_supported` | — (`allocated_value_exceeds_position_value`) |
+| The final receipt or closure takes the exact remainder | `allocate` equality branch | — (no residual for anybody to chase) |
+| Nothing may be received or written off that was not dispatched | locked line re-check in `_allocate_receipt` | `transfer_line_remaining_*_within_dispatch` + deferred `transfer_*_line_within_dispatch` |
+| Remaining quantity and value empty together | `post_receipt`, `post_shortage` | `transfer_line_remaining_quantity_and_value_agree` |
+| Each side of a receipt is dated by its own branch | `post_receipt` two `resolve_business_day` calls | `transfer_receipt_business_date_snapshots_present` |
+| Either branch's closed period rolls the whole receipt back | `_period_for` per branch, one transaction | — |
+| A cross-branch receipt posts two branch-balanced journals | `_post_receipt_journals` | — (clearing nets to zero for the event) |
+| An unmapped role costs nothing: accounts resolve first | `_resolve_receipt_accounts` | — (`account_role_unmapped`, full rollback) |
+| A closure needs permission, reason, evidence and a cost centre | `create_shortage`, `CLOSE_TRANSFER_SHORTAGE` | `transfer_shortage_reason_present`, `cost_center_id NOT NULL` |
+| At most one active closure per transfer | `_require_transfer_status` | `transfer_shortage_one_active_per_transfer` (partial unique) |
+| Dispatch reversal is refused while any child is active | `reverse_dispatch` | — |
+| Reversal availability applies at the destination | `reverse_stock_entry` | `stock_balance_quantity_not_negative` |
+| Posted transfers, receipts and closures are immutable | status checks | triggers in `inventory/0013` (whole-row allowlists) |
+| The aggregate's status is computed, never written | `recompute_transfer_status` | — (transfer allowlist permits status, nothing else) |
+| A journalled posting names an account for every dinar | `link_journal_entry` | deferred `stock_entry_accounted_movements_have_accounts` |
+| Stock keys are locked canonically across a whole event | `acquire_stock_key_locks`, `acquire_movement_key_locks` | — (ADR-020 §11) |
+
+## Deliberate non-invariants, added by Task 1.5
+
+- **In-transit stock is exempt from the expired-lot rule.** Goods that expire
+  on the road still have to be got off it: the receiving branch must be able
+  to take delivery of what physically arrived, and a consignment that never
+  arrives must be closeable as a shortage. Refusing both would strand the
+  value in transit forever with no document able to move it. What arrives is
+  still expired, and Task 1.6's waste document writes it off at the
+  destination.
+- **`StockTransferLine.remaining_quantity` and `remaining_value` are a
+  retained cache.** Deriving them on every read would make the §5 allocation a
+  race between two concurrent receipts. They are maintained under the
+  transfer's row lock, bounded by check constraints, and checked against the
+  independently derived figure by reconciliation.
+- **A transfer has one source and one destination warehouse.** A consignment
+  split across two destinations is two transfers in Release 1.
+- **A shortage closure is all-or-nothing.** Partial write-off with an open
+  residual is not modelled, per ADR-020 §6.
+- **`StockLedgerEntry.journal_entry` is nullable**, for the same reason
+  `StockMovement.control_account` is: a posting that never reached the general
+  ledger genuinely produced no journal. The invariant is conditional on the
+  link existing, which is what makes the bare kernel keep working.

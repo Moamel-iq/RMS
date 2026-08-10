@@ -1,0 +1,45 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "الفرع" %}</th>
+  <th>{% translate "النوع" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for warehouse in warehouses %}
+    <tr>
+      <td><code>{{ warehouse.code }}</code></td>
+      <td>{{ warehouse.name_ar }}</td>
+      <td><code>{{ warehouse.branch.code }}</code></td>
+      <td>
+        {{ warehouse.get_warehouse_type_display }}
+        {% if warehouse.is_system %}
+          <span class="chip chip--neutral">{% translate "نظامي" %}</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if warehouse.is_active %}
+          <span class="chip chip--on">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+        {% endif %}
+      </td>
+      {# The in-transit warehouse offers no actions at all. Renaming or       #}
+      {# archiving the home of stock that has left one branch and not yet     #}
+      {# arrived at another would break transfers that are mid-flight, so the #}
+      {# service refuses it and the screen does not pretend otherwise.        #}
+      {% if warehouse.is_system %}
+        <td><span class="muted">{% translate "محمي" %}</span></td>
+      {% else %}
+        {% include "inventory/_rowactions.html" with row=warehouse owner_id=warehouse.branch_id edit_url="inventory:warehouse_update" archive_url="inventory:warehouse_archive" reactivate_url="inventory:warehouse_reactivate" %}
+      {% endif %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="6">{% translate "لا توجد مخازن بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

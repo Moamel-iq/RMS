@@ -21,6 +21,7 @@ consequences, date, and related requirements.
 | [ADR-016](ADR-016-permission-and-scope-model.md) | Permission and scope model — *implemented by Task 0.7* |
 | [ADR-017](ADR-017-source-identity-and-idempotency.md) | Source identity and idempotency — *implemented by Task 0.7* |
 | [ADR-018](ADR-018-inventory-valuation-and-the-stock-ledger.md) | Inventory valuation and the stock ledger — *ledger delivered by Task 1.2* |
+| [ADR-019](ADR-019-account-roles-and-domain-owned-posting-mappings.md) | Account roles and domain-owned posting mappings — *implemented by Task 1.3* |
 
 ## Reserved, not yet written
 
@@ -75,3 +76,9 @@ documented answers yet:
   restaurant chart with optional statutory mapping.
 - **Cost center policy** — ADR-015. Branch required on every line, cost
   center driven by `Account.requires_cost_center`.
+- **Account roles and domain-owned posting mappings** — ADR-019.
+- **Transfer ownership, in-transit valuation, and cross-branch
+  accounting** — ADR-020. Goods stay on the source branch's books until
+  received; a receipt is valued from its own dispatch allocation, never
+  from the pooled in-transit average; a cross-branch receipt posts two
+  coordinated journals so each branch stays balanced on its own books.

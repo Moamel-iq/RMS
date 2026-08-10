@@ -1,0 +1,51 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# The ledger. Newest first, in POSTED order — the order valuation was       #}
+{# actually computed in, which is not always effective-date order.           #}
+
+{% block columns %}
+  <th>{% translate "التسلسل" %}</th>
+  <th>{% translate "النوع" %}</th>
+  <th>{% translate "المخزن" %}</th>
+  <th>{% translate "الصنف" %}</th>
+  <th>{% translate "الكمية" %}</th>
+  <th>{% translate "الرصيد بعدها" %}</th>
+  {% if show_cost %}<th>{% translate "القيمة" %}</th>{% endif %}
+  <th>{% translate "تاريخ الأثر" %}</th>
+  <th>{% translate "المستند" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for movement in movements %}
+    <tr>
+      <td>
+        <a href="{% url 'inventory:movement_detail' movement.pk %}">
+          <code dir="ltr">{{ movement.posted_sequence }}</code>
+        </a>
+      </td>
+      <td>{{ movement.get_movement_type_display }}</td>
+      <td><code>{{ movement.warehouse.code }}</code></td>
+      <td><code>{{ movement.item.code }}</code> {{ movement.item.name_ar }}</td>
+      <td><code dir="ltr">{{ movement.base_quantity|stringformat:"f" }}</code></td>
+      <td><code dir="ltr">{{ movement.quantity_after|stringformat:"f" }}</code></td>
+      {% if show_cost %}
+        <td><code dir="ltr">{{ movement.inventory_value|stringformat:"f" }}</code></td>
+      {% endif %}
+      <td>{{ movement.effective_at|date:"Y-m-d H:i" }}</td>
+      <td>
+        {% if movement.entry.source_event %}
+          <code>{{ movement.entry.source_document_type }}/{{ movement.entry.source_document_id }}</code>
+        {% else %}
+          <span class="muted">{% translate "يدوي" %}</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="{% if show_cost %}9{% else %}8{% endif %}">
+        {% translate "لا توجد حركات بعد." %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endblock %}

@@ -15,11 +15,12 @@ import hashlib
 import json
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -30,12 +31,14 @@ from apps.accounting.models import (
     AccountClass,
     AccountingPeriod,
     AccountingSettings,
+    AccountRole,
     CostCenter,
     FiscalYear,
     JournalEntry,
     JournalEntryStatus,
     JournalLine,
     JournalNumberSequence,
+    OrganizationAccountMapping,
     PeriodState,
     SourceEvent,
 )
@@ -55,9 +58,11 @@ from apps.accounting.validators import (
     validate_period_accepts_postings,
     validate_source_identity,
 )
+from apps.core.locks import lock_account_mappings_exclusive
 from apps.core.models import AuditAction
 from apps.core.money import quantize_money
 from apps.core.services import record_audit_event, snapshot
+from apps.core.source_identity import canonical_source_identity
 from apps.organizations.models import Organization
 from apps.users.models import User
 
@@ -421,6 +426,384 @@ def create_cost_center(
 
 
 # ---------------------------------------------------------------------------
+# 3b. Account role mappings (ADR-019)
+# ---------------------------------------------------------------------------
+#
+# An organization decides which of its accounts carries each system role.
+# Posting services resolve the role; they never hold an account id or code.
+#
+# A mapping that has been referenced by a posted document is immutable except
+# for closing its effective range — the correction is a new version. That is
+# what keeps "which account did this movement post to" answerable after the
+# chart changes.
+
+
+def sync_system_account_roles() -> None:
+    """
+    Assert the system role vocabulary exists, idempotently.
+
+    Seeded by migration 0008 for real databases, AND re-asserted on every
+    `post_migrate` — because a test-suite flush (any `transaction=True` test)
+    truncates data-migration rows and replays only post_migrate handlers.
+    Reference data the application cannot run without has to survive that,
+    exactly as the role groups do.
+    """
+    from apps.accounting.models import SYSTEM_INVENTORY_ROLES, AccountRole, AccountRoleDomain
+
+    for code, name_ar, name_en, mapping_scope in SYSTEM_INVENTORY_ROLES:
+        AccountRole.objects.update_or_create(
+            code=code,
+            defaults={
+                "name_ar": name_ar,
+                "name_en": name_en,
+                "domain": AccountRoleDomain.INVENTORY,
+                "mapping_scope": mapping_scope,
+                "is_system": True,
+                "is_active": True,
+            },
+        )
+
+
+#: A guard takes the organization and role about to change and returns a
+#: verifier to run after the change, still inside the transaction. Domains
+#: register one at app-ready — inventory's refuses an `INVENTORY_CONTROL`
+#: change that would silently re-home standing stock value — and accounting
+#: never has to know what an item is. Raising from the verifier rolls the
+#: whole mutation back.
+MappingGuard = Callable[[Organization, AccountRole], Callable[[], None]]
+
+_MAPPING_GUARDS: list[MappingGuard] = []
+
+
+def register_mapping_guard(guard: MappingGuard) -> None:
+    """Register a domain veto over organization mapping changes."""
+    if guard not in _MAPPING_GUARDS:
+        _MAPPING_GUARDS.append(guard)
+
+
+def begin_mapping_mutation(organization: Organization) -> None:
+    """
+    Claim the organization's mapping lock exclusively.
+
+    **The first statement of every mapping mutation, before any
+    `select_for_update`.** Two reasons, and the second is the one that bites.
+
+    The guards below compare the account resolution before and after a change,
+    but they can only see *committed* stock; a posting already holding the old
+    mapping and not yet committed would be invisible to them. The exclusive
+    lock waits for every in-flight posting in this organization and blocks the
+    next, so there is no such window (ADR-019 §5).
+
+    And the order is not cosmetic. A posting holds this lock in shared mode
+    and then writes a document line carrying `resolved_organization_mapping`,
+    which needs a KEY SHARE lock on the mapping row. A mutation that took the
+    row with `SELECT ... FOR UPDATE` first and only then asked for the
+    advisory lock would hold exactly what the posting is waiting for while
+    waiting for exactly what the posting holds — a deadlock PostgreSQL
+    detects and kills. Taking the advisory lock first makes the cycle
+    impossible.
+    """
+    lock_account_mappings_exclusive(organization.pk)
+
+
+def _guard_verifiers(
+    organization: Organization, account_role: AccountRole
+) -> list[Callable[[], None]]:
+    """Capture each domain's "before" state. The lock is already held."""
+    return [guard(organization, account_role) for guard in _MAPPING_GUARDS]
+
+
+def mapping_is_used(mapping: models.Model) -> bool:
+    """
+    Whether any domain row references this mapping.
+
+    Walked generically over the reverse relations rather than by naming them:
+    the referencing rows live in the domains that own them (inventory today,
+    purchases and payroll later), and accounting must not import any of them.
+    A relation this model does not know about yet is still found. Generic in
+    its parameter for the same reason — the inventory override table applies
+    the identical used-means-immutable rule to itself.
+    """
+    for relation in mapping._meta.related_objects:
+        accessor = relation.get_accessor_name()
+        if accessor and getattr(mapping, accessor).exists():
+            return True
+    return False
+
+
+def _validate_mapping_account(*, organization: Organization, account: Account) -> None:
+    if account.organization_id != organization.pk:
+        raise ValidationError(
+            _("Account %(code)s belongs to another organization."),
+            code="account_organization_mismatch",
+            params={"code": account.code},
+        )
+    if not account.is_postable:
+        raise ValidationError(
+            _("Account %(code)s is a group account and cannot carry a role mapping."),
+            code="account_not_postable",
+            params={"code": account.code},
+        )
+    if not account.is_active:
+        raise ValidationError(
+            _("Account %(code)s is archived."),
+            code="account_inactive",
+            params={"code": account.code},
+        )
+
+
+def _validate_no_mapping_overlap(
+    *,
+    organization: Organization,
+    account_role: AccountRole,
+    effective_from: datetime.date,
+    effective_to: datetime.date | None,
+    exclude_pk: int | None = None,
+) -> None:
+    """
+    The readable half of the overlap rule; the EXCLUDE constraint is the
+    durable half. Two mappings answering "which account carries this role
+    today" is not a question to resolve at posting time.
+    """
+    existing = OrganizationAccountMapping.objects.filter(
+        organization=organization, account_role=account_role, is_active=True
+    )
+    if exclude_pk is not None:
+        existing = existing.exclude(pk=exclude_pk)
+    for row in existing:
+        starts_before_existing_ends = row.effective_to is None or effective_from <= row.effective_to
+        ends_after_existing_starts = effective_to is None or effective_to >= row.effective_from
+        if starts_before_existing_ends and ends_after_existing_starts:
+            raise ValidationError(
+                _("%(role)s already maps to %(account)s between %(from)s and %(to)s."),
+                code="mapping_period_overlaps",
+                params={
+                    "role": account_role.code,
+                    "account": row.account.code,
+                    "from": row.effective_from.isoformat(),
+                    "to": row.effective_to.isoformat() if row.effective_to else _("مفتوح"),
+                },
+            )
+
+
+@transaction.atomic
+def create_account_mapping(
+    *,
+    organization: Organization,
+    account_role: AccountRole,
+    account: Account,
+    effective_from: datetime.date,
+    effective_to: datetime.date | None = None,
+) -> OrganizationAccountMapping:
+    """Map a role to one of the organization's postable accounts, from a date."""
+    begin_mapping_mutation(organization)
+    if not account_role.is_active:
+        raise ValidationError(
+            _("Role %(code)s is not active."),
+            code="account_role_inactive",
+            params={"code": account_role.code},
+        )
+    _validate_mapping_account(organization=organization, account=account)
+    if effective_to is not None and effective_to < effective_from:
+        raise ValidationError(
+            _("The effective range ends before it starts."), code="period_inverted"
+        )
+    _validate_no_mapping_overlap(
+        organization=organization,
+        account_role=account_role,
+        effective_from=effective_from,
+        effective_to=effective_to,
+    )
+
+    # The version counter is read under lock so two concurrent creates cannot
+    # both claim v3. Locking the existing rows is enough: the unique
+    # constraint on (organization, role, version) is the backstop.
+    latest = (
+        OrganizationAccountMapping.objects.select_for_update()
+        .filter(organization=organization, account_role=account_role)
+        .order_by("-version")
+        .first()
+    )
+    verifiers = _guard_verifiers(organization, account_role)
+    mapping = OrganizationAccountMapping(
+        organization=organization,
+        account_role=account_role,
+        account=account,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        version=(latest.version + 1) if latest is not None else 1,
+    )
+    mapping.full_clean()
+    mapping.save()
+    for verify in verifiers:
+        verify()
+    record_audit_event(action=AuditAction.CREATED, target=mapping, new_state=snapshot(mapping))
+    return mapping
+
+
+@transaction.atomic
+def amend_account_mapping(
+    *,
+    mapping: OrganizationAccountMapping,
+    account: Account | None = None,
+    effective_from: datetime.date | None = None,
+    effective_to: datetime.date | None = None,
+    clear_effective_to: bool = False,
+) -> OrganizationAccountMapping:
+    """
+    Correct a mapping nothing has posted through yet.
+
+    A used mapping is history: postings snapshotted it, and editing it would
+    restate what they meant. The correction for one is `close_account_mapping`
+    followed by a new version.
+    """
+    begin_mapping_mutation(mapping.organization)
+    locked = OrganizationAccountMapping.objects.select_for_update().get(pk=mapping.pk)
+    if mapping_is_used(locked):
+        raise ValidationError(
+            _("Mapping v%(version)s has been used by postings. Close it and create a new version."),
+            code="mapping_in_use",
+            params={"version": locked.version},
+        )
+    before = snapshot(locked)
+
+    if account is not None:
+        _validate_mapping_account(organization=locked.organization, account=account)
+        locked.account = account
+    if effective_from is not None:
+        locked.effective_from = effective_from
+    if clear_effective_to:
+        locked.effective_to = None
+    elif effective_to is not None:
+        locked.effective_to = effective_to
+
+    if locked.effective_to is not None and locked.effective_to < locked.effective_from:
+        raise ValidationError(
+            _("The effective range ends before it starts."), code="period_inverted"
+        )
+    _validate_no_mapping_overlap(
+        organization=locked.organization,
+        account_role=locked.account_role,
+        effective_from=locked.effective_from,
+        effective_to=locked.effective_to,
+        exclude_pk=locked.pk,
+    )
+    verifiers = _guard_verifiers(locked.organization, locked.account_role)
+    locked.full_clean()
+    locked.save()
+    for verify in verifiers:
+        verify()
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=locked,
+        previous_state=before,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def close_account_mapping(
+    *, mapping: OrganizationAccountMapping, effective_to: datetime.date, reason: str = ""
+) -> OrganizationAccountMapping:
+    """
+    End a mapping's effective range. Permitted even when used — this is the
+    correction path — because it changes what the mapping says about the
+    future, never about the postings that already snapshotted it.
+    """
+    begin_mapping_mutation(mapping.organization)
+    locked = OrganizationAccountMapping.objects.select_for_update().get(pk=mapping.pk)
+    if effective_to < locked.effective_from:
+        raise ValidationError(
+            _("The effective range ends before it starts."), code="period_inverted"
+        )
+    before = snapshot(locked)
+    verifiers = _guard_verifiers(locked.organization, locked.account_role)
+    locked.effective_to = effective_to
+    locked.full_clean()
+    locked.save(update_fields=["effective_to", "updated_at"])
+    for verify in verifiers:
+        verify()
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=locked,
+        previous_state=before,
+        new_state=snapshot(locked),
+        reason=reason,
+    )
+    return locked
+
+
+@transaction.atomic
+def archive_account_mapping(
+    *, mapping: OrganizationAccountMapping, reason: str = ""
+) -> OrganizationAccountMapping:
+    """
+    Withdraw a mapping that was recorded in error and never used.
+
+    A used mapping cannot be archived: rows that postings snapshotted must
+    stay readable, and the way to stop one applying is to close its range.
+    """
+    begin_mapping_mutation(mapping.organization)
+    locked = OrganizationAccountMapping.objects.select_for_update().get(pk=mapping.pk)
+    if mapping_is_used(locked):
+        raise ValidationError(
+            _("Mapping v%(version)s has been used by postings. Close it instead."),
+            code="mapping_in_use",
+            params={"version": locked.version},
+        )
+    before = snapshot(locked)
+    verifiers = _guard_verifiers(locked.organization, locked.account_role)
+    locked.is_active = False
+    locked.save(update_fields=["is_active", "updated_at"])
+    for verify in verifiers:
+        verify()
+    record_audit_event(
+        action=AuditAction.DEACTIVATED,
+        target=locked,
+        previous_state=before,
+        new_state=snapshot(locked),
+        reason=reason,
+    )
+    return locked
+
+
+def resolve_default_account(
+    *, organization: Organization, account_role: AccountRole | str, on_date: datetime.date
+) -> OrganizationAccountMapping:
+    """
+    The organization's mapping for a role on a date — or a refusal that names
+    the role. **There is no guessed account and no fallback code.** A posting
+    that cannot resolve its role must fail before any effect exists, because a
+    figure in the wrong account is worse than no figure: it reconciles.
+    """
+    role_code = account_role.code if isinstance(account_role, AccountRole) else account_role
+    mapping = (
+        OrganizationAccountMapping.objects.filter(
+            organization=organization,
+            account_role__code=role_code,
+            is_active=True,
+            effective_from__lte=on_date,
+        )
+        .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=on_date))
+        .select_related("account", "account_role")
+        .order_by("-version")
+        .first()
+    )
+    if mapping is None:
+        raise ValidationError(
+            _("No account is mapped for role %(role)s in %(organization)s on %(date)s."),
+            code="account_role_unmapped",
+            params={
+                "role": role_code,
+                "organization": organization.code,
+                "date": on_date.isoformat(),
+            },
+        )
+    return mapping
+
+
+# ---------------------------------------------------------------------------
 # 4. Posting
 # ---------------------------------------------------------------------------
 
@@ -603,6 +986,17 @@ def post_entry(
     a reversal into a soft-closed period, for instance. It never bypasses a
     CLOSED period, which requires an explicit, audited reopening.
     """
+    # Canonicalise FIRST. Everything below — the completeness check, the
+    # fingerprint, the two uniqueness lookups, and the row itself — must see
+    # the same bytes, or `"145 "` posts a second journal beside `"145"` and
+    # the uniqueness guarantee misses the one retry it exists to catch.
+    source = canonical_source_identity(
+        source_document_type=source_document_type,
+        source_document_id=source_document_id,
+        source_event=source_event,
+    )
+    source_document_type, source_document_id, source_event = source.as_tuple()
+
     validate_source_identity(
         source_document_type=source_document_type,
         source_document_id=source_document_id,

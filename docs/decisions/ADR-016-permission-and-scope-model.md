@@ -173,3 +173,52 @@ may be told "no"; it never grants anything.
 The cost is the one the original decision named: an honest client who has
 genuinely lost access sees 404 and may look for a record that exists. That is
 accepted. Confirming a competitor's data exists is the worse failure.
+## Amendment — permission provenance (approved 2026-08-09, Task 1.1 completion)
+
+The two halves must come from the **same place**. It is not enough that the
+caller holds the permission *somewhere* and reaches the target: the permission
+must be carried by a role they hold **inside the target organization, branch,
+or warehouse**.
+
+**Why this had to be stated.** Role groups are recomputed from *every*
+membership a user holds, so `user.has_perm("inventory.manage_items")` is true
+the moment they manage any organization at all. Reach, meanwhile, is cheap —
+a read-only viewer post at one branch grants it. Combining the two therefore
+let a manager at Khan Mandi who also held a viewer post at a rival rewrite the
+rival's item master. The scope check was present and correct; the permission
+half was simply answered from the wrong place.
+
+Two acceptable sources of a permission over an organization:
+
+1. an `OrganizationMembership` in **that** organization whose role grants it;
+2. a `BranchMembership` in a branch of **that** organization whose role grants
+   it.
+
+And, correspondingly:
+
+| Question | Roles that may answer it |
+|---|---|
+| Organization *authority* (`post_opening_stock`, period acts) | the `OrganizationMembership` role in that organization, and nothing else |
+| Organization *master data* (item master, categories, packages, conversions) | any role held inside that organization, branch posts included |
+| Branch | the `BranchMembership` role at that branch, plus organization-wide roles over its owner |
+| Warehouse | the roles of memberships that actually cover that warehouse — a `SELECTED` membership that omits it contributes nothing |
+
+`roles_granting(permission)` reads the role groups themselves rather than
+importing each module's role map, so it stays correct as modules land and
+`apps.organizations` never has to know what `apps.inventory` grants.
+
+**Consequences, stated plainly.**
+
+- A permission attached directly to a user, or through a group outside the
+  `role:` namespace, authorizes **no** organization. Such a grant names no
+  post, so it cannot say *where* it applies. Widening authority is still
+  entirely possible — change the role map, or give the person the role — but
+  it is done somewhere that records where the authority reaches.
+- A superuser holds no membership, so provenance is short-circuited for them
+  rather than failed. Consistent with the rest of this ADR: emergency
+  authority changes who may ask, never what the service checks.
+- Screens gate their buttons with `organizations_with_permission` /
+  `branches_with_permission`, which answer the same question in bulk. A test
+  pins the bulk answer to the single-object answer, because a screen that
+  offered a button the write would refuse — or hid one it would allow — is a
+  worse defect than either alone.

@@ -71,12 +71,31 @@ Depends on: 1.1; decisions 5, 6, 8, 9.
 
 **Exit gate**
 
-- All 18 valuation cases from spec §9 tested individually.
-- Quantity zero implies value zero, proven including the divergent case.
-- Rebuild equals ledger replay, including after concurrent load.
-- Concurrency plan §10 green — all five tests, at a real COMMIT.
-- Movement immutability trigger uses an **allowlist**, per `accounting/0005`.
-- Closed-period posting refused; soft-closed needs the audited override.
+- Valuation cases 1–5, 8–10, and 13–18 from spec §9 tested individually.
+  **Cases 6, 7, 11, and 12 are deferred with their documents**: `RETURN_IN`,
+  `RETURN_OUT`, transfer, and transfer shortage are properties of documents
+  Tasks 1.3–1.6 create. The movement types exist and the kernel values them;
+  what does not exist is the original issue to return against or the in-transit
+  leg to dispatch into, so testing them now would test a fiction.
+- Quantity zero implies value zero, proven including the divergent case, and
+  again as a Hypothesis property over the whole input space.
+- Rebuild equals ledger replay; a corrupted projection is detected and the
+  command refuses to repair it.
+- Concurrency green at a real COMMIT: concurrent issues, concurrent first
+  receipts into an absent key, opposite-order multi-key events, in-flight
+  identical retries, and a raw duplicate null-lot balance.
+- Movement immutability is stricter than an allowlist: `StockMovement` is
+  **insert-only**, with no permitted update at all. The entry and layer
+  triggers do use whole-row allowlists, per `accounting/0005`.
+- **Amended:** posting requires an OPEN period. `SOFT_CLOSED` is refused with
+  no override, superseding the earlier "soft-closed needs the audited
+  override" line. A stock movement changes what the accounts will say, and a
+  period that has stopped accepting entries has stopped accepting the things
+  that cause them. The count-adjustment exception arrives in Task 1.6 attached
+  to a real count document, never to a flag.
+- **Amended:** negative stock is refused for everyone.
+  `inventory.override_negative_stock` stays reserved and non-operational until
+  a valuation policy for the variance it creates is approved.
 - No background job anywhere on the authoritative posting path.
 
 ---
@@ -100,11 +119,39 @@ Depends on: 1.2; decisions 10, 11, 13.
   same key in another organization is independent (AT-009).
 - Mixed opening dates refused.
 
+**Implementation notes (2026-08-09):**
+
+- ADR-019 records the durable architecture: role vocabulary and organization
+  defaults in `apps.accounting`; item/category overrides and the resolver in
+  `apps.inventory`; dependency direction inventory → accounting only, with a
+  guard hook instead of a reverse import.
+- "Mixed opening dates refused" is satisfied structurally: the cutoff is a
+  **document** field, so a line cannot carry its own date at all.
+- The opening's source identity is the document's immutable UUID, not the
+  human number — drafts carry no number, and the gapless `OPN-<year>-<n>`
+  number is assigned only inside the posting transaction (spec §11 amended).
+- The combined posting's lock order is document row → stock keys → stock
+  counter → document number → journal number. The document-number step sits
+  AFTER the stock counter, deviating from the suggested order, because the
+  kernel owns "keys then counter" as one unit; the order is global and
+  concurrency-tested (ADR-019).
+- Maker-checker (`submitted_by != posted_by`) is enforced in the service and
+  by a database constraint; a posted document and its lines are frozen by
+  whole-row-allowlist triggers.
+- An `INVENTORY_CONTROL` mapping change that would re-home the standing value
+  of an item with stock is refused (`inventory_account_reclassification_required`)
+  until a real GL reclassification workflow exists — through the override
+  services, the accounting default services, and item category moves alike.
+- `inventory.override_negative_stock` is now granted to **no role by
+  default** while `NEGATIVE_STOCK_OVERRIDE_ENABLED` is False (§B.2 of the
+  task brief); the Task 1.2 exit-gate line about the reserved permission
+  stands, strengthened.
+
 ---
 
 ### Task 1.4 — Receipts, issues, returns, and reversal
 
-`RECEIPT`, `ISSUE`, `RETURN_IN`, `RETURN_OUT`, `REVERSAL`.
+`RECEIPT`, `ISSUE`, `RETURN_IN`, `REVERSAL`.
 
 Manual receipts only. **This is not procurement** — no supplier, no purchase
 order, no invoice, no payable. A receipt here records what physically entered
@@ -119,12 +166,35 @@ Depends on: 1.3.
 - Negative stock refused on every outbound path.
 - Every movement type's accounting matches the spec §8 table.
 
+**Implementation notes (2026-08-10):**
+
+- **`RETURN_OUT` moved out of this task** and into Procurement (Phase 2). A
+  supplier return has to reconcile against a supplier invoice, a payable, and
+  a credit note, none of which exist yet; implementing the stock half now
+  would leave the accounting half to be retrofitted around it. `RETURN_IN`
+  here means unused stock coming back from a consumption issue.
+- Three cross-cutting fixes landed first, each described in an ADR amendment:
+  period validation on the **business date** (ADR-008), the mapping-mutation
+  **lock** that closes the race the Task 1.3 guard could not see (ADR-019 §5),
+  and **control-account continuity** on the movement and balance (ADR-019 §7).
+- One shared `InventoryMovementDocument` with a type discriminator rather than
+  three models: the three share their whole lifecycle, numbering, locking,
+  API, and screens, and differ only per line.
+- Two roles added: `GOODS_RECEIVED_NOT_INVOICED` (organization default only)
+  and `INVENTORY_CONSUMPTION` (item-overridable). Seeding a role is not
+  seeding a mapping — posting fails with `account_role_unmapped` until an
+  accounting manager configures them.
+- Receipts, issues, and returns post **directly from draft**: the approved
+  role map already trusts a storekeeper with warehouse operations, and
+  maker-checker stays with opening stock, which declares what the ledger
+  starts from rather than moving what is already in it.
+
 ---
 
 ### Task 1.5 — Transfers, in-transit, shortages
 
-`TRANSFER_DISPATCH`, `TRANSFER_RECEIPT`, `TRANSFER_SHORTAGE`, and the
-`IN_TRANSIT` system warehouse.
+`StockTransfer` with `StockTransferReceipt` and `StockTransferShortage` as its
+posted child events, over the `IN_TRANSIT` system warehouse. See ADR-020.
 
 Depends on: 1.4.
 
@@ -132,8 +202,42 @@ Depends on: 1.4.
 
 - Dispatch value reconciles exactly to receipt plus shortage (AT-002).
 - A transfer creates no gain or loss from movement alone.
-- Inter-branch transfer requires `post_transfer` at **both** branches.
-- `IN_TRANSIT` is not user-creatable and accepts no other movement type.
+- Inter-branch transfer requires authority at the source and reach to the
+  destination; a same-branch transfer requires `post_transfer` at both
+  warehouses.
+- `IN_TRANSIT` is not user-creatable and never user-selectable.
+
+**Implementation notes**
+
+- **Not an `InventoryMovementDocument`.** That model is one draft that becomes
+  one posted or reversed event. A transfer is dispatched once, received any
+  number of times, possibly closed short, and each of those reverses on its
+  own — so it is a parent aggregate whose status is *computed* from its posted
+  children, never written by a caller.
+- **Two ledger entries per event where the branches differ**, because a ledger
+  entry carries exactly one business date and a cross-branch receipt has two:
+  the source releases from in-transit on its operating day, the destination
+  takes delivery on its own, and each side validates its own accounting
+  period.
+- **A receipt is valued from its own transfer line's remaining basis**, never
+  from the pooled in-transit average, which blends every transfer of that item
+  currently on the road. The kernel gained `MovementInput.outbound_value` for
+  this — the mirror of the exact inbound value Task 1.4 added — and refuses a
+  figure the position cannot support rather than falling back.
+- **The remaining quantity and value are retained on the transfer line**, not
+  derived on read: deriving would make the allocation a race between two
+  concurrent receipts. Reconciliation derives them independently and compares,
+  which is what makes retaining them safe.
+- `INTER_BRANCH_CLEARING` and the `6-02-01-001` shortage-loss leaf are added;
+  as always, seeding a role is not seeding a mapping.
+- `inventory.close_transfer_shortage` is new and deliberately sensitive:
+  branch-scoped at the **source**, held by OWNER, MANAGER and
+  ACCOUNTING_MANAGER, and by no storekeeper.
+- **A shortage closure resolves the entire remainder.** A partial write-off
+  leaving an unexplained open residual is the state the closure exists to end.
+- `StockLedgerEntry` now names the journal it produced, which is what lets the
+  conditional control-account invariant of §S be a database trigger rather
+  than a walk across every document type that might reference the entry.
 
 ---
 

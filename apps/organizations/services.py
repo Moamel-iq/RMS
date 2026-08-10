@@ -7,10 +7,14 @@ callers cannot construct a half-valid row by writing fields directly.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import time
+from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import AuditAction
 from apps.core.services import record_audit_event, snapshot
@@ -23,6 +27,11 @@ from apps.organizations.models import (
 )
 from apps.organizations.permissions import sync_user_role_groups
 from apps.users.models import User
+
+if TYPE_CHECKING:
+    # Imported for typing only: `apps.inventory` depends on this module, so a
+    # runtime import here would close the cycle.
+    from apps.inventory.models import Warehouse
 
 
 @transaction.atomic
@@ -204,6 +213,65 @@ def revoke_branch_access(*, user: User, branch: Branch) -> None:
             previous_state=snapshot(membership),
             reason=f"{user} revoked at {branch.code}",
         )
+
+
+@transaction.atomic
+def set_membership_warehouse_scope(
+    *,
+    membership: BranchMembership,
+    mode: str,
+    warehouses: Sequence[Warehouse] | None = None,
+) -> BranchMembership:
+    """
+    Narrow a branch membership to particular warehouses, or widen it again.
+
+    `ALL` is stored as a mode rather than expanded into rows on purpose: a
+    membership granted "all warehouses" must cover the one that opens next
+    month, and a snapshot of today's warehouses would silently fail to.
+
+    A selected warehouse must belong to the membership's own branch. Allowing
+    otherwise would let warehouse scope *widen* branch access, which is the
+    exact inversion this model exists to prevent.
+    """
+    from apps.organizations.models import BranchMembershipWarehouse, WarehouseScopeMode
+
+    before = snapshot(BranchMembership.objects.get(pk=membership.pk))
+
+    if mode == WarehouseScopeMode.SELECTED:
+        chosen = list(warehouses or [])
+        if not chosen:
+            raise ValidationError(
+                _("Selected scope needs at least one warehouse."),
+                code="no_warehouse_selected",
+            )
+        for warehouse in chosen:
+            if warehouse.branch_id != membership.branch_id:
+                raise ValidationError(
+                    _("Warehouse %(code)s belongs to another branch."),
+                    code="warehouse_branch_mismatch",
+                    params={"code": warehouse.code},
+                )
+        BranchMembershipWarehouse.objects.filter(branch_membership=membership).delete()
+        BranchMembershipWarehouse.objects.bulk_create(
+            [
+                BranchMembershipWarehouse(branch_membership=membership, warehouse=warehouse)
+                for warehouse in chosen
+            ]
+        )
+
+    membership.warehouse_scope_mode = mode
+    membership.full_clean()
+    membership.save(update_fields=["warehouse_scope_mode", "updated_at"])
+
+    record_audit_event(
+        action=AuditAction.ACCESS_GRANTED,
+        target=membership,
+        branch=membership.branch,
+        previous_state=before,
+        new_state=snapshot(membership),
+        reason=f"warehouse scope set to {mode}",
+    )
+    return membership
 
 
 @transaction.atomic
