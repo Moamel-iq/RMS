@@ -88,6 +88,14 @@ CHART: list[tuple[str, str, str]] = [
     ("6-01-01-001", "الرواتب", "Salaries"),
     ("6-01-02", "الإيجار", "Rent"),
     ("6-01-02-001", "الإيجار", "Rent"),
+    # Stock that left one branch and never reached the other (Task 1.5). An
+    # operating expense rather than a cost-of-sales line, because nothing was
+    # sold: the goods were lost. Its class makes a cost centre mandatory, which
+    # is exactly right — a loss nobody's department carries is a loss nobody
+    # investigates.
+    ("6-02", "خسائر تشغيلية", "Operating losses"),
+    ("6-02-01", "خسائر المخزون", "Inventory losses"),
+    ("6-02-01-001", "عجز التحويلات", "Transfer Shortage Loss"),
     # 7 Other income and expense
     ("7", "إيرادات ومصروفات أخرى", "Other income and expense"),
     ("7-09", "فروقات وتسويات", "Differences and adjustments"),

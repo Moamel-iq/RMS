@@ -22,7 +22,7 @@ only thing standing in the way.
 from __future__ import annotations
 
 import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django import forms
@@ -39,10 +39,12 @@ from apps.inventory.models import (
     ItemPackageConversion,
     ItemType,
     PackageUnit,
+    StockTransferLine,
     Warehouse,
     WarehouseType,
 )
 from apps.inventory.permissions import (
+    CLOSE_TRANSFER_SHORTAGE,
     CREATE_DRAFT_MOVEMENT,
     CREATE_OPENING_STOCK,
     MANAGE_CATEGORIES,
@@ -927,4 +929,264 @@ class OperationalLineForm(ScopedForm):
         if value is not None and value <= 0:
             self.add_error("unit_cost", _("يجب أن تكون الكلفة أكبر من صفر."))
             return None
+        return value
+
+
+# ---------------------------------------------------------------------------
+# Transfers (Task 1.5)
+# ---------------------------------------------------------------------------
+
+
+class TransferForm(ScopedForm):
+    """
+    The header of a transfer: where the goods leave, where they are going, and
+    when they left.
+
+    Both selectors are drawn from `accessible_warehouses`, so a foreign branch
+    the caller has no reach into never appears as a destination. Neither offers
+    a system warehouse — in-transit is chosen by the posting service from the
+    source branch and is nobody's answer to a question.
+    """
+
+    scope_permission = CREATE_DRAFT_MOVEMENT
+
+    source_warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.none(), label=_("المخزن المُرسِل")
+    )
+    destination_warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.none(), label=_("المخزن المستلم")
+    )
+    effective_at = forms.DateTimeField(
+        label=_("لحظة الإرسال"),
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+        help_text=_("اللحظة الفعلية لخروج البضاعة. يُشتق منها يوم عمل الفرع المُرسِل."),
+    )
+    evidence_reference = forms.CharField(
+        label=_("مرجع الإثبات"),
+        max_length=200,
+        help_text=_("رقم إشعار التحويل أو إذن الخروج."),
+    )
+    narration = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.organizations.authorization import accessible_warehouses
+
+        reachable = (
+            accessible_warehouses(actor).filter(is_system=False).order_by("branch__code", "code")
+        )
+        self.fields["source_warehouse"].queryset = reachable  # type: ignore[attr-defined]
+        self.fields["destination_warehouse"].queryset = reachable  # type: ignore[attr-defined]
+
+    def clean_narration(self) -> str:
+        return str(self.cleaned_data.get("narration") or "")
+
+    def clean_effective_at(self) -> datetime.datetime:
+        from django.utils import timezone as django_timezone
+
+        value: datetime.datetime = self.cleaned_data["effective_at"]
+        if django_timezone.is_naive(value):
+            value = django_timezone.make_aware(value)
+        return value
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        source = cleaned.get("source_warehouse")
+        destination = cleaned.get("destination_warehouse")
+        if source is not None and destination is not None and source.pk == destination.pk:
+            self.add_error("destination_warehouse", _("لا يمكن التحويل إلى المخزن نفسه."))
+        return cleaned
+
+
+class TransferLineForm(ScopedForm):
+    """One item on a draft transfer, entered in base units or in packages."""
+
+    scope_permission = CREATE_DRAFT_MOVEMENT
+
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    lot_code = forms.CharField(label=_("رقم اللوت"), required=False, max_length=64)
+    lot_expiry = forms.DateField(
+        label=_("تاريخ الانتهاء"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    package_conversion = forms.ModelChoiceField(
+        queryset=ItemPackageConversion.objects.none(),
+        label=_("العبوة"),
+        required=False,
+        help_text=_("اختر العبوة إذا كان العدّ بالعبوات."),
+    )
+    entered_package_quantity = forms.CharField(label=_("عدد العبوات"), required=False)
+    measured_base_quantity = forms.CharField(
+        label=_("الوزن المقاس"),
+        required=False,
+        help_text=_("للعبوات متغيّرة الوزن: الميزان هو المرجع."),
+    )
+    base_quantity = forms.CharField(label=_("الكمية بالوحدة الأساس"), required=False)
+
+    def __init__(
+        self, *args: Any, actor: User, transfer: Any, selected_item: Any = None, **kwargs: Any
+    ) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.transfer = transfer
+        self.fields["item"].queryset = InventoryItem.objects.filter(  # type: ignore[attr-defined]
+            organization_id=transfer.organization_id, is_active=True
+        ).order_by("code")
+        # Narrowed by `?item=` on the page, the same way the operational line
+        # form does it: the stack carries no client-side framework, so the
+        # choice is re-offered on reload rather than filtered live.
+        conversions = ItemPackageConversion.objects.none()
+        if selected_item is not None:
+            conversions = (
+                ItemPackageConversion.objects.filter(item=selected_item, is_active=True)
+                .select_related("package_unit")
+                .order_by("package_unit__code", "-version")
+            )
+        self.fields["package_conversion"].queryset = conversions  # type: ignore[attr-defined]
+
+    def _decimal(self, raw: str, field: str) -> Decimal | None:
+        raw = (raw or "").strip()
+        if not raw:
+            return None
+        try:
+            return Decimal(raw)
+        except InvalidOperation, ArithmeticError:
+            self.add_error(field, _("قيمة رقمية غير صالحة."))
+            return None
+
+    def clean_entered_package_quantity(self) -> Decimal | None:
+        return self._decimal(
+            self.cleaned_data.get("entered_package_quantity", ""), "entered_package_quantity"
+        )
+
+    def clean_measured_base_quantity(self) -> Decimal | None:
+        return self._decimal(
+            self.cleaned_data.get("measured_base_quantity", ""), "measured_base_quantity"
+        )
+
+    def clean_base_quantity(self) -> Decimal | None:
+        return self._decimal(self.cleaned_data.get("base_quantity", ""), "base_quantity")
+
+
+class TransferReceiptForm(ScopedForm):
+    """The header of one arrival against a transfer."""
+
+    scope_permission = CREATE_DRAFT_MOVEMENT
+
+    effective_at = forms.DateTimeField(
+        label=_("لحظة الاستلام"),
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+        help_text=_("يُشتق منها يوم عمل الفرع المستلم، وقد يختلف عن يوم الفرع المُرسِل."),
+    )
+    evidence_reference = forms.CharField(
+        label=_("مرجع الإثبات"), max_length=200, help_text=_("رقم إشعار الاستلام في الوجهة.")
+    )
+    narration = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def clean_narration(self) -> str:
+        return str(self.cleaned_data.get("narration") or "")
+
+    def clean_effective_at(self) -> datetime.datetime:
+        from django.utils import timezone as django_timezone
+
+        value: datetime.datetime = self.cleaned_data["effective_at"]
+        if django_timezone.is_naive(value):
+            value = django_timezone.make_aware(value)
+        return value
+
+
+class TransferReceiptLineForm(ScopedForm):
+    """
+    How much of one transfer line arrived.
+
+    The conversion is not offered. A receipt measures the same shipment the
+    dispatch described, so it counts in the packaging the dispatch recorded;
+    a fresh choice here would let a factor edited in between restate what was
+    sent.
+    """
+
+    scope_permission = CREATE_DRAFT_MOVEMENT
+
+    transfer_line = forms.ModelChoiceField(
+        queryset=StockTransferLine.objects.none(), label=_("سطر التحويل")
+    )
+    entered_package_quantity = forms.CharField(label=_("عدد العبوات المستلمة"), required=False)
+    measured_base_quantity = forms.CharField(label=_("الوزن المقاس"), required=False)
+    base_quantity = forms.CharField(label=_("الكمية المستلمة"), required=False)
+
+    def __init__(self, *args: Any, actor: User, transfer: Any, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.fields["transfer_line"].queryset = (  # type: ignore[attr-defined]
+            transfer.lines.filter(remaining_quantity__gt=Decimal("0"))
+            .select_related("item", "lot")
+            .order_by("sequence")
+        )
+
+    def _decimal(self, raw: str, field: str) -> Decimal | None:
+        raw = (raw or "").strip()
+        if not raw:
+            return None
+        try:
+            return Decimal(raw)
+        except InvalidOperation, ArithmeticError:
+            self.add_error(field, _("قيمة رقمية غير صالحة."))
+            return None
+
+    def clean_entered_package_quantity(self) -> Decimal | None:
+        return self._decimal(
+            self.cleaned_data.get("entered_package_quantity", ""), "entered_package_quantity"
+        )
+
+    def clean_measured_base_quantity(self) -> Decimal | None:
+        return self._decimal(
+            self.cleaned_data.get("measured_base_quantity", ""), "measured_base_quantity"
+        )
+
+    def clean_base_quantity(self) -> Decimal | None:
+        return self._decimal(self.cleaned_data.get("base_quantity", ""), "base_quantity")
+
+
+class TransferShortageForm(ScopedForm):
+    """
+    The closure of what a transfer will never deliver.
+
+    A reason and a cost centre are both mandatory here, not merely encouraged:
+    an unexplained inventory loss posted to an expense account with nobody's
+    department carrying it is indistinguishable from concealing a theft.
+    """
+
+    scope_permission = CLOSE_TRANSFER_SHORTAGE
+
+    effective_at = forms.DateTimeField(
+        label=_("لحظة الإقفال"),
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+    )
+    reason = forms.CharField(
+        label=_("سبب العجز"),
+        widget=forms.Textarea,
+        help_text=_("ما الذي حدث للبضاعة. مطلوب."),
+    )
+    evidence_reference = forms.CharField(
+        label=_("مرجع الإثبات"),
+        max_length=200,
+        help_text=_("محضر التحقيق أو مطالبة الناقل."),
+    )
+    cost_center = forms.ModelChoiceField(
+        queryset=CostCenter.objects.none(),
+        label=_("مركز الكلفة"),
+        help_text=_("القسم الذي يتحمّل الخسارة. لا يوجد افتراضي."),
+    )
+
+    def __init__(self, *args: Any, actor: User, transfer: Any, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.fields["cost_center"].queryset = CostCenter.objects.filter(  # type: ignore[attr-defined]
+            organization_id=transfer.organization_id, is_active=True
+        ).order_by("code")
+
+    def clean_effective_at(self) -> datetime.datetime:
+        from django.utils import timezone as django_timezone
+
+        value: datetime.datetime = self.cleaned_data["effective_at"]
+        if django_timezone.is_naive(value):
+            value = django_timezone.make_aware(value)
         return value

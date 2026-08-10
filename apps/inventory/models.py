@@ -293,6 +293,10 @@ class InventoryItem(TimeStampedModel):
             ("post_issue", _("Can post a stock issue")),
             ("post_return_in", _("Can return previously issued stock to inventory")),
             ("post_transfer", _("Can post a stock transfer")),
+            (
+                "close_transfer_shortage",
+                _("Can close a transfer's missing quantity as a loss"),
+            ),
             ("post_waste", _("Can post stock waste")),
             ("conduct_stock_count", _("Can conduct a stock count")),
             ("approve_stock_count", _("Can approve a stock count")),
@@ -664,6 +668,12 @@ class MovementType(models.TextChoices):
     RETURN_IN = "RETURN_IN", _("إرجاع من صرف")
     TRANSFER_OUT = "TRANSFER_OUT", _("تحويل صادر")
     TRANSFER_IN = "TRANSFER_IN", _("تحويل وارد")
+    #: Dispatched goods that will never arrive, written off out of in-transit
+    #: stock. Its own type rather than `WASTE`: waste is spoilage at a
+    #: warehouse and belongs to the waste report, while a transfer shortage is
+    #: a loss in transit and belongs to the transfer report. One value for both
+    #: would make each report wrong about the other (Task 1.5 §N).
+    TRANSFER_SHORTAGE = "TRANSFER_SHORTAGE", _("عجز تحويل")
     WASTE = "WASTE", _("هالك")
     COUNT_GAIN = "COUNT_GAIN", _("فائض جرد")
     COUNT_LOSS = "COUNT_LOSS", _("عجز جرد")
@@ -691,6 +701,7 @@ OUTBOUND_MOVEMENT_TYPES = frozenset(
     {
         MovementType.ISSUE,
         MovementType.TRANSFER_OUT,
+        MovementType.TRANSFER_SHORTAGE,
         MovementType.WASTE,
         MovementType.COUNT_LOSS,
         MovementType.PRODUCTION_OUT,
@@ -890,6 +901,21 @@ class StockLedgerEntry(TimeStampedModel):
         blank=True,
         related_name="reversed_by",
         verbose_name=_("reverses"),
+    )
+
+    #: The journal this posting produced, written once immediately after it
+    #: (Task 1.5 §S). Null means the posting never reached the general ledger
+    #: — the bare kernel in a focused test, or a tool with no accounting in
+    #: play. Non-null makes the conditional control-account invariant bite:
+    #: every value-bearing movement under an accounted entry must name the
+    #: account its value moved through.
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_ledger_entries",
+        verbose_name=_("journal entry"),
     )
 
     class Meta:
@@ -1588,6 +1614,12 @@ class InventoryDocumentType(models.TextChoices):
     RECEIPT = "INVENTORY_RECEIPT", _("استلام مخزني غير مفوتر")
     ISSUE = "INVENTORY_ISSUE", _("صرف مخزني للاستهلاك")
     RETURN_IN = "INVENTORY_RETURN_IN", _("إرجاع من صرف سابق")
+    #: Task 1.5. Three numbered documents, because a transfer is a multi-event
+    #: aggregate: the transfer itself, each receipt against it, and the
+    #: shortage that closes what never arrived.
+    TRANSFER = "INVENTORY_TRANSFER", _("تحويل مخزني")
+    TRANSFER_RECEIPT = "INVENTORY_TRANSFER_RECEIPT", _("استلام تحويل")
+    TRANSFER_SHORTAGE = "INVENTORY_TRANSFER_SHORTAGE", _("إقفال عجز تحويل")
 
 
 #: The visible prefix each document type numbers with, per business year.
@@ -1596,7 +1628,26 @@ DOCUMENT_NUMBER_PREFIX: dict[str, str] = {
     InventoryDocumentType.RECEIPT: "RCV",
     InventoryDocumentType.ISSUE: "ISS",
     InventoryDocumentType.RETURN_IN: "RTN",
+    InventoryDocumentType.TRANSFER: "TRF",
+    InventoryDocumentType.TRANSFER_RECEIPT: "TRR",
+    InventoryDocumentType.TRANSFER_SHORTAGE: "TRS",
 }
+
+
+# --- Transfer source identities (Task 1.5 §P) ------------------------------
+#
+# Ledger and journal source types, kept apart from `InventoryDocumentType`
+# because they name **economic events**, not numbered documents. A transfer
+# receipt is one document that releases stock from the source branch and lands
+# it at the destination; when the two branches differ those are two postings on
+# two business dates with two journals, and each needs its own identity or the
+# second would collide with the first on
+# `(organization, type, id, event)`.
+
+TRANSFER_DISPATCH_SOURCE_TYPE = "INVENTORY_TRANSFER_DISPATCH"
+TRANSFER_RECEIPT_SOURCE_TYPE = "INVENTORY_TRANSFER_RECEIPT_SOURCE"
+TRANSFER_RECEIPT_DESTINATION_TYPE = "INVENTORY_TRANSFER_RECEIPT_DESTINATION"
+TRANSFER_SHORTAGE_SOURCE_TYPE = "INVENTORY_TRANSFER_SHORTAGE"
 
 
 class InventoryDocumentSequence(models.Model):
@@ -2481,3 +2532,1052 @@ class InventoryMovementDocumentLine(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.document_id}#{self.sequence}: {self.item_id} {self.base_quantity}"
+
+
+# ===========================================================================
+# Task 1.5 — transfers, in-transit stock, partial receipts and shortages
+# ===========================================================================
+#
+# **Not an `InventoryMovementDocument`.** That model is one draft that becomes
+# one posted or reversed event, and every part of it — the single status, the
+# single stock entry, the single journal, the whole-document reversal — assumes
+# exactly that. A transfer is a multi-event aggregate: it is dispatched once,
+# received any number of times, possibly closed short, and each of those
+# individual events can later be reversed on its own without undoing the
+# others. Forcing it into the one-post shape would mean either a status that
+# lies about how much has arrived or a second hidden document nobody can see.
+#
+# So: a parent aggregate whose status is *computed* from its posted children,
+# and two child event models that each behave like a small posted document.
+#
+#     StockTransfer            the agreement: what leaves, from where, to where
+#     StockTransferLine        one item on it, with its own remaining balance
+#     StockTransferReceipt     one arrival event, whole or partial
+#     StockTransferShortage    the closure of what will never arrive
+#
+# Ownership never moves until receipt. Goods sit in the **source branch's**
+# in-transit warehouse from dispatch until each receipt takes its share out,
+# which is both the accounting truth and the answer to "whose loss is it if
+# the lorry never turns up" (ADR-020 §1).
+
+
+class StockTransferStatus(models.TextChoices):
+    """
+    Where a transfer has got to, computed from its posted children.
+
+    Never set by a caller and never edited directly: the value is derived from
+    what has actually been posted against the transfer, so it cannot claim an
+    arrival that no receipt records or hide one that does.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    DISPATCHED = "DISPATCHED", _("مُرسل")
+    PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED", _("مستلم جزئياً")
+    COMPLETED = "COMPLETED", _("مكتمل")
+    CLOSED_WITH_SHORTAGE = "CLOSED_WITH_SHORTAGE", _("مقفل بعجز")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+#: The statuses at which stock is standing in transit against the transfer.
+OPEN_TRANSFER_STATUSES = frozenset(
+    {StockTransferStatus.DISPATCHED, StockTransferStatus.PARTIALLY_RECEIVED}
+)
+
+
+class StockTransfer(TimeStampedModel):
+    """
+    Goods moving from one warehouse to another inside one organization.
+
+    Cross-organization movement is prohibited outright and is not modelled
+    here: two organizations are two sets of books, and goods crossing between
+    them is a sale and a purchase, not an internal transfer (§F).
+
+    `public_id` is the immutable identity every ledger effect carries;
+    `transfer_number` is display metadata, gapless within the business year and
+    assigned only at dispatch — a draft that is abandoned must not burn one.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="stock_transfers",
+        verbose_name=_("organization"),
+    )
+    source_warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        related_name="outgoing_transfers",
+        verbose_name=_("source warehouse"),
+    )
+    destination_warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        related_name="incoming_transfers",
+        verbose_name=_("destination warehouse"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    transfer_number = models.CharField(_("transfer number"), max_length=32, blank=True)
+    status = models.CharField(
+        _("status"),
+        max_length=24,
+        choices=StockTransferStatus.choices,
+        default=StockTransferStatus.DRAFT,
+    )
+
+    evidence_reference = models.CharField(
+        _("evidence reference"),
+        max_length=200,
+        help_text=_("Transfer note or gate pass. Required."),
+    )
+    narration = models.TextField(_("narration"), blank=True)
+
+    #: The physical moment the goods left, and the source branch's operating
+    #: day it belongs to, with the settings that derived it. Snapshotted at
+    #: dispatch: a cutoff changed afterwards cannot move a dispatched transfer
+    #: into a different accounting period (ADR-008).
+    effective_at = models.DateTimeField(_("effective at"))
+    business_date = models.DateField(_("business date"))
+    business_date_timezone = models.CharField(
+        _("business date timezone"), max_length=64, blank=True
+    )
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_stock_transfers",
+        verbose_name=_("created by"),
+    )
+    dispatched_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="dispatched_stock_transfers",
+        verbose_name=_("dispatched by"),
+    )
+    dispatched_at = models.DateTimeField(_("dispatched at"), null=True, blank=True)
+
+    stock_entry = models.ForeignKey(
+        StockLedgerEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="dispatched_transfers",
+        verbose_name=_("dispatch stock entry"),
+    )
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="dispatched_transfers",
+        verbose_name=_("dispatch journal entry"),
+    )
+
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_stock_transfers",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_stock_transfers",
+        verbose_name=_("dispatch reversal journal entry"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("stock transfer")
+        verbose_name_plural = _("stock transfers")
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(evidence_reference=""),
+                name="stock_transfer_evidence_reference_not_empty",
+            ),
+            # Goods cannot be transferred to where they already are. The
+            # organization and system-warehouse halves of this rule need the
+            # warehouse rows, so they live in the trigger beside it.
+            models.CheckConstraint(
+                condition=~Q(source_warehouse=models.F("destination_warehouse")),
+                name="stock_transfer_warehouses_differ",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (Q(status=StockTransferStatus.DRAFT) & Q(transfer_number=""))
+                    | (~Q(status=StockTransferStatus.DRAFT) & ~Q(transfer_number=""))
+                ),
+                name="stock_transfer_numbered_iff_dispatched",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "transfer_number"],
+                condition=~Q(transfer_number=""),
+                name="stock_transfer_number_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=StockTransferStatus.DRAFT)
+                | (Q(dispatched_by__isnull=False) & Q(dispatched_at__isnull=False)),
+                name="stock_transfer_dispatched_fields_present",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=StockTransferStatus.DRAFT)
+                | (~Q(business_date_timezone="") & Q(business_day_start__isnull=False)),
+                name="stock_transfer_business_date_snapshot_present",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=StockTransferStatus.REVERSED)
+                | (
+                    Q(reversed_by__isnull=False)
+                    & Q(reversed_at__isnull=False)
+                    & ~Q(reversal_reason="")
+                ),
+                name="stock_transfer_reversed_fields_present",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="transfer_org_status_idx"),
+            models.Index(
+                fields=["source_warehouse", "business_date"], name="transfer_source_date_idx"
+            ),
+            models.Index(fields=["destination_warehouse", "status"], name="transfer_dest_idx"),
+        ]
+
+    def __str__(self) -> str:
+        label = self.transfer_number or str(self.public_id)
+        return f"{label} ({self.get_status_display()})"
+
+    @property
+    def source_branch_id(self) -> int:
+        return int(self.source_warehouse.branch_id)
+
+    @property
+    def destination_branch_id(self) -> int:
+        return int(self.destination_warehouse.branch_id)
+
+    @property
+    def is_cross_branch(self) -> bool:
+        """Whether the two ends sit in different branches, which decides the
+        accounting shape: one branch-local journal, or two coordinated ones
+        through inter-branch clearing (ADR-020 §8)."""
+        return self.source_branch_id != self.destination_branch_id
+
+
+class StockTransferLine(TimeStampedModel):
+    """
+    One item on a transfer, and its own running balance.
+
+    `remaining_quantity` and `remaining_value` are **retained**, not derived on
+    read. Derived-only would make the value allocation of §J a race — two
+    concurrent receipts would each compute the same remaining basis — and would
+    leave the database unable to state the invariant at all. They are
+    maintained under the transfer's row lock, and reconciliation derives the
+    same figures independently and compares, which is what makes retaining
+    them safe rather than merely convenient.
+    """
+
+    transfer = models.ForeignKey(
+        StockTransfer,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("transfer"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, unique=True, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.PROTECT,
+        related_name="transfer_lines",
+        verbose_name=_("item"),
+    )
+    lot = models.ForeignKey(
+        InventoryLot,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_lines",
+        verbose_name=_("lot"),
+    )
+
+    package_conversion = models.ForeignKey(
+        ItemPackageConversion,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_lines",
+        verbose_name=_("package conversion"),
+    )
+    entered_package_quantity = models.DecimalField(
+        _("entered package quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    measured_base_quantity = models.DecimalField(
+        _("measured base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    #: The dispatched quantity, in the item's base unit.
+    base_quantity = models.DecimalField(
+        _("base quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+
+    #: Written at dispatch from the source position's moving average — the
+    #: cost the goods actually left at, which every later receipt allocates
+    #: from and never re-derives.
+    unit_cost = models.DecimalField(
+        _("dispatch unit cost"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+        null=True,
+        blank=True,
+    )
+    total_value = models.DecimalField(
+        _("dispatched value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    #: What is still standing in transit against this line. Zero before
+    #: dispatch and zero again once every unit is received or written off.
+    remaining_quantity = models.DecimalField(
+        _("remaining quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        default=Decimal("0"),
+    )
+    remaining_value = models.DecimalField(
+        _("remaining value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+
+    # --- Written at dispatch ----------------------------------------------
+    source_movement = models.OneToOneField(
+        StockMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_source_line",
+        verbose_name=_("source warehouse movement"),
+    )
+    transit_movement = models.OneToOneField(
+        StockMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_transit_line",
+        verbose_name=_("in-transit movement"),
+    )
+    #: The account the goods left, and the one they are standing in. Both
+    #: snapshotted so a mapping changed mid-transit cannot restate either.
+    source_control_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_source_lines",
+        verbose_name=_("source control account"),
+    )
+    transit_control_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_transit_lines",
+        verbose_name=_("in-transit control account"),
+    )
+    journal_line = models.ForeignKey(
+        "accounting.JournalLine",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_lines",
+        verbose_name=_("journal line"),
+    )
+
+    class Meta:
+        verbose_name = _("stock transfer line")
+        verbose_name_plural = _("stock transfer lines")
+        ordering = ["transfer_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["transfer", "sequence"], name="transfer_line_sequence_unique"
+            ),
+            # One valuation key per transfer. The source warehouse is fixed by
+            # the header, so `(item, lot)` is the whole key, and splitting one
+            # physical position across two lines would give each its own
+            # remaining balance for stock that has only one.
+            models.UniqueConstraint(
+                fields=["transfer", "item", "lot"],
+                nulls_distinct=False,
+                name="transfer_line_valuation_key_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(base_quantity__gt=Decimal("0")),
+                name="transfer_line_quantity_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_cost__isnull=True) | Q(unit_cost__gt=Decimal("0")),
+                name="transfer_line_unit_cost_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_value__isnull=True) | Q(total_value__gt=Decimal("0")),
+                name="transfer_line_value_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(entered_package_quantity__isnull=True)
+                | Q(entered_package_quantity__gt=Decimal("0")),
+                name="transfer_line_package_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(measured_base_quantity__isnull=True)
+                | Q(measured_base_quantity__gt=Decimal("0")),
+                name="transfer_line_measured_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(measured_base_quantity__isnull=True)
+                | Q(package_conversion__isnull=False),
+                name="transfer_line_measured_needs_package",
+            ),
+            # Nothing may be received or written off that was never dispatched.
+            models.CheckConstraint(
+                condition=Q(remaining_quantity__gte=Decimal("0"))
+                & Q(remaining_quantity__lte=models.F("base_quantity")),
+                name="transfer_line_remaining_quantity_within_dispatch",
+            ),
+            models.CheckConstraint(
+                condition=Q(remaining_value__gte=Decimal("0"))
+                & (Q(total_value__isnull=True) | Q(remaining_value__lte=models.F("total_value"))),
+                name="transfer_line_remaining_value_within_dispatch",
+            ),
+            # Quantity and value empty together or not at all. Value against
+            # no quantity is stock nobody can ever receive; quantity at no
+            # value is stock that would arrive free.
+            models.CheckConstraint(
+                condition=(
+                    (Q(remaining_quantity=Decimal("0")) & Q(remaining_value=Decimal("0")))
+                    | (Q(remaining_quantity__gt=Decimal("0")) & Q(remaining_value__gt=Decimal("0")))
+                ),
+                name="transfer_line_remaining_quantity_and_value_agree",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.transfer_id}#{self.sequence}: {self.item_id} {self.base_quantity}"
+
+
+class StockTransferReceipt(TimeStampedModel):
+    """
+    One arrival against a transfer — the whole consignment or part of it.
+
+    A transfer may have many. Each is its own posted event with its own
+    business dates, its own stock postings and its own journals, and each can
+    be reversed on its own without disturbing the others (§E).
+
+    **Two business dates, deliberately.** The source branch releases the goods
+    from its in-transit stock on *its* operating day and the destination takes
+    them onto its books on *its* own; the two may differ, and forcing them
+    together would date one branch's books by another branch's clock. Each side
+    validates its own accounting period and both roll back together (§H).
+    """
+
+    transfer = models.ForeignKey(
+        StockTransfer,
+        on_delete=models.PROTECT,
+        related_name="receipts",
+        verbose_name=_("transfer"),
+    )
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    receipt_number = models.CharField(_("receipt number"), max_length=32, blank=True)
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=InventoryDocumentStatus.choices,
+        default=InventoryDocumentStatus.DRAFT,
+    )
+
+    evidence_reference = models.CharField(
+        _("evidence reference"),
+        max_length=200,
+        help_text=_("Goods-received note at the destination. Required."),
+    )
+    narration = models.TextField(_("narration"), blank=True)
+
+    effective_at = models.DateTimeField(_("effective at"))
+    #: The destination branch's operating day, and its settings.
+    business_date = models.DateField(_("business date"))
+    business_date_timezone = models.CharField(
+        _("business date timezone"), max_length=64, blank=True
+    )
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+    #: The source branch's operating day for the in-transit release. Equal to
+    #: `business_date` for a same-branch transfer and free to differ otherwise.
+    source_business_date = models.DateField(_("source business date"), null=True, blank=True)
+    source_business_date_timezone = models.CharField(
+        _("source business date timezone"), max_length=64, blank=True
+    )
+    source_business_day_start = models.TimeField(
+        _("source business day start"), null=True, blank=True
+    )
+
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="received_transfer_receipts",
+        verbose_name=_("received by"),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_transfer_receipts",
+        verbose_name=_("created by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+
+    #: The release from in-transit and the arrival at the destination. Two
+    #: postings always, because they may fall on two business dates and a
+    #: ledger entry carries exactly one.
+    source_stock_entry = models.ForeignKey(
+        StockLedgerEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_receipt_releases",
+        verbose_name=_("in-transit release entry"),
+    )
+    destination_stock_entry = models.ForeignKey(
+        StockLedgerEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_receipt_arrivals",
+        verbose_name=_("destination arrival entry"),
+    )
+    #: One journal when both ends are in one branch — both fields then name the
+    #: same row — and two coordinated ones when they are not, each balanced
+    #: inside its own branch through inter-branch clearing (ADR-020 §9).
+    source_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_receipt_source_journals",
+        verbose_name=_("source journal entry"),
+    )
+    destination_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_receipt_destination_journals",
+        verbose_name=_("destination journal entry"),
+    )
+
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_transfer_receipts",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+    source_reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_transfer_receipt_source_journals",
+        verbose_name=_("source reversal journal entry"),
+    )
+    destination_reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_transfer_receipt_destination_journals",
+        verbose_name=_("destination reversal journal entry"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("stock transfer receipt")
+        verbose_name_plural = _("stock transfer receipts")
+        ordering = ["transfer_id", "-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(evidence_reference=""),
+                name="transfer_receipt_evidence_reference_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (Q(status=InventoryDocumentStatus.DRAFT) & Q(receipt_number=""))
+                    | (~Q(status=InventoryDocumentStatus.DRAFT) & ~Q(receipt_number=""))
+                ),
+                name="transfer_receipt_numbered_iff_posted",
+            ),
+            models.UniqueConstraint(
+                fields=["receipt_number"],
+                condition=~Q(receipt_number=""),
+                name="transfer_receipt_number_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=InventoryDocumentStatus.DRAFT)
+                | (Q(received_by__isnull=False) & Q(posted_at__isnull=False)),
+                name="transfer_receipt_posted_fields_present",
+            ),
+            # Both snapshots, because both branches' periods were validated.
+            models.CheckConstraint(
+                condition=Q(status=InventoryDocumentStatus.DRAFT)
+                | (
+                    ~Q(business_date_timezone="")
+                    & Q(business_day_start__isnull=False)
+                    & Q(source_business_date__isnull=False)
+                    & ~Q(source_business_date_timezone="")
+                    & Q(source_business_day_start__isnull=False)
+                ),
+                name="transfer_receipt_business_date_snapshots_present",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=InventoryDocumentStatus.REVERSED)
+                | (
+                    Q(reversed_by__isnull=False)
+                    & Q(reversed_at__isnull=False)
+                    & ~Q(reversal_reason="")
+                ),
+                name="transfer_receipt_reversed_fields_present",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["transfer", "status"], name="transfer_receipt_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        label = self.receipt_number or str(self.public_id)
+        return f"{label} ({self.get_status_display()})"
+
+
+class StockTransferReceiptLine(TimeStampedModel):
+    """
+    How much of one transfer line this receipt took, and at what value.
+
+    `allocated_value` is not `quantity x anything resolved now`. It is the
+    share of the transfer line's own remaining value that this receipt
+    consumes, computed by the rule in ADR-020 §5, and the last receipt takes
+    the exact remainder so that the receipts plus any shortage sum to the
+    dispatched value to the dinar.
+    """
+
+    receipt = models.ForeignKey(
+        StockTransferReceipt,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("receipt"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, unique=True, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+    transfer_line = models.ForeignKey(
+        StockTransferLine,
+        on_delete=models.PROTECT,
+        related_name="receipt_lines",
+        verbose_name=_("transfer line"),
+    )
+
+    package_conversion = models.ForeignKey(
+        ItemPackageConversion,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_receipt_lines",
+        verbose_name=_("package conversion"),
+    )
+    entered_package_quantity = models.DecimalField(
+        _("entered package quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    measured_base_quantity = models.DecimalField(
+        _("measured base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    base_quantity = models.DecimalField(
+        _("received base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+    allocated_value = models.DecimalField(
+        _("allocated value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    unit_cost = models.DecimalField(
+        _("unit cost"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    transit_movement = models.OneToOneField(
+        StockMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_receipt_release_line",
+        verbose_name=_("in-transit movement"),
+    )
+    destination_movement = models.OneToOneField(
+        StockMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_receipt_arrival_line",
+        verbose_name=_("destination movement"),
+    )
+    destination_control_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_receipt_lines",
+        verbose_name=_("destination control account"),
+    )
+
+    class Meta:
+        verbose_name = _("stock transfer receipt line")
+        verbose_name_plural = _("stock transfer receipt lines")
+        ordering = ["receipt_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["receipt", "sequence"], name="transfer_receipt_line_sequence_unique"
+            ),
+            # One line per transfer line per receipt: two would each allocate
+            # against a remaining balance the other had already spent.
+            models.UniqueConstraint(
+                fields=["receipt", "transfer_line"],
+                name="transfer_receipt_line_target_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(base_quantity__gt=Decimal("0")),
+                name="transfer_receipt_line_quantity_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(allocated_value__isnull=True) | Q(allocated_value__gt=Decimal("0")),
+                name="transfer_receipt_line_value_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_cost__isnull=True) | Q(unit_cost__gt=Decimal("0")),
+                name="transfer_receipt_line_unit_cost_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(entered_package_quantity__isnull=True)
+                | Q(entered_package_quantity__gt=Decimal("0")),
+                name="transfer_receipt_line_package_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(measured_base_quantity__isnull=True)
+                | Q(measured_base_quantity__gt=Decimal("0")),
+                name="transfer_receipt_line_measured_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(measured_base_quantity__isnull=True)
+                | Q(package_conversion__isnull=False),
+                name="transfer_receipt_line_measured_needs_package",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.receipt_id}#{self.sequence}: {self.base_quantity}"
+
+
+class StockTransferShortage(TimeStampedModel):
+    """
+    The closure of everything a transfer will never deliver.
+
+    The loss belongs to the **source** branch, because that is where the goods
+    still are on the books, and it needs a reason, a cost centre, an authorized
+    actor and a sensitive permission of its own — turning missing stock into an
+    expense is not a custody act (§F, §G).
+
+    A closure resolves the *entire* remaining quantity. A partial write-off
+    leaving an unexplained open residual is not modelled: a transfer that is
+    neither fully received nor fully accounted for is exactly the state this
+    document exists to end.
+    """
+
+    transfer = models.ForeignKey(
+        StockTransfer,
+        on_delete=models.PROTECT,
+        related_name="shortages",
+        verbose_name=_("transfer"),
+    )
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    shortage_number = models.CharField(_("shortage number"), max_length=32, blank=True)
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=InventoryDocumentStatus.choices,
+        default=InventoryDocumentStatus.DRAFT,
+    )
+
+    #: Why the goods are missing. Never blank: an unexplained inventory loss
+    #: posted to an expense account is indistinguishable from theft.
+    reason = models.TextField(_("reason"))
+    evidence_reference = models.CharField(
+        _("evidence reference"),
+        max_length=200,
+        help_text=_("Investigation note, police report, or carrier claim. Required."),
+    )
+    #: Where the loss lands managerially. Explicitly chosen, never defaulted to
+    #: Warehouse or Administration — which department carries a loss is a
+    #: decision, and a hard-coded answer would make every branch's cost report
+    #: agree by construction rather than by fact.
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        related_name="transfer_shortages",
+        verbose_name=_("cost center"),
+    )
+
+    effective_at = models.DateTimeField(_("effective at"))
+    business_date = models.DateField(_("business date"))
+    business_date_timezone = models.CharField(
+        _("business date timezone"), max_length=64, blank=True
+    )
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_transfer_shortages",
+        verbose_name=_("created by"),
+    )
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="closed_transfer_shortages",
+        verbose_name=_("closed by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+
+    stock_entry = models.ForeignKey(
+        StockLedgerEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_shortages",
+        verbose_name=_("stock entry"),
+    )
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_shortages",
+        verbose_name=_("journal entry"),
+    )
+
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_transfer_shortages",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_transfer_shortages",
+        verbose_name=_("reversal journal entry"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("stock transfer shortage")
+        verbose_name_plural = _("stock transfer shortages")
+        ordering = ["transfer_id", "-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(reason=""), name="transfer_shortage_reason_present"
+            ),
+            models.CheckConstraint(
+                condition=~Q(evidence_reference=""),
+                name="transfer_shortage_evidence_reference_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (Q(status=InventoryDocumentStatus.DRAFT) & Q(shortage_number=""))
+                    | (~Q(status=InventoryDocumentStatus.DRAFT) & ~Q(shortage_number=""))
+                ),
+                name="transfer_shortage_numbered_iff_posted",
+            ),
+            models.UniqueConstraint(
+                fields=["shortage_number"],
+                condition=~Q(shortage_number=""),
+                name="transfer_shortage_number_unique",
+            ),
+            # At most one *active* closure per transfer. A reversed one leaves
+            # the transfer open again and a fresh closure is then legitimate,
+            # so the index covers POSTED alone — and it is what stops two
+            # concurrent closures from both writing off the same goods.
+            models.UniqueConstraint(
+                fields=["transfer"],
+                condition=Q(status=InventoryDocumentStatus.POSTED),
+                name="transfer_shortage_one_active_per_transfer",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=InventoryDocumentStatus.DRAFT)
+                | (Q(closed_by__isnull=False) & Q(posted_at__isnull=False)),
+                name="transfer_shortage_posted_fields_present",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=InventoryDocumentStatus.DRAFT)
+                | (~Q(business_date_timezone="") & Q(business_day_start__isnull=False)),
+                name="transfer_shortage_business_date_snapshot_present",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=InventoryDocumentStatus.REVERSED)
+                | (
+                    Q(reversed_by__isnull=False)
+                    & Q(reversed_at__isnull=False)
+                    & ~Q(reversal_reason="")
+                ),
+                name="transfer_shortage_reversed_fields_present",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["transfer", "status"], name="transfer_shortage_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        label = self.shortage_number or str(self.public_id)
+        return f"{label} ({self.get_status_display()})"
+
+
+class StockTransferShortageLine(TimeStampedModel):
+    """One transfer line's missing quantity, at its exact remaining value."""
+
+    shortage = models.ForeignKey(
+        StockTransferShortage,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("shortage"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, unique=True, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+    transfer_line = models.ForeignKey(
+        StockTransferLine,
+        on_delete=models.PROTECT,
+        related_name="shortage_lines",
+        verbose_name=_("transfer line"),
+    )
+
+    base_quantity = models.DecimalField(
+        _("shortage quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+    allocated_value = models.DecimalField(
+        _("allocated value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    unit_cost = models.DecimalField(
+        _("unit cost"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    transit_movement = models.OneToOneField(
+        StockMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_shortage_line",
+        verbose_name=_("in-transit movement"),
+    )
+    journal_line = models.ForeignKey(
+        "accounting.JournalLine",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transfer_shortage_lines",
+        verbose_name=_("journal line"),
+    )
+
+    class Meta:
+        verbose_name = _("stock transfer shortage line")
+        verbose_name_plural = _("stock transfer shortage lines")
+        ordering = ["shortage_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["shortage", "sequence"], name="transfer_shortage_line_sequence_unique"
+            ),
+            models.UniqueConstraint(
+                fields=["shortage", "transfer_line"],
+                name="transfer_shortage_line_target_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(base_quantity__gt=Decimal("0")),
+                name="transfer_shortage_line_quantity_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(allocated_value__isnull=True) | Q(allocated_value__gt=Decimal("0")),
+                name="transfer_shortage_line_value_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_cost__isnull=True) | Q(unit_cost__gt=Decimal("0")),
+                name="transfer_shortage_line_unit_cost_is_positive",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.shortage_id}#{self.sequence}: {self.base_quantity}"

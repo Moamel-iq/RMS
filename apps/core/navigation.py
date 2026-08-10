@@ -183,14 +183,24 @@ MODULES: tuple[Module, ...] = (
                 url_name="inventory:inventory_return_in_list",
                 available=True,
             ),
-            # Task 1.5 onward — visible so the shape of the module is legible,
+            # Task 1.5 — transfers and the in-transit report.
+            Section(
+                label=_("التحويلات المخزنية"),
+                url_name="inventory:transfer_list",
+                available=True,
+            ),
+            Section(
+                label=_("بضاعة بالطريق"),
+                url_name="inventory:in_transit",
+                available=True,
+            ),
+            # Task 1.6 onward — visible so the shape of the module is legible,
             # inert because the documents that would fill them do not exist.
             # "المرتجعات" is gone from this list: returns from a prior issue
             # are live above, and supplier returns belong to Procurement,
             # where they reconcile against an invoice and a credit note.
             *_sections(
                 _("مواقع التخزين الداخلية"),
-                _("التحويلات"),
                 _("الهالك والتلف"),
                 _("الجرد"),
                 _("التسويات"),

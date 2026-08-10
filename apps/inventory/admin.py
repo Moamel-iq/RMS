@@ -35,6 +35,9 @@ from apps.inventory.models import (
     StockBalance,
     StockLedgerEntry,
     StockMovement,
+    StockTransfer,
+    StockTransferReceipt,
+    StockTransferShortage,
     ValuationLayer,
     Warehouse,
 )
@@ -365,6 +368,79 @@ class InventoryMovementDocumentAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     ordering = ("-created_at",)
     list_select_related = ("organization", "branch", "warehouse", "cost_center", "posted_by")
     inlines = [InventoryMovementLineInline]
+
+    def get_readonly_fields(self, request: HttpRequest, obj: Any = None) -> tuple[str, ...]:
+        return tuple(field.name for field in self.model._meta.fields)
+
+
+@admin.register(StockTransfer)
+class StockTransferAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    """
+    Read-only, and the database agrees: a dispatched transfer refuses every
+    change except its computed status and its reversal, and its lines freeze
+    with it. The status is derived from the posted children, so an admin form
+    that could set it would be a form that could lie about how much arrived.
+    """
+
+    list_display = (
+        "transfer_number",
+        "status",
+        "source_warehouse",
+        "destination_warehouse",
+        "business_date",
+        "dispatched_by",
+        "organization",
+    )
+    list_filter = ("status", "source_warehouse", "destination_warehouse", "organization")
+    search_fields = ("transfer_number", "public_id", "evidence_reference")
+    ordering = ("-created_at",)
+    list_select_related = ("organization", "source_warehouse", "destination_warehouse")
+
+    def get_readonly_fields(self, request: HttpRequest, obj: Any = None) -> tuple[str, ...]:
+        return tuple(field.name for field in self.model._meta.fields)
+
+
+@admin.register(StockTransferReceipt)
+class StockTransferReceiptAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    """One arrival, with both branches' business dates side by side."""
+
+    list_display = (
+        "receipt_number",
+        "transfer",
+        "status",
+        "business_date",
+        "source_business_date",
+        "received_by",
+    )
+    list_filter = ("status",)
+    search_fields = ("receipt_number", "public_id", "evidence_reference")
+    ordering = ("-created_at",)
+    list_select_related = ("transfer", "received_by")
+
+    def get_readonly_fields(self, request: HttpRequest, obj: Any = None) -> tuple[str, ...]:
+        return tuple(field.name for field in self.model._meta.fields)
+
+
+@admin.register(StockTransferShortage)
+class StockTransferShortageAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    """
+    The closures. Listed with their cost centre and their actor, because the
+    two questions anybody asks of a written-off loss are who authorised it and
+    whose department carries it.
+    """
+
+    list_display = (
+        "shortage_number",
+        "transfer",
+        "status",
+        "business_date",
+        "cost_center",
+        "closed_by",
+    )
+    list_filter = ("status", "cost_center")
+    search_fields = ("shortage_number", "public_id", "evidence_reference", "reason")
+    ordering = ("-created_at",)
+    list_select_related = ("transfer", "cost_center", "closed_by")
 
     def get_readonly_fields(self, request: HttpRequest, obj: Any = None) -> tuple[str, ...]:
         return tuple(field.name for field in self.model._meta.fields)

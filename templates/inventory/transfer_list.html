@@ -1,0 +1,48 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# Transfers from either end. The number appears only at dispatch; a draft   #}
+{# is identified by its immutable public id, because a gapless sequence must #}
+{# not be burned by a draft somebody abandons.                               #}
+
+{% block columns %}
+  <th>{% translate "الرقم" %}</th>
+  <th>{% translate "من" %}</th>
+  <th>{% translate "إلى" %}</th>
+  <th>{% translate "يوم العمل" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "المُرسِل" %}</th>
+  <th>{% translate "مرجع الإثبات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for transfer in transfers %}
+    <tr>
+      <td>
+        <a href="{% url 'inventory:transfer_detail' transfer.pk %}">
+          {% if transfer.transfer_number %}
+            <code dir="ltr">{{ transfer.transfer_number }}</code>
+          {% else %}
+            <code dir="ltr">{{ transfer.public_id|truncatechars:13 }}</code>
+          {% endif %}
+        </a>
+      </td>
+      <td>
+        <code>{{ transfer.source_warehouse.code }}</code>
+        <span class="muted">{{ transfer.source_warehouse.branch.code }}</span>
+      </td>
+      <td>
+        <code>{{ transfer.destination_warehouse.code }}</code>
+        <span class="muted">{{ transfer.destination_warehouse.branch.code }}</span>
+      </td>
+      <td>{{ transfer.business_date|date:"Y-m-d" }}</td>
+      <td>{{ transfer.get_status_display }}</td>
+      <td>{{ transfer.dispatched_by|default:"—" }}</td>
+      <td>{{ transfer.evidence_reference }}</td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="7">{% translate "لا تحويلات بعد." %}</td>
+    </tr>
+  {% endfor %}
+{% endblock %}

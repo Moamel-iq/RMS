@@ -78,6 +78,7 @@ from apps.core.services import record_audit_event, snapshot
 from apps.inventory.accounts import resolve_inventory_account
 from apps.inventory.ledger import (
     MovementInput,
+    link_journal_entry,
     post_stock_entry,
     reverse_stock_entry,
 )
@@ -646,8 +647,14 @@ def replace_lines(
 # ---------------------------------------------------------------------------
 
 
-def _next_document_number(*, organization: Organization, document_type: str, year: int) -> str:
-    """The next gapless number for this type and business year, under a row lock."""
+def next_document_number(*, organization: Organization, document_type: str, year: int) -> str:
+    """
+    The next gapless number for this type and business year, under a row lock.
+
+    Public because `apps.inventory.transfers` numbers its three documents from
+    the same sequence table and by the same rule; two copies of a gapless
+    counter is two chances to make it not gapless.
+    """
     sequence, _created = InventoryDocumentSequence.objects.get_or_create(
         organization=organization, document_type=document_type, year=year
     )
@@ -657,9 +664,11 @@ def _next_document_number(*, organization: Organization, document_type: str, yea
     return f"{DOCUMENT_NUMBER_PREFIX[document_type]}-{year}-{locked.last_number:06d}"
 
 
-def _require_cost_center_where_the_account_demands_one(
+def require_cost_center_where_the_account_demands_one(
     *, account: Account, cost_center: CostCenter | None
 ) -> None:
+    """Public for the same reason as `next_document_number`: transfers apply
+    the identical account policy and must apply it identically."""
     if account.requires_cost_center and cost_center is None:
         raise ValidationError(
             _("Account %(code)s requires a cost center."),
@@ -816,7 +825,7 @@ def _post_effects(
             line.unit_cost = movement.unit_cost
 
     # 6. The gapless human number, now that no domain reason can fail.
-    document.document_number = _next_document_number(
+    document.document_number = next_document_number(
         organization=document.organization,
         document_type=document.document_type,
         year=period.fiscal_year.year,
@@ -835,6 +844,9 @@ def _post_effects(
         source_event=SourceEvent.POSTED,
         posting_rule_version=POSTING_RULE[document.document_type],
     )
+    # The stock posting names its journal, which is what arms the conditional
+    # control-account invariant over its movements (§S).
+    link_journal_entry(entry=stock_entry, journal=journal)
 
     _link_lines(document, lines, plan=plan, movements=movement_by_key, journal=journal)
 
@@ -895,7 +907,7 @@ def _plan_receipt(
         item=None,
         on_date=document.business_date,
     )
-    _require_cost_center_where_the_account_demands_one(
+    require_cost_center_where_the_account_demands_one(
         account=grni.account, cost_center=document.cost_center
     )
 
@@ -911,7 +923,7 @@ def _plan_receipt(
             item=line.item,
             on_date=document.business_date,
         )
-        _require_cost_center_where_the_account_demands_one(
+        require_cost_center_where_the_account_demands_one(
             account=control.account, cost_center=document.cost_center
         )
         accounts[line.pk] = (control.account, grni.account, None)
@@ -950,7 +962,7 @@ def _plan_issue(
             item=line.item,
             on_date=document.business_date,
         )
-        _require_cost_center_where_the_account_demands_one(
+        require_cost_center_where_the_account_demands_one(
             account=consumption.account, cost_center=document.cost_center
         )
         standing = _standing_control_account(document, line)
@@ -1212,7 +1224,7 @@ def reverse_document(
 
     assert locked.stock_entry is not None  # noqa: S101 - a POSTED document links one
     assert locked.journal_entry is not None  # noqa: S101
-    reverse_stock_entry(
+    reversing_stock = reverse_stock_entry(
         entry=locked.stock_entry,
         idempotency_key=f"{locked.document_type.lower()}-reverse:{locked.public_id}",
         reason=reason.strip(),
@@ -1225,6 +1237,7 @@ def reverse_document(
         reason=reason.strip(),
         accounting_date=reversal_business_date,
     )
+    link_journal_entry(entry=reversing_stock, journal=reversal_journal)
 
     locked.status = InventoryDocumentStatus.REVERSED
     locked.reversed_by = actor

@@ -66,6 +66,7 @@ from apps.inventory.accounts import ResolvedAccount, resolve_inventory_account
 from apps.inventory.ledger import (
     MovementInput,
     acquire_stock_key_locks,
+    link_journal_entry,
     post_stock_entry,
     reverse_stock_entry,
 )
@@ -838,6 +839,7 @@ def post_opening_document(*, document: OpeningStockDocument) -> OpeningStockDocu
         source_event=SourceEvent.POSTED,
         posting_rule_version=OPENING_POSTING_RULE,
     )
+    link_journal_entry(entry=stock_entry, journal=journal)
 
     # Line-level traceability, written while the document is still SUBMITTED
     # (the trigger freezes the lines the moment it turns POSTED).
@@ -942,7 +944,7 @@ def reverse_opening_document(
     # source identity (INVENTORY_OPENING / uuid / REVERSED).
     assert locked.stock_entry is not None  # noqa: S101 - a POSTED document always links one
     assert locked.journal_entry is not None  # noqa: S101
-    reverse_stock_entry(
+    reversing_stock = reverse_stock_entry(
         entry=locked.stock_entry,
         idempotency_key=f"inventory-opening-reverse:{locked.public_id}",
         reason=reason.strip(),
@@ -955,6 +957,7 @@ def reverse_opening_document(
         reason=reason.strip(),
         accounting_date=reversal_business_date,
     )
+    link_journal_entry(entry=reversing_stock, journal=reversal_journal)
 
     locked.status = OpeningStockStatus.REVERSED
     locked.reversed_by = actor

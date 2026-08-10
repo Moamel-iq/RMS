@@ -20,17 +20,25 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Sum
 
 from apps.accounting.models import Account, JournalLine
 from apps.core.money import quantize_money
 from apps.inventory.models import (
+    OPEN_TRANSFER_STATUSES,
     InventoryDocumentStatus,
     InventoryMovementDocument,
     OpeningStockDocument,
     OpeningStockStatus,
     StockBalance,
     StockMovement,
+    StockTransfer,
+    StockTransferLine,
+    StockTransferReceipt,
+    StockTransferShortage,
+    StockTransferStatus,
+    Warehouse,
+    WarehouseType,
 )
 from apps.organizations.models import Organization
 
@@ -441,14 +449,272 @@ def verify_operational_document(document: InventoryMovementDocument) -> list[Dis
     return problems
 
 
+# ---------------------------------------------------------------------------
+# Task 1.5 — the transfer subledger
+# ---------------------------------------------------------------------------
+#
+# A transfer keeps its own remaining balance per line, which makes the value
+# allocation of ADR-020 §5 possible without a race. A retained figure is a
+# figure that can drift, so it is checked here against the one thing that
+# cannot: the posted child events themselves.
+#
+# Two independent comparisons, and they catch different failures.
+#
+#   Per line   dispatched == received + shortage + remaining. Catches a
+#              retained balance that stopped agreeing with its own children.
+#   In transit the ledger's in-transit position == the sum of what every open
+#              transfer says is still owed to it. Catches a transfer whose
+#              children are self-consistent but whose stock is not there.
+
+
+def verify_transfer(transfer: StockTransfer) -> list[Discrepancy]:
+    """
+    One dispatched transfer, line by line:
+
+        dispatched quantity == active received + active shortage + remaining
+        dispatched value    == active received + active shortage + remaining
+
+    "Active" excludes reversed receipts and reversed closures, because those
+    put the quantity and the value back on the transfer — which is exactly
+    what reversing them is for.
+    """
+    if transfer.status == StockTransferStatus.DRAFT:
+        return []
+    label = transfer.transfer_number or str(transfer.public_id)
+    problems: list[Discrepancy] = []
+
+    for line in transfer.lines.select_related("item"):
+        received = line.receipt_lines.filter(
+            receipt__status=InventoryDocumentStatus.POSTED
+        ).aggregate(quantity=Sum("base_quantity"), value=Sum("allocated_value"))
+        short = line.shortage_lines.filter(
+            shortage__status=InventoryDocumentStatus.POSTED
+        ).aggregate(quantity=Sum("base_quantity"), value=Sum("allocated_value"))
+
+        # A reversed dispatch has taken everything back, so nothing is owed.
+        dispatched_quantity = (
+            ZERO if transfer.status == StockTransferStatus.REVERSED else line.base_quantity
+        )
+        dispatched_value = (
+            ZERO if transfer.status == StockTransferStatus.REVERSED else (line.total_value or ZERO)
+        )
+
+        resolved_quantity = (
+            (received["quantity"] or ZERO) + (short["quantity"] or ZERO) + line.remaining_quantity
+        )
+        resolved_value = (
+            (received["value"] or ZERO) + (short["value"] or ZERO) + line.remaining_value
+        )
+        scope = f"{label}#{line.sequence}"
+        if resolved_quantity != dispatched_quantity:
+            problems.append(
+                Discrepancy(
+                    scope=scope,
+                    field="dispatched_quantity",
+                    expected=dispatched_quantity,
+                    actual=resolved_quantity,
+                )
+            )
+        if quantize_money(resolved_value) != quantize_money(dispatched_value):
+            problems.append(
+                Discrepancy(
+                    scope=scope,
+                    field="dispatched_value",
+                    expected=quantize_money(dispatched_value),
+                    actual=quantize_money(resolved_value),
+                )
+            )
+    return problems
+
+
+def verify_in_transit(organization: Organization) -> list[Discrepancy]:
+    """
+    Every in-transit stock position against the transfers that still owe it.
+
+    Both directions: a position the ledger holds that no open transfer claims
+    is stranded value, and a transfer claiming stock the ledger does not hold
+    is a claim on nothing. Either is a defect, and the second is the worse one.
+    """
+    problems: list[Discrepancy] = []
+
+    claimed: dict[tuple[int, int, int], tuple[Decimal, Decimal]] = {}
+    open_lines = StockTransferLine.objects.filter(
+        transfer__organization=organization,
+        transfer__status__in=list(OPEN_TRANSFER_STATUSES),
+        remaining_quantity__gt=ZERO,
+    ).select_related("transfer", "transfer__source_warehouse", "item", "lot")
+    transit_by_branch: dict[int, int] = {}
+    for line in open_lines:
+        branch_id = line.transfer.source_warehouse.branch_id
+        if branch_id not in transit_by_branch:
+            warehouse = Warehouse.objects.filter(
+                branch_id=branch_id, warehouse_type=WarehouseType.IN_TRANSIT
+            ).first()
+            if warehouse is None:  # pragma: no cover - a dispatch always creates one
+                problems.append(
+                    Discrepancy(
+                        scope=f"{organization.code}/branch#{branch_id}",
+                        field="missing_in_transit_warehouse",
+                        expected="one in-transit warehouse",
+                        actual="none",
+                    )
+                )
+                continue
+            transit_by_branch[branch_id] = warehouse.pk
+        key = (transit_by_branch[branch_id], line.item_id, line.lot_id or 0)
+        quantity, value = claimed.get(key, (ZERO, ZERO))
+        claimed[key] = (
+            quantity + line.remaining_quantity,
+            value + line.remaining_value,
+        )
+
+    held: dict[tuple[int, int, int], tuple[Decimal, Decimal]] = {
+        (balance.warehouse_id, balance.item_id, balance.lot_id or 0): (
+            balance.quantity,
+            balance.value,
+        )
+        for balance in StockBalance.objects.filter(
+            organization=organization,
+            warehouse__warehouse_type=WarehouseType.IN_TRANSIT,
+        ).exclude(quantity=ZERO, value=ZERO)
+    }
+
+    for key in sorted(set(claimed) | set(held)):
+        want_quantity, want_value = claimed.get(key, (ZERO, ZERO))
+        have_quantity, have_value = held.get(key, (ZERO, ZERO))
+        scope = f"{organization.code}/in-transit/{key[0]}/{key[1]}/{key[2] or '-'}"
+        if want_quantity != have_quantity:
+            problems.append(
+                Discrepancy(
+                    scope=scope,
+                    field="in_transit_quantity",
+                    expected=want_quantity,
+                    actual=have_quantity,
+                )
+            )
+        if quantize_money(want_value) != quantize_money(have_value):
+            problems.append(
+                Discrepancy(
+                    scope=scope,
+                    field="in_transit_value",
+                    expected=quantize_money(want_value),
+                    actual=quantize_money(have_value),
+                )
+            )
+    return problems
+
+
+def verify_transfer_receipt(receipt: StockTransferReceipt) -> list[Discrepancy]:
+    """
+    One posted receipt, across every representation of its value:
+
+        sum of allocated line values
+        == the in-transit release movements
+        == the destination arrival movements
+        == the destination inventory debit
+
+    ...and for a cross-branch receipt, that the two branch-local journals meet
+    at the same clearing figure. That equality is what makes the organization's
+    inter-branch clearing account net to zero for the complete event; the two
+    journals are written in one transaction precisely so it cannot half-happen.
+    """
+    if receipt.status != InventoryDocumentStatus.POSTED:
+        return []
+    label = receipt.receipt_number or str(receipt.public_id)
+    problems: list[Discrepancy] = []
+
+    lines = list(receipt.lines.select_related("transit_movement", "destination_movement"))
+    total = sum((line.allocated_value or ZERO for line in lines), ZERO)
+
+    for line in lines:
+        for side, movement in (
+            ("release", line.transit_movement),
+            ("arrival", line.destination_movement),
+        ):
+            actual = abs(movement.inventory_value) if movement is not None else "missing"
+            if actual != (line.allocated_value or ZERO):
+                problems.append(
+                    Discrepancy(
+                        scope=f"{label}#{line.sequence}",
+                        field=f"line_vs_{side}_movement",
+                        expected=line.allocated_value or ZERO,
+                        actual=actual,
+                    )
+                )
+
+    destination = receipt.destination_journal_entry
+    if destination is not None:
+        debit = sum((row.debit for row in destination.lines.all()), ZERO)
+        if debit != total:
+            problems.append(
+                Discrepancy(
+                    scope=label, field="destination_inventory_debit", expected=total, actual=debit
+                )
+            )
+
+    source = receipt.source_journal_entry
+    if source is not None and destination is not None and source.pk != destination.pk:
+        source_credit = sum((row.credit for row in source.lines.all()), ZERO)
+        source_debit = sum((row.debit for row in source.lines.all()), ZERO)
+        if source_debit != total or source_credit != total:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="source_clearing_value",
+                    expected=total,
+                    actual=source_debit,
+                )
+            )
+    return problems
+
+
+def verify_transfer_shortage(shortage: StockTransferShortage) -> list[Discrepancy]:
+    """One posted closure: movement value == shortage expense debit."""
+    if shortage.status != InventoryDocumentStatus.POSTED:
+        return []
+    label = shortage.shortage_number or str(shortage.public_id)
+    problems: list[Discrepancy] = []
+
+    lines = list(shortage.lines.select_related("transit_movement"))
+    total = sum((line.allocated_value or ZERO for line in lines), ZERO)
+    for line in lines:
+        movement = line.transit_movement
+        actual = abs(movement.inventory_value) if movement is not None else "missing"
+        if actual != (line.allocated_value or ZERO):
+            problems.append(
+                Discrepancy(
+                    scope=f"{label}#{line.sequence}",
+                    field="line_vs_movement",
+                    expected=line.allocated_value or ZERO,
+                    actual=actual,
+                )
+            )
+    journal = shortage.journal_entry
+    if journal is not None:
+        debit = sum((row.debit for row in journal.lines.all()), ZERO)
+        if debit != total:
+            problems.append(
+                Discrepancy(
+                    scope=label, field="shortage_expense_debit", expected=total, actual=debit
+                )
+            )
+    return problems
+
+
 def verify_inventory_accounting(organization: Organization) -> list[str]:
     """
     The full reconciliation for one organization, as report lines.
 
-    Four comparisons: every posted opening against its own effects, every
-    posted operational document against its own effects, the balance
-    projection against the ledger replay, and the inventory book value against
-    the general ledger. Read-only throughout, and no repair mode anywhere.
+    Eight comparisons: every posted opening against its own effects, every
+    posted operational document against its own effects, every dispatched
+    transfer against its posted children, every posted receipt and closure
+    against their own effects, the in-transit ledger against the transfers
+    that claim it, the balance projection against the ledger replay, and the
+    inventory book value against the general ledger.
+
+    Read-only throughout, and **no repair mode anywhere**. A projection that
+    can be quietly corrected proves nothing, because the correction erases the
+    evidence of whatever caused the divergence.
     """
     lines: list[str] = []
     for document in OpeningStockDocument.objects.filter(
@@ -461,6 +727,19 @@ def verify_inventory_accounting(organization: Organization) -> list[str]:
         status__in=[InventoryDocumentStatus.POSTED, InventoryDocumentStatus.REVERSED],
     ):
         lines.extend(str(problem) for problem in verify_operational_document(operational))
+    for transfer in StockTransfer.objects.filter(organization=organization).exclude(
+        status=StockTransferStatus.DRAFT
+    ):
+        lines.extend(str(problem) for problem in verify_transfer(transfer))
+    for receipt in StockTransferReceipt.objects.filter(
+        transfer__organization=organization, status=InventoryDocumentStatus.POSTED
+    ):
+        lines.extend(str(problem) for problem in verify_transfer_receipt(receipt))
+    for shortage in StockTransferShortage.objects.filter(
+        transfer__organization=organization, status=InventoryDocumentStatus.POSTED
+    ):
+        lines.extend(str(problem) for problem in verify_transfer_shortage(shortage))
+    lines.extend(str(problem) for problem in verify_in_transit(organization))
     lines.extend(str(mismatch) for mismatch in verify_organization(organization))
     lines.extend(str(problem) for problem in verify_inventory_against_gl(organization))
     return lines

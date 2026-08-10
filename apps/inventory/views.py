@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.db.models import Q, QuerySet
+from django.db.models import Q, QuerySet, Sum
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
@@ -53,30 +53,49 @@ from apps.inventory.commands import (
     DOCUMENT_PERMISSION,
     add_document_line,
     add_opening_line,
+    add_transfer_line,
     archive_inventory_role_mapping,
     close_inventory_role_mapping,
     create_document,
     create_opening,
+    create_transfer,
+    create_transfer_receipt,
+    create_transfer_shortage,
     delete_document,
     delete_opening,
+    delete_transfer,
+    delete_transfer_receipt,
+    dispatch_transfer,
     map_inventory_role,
     may_see_cost,
     post_document,
     post_opening,
+    post_transfer_receipt,
+    post_transfer_shortage,
     remove_document_line,
     remove_opening_line,
+    remove_transfer_line,
+    replace_transfer_receipt_lines,
     resolve_document,
     resolve_movement,
     resolve_opening_document,
+    resolve_receipt,
+    resolve_shortage,
+    resolve_transfer,
     return_opening_to_draft,
+    reverse_dispatch,
     reverse_document,
     reverse_opening,
+    reverse_transfer_receipt,
+    reverse_transfer_shortage,
     submit_opening,
     update_opening,
     visible_documents,
+    visible_in_transit,
     visible_movements,
     visible_opening_documents,
     visible_stock,
+    visible_transfers,
 )
 from apps.inventory.forms import (
     InventoryItemForm,
@@ -89,12 +108,23 @@ from apps.inventory.forms import (
     OperationalLineForm,
     PackageUnitForm,
     SupersedeConversionForm,
+    TransferForm,
+    TransferLineForm,
+    TransferReceiptForm,
+    TransferReceiptLineForm,
+    TransferShortageForm,
     WarehouseForm,
 )
-from apps.inventory.models import InventoryDocumentStatus, ItemType
+from apps.inventory.models import (
+    OPEN_TRANSFER_STATUSES,
+    InventoryDocumentStatus,
+    ItemType,
+    StockTransferStatus,
+)
 from apps.inventory.opening import OpeningLineInput, ensure_opening_lot
 from apps.inventory.operations import DocumentLineInput
 from apps.inventory.permissions import (
+    CLOSE_TRANSFER_SHORTAGE,
     CREATE_DRAFT_MOVEMENT,
     CREATE_OPENING_STOCK,
     MANAGE_CATEGORIES,
@@ -103,6 +133,7 @@ from apps.inventory.permissions import (
     MANAGE_PACKAGE_UNITS,
     MANAGE_WAREHOUSES,
     POST_OPENING_STOCK,
+    POST_TRANSFER,
     REVERSE_MOVEMENT,
     VIEW_ITEM,
     VIEW_STOCK,
@@ -133,6 +164,7 @@ from apps.inventory.services import (
     update_package_unit,
     update_warehouse,
 )
+from apps.inventory.transfers import ReceiptLineInput, TransferLineInput
 from apps.organizations.authorization import (
     branches_with_permission,
     has_branch_permission,
@@ -1743,3 +1775,550 @@ class ReconciliationView(InventoryViewMixin, View):
                 "mismatches": mismatches,
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Transfers (Task 1.5 §W)
+# ---------------------------------------------------------------------------
+#
+# A transfer is a multi-event aggregate, so its screens are too: one page for
+# the agreement, one for each arrival, one for the closure, and a timeline on
+# the detail page that shows the events in the order they were posted.
+#
+# Every action button is decided from the same authorization the command layer
+# checks. Hiding a button is presentation, never protection — a hand-made POST
+# to a hidden action is refused on its merits.
+
+
+class TransferListView(InventoryListView):
+    """Transfers the caller can see from either end."""
+
+    template_name = "inventory/transfer_list.html"
+    context_object_name = "transfers"
+    required_permission = VIEW_STOCK
+    page_title = _("التحويلات المخزنية")
+    page_hint = _("بضاعة تنتقل بين مخزنين داخل المؤسسة. تبقى بعهدة الفرع المُرسِل حتى الاستلام.")
+    create_url_name = "inventory:transfer_create"
+    create_label = _("تحويل جديد")
+    search_fields = (
+        "transfer_number",
+        "evidence_reference",
+        "source_warehouse__code",
+        "destination_warehouse__code",
+    )
+    manage_permission = CREATE_DRAFT_MOVEMENT
+    manage_scope = "branch"
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_transfers(self.actor)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["show_cost"] = may_see_cost(self.actor)
+        return context
+
+
+class InTransitView(InventoryListView):
+    """Goods that have left one place and not arrived at another."""
+
+    template_name = "inventory/in_transit_list.html"
+    context_object_name = "rows"
+    required_permission = VIEW_STOCK
+    page_title = _("بضاعة بالطريق")
+    page_hint = _("الكميات المُرسلة التي لم تُستلم ولم تُقفل بعجز. ملك الفرع المُرسِل حتى الآن.")
+    search_fields = ("item__code", "item__name_ar", "transfer__transfer_number")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_in_transit(self.actor)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["show_cost"] = may_see_cost(self.actor)
+        return context
+
+
+class TransferCreateView(InventoryViewMixin, View):
+    """The header first; lines are added on the transfer's own page."""
+
+    template_name = "inventory/master_form.html"
+    required_permission = CREATE_DRAFT_MOVEMENT
+
+    def _context(self, form: Any) -> dict[str, Any]:
+        return {
+            "form": form,
+            "page_title": _("تحويل جديد"),
+            "page_hint": _("اختر المخزن المُرسِل والمستلم. المخزن الوسيط يختاره النظام."),
+            "cancel_url": reverse("inventory:transfer_list"),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self._render(request, TransferForm(actor=self.actor))
+
+    def _render(self, request: HttpRequest, form: Any) -> HttpResponse:
+        return render(request, self.template_name, self._context(form))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        form = TransferForm(data=request.POST, actor=self.actor)
+        if form.is_valid():
+            source = form.cleaned_data["source_warehouse"]
+            try:
+                transfer = create_transfer(
+                    actor=self.actor,
+                    organization=source.branch.organization,
+                    source_warehouse=source,
+                    destination_warehouse=form.cleaned_data["destination_warehouse"],
+                    effective_at=form.cleaned_data["effective_at"],
+                    evidence_reference=form.cleaned_data["evidence_reference"],
+                    narration=form.cleaned_data["narration"],
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُنشئ التحويل. أضف السطور ثم أرسل البضاعة."))
+                return HttpResponseRedirect(
+                    reverse("inventory:transfer_detail", args=[transfer.pk])
+                )
+        return self._render(request, form)
+
+
+class TransferDetailView(InventoryViewMixin, View):
+    """
+    The transfer, its lines, its event timeline, and the actions its status
+    allows.
+
+    The timeline is the point of this page: dispatched, then each arrival,
+    then any closure, in the order they were posted — including the reversed
+    ones, greyed but never hidden. A reversal that vanishes from the history
+    is a reversal nobody can audit.
+    """
+
+    template_name = "inventory/transfer_detail.html"
+    required_permission = VIEW_STOCK
+
+    def _transfer(self) -> Any:
+        return resolve_transfer(self.actor, self.kwargs["pk"])
+
+    def _context(self, transfer: Any, line_form: Any) -> dict[str, Any]:
+        lines = list(
+            transfer.lines.select_related("item", "item__base_unit", "lot").order_by("sequence")
+        )
+        # Per line in Python, not as two annotations. Aggregating over two
+        # different multi-valued relations in one queryset joins them against
+        # each other, and both sums come back multiplied by the other's row
+        # count — a wrong number that looks entirely plausible.
+        #
+        # Only *active* children count: a reversed receipt put its quantity
+        # back on the transfer, so still showing it as received would leave
+        # the columns failing to add up to the dispatch.
+        for line in lines:
+            line.received_quantity = line.receipt_lines.filter(
+                receipt__status=InventoryDocumentStatus.POSTED
+            ).aggregate(total=Sum("base_quantity"))["total"] or Decimal("0")
+            line.shortage_quantity = line.shortage_lines.filter(
+                shortage__status=InventoryDocumentStatus.POSTED
+            ).aggregate(total=Sum("base_quantity"))["total"] or Decimal("0")
+        receipts = list(
+            transfer.receipts.select_related("received_by", "reversed_by").order_by(
+                "created_at", "id"
+            )
+        )
+        shortages = list(
+            transfer.shortages.select_related("cost_center", "closed_by", "reversed_by").order_by(
+                "created_at", "id"
+            )
+        )
+        show_cost = may_see_cost(self.actor)
+        source_branch = transfer.source_warehouse.branch
+        return {
+            "transfer": transfer,
+            "lines": lines,
+            "receipts": receipts,
+            "shortages": shortages,
+            "show_cost": show_cost,
+            "dispatched_value": (
+                sum((line.total_value or Decimal("0") for line in lines), Decimal("0"))
+                if show_cost
+                else None
+            ),
+            "remaining_value": (
+                sum((line.remaining_value for line in lines), Decimal("0")) if show_cost else None
+            ),
+            "dispatched_quantity": sum((line.base_quantity for line in lines), Decimal("0")),
+            "remaining_quantity": sum((line.remaining_quantity for line in lines), Decimal("0")),
+            "line_form": line_form,
+            "is_draft": transfer.status == StockTransferStatus.DRAFT,
+            "is_open": transfer.status in OPEN_TRANSFER_STATUSES,
+            "can_prepare": has_warehouse_permission(
+                self.actor, CREATE_DRAFT_MOVEMENT, transfer.source_warehouse
+            ),
+            "can_dispatch": has_warehouse_permission(
+                self.actor, POST_TRANSFER, transfer.source_warehouse
+            ),
+            "can_receive": has_warehouse_permission(
+                self.actor, POST_TRANSFER, transfer.destination_warehouse
+            ),
+            "can_close_shortage": has_branch_permission(
+                self.actor, CLOSE_TRANSFER_SHORTAGE, source_branch
+            ),
+            "can_reverse": has_warehouse_permission(
+                self.actor, REVERSE_MOVEMENT, transfer.source_warehouse
+            ),
+            "page_title": _("تحويل مخزني") if not transfer.transfer_number else str(transfer),
+            "back_url": reverse("inventory:transfer_list"),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        transfer = self._transfer()
+        selected = None
+        raw_item = request.GET.get("item", "").strip()
+        if raw_item.isdigit():
+            selected = resolve_item(self.actor, int(raw_item))
+        form = TransferLineForm(actor=self.actor, transfer=transfer, selected_item=selected)
+        return render(request, self.template_name, self._context(transfer, form))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        transfer = self._transfer()
+        form = TransferLineForm(data=request.POST, actor=self.actor, transfer=transfer)
+        if form.is_valid():
+            item = form.cleaned_data["item"]
+            lot = None
+            try:
+                if form.cleaned_data["lot_code"]:
+                    lot = ensure_opening_lot(
+                        item=item,
+                        code=form.cleaned_data["lot_code"],
+                        expiry_date=form.cleaned_data["lot_expiry"],
+                    )
+                add_transfer_line(
+                    actor=self.actor,
+                    transfer=transfer,
+                    line=TransferLineInput(
+                        item=item,
+                        lot=lot,
+                        package_conversion=form.cleaned_data["package_conversion"],
+                        entered_package_quantity=form.cleaned_data["entered_package_quantity"],
+                        measured_base_quantity=form.cleaned_data["measured_base_quantity"],
+                        base_quantity=form.cleaned_data["base_quantity"],
+                    ),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُضيف السطر."))
+                return HttpResponseRedirect(
+                    reverse("inventory:transfer_detail", args=[transfer.pk])
+                )
+        return render(request, self.template_name, self._context(transfer, form))
+
+
+class TransferDispatchView(InventoryViewMixin, View):
+    """
+    A confirmation before the goods leave.
+
+    Its own page rather than a button, because dispatch is the moment value
+    leaves a shelf and enters a state nobody can sell from: worth reading the
+    list once more before committing to it.
+    """
+
+    template_name = "inventory/transfer_dispatch.html"
+    required_permission = VIEW_STOCK
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        transfer = resolve_transfer(self.actor, self.kwargs["pk"])
+        lines = list(
+            transfer.lines.select_related("item", "item__base_unit", "lot").order_by("sequence")
+        )
+        return render(
+            request,
+            self.template_name,
+            {
+                "transfer": transfer,
+                "lines": lines,
+                "page_title": _("تأكيد الإرسال"),
+                "page_hint": _(
+                    "بعد الإرسال تصبح البضاعة بالطريق على حساب الفرع المُرسِل حتى الاستلام."
+                ),
+                "back_url": reverse("inventory:transfer_detail", args=[transfer.pk]),
+                "can_dispatch": has_warehouse_permission(
+                    self.actor, POST_TRANSFER, transfer.source_warehouse
+                ),
+            },
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        transfer = resolve_transfer(self.actor, self.kwargs["pk"])
+        try:
+            dispatch_transfer(actor=self.actor, transfer=transfer)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(message) for message in error.messages))
+        else:
+            messages.success(request, _("أُرسلت البضاعة وسُجّلت بالطريق."))
+        return HttpResponseRedirect(reverse("inventory:transfer_detail", args=[transfer.pk]))
+
+
+class TransferActionView(InventoryViewMixin, View):
+    """A POST-only transfer action. Every command re-checks authorization."""
+
+    required_permission = VIEW_STOCK
+    action: str = ""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        transfer = resolve_transfer(self.actor, self.kwargs["pk"])
+        listing = reverse("inventory:transfer_list")
+        detail = reverse("inventory:transfer_detail", args=[transfer.pk])
+        try:
+            if self.action == "reverse":
+                reverse_dispatch(
+                    actor=self.actor,
+                    transfer=transfer,
+                    reason=request.POST.get("reason", ""),
+                )
+                messages.success(request, _("عُكس الإرسال وعادت البضاعة إلى مخزنها."))
+            elif self.action == "delete":
+                delete_transfer(
+                    actor=self.actor, transfer=transfer, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, _("حُذفت المسودة."))
+                return HttpResponseRedirect(listing)
+            elif self.action == "delete_line":
+                line = transfer.lines.filter(pk=self.kwargs["line_pk"]).first()
+                if line is None:
+                    raise Http404("line does not exist")
+                remove_transfer_line(actor=self.actor, line=line)
+                messages.success(request, _("حُذف السطر."))
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(message) for message in error.messages))
+        return HttpResponseRedirect(detail)
+
+
+class TransferReceiptCreateView(InventoryViewMixin, View):
+    """Start an arrival against an open transfer."""
+
+    template_name = "inventory/master_form.html"
+    required_permission = CREATE_DRAFT_MOVEMENT
+
+    def _context(self, transfer: Any, form: Any) -> dict[str, Any]:
+        return {
+            "form": form,
+            "page_title": _("استلام تحويل"),
+            "page_hint": _("سجّل ما وصل فعلاً. يمكن أن يصل التحويل على دفعات."),
+            "cancel_url": reverse("inventory:transfer_detail", args=[transfer.pk]),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        transfer = resolve_transfer(self.actor, self.kwargs["pk"])
+        return render(
+            request,
+            self.template_name,
+            self._context(transfer, TransferReceiptForm(actor=self.actor)),
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        transfer = resolve_transfer(self.actor, self.kwargs["pk"])
+        form = TransferReceiptForm(data=request.POST, actor=self.actor)
+        if form.is_valid():
+            try:
+                receipt = create_transfer_receipt(
+                    actor=self.actor,
+                    transfer=transfer,
+                    effective_at=form.cleaned_data["effective_at"],
+                    evidence_reference=form.cleaned_data["evidence_reference"],
+                    narration=form.cleaned_data["narration"],
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُنشئت مسودة الاستلام. أضف الكميات ثم رحّلها."))
+                return HttpResponseRedirect(
+                    reverse("inventory:transfer_receipt_detail", args=[receipt.pk])
+                )
+        return render(request, self.template_name, self._context(transfer, form))
+
+
+class TransferReceiptDetailView(InventoryViewMixin, View):
+    """One arrival: its lines, its two business dates, and its journals."""
+
+    template_name = "inventory/transfer_receipt_detail.html"
+    required_permission = VIEW_STOCK
+
+    def _receipt(self) -> Any:
+        return resolve_receipt(self.actor, self.kwargs["pk"])
+
+    def _context(self, receipt: Any, form: Any) -> dict[str, Any]:
+        lines = list(
+            receipt.lines.select_related(
+                "transfer_line", "transfer_line__item", "transfer_line__item__base_unit"
+            ).order_by("sequence")
+        )
+        show_cost = may_see_cost(self.actor)
+        transfer = receipt.transfer
+        return {
+            "receipt": receipt,
+            "transfer": transfer,
+            "lines": lines,
+            "line_form": form,
+            "show_cost": show_cost,
+            "total_value": (
+                sum((line.allocated_value or Decimal("0") for line in lines), Decimal("0"))
+                if show_cost
+                else None
+            ),
+            "is_draft": receipt.status == InventoryDocumentStatus.DRAFT,
+            "is_posted": receipt.status == InventoryDocumentStatus.POSTED,
+            "can_prepare": has_warehouse_permission(
+                self.actor, CREATE_DRAFT_MOVEMENT, transfer.destination_warehouse
+            ),
+            "can_post": has_warehouse_permission(
+                self.actor, POST_TRANSFER, transfer.destination_warehouse
+            ),
+            "can_reverse": has_warehouse_permission(
+                self.actor, REVERSE_MOVEMENT, transfer.destination_warehouse
+            ),
+            "page_title": _("استلام تحويل"),
+            "back_url": reverse("inventory:transfer_detail", args=[transfer.pk]),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        receipt = self._receipt()
+        form = TransferReceiptLineForm(actor=self.actor, transfer=receipt.transfer)
+        return render(request, self.template_name, self._context(receipt, form))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        receipt = self._receipt()
+        form = TransferReceiptLineForm(
+            data=request.POST, actor=self.actor, transfer=receipt.transfer
+        )
+        if form.is_valid():
+            existing = [
+                ReceiptLineInput(
+                    transfer_line=line.transfer_line,
+                    base_quantity=line.base_quantity,
+                )
+                for line in receipt.lines.select_related("transfer_line").order_by("sequence")
+            ]
+            try:
+                replace_transfer_receipt_lines(
+                    actor=self.actor,
+                    receipt=receipt,
+                    lines=[
+                        *existing,
+                        ReceiptLineInput(
+                            transfer_line=form.cleaned_data["transfer_line"],
+                            entered_package_quantity=form.cleaned_data["entered_package_quantity"],
+                            measured_base_quantity=form.cleaned_data["measured_base_quantity"],
+                            base_quantity=form.cleaned_data["base_quantity"],
+                        ),
+                    ],
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُضيف السطر."))
+                return HttpResponseRedirect(
+                    reverse("inventory:transfer_receipt_detail", args=[receipt.pk])
+                )
+        return render(request, self.template_name, self._context(receipt, form))
+
+
+class TransferReceiptActionView(InventoryViewMixin, View):
+    """A POST-only receipt action."""
+
+    required_permission = VIEW_STOCK
+    action: str = ""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        receipt = resolve_receipt(self.actor, self.kwargs["pk"])
+        transfer_url = reverse("inventory:transfer_detail", args=[receipt.transfer_id])
+        detail = reverse("inventory:transfer_receipt_detail", args=[receipt.pk])
+        try:
+            if self.action == "post":
+                post_transfer_receipt(actor=self.actor, receipt=receipt)
+                messages.success(request, _("رُحّل الاستلام إلى الدفترين."))
+            elif self.action == "reverse":
+                reverse_transfer_receipt(
+                    actor=self.actor, receipt=receipt, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, _("عُكس الاستلام وعادت الكمية إلى الطريق."))
+            elif self.action == "delete":
+                delete_transfer_receipt(
+                    actor=self.actor, receipt=receipt, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, _("حُذفت المسودة."))
+                return HttpResponseRedirect(transfer_url)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(message) for message in error.messages))
+        return HttpResponseRedirect(detail)
+
+
+class TransferShortageCreateView(InventoryViewMixin, View):
+    """
+    Close what will never arrive.
+
+    Its own screen and its own permission. This is the one inventory act that
+    turns missing stock into an expense, and it asks for a reason, a cost
+    centre and evidence before it will do so.
+    """
+
+    template_name = "inventory/master_form.html"
+    required_permission = VIEW_STOCK
+
+    def _context(self, transfer: Any, form: Any) -> dict[str, Any]:
+        return {
+            "form": form,
+            "page_title": _("إقفال بعجز"),
+            "page_hint": _("يُقفل كامل الكمية المتبقية بالطريق ويحمّلها على حساب عجز التحويلات."),
+            "cancel_url": reverse("inventory:transfer_detail", args=[transfer.pk]),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        transfer = resolve_transfer(self.actor, self.kwargs["pk"])
+        form = TransferShortageForm(actor=self.actor, transfer=transfer)
+        return render(request, self.template_name, self._context(transfer, form))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        transfer = resolve_transfer(self.actor, self.kwargs["pk"])
+        form = TransferShortageForm(data=request.POST, actor=self.actor, transfer=transfer)
+        if form.is_valid():
+            try:
+                shortage = create_transfer_shortage(
+                    actor=self.actor,
+                    transfer=transfer,
+                    effective_at=form.cleaned_data["effective_at"],
+                    reason=form.cleaned_data["reason"],
+                    evidence_reference=form.cleaned_data["evidence_reference"],
+                    cost_center=form.cleaned_data["cost_center"],
+                )
+                post_transfer_shortage(actor=self.actor, shortage=shortage)
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُقفل التحويل بعجز وسُجّلت الخسارة."))
+                return HttpResponseRedirect(
+                    reverse("inventory:transfer_detail", args=[transfer.pk])
+                )
+        return render(request, self.template_name, self._context(transfer, form))
+
+
+class TransferShortageActionView(InventoryViewMixin, View):
+    """A POST-only shortage action."""
+
+    required_permission = VIEW_STOCK
+    action: str = ""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        shortage = resolve_shortage(self.actor, self.kwargs["pk"])
+        detail = reverse("inventory:transfer_detail", args=[shortage.transfer_id])
+        try:
+            if self.action == "reverse":
+                reverse_transfer_shortage(
+                    actor=self.actor, shortage=shortage, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, _("عُكس الإقفال وعادت الكمية إلى الطريق."))
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(message) for message in error.messages))
+        return HttpResponseRedirect(detail)

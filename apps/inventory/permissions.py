@@ -1,12 +1,18 @@
 """
-The twenty inventory permissions, their scope, and which role holds them.
+The twenty-two inventory permissions, their scope, and which role holds them.
 
 Eighteen were approved with Task 1.0. The nineteenth, `manage_package_units`,
 follows from the amendment that made `PackageUnit` its own model: a model
 nobody may administer is a model nobody can populate. The twentieth,
 `create_opening_stock`, arrived with the Task 1.3 opening document: preparing
 a branch's opening list and *posting* it to the ledger are different acts, and
-maker-checker needs them separable.
+maker-checker needs them separable. The twenty-first, `post_return_in`, came
+with Task 1.4: putting stock back is a different decision from taking it out,
+and a deployment that trusts one and not the other must be able to say so.
+The twenty-second, `close_transfer_shortage`, comes with Task 1.5 and is the
+most sensitive of the set — it turns stock that has gone missing into an
+expense, which is the one inventory act indistinguishable from concealing a
+theft if the wrong person may perform it.
 
 Identical machinery to `apps/accounting/permissions.py`, and deliberately so:
 a permission says *what*, a membership says *where*, and neither alone is
@@ -76,6 +82,7 @@ POST_RECEIPT = f"{APP_LABEL}.post_receipt"
 POST_ISSUE = f"{APP_LABEL}.post_issue"
 POST_RETURN_IN = f"{APP_LABEL}.post_return_in"
 POST_TRANSFER = f"{APP_LABEL}.post_transfer"
+CLOSE_TRANSFER_SHORTAGE = f"{APP_LABEL}.close_transfer_shortage"
 POST_WASTE = f"{APP_LABEL}.post_waste"
 CONDUCT_STOCK_COUNT = f"{APP_LABEL}.conduct_stock_count"
 APPROVE_STOCK_COUNT = f"{APP_LABEL}.approve_stock_count"
@@ -99,6 +106,7 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     POST_ISSUE,
     POST_RETURN_IN,
     POST_TRANSFER,
+    CLOSE_TRANSFER_SHORTAGE,
     POST_WASTE,
     CONDUCT_STOCK_COUNT,
     APPROVE_STOCK_COUNT,
@@ -130,6 +138,11 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     APPROVE_STOCK_COUNT: PermissionScope.BRANCH,
     POST_ADJUSTMENT: PermissionScope.BRANCH,
     REVERSE_MOVEMENT: PermissionScope.BRANCH,
+    # Answered at the **source** branch, not at a warehouse: goods lost in
+    # transit are no longer in anybody's warehouse, and the branch that
+    # dispatched them is the one whose books carry the loss. Warehouse scope
+    # would ask about custody of a place the stock has already left.
+    CLOSE_TRANSFER_SHORTAGE: PermissionScope.BRANCH,
     # A movement names a warehouse, so posting is answered per warehouse.
     POST_RECEIPT: PermissionScope.WAREHOUSE,
     POST_ISSUE: PermissionScope.WAREHOUSE,
@@ -168,6 +181,10 @@ _ACCOUNTING_MANAGER = frozenset(
         APPROVE_STOCK_COUNT,
         POST_ADJUSTMENT,
         REVERSE_MOVEMENT,
+        # Writing missing stock off is an accounting judgement about a loss,
+        # not a warehouse operation — which is why it sits with the role that
+        # holds no routine dispatch or receipt authority at all.
+        CLOSE_TRANSFER_SHORTAGE,
     }
 )
 
@@ -191,6 +208,7 @@ _MANAGER = frozenset(
         POST_ISSUE,
         POST_RETURN_IN,
         POST_TRANSFER,
+        CLOSE_TRANSFER_SHORTAGE,
         POST_WASTE,
         CONDUCT_STOCK_COUNT,
         APPROVE_STOCK_COUNT,

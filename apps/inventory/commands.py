@@ -32,13 +32,13 @@ from contextlib import contextmanager
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils.translation import gettext_lazy as _
 
 from apps.accounting.models import Account, AccountRole
 from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
 from apps.core.context import audit_context
-from apps.inventory import opening, operations
+from apps.inventory import opening, operations, transfers
 from apps.inventory.accounts import (
     archive_inventory_mapping,
     close_inventory_mapping,
@@ -47,6 +47,7 @@ from apps.inventory.accounts import (
 from apps.inventory.ledger import MovementInput, post_stock_entry, reverse_stock_entry
 from apps.inventory.models import (
     INBOUND_MOVEMENT_TYPES,
+    OPEN_TRANSFER_STATUSES,
     InventoryAccountMapping,
     InventoryDocumentStatus,
     InventoryDocumentType,
@@ -60,9 +61,14 @@ from apps.inventory.models import (
     StockBalance,
     StockLedgerEntry,
     StockMovement,
+    StockTransfer,
+    StockTransferLine,
+    StockTransferReceipt,
+    StockTransferShortage,
     Warehouse,
 )
 from apps.inventory.permissions import (
+    CLOSE_TRANSFER_SHORTAGE,
     CREATE_DRAFT_MOVEMENT,
     CREATE_OPENING_STOCK,
     POST_ISSUE,
@@ -79,6 +85,7 @@ from apps.organizations.authorization import (
     OutOfScope,
     accessible_warehouses,
     branches_with_permission,
+    can_access_warehouse,
     require_branch_permission,
     require_organization_permission,
     require_warehouse_permission,
@@ -669,6 +676,397 @@ def reverse_document(
     require_warehouse_permission(actor, REVERSE_MOVEMENT, document.warehouse)
     with _acting_as(actor):
         return operations.reverse_document(document=document, reason=reason)
+
+
+# ---------------------------------------------------------------------------
+# Transfers, receipts and shortages (Task 1.5)
+# ---------------------------------------------------------------------------
+#
+# Three different authorities, because they are three different acts.
+#
+# **Dispatch** is answered at the source warehouse — that is where custody
+# ends — plus *reach* to the destination, so nobody can push goods into a
+# warehouse they are not entitled to know about. Within one branch the
+# destination's own `post_transfer` is required as well: moving stock between
+# two stores of one branch is an operation at both of them (§F).
+#
+# **Receipt** is answered at the destination warehouse alone. Taking delivery
+# must not imply any authority over the source: the receiving storekeeper
+# confirms what arrived and nothing else.
+#
+# **Shortage closure** is answered at the **source branch**, with its own
+# sensitive permission. The goods are no longer in anybody's warehouse, and
+# the branch that dispatched them is the one whose books carry the loss —
+# so warehouse custody is the wrong question and a storekeeper is the wrong
+# person to answer it.
+
+
+def visible_transfers(actor: User) -> QuerySet[StockTransfer]:
+    """
+    Transfers the caller can see from either end.
+
+    Both ends, deliberately: a destination storekeeper must be able to look up
+    what is coming to them, and a source manager must be able to see where
+    their goods went. Neither view grants any authority over the other end.
+    """
+    if not actor.is_authenticated or not actor.is_active:
+        return StockTransfer.objects.none()
+    if not actor.has_perm(VIEW_STOCK):
+        return StockTransfer.objects.none()
+    reachable = accessible_warehouses(actor)
+    return (
+        StockTransfer.objects.filter(
+            Q(source_warehouse__in=reachable) | Q(destination_warehouse__in=reachable)
+        )
+        .select_related(
+            "organization",
+            "source_warehouse",
+            "source_warehouse__branch",
+            "destination_warehouse",
+            "destination_warehouse__branch",
+            "created_by",
+            "dispatched_by",
+            "reversed_by",
+            "stock_entry",
+            "journal_entry",
+            "reversal_journal_entry",
+        )
+        .distinct()
+        .order_by("-created_at", "-id")
+    )
+
+
+def resolve_transfer(actor: User, transfer_id: int) -> StockTransfer:
+    """A transfer id resolved with its caller — foreign or absent is one 404."""
+    transfer = visible_transfers(actor).filter(pk=transfer_id).first()
+    if transfer is None:
+        raise OutOfScope(_("Transfer %(id)s does not exist.") % {"id": transfer_id})
+    return transfer
+
+
+def resolve_transfer_line(actor: User, line_id: int) -> StockTransferLine:
+    """A transfer line id resolved through its transfer's scope."""
+    line = (
+        StockTransferLine.objects.filter(pk=line_id, transfer__in=visible_transfers(actor))
+        .select_related("transfer", "item", "item__base_unit", "lot", "package_conversion")
+        .first()
+    )
+    if line is None:
+        raise OutOfScope(_("Transfer line %(id)s does not exist.") % {"id": line_id})
+    return line
+
+
+def resolve_receipt(
+    actor: User, receipt_id: int, *, transfer: StockTransfer | None = None
+) -> StockTransferReceipt:
+    """
+    A receipt id resolved through its transfer's scope.
+
+    `transfer` constrains the route: a receipt id submitted under another
+    transfer's URL is a 404, not somebody else's receipt returned politely.
+    """
+    receipts = StockTransferReceipt.objects.filter(transfer__in=visible_transfers(actor))
+    if transfer is not None:
+        receipts = receipts.filter(transfer=transfer)
+    receipt = (
+        receipts.select_related(
+            "transfer",
+            "transfer__source_warehouse",
+            "transfer__source_warehouse__branch",
+            "transfer__destination_warehouse",
+            "transfer__destination_warehouse__branch",
+            "received_by",
+            "reversed_by",
+        )
+        .filter(pk=receipt_id)
+        .first()
+    )
+    if receipt is None:
+        raise OutOfScope(_("Transfer receipt %(id)s does not exist.") % {"id": receipt_id})
+    return receipt
+
+
+def resolve_shortage(
+    actor: User, shortage_id: int, *, transfer: StockTransfer | None = None
+) -> StockTransferShortage:
+    """A shortage id resolved through its transfer's scope, route-constrained."""
+    shortages = StockTransferShortage.objects.filter(transfer__in=visible_transfers(actor))
+    if transfer is not None:
+        shortages = shortages.filter(transfer=transfer)
+    shortage = (
+        shortages.select_related(
+            "transfer",
+            "transfer__source_warehouse",
+            "transfer__source_warehouse__branch",
+            "cost_center",
+            "closed_by",
+            "reversed_by",
+        )
+        .filter(pk=shortage_id)
+        .first()
+    )
+    if shortage is None:
+        raise OutOfScope(_("Transfer shortage %(id)s does not exist.") % {"id": shortage_id})
+    return shortage
+
+
+def _authorize_dispatch_side(actor: User, *, source: Warehouse, destination: Warehouse) -> None:
+    """`post_transfer` at the source, reach at the destination, both within a branch."""
+    require_warehouse_permission(actor, POST_TRANSFER, source)
+    if source.branch_id == destination.branch_id:
+        require_warehouse_permission(actor, POST_TRANSFER, destination)
+        return
+    # Cross-branch: authority stays with the dispatching side, but the actor
+    # must still reach the destination through the ordinary warehouse-scope
+    # design. An unscoped selector offering every foreign warehouse in the
+    # organization is exactly what §F refuses.
+    if not can_access_warehouse(actor, destination):
+        raise OutOfScope(_("Warehouse %(id)s does not exist.") % {"id": destination.pk})
+
+
+def create_transfer(
+    *,
+    actor: User,
+    organization: Organization,
+    source_warehouse: Warehouse,
+    destination_warehouse: Warehouse,
+    effective_at: datetime.datetime,
+    evidence_reference: str,
+    narration: str = "",
+) -> StockTransfer:
+    _authorize_dispatch_side(actor, source=source_warehouse, destination=destination_warehouse)
+    with _acting_as(actor):
+        return transfers.create_transfer(
+            organization=organization,
+            source_warehouse=source_warehouse,
+            destination_warehouse=destination_warehouse,
+            effective_at=effective_at,
+            evidence_reference=evidence_reference,
+            narration=narration,
+        )
+
+
+def update_transfer(
+    *,
+    actor: User,
+    transfer: StockTransfer,
+    effective_at: datetime.datetime | None = None,
+    evidence_reference: str | None = None,
+    narration: str | None = None,
+) -> StockTransfer:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, transfer.source_warehouse)
+    with _acting_as(actor):
+        return transfers.update_transfer(
+            transfer=transfer,
+            effective_at=effective_at,
+            evidence_reference=evidence_reference,
+            narration=narration,
+        )
+
+
+def delete_transfer(*, actor: User, transfer: StockTransfer, reason: str = "") -> None:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, transfer.source_warehouse)
+    with _acting_as(actor):
+        transfers.delete_transfer(transfer=transfer, reason=reason)
+
+
+def add_transfer_line(
+    *, actor: User, transfer: StockTransfer, line: transfers.TransferLineInput
+) -> StockTransferLine:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, transfer.source_warehouse)
+    with _acting_as(actor):
+        return transfers.add_transfer_line(transfer=transfer, line=line)
+
+
+def remove_transfer_line(*, actor: User, line: StockTransferLine, reason: str = "") -> None:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, line.transfer.source_warehouse)
+    with _acting_as(actor):
+        transfers.delete_transfer_line(line=line, reason=reason)
+
+
+def replace_transfer_lines(
+    *,
+    actor: User,
+    transfer: StockTransfer,
+    lines: Sequence[transfers.TransferLineInput],
+) -> StockTransfer:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, transfer.source_warehouse)
+    with _acting_as(actor):
+        return transfers.replace_transfer_lines(transfer=transfer, lines=lines)
+
+
+def dispatch_transfer(*, actor: User, transfer: StockTransfer) -> StockTransfer:
+    _authorize_dispatch_side(
+        actor,
+        source=transfer.source_warehouse,
+        destination=transfer.destination_warehouse,
+    )
+    with _acting_as(actor):
+        return transfers.dispatch_transfer(transfer=transfer)
+
+
+def reverse_dispatch(*, actor: User, transfer: StockTransfer, reason: str) -> StockTransfer:
+    require_warehouse_permission(actor, REVERSE_MOVEMENT, transfer.source_warehouse)
+    with _acting_as(actor):
+        return transfers.reverse_dispatch(transfer=transfer, reason=reason)
+
+
+def create_transfer_receipt(
+    *,
+    actor: User,
+    transfer: StockTransfer,
+    effective_at: datetime.datetime,
+    evidence_reference: str,
+    narration: str = "",
+) -> StockTransferReceipt:
+    require_warehouse_permission(actor, CREATE_DRAFT_MOVEMENT, transfer.destination_warehouse)
+    with _acting_as(actor):
+        return transfers.create_receipt(
+            transfer=transfer,
+            effective_at=effective_at,
+            evidence_reference=evidence_reference,
+            narration=narration,
+        )
+
+
+def update_transfer_receipt(
+    *,
+    actor: User,
+    receipt: StockTransferReceipt,
+    effective_at: datetime.datetime | None = None,
+    evidence_reference: str | None = None,
+    narration: str | None = None,
+) -> StockTransferReceipt:
+    require_warehouse_permission(
+        actor, CREATE_DRAFT_MOVEMENT, receipt.transfer.destination_warehouse
+    )
+    with _acting_as(actor):
+        return transfers.update_receipt(
+            receipt=receipt,
+            effective_at=effective_at,
+            evidence_reference=evidence_reference,
+            narration=narration,
+        )
+
+
+def delete_transfer_receipt(
+    *, actor: User, receipt: StockTransferReceipt, reason: str = ""
+) -> None:
+    require_warehouse_permission(
+        actor, CREATE_DRAFT_MOVEMENT, receipt.transfer.destination_warehouse
+    )
+    with _acting_as(actor):
+        transfers.delete_receipt(receipt=receipt, reason=reason)
+
+
+def replace_transfer_receipt_lines(
+    *,
+    actor: User,
+    receipt: StockTransferReceipt,
+    lines: Sequence[transfers.ReceiptLineInput],
+) -> StockTransferReceipt:
+    require_warehouse_permission(
+        actor, CREATE_DRAFT_MOVEMENT, receipt.transfer.destination_warehouse
+    )
+    with _acting_as(actor):
+        return transfers.replace_receipt_lines(receipt=receipt, lines=lines)
+
+
+def post_transfer_receipt(*, actor: User, receipt: StockTransferReceipt) -> StockTransferReceipt:
+    """
+    Post at the **destination** warehouse, and nowhere else.
+
+    Deliberately asks nothing about the source: a branch taking delivery
+    confirms what arrived, and giving that act authority over the dispatching
+    branch's stock would make every receiving storekeeper a reader of another
+    branch's warehouse.
+    """
+    require_warehouse_permission(actor, POST_TRANSFER, receipt.transfer.destination_warehouse)
+    with _acting_as(actor):
+        return transfers.post_receipt(receipt=receipt)
+
+
+def reverse_transfer_receipt(
+    *, actor: User, receipt: StockTransferReceipt, reason: str
+) -> StockTransferReceipt:
+    require_warehouse_permission(actor, REVERSE_MOVEMENT, receipt.transfer.destination_warehouse)
+    with _acting_as(actor):
+        return transfers.reverse_receipt(receipt=receipt, reason=reason)
+
+
+def create_transfer_shortage(
+    *,
+    actor: User,
+    transfer: StockTransfer,
+    effective_at: datetime.datetime,
+    reason: str,
+    evidence_reference: str,
+    cost_center: Any,
+) -> StockTransferShortage:
+    require_branch_permission(actor, CLOSE_TRANSFER_SHORTAGE, transfer.source_warehouse.branch)
+    with _acting_as(actor):
+        return transfers.create_shortage(
+            transfer=transfer,
+            effective_at=effective_at,
+            reason=reason,
+            evidence_reference=evidence_reference,
+            cost_center=cost_center,
+        )
+
+
+def delete_transfer_shortage(
+    *, actor: User, shortage: StockTransferShortage, reason: str = ""
+) -> None:
+    require_branch_permission(
+        actor, CLOSE_TRANSFER_SHORTAGE, shortage.transfer.source_warehouse.branch
+    )
+    with _acting_as(actor):
+        transfers.delete_shortage(shortage=shortage, reason=reason)
+
+
+def post_transfer_shortage(
+    *, actor: User, shortage: StockTransferShortage
+) -> StockTransferShortage:
+    """Turn missing stock into an expense — the most sensitive act in the module."""
+    require_branch_permission(
+        actor, CLOSE_TRANSFER_SHORTAGE, shortage.transfer.source_warehouse.branch
+    )
+    with _acting_as(actor):
+        return transfers.post_shortage(shortage=shortage)
+
+
+def reverse_transfer_shortage(
+    *, actor: User, shortage: StockTransferShortage, reason: str
+) -> StockTransferShortage:
+    require_branch_permission(actor, REVERSE_MOVEMENT, shortage.transfer.source_warehouse.branch)
+    with _acting_as(actor):
+        return transfers.reverse_shortage(shortage=shortage, reason=reason)
+
+
+def visible_in_transit(actor: User) -> QuerySet[StockTransferLine]:
+    """
+    Goods standing in transit, from either end, for the in-transit report.
+
+    Scoped through the transfers the caller can see, so the report never shows
+    a consignment between two warehouses they have no business knowing about.
+    """
+    return (
+        StockTransferLine.objects.filter(
+            transfer__in=visible_transfers(actor).filter(status__in=list(OPEN_TRANSFER_STATUSES)),
+            remaining_quantity__gt=0,
+        )
+        .select_related(
+            "transfer",
+            "transfer__source_warehouse",
+            "transfer__source_warehouse__branch",
+            "transfer__destination_warehouse",
+            "transfer__destination_warehouse__branch",
+            "item",
+            "item__base_unit",
+            "lot",
+        )
+        .order_by("transfer__transfer_number", "sequence")
+    )
 
 
 def returnable_issue_lines(actor: User) -> QuerySet[Any]:

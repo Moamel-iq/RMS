@@ -20,14 +20,15 @@ pytestmark = pytest.mark.django_db
 
 class TestSeed:
     def test_the_chart_is_seeded(self, organization: Organization, chart: None) -> None:
-        # 60: the original 46, plus Task 1.3's inventory and opening-equity
+        # 63: the original 46, plus Task 1.3's inventory and opening-equity
         # branches (eight accounts), plus Task 1.4's goods-received-not-invoiced
-        # liability and the three consumption leaves with their parents (six).
-        assert Account.objects.filter(organization=organization).count() == 60
+        # liability and the three consumption leaves with their parents (six),
+        # plus Task 1.5's transfer-shortage loss leaf with its parents (three).
+        assert Account.objects.filter(organization=organization).count() == 63
 
     def test_the_seed_is_idempotent(self, organization: Organization, chart: None) -> None:
         call_command("seed_chart_of_accounts", organization="KM", verbosity=0)
-        assert Account.objects.filter(organization=organization).count() == 60
+        assert Account.objects.filter(organization=organization).count() == 63
 
     def test_the_cash_rounding_account_exists_though_the_policy_is_off(
         self, organization: Organization, chart: None

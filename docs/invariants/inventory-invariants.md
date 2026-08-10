@@ -204,3 +204,56 @@ The operational documents, and the two cross-cutting rules they forced.
   supplier invoice, a payable, and a credit note, none of which exist yet; it
   belongs to Procurement in Phase 2. `RETURN_IN` here means unused stock
   coming back from a consumption issue, and nothing else.
+
+## Implemented by Task 1.5, and where each one lives
+
+Transfers, in-transit custody, partial receipts, and shortage closures. See
+ADR-020 for the reasoning behind each.
+
+| Rule | Service | Database |
+|---|---|---|
+| Goods stay on the source branch's books until received | dispatch into the **source** branch's in-transit warehouse | — |
+| The two ends are distinct, active, same-organization, non-system | `_validate_transfer_endpoints` | `stock_transfer_warehouses_differ` + trigger `stock_transfer_warehouses_valid` |
+| One in-transit warehouse per branch, never user-created | `ensure_in_transit_warehouse` | `warehouse_one_in_transit_per_branch`, `warehouse_in_transit_iff_system` |
+| One valuation key per transfer | duplicate check in `add_transfer_line` | `transfer_line_valuation_key_unique` (`NULLS NOT DISTINCT`) |
+| Dispatch carries the exact outbound value into transit | `_post_dispatch_effects` with `inbound_value` | — (no gain or loss from movement alone) |
+| A receipt takes its own transfer's allocated value | `allocate` + `MovementInput.outbound_value` | — |
+| An exact outbound value the position cannot fund is refused | `_require_exact_outbound_is_supported` | — (`allocated_value_exceeds_position_value`) |
+| The final receipt or closure takes the exact remainder | `allocate` equality branch | — (no residual for anybody to chase) |
+| Nothing may be received or written off that was not dispatched | locked line re-check in `_allocate_receipt` | `transfer_line_remaining_*_within_dispatch` + deferred `transfer_*_line_within_dispatch` |
+| Remaining quantity and value empty together | `post_receipt`, `post_shortage` | `transfer_line_remaining_quantity_and_value_agree` |
+| Each side of a receipt is dated by its own branch | `post_receipt` two `resolve_business_day` calls | `transfer_receipt_business_date_snapshots_present` |
+| Either branch's closed period rolls the whole receipt back | `_period_for` per branch, one transaction | — |
+| A cross-branch receipt posts two branch-balanced journals | `_post_receipt_journals` | — (clearing nets to zero for the event) |
+| An unmapped role costs nothing: accounts resolve first | `_resolve_receipt_accounts` | — (`account_role_unmapped`, full rollback) |
+| A closure needs permission, reason, evidence and a cost centre | `create_shortage`, `CLOSE_TRANSFER_SHORTAGE` | `transfer_shortage_reason_present`, `cost_center_id NOT NULL` |
+| At most one active closure per transfer | `_require_transfer_status` | `transfer_shortage_one_active_per_transfer` (partial unique) |
+| Dispatch reversal is refused while any child is active | `reverse_dispatch` | — |
+| Reversal availability applies at the destination | `reverse_stock_entry` | `stock_balance_quantity_not_negative` |
+| Posted transfers, receipts and closures are immutable | status checks | triggers in `inventory/0013` (whole-row allowlists) |
+| The aggregate's status is computed, never written | `recompute_transfer_status` | — (transfer allowlist permits status, nothing else) |
+| A journalled posting names an account for every dinar | `link_journal_entry` | deferred `stock_entry_accounted_movements_have_accounts` |
+| Stock keys are locked canonically across a whole event | `acquire_stock_key_locks`, `acquire_movement_key_locks` | — (ADR-020 §11) |
+
+## Deliberate non-invariants, added by Task 1.5
+
+- **In-transit stock is exempt from the expired-lot rule.** Goods that expire
+  on the road still have to be got off it: the receiving branch must be able
+  to take delivery of what physically arrived, and a consignment that never
+  arrives must be closeable as a shortage. Refusing both would strand the
+  value in transit forever with no document able to move it. What arrives is
+  still expired, and Task 1.6's waste document writes it off at the
+  destination.
+- **`StockTransferLine.remaining_quantity` and `remaining_value` are a
+  retained cache.** Deriving them on every read would make the §5 allocation a
+  race between two concurrent receipts. They are maintained under the
+  transfer's row lock, bounded by check constraints, and checked against the
+  independently derived figure by reconciliation.
+- **A transfer has one source and one destination warehouse.** A consignment
+  split across two destinations is two transfers in Release 1.
+- **A shortage closure is all-or-nothing.** Partial write-off with an open
+  residual is not modelled, per ADR-020 §6.
+- **`StockLedgerEntry.journal_entry` is nullable**, for the same reason
+  `StockMovement.control_account` is: a posting that never reached the general
+  ledger genuinely produced no journal. The invariant is conditional on the
+  link existing, which is what makes the bare kernel keep working.

@@ -1,0 +1,154 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# One arrival against a transfer. Two business dates when the two ends sit  #}
+{# in different branches — each side is dated by its own operating day, and  #}
+{# the page says so rather than showing one and hoping.                      #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">
+        {{ page_title }}
+        {% if receipt.receipt_number %}
+          <code dir="ltr">{{ receipt.receipt_number }}</code>
+        {% endif %}
+      </h1>
+      <p class="pagehead__hint">
+        {{ receipt.get_status_display }}
+        · {% translate "التحويل" %}
+        <code dir="ltr">{{ transfer.transfer_number }}</code>
+        · {% translate "إلى" %} <code>{{ transfer.destination_warehouse.code }}</code>
+        · {% translate "الإثبات" %} {{ receipt.evidence_reference }}
+      </p>
+    </div>
+    <div class="rowactions">
+      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع إلى التحويل" %}</a>
+      {% if is_draft and can_prepare %}
+        <form method="post" action="{% url 'inventory:transfer_receipt_delete' receipt.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--ghost" type="submit">{% translate "حذف المسودة" %}</button>
+        </form>
+      {% endif %}
+      {% if is_draft and can_post %}
+        <form method="post" action="{% url 'inventory:transfer_receipt_post' receipt.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--primary" type="submit">{% translate "ترحيل الاستلام" %}</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <dl class="factgrid">
+    <div>
+      <dt>{% translate "يوم عمل الفرع المستلم" %}</dt>
+      <dd>{{ receipt.business_date|date:"Y-m-d" }}</dd>
+    </div>
+    <div>
+      <dt>{% translate "يوم عمل الفرع المُرسِل" %}</dt>
+      <dd>{{ receipt.source_business_date|date:"Y-m-d"|default:"—" }}</dd>
+    </div>
+    {% if receipt.destination_journal_entry %}
+      <div>
+        <dt>{% translate "قيد الوجهة" %}</dt>
+        <dd><code dir="ltr">{{ receipt.destination_journal_entry.entry_number }}</code></dd>
+      </div>
+    {% endif %}
+    {% if receipt.source_journal_entry_id and receipt.source_journal_entry_id != receipt.destination_journal_entry_id %}
+      <div>
+        <dt>{% translate "قيد المصدر (حساب وسيط بين الفروع)" %}</dt>
+        <dd><code dir="ltr">{{ receipt.source_journal_entry.entry_number }}</code></dd>
+      </div>
+    {% endif %}
+    {% if show_cost %}
+      <div><dt>{% translate "القيمة المستلمة" %}</dt><dd dir="ltr">{{ total_value }}</dd></div>
+    {% endif %}
+  </dl>
+
+  {% if is_posted and can_reverse %}
+    <form class="formcard" method="post"
+          action="{% url 'inventory:transfer_receipt_reverse' receipt.pk %}">
+      {% csrf_token %}
+      <div class="formgrid">
+        <div class="formrow">
+          <label class="formrow__label" for="reverse-reason">
+            {% translate "عكس الاستلام — السبب" %}
+          </label>
+          <textarea id="reverse-reason" name="reason" rows="2" required></textarea>
+        </div>
+      </div>
+      <div class="formactions">
+        <button class="btn btn--ghost" type="submit">{% translate "عكس الاستلام" %}</button>
+      </div>
+    </form>
+  {% endif %}
+
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>{% translate "الصنف" %}</th>
+          <th>{% translate "الدفعة" %}</th>
+          <th>{% translate "الكمية المستلمة" %}</th>
+          <th>{% translate "الوحدة" %}</th>
+          {% if show_cost %}
+            <th>{% translate "كلفة الوحدة" %}</th>
+            <th>{% translate "القيمة المخصصة" %}</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in lines %}
+          <tr>
+            <td>{{ line.sequence }}</td>
+            <td>
+              <code>{{ line.transfer_line.item.code }}</code>
+              {{ line.transfer_line.item.name_ar }}
+            </td>
+            <td>
+              {% if line.transfer_line.lot %}
+                <code>{{ line.transfer_line.lot.code }}</code>
+              {% else %}—{% endif %}
+            </td>
+            <td dir="ltr">{{ line.base_quantity }}</td>
+            <td>{{ line.transfer_line.item.base_unit.code }}</td>
+            {% if show_cost %}
+              <td dir="ltr">{{ line.unit_cost|default_if_none:"—" }}</td>
+              <td dir="ltr">{{ line.allocated_value|default_if_none:"—" }}</td>
+            {% endif %}
+          </tr>
+        {% empty %}
+          <tr><td colspan="7">{% translate "لا سطور بعد." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_draft and can_prepare %}
+    <h2 class="section__title">{% translate "إضافة كمية مستلمة" %}</h2>
+    <form class="formcard" method="post">
+      {% csrf_token %}
+      {% if line_form.non_field_errors %}
+        <ul class="errorlist">
+          {% for error in line_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      <div class="formgrid">
+        {% for field in line_form %}
+          <div class="formrow">
+            <label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<p class="formrow__hint">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

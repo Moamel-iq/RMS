@@ -76,3 +76,9 @@ documented answers yet:
   restaurant chart with optional statutory mapping.
 - **Cost center policy** — ADR-015. Branch required on every line, cost
   center driven by `Account.requires_cost_center`.
+- **Account roles and domain-owned posting mappings** — ADR-019.
+- **Transfer ownership, in-transit valuation, and cross-branch
+  accounting** — ADR-020. Goods stay on the source branch's books until
+  received; a receipt is valued from its own dispatch allocation, never
+  from the pooled in-transit average; a cross-branch receipt posts two
+  coordinated journals so each branch stays balanced on its own books.

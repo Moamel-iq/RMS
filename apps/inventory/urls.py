@@ -237,3 +237,74 @@ for _path, _type, _title, _hint, _create_label in _OPERATIONAL_SCREENS:
             name=f"{_slug}_line_delete",
         ),
     ]
+
+
+# --- transfers (Task 1.5) ---------------------------------------------------
+#
+# A receipt and a shortage live under their own top-level paths once they
+# exist, and are *created* under their transfer's path. The nesting is where
+# the route constrains the object: `/transfers/7/receipts/new/` can only make
+# a receipt against transfer 7, and a receipt id from another transfer 404s
+# rather than resolving quietly.
+
+urlpatterns += [
+    path("transfers/", views.TransferListView.as_view(), name="transfer_list"),
+    path("transfers/new/", views.TransferCreateView.as_view(), name="transfer_create"),
+    path("transfers/<int:pk>/", views.TransferDetailView.as_view(), name="transfer_detail"),
+    path(
+        "transfers/<int:pk>/dispatch/",
+        views.TransferDispatchView.as_view(),
+        name="transfer_dispatch",
+    ),
+    path(
+        "transfers/<int:pk>/reverse-dispatch/",
+        views.TransferActionView.as_view(action="reverse"),
+        name="transfer_reverse",
+    ),
+    path(
+        "transfers/<int:pk>/delete/",
+        views.TransferActionView.as_view(action="delete"),
+        name="transfer_delete",
+    ),
+    path(
+        "transfers/<int:pk>/lines/<int:line_pk>/delete/",
+        views.TransferActionView.as_view(action="delete_line"),
+        name="transfer_line_delete",
+    ),
+    path(
+        "transfers/<int:pk>/receipts/new/",
+        views.TransferReceiptCreateView.as_view(),
+        name="transfer_receipt_create",
+    ),
+    path(
+        "transfer-receipts/<int:pk>/",
+        views.TransferReceiptDetailView.as_view(),
+        name="transfer_receipt_detail",
+    ),
+    path(
+        "transfer-receipts/<int:pk>/post/",
+        views.TransferReceiptActionView.as_view(action="post"),
+        name="transfer_receipt_post",
+    ),
+    path(
+        "transfer-receipts/<int:pk>/reverse/",
+        views.TransferReceiptActionView.as_view(action="reverse"),
+        name="transfer_receipt_reverse",
+    ),
+    path(
+        "transfer-receipts/<int:pk>/delete/",
+        views.TransferReceiptActionView.as_view(action="delete"),
+        name="transfer_receipt_delete",
+    ),
+    path(
+        "transfers/<int:pk>/shortage/",
+        views.TransferShortageCreateView.as_view(),
+        name="transfer_shortage_create",
+    ),
+    path(
+        "transfer-shortages/<int:pk>/reverse/",
+        views.TransferShortageActionView.as_view(action="reverse"),
+        name="transfer_shortage_reverse",
+    ),
+    path("in-transit/", views.InTransitView.as_view(), name="in_transit"),
+]

@@ -62,7 +62,7 @@ def transit_account(organization: Organization, chart: None) -> Account:
 
 
 class TestTheRoleVocabulary:
-    def test_the_seven_inventory_roles_are_seeded_by_migration(self) -> None:
+    def test_every_inventory_role_is_seeded_by_migration(self) -> None:
         codes = set(
             AccountRole.objects.filter(domain="INVENTORY", is_system=True).values_list(
                 "code", flat=True

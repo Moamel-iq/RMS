@@ -706,6 +706,8 @@ INVENTORY_ADJUSTMENT = "INVENTORY_ADJUSTMENT"
 #: Added by Task 1.4, one per operational document that needs a second side.
 GOODS_RECEIVED_NOT_INVOICED = "GOODS_RECEIVED_NOT_INVOICED"
 INVENTORY_CONSUMPTION = "INVENTORY_CONSUMPTION"
+#: Added by Task 1.5 for the cross-branch half of a transfer receipt.
+INTER_BRANCH_CLEARING = "INTER_BRANCH_CLEARING"
 
 #: `(code, name_ar, name_en, mapping_scope)` for the seed migration and the
 #: fresh-database test.
@@ -740,6 +742,16 @@ SYSTEM_INVENTORY_ROLES: tuple[tuple[str, str, str, str], ...] = (
         "ORGANIZATION",
     ),
     (INVENTORY_CONSUMPTION, "استهلاك المخزون", "Inventory consumption", "ITEM"),
+    # Organization-only, and necessarily so: it is the account that makes each
+    # branch's standalone trial balance sum to zero when goods cross between
+    # them, and per-item answers would leave one branch's clearing entry facing
+    # a different account from the other's, netting to nothing at all.
+    (
+        INTER_BRANCH_CLEARING,
+        "حساب وسيط بين الفروع",
+        "Inter-branch clearing",
+        "ORGANIZATION",
+    ),
 )
 
 

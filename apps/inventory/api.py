@@ -22,36 +22,59 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.core.exceptions import ValidationError
+from django.db.models import Sum
 from django.http import HttpRequest
 from ninja import Router, Schema, Status
 
 from apps.inventory.commands import (
     create_document,
     create_opening,
+    create_transfer,
+    create_transfer_receipt,
+    create_transfer_shortage,
     delete_document,
     delete_opening,
+    delete_transfer,
+    delete_transfer_receipt,
+    dispatch_transfer,
     may_see_cost,
     post_document,
     post_opening,
+    post_transfer_receipt,
+    post_transfer_shortage,
     replace_document_lines,
     replace_opening_lines,
+    replace_transfer_lines,
+    replace_transfer_receipt_lines,
     resolve_document,
     resolve_document_line,
     resolve_movement,
     resolve_opening_document,
+    resolve_receipt,
+    resolve_shortage,
+    resolve_transfer,
+    resolve_transfer_line,
     return_opening_to_draft,
+    reverse_dispatch,
     reverse_document,
     reverse_opening,
+    reverse_transfer_receipt,
+    reverse_transfer_shortage,
     submit_opening,
     update_document,
     update_opening,
+    update_transfer,
+    update_transfer_receipt,
     visible_documents,
+    visible_in_transit,
     visible_movements,
     visible_opening_documents,
     visible_stock,
+    visible_transfers,
 )
 from apps.inventory.models import (
     ConversionType,
+    InventoryDocumentStatus,
     InventoryDocumentType,
     ItemType,
     WarehouseType,
@@ -84,7 +107,9 @@ from apps.inventory.services import (
     create_package_unit,
     create_warehouse,
 )
+from apps.inventory.transfers import ReceiptLineInput, TransferLineInput
 from apps.organizations.authorization import (
+    OutOfScope,
     PermissionMissing,
     require_reachable_organization_permission,
     resolve_branch,
@@ -1306,6 +1331,777 @@ def _register_document_endpoints(path: str, document_type: str, label: str) -> N
 _register_document_endpoints("receipts", InventoryDocumentType.RECEIPT, "goods receipt")
 _register_document_endpoints("issues", InventoryDocumentType.ISSUE, "consumption issue")
 _register_document_endpoints("returns-in", InventoryDocumentType.RETURN_IN, "return-in")
+
+
+# ---------------------------------------------------------------------------
+# Transfers, receipts and shortages (Task 1.5 §V)
+# ---------------------------------------------------------------------------
+#
+# Command-oriented, like the operational documents: a transfer is dispatched
+# through `/dispatch/`, not by PATCHing a status. `StockMovement` stays
+# read-only everywhere.
+#
+# The route constrains the object at every level. A receipt id submitted under
+# another transfer's route is a 404, never somebody else's receipt returned
+# politely — `resolve_receipt(actor, id, transfer=...)` does the constraining,
+# so there is no moment where an out-of-scope row sits in a local variable.
+
+
+class TransferLineIn(Schema):
+    item_id: int
+    lot_id: int | None = None
+    package_conversion_id: int | None = None
+    #: Strings, both directions. JSON's only numeric type is binary floating
+    #: point, and a quantity through one is no longer the quantity counted.
+    entered_package_quantity: str | None = None
+    measured_base_quantity: str | None = None
+    base_quantity: str | None = None
+
+
+class TransferLineOut(Schema):
+    id: int
+    sequence: int
+    item_id: int
+    item_code: str
+    item_name_ar: str
+    base_unit_code: str
+    lot_code: str | None
+    base_quantity: str
+    received_quantity: str
+    shortage_quantity: str
+    remaining_quantity: str
+    unit_cost: str | None = None
+    total_value: str | None = None
+    remaining_value: str | None = None
+
+
+class TransferOut(Schema):
+    id: int
+    public_id: str
+    transfer_number: str
+    status: str
+    organization_id: int
+    source_warehouse_id: int
+    source_warehouse_code: str
+    source_branch_code: str
+    destination_warehouse_id: int
+    destination_warehouse_code: str
+    destination_branch_code: str
+    is_cross_branch: bool
+    effective_at: datetime.datetime
+    business_date: datetime.date
+    evidence_reference: str
+    narration: str
+    created_by: str | None
+    dispatched_by: str | None
+    dispatched_at: datetime.datetime | None
+    reversed_by: str | None
+    reversed_at: datetime.datetime | None
+    reversal_reason: str
+    stock_entry_id: int | None
+    journal_entry_number: str | None
+    line_count: int
+    total_value: str | None = None
+    remaining_value: str | None = None
+    lines: list[TransferLineOut] = []
+
+
+class TransferIn(Schema):
+    organization_id: int
+    source_warehouse_id: int
+    destination_warehouse_id: int
+    effective_at: datetime.datetime
+    evidence_reference: str
+    narration: str = ""
+    lines: list[TransferLineIn] = []
+
+
+class TransferPatch(Schema):
+    effective_at: datetime.datetime | None = None
+    evidence_reference: str | None = None
+    narration: str | None = None
+    lines: list[TransferLineIn] | None = None
+
+
+class TransferReceiptLineIn(Schema):
+    transfer_line_id: int
+    entered_package_quantity: str | None = None
+    measured_base_quantity: str | None = None
+    base_quantity: str | None = None
+
+
+class TransferReceiptLineOut(Schema):
+    id: int
+    sequence: int
+    transfer_line_id: int
+    item_code: str
+    base_unit_code: str
+    lot_code: str | None
+    base_quantity: str
+    unit_cost: str | None = None
+    allocated_value: str | None = None
+
+
+class TransferReceiptOut(Schema):
+    id: int
+    public_id: str
+    transfer_id: int
+    receipt_number: str
+    status: str
+    effective_at: datetime.datetime
+    business_date: datetime.date
+    source_business_date: datetime.date | None
+    evidence_reference: str
+    narration: str
+    received_by: str | None
+    posted_at: datetime.datetime | None
+    reversed_by: str | None
+    reversed_at: datetime.datetime | None
+    reversal_reason: str
+    source_stock_entry_id: int | None
+    destination_stock_entry_id: int | None
+    source_journal_entry_number: str | None
+    destination_journal_entry_number: str | None
+    is_cross_branch: bool
+    line_count: int
+    total_value: str | None = None
+    lines: list[TransferReceiptLineOut] = []
+
+
+class TransferReceiptIn(Schema):
+    effective_at: datetime.datetime
+    evidence_reference: str
+    narration: str = ""
+    lines: list[TransferReceiptLineIn] = []
+
+
+class TransferReceiptPatch(Schema):
+    effective_at: datetime.datetime | None = None
+    evidence_reference: str | None = None
+    narration: str | None = None
+    lines: list[TransferReceiptLineIn] | None = None
+
+
+class TransferShortageLineOut(Schema):
+    id: int
+    sequence: int
+    transfer_line_id: int
+    item_code: str
+    base_quantity: str
+    unit_cost: str | None = None
+    allocated_value: str | None = None
+
+
+class TransferShortageOut(Schema):
+    id: int
+    public_id: str
+    transfer_id: int
+    shortage_number: str
+    status: str
+    effective_at: datetime.datetime
+    business_date: datetime.date
+    reason: str
+    evidence_reference: str
+    cost_center_code: str
+    closed_by: str | None
+    posted_at: datetime.datetime | None
+    reversed_by: str | None
+    reversed_at: datetime.datetime | None
+    reversal_reason: str
+    stock_entry_id: int | None
+    journal_entry_number: str | None
+    line_count: int
+    total_value: str | None = None
+    lines: list[TransferShortageLineOut] = []
+
+
+class TransferShortageIn(Schema):
+    effective_at: datetime.datetime
+    reason: str
+    evidence_reference: str
+    cost_center_id: int
+
+
+class InTransitOut(Schema):
+    transfer_id: int
+    transfer_number: str
+    source_warehouse_code: str
+    destination_warehouse_code: str
+    item_code: str
+    item_name_ar: str
+    base_unit_code: str
+    lot_code: str | None
+    remaining_quantity: str
+    remaining_value: str | None = None
+
+
+def _transfer_line_input(actor: User, payload: TransferLineIn) -> TransferLineInput:
+    """One requested line, every identifier resolved with the caller."""
+    from apps.inventory.models import InventoryLot, ItemPackageConversion
+
+    item = resolve_item(actor, payload.item_id)
+
+    lot = None
+    if payload.lot_id is not None:
+        lot = InventoryLot.objects.filter(pk=payload.lot_id, item=item).first()
+        if lot is None:
+            raise ValidationError(f"Lot {payload.lot_id} does not exist.", code="unknown_lot")
+
+    conversion = None
+    if payload.package_conversion_id is not None:
+        conversion = ItemPackageConversion.objects.filter(
+            pk=payload.package_conversion_id, item=item
+        ).first()
+        if conversion is None:
+            raise ValidationError(
+                f"Conversion {payload.package_conversion_id} does not exist.",
+                code="unknown_conversion",
+            )
+
+    return TransferLineInput(
+        item=item,
+        lot=lot,
+        package_conversion=conversion,
+        entered_package_quantity=_optional_decimal(
+            payload.entered_package_quantity, field="entered_package_quantity"
+        ),
+        measured_base_quantity=_optional_decimal(
+            payload.measured_base_quantity, field="measured_base_quantity"
+        ),
+        base_quantity=_optional_decimal(payload.base_quantity, field="base_quantity"),
+    )
+
+
+def _resolved_totals(line: Any) -> tuple[Decimal, Decimal]:
+    """How much of one transfer line has been received and written off."""
+    received = line.receipt_lines.filter(receipt__status=InventoryDocumentStatus.POSTED).aggregate(
+        total=Sum("base_quantity")
+    )["total"] or Decimal("0")
+    short = line.shortage_lines.filter(shortage__status=InventoryDocumentStatus.POSTED).aggregate(
+        total=Sum("base_quantity")
+    )["total"] or Decimal("0")
+    return received, short
+
+
+def _serialize_transfer_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
+    received, short = _resolved_totals(line)
+    payload: dict[str, Any] = {
+        "id": line.pk,
+        "sequence": line.sequence,
+        "item_id": line.item_id,
+        "item_code": line.item.code,
+        "item_name_ar": line.item.name_ar,
+        "base_unit_code": line.item.base_unit.code,
+        "lot_code": line.lot.code if line.lot else None,
+        "base_quantity": f"{line.base_quantity:f}",
+        "received_quantity": f"{received:f}",
+        "shortage_quantity": f"{short:f}",
+        "remaining_quantity": f"{line.remaining_quantity:f}",
+    }
+    if with_cost:
+        payload["unit_cost"] = f"{line.unit_cost:f}" if line.unit_cost is not None else None
+        payload["total_value"] = f"{line.total_value:f}" if line.total_value is not None else None
+        payload["remaining_value"] = f"{line.remaining_value:f}"
+    return payload
+
+
+def _serialize_transfer(transfer: Any, *, with_cost: bool, with_lines: bool) -> dict[str, Any]:
+    lines = list(
+        transfer.lines.select_related("item", "item__base_unit", "lot").order_by("sequence")
+    )
+    payload: dict[str, Any] = {
+        "id": transfer.pk,
+        "public_id": str(transfer.public_id),
+        "transfer_number": transfer.transfer_number,
+        "status": transfer.status,
+        "organization_id": transfer.organization_id,
+        "source_warehouse_id": transfer.source_warehouse_id,
+        "source_warehouse_code": transfer.source_warehouse.code,
+        "source_branch_code": transfer.source_warehouse.branch.code,
+        "destination_warehouse_id": transfer.destination_warehouse_id,
+        "destination_warehouse_code": transfer.destination_warehouse.code,
+        "destination_branch_code": transfer.destination_warehouse.branch.code,
+        "is_cross_branch": transfer.is_cross_branch,
+        "effective_at": transfer.effective_at,
+        "business_date": transfer.business_date,
+        "evidence_reference": transfer.evidence_reference,
+        "narration": transfer.narration,
+        "created_by": str(transfer.created_by) if transfer.created_by else None,
+        "dispatched_by": str(transfer.dispatched_by) if transfer.dispatched_by else None,
+        "dispatched_at": transfer.dispatched_at,
+        "reversed_by": str(transfer.reversed_by) if transfer.reversed_by else None,
+        "reversed_at": transfer.reversed_at,
+        "reversal_reason": transfer.reversal_reason,
+        "stock_entry_id": transfer.stock_entry_id,
+        "journal_entry_number": (
+            transfer.journal_entry.entry_number if transfer.journal_entry_id else None
+        ),
+        "line_count": len(lines),
+        "lines": (
+            [_serialize_transfer_line(line, with_cost=with_cost) for line in lines]
+            if with_lines
+            else []
+        ),
+    }
+    if with_cost:
+        payload["total_value"] = (
+            f"{sum((line.total_value or Decimal('0') for line in lines), Decimal('0')):f}"
+        )
+        payload["remaining_value"] = (
+            f"{sum((line.remaining_value for line in lines), Decimal('0')):f}"
+        )
+    return payload
+
+
+def _serialize_receipt(receipt: Any, *, with_cost: bool, with_lines: bool) -> dict[str, Any]:
+    lines = list(
+        receipt.lines.select_related(
+            "transfer_line",
+            "transfer_line__item",
+            "transfer_line__item__base_unit",
+            "transfer_line__lot",
+        ).order_by("sequence")
+    )
+    payload: dict[str, Any] = {
+        "id": receipt.pk,
+        "public_id": str(receipt.public_id),
+        "transfer_id": receipt.transfer_id,
+        "receipt_number": receipt.receipt_number,
+        "status": receipt.status,
+        "effective_at": receipt.effective_at,
+        "business_date": receipt.business_date,
+        "source_business_date": receipt.source_business_date,
+        "evidence_reference": receipt.evidence_reference,
+        "narration": receipt.narration,
+        "received_by": str(receipt.received_by) if receipt.received_by else None,
+        "posted_at": receipt.posted_at,
+        "reversed_by": str(receipt.reversed_by) if receipt.reversed_by else None,
+        "reversed_at": receipt.reversed_at,
+        "reversal_reason": receipt.reversal_reason,
+        "source_stock_entry_id": receipt.source_stock_entry_id,
+        "destination_stock_entry_id": receipt.destination_stock_entry_id,
+        "source_journal_entry_number": (
+            receipt.source_journal_entry.entry_number if receipt.source_journal_entry_id else None
+        ),
+        "destination_journal_entry_number": (
+            receipt.destination_journal_entry.entry_number
+            if receipt.destination_journal_entry_id
+            else None
+        ),
+        "is_cross_branch": receipt.transfer.is_cross_branch,
+        "line_count": len(lines),
+        "lines": (
+            [
+                {
+                    "id": line.pk,
+                    "sequence": line.sequence,
+                    "transfer_line_id": line.transfer_line_id,
+                    "item_code": line.transfer_line.item.code,
+                    "base_unit_code": line.transfer_line.item.base_unit.code,
+                    "lot_code": (
+                        line.transfer_line.lot.code if line.transfer_line.lot_id else None
+                    ),
+                    "base_quantity": f"{line.base_quantity:f}",
+                    **(
+                        {
+                            "unit_cost": (
+                                f"{line.unit_cost:f}" if line.unit_cost is not None else None
+                            ),
+                            "allocated_value": (
+                                f"{line.allocated_value:f}"
+                                if line.allocated_value is not None
+                                else None
+                            ),
+                        }
+                        if with_cost
+                        else {}
+                    ),
+                }
+                for line in lines
+            ]
+            if with_lines
+            else []
+        ),
+    }
+    if with_cost:
+        total = sum((line.allocated_value or Decimal("0") for line in lines), Decimal("0"))
+        payload["total_value"] = f"{total:f}"
+    return payload
+
+
+def _serialize_shortage(shortage: Any, *, with_cost: bool) -> dict[str, Any]:
+    lines = list(shortage.lines.select_related("transfer_line", "transfer_line__item"))
+    payload: dict[str, Any] = {
+        "id": shortage.pk,
+        "public_id": str(shortage.public_id),
+        "transfer_id": shortage.transfer_id,
+        "shortage_number": shortage.shortage_number,
+        "status": shortage.status,
+        "effective_at": shortage.effective_at,
+        "business_date": shortage.business_date,
+        "reason": shortage.reason,
+        "evidence_reference": shortage.evidence_reference,
+        "cost_center_code": shortage.cost_center.code,
+        "closed_by": str(shortage.closed_by) if shortage.closed_by else None,
+        "posted_at": shortage.posted_at,
+        "reversed_by": str(shortage.reversed_by) if shortage.reversed_by else None,
+        "reversed_at": shortage.reversed_at,
+        "reversal_reason": shortage.reversal_reason,
+        "stock_entry_id": shortage.stock_entry_id,
+        "journal_entry_number": (
+            shortage.journal_entry.entry_number if shortage.journal_entry_id else None
+        ),
+        "line_count": len(lines),
+        "lines": [
+            {
+                "id": line.pk,
+                "sequence": line.sequence,
+                "transfer_line_id": line.transfer_line_id,
+                "item_code": line.transfer_line.item.code,
+                "base_quantity": f"{line.base_quantity:f}",
+                **(
+                    {
+                        "unit_cost": f"{line.unit_cost:f}" if line.unit_cost is not None else None,
+                        "allocated_value": (
+                            f"{line.allocated_value:f}"
+                            if line.allocated_value is not None
+                            else None
+                        ),
+                    }
+                    if with_cost
+                    else {}
+                ),
+            }
+            for line in lines
+        ],
+    }
+    if with_cost:
+        total = sum((line.allocated_value or Decimal("0") for line in lines), Decimal("0"))
+        payload["total_value"] = f"{total:f}"
+    return payload
+
+
+@router.get("/transfers/", response=list[TransferOut], summary="Transfers in scope")
+def list_transfers(request: HttpRequest, status: str | None = None) -> Any:
+    actor = _actor(request)
+    transfers = visible_transfers(actor)
+    if status is not None:
+        transfers = transfers.filter(status=status)
+    with_cost = may_see_cost(actor)
+    return [
+        _serialize_transfer(transfer, with_cost=with_cost, with_lines=False)
+        for transfer in transfers
+    ]
+
+
+@router.post("/transfers/", response={201: TransferOut}, summary="Create a draft transfer")
+def create_transfer_endpoint(request: HttpRequest, payload: TransferIn) -> Status[Any]:
+    actor = _actor(request)
+    organization = resolve_organization(actor, payload.organization_id)
+    source = resolve_warehouse(actor, payload.source_warehouse_id)
+    destination = resolve_warehouse(actor, payload.destination_warehouse_id)
+    transfer = create_transfer(
+        actor=actor,
+        organization=organization,
+        source_warehouse=source,
+        destination_warehouse=destination,
+        effective_at=payload.effective_at,
+        evidence_reference=payload.evidence_reference,
+        narration=payload.narration,
+    )
+    if payload.lines:
+        replace_transfer_lines(
+            actor=actor,
+            transfer=transfer,
+            lines=[_transfer_line_input(actor, line) for line in payload.lines],
+        )
+    transfer = resolve_transfer(actor, transfer.pk)
+    return Status(
+        201, _serialize_transfer(transfer, with_cost=may_see_cost(actor), with_lines=True)
+    )
+
+
+@router.get("/transfers/{transfer_id}/", response=TransferOut, summary="One transfer")
+def read_transfer(request: HttpRequest, transfer_id: int) -> Any:
+    actor = _actor(request)
+    transfer = resolve_transfer(actor, transfer_id)
+    return _serialize_transfer(transfer, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.patch("/transfers/{transfer_id}/", response=TransferOut, summary="Amend a draft transfer")
+def patch_transfer(request: HttpRequest, transfer_id: int, payload: TransferPatch) -> Any:
+    actor = _actor(request)
+    transfer = resolve_transfer(actor, transfer_id)
+    update_transfer(
+        actor=actor,
+        transfer=transfer,
+        effective_at=payload.effective_at,
+        evidence_reference=payload.evidence_reference,
+        narration=payload.narration,
+    )
+    if payload.lines is not None:
+        replace_transfer_lines(
+            actor=actor,
+            transfer=transfer,
+            lines=[_transfer_line_input(actor, line) for line in payload.lines],
+        )
+    transfer = resolve_transfer(actor, transfer_id)
+    return _serialize_transfer(transfer, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.delete("/transfers/{transfer_id}/", response={204: None}, summary="Delete a draft transfer")
+def delete_transfer_endpoint(request: HttpRequest, transfer_id: int) -> Status[None]:
+    actor = _actor(request)
+    transfer = resolve_transfer(actor, transfer_id)
+    delete_transfer(actor=actor, transfer=transfer)
+    return Status(204, None)
+
+
+@router.post(
+    "/transfers/{transfer_id}/dispatch/", response=TransferOut, summary="Dispatch the goods"
+)
+def dispatch_endpoint(request: HttpRequest, transfer_id: int) -> Any:
+    actor = _actor(request)
+    transfer = resolve_transfer(actor, transfer_id)
+    dispatched = dispatch_transfer(actor=actor, transfer=transfer)
+    return _serialize_transfer(dispatched, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.post(
+    "/transfers/{transfer_id}/reverse-dispatch/",
+    response=TransferOut,
+    summary="Reverse a dispatch nothing has happened against",
+)
+def reverse_dispatch_endpoint(request: HttpRequest, transfer_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    transfer = resolve_transfer(actor, transfer_id)
+    reversed_transfer = reverse_dispatch(actor=actor, transfer=transfer, reason=payload.reason)
+    return _serialize_transfer(reversed_transfer, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.get(
+    "/transfers/{transfer_id}/receipts/",
+    response=list[TransferReceiptOut],
+    summary="Receipts against one transfer",
+)
+def list_receipts(request: HttpRequest, transfer_id: int) -> Any:
+    actor = _actor(request)
+    transfer = resolve_transfer(actor, transfer_id)
+    with_cost = may_see_cost(actor)
+    return [
+        _serialize_receipt(receipt, with_cost=with_cost, with_lines=False)
+        for receipt in transfer.receipts.select_related(
+            "transfer",
+            "transfer__source_warehouse",
+            "transfer__destination_warehouse",
+            "received_by",
+            "reversed_by",
+        ).order_by("-created_at", "-id")
+    ]
+
+
+@router.post(
+    "/transfers/{transfer_id}/receipts/",
+    response={201: TransferReceiptOut},
+    summary="Create a draft receipt",
+)
+def create_receipt_endpoint(
+    request: HttpRequest, transfer_id: int, payload: TransferReceiptIn
+) -> Status[Any]:
+    actor = _actor(request)
+    transfer = resolve_transfer(actor, transfer_id)
+    receipt = create_transfer_receipt(
+        actor=actor,
+        transfer=transfer,
+        effective_at=payload.effective_at,
+        evidence_reference=payload.evidence_reference,
+        narration=payload.narration,
+    )
+    if payload.lines:
+        _replace_receipt_lines(actor, receipt, payload.lines)
+    receipt = resolve_receipt(actor, receipt.pk, transfer=transfer)
+    return Status(201, _serialize_receipt(receipt, with_cost=may_see_cost(actor), with_lines=True))
+
+
+def _replace_receipt_lines(actor: User, receipt: Any, lines: list[TransferReceiptLineIn]) -> None:
+    """
+    Resolve each line's transfer line **through the receipt's own transfer**.
+
+    A transfer-line id from another transfer is refused as out of scope before
+    the domain service sees it, so a caller cannot draw down one consignment's
+    remaining value through another's receipt.
+    """
+    resolved = []
+    for line in lines:
+        target = resolve_transfer_line(actor, line.transfer_line_id)
+        if target.transfer_id != receipt.transfer_id:
+            raise OutOfScope(f"Transfer line {line.transfer_line_id} does not exist.")
+        resolved.append(
+            ReceiptLineInput(
+                transfer_line=target,
+                entered_package_quantity=_optional_decimal(
+                    line.entered_package_quantity, field="entered_package_quantity"
+                ),
+                measured_base_quantity=_optional_decimal(
+                    line.measured_base_quantity, field="measured_base_quantity"
+                ),
+                base_quantity=_optional_decimal(line.base_quantity, field="base_quantity"),
+            )
+        )
+    replace_transfer_receipt_lines(actor=actor, receipt=receipt, lines=resolved)
+
+
+@router.get("/transfer-receipts/{receipt_id}/", response=TransferReceiptOut, summary="One receipt")
+def read_receipt(request: HttpRequest, receipt_id: int) -> Any:
+    actor = _actor(request)
+    receipt = resolve_receipt(actor, receipt_id)
+    return _serialize_receipt(receipt, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.patch(
+    "/transfer-receipts/{receipt_id}/",
+    response=TransferReceiptOut,
+    summary="Amend a draft receipt",
+)
+def patch_receipt(request: HttpRequest, receipt_id: int, payload: TransferReceiptPatch) -> Any:
+    actor = _actor(request)
+    receipt = resolve_receipt(actor, receipt_id)
+    update_transfer_receipt(
+        actor=actor,
+        receipt=receipt,
+        effective_at=payload.effective_at,
+        evidence_reference=payload.evidence_reference,
+        narration=payload.narration,
+    )
+    if payload.lines is not None:
+        _replace_receipt_lines(actor, receipt, payload.lines)
+    receipt = resolve_receipt(actor, receipt_id)
+    return _serialize_receipt(receipt, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.delete(
+    "/transfer-receipts/{receipt_id}/", response={204: None}, summary="Delete a draft receipt"
+)
+def delete_receipt_endpoint(request: HttpRequest, receipt_id: int) -> Status[None]:
+    actor = _actor(request)
+    receipt = resolve_receipt(actor, receipt_id)
+    delete_transfer_receipt(actor=actor, receipt=receipt)
+    return Status(204, None)
+
+
+@router.post(
+    "/transfer-receipts/{receipt_id}/post/",
+    response=TransferReceiptOut,
+    summary="Post the receipt to both ledgers",
+)
+def post_receipt_endpoint(request: HttpRequest, receipt_id: int) -> Any:
+    actor = _actor(request)
+    receipt = resolve_receipt(actor, receipt_id)
+    posted = post_transfer_receipt(actor=actor, receipt=receipt)
+    return _serialize_receipt(posted, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.post(
+    "/transfer-receipts/{receipt_id}/reverse/",
+    response=TransferReceiptOut,
+    summary="Reverse one arrival",
+)
+def reverse_receipt_endpoint(request: HttpRequest, receipt_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    receipt = resolve_receipt(actor, receipt_id)
+    reversed_receipt = reverse_transfer_receipt(actor=actor, receipt=receipt, reason=payload.reason)
+    return _serialize_receipt(reversed_receipt, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.post(
+    "/transfers/{transfer_id}/shortage/",
+    response={201: TransferShortageOut},
+    summary="Create a draft shortage closure",
+)
+def create_shortage_endpoint(
+    request: HttpRequest, transfer_id: int, payload: TransferShortageIn
+) -> Status[Any]:
+    from apps.accounting.models import CostCenter
+
+    actor = _actor(request)
+    transfer = resolve_transfer(actor, transfer_id)
+    cost_center = CostCenter.objects.filter(
+        pk=payload.cost_center_id, organization_id=transfer.organization_id
+    ).first()
+    if cost_center is None:
+        raise ValidationError(
+            f"Cost center {payload.cost_center_id} does not exist.", code="unknown_cost_center"
+        )
+    shortage = create_transfer_shortage(
+        actor=actor,
+        transfer=transfer,
+        effective_at=payload.effective_at,
+        reason=payload.reason,
+        evidence_reference=payload.evidence_reference,
+        cost_center=cost_center,
+    )
+    shortage = resolve_shortage(actor, shortage.pk, transfer=transfer)
+    return Status(201, _serialize_shortage(shortage, with_cost=may_see_cost(actor)))
+
+
+@router.get(
+    "/transfer-shortages/{shortage_id}/",
+    response=TransferShortageOut,
+    summary="One shortage closure",
+)
+def read_shortage(request: HttpRequest, shortage_id: int) -> Any:
+    actor = _actor(request)
+    shortage = resolve_shortage(actor, shortage_id)
+    return _serialize_shortage(shortage, with_cost=may_see_cost(actor))
+
+
+@router.post(
+    "/transfer-shortages/{shortage_id}/post/",
+    response=TransferShortageOut,
+    summary="Write off everything still in transit",
+)
+def post_shortage_endpoint(request: HttpRequest, shortage_id: int) -> Any:
+    actor = _actor(request)
+    shortage = resolve_shortage(actor, shortage_id)
+    posted = post_transfer_shortage(actor=actor, shortage=shortage)
+    return _serialize_shortage(posted, with_cost=may_see_cost(actor))
+
+
+@router.post(
+    "/transfer-shortages/{shortage_id}/reverse/",
+    response=TransferShortageOut,
+    summary="Reverse a shortage closure",
+)
+def reverse_shortage_endpoint(request: HttpRequest, shortage_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    shortage = resolve_shortage(actor, shortage_id)
+    reversed_shortage = reverse_transfer_shortage(
+        actor=actor, shortage=shortage, reason=payload.reason
+    )
+    return _serialize_shortage(reversed_shortage, with_cost=may_see_cost(actor))
+
+
+@router.get("/in-transit/", response=list[InTransitOut], summary="Goods standing in transit")
+def in_transit_report(request: HttpRequest) -> Any:
+    actor = _actor(request)
+    with_cost = may_see_cost(actor)
+    rows = []
+    for line in visible_in_transit(actor):
+        row: dict[str, Any] = {
+            "transfer_id": line.transfer_id,
+            "transfer_number": line.transfer.transfer_number,
+            "source_warehouse_code": line.transfer.source_warehouse.code,
+            "destination_warehouse_code": line.transfer.destination_warehouse.code,
+            "item_code": line.item.code,
+            "item_name_ar": line.item.name_ar,
+            "base_unit_code": line.item.base_unit.code,
+            "lot_code": line.lot.code if line.lot is not None else None,
+            "remaining_quantity": f"{line.remaining_quantity:f}",
+        }
+        if with_cost:
+            row["remaining_value"] = f"{line.remaining_value:f}"
+        rows.append(row)
+    return rows
 
 
 # ---------------------------------------------------------------------------

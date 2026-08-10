@@ -1,0 +1,257 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# One transfer: the agreement, its lines, and the timeline of every event   #}
+{# posted against it. Reversed events stay in the timeline, greyed but never #}
+{# hidden — a reversal nobody can see is a reversal nobody can audit.        #}
+{#                                                                          #}
+{# Buttons mirror the command layer's checks. A POST to a hidden action is   #}
+{# refused on its merits, not on its visibility.                             #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      <p class="pagehead__hint">
+        {{ transfer.get_status_display }}
+        · {% translate "من" %}
+        <code>{{ transfer.source_warehouse.code }}</code>
+        ({{ transfer.source_warehouse.branch.code }})
+        · {% translate "إلى" %}
+        <code>{{ transfer.destination_warehouse.code }}</code>
+        ({{ transfer.destination_warehouse.branch.code }})
+        {% if transfer.is_cross_branch %}
+          · {% translate "تحويل بين فرعين" %}
+        {% endif %}
+        · {% translate "يوم العمل" %} {{ transfer.business_date|date:"Y-m-d" }}
+        · {% translate "الإثبات" %} {{ transfer.evidence_reference }}
+      </p>
+    </div>
+    <div class="rowactions">
+      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+      {% if is_draft and can_prepare %}
+        <form method="post" action="{% url 'inventory:transfer_delete' transfer.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--ghost" type="submit">{% translate "حذف المسودة" %}</button>
+        </form>
+      {% endif %}
+      {% if is_draft and can_dispatch %}
+        <a class="btn btn--primary" href="{% url 'inventory:transfer_dispatch' transfer.pk %}">
+          {% translate "إرسال البضاعة" %}
+        </a>
+      {% endif %}
+      {% if is_open and can_receive %}
+        <a class="btn btn--primary" href="{% url 'inventory:transfer_receipt_create' transfer.pk %}">
+          {% translate "تسجيل استلام" %}
+        </a>
+      {% endif %}
+      {% if is_open and can_close_shortage %}
+        <a class="btn btn--ghost" href="{% url 'inventory:transfer_shortage_create' transfer.pk %}">
+          {% translate "إقفال بعجز" %}
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <dl class="factgrid">
+    <div><dt>{% translate "الكمية المُرسلة" %}</dt><dd dir="ltr">{{ dispatched_quantity }}</dd></div>
+    <div><dt>{% translate "المتبقي بالطريق" %}</dt><dd dir="ltr">{{ remaining_quantity }}</dd></div>
+    {% if show_cost %}
+      <div><dt>{% translate "القيمة المُرسلة" %}</dt><dd dir="ltr">{{ dispatched_value }}</dd></div>
+      <div><dt>{% translate "القيمة المتبقية" %}</dt><dd dir="ltr">{{ remaining_value }}</dd></div>
+    {% endif %}
+  </dl>
+
+  {% if transfer.status == "DISPATCHED" and can_reverse %}
+    <form class="formcard" method="post" action="{% url 'inventory:transfer_reverse' transfer.pk %}">
+      {% csrf_token %}
+      <div class="formgrid">
+        <div class="formrow">
+          <label class="formrow__label" for="reverse-reason">
+            {% translate "عكس الإرسال — السبب" %}
+          </label>
+          <textarea id="reverse-reason" name="reason" rows="2" required></textarea>
+        </div>
+      </div>
+      <div class="formactions">
+        <button class="btn btn--ghost" type="submit">{% translate "عكس الإرسال" %}</button>
+      </div>
+    </form>
+  {% endif %}
+
+  <h2 class="section__title">{% translate "سطور التحويل" %}</h2>
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>{% translate "الصنف" %}</th>
+          <th>{% translate "الدفعة" %}</th>
+          <th>{% translate "المُرسل" %}</th>
+          <th>{% translate "المستلم" %}</th>
+          <th>{% translate "العجز" %}</th>
+          <th>{% translate "المتبقي" %}</th>
+          <th>{% translate "الوحدة" %}</th>
+          {% if show_cost %}
+            <th>{% translate "كلفة الإرسال" %}</th>
+            <th>{% translate "القيمة المُرسلة" %}</th>
+            <th>{% translate "القيمة المتبقية" %}</th>
+          {% endif %}
+          {% if is_draft and can_prepare %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in lines %}
+          <tr>
+            <td>{{ line.sequence }}</td>
+            <td><code>{{ line.item.code }}</code> {{ line.item.name_ar }}</td>
+            <td>{% if line.lot %}<code>{{ line.lot.code }}</code>{% else %}—{% endif %}</td>
+            <td dir="ltr">{{ line.base_quantity }}</td>
+            <td dir="ltr">{{ line.received_quantity|default_if_none:"—" }}</td>
+            <td dir="ltr">{{ line.shortage_quantity|default_if_none:"—" }}</td>
+            <td dir="ltr">{{ line.remaining_quantity }}</td>
+            <td>{{ line.item.base_unit.code }}</td>
+            {% if show_cost %}
+              <td dir="ltr">{{ line.unit_cost|default_if_none:"—" }}</td>
+              <td dir="ltr">{{ line.total_value|default_if_none:"—" }}</td>
+              <td dir="ltr">{{ line.remaining_value }}</td>
+            {% endif %}
+            {% if is_draft and can_prepare %}
+              <td>
+                <form method="post"
+                      action="{% url 'inventory:transfer_line_delete' transfer.pk line.pk %}">
+                  {% csrf_token %}
+                  <button class="btn btn--ghost" type="submit">{% translate "حذف" %}</button>
+                </form>
+              </td>
+            {% endif %}
+          </tr>
+        {% empty %}
+          <tr><td colspan="12">{% translate "لا سطور بعد." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_draft and can_prepare %}
+    <h2 class="section__title">{% translate "إضافة سطر" %}</h2>
+    <form class="formcard" method="post">
+      {% csrf_token %}
+      {% if line_form.non_field_errors %}
+        <ul class="errorlist">
+          {% for error in line_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      <div class="formgrid">
+        {% for field in line_form %}
+          <div class="formrow">
+            <label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <p class="formrow__hint">{{ field.help_text }}</p>
+            {% endif %}
+            {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+      </div>
+    </form>
+  {% endif %}
+
+  <h2 class="section__title">{% translate "سجل الأحداث" %}</h2>
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{% translate "الحدث" %}</th>
+          <th>{% translate "الرقم" %}</th>
+          <th>{% translate "الحالة" %}</th>
+          <th>{% translate "يوم العمل" %}</th>
+          <th>{% translate "المستند" %}</th>
+          <th>{% translate "بواسطة" %}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if transfer.dispatched_at %}
+          <tr>
+            <td>{% translate "إرسال" %}</td>
+            <td><code dir="ltr">{{ transfer.transfer_number }}</code></td>
+            <td>{{ transfer.get_status_display }}</td>
+            <td>{{ transfer.business_date|date:"Y-m-d" }}</td>
+            <td>
+              {% if transfer.journal_entry %}
+                <code dir="ltr">{{ transfer.journal_entry.entry_number }}</code>
+              {% else %}—{% endif %}
+            </td>
+            <td>{{ transfer.dispatched_by|default:"—" }}</td>
+            <td></td>
+          </tr>
+        {% endif %}
+        {% for receipt in receipts %}
+          <tr {% if receipt.status == "REVERSED" %}class="muted"{% endif %}>
+            <td>{% translate "استلام" %}</td>
+            <td>
+              <a href="{% url 'inventory:transfer_receipt_detail' receipt.pk %}">
+                {% if receipt.receipt_number %}
+                  <code dir="ltr">{{ receipt.receipt_number }}</code>
+                {% else %}
+                  <code dir="ltr">{{ receipt.public_id|truncatechars:13 }}</code>
+                {% endif %}
+              </a>
+            </td>
+            <td>{{ receipt.get_status_display }}</td>
+            <td>
+              {{ receipt.business_date|date:"Y-m-d" }}
+              {% if receipt.source_business_date and receipt.source_business_date != receipt.business_date %}
+                <span class="muted">
+                  ({% translate "المُرسِل" %} {{ receipt.source_business_date|date:"Y-m-d" }})
+                </span>
+              {% endif %}
+            </td>
+            <td>
+              {% if receipt.destination_journal_entry %}
+                <code dir="ltr">{{ receipt.destination_journal_entry.entry_number }}</code>
+              {% else %}—{% endif %}
+              {% if receipt.source_journal_entry_id and receipt.source_journal_entry_id != receipt.destination_journal_entry_id %}
+                <code dir="ltr">{{ receipt.source_journal_entry.entry_number }}</code>
+              {% endif %}
+            </td>
+            <td>{{ receipt.received_by|default:"—" }}</td>
+            <td>{{ receipt.reversal_reason }}</td>
+          </tr>
+        {% endfor %}
+        {% for shortage in shortages %}
+          <tr {% if shortage.status == "REVERSED" %}class="muted"{% endif %}>
+            <td>{% translate "إقفال بعجز" %}</td>
+            <td><code dir="ltr">{{ shortage.shortage_number|default:"—" }}</code></td>
+            <td>{{ shortage.get_status_display }}</td>
+            <td>{{ shortage.business_date|date:"Y-m-d" }}</td>
+            <td>
+              {% if shortage.journal_entry %}
+                <code dir="ltr">{{ shortage.journal_entry.entry_number }}</code>
+              {% else %}—{% endif %}
+              <span class="muted"><code>{{ shortage.cost_center.code }}</code></span>
+            </td>
+            <td>{{ shortage.closed_by|default:"—" }}</td>
+            <td>
+              {{ shortage.reason }}
+              {% if shortage.status == "POSTED" and can_reverse %}
+                <form method="post"
+                      action="{% url 'inventory:transfer_shortage_reverse' shortage.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="reason" value="{% translate 'عُثر على البضاعة' %}">
+                  <button class="btn btn--ghost" type="submit">{% translate "عكس الإقفال" %}</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

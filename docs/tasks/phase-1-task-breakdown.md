@@ -193,8 +193,8 @@ Depends on: 1.3.
 
 ### Task 1.5 — Transfers, in-transit, shortages
 
-`TRANSFER_DISPATCH`, `TRANSFER_RECEIPT`, `TRANSFER_SHORTAGE`, and the
-`IN_TRANSIT` system warehouse.
+`StockTransfer` with `StockTransferReceipt` and `StockTransferShortage` as its
+posted child events, over the `IN_TRANSIT` system warehouse. See ADR-020.
 
 Depends on: 1.4.
 
@@ -202,8 +202,42 @@ Depends on: 1.4.
 
 - Dispatch value reconciles exactly to receipt plus shortage (AT-002).
 - A transfer creates no gain or loss from movement alone.
-- Inter-branch transfer requires `post_transfer` at **both** branches.
-- `IN_TRANSIT` is not user-creatable and accepts no other movement type.
+- Inter-branch transfer requires authority at the source and reach to the
+  destination; a same-branch transfer requires `post_transfer` at both
+  warehouses.
+- `IN_TRANSIT` is not user-creatable and never user-selectable.
+
+**Implementation notes**
+
+- **Not an `InventoryMovementDocument`.** That model is one draft that becomes
+  one posted or reversed event. A transfer is dispatched once, received any
+  number of times, possibly closed short, and each of those reverses on its
+  own — so it is a parent aggregate whose status is *computed* from its posted
+  children, never written by a caller.
+- **Two ledger entries per event where the branches differ**, because a ledger
+  entry carries exactly one business date and a cross-branch receipt has two:
+  the source releases from in-transit on its operating day, the destination
+  takes delivery on its own, and each side validates its own accounting
+  period.
+- **A receipt is valued from its own transfer line's remaining basis**, never
+  from the pooled in-transit average, which blends every transfer of that item
+  currently on the road. The kernel gained `MovementInput.outbound_value` for
+  this — the mirror of the exact inbound value Task 1.4 added — and refuses a
+  figure the position cannot support rather than falling back.
+- **The remaining quantity and value are retained on the transfer line**, not
+  derived on read: deriving would make the allocation a race between two
+  concurrent receipts. Reconciliation derives them independently and compares,
+  which is what makes retaining them safe.
+- `INTER_BRANCH_CLEARING` and the `6-02-01-001` shortage-loss leaf are added;
+  as always, seeding a role is not seeding a mapping.
+- `inventory.close_transfer_shortage` is new and deliberately sensitive:
+  branch-scoped at the **source**, held by OWNER, MANAGER and
+  ACCOUNTING_MANAGER, and by no storekeeper.
+- **A shortage closure resolves the entire remainder.** A partial write-off
+  leaving an unexplained open residual is the state the closure exists to end.
+- `StockLedgerEntry` now names the journal it produced, which is what lets the
+  conditional control-account invariant of §S be a database trigger rather
+  than a walk across every document type that might reference the entry.
 
 ---
 

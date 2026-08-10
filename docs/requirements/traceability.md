@@ -320,3 +320,35 @@ source.
 | INV-143 | A document id cannot cross between type series | route-bound type | `test_operations_api_and_screens.py::test_a_document_id_cannot_cross_between_series` | 1.4 | AT-008 | Done |
 | INV-144 | Cost is omitted for callers without view_valuation | `_serialize_document` | `::TestReceiptApi`, `::test_a_storekeeper_sees_no_recorded_cost` | 1.4 | AT-008 | Done |
 | INV-145 | Navigation offers only screens that resolve | `apps/core/navigation.py` | `::test_navigation_points_only_at_live_screens` | 1.4 | | Done |
+| INV-146 | Goods stay on the source branch's books until received | in-transit warehouse of the source branch | `test_transfers.py::test_a_cross_branch_dispatch_stays_on_the_source_branch_books` | 1.5 | | Done |
+| INV-147 | A user can never select the in-transit warehouse | `_validate_transfer_endpoints` + trigger | `::test_the_in_transit_warehouse_cannot_be_chosen`, `::test_the_database_refuses_a_raw_in_transit_endpoint` | 1.5 | | Done |
+| INV-148 | Cross-organization transfer is refused | `_validate_transfer_endpoints` | `::test_a_cross_organization_transfer_is_refused` | 1.5 | | Done |
+| INV-149 | Dispatch carries the exact outbound value into transit | `_post_dispatch_effects` | `::test_a_full_depletion_carries_its_entire_remaining_value` | 1.5 | | Done |
+| INV-150 | A receipt is valued from its own transfer, not the pooled average | `allocate`, `outbound_value` | `::test_the_pooled_in_transit_average_is_not_used` | 1.5 | | Done |
+| INV-151 | The final receipt or closure takes the exact remainder | `allocate` | `::test_the_final_receipt_takes_the_exact_remaining_value` | 1.5 | | Done |
+| INV-152 | Receipts plus shortage always equal the dispatch | `allocate` | `::test_receipts_plus_shortage_equal_the_dispatch` | 1.5 | | Done |
+| INV-153 | Over-receipt is refused against the locked remaining basis | `_allocate_receipt` | `::test_over_receipt_is_refused` | 1.5 | | Done |
+| INV-154 | Same-branch receipt posts one branch-local journal | `_post_receipt_journals` | `::test_the_same_branch_receipt_journal_is_one_branch_local_entry` | 1.5 | AT-002 | Done |
+| INV-155 | Cross-branch receipt posts two journals, each branch balanced | `_post_receipt_journals` | `::test_a_cross_branch_receipt_writes_two_balanced_journals` | 1.5 | AT-002 | Done |
+| INV-156 | Inter-branch clearing nets to zero for a complete event | ADR-020 §9 | `::test_inter_branch_clearing_nets_to_zero` | 1.5 | | Done |
+| INV-157 | Each side of a receipt is dated by its own branch's business day | `post_receipt` | `::test_the_two_branches_may_resolve_to_different_dates` | 1.5 | | Done |
+| INV-158 | Either branch's closed period rolls the whole receipt back | `_period_for` | `::test_a_closed_source_period_refuses_the_whole_receipt`, `::test_a_closed_destination_period_…` | 1.5 | | Done |
+| INV-159 | An unmapped role rolls back every stock and document effect | `_resolve_receipt_accounts` | `::test_an_unmapped_clearing_role_rolls_everything_back` | 1.5 | | Done |
+| INV-160 | A shortage closure needs permission, reason and cost centre | `create_shortage`, model constraints | `::TestShortage` | 1.5 | AT-008 | Done |
+| INV-161 | A storekeeper cannot close a shortage | `CLOSE_TRANSFER_SHORTAGE` role map | `::test_a_storekeeper_cannot_close_a_shortage` | 1.5 | AT-008 | Done |
+| INV-162 | At most one active closure per transfer | partial unique index | `::test_only_one_closure_can_be_active`, `test_transfer_concurrency.py::test_two_closures_leave_at_most_one_active` | 1.5 | | Done |
+| INV-163 | Reversing a receipt restores in-transit exactly | `reverse_receipt` | `::test_reversing_a_receipt_restores_transit_exactly` | 1.5 | | Done |
+| INV-164 | Consumed destination stock blocks a receipt reversal | `reverse_stock_entry` availability | `::test_consumed_destination_stock_blocks_a_receipt_reversal` | 1.5 | | Done |
+| INV-165 | Dispatch reversal is refused while any child is active | `reverse_dispatch` | `::test_a_dispatch_cannot_be_reversed_while_a_receipt_stands` | 1.5 | | Done |
+| INV-166 | The transfer's status is computed from its posted children | `recompute_transfer_status` | `::TestReceipt`, `::TestReversal` | 1.5 | | Done |
+| INV-167 | The dispatch conversion snapshot is authoritative at receipt | `add_receipt_line` | `::test_the_dispatch_conversion_snapshot_survives_a_new_factor` | 1.5 | | Done |
+| INV-168 | A lot survives the journey unchanged | valuation key | `::test_the_lot_survives_the_journey` | 1.5 | | Done |
+| INV-169 | Each side of a receipt carries its own source identity | `TRANSFER_RECEIPT_{SOURCE,DESTINATION}_TYPE` | `::test_the_source_identities_are_distinct_per_side` | 1.5 | AT-009 | Done |
+| INV-170 | Posted transfers, receipts and closures are database-immutable | triggers, `inventory/0013` | `::TestIdentityAndImmutability` | 1.5 | | Done |
+| INV-171 | A journalled posting names an account for every dinar it moved | deferred constraint trigger | `::test_a_journalled_posting_names_an_account_for_every_dinar` | 1.5 | | Done |
+| INV-172 | The bare kernel still posts without any control account | conditional invariant | `::test_a_bare_kernel_posting_still_needs_no_account` | 1.5 | | Done |
+| INV-173 | Stock keys are locked canonically across a whole event | `acquire_stock_key_locks` | `test_transfer_concurrency.py::test_two_cross_branch_receipts_do_not_deadlock` | 1.5 | | Done |
+| INV-174 | Concurrent receipts never resolve more than was dispatched | line row lock + deferred trigger | `::test_two_receipts_never_exceed_the_dispatch` | 1.5 | | Done |
+| INV-175 | Transfer subledger and in-transit ledger both reconcile | `verify_transfer`, `verify_in_transit` | `test_transfers.py::TestReads` | 1.5 | AT-011 | Done |
+| INV-176 | A receipt id under another transfer's route is a 404 | `resolve_receipt(transfer=…)` | `::test_a_receipt_id_under_another_transfer_is_a_404` | 1.5 | AT-008 | Done |
+| INV-177 | Transfer cost fields are omitted without view_valuation | `_serialize_transfer` | `test_transfer_api_and_screens.py::test_cost_is_omitted_without_view_valuation` | 1.5 | AT-008 | Done |

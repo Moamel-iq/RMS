@@ -36,9 +36,11 @@ one period.
 
 ## Locking
 
-Four things are serialised, and they are taken in a fixed order (ADR-019):
+Four things are serialised, and they are taken in a fixed order (ADR-019 §6,
+extended by ADR-020 §11):
 
-1. the source document row, by the caller above this kernel;
+1. the source document rows, by the caller above this kernel — parent
+   aggregate before child event, where there is one;
 2. the organization's account-mapping lock, in **shared** mode — many
    postings may hold it at once, and a mapping mutation takes the exclusive
    form, so no posting can resolve an account while it is being re-homed;
@@ -51,6 +53,13 @@ it is the deadlock that a "lock the counter first, it's quick" instinct
 produces. The mapping lock sits above the keys for the same reason: a mutation
 that took keys first and then asked for the mapping would invert the order
 against every posting.
+
+Step 3 is per *event*, not per call. A caller that posts two entries in one
+transaction — a transfer receipt releases from in-transit and lands at the
+destination — takes every key up front through `acquire_stock_key_locks`, so
+the two are ordered canonically against each other rather than by the order
+the calls happen to be written. Advisory locks are re-entrant, so the
+per-entry acquisitions afterwards are no-ops.
 
 `select_for_update()` cannot lock a balance row that does not exist yet, and
 the first receipt into a new warehouse is exactly that case. So the key lock is
@@ -74,7 +83,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from apps.accounting.models import Account, PeriodState, SourceEvent
+from apps.accounting.models import Account, JournalEntry, PeriodState, SourceEvent
 from apps.accounting.services import resolve_period
 from apps.core.locks import lock_account_mappings_shared
 from apps.core.models import AuditAction
@@ -95,6 +104,7 @@ from apps.inventory.models import (
     StockPostingSequence,
     ValuationLayer,
     Warehouse,
+    WarehouseType,
 )
 from apps.organizations.business_dates import business_date_for
 from apps.organizations.models import Organization
@@ -149,6 +159,10 @@ class MovementInput:
     #: `quantity x unit_cost` — see `apply_inbound`. Set only where the caller
     #: computed it against a posted movement, as a return does.
     inbound_value: Decimal | None = None
+    #: An exact **outbound** value, for the same reason in the other direction
+    #: — see `apply_outbound`. A transfer receipt takes the value its own
+    #: dispatch allocated, not the pooled in-transit average (ADR-020 §4).
+    outbound_value: Decimal | None = None
 
 
 @dataclass
@@ -257,7 +271,11 @@ def apply_inbound(
 
 
 def apply_outbound(
-    *, quantity: Decimal, before_quantity: Decimal, before_value: Decimal
+    *,
+    quantity: Decimal,
+    before_quantity: Decimal,
+    before_value: Decimal,
+    value_out: Decimal | None = None,
 ) -> ValuationStep:
     """
     Remove goods at the current average — except at the last one out.
@@ -267,6 +285,19 @@ def apply_outbound(
     construction rather than by an adjusting entry, and it never mutates a
     movement that has already been posted.
 
+    `value_out` overrides the average when the caller holds an exact figure
+    that must not be re-derived — the twin of `apply_inbound`'s `value_in`.
+    A transfer receipt is the motivating case: one in-transit position pools
+    several transfers of the same item, so its average is a blend of them all,
+    and receiving against it at that average would move a quantity from one
+    transfer out at another transfer's cost (ADR-020 §4). The exact figure
+    comes from the receipt's own dispatch allocation.
+
+    **The full-depletion rule is deliberately not applied to an exact value.**
+    Silently widening the caller's figure to soak up a residual would hide the
+    very disagreement between the allocation and the ledger that §K asks to be
+    reported; `post_stock_entry` refuses that case with a named error instead.
+
     Availability is the caller's business: this is arithmetic, and refusing
     here would put the negative-stock policy in two places.
     """
@@ -274,6 +305,26 @@ def apply_outbound(
         quantize_unit_price(before_value / before_quantity) if before_quantity > ZERO else ZERO
     )
     after_quantity = quantize_quantity(before_quantity - quantity)
+
+    if value_out is not None:
+        exact = quantize_money(value_out)
+        after_value = quantize_money(before_value - exact)
+        after_average = (
+            quantize_unit_price(after_value / after_quantity) if after_quantity > ZERO else ZERO
+        )
+        return ValuationStep(
+            quantity_before=before_quantity,
+            value_before=before_value,
+            average_before=before_average,
+            quantity_delta=-quantity,
+            value_delta=-exact,
+            unit_cost=(
+                quantize_unit_price(exact / quantity) if quantity > ZERO else before_average
+            ),
+            quantity_after=after_quantity,
+            value_after=after_value,
+            average_after=after_average,
+        )
 
     if after_quantity == ZERO:
         value_out = before_value
@@ -392,6 +443,17 @@ def request_fingerprint(
                     str(quantize_unit_price(effect.unit_cost))
                     if effect.unit_cost is not None
                     else None,
+                    # The exact-value overrides are part of what is being
+                    # asked for: two receipts of the same quantity against
+                    # different transfer allocations are different requests,
+                    # and a fingerprint blind to them would call the second a
+                    # retry of the first.
+                    str(quantize_money(effect.inbound_value))
+                    if effect.inbound_value is not None
+                    else None,
+                    str(quantize_money(effect.outbound_value))
+                    if effect.outbound_value is not None
+                    else None,
                 ]
                 for effect in effects
             ],
@@ -488,6 +550,20 @@ def acquire_stock_key_locks(effects: Sequence[MovementInput]) -> None:
         keys.setdefault(key.canonical, key)
     for key in sorted(keys.values(), key=lambda key: key.sort_key):
         _lock_stock_key(key)
+
+
+def acquire_movement_key_locks(movements: Sequence[StockMovement]) -> None:
+    """
+    Take the advisory locks a set of **already posted** movements sits on.
+
+    For a caller reversing more than one entry in one transaction. Each
+    `reverse_stock_entry` sorts its own movements canonically, but two of them
+    called in sequence order their keys by the order the calls are written —
+    which is how one path takes `(A, B)` and another takes `(B, A)`. Taking
+    every key up front puts them all in one canonical order and removes the
+    cycle. Re-entrant, so the per-entry acquisitions afterwards are no-ops.
+    """
+    acquire_stock_key_locks([_effect_of(movement) for movement in movements])
 
 
 def _next_posted_sequence(*, organization: Organization) -> int:
@@ -654,10 +730,21 @@ def _validate_lot_is_not_expired(effect: MovementInput, *, on_date: datetime.dat
     Blocked by default and blocked for everyone in Task 1.2. Writing off
     expired stock is a `WASTE` movement, which says what happened; issuing it
     to a kitchen says something else entirely and would be false.
+
+    **In-transit stock is exempt, and it has to be.** Goods that expire while
+    on the road still have to be got off the road: the receiving branch must
+    be able to take delivery of what physically arrived, and a consignment
+    that never arrives must be closeable as a shortage. Refusing both would
+    strand the value in transit forever with no document able to move it —
+    the rule would stop protecting the kitchen and start trapping the ledger
+    (Task 1.5 §K). What arrives is still expired, and Task 1.6's waste
+    document is what writes it off at the destination.
     """
     if effect.lot is None or effect.movement_type not in OUTBOUND_MOVEMENT_TYPES:
         return
     if effect.movement_type == MovementType.WASTE:
+        return
+    if effect.warehouse.warehouse_type == WarehouseType.IN_TRANSIT:
         return
     if effect.lot.is_expired_on(on_date):
         raise ValidationError(
@@ -1032,8 +1119,11 @@ def post_stock_entry(
                 quantity=quantize_quantity(effect.quantity),
                 before_quantity=position.quantity,
                 before_value=position.value,
+                value_out=effect.outbound_value,
             )
             _require_available(effect=effect, step=step)
+            if effect.outbound_value is not None:
+                _require_exact_outbound_is_supported(effect=effect, position=position, step=step)
 
         sequence = _next_posted_sequence(organization=organization)
         movement = _write_movement(
@@ -1133,6 +1223,89 @@ def _require_available(*, effect: MovementInput, step: ValuationStep) -> None:
                 "requested": str(quantize_quantity(effect.quantity)),
             },
         )
+
+
+def _require_exact_outbound_is_supported(
+    *, effect: MovementInput, position: _Position, step: ValuationStep
+) -> None:
+    """
+    Refuse an exact outbound value the position cannot actually support.
+
+    Three ways it cannot, and none of them may be papered over by falling back
+    to the pooled average — that fallback is precisely what would let a
+    transfer receipt quietly take another transfer's money (ADR-020 §4):
+
+    * the value asked for is not positive, so it is not a value at all;
+    * it exceeds what the position holds, so the ledger cannot fund it;
+    * it empties the quantity without emptying the value, or the reverse,
+      which would leave the position in the incoherent state
+      `_assert_position_is_coherent` refuses to compute against next time.
+
+    Each is a disagreement between a caller's allocation and the ledger, and
+    each is reported as one.
+    """
+    if step.value_after < ZERO:
+        raise ValidationError(
+            _(
+                "%(item)s in %(warehouse)s holds %(available)s; this posting allocates "
+                "%(requested)s out of it."
+            ),
+            code="allocated_value_exceeds_position_value",
+            params={
+                "item": effect.item.code,
+                "warehouse": effect.warehouse.code,
+                "available": str(position.value),
+                "requested": str(quantize_money(-step.value_delta)),
+            },
+        )
+    if step.quantity_after == ZERO and step.value_after != ZERO:
+        raise ValidationError(
+            _(
+                "%(item)s in %(warehouse)s would empty to zero quantity holding "
+                "%(residual)s of value."
+            ),
+            code="allocated_value_leaves_residual_at_zero_quantity",
+            params={
+                "item": effect.item.code,
+                "warehouse": effect.warehouse.code,
+                "residual": str(step.value_after),
+            },
+        )
+    if step.quantity_after > ZERO and step.value_after == ZERO and position.value > ZERO:
+        raise ValidationError(
+            _("%(item)s in %(warehouse)s would keep %(quantity)s at no value at all."),
+            code="allocated_value_strips_remaining_quantity",
+            params={
+                "item": effect.item.code,
+                "warehouse": effect.warehouse.code,
+                "quantity": str(step.quantity_after),
+            },
+        )
+
+
+def link_journal_entry(*, entry: StockLedgerEntry, journal: JournalEntry) -> StockLedgerEntry:
+    """
+    Record which journal this stock posting produced. Once, and never again.
+
+    The link is what makes the §S invariant expressible at the database: an
+    entry that reached the general ledger must have said, for every dinar it
+    moved, which control account moved it. Reconstructing that linkage by
+    walking every kind of document that might reference the entry would need
+    extending on every task that adds one — and would be silently incomplete
+    on the task that forgot.
+
+    The entry immutability trigger allows this single NULL to non-NULL write
+    and nothing else, so it cannot become a back door to editing history.
+    """
+    if entry.journal_entry_id is not None:
+        raise ValidationError(
+            _("Stock posting %(id)s already names a journal."),
+            code="stock_entry_already_journalled",
+            params={"id": entry.pk},
+        )
+    entry.journal_entry = journal
+    entry.save(update_fields=["journal_entry", "updated_at"])
+    return entry
 
 
 def _current_actor() -> User | None:
