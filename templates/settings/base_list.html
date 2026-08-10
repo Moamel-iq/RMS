@@ -1,4 +1,9 @@
-{% extends "shell.html" %}
+{# The base every list screen extends. The parent is a variable so one        #}
+{# template serves both a full page and an htmx partial: shell.html normally, #}
+{# settings/_list_fragment.html when a view answers an HX-Request. Lists      #}
+{# whose view sets neither fall through `default` and render as they always   #}
+{# did. `extends` must be the first tag, so this note leads with comments.    #}
+{% extends list_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
@@ -16,8 +21,20 @@
     {% endblock %}
   </div>
 
+  {# The form still submits normally without JavaScript: method="get" and the #}
+  {# submit button are untouched, and htmx only intercepts once it has loaded.#}
+  {# The hx-* attributes appear solely on lists whose view answers HX-Request #}
+  {# with the partial — swapping a whole page into the table would nest the   #}
+  {# shell inside itself.                                                     #}
   {% block toolbar %}
-    <form class="toolbar" method="get">
+    <form class="toolbar" method="get"
+          {% if htmx_list %}
+          hx-get="{{ request.path }}"
+          hx-target="#list-results"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          hx-trigger="submit, input changed delay:300ms from:find input[type=search], change from:find select"
+          {% endif %}>
       <div class="toolbar__search">
         <input type="search" name="q" value="{{ search|default:'' }}"
                placeholder="{% translate 'بحث' %}" aria-label="{% translate 'بحث' %}">
@@ -27,29 +44,35 @@
     </form>
   {% endblock %}
 
-  <div class="tablewrap">
-    <table class="table">
-      <thead><tr>{% block columns %}{% endblock %}</tr></thead>
-      <tbody>
-        {% block rows %}{% endblock %}
-      </tbody>
-    </table>
-    {% if is_paginated %}
-      <div class="toolbar" style="padding:14px 16px;margin:0">
-        {% if page_obj.has_previous %}
-          <a class="btn btn--ghost" href="?{% if search %}q={{ search }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">
-            {% translate "السابق" %}
-          </a>
-        {% endif %}
-        <span class="muted">
-          {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
-        </span>
-        {% if page_obj.has_next %}
-          <a class="btn btn--ghost" href="?{% if search %}q={{ search }}&amp;{% endif %}page={{ page_obj.next_page_number }}">
-            {% translate "التالي" %}
-          </a>
-        {% endif %}
-      </div>
-    {% endif %}
-  </div>
+  {# `filter_query` carries every filter except the page number, so paging    #}
+  {# keeps the search and the dropdowns. It ends in "&" when it is non-empty. #}
+  {% block results %}
+    <div class="tablewrap" id="list-results">
+      <table class="table">
+        <thead><tr>{% block columns %}{% endblock %}</tr></thead>
+        <tbody>
+          {% block rows %}{% endblock %}
+        </tbody>
+      </table>
+      {% if is_paginated %}
+        <div class="toolbar" style="padding:14px 16px;margin:0">
+          {% if page_obj.has_previous %}
+            <a class="btn btn--ghost" href="?{{ filter_query }}page={{ page_obj.previous_page_number }}"
+               {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.previous_page_number }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true"{% endif %}>
+              {% translate "السابق" %}
+            </a>
+          {% endif %}
+          <span class="muted">
+            {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
+          </span>
+          {% if page_obj.has_next %}
+            <a class="btn btn--ghost" href="?{{ filter_query }}page={{ page_obj.next_page_number }}"
+               {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.next_page_number }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true"{% endif %}>
+              {% translate "التالي" %}
+            </a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  {% endblock %}
 {% endblock %}

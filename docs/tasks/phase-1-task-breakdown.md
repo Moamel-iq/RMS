@@ -346,3 +346,79 @@ value, and nothing in receipts, issues, transfers, counts, or valuation
 depends on them. Building them early adds a dimension to every query and every
 test for no Release 1 benefit, and the warehouse-level ledger has to be right
 first regardless.
+
+
+---
+
+## Task 1.6a — Inventory demo data and the htmx verification pass
+
+A short pass between 1.6 and 1.7, and the origin of a convention rather than a
+feature. Nothing about the application's behaviour changed except one screen
+interaction.
+
+### Why it exists
+
+Nineteen inventory sections were built, tested, and had never rendered a row.
+Tests prove a posting service computes the right numbers; they say nothing
+about whether the Arabic column headers line up, whether a status badge reads
+sensibly, whether the RTL table overflows, or whether a screen is reachable at
+all. Those questions are answered by looking, and looking needs data — which
+before this pass meant an hour of hand-building an organization, a chart of
+accounts, ten mappings, five items and a dozen documents, repeated by every
+person who wanted to see the same screen.
+
+### What it added
+
+- `docs/development/demo-data-policy.md` — the standing convention: every task
+  that ships a user-visible section must also ship demo tooling for it.
+- `apps/inventory/demo.py` and `manage.py seed_inventory_demo` — a
+  `DEMO-INVENTORY-V1` scenario that posts thirty-seven stock movements and
+  twenty-three journals through the real domain services, covering twenty
+  distinct operations: opening stock, fixed / variable / expired-lot receipts,
+  issue, return, reversal, three transfer outcomes, two waste cases, all four
+  count states, all three adjustment kinds, and two drafts.
+- One htmx interaction: inventory list filters and paging swap the results
+  table alone, using the already-vendored htmx.
+
+### The demo scenario is real, and that is the whole point
+
+Every posted event goes through the service the API and the UI call. No
+`StockLedgerEntry.objects.create`, no hand-written `StockBalance`, no assembled
+`JournalEntry`. A directly-written balance would show the screens rendering and
+prove nothing — and it would break the reconciliation screen, which is one of
+the screens under review. `verify_inventory_accounting` returns clean on the
+seeded organization because there is genuinely nothing to reconcile away.
+
+### What the pass found
+
+- **Paging dropped every filter but `q`.** The pagination links carried only
+  the search term, so page two of a filtered list silently became page two of
+  everything while the toolbar still showed the filter. Fixed by encoding the
+  whole query string except `page`.
+- **The demo reset tried to delete reason codes**, and a database trigger
+  refused: a code stays reserved when archived. The trigger was right; the
+  reset now archives. Development tooling does not get an exemption from an
+  invariant.
+- **htmx was loaded on every page and used on one.** Vendored 2.0.4, included
+  once in `base.html`, four `hx-*` attributes in the whole repository — all on
+  the sign-in form. Classification D, partially used. The list interaction is
+  the first use outside authentication.
+
+### Where the namespace lives, and why not in `public_id`
+
+Posted documents derive their own source identity and idempotency key from
+`public_id`, which the services generate. The seed therefore does not mint
+those — it makes the documents *findable* instead, by putting
+`DEMO-INVENTORY-V1/<slug>` in every evidence reference and looking there before
+creating anything. The source identities stay real because the services still
+derive them, and a second run reports only reuse.
+
+### Definition of done
+
+- Every implemented inventory section renders seeded data, proven by a test
+  that names each screen it could not fill.
+- A second run creates no duplicate document, movement or journal.
+- Reconciliation clean on the seeded organization.
+- Demo reset never deletes posted history, and says so honestly when it stops.
+- htmx classification supported by assertions, not by prose.
+- Full suite, ruff, ruff format, mypy clean; no pending migrations.

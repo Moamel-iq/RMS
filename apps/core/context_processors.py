@@ -38,4 +38,24 @@ def shell(request: HttpRequest) -> dict[str, Any]:
         # Evaluated lazily by the template; an unrendered branch picker costs
         # no query.
         "user_branches": accessible_branches(user),
+        "filter_query": _filter_query(request),
     }
+
+
+def _filter_query(request: HttpRequest) -> str:
+    """
+    Every query parameter except the page number, ready to prefix `page=`.
+
+    Here rather than in a list view because it is derived from the request and
+    nothing else, and because `settings/base_list.html` serves the settings,
+    accounting and inventory lists alike. A version that only one of those
+    supplied would silently drop the others' filters the moment somebody paged
+    — which is the bug this replaced: pagination used to carry `q` and nothing
+    else, so page two of a filtered list was page two of everything while the
+    toolbar still showed the filter.
+    """
+    parameters = request.GET.copy()
+    parameters.pop("page", None)
+    parameters.pop("module", None)
+    encoded = parameters.urlencode()
+    return f"{encoded}&" if encoded else ""

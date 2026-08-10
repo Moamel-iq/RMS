@@ -395,3 +395,25 @@ source.
 | INV-218 | Every frozen warehouse has exactly one active owning count | `verify_warehouse_freezes` | `::TestCountStartAndFreeze` | 1.6 | AT-011 | Done |
 | INV-219 | A count line under another count's route is a 404 | `resolve_count_line(count=…)` | `::test_a_line_from_another_count_is_a_404_on_this_route` | 1.6 | AT-008 | Done |
 | INV-220 | Cost fields are omitted, not blanked, without view_valuation | `exclude_unset=True` + conditional payload | `::test_a_storekeeper_sees_no_cost_on_the_review` | 1.6 | AT-008 | Done |
+| INV-221 | Demo data never runs outside DEBUG | `seed_inventory_demo.handle` | `test_demo_seed.py::test_the_command_refuses_to_run_outside_debug` | 1.6a | | Done |
+| INV-222 | Posting demo data needs an explicit --confirm-demo | `seed_inventory_demo.handle` | `::test_without_confirm_demo_master_data_is_seeded_but_nothing_posts` | 1.6a | | Done |
+| INV-223 | An ambiguous selector fails with the valid choices listed | `resolve_user`, `ensure_organization` | `::test_an_ambiguous_user_is_refused_rather_than_guessed` | 1.6a | | Done |
+| INV-224 | A second demo run creates no duplicate document, movement or journal | evidence-reference lookup per step | `::test_a_second_run_creates_nothing` | 1.6a | | Done |
+| INV-225 | Demo balances come from the valuation kernel, not from the seed | every step calls a domain service | `::test_the_planned_balances_are_what_the_kernel_computed` | 1.6a | | Done |
+| INV-226 | Demo data reconciles to the general ledger | `verify_inventory_accounting` | `::test_reconciliation_is_clean` | 1.6a | AT-011 | Done |
+| INV-227 | A demo reset never deletes posted stock or accounting history | `reset_demo` | `::test_reset_removes_drafts_and_keeps_posted_history` | 1.6a | | Done |
+| INV-228 | A demo reset archives reason codes rather than deleting them | `reset_demo` | `::test_reset_archives_reason_codes_rather_than_deleting_them` | 1.6a | | Done |
+| INV-229 | Every implemented inventory section renders seeded data | the demo scenario | `::test_no_implemented_section_renders_empty` | 1.6a | | Done |
+| INV-230 | An HX-Request returns the results partial, never a second page shell | `InventoryListView.is_htmx` | `test_list_htmx.py::test_an_hx_request_returns_only_the_results` | 1.6a | | Done |
+| INV-231 | Authorization is identical on the partial and the full page | shared mixin and selector | `::test_a_user_without_the_permission_is_refused_on_both_paths` | 1.6a | AT-008 | Done |
+| INV-232 | Valuation redaction survives the htmx swap | shared `show_cost` context | `::test_a_caller_without_it_gets_no_cost_column_in_the_partial` | 1.6a | AT-008 | Done |
+| INV-233 | Paging keeps every filter, not just the search term | `InventoryListView.filter_query` | `::test_paging_keeps_the_filter` | 1.6a | | Done |
+| INV-234 | htmx is the vendored pinned version and is loaded exactly once | `base.html` | `::test_the_vendored_file_is_the_pinned_version` | 1.6a | | Done |
+| INV-235 | Expired stock may be received but never issued | `EXPIRED_LOT_REMOVAL_TYPES` | `test_demo_seed.py::test_the_expired_lot_was_received_and_written_off_to_zero` | 1.6a | | Done |
+| INV-236 | Waste clears an expired lot to zero quantity and zero value | full-depletion rule | `::test_the_expired_lot_was_received_and_written_off_to_zero` | 1.6a | AT-002 | Done |
+| INV-237 | All three adjustment kinds are exercised end to end | `post_adjustment` | `::test_all_three_adjustment_kinds_are_represented` | 1.6a | | Done |
+| INV-238 | A value-only adjustment moves value and not quantity | `apply_value_only` | `::test_the_value_only_adjustment_moved_value_and_not_quantity` | 1.6a | AT-002 | Done |
+| INV-239 | All four count states are visible at once | the demo scenario | `::test_the_whole_count_lifecycle_is_visible_at_once` | 1.6a | | Done |
+| INV-240 | A cancelled count releases its freeze and is kept | `cancel_count` | `::test_a_cancelled_count_releases_its_freeze_and_is_kept` | 1.6a | | Done |
+| INV-241 | A submitted count still holds its warehouse freeze | `ACTIVE_COUNT_STATUSES` | `::test_a_submitted_count_still_holds_its_warehouse_freeze` | 1.6a | | Done |
+| INV-242 | The pagination carry is shared by every list family | `apps.core.context_processors._filter_query` | `apps/core/tests/test_list_filter_query.py` | 1.6a | | Done |

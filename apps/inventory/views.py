@@ -306,6 +306,10 @@ class InventoryListView(InventoryViewMixin, _ListView):
             )
         )
 
+    def is_htmx(self) -> bool:
+        """Whether htmx made this request, rather than the browser navigating."""
+        return self.request.headers.get("HX-Request") == "true"
+
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         manageable = self.manageable_ids()
@@ -314,6 +318,15 @@ class InventoryListView(InventoryViewMixin, _ListView):
         context["search"] = self.request.GET.get("q", "")
         context["create_label"] = self.create_label
         context["manageable_ids"] = manageable
+        # `filter_query` comes from `apps.core.context_processors.shell`: it is
+        # derived from the request alone, and every list template needs it.
+        # Filtering and paging swap the results table alone. The flag drives
+        # the hx-* attributes, and it is set only where this view answers an
+        # HX-Request with the partial — see `_list_fragment.html`.
+        context["htmx_list"] = True
+        context["list_base_template"] = (
+            "settings/_list_fragment.html" if self.is_htmx() else "shell.html"
+        )
         # No place to create it means no button. The create view refuses the
         # same request anyway; this only avoids offering a dead end.
         context["create_url"] = (
