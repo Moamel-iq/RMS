@@ -255,6 +255,49 @@ Depends on: 1.4.
 - Conducting and approving a count are different permissions, tested.
 - Reason code mandatory on waste and manual adjustment.
 
+**Implementation notes (2026-08-10):**
+
+- ADR-021 records the durable architecture: one cutoff, one book snapshot,
+  `Warehouse.frozen_by_count` as the single statement that a warehouse is
+  frozen, blind entry by construction, maker-checker in four places, and the
+  gain/loss valuation split.
+- **Three shapes, chosen by what each thing is.** Waste extends
+  `InventoryMovementDocument` — same lifecycle, numbering, source identity,
+  locking, scope and screens, differing in one movement type, one journal side
+  and two per-line fields. The count and the adjustment are their own
+  aggregates: a count is six steps, not one posting, and an adjustment carries
+  lines that go in different directions, which a one-type-per-document model
+  cannot express.
+- **The freeze is one truth with a lock behind it.** Reading
+  `frozen_by_count` is not enough under READ COMMITTED, and the stock keys
+  alone do not close the hole either — a first-ever receipt of an item the
+  warehouse has never held takes a key the count never snapshotted. Every
+  posting takes a shared warehouse freeze lock, sorted by id; the three freeze
+  changes take it exclusively.
+- **Blind means never fetched.** `blind_lines` returns dictionaries that have
+  never held a book quantity, and the counting sheet is its own view with its
+  own template. `view_valuation` makes no difference to it.
+- **The period-close guard mirrors the mapping guard.** Accounting exposes
+  `register_period_close_guard`; inventory registers a veto at app-ready. Both
+  the guard and `start_count` take the period row lock, so a close and a start
+  cannot both commit.
+- **Two kernel gaps closed.** `MovementType.MANUAL_ADJUSTMENT` had no fixed
+  sign and fell through to the outbound branch — right for two of three cases,
+  silently wrong for the third; `MovementInput.direction` now makes the caller
+  say. `apply_value_only` is the third arithmetic primitive, for a revaluation
+  that moves no goods.
+- Only one new permission: `manage_reason_codes`. `post_waste`,
+  `conduct_stock_count`, `approve_stock_count`, `post_adjustment` and
+  `reverse_movement` were approved with Task 1.0 and their role map already
+  said exactly what §N and §X ask for.
+- No new `AccountRole`. `INVENTORY_WASTE_EXPENSE`, `INVENTORY_COUNT_VARIANCE`
+  and `INVENTORY_ADJUSTMENT` all existed; the chart gained their leaves —
+  waste in class 6 where a cost centre is mandatory, the two bidirectional
+  variance accounts in class 7 under "فروقات وتسويات".
+- Cycle and partial counts are deferred to Task 1.7 or later, deliberately:
+  a partial count needs a per-key freeze the ledger can enforce, and offering
+  one before that exists would be offering a freeze that does not hold.
+
 ---
 
 ### Task 1.7 — Locations, import, reports, rebuild tooling, security hardening

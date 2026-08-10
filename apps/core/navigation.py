@@ -194,16 +194,35 @@ MODULES: tuple[Module, ...] = (
                 url_name="inventory:in_transit",
                 available=True,
             ),
-            # Task 1.6 onward — visible so the shape of the module is legible,
+            # Task 1.6 — waste, physical counts, manual adjustments, and the
+            # reason vocabulary all three draw on.
+            Section(
+                label=_("إتلاف مخزني"),
+                url_name="inventory:inventory_waste_list",
+                available=True,
+            ),
+            Section(
+                label=_("الجرد الفعلي"),
+                url_name="inventory:count_list",
+                available=True,
+            ),
+            Section(
+                label=_("التسويات المخزنية"),
+                url_name="inventory:adjustment_list",
+                available=True,
+            ),
+            Section(
+                label=_("أسباب الحركات"),
+                url_name="inventory:reason_code_list",
+                available=True,
+            ),
+            # Task 1.7 onward — visible so the shape of the module is legible,
             # inert because the documents that would fill them do not exist.
             # "المرتجعات" is gone from this list: returns from a prior issue
             # are live above, and supplier returns belong to Procurement,
             # where they reconcile against an invoice and a credit note.
             *_sections(
                 _("مواقع التخزين الداخلية"),
-                _("الهالك والتلف"),
-                _("الجرد"),
-                _("التسويات"),
                 _("تقييم المخزون"),
                 _("حدود إعادة الطلب"),
             ),

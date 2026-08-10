@@ -62,6 +62,7 @@
           <th>#</th>
           <th>{% translate "الصنف" %}</th>
           <th>{% translate "الدفعة" %}</th>
+          {% if is_waste %}<th>{% translate "السبب" %}</th>{% endif %}
           <th>{% translate "الكمية" %}</th>
           <th>{% translate "الوحدة" %}</th>
           {% if show_cost %}
@@ -88,6 +89,14 @@
               {% endif %}
             </td>
             <td>{% if line.lot %}<code>{{ line.lot.code }}</code>{% else %}—{% endif %}</td>
+            {% if is_waste %}
+              <td>
+                <code>{{ line.reason_code.code }}</code> {{ line.reason_code.name_ar }}
+                {% if line.line_comment %}
+                  <br><span class="muted">{{ line.line_comment }}</span>
+                {% endif %}
+              </td>
+            {% endif %}
             {# Technical values: a period, never a locale comma. #}
             <td><code dir="ltr">{{ line.base_quantity|stringformat:"f" }}</code></td>
             <td>{{ line.item.base_unit.code }}</td>

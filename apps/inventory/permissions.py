@@ -1,5 +1,5 @@
 """
-The twenty-two inventory permissions, their scope, and which role holds them.
+The twenty-three inventory permissions, their scope, and which role holds them.
 
 Eighteen were approved with Task 1.0. The nineteenth, `manage_package_units`,
 follows from the amendment that made `PackageUnit` its own model: a model
@@ -12,7 +12,17 @@ and a deployment that trusts one and not the other must be able to say so.
 The twenty-second, `close_transfer_shortage`, comes with Task 1.5 and is the
 most sensitive of the set — it turns stock that has gone missing into an
 expense, which is the one inventory act indistinguishable from concealing a
-theft if the wrong person may perform it.
+theft if the wrong person may perform it. The twenty-third,
+`manage_reason_codes`, arrives with Task 1.6: waste and adjustment reasons are
+organization master data, and whoever can invent a reason can make any loss
+look routine.
+
+Task 1.6 needed **only that one**. `post_waste`, `conduct_stock_count`,
+`approve_stock_count`, `post_adjustment` and `reverse_movement` were all
+approved with Task 1.0 and their role map already says exactly what §N and §X
+ask for — a storekeeper counts but does not approve, an accounting manager
+approves but does not count. Restating them would have been an opportunity to
+get them wrong.
 
 Identical machinery to `apps/accounting/permissions.py`, and deliberately so:
 a permission says *what*, a membership says *where*, and neither alone is
@@ -65,7 +75,7 @@ class PermissionScope(Enum):
     WAREHOUSE = "WAREHOUSE"
 
 
-# --- The twenty -----------------------------------------------------------
+# --- The twenty-three -------------------------------------------------------
 
 VIEW_ITEM = f"{APP_LABEL}.view_item"
 MANAGE_CATEGORIES = f"{APP_LABEL}.manage_categories"
@@ -73,6 +83,7 @@ MANAGE_PACKAGE_UNITS = f"{APP_LABEL}.manage_package_units"
 MANAGE_ITEMS = f"{APP_LABEL}.manage_items"
 MANAGE_CONVERSIONS = f"{APP_LABEL}.manage_conversions"
 MANAGE_WAREHOUSES = f"{APP_LABEL}.manage_warehouses"
+MANAGE_REASON_CODES = f"{APP_LABEL}.manage_reason_codes"
 VIEW_STOCK = f"{APP_LABEL}.view_stock"
 VIEW_VALUATION = f"{APP_LABEL}.view_valuation"
 CREATE_DRAFT_MOVEMENT = f"{APP_LABEL}.create_draft_movement"
@@ -97,6 +108,7 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     MANAGE_ITEMS,
     MANAGE_CONVERSIONS,
     MANAGE_WAREHOUSES,
+    MANAGE_REASON_CODES,
     VIEW_STOCK,
     VIEW_VALUATION,
     CREATE_DRAFT_MOVEMENT,
@@ -125,6 +137,11 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     MANAGE_PACKAGE_UNITS: PermissionScope.ORGANIZATION_MASTER_DATA,
     MANAGE_ITEMS: PermissionScope.ORGANIZATION_MASTER_DATA,
     MANAGE_CONVERSIONS: PermissionScope.ORGANIZATION_MASTER_DATA,
+    # Reason codes are the organization's shared vocabulary for why stock was
+    # destroyed or corrected. One branch inventing its own would make the waste
+    # analysis incomparable across the group, which is the whole reason the
+    # figure is collected.
+    MANAGE_REASON_CODES: PermissionScope.ORGANIZATION_MASTER_DATA,
     # Custody structures and figures belong to the branch.
     MANAGE_WAREHOUSES: PermissionScope.BRANCH,
     VIEW_STOCK: PermissionScope.BRANCH,
@@ -200,6 +217,7 @@ _MANAGER = frozenset(
         MANAGE_ITEMS,
         MANAGE_CONVERSIONS,
         MANAGE_WAREHOUSES,
+        MANAGE_REASON_CODES,
         VIEW_STOCK,
         VIEW_VALUATION,
         CREATE_DRAFT_MOVEMENT,

@@ -82,3 +82,11 @@ documented answers yet:
   received; a receipt is valued from its own dispatch allocation, never
   from the pooled in-transit average; a cross-branch receipt posts two
   coordinated journals so each branch stays balanced on its own books.
+- **Physical count cutoff, warehouse freeze, and count-adjustment
+  valuation** — ADR-021. One cutoff and one book snapshot, fixed when the
+  warehouse freezes; `Warehouse.frozen_by_count` is the only statement that a
+  warehouse is frozen, held by a lock every posting takes; blind entry by
+  construction rather than by hiding columns; maker-checker in four places; a
+  gain into an empty position needs an explicitly approved unit cost, and a
+  confirmed zero is not an omitted one; an active count blocks closing its
+  period.

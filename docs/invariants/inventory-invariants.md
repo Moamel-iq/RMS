@@ -257,3 +257,75 @@ ADR-020 for the reasoning behind each.
   `StockMovement.control_account` is: a posting that never reached the general
   ledger genuinely produced no journal. The invariant is conditional on the
   link existing, which is what makes the bare kernel keep working.
+
+## Task 1.6 — waste, physical counts and manual adjustments
+
+| Invariant | Service | Database |
+|---|---|---|
+| A reason code's code and application never change | `update_reason_code` takes neither | `inventory_reason_code_identity_is_immutable` |
+| An archived code stays reserved forever | archive sets `is_active=False`, never deletes | `inventory_reason_code_unique_per_organization` + delete refused |
+| A waste line names a reason of the right application | `_validate_line_reason_code` | `inventory_document_line_reason_matches_type` |
+| A reason that demands a comment gets one, at post time too | `_require_waste_line_is_complete` | — (a code may gain the requirement after a draft is written) |
+| Waste leaves at the current average, full depletion at zero | `_plan_waste` → `apply_outbound` | `stock_movement_zero_quantity_has_zero_value` |
+| Waste needs a cost centre because its account demands one | `require_cost_center_where_the_account_demands_one` | — (class 6 ⇒ `requires_cost_center`) |
+| Expired lots leave only through waste, count loss or adjustment | `EXPIRED_LOT_REMOVAL_TYPES` | — (ordinary issue still refused for everyone) |
+| A warehouse is frozen **iff** `frozen_by_count` is set | `start_count`, `approve_count`, `cancel_count` | `inventory_warehouse_freeze_owner_is_active` |
+| A count may not finish while it still holds a freeze | release-before-status ordering | `inventory_count_releases_its_freeze` |
+| At most one active count per warehouse | `start_count` re-check under the lock | `stock_count_one_active_per_warehouse` (partial unique) |
+| One count holds at most one warehouse | — | `warehouse_freeze_owner_unique` |
+| The in-transit warehouse is never counted | `_require_warehouse_is_countable` | `warehouse_in_transit_is_never_counted` |
+| A posting cannot interleave with a freeze | `lock_warehouses_shared` / `_exclusive` | — (advisory, sorted by id) |
+| The freeze is read from the database, never from the caller's row | `_require_warehouses_are_not_frozen` | — |
+| The book snapshot never changes after the cutoff | nothing writes it | `inventory_stock_count_line_follows_count` |
+| The cutoff and its business-date snapshot are frozen at start | — | `inventory_stock_count_is_immutable` |
+| A count is numbered from the moment it starts, and only then | `next_document_number` in `start_count` | `stock_count_numbered_iff_started` |
+| Counted figures freeze at submission | `record_counts` status check | `inventory_stock_count_line_follows_count` |
+| A counted quantity is never negative; null means "not yet counted" | `record_counts` | `stock_count_line_counted_not_negative` |
+| An unexpected line has a zero book, not a missing one | `add_unexpected_line` | `stock_count_line_unexpected_has_no_book` |
+| One line per `(count, item, lot)`, NULL-safe | `add_unexpected_line` duplicate check | `stock_count_line_key_unique` (`nulls_distinct=False`) |
+| The counting sheet carries no book quantity at all | `blind_lines` returns dicts that never held one | — (nothing fetched cannot be leaked) |
+| The approver is never the conductor | `approve_count`, command layer | `stock_count_approver_is_not_the_conductor` |
+| The book position at approval equals the snapshot | `_require_snapshot_still_matches` | — (`count_snapshot_mismatch`, no silent post) |
+| A gain into standing stock uses the standing average | `_resolve_variances` | — (position average unchanged) |
+| A gain into an empty position needs an approved unit cost | `_resolve_variances` | — (`approved_unit_cost_required`) |
+| A zero unit cost is confirmed, never inferred | `_apply_approved_costs` | `stock_count_line_zero_cost_flag_matches` |
+| A count posts its variance and unfreezes atomically | one `@transaction.atomic` | — (failure leaves SUBMITTED and frozen) |
+| Count variance is grouped by direction, never netted | `_count_journal_lines` | — |
+| A count that moved no value posts no journal | `_post_count_variance` early return | `stock_count_entries_only_when_posted` |
+| A cancelled count keeps its snapshot and its history | `cancel_count` sets status | `inventory_stock_count_is_immutable` (delete refused) |
+| A cancellation releases exactly its own freeze | ownership re-check under the lock | `inventory_warehouse_freeze_owner_is_active` |
+| Reversal does not re-freeze the warehouse | `reverse_count` | — (a corrected figure needs a new count) |
+| An active count blocks closing its period | `refuse_close_while_a_count_is_active` | — (`active_inventory_count`) |
+| A close and a count start cannot both commit | period row lock in `_period_for(lock=True)` | — |
+| A signless movement type must state its direction | `_validate_direction` | — (`direction_required`) |
+| A signed movement type must not be given one | `_validate_direction` | — (`direction_not_allowed`) |
+| A quantity gain names its cost; nothing else may | `add_adjustment_line` | `inventory_adjustment_line_cost_iff_gain` |
+| A revaluation names its amount; nothing else may | `_validate_value_only` | `inventory_adjustment_line_value_iff_value_only` |
+| A revaluation moves no quantity | `apply_value_only` | `inventory_adjustment_line_quantity_matches_kind` |
+| A revaluation needs standing quantity | `_require_position_can_be_revalued` | — (`value_only_needs_quantity`) |
+| A revaluation cannot drive value below zero | `_require_revaluation_stays_positive` | `stock_balance_value_not_negative` |
+| Reversing a revaluation cannot drive value below zero | `reverse_stock_entry` value check | `stock_balance_value_not_negative` |
+| Posted adjustments and their lines are immutable | status checks | `inventory_adjustment_is_immutable`, `inventory_adjustment_line_follows_document` |
+
+## Deliberate non-invariants, added by Task 1.6
+
+- **A count freezes the whole warehouse, never part of it.** `StockCountScope`
+  has one value. A partial count would need a per-key freeze checked on every
+  posting; offering it before that exists would be offering a freeze that does
+  not hold.
+- **`StockBalance.is_frozen` is not written by counts.** It predates Task 1.6
+  and remains a separate, finer concept. A warehouse-wide freeze is not an
+  item-level one and is not pretended to be.
+- **A count with no variance posts no stock entry and no journal**, so
+  `StockCount.stock_entry` is null on a legitimately completed count. Nothing
+  moved, and an empty posting would make "did this count find anything"
+  unanswerable from the ledger.
+- **A confirmed-zero gain posts stock and no journal.** Quantity moved and
+  money did not; there is genuinely nothing for the general ledger to record.
+- **Expired stock may arrive and may sit on the shelf.** Receipt records what
+  physically happened; removal is a separate authorized act. Nothing writes it
+  off automatically.
+- **`owned_freezes` lets one caller post into a frozen warehouse** — the count
+  approval that must post the variance into the warehouse it froze. It is not
+  a permission, no UI exposes it, and `apps.inventory.counts` is its only
+  caller.

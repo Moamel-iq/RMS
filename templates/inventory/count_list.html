@@ -1,0 +1,56 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# Counts, with the freeze state on every row: a frozen warehouse accepts no #}
+{# posting at all, so whoever is looking for one needs to see it here.       #}
+
+{% block columns %}
+  <th>{% translate "الرقم" %}</th>
+  <th>{% translate "المخزن" %}</th>
+  <th>{% translate "يوم العمل" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "التجميد" %}</th>
+  <th>{% translate "العادّ" %}</th>
+  <th>{% translate "المعتمِد" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for count in counts %}
+    <tr>
+      <td>
+        <a href="{% url 'inventory:count_detail' count.pk %}">
+          {% if count.count_number %}
+            <code dir="ltr">{{ count.count_number }}</code>
+          {% else %}
+            <code dir="ltr">{{ count.public_id|truncatechars:13 }}</code>
+          {% endif %}
+        </a>
+      </td>
+      <td>
+        <code>{{ count.warehouse.code }}</code>
+        <span class="muted">{{ count.branch.code }}</span>
+      </td>
+      <td>
+        {% if count.business_date %}
+          {{ count.business_date|date:"Y-m-d" }}
+        {% else %}
+          <span class="muted">{% translate "لم يبدأ" %}</span>
+        {% endif %}
+      </td>
+      <td>{{ count.get_status_display }}</td>
+      <td>
+        {% if count.is_active %}
+          <strong>{% translate "المخزن مجمّد" %}</strong>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+      <td>{{ count.conducted_by|default:"—" }}</td>
+      <td>{{ count.approved_by|default:"—" }}</td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="7">{% translate "لا عمليات جرد بعد." %}</td>
+    </tr>
+  {% endfor %}
+{% endblock %}

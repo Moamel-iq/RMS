@@ -25,12 +25,17 @@ from django.db.models import QuerySet, Sum
 from apps.accounting.models import Account, JournalLine
 from apps.core.money import quantize_money
 from apps.inventory.models import (
+    ACTIVE_COUNT_STATUSES,
     OPEN_TRANSFER_STATUSES,
+    AdjustmentLineKind,
+    InventoryAdjustmentDocument,
     InventoryDocumentStatus,
     InventoryMovementDocument,
     OpeningStockDocument,
     OpeningStockStatus,
     StockBalance,
+    StockCount,
+    StockCountStatus,
     StockMovement,
     StockTransfer,
     StockTransferLine,
@@ -701,16 +706,262 @@ def verify_transfer_shortage(shortage: StockTransferShortage) -> list[Discrepanc
     return problems
 
 
+# ---------------------------------------------------------------------------
+# Task 1.6 — counts, adjustments, and the freeze
+# ---------------------------------------------------------------------------
+#
+# Waste needs no comparison of its own: it posts through
+# `InventoryMovementDocument`, so `verify_operational_document` already covers
+# it line for line. That is one of the arguments for having put it there.
+#
+# Three new comparisons, each catching something the others cannot.
+#
+#   Count      book + posted variance == counted, per line; and the document's
+#              own totals against its movements and its journal. Catches a
+#              variance that stopped agreeing with the snapshot it came from.
+#   Adjustment the signed line values against the signed movement values and
+#              against the journal. Catches a value-only revaluation that
+#              posted a different amount from the one authorized.
+#   Freeze     every frozen warehouse has exactly one active owning count, and
+#              every active count owns its warehouse. Catches a warehouse shut
+#              by nothing, which is invisible until somebody tries to post.
+
+
+def verify_stock_count(count: StockCount) -> list[Discrepancy]:
+    """
+    One posted count, from three directions:
+
+        book quantity + posted variance == counted quantity   (per line)
+        sum of line variance values     == sum of movement values
+        sum of movement values          == the journal's inventory side
+
+    The per-line identity is the one that matters most. It is the whole claim a
+    count makes — "the books said this, we found that, and here is the
+    difference" — and if it fails, the variance posted to the ledger is not the
+    variance anybody counted.
+    """
+    if count.status not in (StockCountStatus.POSTED, StockCountStatus.REVERSED):
+        return []
+    label = count.count_number or str(count.public_id)
+    problems: list[Discrepancy] = []
+
+    lines = list(count.lines.select_related("movement", "item"))
+    for line in lines:
+        counted = line.counted_quantity
+        if counted is None:  # pragma: no cover - submission demands one
+            continue
+        posted = line.movement.base_quantity if line.movement is not None else ZERO
+        if line.book_quantity + posted != counted:
+            problems.append(
+                Discrepancy(
+                    scope=f"{label}#{line.sequence}",
+                    field="book_plus_variance",
+                    expected=counted,
+                    actual=line.book_quantity + posted,
+                )
+            )
+        # The retained variance figure against the movement that carried it.
+        stored_value = line.variance_value or ZERO
+        movement_value = line.movement.inventory_value if line.movement is not None else ZERO
+        if stored_value != movement_value:
+            problems.append(
+                Discrepancy(
+                    scope=f"{label}#{line.sequence}",
+                    field="variance_value",
+                    expected=stored_value,
+                    actual=movement_value,
+                )
+            )
+
+    if count.stock_entry is None:
+        # A count that found nothing posts nothing. Then every line must agree
+        # with its own book, or something moved that no movement records.
+        for line in lines:
+            if line.variance_quantity not in (None, ZERO):
+                problems.append(
+                    Discrepancy(
+                        scope=f"{label}#{line.sequence}",
+                        field="unposted_variance",
+                        expected=ZERO,
+                        actual=line.variance_quantity,
+                    )
+                )
+        return problems
+
+    movements = list(count.stock_entry.movements.all())
+    line_total = sum((line.variance_value or ZERO for line in lines), ZERO)
+    movement_total = sum((movement.inventory_value for movement in movements), ZERO)
+    if line_total != movement_total:
+        problems.append(
+            Discrepancy(
+                scope=label, field="movement_total", expected=line_total, actual=movement_total
+            )
+        )
+
+    if count.journal_entry is not None:
+        journal_lines = list(count.journal_entry.lines.all())
+        debits = sum((row.debit for row in journal_lines), ZERO)
+        credits = sum((row.credit for row in journal_lines), ZERO)
+        if debits != credits:  # pragma: no cover - the journal kernel refuses it
+            problems.append(
+                Discrepancy(scope=label, field="journal_balance", expected=debits, actual=credits)
+            )
+        # Gains debit inventory and losses credit it, so the journal's gross
+        # movement is the sum of the absolute variances, never their net.
+        gross = sum((abs(movement.inventory_value) for movement in movements), ZERO)
+        if debits != gross:
+            problems.append(
+                Discrepancy(scope=label, field="journal_gross", expected=gross, actual=debits)
+            )
+    elif movement_total != ZERO or any(movement.inventory_value != ZERO for movement in movements):
+        problems.append(
+            Discrepancy(
+                scope=label,
+                field="journal_missing",
+                expected="a journal for a count that moved value",
+                actual="none",
+            )
+        )
+    return problems
+
+
+def verify_adjustment(document: InventoryAdjustmentDocument) -> list[Discrepancy]:
+    """
+    One posted manual adjustment:
+
+        stored signed line value == its movement's signed value
+        sum of positive values   == the journal's inventory debits
+        sum of negative values   == the journal's inventory credits
+
+    Signed throughout, because one adjustment may legitimately write one item
+    up and another down, and an unsigned comparison would call that pair
+    correct whichever way round the two amounts had gone.
+    """
+    if document.status not in (
+        InventoryDocumentStatus.POSTED,
+        InventoryDocumentStatus.REVERSED,
+    ):
+        return []
+    label = document.document_number or str(document.public_id)
+    problems: list[Discrepancy] = []
+
+    lines = list(document.lines.select_related("movement"))
+    for line in lines:
+        stored = line.total_value or ZERO
+        actual = line.movement.inventory_value if line.movement is not None else ZERO
+        if stored != actual:
+            problems.append(
+                Discrepancy(
+                    scope=f"{label}#{line.sequence}",
+                    field="line_vs_movement",
+                    expected=stored,
+                    actual=actual,
+                )
+            )
+        if line.kind == AdjustmentLineKind.VALUE_ONLY:
+            if line.movement is not None and line.movement.base_quantity != ZERO:
+                problems.append(
+                    Discrepancy(
+                        scope=f"{label}#{line.sequence}",
+                        field="value_only_moved_quantity",
+                        expected=ZERO,
+                        actual=line.movement.base_quantity,
+                    )
+                )
+            if stored != (line.value_adjustment or ZERO):
+                problems.append(
+                    Discrepancy(
+                        scope=f"{label}#{line.sequence}",
+                        field="authorized_revaluation",
+                        expected=line.value_adjustment or ZERO,
+                        actual=stored,
+                    )
+                )
+
+    if document.journal_entry is None:  # pragma: no cover - POSTED always links one
+        return problems
+    increases = sum(
+        (line.total_value or ZERO for line in lines if (line.total_value or ZERO) > ZERO), ZERO
+    )
+    decreases = sum(
+        (abs(line.total_value or ZERO) for line in lines if (line.total_value or ZERO) < ZERO), ZERO
+    )
+    journal_lines = list(document.journal_entry.lines.all())
+    debits = sum((row.debit for row in journal_lines), ZERO)
+    if debits != increases + decreases:
+        problems.append(
+            Discrepancy(
+                scope=label,
+                field="journal_gross",
+                expected=increases + decreases,
+                actual=debits,
+            )
+        )
+    return problems
+
+
+def verify_warehouse_freezes(organization: Organization) -> list[Discrepancy]:
+    """
+    The freeze and its owner, checked from both ends.
+
+    A warehouse frozen by a finished count is shut with nothing left that can
+    open it; an active count whose warehouse is open has a snapshot that
+    anything may have moved under. Triggers refuse both, so a failure here
+    means the triggers were bypassed — which is exactly the thing worth
+    reporting rather than repairing.
+    """
+    problems: list[Discrepancy] = []
+    for warehouse in Warehouse.objects.filter(
+        branch__organization=organization, frozen_by_count__isnull=False
+    ).select_related("frozen_by_count"):
+        owner = warehouse.frozen_by_count
+        assert owner is not None  # noqa: S101 - filtered above
+        if owner.status not in ACTIVE_COUNT_STATUSES:
+            problems.append(
+                Discrepancy(
+                    scope=warehouse.code,
+                    field="freeze_owner_status",
+                    expected="IN_PROGRESS or SUBMITTED",
+                    actual=owner.status,
+                )
+            )
+        if owner.warehouse_id != warehouse.pk:
+            problems.append(
+                Discrepancy(
+                    scope=warehouse.code,
+                    field="freeze_owner_warehouse",
+                    expected=warehouse.pk,
+                    actual=owner.warehouse_id,
+                )
+            )
+
+    for count in StockCount.objects.filter(
+        organization=organization, status__in=sorted(ACTIVE_COUNT_STATUSES)
+    ).select_related("warehouse"):
+        if count.warehouse.frozen_by_count_id != count.pk:
+            problems.append(
+                Discrepancy(
+                    scope=count.count_number or str(count.public_id),
+                    field="count_owns_no_freeze",
+                    expected=count.pk,
+                    actual=count.warehouse.frozen_by_count_id or "none",
+                )
+            )
+    return problems
+
+
 def verify_inventory_accounting(organization: Organization) -> list[str]:
     """
     The full reconciliation for one organization, as report lines.
 
-    Eight comparisons: every posted opening against its own effects, every
+    Eleven comparisons: every posted opening against its own effects, every
     posted operational document against its own effects, every dispatched
     transfer against its posted children, every posted receipt and closure
     against their own effects, the in-transit ledger against the transfers
     that claim it, the balance projection against the ledger replay, and the
-    inventory book value against the general ledger.
+    inventory book value against the general ledger, every posted count
+    against its own snapshot, every posted adjustment against its own
+    movements, and every warehouse freeze against the count that owns it.
 
     Read-only throughout, and **no repair mode anywhere**. A projection that
     can be quietly corrected proves nothing, because the correction erases the
@@ -740,6 +991,17 @@ def verify_inventory_accounting(organization: Organization) -> list[str]:
     ):
         lines.extend(str(problem) for problem in verify_transfer_shortage(shortage))
     lines.extend(str(problem) for problem in verify_in_transit(organization))
+    for count in StockCount.objects.filter(
+        organization=organization,
+        status__in=[StockCountStatus.POSTED, StockCountStatus.REVERSED],
+    ):
+        lines.extend(str(problem) for problem in verify_stock_count(count))
+    for adjustment in InventoryAdjustmentDocument.objects.filter(
+        organization=organization,
+        status__in=[InventoryDocumentStatus.POSTED, InventoryDocumentStatus.REVERSED],
+    ):
+        lines.extend(str(problem) for problem in verify_adjustment(adjustment))
+    lines.extend(str(problem) for problem in verify_warehouse_freezes(organization))
     lines.extend(str(mismatch) for mismatch in verify_organization(organization))
     lines.extend(str(problem) for problem in verify_inventory_against_gl(organization))
     return lines

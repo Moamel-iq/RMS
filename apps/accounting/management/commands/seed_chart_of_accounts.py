@@ -96,11 +96,28 @@ CHART: list[tuple[str, str, str]] = [
     ("6-02", "خسائر تشغيلية", "Operating losses"),
     ("6-02-01", "خسائر المخزون", "Inventory losses"),
     ("6-02-01-001", "عجز التحويلات", "Transfer Shortage Loss"),
+    # Stock destroyed in a warehouse (Task 1.6). An operating expense and never
+    # a cost of sales: spoiled food was not sold, and burying it in food cost
+    # would flatter the gross margin by exactly the amount that was thrown
+    # away. Class 6 makes a cost centre mandatory, which is the control — waste
+    # nobody's kitchen carries is waste nobody reduces.
+    ("6-02-01-002", "هالك المخزون", "Inventory Waste Expense"),
     # 7 Other income and expense
     ("7", "إيرادات ومصروفات أخرى", "Other income and expense"),
     ("7-09", "فروقات وتسويات", "Differences and adjustments"),
     ("7-09-01", "تقريب النقد", "Cash rounding"),
     ("7-09-01-001", "أرباح وخسائر تقريب النقد", "Cash Rounding Gain/Loss"),
+    # The two **bidirectional** inventory difference accounts (Task 1.6). Each
+    # takes a debit when the books were too high and a credit when they were
+    # too low, so neither is an expense account in the ordinary sense and
+    # neither belongs in class 6: a count that finds more rice than expected is
+    # not negative spending. One account per direction was considered and
+    # rejected — the pair would have to be netted in every report that asks the
+    # only interesting question, which is what the variance came to.
+    ("7-09-02", "فروقات الجرد", "Count variance"),
+    ("7-09-02-001", "فروقات الجرد", "Inventory Count Variance"),
+    ("7-09-03", "تسويات المخزون", "Inventory adjustments"),
+    ("7-09-03-001", "تسويات المخزون", "Inventory Adjustment"),
     # 8 Clearing and control
     ("8", "حسابات وسيطة ورقابية", "Clearing and control"),
     ("8-01", "حسابات وسيطة", "Clearing accounts"),

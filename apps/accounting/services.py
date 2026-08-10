@@ -193,6 +193,38 @@ def resolve_period(
     return period
 
 
+#: A guard vetoes closing a period. It takes the period about to close and the
+#: state it would move to, and raises if its domain has unfinished work that
+#: the close would make impossible to finish.
+#:
+#: The same shape and the same reason as `MappingGuard`: accounting owns the
+#: period lifecycle and must not learn what a stock count is, while inventory
+#: must not reach into the period state machine. A registry inverts the
+#: dependency so neither imports the other (ADR-019).
+PeriodCloseGuard = Callable[[AccountingPeriod, str], None]
+
+_PERIOD_CLOSE_GUARDS: list[PeriodCloseGuard] = []
+
+
+def register_period_close_guard(guard: PeriodCloseGuard) -> None:
+    """Register a domain veto over closing a period."""
+    if guard not in _PERIOD_CLOSE_GUARDS:
+        _PERIOD_CLOSE_GUARDS.append(guard)
+
+
+def _run_period_close_guards(period: AccountingPeriod, new_state: str) -> None:
+    """
+    Ask every domain whether this period may close.
+
+    Run **inside the transaction and under the period's row lock**, so a domain
+    that starts blocking work concurrently either commits before the guard
+    reads it — and is seen — or waits behind this close and finds the period
+    already shut.
+    """
+    for guard in _PERIOD_CLOSE_GUARDS:
+        guard(period, new_state)
+
+
 def _change_period_state(
     *, period: AccountingPeriod, new_state: str, action: str, reason: str
 ) -> AccountingPeriod:
@@ -200,6 +232,8 @@ def _change_period_state(
         # Locked: two concurrent closes, or a close racing a posting, must not
         # interleave into a state nobody chose.
         locked = AccountingPeriod.objects.select_for_update().get(pk=period.pk)
+        if new_state in (PeriodState.SOFT_CLOSED, PeriodState.CLOSED):
+            _run_period_close_guards(locked, new_state)
         before = snapshot(locked)
         locked.state = new_state
         locked.full_clean()

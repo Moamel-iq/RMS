@@ -352,3 +352,46 @@ source.
 | INV-175 | Transfer subledger and in-transit ledger both reconcile | `verify_transfer`, `verify_in_transit` | `test_transfers.py::TestReads` | 1.5 | AT-011 | Done |
 | INV-176 | A receipt id under another transfer's route is a 404 | `resolve_receipt(transfer=…)` | `::test_a_receipt_id_under_another_transfer_is_a_404` | 1.5 | AT-008 | Done |
 | INV-177 | Transfer cost fields are omitted without view_valuation | `_serialize_transfer` | `test_transfer_api_and_screens.py::test_cost_is_omitted_without_view_valuation` | 1.5 | AT-008 | Done |
+| INV-178 | A reason code's code and application are immutable once created | `inventory_reason_code_identity_is_immutable` | `test_waste_counts_adjustments.py::test_the_code_and_its_application_are_immutable_at_the_database` | 1.6 | | Done |
+| INV-179 | An archived reason code stays reserved forever | unique per organization, never deleted | `::test_an_archived_code_stays_reserved` | 1.6 | | Done |
+| INV-180 | A waste line names a reason code of the right application | `_validate_line_reason_code` + trigger | `::test_a_count_reason_cannot_be_used_on_a_waste_line` | 1.6 | | Done |
+| INV-181 | Waste leaves at the current average, full depletion exact at zero | `_plan_waste` | `::test_the_last_waste_out_takes_the_entire_remaining_value` | 1.6 | AT-002 | Done |
+| INV-182 | Waste requires the cost centre its class-6 account demands | `require_cost_center_where_the_account_demands_one` | `::test_waste_needs_a_cost_centre_because_its_account_demands_one` | 1.6 | AT-005 | Done |
+| INV-183 | Expired lots leave only through waste, count loss or adjustment | `EXPIRED_LOT_REMOVAL_TYPES` | `::test_an_expired_lot_may_be_wasted_but_never_issued` | 1.6 | | Done |
+| INV-184 | A warehouse is frozen iff `frozen_by_count` names an active count | `inventory_warehouse_freeze_owner_is_active` | `::test_a_frozen_warehouse_names_an_active_count_at_the_database` | 1.6 | | Done |
+| INV-185 | A count may not finish while it still holds a warehouse frozen | `inventory_count_releases_its_freeze` | `test_count_concurrency.py::TestApprovalRaces` | 1.6 | | Done |
+| INV-186 | A frozen warehouse refuses every posting | `_require_warehouses_are_not_frozen` | `::test_a_frozen_warehouse_refuses_every_posting` | 1.6 | | Done |
+| INV-187 | At most one active count per warehouse | `stock_count_one_active_per_warehouse` | `::test_two_counts_race_and_exactly_one_starts` | 1.6 | | Done |
+| INV-188 | The in-transit warehouse can never be counted | `_require_warehouse_is_countable` + check constraint | `::test_the_in_transit_warehouse_cannot_be_counted` | 1.6 | | Done |
+| INV-189 | A posting and a freeze can never interleave | `lock_warehouses_shared` / `_exclusive` | `::test_an_issue_either_lands_in_the_snapshot_or_is_refused` | 1.6 | | Done |
+| INV-190 | No transfer receipt lands outside the count snapshot | warehouse freeze lock | `::test_no_transfer_receipt_lands_outside_the_snapshot` | 1.6 | | Done |
+| INV-191 | The book snapshot is immutable from the cutoff | `inventory_stock_count_line_follows_count` | `::test_the_book_snapshot_is_immutable` | 1.6 | | Done |
+| INV-192 | The cutoff and its business-date snapshot are frozen at start | `inventory_stock_count_is_immutable` | `::test_the_cutoff_is_immutable` | 1.6 | AT-004 | Done |
+| INV-193 | Counted figures freeze at submission | line trigger + status check | `::test_submission_computes_the_variance_and_freezes_the_figures` | 1.6 | | Done |
+| INV-194 | The counting sheet carries no book quantity, in JSON or HTML | `blind_lines` | `test_count_api_and_screens.py::TestBlindCountEndpoint` | 1.6 | AT-008 | Done |
+| INV-195 | The sheet stays blind for a caller holding view_valuation | `blind_count_sheet` | `::test_the_sheet_is_blind_even_with_view_valuation` | 1.6 | AT-008 | Done |
+| INV-196 | The approver is never the conductor | service, API and check constraint | `::test_maker_checker_is_a_database_constraint_too` | 1.6 | AT-003 | Done |
+| INV-197 | A direct POST cannot bypass maker-checker | `approve_count` | `::test_the_conductor_cannot_approve_their_own_count_by_direct_post` | 1.6 | AT-008 | Done |
+| INV-198 | The book position at approval must equal the snapshot | `_require_snapshot_still_matches` | `::test_a_changed_book_position_refuses_to_post` | 1.6 | | Done |
+| INV-199 | A gain into standing stock uses the standing average | `_resolve_variances` | `::test_a_gain_into_standing_stock_uses_the_standing_average` | 1.6 | AT-002 | Done |
+| INV-200 | A zero-book gain requires an explicitly approved unit cost | `_resolve_variances` | `::test_a_zero_book_gain_needs_an_approved_unit_cost` | 1.6 | AT-002 | Done |
+| INV-201 | An omitted cost and a confirmed zero are different answers | `_apply_approved_costs` | `::test_an_omitted_cost_and_a_confirmed_zero_are_different_answers` | 1.6 | | Done |
+| INV-202 | A count loss takes the exact remaining value at zero | kernel full-depletion rule | `::test_a_full_loss_takes_the_exact_remaining_value` | 1.6 | AT-002 | Done |
+| INV-203 | A missing mapping rolls back stock, journal, status and freeze | one transaction | `::test_a_missing_mapping_rolls_back_stock_journal_status_and_freeze` | 1.6 | AT-011 | Done |
+| INV-204 | Cancelling unfreezes and keeps the whole history | `cancel_count` | `::test_cancelling_unfreezes_and_keeps_the_history` | 1.6 | | Done |
+| INV-205 | A posted count reverses exactly and does not re-freeze | `reverse_count` | `::test_a_posted_count_reverses_exactly_and_does_not_refreeze` | 1.6 | | Done |
+| INV-206 | Reversing a gain whose stock was consumed is refused | availability in `reverse_stock_entry` | `::test_reversing_a_gain_whose_stock_was_consumed_is_refused` | 1.6 | | Done |
+| INV-207 | An active count blocks soft-close and close of its period | `refuse_close_while_a_count_is_active` | `::test_an_active_count_blocks_closing_its_period` | 1.6 | AT-004 | Done |
+| INV-208 | A period close and a count start cannot both commit | period row lock | `test_count_concurrency.py::TestPeriodCloseRace` | 1.6 | | Done |
+| INV-209 | A signless movement type must state its direction | `_validate_direction` | `test_ledger.py` + adjustment tests | 1.6 | | Done |
+| INV-210 | A quantity gain needs an explicit unit cost | `_validate_gain_cost` | `::test_a_quantity_gain_needs_an_explicit_unit_cost` | 1.6 | | Done |
+| INV-211 | A value-only revaluation moves no quantity | `apply_value_only` | `::test_a_value_only_write_up_moves_no_quantity` | 1.6 | AT-002 | Done |
+| INV-212 | A revaluation against zero quantity is refused | `_require_position_can_be_revalued` | `::test_a_value_only_line_against_no_quantity_is_refused` | 1.6 | | Done |
+| INV-213 | A revaluation cannot drive inventory value below zero | `_require_revaluation_stays_positive` | `::test_a_write_down_below_zero_is_refused` | 1.6 | | Done |
+| INV-214 | Posted adjustments and their lines are immutable | `inventory_adjustment_is_immutable` | `::test_a_posted_adjustment_is_immutable_at_the_database` | 1.6 | | Done |
+| INV-215 | Two adjustments on one key serialise deterministically | canonical stock-key locks | `test_count_concurrency.py::TestAdjustmentRaces` | 1.6 | | Done |
+| INV-216 | Opposite-order multi-item postings never deadlock | canonical stock-key locks | `::test_opposite_order_multi_item_postings_do_not_deadlock` | 1.6 | | Done |
+| INV-217 | Waste, count and adjustment all reconcile to their own effects | `verify_stock_count`, `verify_adjustment` | `test_waste_counts_adjustments.py` + `verify_inventory_accounting` | 1.6 | AT-011 | Done |
+| INV-218 | Every frozen warehouse has exactly one active owning count | `verify_warehouse_freezes` | `::TestCountStartAndFreeze` | 1.6 | AT-011 | Done |
+| INV-219 | A count line under another count's route is a 404 | `resolve_count_line(count=…)` | `::test_a_line_from_another_count_is_a_404_on_this_route` | 1.6 | AT-008 | Done |
+| INV-220 | Cost fields are omitted, not blanked, without view_valuation | `exclude_unset=True` + conditional payload | `::test_a_storekeeper_sees_no_cost_on_the_review` | 1.6 | AT-008 | Done |

@@ -24,11 +24,11 @@ class TestSeed:
         # branches (eight accounts), plus Task 1.4's goods-received-not-invoiced
         # liability and the three consumption leaves with their parents (six),
         # plus Task 1.5's transfer-shortage loss leaf with its parents (three).
-        assert Account.objects.filter(organization=organization).count() == 63
+        assert Account.objects.filter(organization=organization).count() == 68
 
     def test_the_seed_is_idempotent(self, organization: Organization, chart: None) -> None:
         call_command("seed_chart_of_accounts", organization="KM", verbosity=0)
-        assert Account.objects.filter(organization=organization).count() == 63
+        assert Account.objects.filter(organization=organization).count() == 68
 
     def test_the_cash_rounding_account_exists_though_the_policy_is_off(
         self, organization: Organization, chart: None

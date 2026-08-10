@@ -32,9 +32,25 @@ make a suite pass.
 | Every line amount is strictly positive | `validate_line_sides` | `test_every_line_amount_must_be_positive` |
 | Closing is chronological: Jan → Feb → Mar | `_validate_close_order` | `TestPeriodOrdering` |
 | Reopening is reverse-chronological: Mar → Feb → Jan | `_validate_reopen_order` | `test_a_period_cannot_reopen_while_a_later_one_is_closed` |
+| A domain may veto a close it would strand work inside | `_run_period_close_guards` | `test_waste_counts_adjustments.py::test_an_active_count_blocks_closing_its_period` |
 | Fiscal-year closure is **derived**, never stored | `FiscalYear.is_closed` property | `TestFiscalYearClosureIsDerived` |
 | A second reversal reports `already_reversed`, not `not_posted` | `reverse_entry` checks the relationship first | `TestReversalErrorAccuracy` |
 | The deferred balance trigger fires at a real COMMIT | `test_commit_boundary.py` (`transaction=True`) | `test_an_unbalancing_line_is_refused_at_commit` |
+
+**Closing a period asks the domains first (Task 1.6).** `register_period_close_guard`
+is the same shape as `register_mapping_guard`, and exists for the same reason:
+accounting owns the period lifecycle and must not learn what a stock count is,
+while inventory must not reach into the period state machine. Inventory
+registers one veto at app-ready — a period whose dates cover an active physical
+count refuses to soft-close or close with `active_inventory_count`, because a
+count that freezes a warehouse on the 30th and finds the month shut on the 1st
+can neither post nor usefully be cancelled.
+
+The guards run **inside the transaction, under the period's row lock**, and
+`apps.inventory.counts.start_count` takes that same row lock before checking
+the period. Without that pairing both can commit: neither transaction sees the
+other's uncommitted work under READ COMMITTED, so the close finds no active
+count and the count finds an open period. See ADR-021 §10.
 
 **Hierarchy exclusivity is structural first.** Only a four-segment detail code
 is postable, and no valid code extends one, so a postable account cannot

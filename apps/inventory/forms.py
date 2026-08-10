@@ -32,27 +32,35 @@ from django.utils.translation import gettext_lazy as _
 from apps.accounting.models import Account, AccountRole, CostCenter
 from apps.inventory.models import (
     MAX_CATEGORY_DEPTH,
+    AdjustmentLineKind,
     ConversionType,
     InventoryItem,
     InventoryMovementDocumentLine,
+    InventoryReasonCode,
     ItemCategory,
     ItemPackageConversion,
     ItemType,
     PackageUnit,
+    ReasonCodeApplication,
     StockTransferLine,
     Warehouse,
     WarehouseType,
 )
 from apps.inventory.permissions import (
+    APPROVE_STOCK_COUNT,
     CLOSE_TRANSFER_SHORTAGE,
+    CONDUCT_STOCK_COUNT,
     CREATE_DRAFT_MOVEMENT,
     CREATE_OPENING_STOCK,
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
     MANAGE_ITEMS,
     MANAGE_PACKAGE_UNITS,
+    MANAGE_REASON_CODES,
     MANAGE_WAREHOUSES,
+    POST_ADJUSTMENT,
 )
+from apps.inventory.reason_codes import selectable_reason_codes
 from apps.inventory.selectors import (
     visible_categories,
     visible_items,
@@ -771,10 +779,19 @@ class OperationalDocumentForm(ScopedForm):
         )
         from apps.inventory.models import InventoryDocumentType
 
-        if document_type == InventoryDocumentType.ISSUE:
+        if document_type in (InventoryDocumentType.ISSUE, InventoryDocumentType.WASTE):
             self.fields["cost_center"].queryset = CostCenter.objects.filter(  # type: ignore[attr-defined]
                 organization_id=branch.organization_id, is_active=True
             ).order_by("code")
+            if document_type == InventoryDocumentType.WASTE:
+                # Mandatory in practice, because the seeded waste account is a
+                # class-6 operating expense. Marked required here so the screen
+                # says so before the posting does.
+                self.fields["cost_center"].required = True
+                self.fields["cost_center"].label = _("مركز الكلفة المسؤول")
+                self.fields["cost_center"].help_text = _(
+                    "القسم الذي يتحمّل الهالك. مطلوب: خسارة لا يتحمّلها أحد لا يحقّق فيها أحد."
+                )
         else:
             # Not merely hidden: removed, so a hand-made POST cannot set one
             # on a document type the service would refuse it for.
@@ -847,6 +864,18 @@ class OperationalLineForm(ScopedForm):
         required=False,
         help_text=_("الصرف الذي تعود منه البضاعة."),
     )
+    reason_code = forms.ModelChoiceField(
+        queryset=InventoryReasonCode.objects.none(),
+        label=_("سبب الإتلاف"),
+        required=False,
+        help_text=_("من قائمة أسباب المنظمة. مطلوب لكل سطر إتلاف."),
+    )
+    line_comment = forms.CharField(
+        label=_("ملاحظة السطر"),
+        max_length=200,
+        required=False,
+        help_text=_("مطلوبة إن كان السبب يقتضيها."),
+    )
 
     def __init__(
         self,
@@ -882,6 +911,19 @@ class OperationalLineForm(ScopedForm):
             del self.fields["source_issue_line"]
         else:
             del self.fields["unit_cost"]
+
+        # The reason code belongs to a waste note and to nothing else. Removed
+        # rather than merely optional elsewhere: a field on the screen is an
+        # invitation to fill it in, and nothing would read the answer.
+        if document.document_type == InventoryDocumentType.WASTE:
+            self.fields["reason_code"].queryset = selectable_reason_codes(  # type: ignore[attr-defined]
+                organization=document.organization,
+                applies_to=ReasonCodeApplication.WASTE,
+            )
+            self.fields["reason_code"].required = True
+        else:
+            del self.fields["reason_code"]
+            del self.fields["line_comment"]
 
         if document.document_type == InventoryDocumentType.RETURN_IN:
             sources = returnable_issue_lines(actor).filter(
@@ -1190,3 +1232,288 @@ class TransferShortageForm(ScopedForm):
         if django_timezone.is_naive(value):
             value = django_timezone.make_aware(value)
         return value
+
+
+# ---------------------------------------------------------------------------
+# Reason codes, counts and adjustments (Task 1.6)
+# ---------------------------------------------------------------------------
+
+
+class ReasonCodeForm(ScopedForm):
+    """
+    Create or amend one reason code.
+
+    On an existing code, `code` and `applies_to` are **disabled**, not merely
+    ignored: a disabled field takes its value from `initial`, so a hand-made
+    POST cannot smuggle a new one past the form — and the database trigger
+    refuses it again behind that.
+    """
+
+    scope_permission = MANAGE_REASON_CODES
+
+    organization = forms.ModelChoiceField(queryset=Organization.objects.none(), label=_("المؤسسة"))
+    code = forms.CharField(
+        label=_("الرمز"),
+        max_length=32,
+        help_text=_("حروف إنجليزية كبيرة وأرقام. يُوحَّد تلقائياً ولا يتغيّر بعد الإنشاء."),
+    )
+    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
+    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200, required=False)
+    applies_to = forms.ChoiceField(
+        choices=ReasonCodeApplication.choices,
+        label=_("مجال الاستخدام"),
+        help_text=_("لا يتغيّر بعد الإنشاء: تغييره يعيد تفسير كل مستند رُحّل به."),
+    )
+    requires_comment = forms.BooleanField(label=_("يستلزم ملاحظة"), required=False)
+    requires_evidence = forms.BooleanField(label=_("يستلزم إثباتاً"), required=False)
+    is_active = forms.BooleanField(label=_("فعّال"), required=False, initial=True)
+
+    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.instance = instance
+        if instance is None:
+            self.fields["organization"].queryset = self.organization_choices()  # type: ignore[attr-defined]
+        else:
+            self.fields["code"].disabled = True
+            self.fields["applies_to"].disabled = True
+            self.fields["organization"].disabled = True
+            self.fields["organization"].queryset = Organization.objects.filter(  # type: ignore[attr-defined]
+                pk=instance.organization_id
+            )
+
+    def clean_name_en(self) -> str:
+        return str(self.cleaned_data.get("name_en") or "")
+
+
+class StockCountForm(ScopedForm):
+    """
+    The header of a count, before anything is frozen.
+
+    No cutoff field: the cutoff is the moment the warehouse is actually
+    frozen, and letting somebody type one would let a count claim to have
+    photographed a position at a time it did not.
+    """
+
+    scope_permission = CONDUCT_STOCK_COUNT
+
+    warehouse = forms.ModelChoiceField(queryset=Warehouse.objects.none(), label=_("المخزن"))
+    reference = forms.CharField(
+        label=_("مرجع الإثبات"),
+        max_length=200,
+        required=False,
+        help_text=_("رقم كشف الجرد الورقي إن وُجد."),
+    )
+    reason = forms.CharField(label=_("سبب الجرد"), required=False, widget=forms.Textarea)
+    cost_center = forms.ModelChoiceField(
+        queryset=CostCenter.objects.none(),
+        label=_("مركز الكلفة"),
+        required=False,
+        help_text=_("لفروقات الجرد. مطلوب إذا كان حساب الفروقات يستلزمه."),
+    )
+
+    def __init__(self, *args: Any, actor: User, branch: Branch, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.organizations.authorization import accessible_warehouses
+
+        self.branch = branch
+        self.fields["warehouse"].queryset = (  # type: ignore[attr-defined]
+            accessible_warehouses(actor).filter(branch=branch, is_system=False).order_by("code")
+        )
+        self.fields["cost_center"].queryset = CostCenter.objects.filter(  # type: ignore[attr-defined]
+            organization_id=branch.organization_id, is_active=True
+        ).order_by("code")
+
+    def clean_reason(self) -> str:
+        return str(self.cleaned_data.get("reason") or "")
+
+
+class UnexpectedCountLineForm(ScopedForm):
+    """
+    Stock found on a shelf the books say is empty.
+
+    Quantity only. There is deliberately **no cost field**: what it is worth is
+    a cost decision, and the person holding the counting sheet is the one
+    person who must not make it (§O).
+    """
+
+    scope_permission = CONDUCT_STOCK_COUNT
+
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    lot_code = forms.CharField(label=_("رمز الدفعة"), max_length=64, required=False)
+    lot_expiry = forms.DateField(
+        label=_("تاريخ انتهاء الدفعة"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    base_quantity = forms.CharField(
+        label=_("الكمية بوحدة الأساس"),
+        help_text=_("نقطة عشرية، لا فاصلة."),
+    )
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, count: Any, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.count = count
+        self.fields["item"].queryset = (  # type: ignore[attr-defined]
+            visible_items(actor)
+            .filter(organization_id=count.organization_id, is_active=True)
+            .order_by("code")
+        )
+
+    def clean_base_quantity(self) -> Decimal | None:
+        return _decimal_field(self, self.cleaned_data.get("base_quantity", ""), "base_quantity")
+
+
+class ApprovedCostForm(ScopedForm):
+    """One approver's answer for a gain the books cannot price."""
+
+    scope_permission = APPROVE_STOCK_COUNT
+
+    unit_cost = forms.CharField(label=_("كلفة الوحدة المعتمدة"), help_text=_("نقطة عشرية."))
+    zero_confirmed = forms.BooleanField(
+        label=_("أؤكّد أن الكلفة صفر"),
+        required=False,
+        help_text=_("مطلوب لقبول الصفر: الحقل الفارغ ليس صفراً."),
+    )
+
+    def clean_unit_cost(self) -> Decimal | None:
+        return _decimal_field(self, self.cleaned_data.get("unit_cost", ""), "unit_cost")
+
+
+class AdjustmentForm(ScopedForm):
+    """The header of a manual adjustment. Reason and evidence are mandatory."""
+
+    scope_permission = POST_ADJUSTMENT
+
+    warehouse = forms.ModelChoiceField(queryset=Warehouse.objects.none(), label=_("المخزن"))
+    effective_at = forms.DateTimeField(
+        label=_("لحظة التسوية"),
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+    )
+    evidence_reference = forms.CharField(
+        label=_("مرجع الإثبات"),
+        max_length=200,
+        help_text=_("المذكّرة أو القرار الذي تستند إليه التسوية."),
+    )
+    reason = forms.CharField(
+        label=_("سبب التسوية"),
+        widget=forms.Textarea,
+        help_text=_("التسوية تصحّح دفاتر خاطئة. ليست بديلاً عن استلام أو صرف أو تحويل أو جرد."),
+    )
+    cost_center = forms.ModelChoiceField(
+        queryset=CostCenter.objects.none(),
+        label=_("مركز الكلفة"),
+        required=False,
+        help_text=_("مطلوب إذا كان حساب التسويات يستلزمه."),
+    )
+
+    def __init__(self, *args: Any, actor: User, branch: Branch, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.organizations.authorization import accessible_warehouses
+
+        self.branch = branch
+        self.fields["warehouse"].queryset = (  # type: ignore[attr-defined]
+            accessible_warehouses(actor).filter(branch=branch, is_system=False).order_by("code")
+        )
+        self.fields["cost_center"].queryset = CostCenter.objects.filter(  # type: ignore[attr-defined]
+            organization_id=branch.organization_id, is_active=True
+        ).order_by("code")
+
+    def clean_effective_at(self) -> datetime.datetime:
+        from django.utils import timezone as django_timezone
+
+        value: datetime.datetime = self.cleaned_data["effective_at"]
+        if django_timezone.is_naive(value):
+            value = django_timezone.make_aware(value)
+        return value
+
+
+class AdjustmentLineForm(ScopedForm):
+    """
+    One corrected position.
+
+    All three kinds share one form because which fields matter depends on the
+    kind the operator picks, and the service refuses every wrong combination by
+    name. Splitting it into three would mean three screens that each look like
+    the whole feature.
+    """
+
+    scope_permission = POST_ADJUSTMENT
+
+    kind = forms.ChoiceField(choices=AdjustmentLineKind.choices, label=_("نوع التسوية"))
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    lot_code = forms.CharField(label=_("رمز الدفعة"), max_length=64, required=False)
+    lot_expiry = forms.DateField(
+        label=_("تاريخ انتهاء الدفعة"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    base_quantity = forms.CharField(
+        label=_("الكمية بوحدة الأساس"),
+        required=False,
+        help_text=_("للزيادة والنقص. اتركها فارغة لإعادة التقييم بالقيمة."),
+    )
+    unit_cost = forms.CharField(
+        label=_("كلفة الوحدة"),
+        required=False,
+        help_text=_("للزيادة فقط، ومطلوبة: لا يوجد متوسط تستعيره بضاعة لا تعرفها الدفاتر."),
+    )
+    zero_cost_confirmed = forms.BooleanField(label=_("أؤكّد أن الكلفة صفر"), required=False)
+    value_adjustment = forms.CharField(
+        label=_("قيمة التعديل"),
+        required=False,
+        help_text=_("لإعادة التقييم فقط. موجبة ترفع القيمة، سالبة تخفضها."),
+    )
+    reason_code = forms.ModelChoiceField(
+        queryset=InventoryReasonCode.objects.none(), label=_("سبب التسوية")
+    )
+    line_comment = forms.CharField(label=_("ملاحظة السطر"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, document: Any, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.document = document
+        self.fields["item"].queryset = (  # type: ignore[attr-defined]
+            visible_items(actor)
+            .filter(organization_id=document.organization_id, is_active=True)
+            .order_by("code")
+        )
+        self.fields["reason_code"].queryset = selectable_reason_codes(  # type: ignore[attr-defined]
+            organization=document.organization,
+            applies_to=ReasonCodeApplication.MANUAL_ADJUSTMENT,
+        )
+
+    def clean_base_quantity(self) -> Decimal | None:
+        return _decimal_field(self, self.cleaned_data.get("base_quantity", ""), "base_quantity")
+
+    def clean_unit_cost(self) -> Decimal | None:
+        return _decimal_field(self, self.cleaned_data.get("unit_cost", ""), "unit_cost")
+
+    def clean_value_adjustment(self) -> Decimal | None:
+        return _decimal_field(
+            self, self.cleaned_data.get("value_adjustment", ""), "value_adjustment"
+        )
+
+
+def _decimal_field(form: forms.Form, raw: str, field: str) -> Decimal | None:
+    """
+    Parse a technical decimal, refusing the locale comma.
+
+    Under Arabic, Django renders `1500.5` as `1500,5`; re-entering that comma
+    is ambiguous, so it is rejected with an explanation rather than guessed at
+    (CLAUDE.md, on locale-independent technical values).
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if "," in text:
+        form.add_error(field, _("استخدم النقطة العشرية لا الفاصلة."))
+        return None
+    try:
+        value = Decimal(text)
+    except ArithmeticError, InvalidOperation, ValueError:
+        form.add_error(field, _("قيمة عشرية غير صالحة."))
+        return None
+    if not value.is_finite():
+        form.add_error(field, _("قيمة عشرية غير صالحة."))
+        return None
+    return value

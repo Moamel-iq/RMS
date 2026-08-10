@@ -1,0 +1,43 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# Manual adjustments. The hint on this list says plainly what they are not, #}
+{# because the commonest failure of a feature like this is being used as a   #}
+{# shortcut for the document that should have been raised.                   #}
+
+{% block columns %}
+  <th>{% translate "الرقم" %}</th>
+  <th>{% translate "المخزن" %}</th>
+  <th>{% translate "يوم العمل" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "السبب" %}</th>
+  <th>{% translate "المُرحِّل" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for adjustment in adjustments %}
+    <tr>
+      <td>
+        <a href="{% url 'inventory:adjustment_detail' adjustment.pk %}">
+          {% if adjustment.document_number %}
+            <code dir="ltr">{{ adjustment.document_number }}</code>
+          {% else %}
+            <code dir="ltr">{{ adjustment.public_id|truncatechars:13 }}</code>
+          {% endif %}
+        </a>
+      </td>
+      <td>
+        <code>{{ adjustment.warehouse.code }}</code>
+        <span class="muted">{{ adjustment.branch.code }}</span>
+      </td>
+      <td>{{ adjustment.business_date|date:"Y-m-d" }}</td>
+      <td>{{ adjustment.get_status_display }}</td>
+      <td>{{ adjustment.reason|truncatechars:60 }}</td>
+      <td>{{ adjustment.posted_by|default:"—" }}</td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="6">{% translate "لا تسويات. وهذا هو الوضع الطبيعي." %}</td>
+    </tr>
+  {% endfor %}
+{% endblock %}

@@ -188,6 +188,13 @@ _OPERATIONAL_SCREENS = (
         _("بضاعة غير مستهلكة تعود للمخزن بكلفة الصرف الأصلي. ليست عكس قيد."),
         _("إرجاع جديد"),
     ),
+    (
+        "waste",
+        InventoryDocumentType.WASTE,
+        _("إتلاف مخزني"),
+        _("بضاعة تالفة تُشطب من العهدة بسبب مُسجَّل ومركز كلفة. ليست صرفاً للاستهلاك."),
+        _("إتلاف جديد"),
+    ),
 )
 
 for _path, _type, _title, _hint, _create_label in _OPERATIONAL_SCREENS:
@@ -307,4 +314,80 @@ urlpatterns += [
         name="transfer_shortage_reverse",
     ),
     path("in-transit/", views.InTransitView.as_view(), name="in_transit"),
+]
+
+# --- reason codes, counts and adjustments (Task 1.6) ------------------------
+
+urlpatterns += [
+    path("reason-codes/", views.ReasonCodeListView.as_view(), name="reason_code_list"),
+    path("reason-codes/new/", views.ReasonCodeCreateView.as_view(), name="reason_code_create"),
+    path(
+        "reason-codes/<int:pk>/edit/",
+        views.ReasonCodeUpdateView.as_view(),
+        name="reason_code_update",
+    ),
+    path("counts/", views.StockCountListView.as_view(), name="count_list"),
+    path("counts/new/", views.StockCountCreateView.as_view(), name="count_create"),
+    path("counts/<int:pk>/", views.StockCountDetailView.as_view(), name="count_detail"),
+    # The blind sheet is its own route with its own view and its own template.
+    # Sharing the detail view and hiding columns would mean the book quantity
+    # was fetched and merely not printed — which is not blind.
+    path("counts/<int:pk>/sheet/", views.BlindCountView.as_view(), name="count_sheet"),
+    path(
+        "counts/<int:pk>/unexpected/",
+        views.UnexpectedCountLineView.as_view(),
+        name="count_unexpected",
+    ),
+    path(
+        "counts/<int:pk>/start/",
+        views.StockCountActionView.as_view(action="start"),
+        name="count_start",
+    ),
+    path(
+        "counts/<int:pk>/submit/",
+        views.StockCountActionView.as_view(action="submit"),
+        name="count_submit",
+    ),
+    path(
+        "counts/<int:pk>/approve/",
+        views.StockCountActionView.as_view(action="approve"),
+        name="count_approve",
+    ),
+    path(
+        "counts/<int:pk>/cancel/",
+        views.StockCountActionView.as_view(action="cancel"),
+        name="count_cancel",
+    ),
+    path(
+        "counts/<int:pk>/reverse/",
+        views.StockCountActionView.as_view(action="reverse"),
+        name="count_reverse",
+    ),
+    path(
+        "counts/<int:pk>/delete/",
+        views.StockCountActionView.as_view(action="delete"),
+        name="count_delete",
+    ),
+    path("adjustments/", views.AdjustmentListView.as_view(), name="adjustment_list"),
+    path("adjustments/new/", views.AdjustmentCreateView.as_view(), name="adjustment_create"),
+    path(
+        "adjustments/<int:pk>/",
+        views.AdjustmentDetailView.as_view(),
+        name="adjustment_detail",
+    ),
+    path(
+        "adjustments/<int:pk>/post/",
+        views.AdjustmentActionView.as_view(action="post"),
+        name="adjustment_post",
+    ),
+    path(
+        "adjustments/<int:pk>/reverse/",
+        views.AdjustmentActionView.as_view(action="reverse"),
+        name="adjustment_reverse",
+    ),
+    path(
+        "adjustments/<int:pk>/delete/",
+        views.AdjustmentActionView.as_view(action="delete"),
+        name="adjustment_delete",
+    ),
 ]

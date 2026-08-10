@@ -60,3 +60,57 @@ def lock_account_mappings_exclusive(organization_id: int) -> None:
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
             [_mapping_key(organization_id)],
         )
+
+
+def _warehouse_key(warehouse_id: int) -> str:
+    return f"warehouse-freeze:{warehouse_id}"
+
+
+def lock_warehouses_shared(warehouse_ids: list[int]) -> None:
+    """
+    Hold each warehouse's freeze lock in **shared** mode, in canonical order.
+
+    Taken by every posting, above the stock keys, and it is what makes the
+    physical-count freeze actually hold (Task 1.6 §I).
+
+    Reading `Warehouse.frozen_by_count` without it is not enough. Under READ
+    COMMITTED a posting cannot see an uncommitted freeze, so a count could
+    photograph a warehouse while a posting that will land in it is already in
+    flight — and the snapshot would be wrong about a warehouse nobody had
+    written to yet. Worse, the *stock keys* alone cannot close that hole: a
+    first-ever receipt of an item the warehouse has never held takes a key the
+    count never snapshotted, precisely because there was nothing there to
+    snapshot.
+
+    Shared, so postings never serialise against each other — only against the
+    rare freeze, which takes the exclusive form.
+
+    **Sorted, and that is not optional.** A transfer touches two warehouses,
+    and two transfers running in opposite directions would take the same two
+    locks in opposite order and deadlock — the same defect the stock keys are
+    sorted to avoid, one level up.
+    """
+    _lock_warehouses(warehouse_ids, "pg_advisory_xact_lock_shared")
+
+
+def lock_warehouses_exclusive(warehouse_ids: list[int]) -> None:
+    """
+    Hold each warehouse's freeze lock **exclusively**, in canonical order.
+
+    Taken by the three operations that change whether a warehouse is frozen:
+    starting a count, cancelling one, and posting one. It waits for every
+    in-flight posting into those warehouses to commit and blocks the next, so
+    the freeze flag and the postings that must respect it can never interleave.
+    """
+    _lock_warehouses(warehouse_ids, "pg_advisory_xact_lock")
+
+
+def _lock_warehouses(warehouse_ids: list[int], function: str) -> None:
+    if not warehouse_ids:
+        return
+    with connection.cursor() as cursor:
+        for warehouse_id in sorted(set(warehouse_ids)):
+            cursor.execute(
+                f"SELECT {function}(hashtextextended(%s, 0))",  # noqa: S608 - fixed literals
+                [_warehouse_key(warehouse_id)],
+            )

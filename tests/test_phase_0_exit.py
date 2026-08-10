@@ -125,7 +125,7 @@ class TestTheFoundationsCooperate:
         # opening-equity branches (1-03…, 3-02…), plus Task 1.4's GRNI
         # liability and consumption leaves (2-01-02…, 5-01-02…), plus
         # Task 1.5's transfer-shortage loss branch (6-02…).
-        assert Account.objects.filter(organization=organization).count() == 63
+        assert Account.objects.filter(organization=organization).count() == 68
         assert CostCenter.objects.filter(organization=organization).count() == 6
         assert AccountingPeriod.objects.filter(fiscal_year__organization=organization).count() == 12
 

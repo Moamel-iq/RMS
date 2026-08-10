@@ -36,16 +36,20 @@ one period.
 
 ## Locking
 
-Four things are serialised, and they are taken in a fixed order (ADR-019 §6,
-extended by ADR-020 §11):
+Five things are serialised, and they are taken in a fixed order (ADR-019 §6,
+extended by ADR-020 §11 and ADR-021 §7):
 
 1. the source document rows, by the caller above this kernel — parent
    aggregate before child event, where there is one;
-2. the organization's account-mapping lock, in **shared** mode — many
+2. the **warehouse freeze locks**, in shared mode, sorted by id — a physical
+   count takes them exclusively while it photographs a warehouse, so a posting
+   and a freeze can never interleave. Sorted because a transfer holds two, and
+   two transfers in opposite directions would otherwise deadlock;
+3. the organization's account-mapping lock, in **shared** mode — many
    postings may hold it at once, and a mapping mutation takes the exclusive
    form, so no posting can resolve an account while it is being re-homed;
-3. the stock keys the posting touches, sorted canonically;
-4. then the organization's posted-order counter.
+4. the stock keys the posting touches, sorted canonically;
+5. then the organization's posted-order counter.
 
 Always that order. A transaction holding a key and waiting for the counter,
 against one holding the counter and waiting for that key, is a deadlock — and
@@ -54,7 +58,7 @@ produces. The mapping lock sits above the keys for the same reason: a mutation
 that took keys first and then asked for the mapping would invert the order
 against every posting.
 
-Step 3 is per *event*, not per call. A caller that posts two entries in one
+Step 4 is per *event*, not per call. A caller that posts two entries in one
 transaction — a transfer receipt releases from in-transit and lands at the
 destination — takes every key up front through `acquire_stock_key_locks`, so
 the two are ordered canonically against each other rather than by the order
@@ -76,6 +80,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
@@ -85,7 +90,7 @@ from django.utils.translation import gettext_lazy as _
 
 from apps.accounting.models import Account, JournalEntry, PeriodState, SourceEvent
 from apps.accounting.services import resolve_period
-from apps.core.locks import lock_account_mappings_shared
+from apps.core.locks import lock_account_mappings_shared, lock_warehouses_shared
 from apps.core.models import AuditAction
 from apps.core.money import MONEY_PLACES, quantize_money, quantize_unit_price
 from apps.core.quantity import quantize_quantity
@@ -93,7 +98,7 @@ from apps.core.services import record_audit_event, snapshot
 from apps.core.source_identity import canonical_source_identity
 from apps.inventory.models import (
     INBOUND_MOVEMENT_TYPES,
-    OUTBOUND_MOVEMENT_TYPES,
+    SIGNLESS_MOVEMENT_TYPES,
     InventoryItem,
     InventoryLot,
     ItemPackageConversion,
@@ -118,6 +123,18 @@ if TYPE_CHECKING:
 ZERO_MONEY = Decimal(0).scaleb(-MONEY_PLACES)
 ZERO = Decimal("0")
 
+#: Outbound types that may take an expired lot off the shelf, because getting
+#: it off the shelf is what they are for (Task 1.6 §F). Ordinary issue is
+#: deliberately absent and stays absent.
+EXPIRED_LOT_REMOVAL_TYPES = frozenset(
+    {
+        MovementType.WASTE,
+        MovementType.COUNT_LOSS,
+        MovementType.MANUAL_ADJUSTMENT,
+        MovementType.TRANSFER_SHORTAGE,
+    }
+)
+
 #: The costing method this kernel implements. Named on every allocation that
 #: is ever written, so a later strategy cannot be mistaken for this one.
 MOVING_WEIGHTED_AVERAGE = "MOVING_WEIGHTED_AVERAGE"
@@ -126,6 +143,23 @@ MOVING_WEIGHTED_AVERAGE = "MOVING_WEIGHTED_AVERAGE"
 # ---------------------------------------------------------------------------
 # Inputs
 # ---------------------------------------------------------------------------
+
+
+class EffectDirection(Enum):
+    """
+    Which way a **signless** movement type pushes the position.
+
+    Only ever supplied for a type in `SIGNLESS_MOVEMENT_TYPES`. Offering it on
+    a receipt or an issue would let a caller drive stock out through the
+    receipt path and past the availability check, which is precisely what
+    deriving the sign from the type prevents.
+    """
+
+    IN = "IN"
+    OUT = "OUT"
+    #: Revalue a position without moving any goods. Quantity is zero — the one
+    #: case where a zero quantity is meaningful rather than a mistake.
+    VALUE_ONLY = "VALUE_ONLY"
 
 
 @dataclass(frozen=True)
@@ -137,6 +171,9 @@ class MovementInput:
     `movement_type`, which is a closed set with a fixed sign. A caller that
     could pass a negative receipt would be able to issue stock through the
     receipt path and bypass the availability check.
+
+    The exception is a type that has no fixed sign, where `direction` is
+    required and says which way it goes; see `SIGNLESS_MOVEMENT_TYPES`.
     """
 
     warehouse: Warehouse
@@ -163,6 +200,12 @@ class MovementInput:
     #: — see `apply_outbound`. A transfer receipt takes the value its own
     #: dispatch allocated, not the pooled in-transit average (ADR-020 §4).
     outbound_value: Decimal | None = None
+    #: Required for a signless movement type, refused for every other. See
+    #: `EffectDirection`.
+    direction: EffectDirection | None = None
+    #: The signed amount a `VALUE_ONLY` effect moves. Positive writes the
+    #: position up. Meaningless — and refused — in any other direction.
+    value_adjustment: Decimal | None = None
 
 
 @dataclass
@@ -351,6 +394,54 @@ def apply_outbound(
     )
 
 
+def apply_value_only(
+    *,
+    value_adjustment: Decimal,
+    before_quantity: Decimal,
+    before_value: Decimal,
+) -> ValuationStep:
+    """
+    Restate what a position is worth without touching what is on the shelf.
+
+        new_value   = old_value + adjustment
+        new_average = quantize_unit_price(new_value / quantity)
+
+    The quantity is untouched, so the average moves by exactly the adjustment
+    spread over the goods that are there — which is the whole point: a
+    revaluation says the stock was always worth this, not that more of it
+    arrived.
+
+    Two refusals live in `post_stock_entry` rather than here, because both are
+    policy about a position rather than arithmetic: a revaluation against zero
+    quantity (`value_only_needs_quantity`) and one that would drive the value
+    below zero (`value_only_would_go_negative`). This function is pure so it
+    can be property-tested without a database, and a pure function that also
+    enforced policy would put that policy in two places.
+
+    `unit_cost` on the resulting step is the **new average**, not the
+    adjustment per unit. The movement's unit cost has always meant "what one
+    base unit was worth in this movement", and after a revaluation that is what
+    a unit is now worth.
+    """
+    after_value = quantize_money(before_value + value_adjustment)
+    after_average = (
+        quantize_unit_price(after_value / before_quantity) if before_quantity > ZERO else ZERO
+    )
+    return ValuationStep(
+        quantity_before=before_quantity,
+        value_before=before_value,
+        average_before=(
+            quantize_unit_price(before_value / before_quantity) if before_quantity > ZERO else ZERO
+        ),
+        quantity_delta=ZERO,
+        value_delta=quantize_money(value_adjustment),
+        unit_cost=after_average,
+        quantity_after=before_quantity,
+        value_after=after_value,
+        average_after=after_average,
+    )
+
+
 def apply_reversal(
     *,
     quantity_delta: Decimal,
@@ -453,6 +544,14 @@ def request_fingerprint(
                     else None,
                     str(quantize_money(effect.outbound_value))
                     if effect.outbound_value is not None
+                    else None,
+                    # Direction and revaluation amount, for the same reason: a
+                    # gain and a loss of the same quantity are opposite
+                    # requests, and a write-up and a write-down of the same
+                    # magnitude differ only in a sign the hash must see.
+                    effect.direction.value if effect.direction is not None else None,
+                    str(quantize_money(effect.value_adjustment))
+                    if effect.value_adjustment is not None
                     else None,
                 ]
                 for effect in effects
@@ -658,7 +757,13 @@ def _validate_effect(effect: MovementInput, *, organization: Organization) -> No
             code="warehouse_inactive",
             params={"code": effect.warehouse.code},
         )
-    if effect.quantity <= ZERO:
+    if effect.direction is EffectDirection.VALUE_ONLY:
+        if effect.quantity != ZERO:
+            raise ValidationError(
+                _("A value-only effect moves no goods, so its quantity must be zero."),
+                code="value_only_carries_quantity",
+            )
+    elif effect.quantity <= ZERO:
         raise ValidationError(
             _("A movement quantity must be greater than zero; the type carries the direction."),
             code="quantity_not_positive",
@@ -677,15 +782,60 @@ def _validate_effect(effect: MovementInput, *, organization: Organization) -> No
     if not effect.effect_key.strip():
         raise ValidationError(_("Every effect needs an effect key."), code="effect_key_required")
 
+    _validate_direction(effect)
     _validate_lot(effect)
 
-    if effect.movement_type in INBOUND_MOVEMENT_TYPES:
+    if _direction_of(effect) is EffectDirection.IN:
         if effect.unit_cost is None:
             raise ValidationError(
                 _("An inbound movement needs a unit cost."), code="unit_cost_required"
             )
         if effect.unit_cost < ZERO:
             raise ValidationError(_("A unit cost cannot be negative."), code="unit_cost_negative")
+
+
+def _validate_direction(effect: MovementInput) -> None:
+    """
+    A signless type must state its direction; every other type must not.
+
+    Both halves matter. Without the first, `MANUAL_ADJUSTMENT` falls through to
+    whichever branch happens to be last and a gain silently posts as a loss.
+    Without the second, a caller could label a `RECEIPT` as `OUT` and take
+    stock off the shelf through a path that never checks availability.
+    """
+    signless = effect.movement_type in SIGNLESS_MOVEMENT_TYPES
+    if signless and effect.direction is None:
+        raise ValidationError(
+            _("%(type)s carries no direction of its own, so the effect must state one."),
+            code="direction_required",
+            params={"type": effect.movement_type},
+        )
+    if not signless and effect.direction is not None:
+        raise ValidationError(
+            _("%(type)s already carries its own direction and must not be given another."),
+            code="direction_not_allowed",
+            params={"type": effect.movement_type},
+        )
+    if effect.direction is EffectDirection.VALUE_ONLY:
+        if effect.value_adjustment is None or effect.value_adjustment == ZERO:
+            raise ValidationError(
+                _("A value-only effect needs a non-zero signed value adjustment."),
+                code="value_adjustment_required",
+            )
+    elif effect.value_adjustment is not None:
+        raise ValidationError(
+            _("A value adjustment belongs only to a value-only effect."),
+            code="value_adjustment_not_allowed",
+        )
+
+
+def _direction_of(effect: MovementInput) -> EffectDirection:
+    """The one place the sign of an effect is decided."""
+    if effect.direction is not None:
+        return effect.direction
+    if effect.movement_type in INBOUND_MOVEMENT_TYPES:
+        return EffectDirection.IN
+    return EffectDirection.OUT
 
 
 def _validate_lot(effect: MovementInput) -> None:
@@ -737,12 +887,23 @@ def _validate_lot_is_not_expired(effect: MovementInput, *, on_date: datetime.dat
     that never arrives must be closeable as a shortage. Refusing both would
     strand the value in transit forever with no document able to move it —
     the rule would stop protecting the kitchen and start trapping the ledger
-    (Task 1.5 §K). What arrives is still expired, and Task 1.6's waste
-    document is what writes it off at the destination.
+    (Task 1.5 §K). What arrives is still expired, and the waste document is
+    what writes it off at the destination.
+
+    **The three removal routes are exempt too** (Task 1.6 §F): waste, a count
+    that finds the expired goods gone, and an authorized negative adjustment.
+    Every one of them is a correction or a disposal that *says so* on the
+    record. The rule exists to stop expired food reaching a kitchen through an
+    ISSUE, and an exemption for the documents whose whole purpose is to get it
+    out of the building costs that nothing. Refusing them instead would leave
+    expired stock permanently on the books, which is the outcome the rule was
+    written to avoid.
     """
-    if effect.lot is None or effect.movement_type not in OUTBOUND_MOVEMENT_TYPES:
+    if effect.lot is None:
         return
-    if effect.movement_type == MovementType.WASTE:
+    if _direction_of(effect) is not EffectDirection.OUT:
+        return
+    if effect.movement_type in EXPIRED_LOT_REMOVAL_TYPES:
         return
     if effect.warehouse.warehouse_type == WarehouseType.IN_TRANSIT:
         return
@@ -824,8 +985,16 @@ def _control_account_for(effect: MovementInput, position: _Position) -> Account 
     An **outbound** leaves through the account it entered — never a fresh
     resolution. This is what stops an ISSUE crediting stock to an account it
     was never in (§D).
+
+    A **value-only** revaluation follows the outbound rule: it restates money
+    already sitting in an account, so that account is the only possible answer.
+
+    Keyed on the resolved direction rather than on the movement type, so a
+    signless type reaches the right branch — a manual adjustment that adds
+    goods is an inbound and must face the reclassification refusal like any
+    other.
     """
-    if effect.movement_type in INBOUND_MOVEMENT_TYPES:
+    if _direction_of(effect) is EffectDirection.IN:
         if position.quantity > ZERO and position.control_account is not None:
             if (
                 effect.control_account is not None
@@ -958,6 +1127,7 @@ def post_stock_entry(
     source_event: str = "",
     reference: str = "",
     reason: str = "",
+    owned_freezes: Sequence[int] = (),
 ) -> StockLedgerEntry:
     """
     Post a set of stock effects. The only way stock moves.
@@ -986,6 +1156,15 @@ def post_stock_entry(
     pass their **stored snapshot**, so a later change to the branch's cutoff
     cannot move a posted document between periods; the kernel derives it from
     the effects' own branches only when nobody above it has committed to one.
+
+    `owned_freezes` names warehouse ids whose **physical-count freeze this
+    transaction itself holds**. It exists for exactly one caller: the count
+    approval that must post its own variance into the warehouse it froze, and
+    would otherwise be refused by its own freeze. Passing it without holding
+    the exclusive freeze lock and being the count that took it is a way to post
+    into somebody else's count, so it is not a general escape hatch and there
+    is deliberately no permission that grants it — `apps.inventory.counts` is
+    the only caller, and a test holds that line.
     """
     if not effects:
         raise ValidationError(_("A stock posting needs at least one effect."), code="no_effects")
@@ -1081,11 +1260,14 @@ def post_stock_entry(
         reason=reason.strip(),
     )
 
-    # The mapping lock first, then every key in canonical order, then the
-    # counter. Two events naming the same two keys in opposite caller order
-    # take them in the same database order and cannot deadlock; a mapping
-    # mutation waiting on the exclusive form cannot slip between a posting's
-    # account resolution and its commit.
+    # The warehouse freeze locks, then the mapping lock, then every key in
+    # canonical order, then the counter. Two events naming the same two keys in
+    # opposite caller order take them in the same database order and cannot
+    # deadlock; a mapping mutation waiting on the exclusive form cannot slip
+    # between a posting's account resolution and its commit; and a count
+    # freezing a warehouse cannot slip between this check and this commit.
+    acquire_warehouse_freeze_locks(effects)
+    _require_warehouses_are_not_frozen(effects, owned_freezes=owned_freezes)
     _lock_mappings(organization)
     ordered = sorted(effects, key=lambda effect: _key_of(effect).sort_key)
     positions: dict[str, _Position] = {}
@@ -1105,7 +1287,8 @@ def post_stock_entry(
         # nothing and leaves nothing half-applied.
         control_account = _control_account_for(effect, position)
 
-        if effect.movement_type in INBOUND_MOVEMENT_TYPES:
+        direction = _direction_of(effect)
+        if direction is EffectDirection.IN:
             assert effect.unit_cost is not None  # noqa: S101 - guaranteed by _validate_effect
             step = apply_inbound(
                 quantity=quantize_quantity(effect.quantity),
@@ -1114,6 +1297,15 @@ def post_stock_entry(
                 before_value=position.value,
                 value_in=effect.inbound_value,
             )
+        elif direction is EffectDirection.VALUE_ONLY:
+            assert effect.value_adjustment is not None  # noqa: S101 - _validate_direction
+            _require_position_can_be_revalued(effect=effect, position=position)
+            step = apply_value_only(
+                value_adjustment=effect.value_adjustment,
+                before_quantity=position.quantity,
+                before_value=position.value,
+            )
+            _require_revaluation_stays_positive(effect=effect, step=step)
         else:
             step = apply_outbound(
                 quantity=quantize_quantity(effect.quantity),
@@ -1135,7 +1327,7 @@ def post_stock_entry(
             control_account=control_account,
         )
         _save_position(position, movement=movement, step=step)
-        if effect.movement_type in INBOUND_MOVEMENT_TYPES:
+        if direction is EffectDirection.IN:
             _record_layer(entry=entry, effect=effect, movement=movement, step=step)
 
     record_audit_event(
@@ -1149,8 +1341,53 @@ def post_stock_entry(
     return entry
 
 
+def acquire_warehouse_freeze_locks(effects: Sequence[MovementInput]) -> None:
+    """
+    Take the freeze lock for every warehouse an event touches, in shared mode.
+
+    Public because a caller that posts more than one entry in one transaction —
+    a transfer receipt, a count — must take them **once for the whole event**,
+    before the first kernel call, for the same reason `acquire_stock_key_locks`
+    exists: sorting within each call orders the locks by the order the calls
+    happen to be written.
+    """
+    lock_warehouses_shared([effect.warehouse.pk for effect in effects])
+
+
+def _require_warehouses_are_not_frozen(
+    effects: Sequence[MovementInput], *, owned_freezes: Sequence[int] = ()
+) -> None:
+    """
+    Refuse to post into a warehouse a count has frozen.
+
+    Read **after** the freeze lock and **from the database**, not from the
+    caller's `Warehouse` object: the caller may have loaded it before the
+    freeze committed, and an in-memory copy of a stale row is exactly what this
+    check must not trust.
+    """
+    warehouse_ids = sorted({effect.warehouse.pk for effect in effects} - set(owned_freezes))
+    frozen = (
+        Warehouse.objects.filter(pk__in=warehouse_ids, frozen_by_count__isnull=False)
+        .order_by("code")
+        .first()
+    )
+    if frozen is not None:
+        raise ValidationError(
+            _("Warehouse %(code)s is frozen for a physical count and accepts no postings."),
+            code="warehouse_frozen",
+            params={"code": frozen.code},
+        )
+
+
 def _check_warehouse_is_not_frozen(position: _Position) -> None:
-    """A frozen position accepts nothing, in either direction."""
+    """
+    A frozen **position** accepts nothing, in either direction.
+
+    Per stock key, and distinct from the warehouse-wide freeze a count takes:
+    that one is checked once per event in `_require_warehouses_are_not_frozen`,
+    under a lock, because a warehouse-wide answer read per position would be
+    the same answer computed many times and still racy.
+    """
     if position.balance.is_frozen:
         raise ValidationError(
             _("Warehouse %(code)s is frozen for %(item)s and accepts no postings."),
@@ -1160,11 +1397,41 @@ def _check_warehouse_is_not_frozen(position: _Position) -> None:
                 "item": position.balance.item.code,
             },
         )
-    if getattr(position.balance.warehouse, "is_frozen", False):  # pragma: no cover - Task 1.6
+
+
+def _require_position_can_be_revalued(*, effect: MovementInput, position: _Position) -> None:
+    """
+    A revaluation needs goods to revalue.
+
+    Writing value onto an empty position would create the exact state
+    `_assert_position_is_coherent` refuses to compute against — value standing
+    against no quantity — and it would do so deliberately rather than by
+    accident. If stock is genuinely there, the correction is a quantity gain
+    with a cost, which says what was found; a value-only line says only that
+    the money was wrong, and about nothing it cannot be.
+    """
+    if position.quantity <= ZERO:
         raise ValidationError(
-            _("Warehouse %(code)s is frozen."),
-            code="warehouse_frozen",
-            params={"code": position.balance.warehouse.code},
+            _("%(item)s in %(warehouse)s holds no quantity, so its value cannot be adjusted."),
+            code="value_only_needs_quantity",
+            params={"item": effect.item.code, "warehouse": effect.warehouse.code},
+        )
+
+
+def _require_revaluation_stays_positive(*, effect: MovementInput, step: ValuationStep) -> None:
+    """Stock cannot be worth less than nothing, whoever authorized the write-down."""
+    if step.value_after < ZERO:
+        raise ValidationError(
+            _(
+                "Writing %(item)s in %(warehouse)s down by %(amount)s would leave a negative "
+                "inventory value."
+            ),
+            code="value_only_would_go_negative",
+            params={
+                "item": effect.item.code,
+                "warehouse": effect.warehouse.code,
+                "amount": str(effect.value_adjustment),
+            },
         )
 
 
@@ -1408,6 +1675,9 @@ def reverse_stock_entry(
         reverses=entry,
     )
 
+    reversal_effects = [_effect_of(movement) for movement in originals]
+    acquire_warehouse_freeze_locks(reversal_effects)
+    _require_warehouses_are_not_frozen(reversal_effects)
     _lock_mappings(organization)
     ordered = sorted(
         originals,
@@ -1448,6 +1718,21 @@ def reverse_stock_entry(
                     "warehouse": original.warehouse.code,
                     "available": str(position.quantity),
                     "requested": str(original.base_quantity),
+                },
+            )
+        if step.value_after < ZERO:
+            # Reversing a value-only write-up whose value has since been issued
+            # away. The quantity check above cannot see it, because a
+            # revaluation moved no quantity for it to see.
+            raise ValidationError(
+                _(
+                    "Reversing %(item)s would leave %(warehouse)s holding a negative "
+                    "inventory value."
+                ),
+                code="reversal_would_go_negative",
+                params={
+                    "item": original.item.code,
+                    "warehouse": original.warehouse.code,
                 },
             )
 
