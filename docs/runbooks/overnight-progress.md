@@ -39,10 +39,17 @@ DEMO_STATE: `khan_mandi_dev` seeded; second run `0 created, 79 reused`; reorder 
 RECONCILIATION_STATE: `verify_inventory_accounting`, `verify_stock_ledger`, `verify_stock_projection` all clean on DEMO-KHAN-MANDI
 
 BLOCKERS: none hard.
-- The 1.7B worktree has no `.env` (correctly gitignored). Its database and env
-  vars must be supplied to the process at run time rather than by copying or
-  linking the secrets file. The `.venv` is a directory junction to the main
-  worktree's — interpreter only, no secrets.
+- **The 1.7B worktree cannot commit Python.** Its pre-commit hooks run mypy and
+  `makemigrations --check`, both of which need `DJANGO_SECRET_KEY` and the
+  database credentials from `.env` — which is gitignored and lives only in the
+  main worktree. Reading, copying or linking that file is forbidden, and
+  skipping hooks is forbidden, so the lane is docs-only.
+  **Resolution:** the lane did its job (spec + model drafting in parallel with
+  certification). Once 1.7A is pushed, `phase/1-location` continues in the main
+  worktree, which has the environment. The `khan-mandi-17b` worktree is then
+  removed. Its `.venv` is a directory junction — interpreter only, no secrets.
+- Uncommitted in `khan-mandi-17b`: `apps/inventory/models.py` with the four
+  location models, lint-clean and AST-verified. Carry it forward on rebase.
 
 ASSUMPTIONS:
 - `POSTED_AS_OF` is the default report mode: it reproduces a previously printed
