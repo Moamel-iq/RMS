@@ -211,8 +211,12 @@ class TestTheDataset:
         # 1000 opening − 100 issued − 200 dispatched − 10 written down + 15 found
         assert quantity("DEMO-MAIN", "DEMO-CONTAINER") == Decimal("705.000")
         assert quantity("DEMO-MAIN", "DEMO-MEAT") == Decimal("75.650")
-        # 50 in the good lot; the expired lot received 8 and lost all 8.
-        assert quantity("DEMO-MAIN", "DEMO-CHICKEN") == Decimal("46.000")
+        # Four lots: 46 in the ninety-day lot (50 opening less 4 spoiled), 12
+        # in the twenty-day lot and 5 in the already-expired one, plus the
+        # batch that received 8 and lost all 8 to waste. Task 1.7A added the
+        # dated lots so the expiry report has a row in every bucket; this
+        # expectation moved with them.
+        assert quantity("DEMO-MAIN", "DEMO-CHICKEN") == Decimal("63.000")
         assert quantity("DEMO-KITCHEN", "DEMO-RICE") == Decimal("29.500")
         assert quantity("DEMO-DEST-MAIN", "DEMO-CONTAINER") == Decimal("120.000")
 
