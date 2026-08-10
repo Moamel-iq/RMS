@@ -329,3 +329,31 @@ ADR-020 for the reasoning behind each.
   approval that must post the variance into the warehouse it froze. It is not
   a permission, no UI exposes it, and `apps.inventory.counts` is its only
   caller.
+
+## Import invariants, added by Task 1.7A
+
+| Invariant | Enforced by |
+|---|---|
+| A branch-scoped import kind names a branch; an organization-scoped one does not | `inventory_import_branch_matches_kind` |
+| Valid rows plus error rows equal the batch's row count | `inventory_import_rows_add_up` |
+| A failed batch has applied nothing | `inventory_import_failed_applied_nothing` |
+| Applied rows never exceed valid rows | `inventory_import_applied_within_valid` |
+| An applied batch records who applied it and when | `inventory_import_applied_records_who_and_when` |
+| A cancelled batch states a reason | `inventory_import_cancelled_states_a_reason` |
+| One applied batch per (organization, kind, content) | `inventory_import_one_applied_batch_per_content` (partial unique) |
+| A row number is unique within its batch | `inventory_import_row_number_unique` |
+| A row marked valid carries no errors | `inventory_import_valid_row_has_no_errors` |
+
+## Deliberate non-invariants, added by Task 1.7A
+
+- **`applied_row_count` may be below `valid_row_count`.** A row asking for a
+  value the record already holds changed nothing. Reporting it as a change
+  would be a lie, and reporting it as an error would be worse.
+- **The two historical report modes may disagree.** They slice on different
+  times and legitimately include different movement sets. Only a
+  *re-priced* movement would be corruption, and neither mode reprices.
+- **A projection mismatch is not repaired.** There is no repair mode, by
+  decision — see `docs/development/inventory-reports-and-imports.md`.
+- **A `TRANSFER_IN` arrival leg carries a reference and no source triple.**
+  ADR-017 requires a source identity to be complete or absent; absent is a
+  legitimate state, and the arrival leg is attributable through its reference.

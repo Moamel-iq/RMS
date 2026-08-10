@@ -4772,3 +4772,311 @@ class InventoryAdjustmentLine(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.document_id}#{self.sequence}: {self.kind}"
+
+
+# ---------------------------------------------------------------------------
+# Imports (Task 1.7)
+# ---------------------------------------------------------------------------
+
+
+class ImportKind(models.TextChoices):
+    """
+    What a batch imports. Closed, and deliberately short.
+
+    Every value here is **master data or a draft**. There is no value for a
+    posted receipt, issue, transfer, count, waste or adjustment, and that is
+    the boundary rather than an omission: a spreadsheet is an assertion by
+    whoever typed it, and the ledger only accepts assertions that a person
+    posted through the service that values them. `OPENING_STOCK_DRAFT` reaches
+    the ledger the same way everything else does — somebody opens the draft it
+    produced and posts it.
+    """
+
+    ITEM_CATEGORY = "ITEM_CATEGORY", _("مجموعات الأصناف")
+    PACKAGE_UNIT = "PACKAGE_UNIT", _("وحدات التعبئة")
+    BRANCH_ITEM_SETTING = "BRANCH_ITEM_SETTING", _("إعدادات الصنف في الفرع")
+
+
+#: The kinds that write branch-scoped rows and therefore name a branch.
+BRANCH_SCOPED_IMPORT_KINDS = frozenset({ImportKind.BRANCH_ITEM_SETTING})
+
+#: Kinds needing `import_opening_draft` rather than `import_master_data`.
+#:
+#: **Empty in this release.** `OPENING_STOCK_DRAFT` was declared and then
+#: removed: it parses nothing, validates nothing and writes nothing, and a
+#: dropdown entry that accepts a file and then fails is worse than an absent
+#: one. It is the only kind that would reach the ledger at all — even as a
+#: draft it sets the ledger's starting position — so it earns its own review
+#: rather than a corner of this task.
+#:
+#: The set stays, rather than the lookup being deleted, because the permission
+#: split it drives is the durable decision; only the kind is deferred.
+OPENING_IMPORT_KINDS: frozenset[str] = frozenset()
+
+
+class ImportBatchStatus(models.TextChoices):
+    """
+    The batch lifecycle. Never set by a caller — see `apps.inventory.imports`.
+
+    `UPLOADED` holds parsed rows and nothing else. `VALIDATED` means every row
+    was judged and the batch may be applied; `FAILED_VALIDATION` means at
+    least one row was rejected and it may not. `APPLIED` and `CANCELLED` are
+    terminal.
+
+    There is no `PARTIALLY_APPLIED`. A batch applies completely or not at all,
+    because the alternative is a spreadsheet that half-changed the item master
+    and a person who has to work out which half.
+    """
+
+    UPLOADED = "UPLOADED", _("مرفوع")
+    VALIDATED = "VALIDATED", _("مدقّق")
+    FAILED_VALIDATION = "FAILED_VALIDATION", _("فشل التدقيق")
+    APPLIED = "APPLIED", _("مطبّق")
+    CANCELLED = "CANCELLED", _("ملغى")
+
+
+#: Statuses after which nothing more happens to a batch.
+TERMINAL_IMPORT_STATUSES = frozenset({ImportBatchStatus.APPLIED, ImportBatchStatus.CANCELLED})
+
+
+class ImportBatch(TimeStampedModel):
+    """
+    One uploaded file, its verdict, and what it did.
+
+    **Nothing outside this table changes until apply.** Upload parses and
+    stores rows; validation judges them and stores the verdict; only apply
+    writes to the item master, and it does so inside one transaction. A
+    reviewer can therefore look at exactly what a spreadsheet would do before
+    any of it happens, which is the entire reason the batch exists rather than
+    a direct upload-and-write.
+
+    `content_hash` is the fingerprint of the normalised rows. Re-uploading the
+    same file is legitimate — somebody lost the tab — but re-*applying* the
+    same content is not, and the hash is how the second attempt is recognised
+    rather than silently doubling every row it touches.
+
+    The file itself is never stored. The rows are, as parsed JSON: keeping the
+    upload would mean keeping a user-supplied binary on disk with a
+    user-supplied name, and everything worth auditing is in the rows.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="inventory_import_batches",
+        verbose_name=_("organization"),
+    )
+    #: Set for branch-scoped kinds only, and required for them by constraint.
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="inventory_import_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("branch"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    batch_number = models.CharField(_("batch number"), max_length=32, blank=True)
+
+    kind = models.CharField(_("kind"), max_length=32, choices=ImportKind.choices)
+    status = models.CharField(
+        _("status"),
+        max_length=24,
+        choices=ImportBatchStatus.choices,
+        default=ImportBatchStatus.UPLOADED,
+        db_index=True,
+    )
+
+    #: What the uploader called it, after sanitising. Kept for the audit trail;
+    #: never used to open, write, or serve anything.
+    original_filename = models.CharField(_("original filename"), max_length=255)
+    content_hash = models.CharField(_("content hash"), max_length=64, db_index=True)
+    byte_size = models.PositiveIntegerField(_("byte size"))
+
+    row_count = models.PositiveIntegerField(_("rows"), default=0)
+    valid_row_count = models.PositiveIntegerField(_("valid rows"), default=0)
+    error_row_count = models.PositiveIntegerField(_("rows in error"), default=0)
+    #: Rows apply actually changed. Below `valid_row_count` when a row asked
+    #: for a value the record already had — which is not an error and not a
+    #: change, and reporting it as either would be a lie.
+    applied_row_count = models.PositiveIntegerField(_("rows applied"), default=0)
+
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="uploaded_import_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("uploaded by"),
+    )
+    applied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="applied_import_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("applied by"),
+    )
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cancelled_import_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("cancelled by"),
+    )
+
+    validated_at = models.DateTimeField(_("validated at"), null=True, blank=True)
+    applied_at = models.DateTimeField(_("applied at"), null=True, blank=True)
+    cancelled_at = models.DateTimeField(_("cancelled at"), null=True, blank=True)
+
+    notes = models.TextField(_("notes"), blank=True)
+    #: Why it was cancelled. Required when cancelling, by service.
+    reason = models.TextField(_("reason"), blank=True)
+
+    #: The draft the opening import produced, when it produced one.
+    opening_document = models.ForeignKey(
+        "inventory.OpeningStockDocument",
+        on_delete=models.PROTECT,
+        related_name="import_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("opening document"),
+    )
+
+    class Meta:
+        verbose_name = _("import batch")
+        verbose_name_plural = _("import batches")
+        ordering = ("-created_at", "-id")
+        permissions = [
+            ("import_master_data", _("Can import inventory master data")),
+            ("import_opening_draft", _("Can import an opening stock draft")),
+            ("view_import_history", _("Can view inventory import history")),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "kind", "status"]),
+            models.Index(fields=["organization", "-created_at"]),
+        ]
+        constraints = [
+            # A branch-scoped kind names a branch; an organization-scoped one
+            # must not, because a branch there would be a scope nobody applies.
+            models.CheckConstraint(
+                condition=(
+                    (Q(kind__in=sorted(BRANCH_SCOPED_IMPORT_KINDS)) & Q(branch__isnull=False))
+                    | (~Q(kind__in=sorted(BRANCH_SCOPED_IMPORT_KINDS)) & Q(branch__isnull=True))
+                ),
+                name="inventory_import_branch_matches_kind",
+            ),
+            # Applied means somebody applied it, at a time, and the count of
+            # what changed is known. Any of those missing is a batch that
+            # cannot be audited.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status=ImportBatchStatus.APPLIED)
+                    | (Q(applied_by__isnull=False) & Q(applied_at__isnull=False))
+                ),
+                name="inventory_import_applied_records_who_and_when",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status=ImportBatchStatus.CANCELLED)
+                    | (Q(cancelled_at__isnull=False) & ~Q(reason=""))
+                ),
+                name="inventory_import_cancelled_states_a_reason",
+            ),
+            # A failed batch never applied anything, whatever else is true.
+            models.CheckConstraint(
+                condition=(~Q(status=ImportBatchStatus.FAILED_VALIDATION) | Q(applied_row_count=0)),
+                name="inventory_import_failed_applied_nothing",
+            ),
+            models.CheckConstraint(
+                condition=Q(applied_row_count__lte=models.F("valid_row_count")),
+                name="inventory_import_applied_within_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(row_count=models.F("valid_row_count") + models.F("error_row_count")),
+                name="inventory_import_rows_add_up",
+            ),
+            # Django choices are a form-layer courtesy, not a boundary: a raw
+            # INSERT, a data migration or a `bulk_create` walks straight past
+            # them. A batch whose kind has no validator could never be
+            # previewed or applied, so it would sit in the history looking like
+            # work somebody did.
+            models.CheckConstraint(
+                condition=Q(kind__in=sorted(ImportKind.values)),
+                name="inventory_import_kind_is_supported",
+            ),
+            # One applied batch per content per kind: the second apply of the
+            # same spreadsheet is a retry, not a second import.
+            models.UniqueConstraint(
+                fields=["organization", "kind", "content_hash"],
+                condition=Q(status=ImportBatchStatus.APPLIED),
+                name="inventory_import_one_applied_batch_per_content",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.batch_number or self.public_id} {self.kind} ({self.get_status_display()})"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in TERMINAL_IMPORT_STATUSES
+
+
+class ImportRowResult(TimeStampedModel):
+    """
+    One row of the uploaded file, as parsed, and what was decided about it.
+
+    Kept for valid rows as well as rejected ones. A batch that stored only its
+    errors could say what went wrong and never what went right, and "what did
+    this import actually change" is the question an auditor asks.
+
+    `payload` is the row exactly as parsed — strings, never coerced numbers.
+    Decimal parsing happens in validation through the approved utilities, and
+    storing a parsed float here would reintroduce binary rounding into the one
+    record that exists to prove what the file said.
+    """
+
+    batch = models.ForeignKey(
+        ImportBatch,
+        on_delete=models.CASCADE,
+        related_name="rows",
+        verbose_name=_("batch"),
+    )
+    #: 1-based, and the number the person sees in their spreadsheet — the
+    #: header is row 1, so the first data row is 2.
+    row_number = models.PositiveIntegerField(_("row number"))
+    #: The row's own identity in the source: a code, usually. Blank when the
+    #: file gave none, which is itself a validation error for most kinds.
+    external_key = models.CharField(_("external key"), max_length=200, blank=True)
+
+    is_valid = models.BooleanField(_("valid"), default=False)
+    #: field name -> list of Arabic messages. `{}` for a valid row.
+    errors = models.JSONField(_("errors"), default=dict, blank=True)
+    payload = models.JSONField(_("payload"), default=dict)
+
+    #: What apply did with it, once apply has run.
+    applied_action = models.CharField(_("applied action"), max_length=16, blank=True)
+    applied_object_id = models.CharField(_("applied object id"), max_length=64, blank=True)
+
+    class Meta:
+        verbose_name = _("import row")
+        verbose_name_plural = _("import rows")
+        ordering = ("batch", "row_number")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["batch", "row_number"], name="inventory_import_row_number_unique"
+            ),
+            # A valid row carries no errors and an invalid one carries at
+            # least the field that failed. Without this a row could be shown
+            # green with a message attached, and the operator would believe
+            # the colour.
+            models.CheckConstraint(
+                condition=(Q(is_valid=True) & Q(errors={})) | Q(is_valid=False),
+                name="inventory_import_valid_row_has_no_errors",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.batch_id}#{self.row_number}"

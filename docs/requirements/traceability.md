@@ -168,6 +168,28 @@ Task 1.0, not referenced from an earlier artefact.
 
 | ID | Requirement | Implementation | Test | Task | AT | Status |
 |---|---|---|---|---|---|---|
+
+## A note on the `Specified` rows from Tasks 1.1 and 1.2
+
+Sixty-one rows below still read `Specified`. That status is **stale, not a
+statement that the work is missing** — `INV-001` (item code unique per
+organization) and `INV-018` (negative stock refused) are both enforced and
+covered, for instance.
+
+The rows cannot be promoted automatically because the test names they cite were
+written as *intentions* before the tests existed, and the tests that were
+eventually written carry different, more descriptive names. `INV-002` cites
+`::test_foreign_item_injection_blocked`; the behaviour is covered by
+`test_a_foreign_organization_id_in_the_body_is_a_404` and its neighbours.
+
+Promoting them would mean hand-matching sixty-one requirements to the tests that
+actually cover them, one at a time, and checking each is really the same claim.
+That is worth doing and it is a documentation task in its own right — doing it
+by pattern-matching would produce a table that *looks* traceable and is not,
+which is worse than one that admits the gap. Task 1.7A promoted the single row
+whose cited test genuinely exists (`INV-015`) and left the rest honest.
+
+
 | INV-001 | Item code unique per organization; archived codes reserved | `UniqueConstraint(organization, code)` | `::test_item_code_unique_per_organization` | 1.1 | AT-008 | Specified |
 | INV-002 | A foreign organization's item cannot be injected | `_scoped_item` resolver | `::test_foreign_item_injection_blocked` | 1.1 | AT-008 | Specified |
 | INV-003 | A foreign branch's warehouse is unreachable (404) | `resolve_warehouse` via Phase 0 authorization | `::test_foreign_branch_warehouse_blocked` | 1.1 | AT-008 | Specified |
@@ -182,7 +204,7 @@ Task 1.0, not referenced from an earlier artefact.
 | INV-012 | Posted stock movements are immutable | Allowlist trigger, per `accounting/0005` | `::test_posted_movement_immutable` | 1.2 | | Specified |
 | INV-013 | Every movement carries the full required column set | Non-null columns | `::test_movement_records_everything` | 1.2 | | Specified |
 | INV-014 | Valuation key is `(warehouse, item, lot)` | `UniqueConstraint` on `StockBalance` | `::test_valuation_key` | 1.2 | | Specified |
-| INV-015 | Moving weighted average — all 18 cases | Valuation engine | `::TestMovingWeightedAverage` | 1.2 | | Specified |
+| INV-015 | Moving weighted average — all 18 cases | Valuation engine | `::TestMovingWeightedAverage` | 1.2 | | Done |
 | INV-016 | Quantity zero implies value zero | Full-depletion rule | `::test_full_depletion_leaves_no_residual` | 1.2 | AT-007 | Specified |
 | INV-017 | `StockBalance` rebuilds exactly from the ledger | Rebuild command | `::test_rebuild_equals_ledger` | 1.2 | AT-007 | Specified |
 | INV-018 | Negative stock refused by default | Service check inside the lock + trigger | `::test_negative_stock_blocked` | 1.2 | | Specified |
@@ -417,3 +439,33 @@ source.
 | INV-240 | A cancelled count releases its freeze and is kept | `cancel_count` | `::test_a_cancelled_count_releases_its_freeze_and_is_kept` | 1.6a | | Done |
 | INV-241 | A submitted count still holds its warehouse freeze | `ACTIVE_COUNT_STATUSES` | `::test_a_submitted_count_still_holds_its_warehouse_freeze` | 1.6a | | Done |
 | INV-242 | The pagination carry is shared by every list family | `apps.core.context_processors._filter_query` | `apps/core/tests/test_list_filter_query.py` | 1.6a | | Done |
+| INV-243 | A report never trusts a submitted organization/branch/warehouse id | `reports.scoped_warehouses` narrows `readable_warehouses` | `test_reports_and_exports.py::test_a_submitted_organization_id_cannot_widen_scope` | 1.7A | AT-008 | Done |
+| INV-244 | A global permission without reach grants no report rows | ADR-016 scope selectors | `::test_a_global_permission_without_reach_grants_nothing` | 1.7A | AT-008 | Done |
+| INV-245 | POSTED_AS_OF uses the kernel's stored running totals | `_positions_from` prefix branch | `::test_posted_as_of_uses_the_kernels_running_totals` | 1.7A | | Done |
+| INV-246 | EFFECTIVE_DATE sums deltas and derives the average | `_positions_from` non-prefix branch | `::test_effective_date_sums_deltas_and_derives_the_average` | 1.7A | | Done |
+| INV-247 | The two historical modes may legitimately disagree | two cutoffs over one movement set | `::test_the_two_modes_can_return_different_answers_for_one_window` | 1.7A | | Done |
+| INV-248 | Every historical report states which mode produced it | `_base_report.html` mode row | `::test_the_mode_is_shown_on_every_historical_screen` | 1.7A | | Done |
+| INV-249 | Screen and export share one scoped service and one filter set | `InventoryReportView.report_rows` | `::test_export_rows_match_the_screen` | 1.7A | | Done |
+| INV-250 | Valuation is omitted, never blanked, in HTML, partial and CSV | `include_valuation` row builders | `::test_a_caller_without_valuation_sees_no_cost_heading`, `::test_export_omits_cost_columns_without_permission` | 1.7A | AT-008 | Done |
+| INV-251 | Exported cells never pass through float | `neutralise` formats Decimal | `::test_decimals_never_pass_through_float` | 1.7A | | Done |
+| INV-252 | Exported cells cannot execute in a spreadsheet | `FORMULA_TRIGGERS` prefixing | `::test_formula_triggers_are_neutralised` | 1.7A | | Done |
+| INV-253 | Export filenames cannot traverse or disguise | `safe_filename` | `::test_the_filename_is_safe_and_dated` | 1.7A | | Done |
+| INV-254 | GL reconciliation reuses the authoritative verifier | `_control_account_of` + `verify_inventory_against_gl` | `::test_gl_reconciliation_agrees_and_offers_no_repair` | 1.7A | AT-011 | Done |
+| INV-255 | Planted GL drift stays visible and is never repaired | no repair path exists | `::test_a_manual_journal_against_control_shows_as_drift` | 1.7A | AT-011 | Done |
+| INV-256 | Import upload and preview mutate no master data | `validate_batch` writes only verdicts | `test_imports_and_projection.py::test_upload_and_validate_change_no_master_data` | 1.7A | | Done |
+| INV-257 | One invalid row prevents the whole apply | `apply_batch` refuses on `error_row_count` | `::test_one_invalid_row_stops_the_whole_batch` | 1.7A | AT-012 | Done |
+| INV-258 | Import apply writes through the approved master-data services | `WRITERS` call `set_branch_item_setting` etc. | `::test_apply_writes_and_records_what_changed` | 1.7A | | Done |
+| INV-259 | Re-applying the same content is a clean domain conflict | partial unique index + pre-check | `::test_the_same_content_under_a_new_batch_is_refused_cleanly` | 1.7A | | Done |
+| INV-260 | The file fingerprint ignores column order and quoting | `fingerprint` sorts keys | `::test_the_fingerprint_ignores_column_order_and_quoting` | 1.7A | | Done |
+| INV-261 | A file naming one record twice is refused entirely | duplicate-key poisoning in `validate_batch` | `::test_a_file_naming_the_same_record_twice_is_refused` | 1.7A | | Done |
+| INV-262 | Macro workbooks, oversize, empty, malformed and duplicate-header files are refused | `parse_rows` guards | `::TestUploadSecurity` | 1.7A | AT-008 | Done |
+| INV-263 | Stored upload filenames cannot traverse or carry bidi overrides | `sanitise_filename` | `::test_the_stored_filename_cannot_traverse_or_disguise` | 1.7A | AT-008 | Done |
+| INV-264 | An import row cannot reference another organization's master data | validators resolve within the batch organization | `::test_a_foreign_branch_is_refused` | 1.7A | AT-008 | Done |
+| INV-265 | An import kind with no writer cannot be uploaded | `VALIDATORS` gate in `create_batch` | `::test_an_unsupported_kind_cannot_be_uploaded` | 1.7A | | Done |
+| INV-266 | Viewing import history does not imply applying | separate permissions | `::test_a_direct_post_without_the_kind_permission_is_refused` | 1.7A | AT-008 | Done |
+| INV-267 | The projection replays to the ledger on every compared field | `verify_organization` | `::test_a_clean_projection_verifies` | 1.7A | AT-007 | Done |
+| INV-268 | Planted quantity, value, average, sequence and control drift are all detected | `verify_organization` field comparisons | `::test_planted_drift_is_detected`, `::test_planted_control_account_drift_is_detected` | 1.7A | AT-007 | Done |
+| INV-269 | Projection verification mutates nothing and offers no repair | read-only by construction | `::test_verification_mutates_nothing`, `::test_there_is_no_repair_mode` | 1.7A | AT-007 | Done |
+| INV-270 | A depleted position replays to exactly zero and drops its control account | full-depletion rule mirrored in the replay | `::test_a_fully_depleted_position_replays_to_exactly_zero` | 1.7A | AT-007 | Done |
+| INV-271 | An unknown verification selector exits 2 rather than reporting clean | `_resolve_scope` | `::test_an_unknown_selector_exits_two` | 1.7A | | Done |
+| INV-272 | Import batch row counts, branch/kind pairing and applied state hold at COMMIT | migration 0016 constraints | `::TestImportConstraints` | 1.7A | | Done |

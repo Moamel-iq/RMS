@@ -1,5 +1,5 @@
 """
-The twenty-three inventory permissions, their scope, and which role holds them.
+The twenty-six inventory permissions, their scope, and which role holds them.
 
 Eighteen were approved with Task 1.0. The nineteenth, `manage_package_units`,
 follows from the amendment that made `PackageUnit` its own model: a model
@@ -16,6 +16,24 @@ theft if the wrong person may perform it. The twenty-third,
 `manage_reason_codes`, arrives with Task 1.6: waste and adjustment reasons are
 organization master data, and whoever can invent a reason can make any loss
 look routine.
+
+The twenty-fourth, twenty-fifth and twenty-sixth arrive with Task 1.7 and
+split the import boundary three ways, because they are three different risks.
+`import_master_data` reshapes what the organization stocks — wide, reversible,
+and wrong in a way somebody notices. `import_opening_draft` would prepare a
+*draft* opening document from a spreadsheet; even as a draft that is the
+ledger's starting position, so it belongs with accounting authority rather
+than with whoever maintains the item master. **The kind it guards is deferred
+and the permission is therefore reserved and granted to no role** — the same
+treatment `override_negative_stock` gets, and for the same reason: a grant for
+a capability nobody can exercise is a grant nobody can audit. `view_import_history` is separate from
+both because reading what somebody uploaded is an audit act: an accountant who
+may not apply a single row still has to be able to see what was applied, by
+whom, and what it changed.
+
+No permission imports *posted* stock. There is no such permission because
+there is no such path — an uploaded spreadsheet reaches the ledger only by
+becoming a draft that a human posts through the normal service.
 
 Task 1.6 needed **only that one**. `post_waste`, `conduct_stock_count`,
 `approve_stock_count`, `post_adjustment` and `reverse_movement` were all
@@ -38,6 +56,15 @@ from enum import Enum
 from apps.organizations.models import Role
 
 APP_LABEL = "inventory"
+
+#: Reserved, and granted to no role while `OPENING_IMPORT_KINDS` is empty.
+#: `OPENING_STOCK_DRAFT` was declared during Task 1.7A and removed again
+#: unimplemented; the permission code stays so the vocabulary is stable, but
+#: nothing checks it and no UI offers it. Granting it now would be granting
+#: authority over a workflow that does not exist.
+#:
+#: Same pattern as `NEGATIVE_STOCK_OVERRIDE_ENABLED` below.
+OPENING_DRAFT_IMPORT_ENABLED = False
 
 #: Release 1 policy: the kernel refuses negative stock for everyone, and no
 #: code path consults `inventory.override_negative_stock`. The permission code
@@ -100,6 +127,9 @@ APPROVE_STOCK_COUNT = f"{APP_LABEL}.approve_stock_count"
 POST_ADJUSTMENT = f"{APP_LABEL}.post_adjustment"
 REVERSE_MOVEMENT = f"{APP_LABEL}.reverse_movement"
 OVERRIDE_NEGATIVE_STOCK = f"{APP_LABEL}.override_negative_stock"
+IMPORT_MASTER_DATA = f"{APP_LABEL}.import_master_data"
+IMPORT_OPENING_DRAFT = f"{APP_LABEL}.import_opening_draft"
+VIEW_IMPORT_HISTORY = f"{APP_LABEL}.view_import_history"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_ITEM,
@@ -125,6 +155,9 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     POST_ADJUSTMENT,
     REVERSE_MOVEMENT,
     OVERRIDE_NEGATIVE_STOCK,
+    IMPORT_MASTER_DATA,
+    IMPORT_OPENING_DRAFT,
+    VIEW_IMPORT_HISTORY,
 )
 
 
@@ -142,6 +175,13 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # analysis incomparable across the group, which is the whole reason the
     # figure is collected.
     MANAGE_REASON_CODES: PermissionScope.ORGANIZATION_MASTER_DATA,
+    # An import of items, categories, packages or conversions reshapes the
+    # shared master, so it is answered where that master lives. Reading the
+    # history is scoped the same way: a batch names the organization it ran
+    # against, and an audit that stopped at a branch boundary would hide
+    # exactly the cross-branch change worth looking at.
+    IMPORT_MASTER_DATA: PermissionScope.ORGANIZATION_MASTER_DATA,
+    VIEW_IMPORT_HISTORY: PermissionScope.ORGANIZATION_MASTER_DATA,
     # Custody structures and figures belong to the branch.
     MANAGE_WAREHOUSES: PermissionScope.BRANCH,
     VIEW_STOCK: PermissionScope.BRANCH,
@@ -152,6 +192,9 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # prepare and submit while only accounting authority sets the ledger's
     # starting point.
     CREATE_OPENING_STOCK: PermissionScope.BRANCH,
+    # An opening import produces a draft for one branch, so it is answered
+    # at that branch — the same scope as preparing the list by hand.
+    IMPORT_OPENING_DRAFT: PermissionScope.BRANCH,
     APPROVE_STOCK_COUNT: PermissionScope.BRANCH,
     POST_ADJUSTMENT: PermissionScope.BRANCH,
     REVERSE_MOVEMENT: PermissionScope.BRANCH,
@@ -182,7 +225,10 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
 #: role *look* like it can do something the kernel refuses for everyone, and
 #: the moment the feature is enabled the grant would spring to life without
 #: anyone deciding it should.
-_FULL = frozenset(ALL_PERMISSIONS) - {OVERRIDE_NEGATIVE_STOCK}
+#: Everything except the two reserved permissions. Both guard capabilities that
+#: do not exist in this release, and an owner holding a right nobody can
+#: exercise is a right nobody notices when it is finally wired up.
+_FULL = frozenset(ALL_PERMISSIONS) - {OVERRIDE_NEGATIVE_STOCK, IMPORT_OPENING_DRAFT}
 
 #: Sees and approves everything; performs no warehouse operations. No
 #: receipt, issue, transfer, or count — they answer for the figures, they do
@@ -202,6 +248,7 @@ _ACCOUNTING_MANAGER = frozenset(
         # not a warehouse operation — which is why it sits with the role that
         # holds no routine dispatch or receipt authority at all.
         CLOSE_TRANSFER_SHORTAGE,
+        VIEW_IMPORT_HISTORY,
     }
 )
 
@@ -232,6 +279,12 @@ _MANAGER = frozenset(
         APPROVE_STOCK_COUNT,
         POST_ADJUSTMENT,
         REVERSE_MOVEMENT,
+        # Reshaping the item master in bulk is the same authority as reshaping
+        # it one row at a time, which this role already holds. Opening drafts
+        # are deliberately absent: a manager prepares the branch's opening by
+        # hand and accounting posts it.
+        IMPORT_MASTER_DATA,
+        VIEW_IMPORT_HISTORY,
     }
 )
 
@@ -260,9 +313,12 @@ _STOREKEEPER = frozenset(
 #: arrived.
 _PURCHASING = frozenset({VIEW_ITEM, VIEW_STOCK, VIEW_VALUATION})
 
-#: Reads the figures. Posting opening stock is Accounting Manager authority —
-#: it sets the ledger's starting point.
-_ACCOUNTANT = frozenset({VIEW_ITEM, VIEW_STOCK, VIEW_VALUATION})
+#: Reads the figures, and reads what was imported. Posting opening stock is
+#: Accounting Manager authority — it sets the ledger's starting point — and so
+#: is applying an import. Reading the history is not: an accountant who may
+#: apply nothing still has to be able to see what was applied and by whom,
+#: which is the point of keeping the history permission separate.
+_ACCOUNTANT = frozenset({VIEW_ITEM, VIEW_STOCK, VIEW_VALUATION, VIEW_IMPORT_HISTORY})
 
 #: Reads what exists, never what it cost.
 _VIEWER = frozenset({VIEW_ITEM, VIEW_STOCK})

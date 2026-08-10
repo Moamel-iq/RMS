@@ -90,10 +90,13 @@ from apps.inventory.counts import (
     start_count,
     submit_count,
 )
+from apps.inventory.imports import apply_batch, create_batch, validate_batch
 from apps.inventory.models import (
     AdjustmentLineKind,
     BranchItemSetting,
     ConversionType,
+    ImportBatch,
+    ImportKind,
     InventoryAccountMapping,
     InventoryAdjustmentDocument,
     InventoryDocumentStatus,
@@ -549,9 +552,19 @@ def ensure_branch_visibility(
     """
 
     def stock_it(branch: Branch, item: InventoryItem) -> None:
-        existed = BranchItemSetting.objects.filter(branch=branch, item=item).exists()
-        set_branch_item_setting(branch=branch, item=item, is_stocked=True)
-        log.record("branch item", f"{branch.code}/{item.code}", created=not existed)
+        existing = BranchItemSetting.objects.filter(branch=branch, item=item).first()
+        # Carry the reorder values forward. `set_branch_item_setting` takes the
+        # whole row, so passing the defaults on a re-run would silently erase
+        # whatever the demo import applied — and the reorder report would be
+        # empty on every second run for no visible reason.
+        set_branch_item_setting(
+            branch=branch,
+            item=item,
+            is_stocked=True,
+            reorder_point=existing.reorder_point if existing else None,
+            reorder_quantity=existing.reorder_quantity if existing else None,
+        )
+        log.record("branch item", f"{branch.code}/{item.code}", created=existing is None)
 
     for item in items.values():
         stock_it(source_branch, item)
@@ -1769,6 +1782,171 @@ def _submitted_count(
 
 
 # ---------------------------------------------------------------------------
+# Task 1.7A — what the reports and the import history need to have rows
+# ---------------------------------------------------------------------------
+
+#: filename slug, item, reorder point, reorder quantity. Chosen against the
+#: scenario's known branch holdings so the reorder report shows all three
+#: cases: rice sits below its point, oil sits exactly on it, packaging is well
+#: above. Fixed numbers rather than arithmetic on the current balance, because
+#: a demo whose expectations move with the data teaches nothing and cannot be
+#: asserted.
+REORDER_ROWS: list[tuple[str, str, str]] = [
+    ("DEMO-RICE", "200.000", "120.000"),  # on hand 174.500 -> below by 25.500
+    ("DEMO-OIL", "75.000", "60.000"),  # on hand  75.000 -> exactly at
+    ("DEMO-CONTAINER", "500.000", "250.000"),  # on hand 785.000 -> above
+]
+
+
+def _expiry_lots(
+    log: DemoLog,
+    *,
+    organization: Organization,
+    branch: Branch,
+    warehouse: Warehouse,
+    items: dict[str, InventoryItem],
+    business_date: datetime.date,
+) -> None:
+    """
+    Two more dated lots, so the expiry report shows every bucket at once.
+
+    One already past its date and one due in twenty days, both holding stock,
+    joining the ninety-day lot the opening created. Received through the real
+    receipt service — a lot with a hand-written balance would be invisible to
+    the valuation kernel and would break the projection verifier.
+
+    The expired batch is deliberately left standing rather than written off:
+    it is what the expiry screen exists to surface, and waste is the flow that
+    resolves it. It is not stranded — a reviewer can clear it from the UI.
+    """
+    for slug, code, offset_days, quantity, unit_cost in (
+        ("RECEIPT-06-EXPIRING-SOON", "DEMO-CHK-LOT-03", 20, "12.000", "3300.000000"),
+        ("RECEIPT-07-EXPIRED-STANDING", "DEMO-CHK-LOT-04", -3, "5.000", "3150.000000"),
+    ):
+        reference_slug = reference(slug)
+        if _find_operational(
+            organization=organization,
+            document_type=InventoryDocumentType.RECEIPT,
+            slug=reference_slug,
+        ):
+            log.record("receipt", reference_slug, created=False)
+            continue
+
+        lot = ensure_opening_lot(
+            item=items["DEMO-CHICKEN"],
+            code=code,
+            expiry_date=business_date + datetime.timedelta(days=offset_days),
+        )
+        document = create_document(
+            organization=organization,
+            branch=branch,
+            warehouse=warehouse,
+            document_type=InventoryDocumentType.RECEIPT,
+            effective_at=_at(business_date, 9, 50 if offset_days > 0 else 55),
+            evidence_reference=reference_slug,
+            narration="استلام دجاج — دفعة مؤرخة",
+        )
+        add_line(
+            document=document,
+            line=DocumentLineInput(
+                item=items["DEMO-CHICKEN"],
+                lot=lot,
+                base_quantity=Decimal(quantity),
+                unit_cost=Decimal(unit_cost),
+            ),
+        )
+        posted = post_document(document=document)
+        log.record("receipt", posted.document_number, created=True)
+
+
+def _find_batch(*, organization: Organization, filename: str) -> ImportBatch | None:
+    return ImportBatch.objects.filter(organization=organization, original_filename=filename).first()
+
+
+def _applied_import(
+    log: DemoLog, *, organization: Organization, branch: Branch, actor: User
+) -> ImportBatch:
+    """
+    One import that went all the way through, setting the reorder points.
+
+    Built through the real import service, not by writing `ImportBatch` rows:
+    the point of having it in the demo is that the history screen shows a batch
+    somebody could have uploaded, with real row verdicts and a real applied
+    count.
+    """
+    filename = f"{NAMESPACE}-reorder-applied.csv"
+    existing = _find_batch(organization=organization, filename=filename)
+    if existing is not None:
+        log.record("import batch", f"{filename} ({existing.status})", created=False)
+        return existing
+
+    lines = ["item_code,is_stocked,reorder_point,reorder_quantity"]
+    lines += [f"{code},yes,{point},{quantity}" for code, point, quantity in REORDER_ROWS]
+    raw = ("\n".join(lines) + "\n").encode("utf-8")
+
+    with audit_context(actor=actor):
+        batch = create_batch(
+            organization=organization,
+            branch=branch,
+            kind=ImportKind.BRANCH_ITEM_SETTING,
+            raw=raw,
+            filename=filename,
+        )
+        batch = validate_batch(batch=batch)
+        batch = apply_batch(batch=batch)
+    log.record(
+        "import batch",
+        f"{filename} ({batch.status}, {batch.applied_row_count} changed)",
+        created=True,
+    )
+    return batch
+
+
+def _failed_import(
+    log: DemoLog, *, organization: Organization, branch: Branch, actor: User
+) -> ImportBatch:
+    """
+    One import that was refused, with a good row in it.
+
+    The good row matters more than the bad ones. A batch of nothing but errors
+    demonstrates that validation rejects rubbish; a batch that is *mostly*
+    right demonstrates the harder rule — that one bad row stops all of it, and
+    the valid row was not quietly applied anyway.
+    """
+    filename = f"{NAMESPACE}-reorder-rejected.csv"
+    existing = _find_batch(organization=organization, filename=filename)
+    if existing is not None:
+        log.record("import batch", f"{filename} ({existing.status})", created=False)
+        return existing
+
+    raw = (
+        "item_code,is_stocked,reorder_point,reorder_quantity\n"
+        # Valid, and deliberately never applied.
+        "DEMO-MEAT,yes,30.000,20.000\n"
+        # No such item in this organization.
+        "NOT-A-DEMO-ITEM,yes,10.000,10.000\n"
+        # Neither field parses.
+        "DEMO-CHICKEN,ربما,كثير,5.000\n"
+    ).encode()
+
+    with audit_context(actor=actor):
+        batch = create_batch(
+            organization=organization,
+            branch=branch,
+            kind=ImportKind.BRANCH_ITEM_SETTING,
+            raw=raw,
+            filename=filename,
+        )
+        batch = validate_batch(batch=batch)
+    log.record(
+        "import batch",
+        f"{filename} ({batch.status}, {batch.error_row_count} rejected)",
+        created=True,
+    )
+    return batch
+
+
+# ---------------------------------------------------------------------------
 # The whole scenario
 # ---------------------------------------------------------------------------
 
@@ -1877,6 +2055,14 @@ def seed_inventory_demo(
             business_date=business_date,
         )
         _expired_lot_receipt(
+            log,
+            organization=organization,
+            branch=source_branch,
+            warehouse=main,
+            items=items,
+            business_date=business_date,
+        )
+        _expiry_lots(
             log,
             organization=organization,
             branch=source_branch,
@@ -2007,6 +2193,10 @@ def seed_inventory_demo(
             conversions=conversions,
             business_date=business_date,
         )
+        # The imports need the branch item settings to exist, which
+        # `ensure_branch_visibility` guaranteed above.
+        _applied_import(log, organization=organization, branch=source_branch, actor=user)
+        _failed_import(log, organization=organization, branch=source_branch, actor=user)
         # The counts go last, and in this order. A cancelled count releases its
         # freeze, so the main store is usable again; the other two keep theirs,
         # and anything posted into a frozen warehouse afterwards is refused.

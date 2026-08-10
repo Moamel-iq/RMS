@@ -60,6 +60,14 @@ class ReplayedPosition:
     quantity: Decimal
     value: Decimal
     last_posted_sequence: int
+    #: The last movement's own figures. Quantity and value above are summed
+    #: independently of them on purpose — if the two disagree the *ledger* is
+    #: inconsistent, not the projection, and that is worth knowing separately.
+    #: The average is not summable, so the kernel's last word on it is the
+    #: only honest expectation.
+    average_cost: Decimal = ZERO
+    control_account_id: int | None = None
+    last_movement_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +125,22 @@ def replay_movements(
             quantity=quantity,
             value=quantize_money(value),
             last_posted_sequence=int(movement.posted_sequence),
+            average_cost=movement.average_after,
+            # Mirrors `ledger.py`: a position emptied to zero attributes to no
+            # control account, because it carries no value for one to hold.
+            # While stock remains, a reversal carries no account of its own, so
+            # the last one actually stated stands — overwriting that with NULL
+            # would make every reversed position look unattributed.
+            control_account_id=(
+                None
+                if quantity == ZERO
+                else (
+                    movement.control_account_id
+                    if movement.control_account_id is not None
+                    else (current.control_account_id if current else None)
+                )
+            ),
+            last_movement_id=movement.pk,
         )
     return positions
 
@@ -137,7 +161,13 @@ def _mismatch(
     )
 
 
-def verify_organization(organization: Organization) -> list[Mismatch]:
+def verify_organization(
+    organization: Organization,
+    *,
+    branch_id: int | None = None,
+    warehouse_id: int | None = None,
+    item_id: int | None = None,
+) -> list[Mismatch]:
     """
     Compare every projected balance in one organization with the ledger.
 
@@ -145,10 +175,28 @@ def verify_organization(organization: Organization) -> list[Mismatch]:
     and a position the ledger knows about that the projection has never heard
     of. The second is the more alarming, and a comparison that only walked the
     balance rows would miss it entirely.
+
+    The optional filters narrow **both** sides identically. Narrowing one side
+    only would manufacture mismatches out of rows the other side legitimately
+    excluded — which is why they are applied here rather than by the caller.
+
+    Verification only. Nothing in this function writes.
     """
-    replayed = replay_movements(StockMovement.objects.filter(organization=organization))
+    movements = StockMovement.objects.filter(organization=organization)
+    balances_queryset = StockBalance.objects.filter(organization=organization)
+    if branch_id is not None:
+        movements = movements.filter(branch_id=branch_id)
+        balances_queryset = balances_queryset.filter(branch_id=branch_id)
+    if warehouse_id is not None:
+        movements = movements.filter(warehouse_id=warehouse_id)
+        balances_queryset = balances_queryset.filter(warehouse_id=warehouse_id)
+    if item_id is not None:
+        movements = movements.filter(item_id=item_id)
+        balances_queryset = balances_queryset.filter(item_id=item_id)
+
+    replayed = replay_movements(movements)
     balances = list(
-        StockBalance.objects.filter(organization=organization).select_related(
+        balances_queryset.select_related(
             "warehouse", "warehouse__branch", "item", "lot", "organization"
         )
     )
@@ -177,6 +225,33 @@ def verify_organization(organization: Organization) -> list[Mismatch]:
                     "last_posted_sequence",
                     int(balance.last_posted_sequence),
                     position.last_posted_sequence,
+                )
+            )
+        # The average is not summable, so the expectation is the last
+        # movement's own figure rather than a re-derivation. A projection
+        # whose average drifted from what the last posting computed is the
+        # exact failure a value ÷ quantity check would miss, because value and
+        # quantity can both be right while the cached average is stale.
+        if balance.average_cost != position.average_cost:
+            mismatches.append(
+                _mismatch(balance, "average_cost", balance.average_cost, position.average_cost)
+            )
+        if balance.control_account_id != position.control_account_id:
+            mismatches.append(
+                _mismatch(
+                    balance,
+                    "control_account",
+                    balance.control_account_id or 0,
+                    position.control_account_id or 0,
+                )
+            )
+        if balance.last_movement_id != position.last_movement_id:
+            mismatches.append(
+                _mismatch(
+                    balance,
+                    "last_movement",
+                    balance.last_movement_id or 0,
+                    position.last_movement_id or 0,
                 )
             )
 

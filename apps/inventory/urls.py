@@ -9,7 +9,7 @@ reserved, and a row that has been referenced stays readable.
 from django.urls import path
 from django.utils.translation import gettext_lazy as _
 
-from apps.inventory import views
+from apps.inventory import import_views, report_views, views
 from apps.inventory.models import InventoryDocumentType
 
 app_name = "inventory"
@@ -390,4 +390,48 @@ urlpatterns += [
         views.AdjustmentActionView.as_view(action="delete"),
         name="adjustment_delete",
     ),
+]
+
+# ---------------------------------------------------------------------------
+# Task 1.7 — reports and imports
+# ---------------------------------------------------------------------------
+# Reports live under one prefix so the sidebar section and the permission story
+# are both legible. Every one of them is a GET, is scoped by the same selector
+# the operational screens use, and carries `?export=csv` on the same query.
+
+urlpatterns += [
+    path(
+        "reports/valuation/",
+        report_views.StockValuationReportView.as_view(),
+        name="report_valuation",
+    ),
+    path(
+        "reports/stock-card/",
+        report_views.StockCardReportView.as_view(),
+        name="report_stock_card",
+    ),
+    path(
+        "reports/in-transit/",
+        report_views.InTransitReportView.as_view(),
+        name="report_in_transit",
+    ),
+    path("reports/expiry/", report_views.ExpiryReportView.as_view(), name="report_expiry"),
+    path("reports/reorder/", report_views.ReorderReportView.as_view(), name="report_reorder"),
+    path("reports/waste/", report_views.WasteReportView.as_view(), name="report_waste"),
+    path(
+        "reports/count-variance/",
+        report_views.CountVarianceReportView.as_view(),
+        name="report_count_variance",
+    ),
+    path(
+        "reports/adjustments/",
+        report_views.AdjustmentReportView.as_view(),
+        name="report_adjustments",
+    ),
+]
+
+urlpatterns += [
+    path("imports/", import_views.ImportBatchListView.as_view(), name="import_list"),
+    path("imports/new/", import_views.ImportUploadView.as_view(), name="import_upload"),
+    path("imports/<int:pk>/", import_views.ImportBatchDetailView.as_view(), name="import_detail"),
 ]

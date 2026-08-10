@@ -249,9 +249,31 @@ because swapping a page into a table would nest the shell inside itself.
 
 | Command | Namespace | Covers |
 |---|---|---|
-| `seed_inventory_demo` | `DEMO-INVENTORY-V1` | Inventory master data, opening stock, receipts, issues, returns, reversal, transfers, in-transit, shortage, waste, stock counts, manual adjustments |
+| `seed_inventory_demo` | `DEMO-INVENTORY-V1` | Inventory master data, opening stock, receipts, issues, returns, reversal, transfers, in-transit, shortage, waste, stock counts, manual adjustments, reorder points, dated lots, import batches |
 
 Reference data seeds — `seed_units`, `seed_chart_of_accounts`,
 `sync_accounting_roles` — are **not** demo commands. They create deterministic
 reference data that production genuinely needs, carry no `DEMO` namespace, and
 have no `DEBUG` guard. Do not add demo records to them.
+
+## Task 1.7A additions
+
+The rule at the top of this file — every user-visible feature ships demo data —
+was applied to the reports and the import history. `seed_inventory_demo` gained:
+
+- **Reorder points** placing one item below its point, one exactly on it, and
+  one above, so the reorder report shows all three states rather than a single
+  colour.
+- **Three dated chicken lots** — one already expired and holding stock, one due
+  in twenty days, one in ninety — so the expiry report has a row in every
+  bucket. The expired batch is left standing rather than written off: it is
+  what the screen exists to surface, and waste is the flow that clears it.
+- **One APPLIED import batch**, built through the real import service, which is
+  what sets those reorder points.
+- **One FAILED_VALIDATION batch** containing a perfectly good row that was
+  correctly never applied. The good row is the point: a batch of pure rubbish
+  proves only that validation rejects rubbish, while a mostly-right batch
+  proves the harder rule.
+
+Both batches are found by filename on re-run, so a second seed reports them as
+reused and creates no third batch.

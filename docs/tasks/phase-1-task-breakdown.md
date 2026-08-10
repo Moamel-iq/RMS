@@ -422,3 +422,89 @@ derive them, and a second run reports only reuse.
 - Demo reset never deletes posted history, and says so honestly when it stops.
 - htmx classification supported by assertions, not by prose.
 - Full suite, ruff, ruff format, mypy clean; no pending migrations.
+
+
+---
+
+## Task 1.7 is two tasks
+
+The original Task 1.7 bundled locations with reports, imports and rebuild
+tooling. They are not one piece of work: locations add a **dimension to the
+ledger**, and everything else in 1.7 reads the ledger without changing its
+shape. Mixing them would have meant reviewing a new quantity ledger and a
+reporting layer in one diff, with the reporting work blocked behind whichever
+location question took longest.
+
+Split, therefore:
+
+### Task 1.7A — Reports, exports, imports, projection verification, hardening
+
+Reads and master data only. No new ledger surface, no new posting path, no new
+movement type.
+
+- Nine reports, both historical modes, Arabic RTL inside the shell.
+- Scoped CSV export sharing the screens' query and redaction.
+- The import boundary: preview-first, atomic apply, master data only.
+- `verify_stock_projection`: shadow replay, verify-only.
+- Security hardening across scope, redaction, upload and injection.
+- Demo extension and tests.
+
+**Exit gate**
+
+- Import rollback is atomic — one failing row leaves nothing behind (AT-012).
+- Screen and export show the same rows under the same scope and redaction.
+- A planted projection drift is detected and never repaired (AT-007).
+- Inventory reconciles to the general ledger on populated demo data (AT-011).
+- Cross-organization and cross-branch sweep green (AT-008).
+- Every new user-visible screen renders seeded demo rows.
+
+### Task 1.7B — Stock locations and the location quantity ledger
+
+**Mandatory for Phase 1 exit.** Not optional, and not deferrable.
+
+Invariant 22 — *"sum of a warehouse's location quantities equals its warehouse
+quantity"* — is live in `docs/invariants/inventory-invariants.md`, is cited by
+`INV-038`, and Task 1.8's gate requires every invariant enforced and tested.
+Phase 1 cannot close without it.
+
+- `StockLocation` master data under a warehouse.
+- A per-location **quantity** ledger. Locations carry quantity only: the
+  warehouse owns value (ADR-018), and moving a box between bins inside one
+  store must revalue nothing.
+- Location-aware posting on every path that names a warehouse.
+- Warehouse ↔ location quantity reconciliation (invariant 22).
+- Location-to-location transfers within a warehouse.
+- Location permissions, demo data, tests.
+
+**Why it is its own task.** It changes what a posting *is*. Every receipt,
+issue, transfer, count, waste and adjustment gains a dimension, the stock key
+grows, the lock order has to be re-derived, and the reconciliation gains a
+third level. That is a ledger change, and it belongs in a diff a reviewer can
+read as a ledger change.
+
+### Task 1.8 — Phase 1 exit gate
+
+**Blocked until both 1.7A and 1.7B pass.**
+
+## Decisions recorded
+
+**`StockLocation`: MANDATORY for Phase 1 exit** under the current approved
+invariant set. Three documents say so independently — Task 1.7's original exit
+gate, invariant 22, and `INV-038`. It is not in any "deliberate non-invariants"
+section.
+
+**Partial, category and item stock counts: DEFERRED.** Release 1 counts a whole
+warehouse and freezes all of it:
+
+    StockCountScope.FULL_WAREHOUSE + HARD_FREEZE
+
+A partial count is not a full count with a shorter sheet. It means freezing
+*part* of a warehouse, and "part" has to be something the ledger can enforce —
+a per-key freeze checked on every posting. Offering one before that exists
+would be offering a freeze that does not hold, and the count sheet would
+silently be a claim about stock that moved while it was being counted
+(ADR-021 §1).
+
+Not implemented in 1.7A, and **not** in 1.7B either: a location freeze and a
+per-key count freeze are different mechanisms, and bundling them would repeat
+the mistake this split exists to correct.
