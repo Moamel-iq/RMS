@@ -5080,3 +5080,270 @@ class ImportRowResult(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.batch_id}#{self.row_number}"
+
+
+# ---------------------------------------------------------------------------
+# Stock locations (Task 1.7B)
+# ---------------------------------------------------------------------------
+
+
+class StockLocation(TimeStampedModel):
+    """
+    A bin, shelf or zone inside one warehouse. Refines *where*, never *what it
+    cost*.
+
+    ADR-018 §2 decided this and it is the whole design: the warehouse owns
+    value, a location owns quantity. Moving a box between two bins in one store
+    must revalue nothing, so `StockLocation` appears in no valuation key, takes
+    no average cost and names no control account. Widening the stock key to
+    include it would revalue stock on every put-away — which is precisely the
+    outcome ADR-018 forbids.
+
+    Locations are **optional**. A warehouse that has never used bins holds all
+    its quantity unlocated, and that is a supported permanent state rather than
+    a migration half-step: most stores in this business are one room.
+
+    One level. No nesting — a tree needs the depth and cycle rules
+    `ItemCategory` carries, and nothing in Release 1 asks for aisle→rack→bin.
+    """
+
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="locations",
+        verbose_name=_("warehouse"),
+    )
+    code = models.CharField(_("code"), max_length=32)
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    is_active = models.BooleanField(_("active"), default=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("stock location")
+        verbose_name_plural = _("stock locations")
+        ordering = ["warehouse__code", "code"]
+        permissions = [
+            ("manage_locations", _("Can create and archive stock locations")),
+            ("move_location_stock", _("Can move stock between locations")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["warehouse", "code"], name="stock_location_code_unique_per_warehouse"
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN), name="stock_location_code_format"
+            ),
+            models.CheckConstraint(
+                condition=~Q(name_ar=""), name="stock_location_name_ar_not_empty"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.warehouse_id}/{self.code}"
+
+
+class StockLocationBalance(TimeStampedModel):
+    """
+    How much of one `(item, lot)` sits in one location. Quantity only.
+
+    **No value, no average cost, no control account.** A location holding five
+    kilos of rice holds no money — the warehouse does, and asking this table
+    what something cost is a question it is designed to be unable to answer.
+
+    The unlocated remainder is not stored here. It is
+    `StockBalance.quantity − sum(located)`, derived rather than retained,
+    because a second retained number is a second thing that can drift from the
+    warehouse total and invariant 22 exists to make drift impossible rather
+    than merely detectable.
+    """
+
+    location = models.ForeignKey(
+        StockLocation,
+        on_delete=models.PROTECT,
+        related_name="balances",
+        verbose_name=_("location"),
+    )
+    #: Denormalised from `location.warehouse` so invariant 22 can be checked
+    #: with one grouped query rather than a join per position.
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="location_balances",
+        verbose_name=_("warehouse"),
+    )
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="location_balances",
+        verbose_name=_("item"),
+    )
+    lot = models.ForeignKey(
+        "inventory.InventoryLot",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="location_balances",
+        verbose_name=_("lot"),
+    )
+
+    quantity = models.DecimalField(
+        _("quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        default=Decimal("0"),
+    )
+
+    class Meta:
+        verbose_name = _("stock location balance")
+        verbose_name_plural = _("stock location balances")
+        ordering = ["warehouse__code", "location__code", "item__code"]
+        indexes = [
+            models.Index(fields=["warehouse", "item", "lot"]),
+        ]
+        constraints = [
+            # NULL-safe: a lotless position is one position, not one per row.
+            models.UniqueConstraint(
+                fields=["location", "item", "lot"],
+                name="stock_location_balance_key_unique",
+                nulls_distinct=False,
+            ),
+            # Negative stock in a bin is refused for the same reason it is
+            # refused in a warehouse: it describes goods nobody has.
+            models.CheckConstraint(
+                condition=Q(quantity__gte=Decimal("0")),
+                name="stock_location_balance_quantity_not_negative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.location_id}:{self.item_id}:{self.lot_id or 0} = {self.quantity}"
+
+
+class LocationMovementType(models.TextChoices):
+    """
+    Why quantity moved between or into a location. Closed.
+
+    Deliberately *not* `MovementType`. These are put-away and picking events,
+    they carry no value, and reusing the valued vocabulary would invite exactly
+    the confusion this split exists to prevent.
+    """
+
+    PUT_AWAY = "PUT_AWAY", _("إدخال إلى موقع")
+    PICK = "PICK", _("سحب من موقع")
+    TRANSFER_IN = "TRANSFER_IN", _("نقل داخلي وارد")
+    TRANSFER_OUT = "TRANSFER_OUT", _("نقل داخلي صادر")
+
+
+class StockLocationMovement(TimeStampedModel):
+    """
+    One quantity-only effect on a location balance. Append-only.
+
+    Links to the `StockMovement` that caused it where one exists — a receipt
+    puts away what it received — and to nothing where one does not: a
+    location-to-location move inside a warehouse creates a pair of these and
+    **no** `StockMovement`, because nothing entered or left the warehouse and
+    nothing was revalued. That case is the proof the split is real.
+    """
+
+    location = models.ForeignKey(
+        StockLocation,
+        on_delete=models.PROTECT,
+        related_name="movements",
+        verbose_name=_("location"),
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="location_movements",
+        verbose_name=_("warehouse"),
+    )
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="location_movements",
+        verbose_name=_("item"),
+    )
+    lot = models.ForeignKey(
+        "inventory.InventoryLot",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="location_movements",
+        verbose_name=_("lot"),
+    )
+
+    movement_type = models.CharField(
+        _("movement type"), max_length=20, choices=LocationMovementType.choices
+    )
+    #: Signed, in the item's base unit. Positive into the location.
+    base_quantity = models.DecimalField(
+        _("base quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    quantity_after = models.DecimalField(
+        _("quantity after"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+
+    #: The valued movement that caused this, when one did. Null for a move
+    #: between two locations of one warehouse, which has no valued counterpart.
+    stock_movement = models.ForeignKey(
+        "inventory.StockMovement",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="location_movements",
+        verbose_name=_("stock movement"),
+    )
+
+    effective_at = models.DateTimeField(_("effective at"))
+    posted_at = models.DateTimeField(_("posted at"), auto_now_add=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="location_movements",
+        verbose_name=_("posted by"),
+    )
+    reference = models.CharField(_("reference"), max_length=200, blank=True)
+
+    class Meta:
+        verbose_name = _("stock location movement")
+        verbose_name_plural = _("stock location movements")
+        ordering = ["-posted_at", "-id"]
+        indexes = [
+            models.Index(fields=["location", "item", "lot"]),
+            models.Index(fields=["warehouse", "-posted_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(base_quantity=Decimal("0")),
+                name="stock_location_movement_quantity_not_zero",
+            ),
+            models.CheckConstraint(
+                condition=Q(quantity_after__gte=Decimal("0")),
+                name="stock_location_movement_after_not_negative",
+            ),
+            # An inbound type moves stock in and an outbound type moves it out.
+            # Without this the sign is the caller's opinion, and a picking event
+            # that increased a bin would look like a put-away in every report.
+            models.CheckConstraint(
+                condition=(
+                    (
+                        Q(movement_type__in=["PUT_AWAY", "TRANSFER_IN"])
+                        & Q(base_quantity__gt=Decimal("0"))
+                    )
+                    | (
+                        Q(movement_type__in=["PICK", "TRANSFER_OUT"])
+                        & Q(base_quantity__lt=Decimal("0"))
+                    )
+                ),
+                name="stock_location_movement_sign_matches_type",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.location_id} {self.movement_type} {self.base_quantity}"

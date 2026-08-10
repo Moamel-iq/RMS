@@ -1,5 +1,5 @@
 """
-The twenty-six inventory permissions, their scope, and which role holds them.
+The twenty-eight inventory permissions, their scope, and which role holds them.
 
 Eighteen were approved with Task 1.0. The nineteenth, `manage_package_units`,
 follows from the amendment that made `PackageUnit` its own model: a model
@@ -34,6 +34,14 @@ whom, and what it changed.
 No permission imports *posted* stock. There is no such permission because
 there is no such path — an uploaded spreadsheet reaches the ledger only by
 becoming a draft that a human posts through the normal service.
+
+The twenty-seventh and twenty-eighth arrive with Task 1.7B. `manage_locations`
+maintains the bins inside a warehouse — structure, so it sits with whoever
+maintains warehouses. `move_location_stock` puts stock away and picks it, which
+is custody work a storekeeper does all day and which changes no value at all:
+moving a box between two bins revalues nothing (ADR-018 §2), so this is the
+least dangerous stock permission in the module and the only one a storekeeper
+holds without supervision.
 
 Task 1.6 needed **only that one**. `post_waste`, `conduct_stock_count`,
 `approve_stock_count`, `post_adjustment` and `reverse_movement` were all
@@ -130,6 +138,8 @@ OVERRIDE_NEGATIVE_STOCK = f"{APP_LABEL}.override_negative_stock"
 IMPORT_MASTER_DATA = f"{APP_LABEL}.import_master_data"
 IMPORT_OPENING_DRAFT = f"{APP_LABEL}.import_opening_draft"
 VIEW_IMPORT_HISTORY = f"{APP_LABEL}.view_import_history"
+MANAGE_LOCATIONS = f"{APP_LABEL}.manage_locations"
+MOVE_LOCATION_STOCK = f"{APP_LABEL}.move_location_stock"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_ITEM,
@@ -158,6 +168,8 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     IMPORT_MASTER_DATA,
     IMPORT_OPENING_DRAFT,
     VIEW_IMPORT_HISTORY,
+    MANAGE_LOCATIONS,
+    MOVE_LOCATION_STOCK,
 )
 
 
@@ -184,6 +196,9 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     VIEW_IMPORT_HISTORY: PermissionScope.ORGANIZATION_MASTER_DATA,
     # Custody structures and figures belong to the branch.
     MANAGE_WAREHOUSES: PermissionScope.BRANCH,
+    # A location lives inside one warehouse, so maintaining the bins is
+    # branch structure work alongside maintaining the warehouses.
+    MANAGE_LOCATIONS: PermissionScope.BRANCH,
     VIEW_STOCK: PermissionScope.BRANCH,
     VIEW_VALUATION: PermissionScope.BRANCH,
     CREATE_DRAFT_MOVEMENT: PermissionScope.BRANCH,
@@ -203,6 +218,8 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # dispatched them is the one whose books carry the loss. Warehouse scope
     # would ask about custody of a place the stock has already left.
     CLOSE_TRANSFER_SHORTAGE: PermissionScope.BRANCH,
+    # Put-away and picking are custody of one warehouse's contents.
+    MOVE_LOCATION_STOCK: PermissionScope.WAREHOUSE,
     # A movement names a warehouse, so posting is answered per warehouse.
     POST_RECEIPT: PermissionScope.WAREHOUSE,
     POST_ISSUE: PermissionScope.WAREHOUSE,
@@ -264,6 +281,8 @@ _MANAGER = frozenset(
         MANAGE_ITEMS,
         MANAGE_CONVERSIONS,
         MANAGE_WAREHOUSES,
+        MANAGE_LOCATIONS,
+        MOVE_LOCATION_STOCK,
         MANAGE_REASON_CODES,
         VIEW_STOCK,
         VIEW_VALUATION,
@@ -305,6 +324,9 @@ _STOREKEEPER = frozenset(
         POST_RETURN_IN,
         POST_TRANSFER,
         CONDUCT_STOCK_COUNT,
+        # Putting stock away and picking it is the storekeeper's job, and
+        # it moves no value — a bin change revalues nothing.
+        MOVE_LOCATION_STOCK,
     }
 )
 
