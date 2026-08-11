@@ -5,10 +5,10 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 04/20 — Supplier item catalogue (NOT STARTED)
+CURRENT_PIPELINE_STEP: 06/20 — Supplier quotations (NOT STARTED)
 CURRENT_TASK: none in flight
-LAST_GREEN_COMMIT: be918c0
-LAST_PUSHED_COMMIT: be918c0
+LAST_GREEN_COMMIT: 1692d50
+LAST_PUSHED_COMMIT: 1692d50
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
 
 ACTIVE_WORKTREES:
@@ -26,28 +26,34 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Step 04 — Task 2.2, the supplier item catalogue.
-`SupplierItem` linking `Supplier` to `inventory.InventoryItem`: supplier
-SKU, purchase package, lead time, minimum order, preferred flag, effective
-dating with an `EXCLUDE USING gist` no-overlap constraint, versioning
-rather than editing once referenced. Services, scope-safe selectors,
-permissions, API, Arabic RTL screens, demo catalogue rows against the five
-existing inventory demo items. See Task 2.0 §3 (PRC-005 – PRC-008).
+NEXT_EXACT_ACTION: Step 06 — Task 2.4, supplier quotations.
+`SupplierQuotation` and `SupplierQuotationLine` against an approved
+purchase request: supplier, source request, number, quoted date,
+valid_until, freight and other approved charges, evidence reference,
+lifecycle, and lines carrying item, catalogue reference where available,
+package, quantity, base quantity, unit price and exact line totals.
+No stock effect, no accounting effect, no payable. Duplicate supplier
+quotation reference protected. See Task 2.0 §5 (PRC-013 – PRC-017).
 
-A catalogue price values nothing and no posting service may read it —
-PRC-005 is an AST boundary test, not a comment.
+After Step 06: BATCH 2 certification over Steps 04–06 — full procurement
+suite, organizations scope suite, accounting integration check that PR and
+quotation created no ledger row, every route rendered, quality gates,
+migration check.
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
-git branch --show-current                      # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 41 passed
+git branch --show-current                     # expect phase/2-procurement
+.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 116 passed
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
 organization DEMO-KHAN-MANDI; start at http://127.0.0.1:8000/inventory/stock/.
-Procurement: three demo suppliers seeded and visible at
-http://127.0.0.1:8000/procurement/suppliers/ (`0 created` on re-run).
+Procurement: 3 suppliers, 6 catalogue rows and 4 purchase requests seeded
+and visible; the seed is idempotent (same counts on re-run). Routes:
+/procurement/suppliers/, /procurement/catalogue/, /procurement/requests/.
+Requests are raised by `demo-storekeeper` and decided by `moamel`, because
+maker-checker is a database constraint and one actor could not do both.
 RECONCILIATION_STATE: all three inventory verifiers clean on `khan_mandi_dev`
 and `khan_mandi_p1_exit`
 
@@ -64,6 +70,11 @@ BLOCKERS: none
 - `view_supplier` is Django's **builtin** view permission for the `Supplier`
   model, not a custom one. Declaring it in `Meta.permissions` is an
   `auth.E005` clash. The codename is still `procurement.view_supplier`.
+- `_require_draft` re-reads status under a row lock rather than trusting the
+  instance handed to it. A stale in-memory DRAFT would otherwise let a line
+  be added to an approved request, and no constraint could catch it.
+- `ProcurementDocumentSequence` is procurement's own gapless counter.
+  Numbers are drawn at submission, never at creation.
 - `apps/procurement/views.py` subclasses the list/write/action bases from
   `apps.inventory.views` rather than copying them. Extracting them into
   `apps.core` is worth doing when a third module needs them; it is a refactor
@@ -103,4 +114,6 @@ the item, and it is addressed.
 | B2 Suite runtime | **COMPLETE, PUSHED** | d9ff702 | 123 tests, 18:48 → 2:05 |
 | 02 Procurement spec | **COMPLETE, PUSHED** | d6c2b0f | 67 PRC requirements, 50 invariants, ADR-022/023 |
 | 03 Supplier master | **COMPLETE, PUSHED** | be918c0 | 41 tests, 3 demo suppliers, route + htmx verified |
-| 04–20 | not started | — | — |
+| 04 Supplier catalogue | **COMPLETE, PUSHED** | 637bd16 | 36 tests, 6 rows, gist no-overlap, AST boundary test |
+| 05 Purchase requests | **COMPLETE, PUSHED** | 1692d50 | 39 tests, 4 demo requests, maker-checker at the database |
+| 06–20 | not started | — | — |
