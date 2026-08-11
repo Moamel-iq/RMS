@@ -14,7 +14,14 @@ from typing import Any
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from apps.inventory.models import InventoryItem, PackageUnit, StockLocation, Warehouse
+from apps.inventory.models import (
+    InventoryItem,
+    InventoryLot,
+    InventoryReasonCode,
+    PackageUnit,
+    StockLocation,
+    Warehouse,
+)
 from apps.inventory.selectors import reachable_organization_ids
 from apps.organizations.authorization import (
     accessible_warehouses,
@@ -22,6 +29,8 @@ from apps.organizations.authorization import (
 )
 from apps.organizations.models import Organization
 from apps.procurement.models import (
+    PurchaseOrder,
+    PurchaseOrderStatus,
     PurchaseRequest,
     PurchaseRequestStatus,
     Supplier,
@@ -469,4 +478,129 @@ class PurchaseOrderLineForm(forms.Form):
         ).order_by("code")
         self.fields["package_unit"].queryset = PackageUnit.objects.filter(  # type: ignore[attr-defined]
             organization_id=organization_id, is_active=True
+        ).order_by("code")
+
+
+class GoodsReceiptForm(forms.Form):
+    """The header of a draft receipt. Lines are entered on the detail screen."""
+
+    supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
+    warehouse = forms.ModelChoiceField(queryset=Warehouse.objects.none(), label=_("المخزن المستلم"))
+    location = forms.ModelChoiceField(
+        queryset=StockLocation.objects.none(), label=_("الموقع"), required=False
+    )
+    order = forms.ModelChoiceField(
+        queryset=PurchaseOrder.objects.none(),
+        label=_("أمر الشراء"),
+        required=False,
+        help_text=_("اختياري. الشراء المباشر من السوق يصل بلا أمر."),
+    )
+    received_at = forms.DateField(
+        label=_("تاريخ الاستلام"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    delivery_reference = forms.CharField(
+        label=_("رقم إشعار التسليم"),
+        max_length=64,
+        required=False,
+        help_text=_("رقم المورد كما كتبه. لا يتكرر لنفس المورد."),
+    )
+    evidence_reference = forms.CharField(label=_("مرجع الإثبات"), max_length=200, required=False)
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+        reachable = reachable_organization_ids(actor)
+        warehouses = accessible_warehouses(actor).filter(is_active=True, is_system=False)
+
+        self.fields["supplier"].queryset = Supplier.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=reachable, is_active=True
+        ).order_by("code")
+        self.fields["warehouse"].queryset = warehouses.order_by("code")  # type: ignore[attr-defined]
+        self.fields["location"].queryset = StockLocation.objects.filter(  # type: ignore[attr-defined]
+            warehouse__in=warehouses, is_active=True
+        ).order_by("warehouse__code", "code")
+        # Only issued orders. A draft order has not been agreed with anybody,
+        # and goods arriving against one mean somebody skipped a step.
+        self.fields["order"].queryset = PurchaseOrder.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=reachable, status=PurchaseOrderStatus.ISSUED
+        ).order_by("-id")
+
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean() or {}
+        warehouse, location = data.get("warehouse"), data.get("location")
+        if warehouse and location and location.warehouse_id != warehouse.pk:
+            raise forms.ValidationError(
+                _("الموقع لا يتبع المخزن المختار."), code="location_warehouse_mismatch"
+            )
+        return data
+
+
+class GoodsReceiptLineForm(forms.Form):
+    """One delivered item. The price comes from the order or is entered here."""
+
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    package_unit = forms.ModelChoiceField(
+        queryset=PackageUnit.objects.none(), label=_("العبوة"), required=False
+    )
+    delivered_quantity = forms.DecimalField(label=_("الكمية المستلمة"), min_value=Decimal("0.001"))
+    measured_base_quantity = forms.DecimalField(
+        label=_("الوزن المقاس"),
+        min_value=Decimal("0.001"),
+        required=False,
+        help_text=_("مطلوب للعبوات متغيرة الوزن: الميزان هو الكمية، لا المعامل."),
+    )
+    unit_price = forms.DecimalField(
+        label=_("سعر الوحدة"),
+        min_value=0,
+        required=False,
+        help_text=_("يُؤخذ من أمر الشراء عند ربطه، ويُدخل يدوياً بدونه."),
+    )
+    lot = forms.ModelChoiceField(
+        queryset=InventoryLot.objects.none(), label=_("اللوط"), required=False
+    )
+    expiry_date = forms.DateField(
+        label=_("تاريخ الانتهاء"), required=False, widget=forms.DateInput(attrs={"type": "date"})
+    )
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, receipt: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.receipt = receipt
+        organization_id = receipt.organization_id
+        self.fields["item"].queryset = InventoryItem.objects.filter(  # type: ignore[attr-defined]
+            organization_id=organization_id, is_active=True
+        ).order_by("code")
+        self.fields["package_unit"].queryset = PackageUnit.objects.filter(  # type: ignore[attr-defined]
+            organization_id=organization_id, is_active=True
+        ).order_by("code")
+        self.fields["lot"].queryset = InventoryLot.objects.filter(  # type: ignore[attr-defined]
+            item__organization_id=organization_id
+        ).order_by("item__code", "code")
+
+
+class InspectLineForm(forms.Form):
+    """
+    How much of a delivered line is accepted.
+
+    Rejected quantity is not a field: it is delivered minus accepted, derived
+    by the service. Two numbers that must sum to a third is two chances to
+    disagree with it.
+    """
+
+    accepted_base_quantity = forms.DecimalField(label=_("الكمية المقبولة"), min_value=0)
+    rejection_reason = forms.ModelChoiceField(
+        queryset=InventoryReasonCode.objects.none(),
+        label=_("سبب الرفض"),
+        required=False,
+    )
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, receipt: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.fields["rejection_reason"].queryset = InventoryReasonCode.objects.filter(  # type: ignore[attr-defined]
+            organization_id=receipt.organization_id, is_active=True
         ).order_by("code")

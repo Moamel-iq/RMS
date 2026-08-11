@@ -37,6 +37,7 @@ from apps.procurement.demo import (
     seed_demo_order_revision,
     seed_demo_orders,
     seed_demo_quotations,
+    seed_demo_receipts,
     seed_demo_requests,
     seed_demo_suppliers,
 )
@@ -58,6 +59,7 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:purchase_request_list", "طلبات الشراء"),
     ("procurement:quotation_list", "عروض الموردين"),
     ("procurement:purchase_order_list", "أوامر الشراء"),
+    ("procurement:goods_receipt_list", "استلام البضاعة"),
 ]
 
 
@@ -119,6 +121,11 @@ class Command(SeedCommand):
                 else []
             )
             seed_demo_order_revision(organization=organization, actor=user)
+            receipts = (
+                seed_demo_receipts(organization=organization, receiver=approver, inspector=user)
+                if approver is not None and approver.pk != user.pk
+                else []
+            )
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -156,7 +163,7 @@ class Command(SeedCommand):
         self.write(
             f"{len(suppliers)} suppliers, {len(catalogue)} catalogue rows, "
             f"{len(requests)} requests, {len(quotations)} quotations and "
-            f"{len(orders)} orders present."
+            f"{len(orders)} orders and {len(receipts)} receipts present."
         )
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")

@@ -38,11 +38,16 @@ from apps.inventory.views import (
 from apps.organizations.authorization import (
     has_branch_permission,
     has_organization_master_data_permission,
+    has_warehouse_permission,
     require_branch_permission,
     require_reachable_organization_permission,
+    require_warehouse_permission,
 )
 from apps.procurement.comparison import award_quotation, comparison_for_request
 from apps.procurement.forms import (
+    GoodsReceiptForm,
+    GoodsReceiptLineForm,
+    InspectLineForm,
     PurchaseOrderForm,
     PurchaseOrderLineForm,
     PurchaseRequestForm,
@@ -53,6 +58,7 @@ from apps.procurement.forms import (
     SupplierQuotationLineForm,
 )
 from apps.procurement.models import (
+    GoodsReceiptStatus,
     PurchaseOrderStatus,
     PurchaseRequestStatus,
     SupplierQuotationStatus,
@@ -62,12 +68,15 @@ from apps.procurement.permissions import (
     APPROVE_PURCHASE_REQUEST,
     AWARD_QUOTATION,
     CANCEL_PURCHASE_ORDER,
+    CREATE_GOODS_RECEIPT,
     CREATE_PURCHASE_ORDER,
     CREATE_PURCHASE_REQUEST,
+    INSPECT_GOODS_RECEIPT,
     ISSUE_PURCHASE_ORDER,
     MANAGE_QUOTATIONS,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
+    VIEW_GOODS_RECEIPT,
     VIEW_PURCHASE_ORDER,
     VIEW_PURCHASE_REQUEST,
     VIEW_QUOTATION,
@@ -77,14 +86,18 @@ from apps.procurement.permissions import (
 )
 from apps.procurement.selectors import (
     order_version_history,
+    outstanding_order_lines,
+    resolve_goods_receipt,
     resolve_order_line,
     resolve_purchase_order,
     resolve_purchase_request,
     resolve_quotation,
     resolve_quotation_line,
+    resolve_receipt_line,
     resolve_request_line,
     resolve_supplier,
     resolve_supplier_item,
+    visible_goods_receipts,
     visible_purchase_orders,
     visible_purchase_requests,
     visible_quotations,
@@ -94,21 +107,25 @@ from apps.procurement.selectors import (
 from apps.procurement.services import (
     add_order_line,
     add_quotation_line,
+    add_receipt_line,
     add_request_line,
     approve_purchase_order,
     approve_purchase_request,
     cancel_purchase_order,
     cancel_purchase_request,
+    create_goods_receipt,
     create_purchase_order,
     create_purchase_request,
     create_supplier,
     create_supplier_item,
     create_supplier_quotation,
     decline_supplier_quotation,
+    inspect_receipt_line,
     issue_purchase_order,
     reject_purchase_request,
     remove_order_line,
     remove_quotation_line,
+    remove_receipt_line,
     remove_request_line,
     revise_purchase_order,
     submit_purchase_request,
@@ -1114,3 +1131,189 @@ class PurchaseOrderReviseView(InventoryViewMixin, View):
         else:
             messages.success(request, _("تم إصدار نسخة جديدة من الأمر."))
         return HttpResponseRedirect(reverse("procurement:purchase_order_history", args=[order.pk]))
+
+
+# ---------------------------------------------------------------------------
+# Goods receipts
+# ---------------------------------------------------------------------------
+
+
+class GoodsReceiptListView(InventoryListView):
+    module_key = "procurement"
+    required_permission = VIEW_GOODS_RECEIPT
+    template_name = "procurement/goods_receipt_list.html"
+    context_object_name = "receipts"
+    page_title = _("استلام البضاعة")
+    page_hint = _(
+        "ما وصل فعلاً، وما قرّره الفحص. الكمية المقبولة وحدها تدخل المخزون؛ "
+        "المرفوضة تُسجَّل للمطالبة ولا ترحّل شيئاً. الترحيل يأتي مع القيد "
+        "المحاسبي في مهمة لاحقة، فلا يوجد ترحيل مخزون بلا قيد."
+    )
+    search_fields = ("number", "delivery_reference", "supplier__code", "supplier__name_ar")
+    manage_permission = CREATE_GOODS_RECEIPT
+    manage_scope = "branch"
+    create_url_name = "procurement:goods_receipt_create"
+    create_label = _("استلام جديد")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_goods_receipts(self.actor)
+        status = self.request.GET.get("status", "").strip().upper()
+        if status in GoodsReceiptStatus.values:
+            queryset = queryset.filter(status=status)
+        return queryset.order_by("-id")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["statuses"] = GoodsReceiptStatus.choices
+        context["selected_status"] = self.request.GET.get("status", "")
+        context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        return context
+
+
+class GoodsReceiptCreateView(InventoryWriteView):
+    module_key = "procurement"
+    template_name = "procurement/goods_receipt_form.html"
+    form_class = GoodsReceiptForm
+    required_permission = CREATE_GOODS_RECEIPT
+    success_url_name = "procurement:goods_receipt_list"
+    page_title = _("استلام بضاعة جديد")
+    page_hint = _("يُفتح كمسودة. لا يتحرك مخزون ولا يُنشأ قيد حتى الترحيل.")
+    success_message = _("تم إنشاء المسودة. أضف الأصناف ثم افحصها.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_warehouse_permission(
+            self.actor, CREATE_GOODS_RECEIPT, form.cleaned_data["warehouse"]
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        data = form.cleaned_data
+        warehouse = data["warehouse"]
+        self.created = create_goods_receipt(
+            supplier=data["supplier"],
+            branch=warehouse.branch,
+            warehouse=warehouse,
+            location=data.get("location"),
+            created_by=self.actor,
+            received_at=data["received_at"],
+            order=data.get("order"),
+            delivery_reference=data.get("delivery_reference", ""),
+            evidence_reference=data.get("evidence_reference", ""),
+            notes=data.get("notes", ""),
+        )
+
+    def get_success_url(self) -> str:
+        created = getattr(self, "created", None)
+        if created is None:
+            return reverse(self.success_url_name)
+        return reverse("procurement:goods_receipt_detail", args=[created.pk])
+
+
+class GoodsReceiptDetailView(InventoryViewMixin, View):
+    """Header, delivered lines, inspection state and what is still outstanding."""
+
+    module_key = "procurement"
+    required_permission = VIEW_GOODS_RECEIPT
+    template_name = "procurement/goods_receipt_detail.html"
+
+    def load(self) -> Any:
+        return resolve_goods_receipt(self.actor, self.kwargs["pk"])
+
+    def context(self, receipt: Any, form: Any) -> dict[str, Any]:
+        may_edit = has_warehouse_permission(self.actor, CREATE_GOODS_RECEIPT, receipt.warehouse)
+        return {
+            "receipt": receipt,
+            "lines": receipt.lines.select_related(
+                "item", "item__base_unit", "package_unit", "lot", "rejection_reason"
+            ).order_by("sequence"),
+            "form": form,
+            "page_title": receipt.number or _("مسودة استلام"),
+            "may_edit": may_edit and receipt.is_editable,
+            "may_inspect": has_warehouse_permission(
+                self.actor, INSPECT_GOODS_RECEIPT, receipt.warehouse
+            )
+            and receipt.is_editable,
+            "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+            "outstanding": outstanding_order_lines(receipt.order) if receipt.order else [],
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        receipt = self.load()
+        return render(
+            request,
+            self.template_name,
+            self.context(receipt, GoodsReceiptLineForm(actor=self.actor, receipt=receipt)),
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        receipt = self.load()
+        require_warehouse_permission(self.actor, CREATE_GOODS_RECEIPT, receipt.warehouse)
+        form = GoodsReceiptLineForm(actor=self.actor, receipt=receipt, data=request.POST)
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                add_receipt_line(
+                    receipt=receipt,
+                    item=data["item"],
+                    package_unit=data.get("package_unit"),
+                    delivered_quantity=data["delivered_quantity"],
+                    measured_base_quantity=data.get("measured_base_quantity"),
+                    unit_price=data.get("unit_price"),
+                    lot=data.get("lot"),
+                    expiry_date=data.get("expiry_date"),
+                    note=data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة السطر."))
+                return HttpResponseRedirect(
+                    reverse("procurement:goods_receipt_detail", args=[receipt.pk])
+                )
+        return render(request, self.template_name, self.context(receipt, form))
+
+
+class GoodsReceiptLineDeleteView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = CREATE_GOODS_RECEIPT
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        receipt = resolve_goods_receipt(self.actor, self.kwargs["pk"])
+        require_warehouse_permission(self.actor, CREATE_GOODS_RECEIPT, receipt.warehouse)
+        line = resolve_receipt_line(self.actor, receipt=receipt, line_id=self.kwargs["line_id"])
+        try:
+            remove_receipt_line(line=line)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم حذف السطر."))
+        return HttpResponseRedirect(reverse("procurement:goods_receipt_detail", args=[receipt.pk]))
+
+
+class GoodsReceiptInspectView(InventoryViewMixin, View):
+    """POST-only. Accepting goods is a decision about what enters stock."""
+
+    module_key = "procurement"
+    required_permission = INSPECT_GOODS_RECEIPT
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        receipt = resolve_goods_receipt(self.actor, self.kwargs["pk"])
+        require_warehouse_permission(self.actor, INSPECT_GOODS_RECEIPT, receipt.warehouse)
+        line = resolve_receipt_line(self.actor, receipt=receipt, line_id=self.kwargs["line_id"])
+        form = InspectLineForm(actor=self.actor, receipt=receipt, data=request.POST)
+        if not form.is_valid():
+            messages.error(request, _("كمية مقبولة غير صالحة."))
+        else:
+            try:
+                inspect_receipt_line(
+                    line=line,
+                    accepted_base_quantity=form.cleaned_data["accepted_base_quantity"],
+                    actor=self.actor,
+                    rejection_reason=form.cleaned_data.get("rejection_reason"),
+                    note=form.cleaned_data.get("note", ""),
+                )
+            except ValidationError as error:
+                messages.error(request, "؛ ".join(str(m) for m in error.messages))
+            else:
+                messages.success(request, _("تم تسجيل نتيجة الفحص."))
+        return HttpResponseRedirect(reverse("procurement:goods_receipt_detail", args=[receipt.pk]))

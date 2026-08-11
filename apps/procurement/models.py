@@ -1317,3 +1317,459 @@ class PurchaseOrderVersion(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.order} v{self.version}"
+
+
+class GoodsReceiptStatus(models.TextChoices):
+    """
+    Draft, posted, reversed — the three the specification names, and no more.
+
+    There is deliberately no `INSPECTED` or `READY` state. Task 2.0 §7 puts
+    inspection on the *line* (`accepted`, `rejected`, `rejection_reason`,
+    `inspected_by`), not in the status, and adding a fourth state would invent
+    a lifecycle the specification does not have. Whether a draft is complete
+    enough to post is derived — see `GoodsReceipt.is_ready_to_post` — because a
+    stored readiness flag would be a second opinion that goes stale the moment
+    somebody edits a line.
+
+    `POSTED` and `REVERSED` are unreachable in Task 2.8: the command that
+    reaches them arrives in Task 2.9, where the stock effect and the GRNI
+    journal commit in one transaction. Exposing a stock-only post now would
+    create inventory with no accounting behind it.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class QualityResult(models.TextChoices):
+    """What inspection concluded about a line."""
+
+    NOT_INSPECTED = "NOT_INSPECTED", _("لم يُفحص")
+    ACCEPTED = "ACCEPTED", _("مقبول")
+    PARTIAL = "PARTIAL", _("مقبول جزئياً")
+    REJECTED = "REJECTED", _("مرفوض")
+
+
+class GoodsReceipt(TimeStampedModel):
+    """
+    What physically arrived, and what inspection made of it.
+
+    The inspection fields live here rather than on a later document, and that
+    placement is the point of the whole model. Only the accepted quantity ever
+    enters stock; rejected goods are recorded so the supplier can be argued
+    with and so quality can be reported on, and they post nothing at all
+    (PRC-025). Putting acceptance on the invoice instead — which is the common
+    shortcut — means stock has already moved by the time anybody says the meat
+    was off.
+
+    A receipt may name no purchase order. Buying from the market without one is
+    normal for this business (PRC-028). What it may not do is exist without a
+    price: value with no number is how zero-cost stock gets created.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="goods_receipts",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="goods_receipts",
+        verbose_name=_("branch"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="goods_receipts",
+        verbose_name=_("supplier"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    order = models.ForeignKey(
+        PurchaseOrder,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="receipts",
+        verbose_name=_("purchase order"),
+    )
+    #: The order's version at the moment goods were received. A later revision
+    #: must not change what this delivery was measured against, so the number
+    #: is copied rather than joined to.
+    order_version = models.PositiveIntegerField(_("order version"), null=True, blank=True)
+
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="goods_receipts",
+        verbose_name=_("warehouse"),
+    )
+    location = models.ForeignKey(
+        "inventory.StockLocation",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipts",
+        verbose_name=_("location"),
+    )
+
+    #: The branch business date, derived through the branch timezone and
+    #: operating-day cutoff (ADR-008) — never `date(timestamp)`.
+    received_at = models.DateField(_("business date"))
+    #: The wall-clock moment the lorry arrived, which is a different fact.
+    delivered_at = models.DateTimeField(_("delivered at"), null=True, blank=True)
+
+    #: The supplier's own note number. Their vocabulary, stored as written.
+    delivery_reference = models.CharField(_("delivery reference"), max_length=64, blank=True)
+    evidence_reference = models.CharField(_("evidence reference"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=GoodsReceiptStatus.choices,
+        default=GoodsReceiptStatus.DRAFT,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_goods_receipts",
+        verbose_name=_("created by"),
+    )
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="received_goods_receipts",
+        verbose_name=_("received by"),
+    )
+    inspected_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inspected_goods_receipts",
+        verbose_name=_("inspected by"),
+    )
+    inspected_at = models.DateTimeField(_("inspected at"), null=True, blank=True)
+
+    #: Written by Task 2.9 when the receipt posts. Present now so the schema
+    #: does not change under a posting service, and null until then.
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_goods_receipts",
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("goods receipt")
+        verbose_name_plural = _("goods receipts")
+        ordering = ["-received_at", "-id"]
+        permissions = [
+            ("create_goods_receipt", _("Can record a goods receipt")),
+            ("inspect_goods_receipt", _("Can accept or reject received goods")),
+            ("post_goods_receipt", _("Can post a goods receipt to stock")),
+            ("reverse_goods_receipt", _("Can reverse a posted goods receipt")),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(inspected_by__isnull=True, inspected_at__isnull=True)
+                | Q(inspected_by__isnull=False, inspected_at__isnull=False),
+                name="procurement_receipt_inspection_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(posted_by__isnull=True, posted_at__isnull=True)
+                | Q(posted_by__isnull=False, posted_at__isnull=False),
+                name="procurement_receipt_posting_is_complete",
+            ),
+            # A draft has never posted. Catches a posting service that sets a
+            # timestamp without moving the status, which is exactly the shape
+            # of a half-applied transaction.
+            models.CheckConstraint(
+                condition=~Q(status="DRAFT") | Q(posted_at__isnull=True),
+                name="procurement_receipt_draft_has_not_posted",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="POSTED") | Q(posted_at__isnull=False),
+                name="procurement_receipt_posted_says_when",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="procurement_receipt_number_unique_per_organization",
+            ),
+            # One supplier's delivery note is entered once. Scoped to the
+            # supplier, not globally: two suppliers numbering their notes "1"
+            # is not a conflict, and refusing it would be refusing reality.
+            models.UniqueConstraint(
+                fields=["organization", "supplier", "delivery_reference"],
+                condition=~Q(delivery_reference="") & ~Q(status="REVERSED"),
+                name="procurement_receipt_delivery_reference_unique_per_supplier",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="gr_org_status_idx"),
+            models.Index(fields=["order"], name="gr_order_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"GRN draft {self.public_id}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == GoodsReceiptStatus.DRAFT
+
+    @property
+    def is_ready_to_post(self) -> bool:
+        """
+        Whether a draft holds everything posting will need.
+
+        Derived, never stored. A readiness flag would be a second opinion that
+        goes stale the moment somebody edits a line, and the one that is stale
+        is always the flag.
+
+        Posting itself arrives in Task 2.9; this is what its precondition will
+        be, surfaced now so the screen can say "ready" without saying "posted".
+        """
+        lines = list(self.lines.all())
+        if not lines or not self.evidence_reference:
+            return False
+        return all(
+            line.quality_result != QualityResult.NOT_INSPECTED
+            and line.accepted_base_quantity + line.rejected_base_quantity
+            == line.delivered_base_quantity
+            for line in lines
+        )
+
+    @property
+    def accepted_value(self) -> Decimal:
+        """What the accepted goods are worth, summed from the lines."""
+        return quantize_money(
+            sum(
+                (line.accepted_value for line in self.lines.all()),
+                start=Decimal("0.000"),
+            )
+        )
+
+
+class GoodsReceiptLine(TimeStampedModel):
+    """
+    One item that arrived, in the package it arrived in.
+
+    `delivered = accepted + rejected` is a database `CheckConstraint`, not a
+    service check (PRC-024): a line that does not add up is not a line, and the
+    arithmetic is simple enough that the database can own it outright.
+
+    The unit price is snapshotted here and is what will value the stock. It
+    comes from the order where one is linked, and is entered where none is —
+    never from the supplier catalogue, whose price is planning information that
+    no posting path may read (PRC-005).
+    """
+
+    receipt = models.ForeignKey(
+        GoodsReceipt,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("receipt"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    order_line = models.ForeignKey(
+        PurchaseOrderLine,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="receipt_lines",
+        verbose_name=_("order line"),
+    )
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="goods_receipt_lines",
+        verbose_name=_("item"),
+    )
+    supplier_item = models.ForeignKey(
+        SupplierItem,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="receipt_lines",
+        verbose_name=_("catalogue row"),
+    )
+    package_unit = models.ForeignKey(
+        "inventory.PackageUnit",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipt_lines",
+        verbose_name=_("package"),
+    )
+    conversion = models.ForeignKey(
+        "inventory.ItemPackageConversion",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipt_lines",
+        verbose_name=_("conversion"),
+    )
+    conversion_version = models.PositiveIntegerField(_("conversion version"), null=True, blank=True)
+    conversion_factor = models.DecimalField(
+        _("factor to base"),
+        max_digits=FACTOR_MAX_DIGITS,
+        decimal_places=FACTOR_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    delivered_quantity = models.DecimalField(
+        _("delivered"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    delivered_base_quantity = models.DecimalField(
+        _("delivered (base)"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+    #: What the scale actually said, for a `VARIABLE` package. Twelve lambs is
+    #: not a quantity of meat (PRC-026); this is, and it is what the base
+    #: quantity comes from when the package is variable.
+    measured_base_quantity = models.DecimalField(
+        _("measured (base)"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    accepted_base_quantity = models.DecimalField(
+        _("accepted (base)"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        default=Decimal("0.000"),
+    )
+    rejected_base_quantity = models.DecimalField(
+        _("rejected (base)"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        default=Decimal("0.000"),
+    )
+    quality_result = models.CharField(
+        _("quality result"),
+        max_length=16,
+        choices=QualityResult.choices,
+        default=QualityResult.NOT_INSPECTED,
+    )
+    rejection_reason = models.ForeignKey(
+        "inventory.InventoryReasonCode",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipt_rejections",
+        verbose_name=_("rejection reason"),
+    )
+
+    lot = models.ForeignKey(
+        "inventory.InventoryLot",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipt_lines",
+        verbose_name=_("lot"),
+    )
+    expiry_date = models.DateField(_("expiry"), null=True, blank=True)
+
+    #: Per entered unit. What will value the stock, and never the catalogue.
+    unit_price = models.DecimalField(
+        _("unit price"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+    )
+    note = models.CharField(_("note"), max_length=200, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("goods receipt line")
+        verbose_name_plural = _("goods receipt lines")
+        ordering = ["receipt", "sequence"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(delivered_quantity__gt=0),
+                name="procurement_receipt_line_delivered_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(delivered_base_quantity__gt=0),
+                name="procurement_receipt_line_delivered_base_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(accepted_base_quantity__gte=0) & Q(rejected_base_quantity__gte=0),
+                name="procurement_receipt_line_split_is_not_negative",
+            ),
+            # PRC-024. The one rule the database owns outright.
+            models.CheckConstraint(
+                condition=Q(accepted_base_quantity__lte=models.F("delivered_base_quantity")),
+                name="procurement_receipt_line_accepted_within_delivered",
+            ),
+            models.CheckConstraint(
+                condition=Q(rejected_base_quantity__lte=models.F("delivered_base_quantity")),
+                name="procurement_receipt_line_rejected_within_delivered",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_price__gte=0),
+                name="procurement_receipt_line_price_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(package_unit__isnull=True, conversion__isnull=True)
+                | Q(package_unit__isnull=False, conversion__isnull=False),
+                name="procurement_receipt_line_package_carries_its_conversion",
+            ),
+            # Rejecting something requires saying why.
+            models.CheckConstraint(
+                condition=Q(rejected_base_quantity=0) | Q(rejection_reason__isnull=False),
+                name="procurement_receipt_line_rejection_states_a_reason",
+            ),
+            # An expiry belongs to a lot.
+            models.CheckConstraint(
+                condition=Q(expiry_date__isnull=True) | Q(lot__isnull=False),
+                name="procurement_receipt_line_expiry_requires_a_lot",
+            ),
+            models.UniqueConstraint(
+                fields=["receipt", "sequence"],
+                name="procurement_receipt_line_sequence_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["order_line"], name="gr_line_order_line_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.receipt} · {self.item.code}"
+
+    @property
+    def accepted_value(self) -> Decimal:
+        """
+        What the accepted portion is worth.
+
+        Derived from the accepted **base** quantity and the entered unit price
+        converted to base, so a partial rejection is valued at the same rate
+        per kilogram as a full acceptance would be.
+        """
+        if self.delivered_base_quantity == 0:
+            return Decimal("0.000")
+        line_value = quantize_money(self.delivered_quantity * self.unit_price)
+        share = self.accepted_base_quantity / self.delivered_base_quantity
+        return quantize_money(line_value * share)

@@ -516,17 +516,17 @@ see Task 2.0 §0.
 | PRC-017 | An award records actor, reason, and the same-organization check | `award_quotation` | `apps/procurement/tests/test_comparison_and_award.py::TestTheAward` | 2.5 | | Done |
 | PRC-018 | A purchase order creates no stock and no payable, including ISSUED | asserted per status | `apps/procurement/tests/test_purchase_orders.py::TestNoLedgerEffect` | 2.6 | | Done |
 | PRC-019 | Issued terms are immutable; a change creates a version | allowlist trigger + version model | `apps/procurement/tests/test_order_change_control.py::TestRevision` | 2.7 | | Done |
-| PRC-020 | A revision cannot reduce quantity below what was received | service guard under a lock | `apps/procurement/tests/test_order_change_control.py::TestReceivedQuantityGuards` | 2.7 | | Partial |
+| PRC-020 | A revision cannot reduce quantity below what was received | service guard under a lock | `apps/procurement/tests/test_goods_receipts.py::test_a_revision_below_the_received_quantity_is_now_refused`, `apps/procurement/tests/test_order_change_control.py::TestReceivedQuantityGuards` | 2.7 | | Done |
 | PRC-021 | The supplier cannot change once a receipt exists | service guard | `apps/procurement/tests/test_order_change_control.py::test_the_supplier_cannot_be_revised_at_all` | 2.7 | | Done |
-| PRC-022 | Cancellation needs a reason, is refused after a receipt, and is terminal | service guard | `apps/procurement/tests/test_order_change_control.py::test_a_cancelled_order_cannot_be_revised_from_a_stale_copy` | 2.7 | | Partial |
-| PRC-023 | Over-receipt is refused at zero tolerance | service guard under a lock | — | 2.8 | | Specified |
-| PRC-024 | Delivered equals accepted plus rejected on every line | `CheckConstraint` | — | 2.8 | | Specified |
-| PRC-025 | Only accepted quantity increases stock | posting service | — | 2.8 | | Specified |
-| PRC-026 | A VARIABLE package line requires its measured quantity | reuses the inventory guard | — | 2.8 | | Specified |
-| PRC-027 | Lot and expiry follow the rules of the item, unchanged | reuses `_validate_lot` | — | 2.8 | | Specified |
-| PRC-028 | A receipt without a purchase order is permitted, but never without a price | service guard | — | 2.8 | | Specified |
+| PRC-022 | Cancellation needs a reason, is refused after a receipt, and is terminal | service guard | `apps/procurement/tests/test_goods_receipts.py::test_a_cancelled_order_cannot_receive`, `apps/procurement/tests/test_goods_receipts.py::test_a_stale_order_instance_cannot_bypass_the_cancellation_guard` | 2.7 | | Done |
+| PRC-023 | Over-receipt is refused at zero tolerance | service guard under a lock | `apps/procurement/tests/test_goods_receipts.py::TestOrderRules` | 2.8 | | Done |
+| PRC-024 | Delivered equals accepted plus rejected on every line | `CheckConstraint` | `apps/procurement/tests/test_goods_receipts.py::test_the_database_refuses_accepted_above_delivered` | 2.8 | | Done |
+| PRC-025 | Only accepted quantity increases stock | posting service | `apps/procurement/tests/test_goods_receipts.py::TestNothingPostsYet`, `apps/procurement/tests/test_goods_receipts.py::TestAcceptedAndRejected` | 2.8 | | Done |
+| PRC-026 | A VARIABLE package line requires its measured quantity | reuses the inventory guard | `apps/procurement/tests/test_goods_receipts.py::test_a_variable_package_demands_the_scale_reading`, `apps/procurement/tests/test_goods_receipts.py::test_a_weighed_container_uses_the_scale_not_the_factor` | 2.8 | | Done |
+| PRC-027 | Lot and expiry follow the rules of the item, unchanged | reuses `_validate_lot` | `apps/procurement/tests/test_goods_receipts.py::test_a_lot_tracked_item_requires_its_lot`, `apps/procurement/tests/test_goods_receipts.py::test_an_untracked_item_refuses_a_lot` | 2.8 | | Done |
+| PRC-028 | A receipt without a purchase order is permitted, but never without a price | service guard | `apps/procurement/tests/test_goods_receipts.py::test_a_line_with_no_order_and_no_price_is_refused` | 2.8 | | Done |
 | PRC-029 | Receipts post through the inventory kernel; no second posting path | AST boundary test | — | 2.8 | | Specified |
-| PRC-030 | Partial receipt; cumulative accepted tracked against the order line | selector + guard | — | 2.8 | | Specified |
+| PRC-030 | Partial receipt; cumulative accepted tracked against the order line | selector + guard | `apps/procurement/tests/test_goods_receipts.py::TestTheReceivedQuantitySeam` | 2.8 | | Done |
 | PRC-031 | A posted receipt is immutable; correction is reversal plus replacement | allowlist trigger | — | 2.8 | | Specified |
 | PRC-032 | Receipt journal value equals receipt stock value, per line, to 3 dp | reconciliation test | — | 2.9 | | Specified |
 | PRC-033 | Grouped debits where items resolve to different control accounts | reuses the opening-stock shape | — | 2.9 | | Specified |

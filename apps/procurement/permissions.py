@@ -86,6 +86,19 @@ CREATE_PURCHASE_ORDER = f"{APP_LABEL}.create_purchase_order"
 APPROVE_PURCHASE_ORDER = f"{APP_LABEL}.approve_purchase_order"
 ISSUE_PURCHASE_ORDER = f"{APP_LABEL}.issue_purchase_order"
 CANCEL_PURCHASE_ORDER = f"{APP_LABEL}.cancel_purchase_order"
+#: Task 2.8. Recording what arrived and deciding what is acceptable are
+#: different acts, so they are different permissions: the person unloading
+#: the lorry writes down twelve boxes, and somebody else says three of them
+#: are off. Posting and reversing are elevated again, because those are the
+#: two that touch the ledger.
+#:
+#: All four are **warehouse**-scoped: a receipt names a warehouse and moves
+#: stock into it, and inventory already scopes custody that way.
+VIEW_GOODS_RECEIPT = f"{APP_LABEL}.view_goodsreceipt"
+CREATE_GOODS_RECEIPT = f"{APP_LABEL}.create_goods_receipt"
+INSPECT_GOODS_RECEIPT = f"{APP_LABEL}.inspect_goods_receipt"
+POST_GOODS_RECEIPT = f"{APP_LABEL}.post_goods_receipt"
+REVERSE_GOODS_RECEIPT = f"{APP_LABEL}.reverse_goods_receipt"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_SUPPLIER,
@@ -104,6 +117,11 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     APPROVE_PURCHASE_ORDER,
     ISSUE_PURCHASE_ORDER,
     CANCEL_PURCHASE_ORDER,
+    VIEW_GOODS_RECEIPT,
+    CREATE_GOODS_RECEIPT,
+    INSPECT_GOODS_RECEIPT,
+    POST_GOODS_RECEIPT,
+    REVERSE_GOODS_RECEIPT,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -133,6 +151,12 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     APPROVE_PURCHASE_ORDER: PermissionScope.BRANCH,
     ISSUE_PURCHASE_ORDER: PermissionScope.BRANCH,
     CANCEL_PURCHASE_ORDER: PermissionScope.BRANCH,
+    # Custody of one warehouse's contents.
+    VIEW_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
+    CREATE_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
+    INSPECT_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
+    POST_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
+    REVERSE_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
 }
 
 
@@ -161,6 +185,9 @@ _PURCHASING = frozenset(
         # Sends the agreed order out, and deliberately cannot approve it:
         # whoever chose the supplier does not also authorise the spend.
         ISSUE_PURCHASE_ORDER,
+        # Reads deliveries; confirms none. Whoever chose the supplier does
+        # not also certify that what they sent was acceptable.
+        VIEW_GOODS_RECEIPT,
     }
 )
 
@@ -183,6 +210,11 @@ _MANAGER = frozenset(
         APPROVE_PURCHASE_ORDER,
         ISSUE_PURCHASE_ORDER,
         CANCEL_PURCHASE_ORDER,
+        VIEW_GOODS_RECEIPT,
+        CREATE_GOODS_RECEIPT,
+        INSPECT_GOODS_RECEIPT,
+        POST_GOODS_RECEIPT,
+        REVERSE_GOODS_RECEIPT,
     }
 )
 
@@ -196,6 +228,10 @@ _ACCOUNTING_MANAGER = frozenset(
         VIEW_QUOTATION,
         VIEW_PURCHASE_REQUEST,
         VIEW_PURCHASE_ORDER,
+        VIEW_GOODS_RECEIPT,
+        # Undoing a posted receipt is an accounting act, not a warehouse
+        # one: it reverses a journal as well as stock.
+        REVERSE_GOODS_RECEIPT,
         # Authorises the spend without being able to raise the order.
         APPROVE_PURCHASE_ORDER,
         CANCEL_PURCHASE_ORDER,
@@ -212,6 +248,7 @@ _ACCOUNTANT = frozenset(
         VIEW_PURCHASE_REQUEST,
         VIEW_QUOTATION,
         VIEW_PURCHASE_ORDER,
+        VIEW_GOODS_RECEIPT,
     }
 )
 
@@ -228,6 +265,10 @@ _STOREKEEPER = frozenset(
         CREATE_PURCHASE_REQUEST,
         # Sees what is on order so a delivery can be checked against it.
         VIEW_PURCHASE_ORDER,
+        VIEW_GOODS_RECEIPT,
+        CREATE_GOODS_RECEIPT,
+        INSPECT_GOODS_RECEIPT,
+        POST_GOODS_RECEIPT,
     }
 )
 

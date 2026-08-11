@@ -17,9 +17,11 @@ from django.utils.translation import gettext_lazy as _
 
 from apps.inventory.models import InventoryItem
 from apps.inventory.selectors import reachable_organization_ids
-from apps.organizations.authorization import OutOfScope
+from apps.organizations.authorization import OutOfScope, accessible_warehouses
 from apps.organizations.selectors import accessible_branches
 from apps.procurement.models import (
+    GoodsReceipt,
+    GoodsReceiptLine,
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseOrderVersion,
@@ -326,3 +328,54 @@ def _difference(older: dict[str, object], newer: dict[str, object]) -> list[str]
         if uid not in old_lines:
             changes.append(f"{new_row['item_code']}: added")
     return changes
+
+
+def visible_goods_receipts(user: User) -> QuerySet[GoodsReceipt]:
+    """
+    Receipts in warehouses the caller may reach, in every status.
+
+    Warehouse-scoped rather than branch-scoped: a receipt puts goods into one
+    store, and inventory already narrows custody that way. A storekeeper with
+    `SELECTED` warehouse scope sees deliveries into their own store and not
+    into the one next door.
+    """
+    return GoodsReceipt.objects.filter(warehouse__in=accessible_warehouses(user)).select_related(
+        "organization", "branch", "supplier", "warehouse", "order", "created_by"
+    )
+
+
+def resolve_goods_receipt(user: User, receipt_id: int) -> GoodsReceipt:
+    """Turn a submitted receipt id into one the caller may reach, or 404."""
+    found = visible_goods_receipts(user).filter(pk=receipt_id).first()
+    if found is None:
+        raise OutOfScope(_("Goods receipt %(id)s does not exist.") % {"id": receipt_id})
+    return found
+
+
+def resolve_receipt_line(user: User, *, receipt: GoodsReceipt, line_id: int) -> GoodsReceiptLine:
+    """A line, resolved under its own receipt — never by id alone."""
+    line = GoodsReceiptLine.objects.filter(pk=line_id, receipt=receipt).first()
+    if line is None:
+        raise OutOfScope(_("Receipt line %(id)s does not exist.") % {"id": line_id})
+    return line
+
+
+def outstanding_order_lines(order: PurchaseOrder) -> list[dict[str, object]]:
+    """
+    What a purchase order still expects, line by line.
+
+    Derived from posted receipts every time it is asked for. A stored
+    "remaining" column would be a second figure that drifts the first time a
+    receipt is reversed.
+    """
+    from apps.procurement.services import received_base_quantity
+
+    return [
+        {
+            "line": line,
+            "ordered": line.ordered_base_quantity,
+            "received": received_base_quantity(line),
+            "outstanding": line.ordered_base_quantity - received_base_quantity(line),
+        }
+        for line in order.lines.select_related("item", "package_unit").order_by("sequence")
+    ]

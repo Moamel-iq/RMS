@@ -19,11 +19,19 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
-from apps.inventory.models import InventoryItem, PackageUnit, Warehouse
+from apps.inventory.models import (
+    InventoryItem,
+    InventoryLot,
+    InventoryReasonCode,
+    PackageUnit,
+    Warehouse,
+)
 from apps.organizations.models import Branch, Organization
 from apps.procurement.comparison import award_quotation
 from apps.procurement.models import (
+    GoodsReceipt,
     PurchaseOrder,
+    PurchaseOrderStatus,
     PurchaseRequest,
     PurchaseRequestStatus,
     Supplier,
@@ -34,15 +42,18 @@ from apps.procurement.models import (
 from apps.procurement.services import (
     add_order_line,
     add_quotation_line,
+    add_receipt_line,
     add_request_line,
     approve_purchase_order,
     approve_purchase_request,
     cancel_purchase_order,
+    create_goods_receipt,
     create_purchase_order,
     create_purchase_request,
     create_supplier,
     create_supplier_item,
     create_supplier_quotation,
+    inspect_receipt_line,
     issue_purchase_order,
     reject_purchase_request,
     revise_purchase_order,
@@ -557,3 +568,141 @@ def seed_demo_order_revision(*, organization: Organization, actor: User) -> Purc
         reason="المورد أكّد توفر ١٠٠ كغم فقط من أصل ١٢٠",
         line_quantities={str(line.line_uid): Decimal("100.000")},
     )
+
+
+def seed_demo_receipts(
+    *, organization: Organization, receiver: User, inspector: User
+) -> list[GoodsReceipt]:
+    """
+    Four deliveries, each showing something the next one does not.
+
+    1. Fully accepted, against the issued order — the ordinary case.
+    2. Partly rejected — three of twelve cartons were off, with a reason.
+    3. A partial receipt against the same order, so the outstanding quantity
+       on the screen is a real remainder rather than a contrived one.
+    4. A `VARIABLE` meat container weighed on arrival, because the planning
+       factor is an estimate and the scale is the quantity (PRC-026).
+
+    None of them posts. Stock and the GRNI journal move together in Task 2.9,
+    and a demo that created inventory here would be demonstrating the exact
+    thing the boundary exists to prevent.
+    """
+    existing = list(
+        GoodsReceipt.objects.filter(
+            organization=organization, delivery_reference__startswith="DEMO-GRN"
+        ).order_by("id")
+    )
+    if existing:
+        return existing
+
+    branch = Branch.objects.filter(organization=organization, code="DEMO-BUNOOK").first()
+    warehouse = Warehouse.objects.filter(branch=branch, code="DEMO-MAIN", is_system=False).first()
+    if branch is None or warehouse is None:
+        return []
+
+    order = PurchaseOrder.objects.filter(
+        organization=organization,
+        supplier_reference="DEMO-PO-AWARDED",
+        status=PurchaseOrderStatus.ISSUED,
+    ).first()
+    grocery = Supplier.objects.filter(
+        organization=organization, code="DEMO-GROCERY-SUPPLIER"
+    ).first()
+    chicken_supplier = Supplier.objects.filter(
+        organization=organization, code="DEMO-CHICKEN-SUPPLIER"
+    ).first()
+    meat_supplier = Supplier.objects.filter(
+        organization=organization, code="DEMO-MEAT-SUPPLIER"
+    ).first()
+    rice = InventoryItem.objects.filter(organization=organization, code="DEMO-RICE").first()
+    chicken = InventoryItem.objects.filter(organization=organization, code="DEMO-CHICKEN").first()
+    meat = InventoryItem.objects.filter(organization=organization, code="DEMO-MEAT").first()
+    carton = PackageUnit.objects.filter(organization=organization, code="CARTON").first()
+    container = PackageUnit.objects.filter(organization=organization, code="CONTAINER").first()
+    reason = InventoryReasonCode.objects.filter(organization=organization, is_active=True).first()
+    if grocery is None or rice is None:
+        return []
+
+    received_on = CATALOGUE_EFFECTIVE_FROM + datetime.timedelta(days=32)
+    receipts: list[GoodsReceipt] = []
+
+    # 1 + 3. Two partial deliveries against the one issued order, which was
+    # revised down to 100 kg — 60 now, 40 later.
+    if order is not None:
+        order_line = order.lines.order_by("sequence").first()
+        for index, quantity in enumerate((Decimal("60.000"), Decimal("40.000")), start=1):
+            receipt = create_goods_receipt(
+                supplier=order.supplier,
+                branch=branch,
+                warehouse=warehouse,
+                created_by=receiver,
+                received_at=received_on + datetime.timedelta(days=index),
+                order=order,
+                delivery_reference=f"DEMO-GRN-PARTIAL-{index}",
+                evidence_reference="إشعار تسليم المورد",
+            )
+            line = add_receipt_line(
+                receipt=receipt,
+                item=order_line.item if order_line else rice,
+                delivered_quantity=quantity,
+                order_line=order_line,
+            )
+            inspect_receipt_line(line=line, accepted_base_quantity=quantity, actor=inspector)
+            receipts.append(receipt)
+
+    # 2. Partly rejected: three of twelve chicken cartons arrived warm.
+    if chicken_supplier is not None and chicken is not None and carton is not None:
+        spoiled = create_goods_receipt(
+            supplier=chicken_supplier,
+            branch=branch,
+            warehouse=warehouse,
+            created_by=receiver,
+            received_at=received_on,
+            delivery_reference="DEMO-GRN-REJECT",
+            evidence_reference="صورة إشعار التسليم",
+        )
+        lot = InventoryLot.objects.filter(item=chicken).order_by("id").first()
+        line = add_receipt_line(
+            receipt=spoiled,
+            item=chicken,
+            package_unit=carton,
+            delivered_quantity=Decimal("12.000"),
+            unit_price=Decimal("14000.000000"),
+            lot=lot,
+        )
+        # 12 cartons × 10 kg = 120 kg delivered; 30 kg rejected.
+        inspect_receipt_line(
+            line=line,
+            accepted_base_quantity=Decimal("90.000"),
+            actor=inspector,
+            rejection_reason=reason,
+            note="ثلاث كراتين وصلت غير مبردة",
+        )
+        receipts.append(spoiled)
+
+    # 4. A variable meat container: the scale decides, not the factor.
+    if meat_supplier is not None and meat is not None and container is not None:
+        weighed = create_goods_receipt(
+            supplier=meat_supplier,
+            branch=branch,
+            warehouse=warehouse,
+            created_by=receiver,
+            received_at=received_on,
+            delivery_reference="DEMO-GRN-WEIGHED",
+            evidence_reference="قصاصة الميزان",
+        )
+        meat_lot = InventoryLot.objects.filter(item=meat).order_by("id").first()
+        line = add_receipt_line(
+            receipt=weighed,
+            item=meat,
+            package_unit=container,
+            delivered_quantity=Decimal("1.000"),
+            # The planning factor says 18 kg; the scale said 17.4.
+            measured_base_quantity=Decimal("17.400"),
+            unit_price=Decimal("9500.000000"),
+            lot=meat_lot,
+        )
+        inspect_receipt_line(line=line, accepted_base_quantity=Decimal("17.400"), actor=inspector)
+        receipts.append(weighed)
+
+    return receipts

@@ -27,7 +27,10 @@ from apps.core.money import quantize_money, quantize_unit_price
 from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
 from apps.inventory.models import (
+    ConversionType,
     InventoryItem,
+    InventoryLot,
+    InventoryReasonCode,
     ItemPackageConversion,
     PackageUnit,
     StockLocation,
@@ -36,6 +39,9 @@ from apps.inventory.models import (
 from apps.organizations.models import Branch, Organization
 from apps.procurement.lifecycle import lock_and_require_status
 from apps.procurement.models import (
+    GoodsReceipt,
+    GoodsReceiptLine,
+    GoodsReceiptStatus,
     ProcurementDocumentSequence,
     PurchaseOrder,
     PurchaseOrderLine,
@@ -44,6 +50,7 @@ from apps.procurement.models import (
     PurchaseRequest,
     PurchaseRequestLine,
     PurchaseRequestStatus,
+    QualityResult,
     Supplier,
     SupplierItem,
     SupplierQuotation,
@@ -1430,18 +1437,21 @@ def received_base_quantity(line: PurchaseOrderLine) -> Decimal:
     """
     How much of this order line has already been accepted into stock.
 
-    Goods receipts arrive in Task 2.8. Until then this is zero — but it is a
-    **function with a call site**, not an assumption written into the guards
-    that use it. When `GoodsReceiptLine` exists, this body changes and every
-    guard tightens with it; if the guards had hard-coded zero instead, they
-    would keep passing and nobody would know to look.
+    **POSTED receipts only.** A draft is somebody typing while a lorry is
+    still being unloaded, and a reversed receipt has given its stock back — so
+    neither reserves anything on the order. An inspected-but-unposted receipt
+    does not reserve either, because Task 2.0 §7 gives this document three
+    statuses and "inspected" is not one of them: inspection is line data on a
+    draft, and until the draft posts no stock exists to protect.
+
+    That answer has a consequence worth stating: two drafts can each be within
+    the outstanding quantity while together exceeding it. `add_receipt_line`
+    therefore also subtracts other drafts against the same order line, so the
+    over-receipt guard holds before anything posts as well as after.
     """
-    receipt_lines = getattr(line, "receipt_lines", None)
-    if receipt_lines is None:
-        return Decimal("0.000")
-    accepted: Decimal | None = receipt_lines.filter(receipt__status="POSTED").aggregate(
-        total=Sum("accepted_base_quantity")
-    )["total"]
+    accepted: Decimal | None = GoodsReceiptLine.objects.filter(
+        order_line=line, receipt__status=GoodsReceiptStatus.POSTED
+    ).aggregate(total=Sum("accepted_base_quantity"))["total"]
     return accepted or Decimal("0.000")
 
 
@@ -1642,5 +1652,420 @@ def revise_purchase_order(
         previous_state=previous,
         new_state=snapshot(locked),
         reason=reason.strip(),
+    )
+    return locked
+
+
+# ---------------------------------------------------------------------------
+# Goods receipts
+# ---------------------------------------------------------------------------
+
+
+def _require_receipt_draft(receipt: GoodsReceipt) -> GoodsReceipt:
+    """Only a draft may be edited or inspected, re-read under a row lock."""
+    return lock_and_require_status(
+        GoodsReceipt,
+        receipt.pk,
+        {GoodsReceiptStatus.DRAFT},
+        code="receipt_not_editable",
+        message=_("This receipt has been posted and can no longer be edited."),
+    )
+
+
+@transaction.atomic
+def create_goods_receipt(
+    *,
+    supplier: Supplier,
+    branch: Branch,
+    warehouse: Warehouse,
+    created_by: User,
+    received_at: datetime.date,
+    order: PurchaseOrder | None = None,
+    location: StockLocation | None = None,
+    delivered_at: datetime.datetime | None = None,
+    delivery_reference: str = "",
+    evidence_reference: str = "",
+    notes: str = "",
+) -> GoodsReceipt:
+    """
+    Open a draft receipt for goods that have physically arrived.
+
+    Nothing posts here. A draft records what turned up so it can be inspected;
+    stock and the GRNI journal move together in Task 2.9, and separating them
+    would create inventory with no accounting behind it.
+
+    The order's **version** is copied rather than joined to. A revision after
+    delivery must not change what this delivery was measured against.
+    """
+    if branch.organization_id != supplier.organization_id:
+        raise ValidationError(
+            _("The supplier belongs to another organization."), code="organization_mismatch"
+        )
+    if warehouse.branch_id != branch.pk:
+        raise ValidationError(
+            _("Warehouse %(code)s does not belong to this branch."),
+            code="warehouse_branch_mismatch",
+            params={"code": warehouse.code},
+        )
+    if location is not None and location.warehouse_id != warehouse.pk:
+        raise ValidationError(
+            _("Location %(code)s is not in this warehouse."),
+            code="location_warehouse_mismatch",
+            params={"code": location.code},
+        )
+
+    order_version = None
+    if order is not None:
+        # Read the order under a lock: its status decides whether goods may be
+        # booked against it at all, and a copy loaded a moment ago may already
+        # be cancelled.
+        locked_order = PurchaseOrder.objects.select_for_update().get(pk=order.pk)
+        if locked_order.organization_id != supplier.organization_id:
+            raise ValidationError(
+                _("The order belongs to another organization."),
+                code="organization_mismatch",
+            )
+        if locked_order.supplier_id != supplier.pk:
+            raise ValidationError(
+                _("That order was placed with a different supplier."),
+                code="order_supplier_mismatch",
+            )
+        if locked_order.status == PurchaseOrderStatus.CANCELLED:
+            raise ValidationError(
+                _("Order %(number)s is cancelled and cannot receive goods."),
+                code="order_cancelled",
+                params={"number": locked_order.number},
+            )
+        if locked_order.status == PurchaseOrderStatus.DRAFT:
+            raise ValidationError(
+                _("Goods cannot be received against a draft order."),
+                code="order_not_approved",
+            )
+        order = locked_order
+        order_version = locked_order.version
+
+    receipt = GoodsReceipt(
+        organization=branch.organization,
+        branch=branch,
+        supplier=supplier,
+        order=order,
+        order_version=order_version,
+        warehouse=warehouse,
+        location=location,
+        created_by=created_by,
+        received_at=received_at,
+        delivered_at=delivered_at,
+        delivery_reference=delivery_reference.strip(),
+        evidence_reference=evidence_reference.strip(),
+        notes=notes.strip(),
+    )
+    receipt.full_clean()
+    receipt.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=receipt,
+        branch=branch,
+        new_state=snapshot(receipt),
+    )
+    return receipt
+
+
+def _remaining_on_order_line(line: PurchaseOrderLine) -> Decimal:
+    """How much of an order line has not yet been received."""
+    return line.ordered_base_quantity - received_base_quantity(line)
+
+
+@transaction.atomic
+def add_receipt_line(
+    *,
+    receipt: GoodsReceipt,
+    item: InventoryItem,
+    delivered_quantity: Decimal,
+    unit_price: Decimal | None = None,
+    package_unit: PackageUnit | None = None,
+    order_line: PurchaseOrderLine | None = None,
+    supplier_item: SupplierItem | None = None,
+    measured_base_quantity: Decimal | None = None,
+    lot: InventoryLot | None = None,
+    expiry_date: datetime.date | None = None,
+    note: str = "",
+) -> GoodsReceiptLine:
+    """
+    Record one delivered item on a draft receipt.
+
+    The price comes from the order line when one is named, and must be entered
+    when none is. It is never taken from the supplier catalogue: a catalogue
+    price is planning information that no posting path may read (PRC-005), and
+    a receipt that silently used one would value stock at a number nobody
+    agreed to for this delivery.
+
+    A `VARIABLE` package demands `measured_base_quantity` (PRC-026). Twelve
+    lambs is not a quantity of meat; the scale reading is, and the planning
+    factor is an estimate that must never become a stock figure.
+    """
+    receipt = _require_receipt_draft(receipt)
+
+    if item.organization_id != receipt.organization_id:
+        raise ValidationError(
+            _("The item belongs to another organization."), code="organization_mismatch"
+        )
+    if delivered_quantity <= 0:
+        raise ValidationError(
+            _("A delivered quantity must be greater than zero."),
+            code="quantity_not_positive",
+        )
+
+    if order_line is not None:
+        if receipt.order_id is None or order_line.order_id != receipt.order_id:
+            raise ValidationError(
+                _("That line belongs to a different purchase order."),
+                code="order_line_mismatch",
+            )
+        if order_line.item_id != item.pk:
+            raise ValidationError(
+                _("The order line is for a different item."), code="order_line_item_mismatch"
+            )
+        if unit_price is None:
+            unit_price = order_line.unit_price
+
+    if unit_price is None:
+        raise ValidationError(
+            _(
+                "A receipt line needs a price. Link an order line, or enter the "
+                "price agreed for this delivery."
+            ),
+            code="price_required",
+        )
+    if unit_price < 0:
+        raise ValidationError(_("A price cannot be negative."), code="price_negative")
+    if supplier_item is not None and supplier_item.supplier_id != receipt.supplier_id:
+        raise ValidationError(
+            _("That catalogue row belongs to another supplier."), code="supplier_mismatch"
+        )
+
+    conversion = None
+    factor = None
+    if package_unit is not None:
+        conversion = _active_conversion(
+            item=item, package_unit=package_unit, on=receipt.received_at
+        )
+        if conversion is None:
+            raise ValidationError(
+                _("Item %(item)s has no conversion for package %(package)s on %(date)s."),
+                code="no_conversion_for_package",
+                params={
+                    "item": item.code,
+                    "package": package_unit.code,
+                    "date": receipt.received_at.isoformat(),
+                },
+            )
+        factor = conversion.factor_to_base
+        if conversion.conversion_type == ConversionType.VARIABLE:
+            if measured_base_quantity is None or measured_base_quantity <= 0:
+                raise ValidationError(
+                    _(
+                        "Package %(package)s is variable: the measured quantity is "
+                        "what arrived, not the planning factor."
+                    ),
+                    code="measured_quantity_required",
+                    params={"package": package_unit.code},
+                )
+            base = quantize_quantity(measured_base_quantity)
+        else:
+            base = quantize_quantity(delivered_quantity * factor)
+    else:
+        base = quantize_quantity(delivered_quantity)
+
+    _validate_receipt_lot(item=item, lot=lot, expiry_date=expiry_date)
+
+    if order_line is not None:
+        remaining = _remaining_on_order_line(order_line)
+        already = sum(
+            (
+                other.delivered_base_quantity
+                for other in GoodsReceiptLine.objects.filter(
+                    order_line=order_line, receipt__status=GoodsReceiptStatus.DRAFT
+                ).exclude(receipt=receipt)
+            ),
+            start=Decimal("0.000"),
+        )
+        if base > remaining - already:
+            raise ValidationError(
+                _(
+                    "Line %(item)s has %(remaining)s outstanding on the order; "
+                    "%(delivered)s would over-receive it. Revise the order first."
+                ),
+                code="over_receipt",
+                params={
+                    "item": item.code,
+                    "remaining": format(remaining - already, "f"),
+                    "delivered": format(base, "f"),
+                },
+            )
+
+    highest = (
+        GoodsReceiptLine.objects.filter(receipt=receipt)
+        .order_by("-sequence")
+        .values_list("sequence", flat=True)
+        .first()
+    )
+    line = GoodsReceiptLine(
+        receipt=receipt,
+        sequence=(highest or 0) + 1,
+        order_line=order_line,
+        item=item,
+        supplier_item=supplier_item,
+        package_unit=package_unit,
+        conversion=conversion,
+        conversion_version=conversion.version if conversion else None,
+        conversion_factor=factor,
+        delivered_quantity=quantize_quantity(delivered_quantity),
+        delivered_base_quantity=base,
+        measured_base_quantity=(
+            quantize_quantity(measured_base_quantity)
+            if measured_base_quantity is not None
+            else None
+        ),
+        lot=lot,
+        expiry_date=expiry_date,
+        unit_price=quantize_unit_price(unit_price),
+        note=note.strip(),
+    )
+    line.full_clean()
+    line.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=line,
+        branch=receipt.branch,
+        new_state=snapshot(line),
+    )
+    return line
+
+
+def _validate_receipt_lot(
+    *, item: InventoryItem, lot: InventoryLot | None, expiry_date: datetime.date | None
+) -> None:
+    """
+    Lot and expiry follow the item's own rules, unchanged (PRC-027).
+
+    Procurement inherits inventory's vocabulary here rather than inventing a
+    parallel one: an item that tracks lots needs one on every movement, and an
+    item that does not must never acquire one through a side door.
+    """
+    if item.tracks_lots and lot is None:
+        raise ValidationError(
+            _("Item %(item)s is lot-tracked; a lot is required."),
+            code="lot_required",
+            params={"item": item.code},
+        )
+    if not item.tracks_lots and lot is not None:
+        raise ValidationError(
+            _("Item %(item)s is not lot-tracked and cannot take a lot."),
+            code="lot_prohibited",
+            params={"item": item.code},
+        )
+    if lot is not None and lot.item_id != item.pk:
+        raise ValidationError(_("That lot belongs to a different item."), code="lot_item_mismatch")
+    if expiry_date is not None and not item.tracks_expiry:
+        raise ValidationError(
+            _("Item %(item)s does not track expiry."),
+            code="expiry_not_tracked",
+            params={"item": item.code},
+        )
+
+
+@transaction.atomic
+def remove_receipt_line(*, line: GoodsReceiptLine) -> None:
+    """Drop a line from a draft. Sequences are not renumbered."""
+    _require_receipt_draft(line.receipt)
+    previous = snapshot(line)
+    record_audit_event(
+        action=AuditAction.DELETED,
+        target=line,
+        branch=line.receipt.branch,
+        previous_state=previous,
+    )
+    line.delete()
+
+
+@transaction.atomic
+def inspect_receipt_line(
+    *,
+    line: GoodsReceiptLine,
+    accepted_base_quantity: Decimal,
+    actor: User,
+    rejection_reason: InventoryReasonCode | None = None,
+    note: str = "",
+) -> GoodsReceiptLine:
+    """
+    Say how much of a delivered line is actually accepted.
+
+    The rejected quantity is **derived** — delivered minus accepted — rather
+    than entered separately. Two numbers that must sum to a third is two
+    chances to disagree with it, and the database constraint would then be
+    catching a typo the screen could have prevented.
+
+    Only the accepted quantity will ever enter stock (PRC-025). Rejected goods
+    are recorded so the supplier can be argued with and so quality can be
+    reported on, and they post nothing.
+    """
+    receipt = _require_receipt_draft(line.receipt)
+    locked = GoodsReceiptLine.objects.select_for_update().get(pk=line.pk)
+    previous = snapshot(locked)
+
+    if accepted_base_quantity < 0:
+        raise ValidationError(
+            _("An accepted quantity cannot be negative."), code="accepted_negative"
+        )
+    if accepted_base_quantity > locked.delivered_base_quantity:
+        raise ValidationError(
+            _("Only %(delivered)s was delivered; %(accepted)s cannot be accepted."),
+            code="accepted_above_delivered",
+            params={
+                "delivered": format(locked.delivered_base_quantity, "f"),
+                "accepted": format(accepted_base_quantity, "f"),
+            },
+        )
+
+    accepted = quantize_quantity(accepted_base_quantity)
+    rejected = quantize_quantity(locked.delivered_base_quantity - accepted)
+
+    if rejected > 0 and rejection_reason is None:
+        raise ValidationError(
+            _("Rejecting goods requires a reason."), code="rejection_reason_required"
+        )
+    if rejection_reason is not None and rejection_reason.organization_id != receipt.organization_id:
+        raise ValidationError(
+            _("That reason code belongs to another organization."),
+            code="organization_mismatch",
+        )
+
+    locked.accepted_base_quantity = accepted
+    locked.rejected_base_quantity = rejected
+    locked.rejection_reason = rejection_reason if rejected > 0 else None
+    locked.quality_result = (
+        QualityResult.ACCEPTED
+        if rejected == 0
+        else QualityResult.REJECTED
+        if accepted == 0
+        else QualityResult.PARTIAL
+    )
+    if note:
+        locked.note = note.strip()
+    locked.full_clean()
+    locked.save()
+
+    receipt.inspected_by = actor
+    receipt.inspected_at = timezone.now()
+    receipt.full_clean()
+    receipt.save(update_fields=["inspected_by", "inspected_at", "updated_at"])
+
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=locked,
+        branch=receipt.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+        reason="inspection",
     )
     return locked

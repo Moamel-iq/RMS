@@ -168,4 +168,26 @@ urlpatterns = [
         views.PurchaseOrderReviseView.as_view(),
         name="purchase_order_revise",
     ),
+    # --- goods receipts --------------------------------------------------
+    path("receipts/", views.GoodsReceiptListView.as_view(), name="goods_receipt_list"),
+    path(
+        "receipts/new/",
+        views.GoodsReceiptCreateView.as_view(),
+        name="goods_receipt_create",
+    ),
+    path(
+        "receipts/<int:pk>/",
+        views.GoodsReceiptDetailView.as_view(),
+        name="goods_receipt_detail",
+    ),
+    path(
+        "receipts/<int:pk>/lines/<int:line_id>/delete/",
+        views.GoodsReceiptLineDeleteView.as_view(),
+        name="goods_receipt_line_delete",
+    ),
+    path(
+        "receipts/<int:pk>/lines/<int:line_id>/inspect/",
+        views.GoodsReceiptInspectView.as_view(),
+        name="goods_receipt_inspect",
+    ),
 ]

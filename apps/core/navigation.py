@@ -269,10 +269,15 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:purchase_order_list",
                 available=True,
             ),
-            # Task 2.8 onward — visible so the shape of the module is legible,
+            # Task 2.8 — goods receipt and inspection.
+            Section(
+                label=_("استلام البضاعة"),
+                url_name="procurement:goods_receipt_list",
+                available=True,
+            ),
+            # Task 2.10 onward — visible so the shape of the module is legible,
             # inert because the documents that would fill them do not exist.
             *_sections(
-                _("استلام البضاعة"),
                 _("فواتير الموردين"),
                 _("التكاليف الإضافية"),
                 _("مرتجعات الموردين"),
