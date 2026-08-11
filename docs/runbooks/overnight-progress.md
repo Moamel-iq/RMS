@@ -5,10 +5,10 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 09/20 — PO revision and cancellation (NOT STARTED)
+CURRENT_PIPELINE_STEP: 10/20 — Goods receipt and inspection (NOT STARTED)
 CURRENT_TASK: none in flight
-LAST_GREEN_COMMIT: c89ac1d
-LAST_PUSHED_COMMIT: c89ac1d
+LAST_GREEN_COMMIT: ee2365e
+LAST_PUSHED_COMMIT: ee2365e
 WORKING_TREE: clean
 RUNNING_TESTS: none
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
@@ -28,41 +28,43 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Step 09 — Task 2.7, purchase order change control.
-`PurchaseOrderVersion` capturing the superseded header and lines, plus
-`revise_purchase_order`: revision reason, revised_by, revised_at, the
-current-version link, and a version-history screen showing the difference.
-An issued order is never edited in place.
+NEXT_EXACT_ACTION: Step 10 — Task 2.8, goods receipt and inspection.
+`GoodsReceipt` and `GoodsReceiptLine` with the draft and inspection
+workflow only. **Do not expose a stock-only final post**: the authoritative
+POST must be atomic with the GRNI accounting that Step 11 adds, so Step 10
+ships DRAFT and INSPECTED and stops there.
 
-Guards to add (PRC-019 – PRC-022): supplier cannot change once a receipt
-exists; destination cannot change after receipt; a revised quantity cannot
-fall below what has been accepted; a cancelled order cannot receive.
-Receipts arrive in Step 10, so those guards are written now against a
-`_received_base_quantity(line)` helper that returns zero until then —
-write the helper and its call sites now, not the zero as an assumption.
+Two things already wait for this task:
+- `received_base_quantity` in `apps/procurement/services.py` returns zero
+  and has a `receipt_lines` reverse accessor written for it. Give it a
+  body when `GoodsReceiptLine` exists; the PO revision and cancellation
+  guards tighten automatically, and PRC-020/PRC-022 move from Partial to
+  Done.
+- `TestReceivedQuantityGuards` asserts the call sites exist. Extend it with
+  the real cases: a revision below accepted quantity, a cancellation with
+  goods already in.
 
-After Step 09: BATCH 3 certification over Steps 07–09 — comparison
-arithmetic, award, PO lifecycle, issued immutability, version history,
-cancellation guards, maker-checker, scope, demo, htmx, no ledger effect,
-migrations and gates. Confirm again that no journal or ledger entry cites
-a procurement source.
+Also add the stale-instance regression for receipt posting/reversal to
+`TestTheStaleInstanceRule` (§D lists it).
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 215 passed
+.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 243 passed
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
 organization DEMO-KHAN-MANDI; start at http://127.0.0.1:8000/inventory/stock/.
 Procurement: 3 suppliers, 6 catalogue rows, 4 purchase requests, 2
-quotations, one award and 3 purchase orders seeded
+quotations, one award, 3 purchase orders and one
+order revision seeded
 and visible; the seed is idempotent (same counts on re-run). Routes:
 /procurement/suppliers/, /procurement/catalogue/, /procurement/requests/,
 /procurement/quotations/,
 /procurement/requests/<pk>/comparison/,
-/procurement/orders/.
+/procurement/orders/,
+/procurement/orders/<pk>/history/.
 Requests are raised by `demo-storekeeper` and decided by `moamel`, because
 maker-checker is a database constraint and one actor could not do both.
 RECONCILIATION_STATE: all three inventory verifiers clean on `khan_mandi_dev`
@@ -91,8 +93,9 @@ BLOCKERS: none
   model, not a custom one. Declaring it in `Meta.permissions` is an
   `auth.E005` clash. The codename is still `procurement.view_supplier`.
 - Every lifecycle guard re-reads its document under a row lock rather than
-  trusting the instance it was handed. Found twice — `_require_draft` in
-  Task 2.3 and `award_quotation` in Task 2.5. Assume the next one too.
+  trusting the instance it was handed. Found three times; now stated once
+  in `apps/procurement/lifecycle.py::lock_and_require_status` and covered
+  by `TestTheStaleInstanceRule`. Every new lifecycle service uses it.
 - Demo and test dates must stay meaningful as the calendar moves. Two
   defects came from validity windows that had silently expired.
 - `_require_draft` re-reads status under a row lock rather than trusting the
@@ -145,4 +148,6 @@ the item, and it is addressed.
 | **Batch 2 cert (04–06)** | **PASS** | 63c82be | 301 tests, verifiers clean, no procurement posting |
 | 07 Comparison and award | **COMPLETE, PUSHED** | c169941 | 28 tests, ranking inversion visible on the route |
 | 08 Purchase orders | **COMPLETE, PUSHED** | c89ac1d | 36 tests, 3 demo orders, chain visible end to end |
-| 09–20 | not started | — | — |
+| 09 PO change control | **COMPLETE, PUSHED** | ee2365e | 28 tests, versioned history, shared lifecycle helper |
+| **Batch 3 cert (07–09)** | **PASS** | ee2365e | 414 tests, verifiers clean, no procurement posting |
+| 10–20 | not started | — | — |
