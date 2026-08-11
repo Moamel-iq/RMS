@@ -16,6 +16,7 @@ is a refactor of certified code and does not belong inside a feature task.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from django.contrib import messages
@@ -35,6 +36,7 @@ from apps.inventory.views import (
 )
 from apps.organizations.authorization import (
     has_branch_permission,
+    has_organization_master_data_permission,
     require_branch_permission,
     require_reachable_organization_permission,
 )
@@ -43,37 +45,49 @@ from apps.procurement.forms import (
     PurchaseRequestLineForm,
     SupplierForm,
     SupplierItemForm,
+    SupplierQuotationForm,
+    SupplierQuotationLineForm,
 )
-from apps.procurement.models import PurchaseRequestStatus
+from apps.procurement.models import PurchaseRequestStatus, SupplierQuotationStatus
 from apps.procurement.permissions import (
     APPROVE_PURCHASE_REQUEST,
     CREATE_PURCHASE_REQUEST,
+    MANAGE_QUOTATIONS,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
     VIEW_PURCHASE_REQUEST,
+    VIEW_QUOTATION,
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
     VIEW_SUPPLIER_ITEM,
 )
 from apps.procurement.selectors import (
     resolve_purchase_request,
+    resolve_quotation,
+    resolve_quotation_line,
     resolve_request_line,
     resolve_supplier,
     resolve_supplier_item,
     visible_purchase_requests,
+    visible_quotations,
     visible_supplier_items,
     visible_suppliers,
 )
 from apps.procurement.services import (
+    add_quotation_line,
     add_request_line,
     approve_purchase_request,
     cancel_purchase_request,
     create_purchase_request,
     create_supplier,
     create_supplier_item,
+    create_supplier_quotation,
+    decline_supplier_quotation,
     reject_purchase_request,
+    remove_quotation_line,
     remove_request_line,
     submit_purchase_request,
+    submit_supplier_quotation,
     update_supplier,
     update_supplier_item,
 )
@@ -558,3 +572,180 @@ class PurchaseRequestTransitionView(InventoryViewMixin, View):
         return HttpResponseRedirect(
             reverse("procurement:purchase_request_detail", args=[document.pk])
         )
+
+
+# ---------------------------------------------------------------------------
+# Supplier quotations
+# ---------------------------------------------------------------------------
+
+
+class SupplierQuotationListView(InventoryListView):
+    module_key = "procurement"
+    required_permission = VIEW_QUOTATION
+    template_name = "procurement/quotation_list.html"
+    context_object_name = "quotations"
+    page_title = _("عروض الموردين")
+    page_hint = _(
+        "ما يقوله المورد إن السعر سيكون. إثبات لا التزام — لا مخزون ولا قيد "
+        "ولا ذمة في أي حالة، حتى بعد الإرساء."
+    )
+    search_fields = ("number", "supplier_reference", "supplier__code", "supplier__name_ar")
+    manage_permission = MANAGE_QUOTATIONS
+    create_url_name = "procurement:quotation_create"
+    create_label = _("عرض جديد")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_quotations(self.actor)
+        status = self.request.GET.get("status", "").strip().upper()
+        if status in SupplierQuotationStatus.values:
+            queryset = queryset.filter(status=status)
+        return queryset.order_by("-id")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["statuses"] = SupplierQuotationStatus.choices
+        context["selected_status"] = self.request.GET.get("status", "")
+        context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        return context
+
+
+class SupplierQuotationCreateView(InventoryWriteView):
+    module_key = "procurement"
+    template_name = "procurement/quotation_form.html"
+    form_class = SupplierQuotationForm
+    required_permission = MANAGE_QUOTATIONS
+    success_url_name = "procurement:quotation_list"
+    page_title = _("عرض مورد جديد")
+    page_hint = _("يُفتح كمسودة. الرقم يُسحب عند الاستلام، ومرجع الإثبات مطلوب عندها.")
+    success_message = _("تم إنشاء المسودة. أضف الأسطر ثم سجّل الاستلام.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_QUOTATIONS, form.cleaned_data["supplier"].organization
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        data = form.cleaned_data
+        self.created = create_supplier_quotation(
+            supplier=data["supplier"],
+            recorded_by=self.actor,
+            request=data.get("request"),
+            quoted_at=data["quoted_at"],
+            valid_until=data.get("valid_until"),
+            supplier_reference=data.get("supplier_reference", ""),
+            freight_amount=data.get("freight_amount") or Decimal("0.000"),
+            other_charges=data.get("other_charges") or Decimal("0.000"),
+            evidence_reference=data.get("evidence_reference", ""),
+            notes=data.get("notes", ""),
+        )
+
+    def get_success_url(self) -> str:
+        created = getattr(self, "created", None)
+        if created is None:
+            return reverse(self.success_url_name)
+        return reverse("procurement:quotation_detail", args=[created.pk])
+
+
+class SupplierQuotationDetailView(InventoryViewMixin, View):
+    """The header, its priced lines, and the base unit price each implies."""
+
+    module_key = "procurement"
+    required_permission = VIEW_QUOTATION
+    template_name = "procurement/quotation_detail.html"
+
+    def load(self) -> Any:
+        return resolve_quotation(self.actor, self.kwargs["pk"])
+
+    def context(self, quotation: Any, form: Any) -> dict[str, Any]:
+        may_manage = has_organization_master_data_permission(
+            self.actor, MANAGE_QUOTATIONS, quotation.organization
+        )
+        return {
+            "quotation": quotation,
+            "lines": quotation.lines.select_related(
+                "item", "item__base_unit", "package_unit"
+            ).order_by("sequence"),
+            "form": form,
+            "page_title": quotation.number or _("مسودة عرض"),
+            "may_edit": may_manage and quotation.is_editable,
+            "may_manage": may_manage,
+            "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        quotation = self.load()
+        form = SupplierQuotationLineForm(actor=self.actor, quotation=quotation)
+        return render(request, self.template_name, self.context(quotation, form))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        quotation = self.load()
+        require_reachable_organization_permission(
+            self.actor, MANAGE_QUOTATIONS, quotation.organization
+        )
+        form = SupplierQuotationLineForm(actor=self.actor, quotation=quotation, data=request.POST)
+        if form.is_valid():
+            try:
+                add_quotation_line(
+                    quotation=quotation,
+                    item=form.cleaned_data["item"],
+                    package_unit=form.cleaned_data.get("package_unit"),
+                    quantity=form.cleaned_data["quantity"],
+                    unit_price=form.cleaned_data["unit_price"],
+                    note=form.cleaned_data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة السطر."))
+                return HttpResponseRedirect(
+                    reverse("procurement:quotation_detail", args=[quotation.pk])
+                )
+        return render(request, self.template_name, self.context(quotation, form))
+
+
+class SupplierQuotationLineDeleteView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = MANAGE_QUOTATIONS
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        quotation = resolve_quotation(self.actor, self.kwargs["pk"])
+        require_reachable_organization_permission(
+            self.actor, MANAGE_QUOTATIONS, quotation.organization
+        )
+        line = resolve_quotation_line(
+            self.actor, quotation=quotation, line_id=self.kwargs["line_id"]
+        )
+        try:
+            remove_quotation_line(line=line)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم حذف السطر."))
+        return HttpResponseRedirect(reverse("procurement:quotation_detail", args=[quotation.pk]))
+
+
+class SupplierQuotationTransitionView(InventoryViewMixin, View):
+    """Record the offer as received, or set it aside. POST-only."""
+
+    module_key = "procurement"
+    required_permission = MANAGE_QUOTATIONS
+    #: "submit" or "decline".
+    transition: str = ""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        quotation = resolve_quotation(self.actor, self.kwargs["pk"])
+        require_reachable_organization_permission(
+            self.actor, MANAGE_QUOTATIONS, quotation.organization
+        )
+        reason = request.POST.get("reason", "").strip()
+        try:
+            if self.transition == "submit":
+                submit_supplier_quotation(quotation=quotation, actor=self.actor)
+                messages.success(request, _("تم تسجيل استلام العرض."))
+            else:
+                decline_supplier_quotation(quotation=quotation, actor=self.actor, reason=reason)
+                messages.success(request, _("تم استبعاد العرض."))
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        return HttpResponseRedirect(reverse("procurement:quotation_detail", args=[quotation.pk]))

@@ -21,15 +21,24 @@ from decimal import Decimal
 
 from apps.inventory.models import InventoryItem, PackageUnit, Warehouse
 from apps.organizations.models import Branch, Organization
-from apps.procurement.models import PurchaseRequest, Supplier, SupplierItem
+from apps.procurement.models import (
+    PurchaseRequest,
+    PurchaseRequestStatus,
+    Supplier,
+    SupplierItem,
+    SupplierQuotation,
+)
 from apps.procurement.services import (
+    add_quotation_line,
     add_request_line,
     approve_purchase_request,
     create_purchase_request,
     create_supplier,
     create_supplier_item,
+    create_supplier_quotation,
     reject_purchase_request,
     submit_purchase_request,
+    submit_supplier_quotation,
 )
 from apps.users.models import User
 
@@ -269,3 +278,89 @@ def seed_demo_requests(
     )
 
     return [drafted, submitted, approved, rejected]
+
+
+def seed_demo_quotations(*, organization: Organization, recorder: User) -> list[SupplierQuotation]:
+    """
+    Two offers for the same approved request, from two suppliers.
+
+    Two, and deliberately not one. A single quotation makes the comparison
+    screen in Task 2.5 look like it works while proving nothing: the whole
+    point is that two suppliers quoting **different package sizes** are only
+    comparable once both are normalised to base units. So the grocery supplier
+    quotes rice by the 30 kg sack and the meat supplier quotes the same rice in
+    kilograms, at prices that reverse their ranking once freight is included —
+    which is exactly the case a buyer has to be shown rather than told.
+    """
+    approved = (
+        PurchaseRequest.objects.filter(
+            organization=organization,
+            status=PurchaseRequestStatus.APPROVED,
+            purpose__startswith="DEMO —",
+        )
+        .order_by("id")
+        .first()
+    )
+    if approved is None:
+        return []
+
+    existing = list(
+        SupplierQuotation.objects.filter(
+            organization=organization, supplier_reference__startswith="DEMO-Q"
+        ).order_by("id")
+    )
+    if existing:
+        return existing
+
+    grocery = Supplier.objects.filter(
+        organization=organization, code="DEMO-GROCERY-SUPPLIER"
+    ).first()
+    meat = Supplier.objects.filter(organization=organization, code="DEMO-MEAT-SUPPLIER").first()
+    rice = InventoryItem.objects.filter(organization=organization, code="DEMO-RICE").first()
+    sack = PackageUnit.objects.filter(organization=organization, code="SACK").first()
+    if grocery is None or meat is None or rice is None or sack is None:
+        return []
+
+    quoted_on = approved.required_date - datetime.timedelta(days=20)
+
+    # By the sack: 42,000 per 30 kg is 1,400 per kg, plus 15,000 delivery.
+    cheaper_per_unit = create_supplier_quotation(
+        supplier=grocery,
+        recorded_by=recorder,
+        request=approved,
+        quoted_at=quoted_on,
+        valid_until=quoted_on + datetime.timedelta(days=60),
+        supplier_reference="DEMO-Q-GROC-001",
+        freight_amount=Decimal("15000.000"),
+        evidence_reference="بريد المورد بتاريخ العرض",
+    )
+    add_quotation_line(
+        quotation=cheaper_per_unit,
+        item=rice,
+        package_unit=sack,
+        quantity=Decimal("4.000"),
+        unit_price=Decimal("42000.000000"),
+    )
+    cheaper_per_unit = submit_supplier_quotation(quotation=cheaper_per_unit, actor=recorder)
+
+    # By the kilogram: 1,450 per kg, delivered free. Dearer per unit, cheaper
+    # landed — which is the whole reason freight is shown separately as well as
+    # inside the comparison.
+    free_delivery = create_supplier_quotation(
+        supplier=meat,
+        recorded_by=recorder,
+        request=approved,
+        quoted_at=quoted_on,
+        valid_until=quoted_on + datetime.timedelta(days=30),
+        supplier_reference="DEMO-Q-MEAT-001",
+        evidence_reference="عرض مكتوب مسلّم باليد",
+    )
+    add_quotation_line(
+        quotation=free_delivery,
+        item=rice,
+        quantity=Decimal("120.000"),
+        unit_price=Decimal("1450.000000"),
+    )
+    free_delivery = submit_supplier_quotation(quotation=free_delivery, actor=recorder)
+
+    return [cheaper_per_unit, free_delivery]

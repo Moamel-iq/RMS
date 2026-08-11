@@ -23,6 +23,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import AuditAction
+from apps.core.money import quantize_money, quantize_unit_price
 from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
 from apps.inventory.models import (
@@ -40,6 +41,9 @@ from apps.procurement.models import (
     PurchaseRequestStatus,
     Supplier,
     SupplierItem,
+    SupplierQuotation,
+    SupplierQuotationLine,
+    SupplierQuotationStatus,
 )
 from apps.users.models import User
 from apps.users.phone import normalize_iraqi_mobile
@@ -448,7 +452,7 @@ def supersede_supplier_item(
 
 #: Prefix per procurement document type. `PR` here; `PO`, `GRN` and the rest
 #: join it as their tasks land.
-DOCUMENT_NUMBER_PREFIX = {"PURCHASE_REQUEST": "PR"}
+DOCUMENT_NUMBER_PREFIX = {"PURCHASE_REQUEST": "PR", "SUPPLIER_QUOTATION": "QT"}
 
 
 def next_document_number(*, organization: Organization, document_type: str, year: int) -> str:
@@ -810,3 +814,261 @@ def cancel_purchase_request(
         reason=reason,
         from_statuses=(PurchaseRequestStatus.SUBMITTED, PurchaseRequestStatus.APPROVED),
     )
+
+
+# ---------------------------------------------------------------------------
+# Supplier quotations
+# ---------------------------------------------------------------------------
+
+
+def _require_quotation_draft(quotation: SupplierQuotation) -> SupplierQuotation:
+    """
+    Only a draft may be edited, re-read under a row lock.
+
+    Same reasoning as `_require_draft`: a status taken from the instance the
+    caller happens to be holding is a status that may already be out of date,
+    and the failure would be a priced line appearing on an offer somebody had
+    already compared against.
+    """
+    locked = SupplierQuotation.objects.select_for_update().get(pk=quotation.pk)
+    if locked.status != SupplierQuotationStatus.DRAFT:
+        raise ValidationError(
+            _("Quotation %(number)s is %(status)s and can no longer be edited."),
+            code="quotation_not_editable",
+            params={
+                "number": locked.number or str(locked.public_id),
+                "status": locked.status,
+            },
+        )
+    return locked
+
+
+@transaction.atomic
+def create_supplier_quotation(
+    *,
+    supplier: Supplier,
+    recorded_by: User,
+    quoted_at: datetime.date,
+    request: PurchaseRequest | None = None,
+    supplier_reference: str = "",
+    valid_until: datetime.date | None = None,
+    freight_amount: Decimal = Decimal("0.000"),
+    other_charges: Decimal = Decimal("0.000"),
+    evidence_reference: str = "",
+    notes: str = "",
+) -> SupplierQuotation:
+    """
+    Open a draft quotation. Nothing is committed by recording a price.
+
+    A quotation may answer a request or stand alone: a buyer often asks what
+    something costs before anybody raises a formal request, and refusing to
+    record that would push the number into a notebook where no comparison can
+    reach it.
+    """
+    if request is not None and request.organization_id != supplier.organization_id:
+        raise ValidationError(
+            _("The request belongs to another organization."), code="organization_mismatch"
+        )
+    if valid_until is not None and valid_until < quoted_at:
+        raise ValidationError(
+            _("A quotation cannot expire before it was given."), code="validity_reversed"
+        )
+    if freight_amount < 0 or other_charges < 0:
+        raise ValidationError(_("Charges cannot be negative."), code="charge_negative")
+
+    quotation = SupplierQuotation(
+        organization=supplier.organization,
+        supplier=supplier,
+        request=request,
+        recorded_by=recorded_by,
+        quoted_at=quoted_at,
+        valid_until=valid_until,
+        # The supplier's own reference, kept as they wrote it.
+        supplier_reference=supplier_reference.strip(),
+        freight_amount=quantize_money(freight_amount),
+        other_charges=quantize_money(other_charges),
+        evidence_reference=evidence_reference.strip(),
+        notes=notes.strip(),
+    )
+    quotation.full_clean()
+    quotation.save()
+    record_audit_event(action=AuditAction.CREATED, target=quotation, new_state=snapshot(quotation))
+    return quotation
+
+
+@transaction.atomic
+def add_quotation_line(
+    *,
+    quotation: SupplierQuotation,
+    item: InventoryItem,
+    quantity: Decimal,
+    unit_price: Decimal,
+    package_unit: PackageUnit | None = None,
+    supplier_item: SupplierItem | None = None,
+    note: str = "",
+) -> SupplierQuotationLine:
+    """
+    Price one item on a draft quotation.
+
+    `line_total` is `quantity × unit_price`, quantized **once** at the storage
+    boundary. Quantizing the multiplication's operands first and then again
+    afterwards is how a total stops matching the price somebody was quoted
+    (ADR-006).
+    """
+    quotation = _require_quotation_draft(quotation)
+
+    if item.organization_id != quotation.organization_id:
+        raise ValidationError(
+            _("The item belongs to another organization."), code="organization_mismatch"
+        )
+    if quantity <= 0:
+        raise ValidationError(
+            _("A quoted quantity must be greater than zero."), code="quantity_not_positive"
+        )
+    if unit_price < 0:
+        raise ValidationError(_("A price cannot be negative."), code="price_negative")
+    if supplier_item is not None and supplier_item.supplier_id != quotation.supplier_id:
+        raise ValidationError(
+            _("That catalogue row belongs to another supplier."), code="supplier_mismatch"
+        )
+
+    conversion = None
+    factor = None
+    if package_unit is not None:
+        conversion = _active_conversion(
+            item=item, package_unit=package_unit, on=quotation.quoted_at
+        )
+        if conversion is None:
+            raise ValidationError(
+                _("Item %(item)s has no conversion for package %(package)s on %(date)s."),
+                code="no_conversion_for_package",
+                params={
+                    "item": item.code,
+                    "package": package_unit.code,
+                    "date": quotation.quoted_at.isoformat(),
+                },
+            )
+        factor = conversion.factor_to_base
+        base = quantize_quantity(quantity * factor)
+    else:
+        base = quantize_quantity(quantity)
+
+    highest = (
+        SupplierQuotationLine.objects.filter(quotation=quotation)
+        .order_by("-sequence")
+        .values_list("sequence", flat=True)
+        .first()
+    )
+    line = SupplierQuotationLine(
+        quotation=quotation,
+        sequence=(highest or 0) + 1,
+        item=item,
+        supplier_item=supplier_item,
+        package_unit=package_unit,
+        conversion=conversion,
+        conversion_version=conversion.version if conversion else None,
+        conversion_factor=factor,
+        quantity=quantize_quantity(quantity),
+        base_quantity=base,
+        unit_price=quantize_unit_price(unit_price),
+        line_total=quantize_money(quantity * unit_price),
+        note=note.strip(),
+    )
+    line.full_clean()
+    line.save()
+    record_audit_event(action=AuditAction.CREATED, target=line, new_state=snapshot(line))
+    return line
+
+
+@transaction.atomic
+def remove_quotation_line(*, line: SupplierQuotationLine) -> None:
+    """Drop a line from a draft. Sequences are not renumbered."""
+    _require_quotation_draft(line.quotation)
+    previous = snapshot(line)
+    record_audit_event(action=AuditAction.DELETED, target=line, previous_state=previous)
+    line.delete()
+
+
+@transaction.atomic
+def submit_supplier_quotation(*, quotation: SupplierQuotation, actor: User) -> SupplierQuotation:
+    """
+    Record the offer as received, and draw its number.
+
+    Evidence becomes mandatory here rather than at creation: a draft is
+    somebody typing while reading a message, and a submitted quotation is a
+    figure the business will make a decision on. A price nobody can trace back
+    to what the supplier actually sent is the same problem an opening balance
+    without a count sheet has.
+    """
+    locked = _require_quotation_draft(quotation)
+    previous = snapshot(locked)
+
+    if not locked.lines.exists():
+        raise ValidationError(
+            _("A quotation with no lines cannot be submitted."), code="quotation_has_no_lines"
+        )
+    if not locked.evidence_reference:
+        raise ValidationError(
+            _("An evidence reference is required before a quotation is used."),
+            code="evidence_required",
+        )
+
+    locked.status = SupplierQuotationStatus.SUBMITTED
+    locked.number = next_document_number(
+        organization=locked.organization,
+        document_type="SUPPLIER_QUOTATION",
+        year=locked.quoted_at.year,
+    )
+    locked.full_clean()
+    locked.save()
+
+    record_audit_event(
+        action=AuditAction.SUBMITTED,
+        target=locked,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def decline_supplier_quotation(
+    *, quotation: SupplierQuotation, actor: User, reason: str
+) -> SupplierQuotation:
+    """
+    Set an offer aside without deleting it.
+
+    A declined quotation is the other half of every award: "we chose this one"
+    means nothing without the offers it was chosen over, and a comparison whose
+    losing entries were deleted cannot be re-read a year later.
+    """
+    if not reason.strip():
+        raise ValidationError(_("A reason is required."), code="reason_required")
+
+    locked = SupplierQuotation.objects.select_for_update().get(pk=quotation.pk)
+    if locked.status not in {
+        SupplierQuotationStatus.SUBMITTED,
+        SupplierQuotationStatus.DRAFT,
+    }:
+        raise ValidationError(
+            _("Quotation %(number)s is %(status)s and cannot be declined."),
+            code="illegal_transition",
+            params={
+                "number": locked.number or str(locked.public_id),
+                "status": locked.status,
+            },
+        )
+
+    previous = snapshot(locked)
+    locked.status = SupplierQuotationStatus.DECLINED
+    locked.notes = f"{locked.notes}\n{reason.strip()}".strip()
+    locked.full_clean()
+    locked.save()
+    record_audit_event(
+        action=AuditAction.REJECTED,
+        target=locked,
+        previous_state=previous,
+        new_state=snapshot(locked),
+        reason=reason.strip(),
+    )
+    return locked

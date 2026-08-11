@@ -69,6 +69,13 @@ MANAGE_SUPPLIER_ITEMS = f"{APP_LABEL}.manage_supplier_items"
 VIEW_PURCHASE_REQUEST = f"{APP_LABEL}.view_purchaserequest"
 CREATE_PURCHASE_REQUEST = f"{APP_LABEL}.create_purchase_request"
 APPROVE_PURCHASE_REQUEST = f"{APP_LABEL}.approve_purchase_request"
+#: Task 2.4. Recording an offer and awarding one are separate: the first is
+#: data entry, the second is the decision the whole comparison exists to
+#: record. Both are organization master data — a quotation is priced for
+#: the group, not for one branch.
+VIEW_QUOTATION = f"{APP_LABEL}.view_supplierquotation"
+MANAGE_QUOTATIONS = f"{APP_LABEL}.manage_quotations"
+AWARD_QUOTATION = f"{APP_LABEL}.award_quotation"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_SUPPLIER,
@@ -79,6 +86,9 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_PURCHASE_REQUEST,
     CREATE_PURCHASE_REQUEST,
     APPROVE_PURCHASE_REQUEST,
+    VIEW_QUOTATION,
+    MANAGE_QUOTATIONS,
+    AWARD_QUOTATION,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -99,6 +109,9 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     VIEW_PURCHASE_REQUEST: PermissionScope.BRANCH,
     CREATE_PURCHASE_REQUEST: PermissionScope.BRANCH,
     APPROVE_PURCHASE_REQUEST: PermissionScope.BRANCH,
+    VIEW_QUOTATION: PermissionScope.ORGANIZATION_MASTER_DATA,
+    MANAGE_QUOTATIONS: PermissionScope.ORGANIZATION_MASTER_DATA,
+    AWARD_QUOTATION: PermissionScope.ORGANIZATION_MASTER_DATA,
 }
 
 
@@ -119,6 +132,9 @@ _PURCHASING = frozenset(
         MANAGE_SUPPLIER_ITEMS,
         VIEW_PURCHASE_REQUEST,
         CREATE_PURCHASE_REQUEST,
+        VIEW_QUOTATION,
+        MANAGE_QUOTATIONS,
+        AWARD_QUOTATION,
     }
 )
 
@@ -133,6 +149,9 @@ _MANAGER = frozenset(
         VIEW_PURCHASE_REQUEST,
         CREATE_PURCHASE_REQUEST,
         APPROVE_PURCHASE_REQUEST,
+        VIEW_QUOTATION,
+        MANAGE_QUOTATIONS,
+        AWARD_QUOTATION,
     }
 )
 
@@ -143,6 +162,7 @@ _ACCOUNTING_MANAGER = frozenset(
         VIEW_SUPPLIER,
         VIEW_SUPPLIER_COST,
         VIEW_SUPPLIER_ITEM,
+        VIEW_QUOTATION,
         VIEW_PURCHASE_REQUEST,
         # Approves what a branch asks for without being able to ask for it,
         # which is the separation the whole document exists to record.
@@ -150,7 +170,13 @@ _ACCOUNTING_MANAGER = frozenset(
     }
 )
 _ACCOUNTANT = frozenset(
-    {VIEW_SUPPLIER, VIEW_SUPPLIER_COST, VIEW_SUPPLIER_ITEM, VIEW_PURCHASE_REQUEST}
+    {
+        VIEW_SUPPLIER,
+        VIEW_SUPPLIER_COST,
+        VIEW_SUPPLIER_ITEM,
+        VIEW_PURCHASE_REQUEST,
+        VIEW_QUOTATION,
+    }
 )
 
 #: Receives goods against a supplier's delivery note, and has no business

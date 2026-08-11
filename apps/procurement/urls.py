@@ -89,4 +89,31 @@ urlpatterns = [
         views.PurchaseRequestTransitionView.as_view(transition="cancel"),
         name="purchase_request_cancel",
     ),
+    # --- supplier quotations -------------------------------------------
+    path("quotations/", views.SupplierQuotationListView.as_view(), name="quotation_list"),
+    path(
+        "quotations/new/",
+        views.SupplierQuotationCreateView.as_view(),
+        name="quotation_create",
+    ),
+    path(
+        "quotations/<int:pk>/",
+        views.SupplierQuotationDetailView.as_view(),
+        name="quotation_detail",
+    ),
+    path(
+        "quotations/<int:pk>/lines/<int:line_id>/delete/",
+        views.SupplierQuotationLineDeleteView.as_view(),
+        name="quotation_line_delete",
+    ),
+    path(
+        "quotations/<int:pk>/submit/",
+        views.SupplierQuotationTransitionView.as_view(transition="submit"),
+        name="quotation_submit",
+    ),
+    path(
+        "quotations/<int:pk>/decline/",
+        views.SupplierQuotationTransitionView.as_view(transition="decline"),
+        name="quotation_decline",
+    ),
 ]

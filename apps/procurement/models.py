@@ -16,6 +16,7 @@ satisfy.
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
@@ -24,7 +25,12 @@ from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
 from apps.core.models import TimeStampedModel
-from apps.core.money import MONEY_PLACES, UNIT_PRICE_PLACES
+from apps.core.money import (
+    MONEY_PLACES,
+    UNIT_PRICE_PLACES,
+    quantize_money,
+    quantize_unit_price,
+)
 from apps.core.quantity import FACTOR_PLACES, QUANTITY_PLACES
 
 #: Supplier codes. The same shape inventory item codes use, and canonicalised
@@ -586,3 +592,298 @@ class PurchaseRequestLine(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.request} · {self.item.code} × {self.entered_quantity}"
+
+
+class SupplierQuotationStatus(models.TextChoices):
+    """
+    What a quotation is.
+
+    `EXPIRED` is a status somebody sets, not a date arithmetic result. A
+    quotation past its validity is still readable and still comparable as
+    history; marking it expired is a decision that it will not be used, and the
+    award service refuses an out-of-date quotation whether or not anybody got
+    round to setting the flag.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    SUBMITTED = "SUBMITTED", _("مُستلم")
+    AWARDED = "AWARDED", _("مُرسى")
+    DECLINED = "DECLINED", _("مستبعد")
+    EXPIRED = "EXPIRED", _("منتهي")
+
+
+class SupplierQuotation(TimeStampedModel):
+    """
+    What a supplier says something will cost.
+
+    Evidence, not a commitment: no stock, no journal, no payable, in any
+    status — including `AWARDED`. Awarding records which offer was chosen and
+    why; the commercial commitment is the purchase order, and keeping the two
+    apart is what lets a buyer change their mind after choosing without
+    anything having to be unwound.
+
+    Freight and other charges sit on the document rather than on the lines
+    because that is how suppliers quote them: one delivery charge for the
+    whole order. Comparison spreads them across the lines to reach a landed
+    unit price (PRC-015) without ever storing the spread — a stored allocation
+    would be a second figure to disagree with the quoted one.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="supplier_quotations",
+        verbose_name=_("organization"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="quotations",
+        verbose_name=_("supplier"),
+    )
+    #: The request this answers, where there is one. Nullable: a buyer may ask
+    #: for a price before anybody raises a formal request, and refusing to
+    #: record that would push the number into somebody's notebook.
+    request = models.ForeignKey(
+        PurchaseRequest,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="quotations",
+        verbose_name=_("purchase request"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    number = models.CharField(_("number"), max_length=32, blank=True)
+    #: The supplier's own quotation reference, stored as they wrote it. Unique
+    #: per supplier so the same offer cannot be entered twice — the cheapest
+    #: possible protection against comparing a supplier against themselves.
+    supplier_reference = models.CharField(_("supplier reference"), max_length=64, blank=True)
+
+    quoted_at = models.DateField(_("quoted on"))
+    valid_until = models.DateField(_("valid until"), null=True, blank=True)
+
+    freight_amount = models.DecimalField(
+        _("freight"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
+    )
+    other_charges = models.DecimalField(
+        _("other charges"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
+    )
+
+    #: Where the paper, PDF or message lives. Required on submission: a price
+    #: nobody can trace to something the supplier actually sent is a rumour,
+    #: and the same argument opening stock makes about its count sheet.
+    evidence_reference = models.CharField(_("evidence reference"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=SupplierQuotationStatus.choices,
+        default=SupplierQuotationStatus.DRAFT,
+    )
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="recorded_quotations",
+        verbose_name=_("recorded by"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier quotation")
+        verbose_name_plural = _("supplier quotations")
+        ordering = ["-quoted_at", "-id"]
+        permissions = [
+            ("manage_quotations", _("Can record and submit supplier quotations")),
+            ("award_quotation", _("Can award a quotation and record the reason")),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(freight_amount__gte=0) & Q(other_charges__gte=0),
+                name="procurement_quotation_charges_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(valid_until__isnull=True) | Q(valid_until__gte=models.F("quoted_at")),
+                name="procurement_quotation_validity_is_ordered",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="procurement_quotation_number_unique_per_organization",
+            ),
+            # The same offer cannot be entered twice against one supplier.
+            models.UniqueConstraint(
+                fields=["supplier", "supplier_reference"],
+                condition=~Q(supplier_reference=""),
+                name="procurement_quotation_reference_unique_per_supplier",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="quotation_org_status_idx"),
+            models.Index(fields=["request"], name="quotation_request_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"quotation {self.public_id}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == SupplierQuotationStatus.DRAFT
+
+    @property
+    def line_total(self) -> Decimal:
+        """
+        The sum of the posted lines, and never anything else.
+
+        A document total is the SUM of its lines — never rounded independently
+        of them (ADR-012). Derived rather than stored for exactly that reason:
+        a stored total is a second number that can disagree with the lines
+        under it.
+        """
+        total = sum((line.line_total for line in self.lines.all()), start=Decimal("0.000"))
+        return quantize_money(total)
+
+    @property
+    def total_amount(self) -> Decimal:
+        return quantize_money(self.line_total + self.freight_amount + self.other_charges)
+
+
+class SupplierQuotationLine(TimeStampedModel):
+    """
+    One priced item, in the package the supplier quoted it in.
+
+    Carries the conversion snapshot for the same reason a request line does:
+    the comparison in Task 2.5 normalises to base units, and a factor that
+    changed between quotation and comparison would silently change which
+    supplier looked cheaper.
+    """
+
+    quotation = models.ForeignKey(
+        SupplierQuotation,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("quotation"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="quotation_lines",
+        verbose_name=_("item"),
+    )
+    #: The catalogue row this price came from, where one exists. Informational:
+    #: the price on the line is what the supplier quoted, and the catalogue is
+    #: never consulted to value anything (PRC-005).
+    supplier_item = models.ForeignKey(
+        SupplierItem,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="quotation_lines",
+        verbose_name=_("catalogue row"),
+    )
+    package_unit = models.ForeignKey(
+        "inventory.PackageUnit",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="quotation_lines",
+        verbose_name=_("package"),
+    )
+    conversion = models.ForeignKey(
+        "inventory.ItemPackageConversion",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="quotation_lines",
+        verbose_name=_("conversion"),
+    )
+    conversion_version = models.PositiveIntegerField(_("conversion version"), null=True, blank=True)
+    conversion_factor = models.DecimalField(
+        _("factor to base"),
+        max_digits=FACTOR_MAX_DIGITS,
+        decimal_places=FACTOR_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    quantity = models.DecimalField(
+        _("quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    base_quantity = models.DecimalField(
+        _("base quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    #: Per **entered** unit — per sack, not per kilogram. The comparison
+    #: derives the base unit price; storing both would be two numbers that can
+    #: disagree after a factor is corrected.
+    unit_price = models.DecimalField(
+        _("unit price"), max_digits=UNIT_PRICE_MAX_DIGITS, decimal_places=UNIT_PRICE_PLACES
+    )
+    line_total = models.DecimalField(
+        _("line total"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    note = models.CharField(_("note"), max_length=200, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier quotation line")
+        verbose_name_plural = _("supplier quotation lines")
+        ordering = ["quotation", "sequence"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(quantity__gt=0), name="procurement_quotation_line_quantity_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(base_quantity__gt=0),
+                name="procurement_quotation_line_base_quantity_positive",
+            ),
+            # Zero is a legitimate quoted price — a free sample, a promotional
+            # line — and negative is not a price at all.
+            models.CheckConstraint(
+                condition=Q(unit_price__gte=0),
+                name="procurement_quotation_line_price_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(line_total__gte=0),
+                name="procurement_quotation_line_total_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(package_unit__isnull=True, conversion__isnull=True)
+                | Q(package_unit__isnull=False, conversion__isnull=False),
+                name="procurement_quotation_line_package_carries_its_conversion",
+            ),
+            models.UniqueConstraint(
+                fields=["quotation", "sequence"],
+                name="procurement_quotation_line_sequence_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["quotation", "item", "package_unit"],
+                nulls_distinct=False,
+                name="procurement_quotation_line_item_appears_once",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.quotation} · {self.item.code}"
+
+    @property
+    def base_unit_price(self) -> Decimal:
+        """
+        What one base unit costs, before freight.
+
+        Derived on read at full precision, never stored. This is the only
+        figure two suppliers quoting different package sizes can honestly be
+        compared on, and Task 2.5 adds the freight share on top of it.
+        """
+        return quantize_unit_price(self.line_total / self.base_quantity)

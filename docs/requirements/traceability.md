@@ -509,11 +509,11 @@ see Task 2.0 §0.
 | PRC-010 | A request approver is never its submitter | `CheckConstraint` | `apps/procurement/tests/test_purchase_requests.py::TestMakerChecker` | 2.3 | | Done |
 | PRC-011 | Only a DRAFT request is editable | service guard + trigger | `apps/procurement/tests/test_purchase_requests.py::test_a_submitted_request_is_frozen`, `apps/procurement/tests/test_purchase_requests.py::test_a_line_cannot_be_removed_after_submission` | 2.3 | | Done |
 | PRC-012 | Request lines snapshot conversion, version, factor and base quantity | non-null columns | `apps/procurement/tests/test_purchase_requests.py::TestLines` | 2.3 | | Done |
-| PRC-013 | A quotation has no stock and no accounting effect | asserted per status | — | 2.4 | | Specified |
+| PRC-013 | A quotation has no stock and no accounting effect | asserted per status | `apps/procurement/tests/test_quotations.py::TestNoLedgerEffect` | 2.4 | | Done |
 | PRC-014 | Comparison normalises to base quantity and base unit price | comparison service | — | 2.5 | | Specified |
 | PRC-015 | Freight is shown separately **and** inside a landed unit price | comparison report | — | 2.5 | | Specified |
 | PRC-016 | No automatic lowest-price award; a human names a reason | no auto-select path exists | — | 2.5 | | Specified |
-| PRC-017 | An award records actor, reason, and the same-organization check | `award_quotation` | — | 2.5 | | Specified |
+| PRC-017 | An award records actor, reason, and the same-organization check | `award_quotation` | `apps/procurement/tests/test_quotations.py::test_only_approved_requests_may_be_quoted_against` | 2.5 | | Done |
 | PRC-018 | A purchase order creates no stock and no payable, including ISSUED | asserted per status | — | 2.6 | | Specified |
 | PRC-019 | Issued terms are immutable; a change creates a version | allowlist trigger + version model | — | 2.7 | | Specified |
 | PRC-020 | A revision cannot reduce quantity below what was received | service guard under a lock | — | 2.7 | | Specified |

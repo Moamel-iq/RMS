@@ -33,6 +33,7 @@ from apps.inventory.management.commands.seed_inventory_demo import resolve_user
 from apps.organizations.models import Organization
 from apps.procurement.demo import (
     seed_demo_catalogue,
+    seed_demo_quotations,
     seed_demo_requests,
     seed_demo_suppliers,
 )
@@ -52,6 +53,7 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:supplier_list", "الموردون"),
     ("procurement:supplier_item_list", "كتالوج الموردين"),
     ("procurement:purchase_request_list", "طلبات الشراء"),
+    ("procurement:quotation_list", "عروض الموردين"),
 ]
 
 
@@ -105,6 +107,7 @@ class Command(SeedCommand):
                 if approver is not None and approver.pk != user.pk
                 else []
             )
+            quotations = seed_demo_quotations(organization=organization, recorder=user)
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -124,9 +127,18 @@ class Command(SeedCommand):
                 label = document.number or "draft"
                 self.write(f"  {label:<24} {document.get_status_display()}")
         self.write("")
+        if quotations:
+            self.write("")
+            self.write("quotations:")
+            for quotation in quotations:
+                self.write(
+                    f"  {quotation.number:<24} {quotation.supplier.code:<24} "
+                    f"{quotation.total_amount}"
+                )
+        self.write("")
         self.write(
-            f"{len(suppliers)} suppliers, {len(catalogue)} catalogue rows and "
-            f"{len(requests)} requests present."
+            f"{len(suppliers)} suppliers, {len(catalogue)} catalogue rows, "
+            f"{len(requests)} requests and {len(quotations)} quotations present."
         )
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")

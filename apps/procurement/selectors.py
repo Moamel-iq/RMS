@@ -23,6 +23,8 @@ from apps.procurement.models import (
     PurchaseRequestLine,
     Supplier,
     SupplierItem,
+    SupplierQuotation,
+    SupplierQuotationLine,
 )
 from apps.users.models import User
 
@@ -151,4 +153,29 @@ def resolve_request_line(
     line = PurchaseRequestLine.objects.filter(pk=line_id, request=request).first()
     if line is None:
         raise OutOfScope(_("Request line %(id)s does not exist.") % {"id": line_id})
+    return line
+
+
+def visible_quotations(user: User) -> QuerySet[SupplierQuotation]:
+    """Quotations in an organization the caller reaches, in every status."""
+    return SupplierQuotation.objects.filter(
+        organization_id__in=reachable_organization_ids(user)
+    ).select_related("organization", "supplier", "request", "recorded_by")
+
+
+def resolve_quotation(user: User, quotation_id: int) -> SupplierQuotation:
+    """Turn a submitted quotation id into one the caller may reach, or 404."""
+    found = visible_quotations(user).filter(pk=quotation_id).first()
+    if found is None:
+        raise OutOfScope(_("Quotation %(id)s does not exist.") % {"id": quotation_id})
+    return found
+
+
+def resolve_quotation_line(
+    user: User, *, quotation: SupplierQuotation, line_id: int
+) -> SupplierQuotationLine:
+    """A line, resolved under its own quotation — never by id alone."""
+    line = SupplierQuotationLine.objects.filter(pk=line_id, quotation=quotation).first()
+    if line is None:
+        raise OutOfScope(_("Quotation line %(id)s does not exist.") % {"id": line_id})
     return line

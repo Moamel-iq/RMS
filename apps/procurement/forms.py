@@ -21,7 +21,12 @@ from apps.organizations.authorization import (
     organizations_with_permission,
 )
 from apps.organizations.models import Organization
-from apps.procurement.models import Supplier, SupplierItem
+from apps.procurement.models import (
+    PurchaseRequest,
+    PurchaseRequestStatus,
+    Supplier,
+    SupplierItem,
+)
 from apps.procurement.permissions import MANAGE_SUPPLIERS
 from apps.procurement.selectors import visible_suppliers
 from apps.procurement.services import canonical_code
@@ -295,5 +300,84 @@ class PurchaseRequestLineForm(forms.Form):
             organization_id=organization_id, is_active=True
         ).order_by("code")
         self.fields["preferred_supplier"].queryset = Supplier.objects.filter(  # type: ignore[attr-defined]
+            organization_id=organization_id, is_active=True
+        ).order_by("code")
+
+
+class SupplierQuotationForm(forms.Form):
+    """The header of a draft quotation. Lines are priced on the detail screen."""
+
+    supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
+    request = forms.ModelChoiceField(
+        queryset=PurchaseRequest.objects.none(),
+        label=_("طلب الشراء"),
+        required=False,
+        help_text=_("اختياري. يمكن تسجيل سعر قبل وجود طلب رسمي."),
+    )
+    supplier_reference = forms.CharField(
+        label=_("رقم عرض المورد"),
+        max_length=64,
+        required=False,
+        help_text=_("يُحفظ كما كتبه المورد. لا يتكرر لنفس المورد."),
+    )
+    quoted_at = forms.DateField(
+        label=_("تاريخ العرض"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    valid_until = forms.DateField(
+        label=_("صالح حتى"), required=False, widget=forms.DateInput(attrs={"type": "date"})
+    )
+    freight_amount = forms.DecimalField(
+        label=_("أجور النقل"), min_value=0, initial=Decimal("0.000"), required=False
+    )
+    other_charges = forms.DecimalField(
+        label=_("رسوم أخرى"), min_value=0, initial=Decimal("0.000"), required=False
+    )
+    evidence_reference = forms.CharField(
+        label=_("مرجع الإثبات"),
+        max_length=200,
+        required=False,
+        help_text=_("مطلوب قبل الاستلام: سعر لا يمكن ردّه إلى مستند هو إشاعة."),
+    )
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+        reachable = reachable_organization_ids(actor)
+        self.fields["supplier"].queryset = Supplier.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=reachable, is_active=True
+        ).order_by("code")
+        # Only approved requests: quoting against something nobody agreed to
+        # need is how a comparison ends up justifying a purchase that was never
+        # asked for.
+        self.fields["request"].queryset = PurchaseRequest.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=reachable, status=PurchaseRequestStatus.APPROVED
+        ).order_by("-id")
+
+
+class SupplierQuotationLineForm(forms.Form):
+    """One priced item on a draft quotation."""
+
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    package_unit = forms.ModelChoiceField(
+        queryset=PackageUnit.objects.none(),
+        label=_("العبوة"),
+        required=False,
+        help_text=_("اتركها فارغة إذا كان السعر بوحدة الصنف الأساسية."),
+    )
+    quantity = forms.DecimalField(label=_("الكمية"), min_value=Decimal("0.001"))
+    unit_price = forms.DecimalField(label=_("سعر الوحدة"), min_value=0)
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, quotation: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.quotation = quotation
+        organization_id = quotation.organization_id
+        self.fields["item"].queryset = InventoryItem.objects.filter(  # type: ignore[attr-defined]
+            organization_id=organization_id, is_active=True
+        ).order_by("code")
+        self.fields["package_unit"].queryset = PackageUnit.objects.filter(  # type: ignore[attr-defined]
             organization_id=organization_id, is_active=True
         ).order_by("code")
