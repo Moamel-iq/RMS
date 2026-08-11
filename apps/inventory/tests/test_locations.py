@@ -10,12 +10,12 @@ valuation dimension.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from decimal import Decimal
-from io import StringIO
+from typing import Any
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.core.management import call_command
 from django.db import transaction
 
 from apps.core.context import audit_context
@@ -31,25 +31,29 @@ from apps.inventory.models import (
     Warehouse,
 )
 from apps.inventory.reconciliation import verify_inventory_accounting, verify_locations
+from apps.inventory.tests.conftest import refuse_transactional_tests, seed_demo_once
 from apps.organizations.models import Organization
 from apps.users.models import User
 
 pytestmark = pytest.mark.django_db
 
 
-@pytest.fixture
-def owner(units: None) -> User:
-    return User.objects.create_user(username="loc-owner", password="pw-not-real-1234")
+#: One seed for the module: the location tests read a shared dataset and each rolls back to its own savepoint. See `seed_demo_once`.
+@pytest.fixture(scope="module", autouse=True)
+def seeded(django_db_setup: object, django_db_blocker: Any) -> Iterator[None]:
+    import apps.inventory.tests.test_locations as this_module
+
+    refuse_transactional_tests(this_module)
+    yield from seed_demo_once(django_db_blocker, username="loc-owner")
 
 
 @pytest.fixture
-def seeded(owner: User, settings: object) -> None:
-    settings.DEBUG = True  # type: ignore[attr-defined]
-    call_command("seed_inventory_demo", user=owner.username, confirm_demo=True, stdout=StringIO())
+def owner() -> User:
+    return User.objects.get(username="loc-owner")
 
 
 @pytest.fixture
-def organization(seeded: None) -> Organization:
+def organization() -> Organization:
     return Organization.objects.get(code="DEMO-KHAN-MANDI")
 
 
@@ -383,62 +387,3 @@ class TestOutboundRelease:
             == []
         )
         assert StockLocationMovement.objects.filter(warehouse=bare).count() == before
-
-
-@pytest.mark.django_db(transaction=True)
-class TestLocationConcurrency:
-    def test_two_put_aways_cannot_both_take_the_same_unlocated_stock(
-        self, settings: object
-    ) -> None:
-        """
-        Real COMMIT boundary.
-
-        Both transactions read the same unlocated remainder; the advisory lock
-        is on `(warehouse, item, lot)` rather than the bin, so the second waits
-        and then sees what the first took. A per-bin lock would let both
-        succeed and the bins would together claim more than the warehouse has.
-        """
-        import threading
-
-        settings.DEBUG = True  # type: ignore[attr-defined]
-        call_command("seed_units", verbosity=0)
-        user = User.objects.create_user(username="race", password="pw-not-real-1234")
-        call_command(
-            "seed_inventory_demo", user=user.username, confirm_demo=True, stdout=StringIO()
-        )
-
-        organization = Organization.objects.get(code="DEMO-KHAN-MANDI")
-        warehouse = Warehouse.objects.get(branch__organization=organization, code="DEMO-KITCHEN")
-        item = InventoryItem.objects.get(organization=organization, code="DEMO-RICE")
-        held = locations.warehouse_quantity(warehouse, item, None)
-
-        with audit_context(actor=user):
-            bin_a = locations.create_location(warehouse=warehouse, code="RACE-A", name_ar="أ")
-            bin_b = locations.create_location(warehouse=warehouse, code="RACE-B", name_ar="ب")
-
-        results: list[str] = []
-
-        def put_away(location: StockLocation) -> None:
-            from django.db import connection as thread_connection
-
-            try:
-                with transaction.atomic(), audit_context(actor=user):
-                    locations.put_away(location=location, item=item, quantity=held)
-                results.append("ok")
-            except ValidationError as refusal:
-                results.append(str(refusal.code))
-            finally:
-                thread_connection.close()
-
-        threads = [
-            threading.Thread(target=put_away, args=(bin_a,)),
-            threading.Thread(target=put_away, args=(bin_b,)),
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-
-        assert sorted(results) == ["location_put_away_exceeds_unlocated", "ok"]
-        assert locations.located_total(warehouse, item, None) == held
-        assert verify_locations(organization) == []

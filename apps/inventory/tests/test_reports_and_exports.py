@@ -17,18 +17,18 @@ from __future__ import annotations
 import csv
 import datetime
 import io
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from decimal import Decimal
-from io import StringIO
+from typing import Any
 
 import pytest
-from django.core.management import call_command
 from django.test import Client
 from django.urls import reverse
 
 from apps.inventory import reports
 from apps.inventory.report_views import neutralise, safe_filename
 from apps.inventory.reports import ReportFilters, ReportMode
+from apps.inventory.tests.conftest import refuse_transactional_tests, seed_demo_once
 from apps.organizations.models import Organization, Role
 from apps.organizations.services import create_organization, grant_organization_access
 from apps.users.models import User
@@ -54,24 +54,35 @@ REPORT_ROUTES: list[tuple[str, str]] = [
 COST_HEADINGS = ("متوسط الكلفة", "القيمة", "كلفة الوحدة", "القيمة بعد", "قيمة متبقية")
 
 
-@pytest.fixture
-def owner(units: None) -> User:
-    return User.objects.create_user(username="reports-owner", password="pw-not-real-1234")
+#: Every test here reads the same seeded dataset and writes nothing that the
+#: next one must not see, so the seed runs once for the module instead of
+#: forty-nine times. That is about ten minutes off the suite — the seed posts
+#: eighty documents and costs ten seconds, and it was the entire runtime of
+#: this file. See `seed_demo_once` for how the isolation still holds.
+#:
+#: The guard is not decoration: a `transaction=True` test added to this module
+#: later would run inside the shared block, prove nothing about concurrency,
+#: and pass. This fails the module instead.
+@pytest.fixture(scope="module", autouse=True)
+def seeded(django_db_setup: object, django_db_blocker: Any) -> Iterator[None]:
+    import apps.inventory.tests.test_reports_and_exports as this_module
+
+    refuse_transactional_tests(this_module)
+    yield from seed_demo_once(django_db_blocker, username="reports-owner")
 
 
 @pytest.fixture
-def seeded(owner: User, settings: object) -> None:
-    settings.DEBUG = True  # type: ignore[attr-defined]
-    call_command("seed_inventory_demo", user=owner.username, confirm_demo=True, stdout=StringIO())
+def owner() -> User:
+    return User.objects.get(username="reports-owner")
 
 
 @pytest.fixture
-def organization(seeded: None) -> Organization:
+def organization() -> Organization:
     return Organization.objects.get(code="DEMO-KHAN-MANDI")
 
 
 @pytest.fixture
-def keeper(seeded: None) -> User:
+def keeper() -> User:
     """The demo storekeeper: full stock visibility, no valuation."""
     return User.objects.get(username="demo-storekeeper")
 

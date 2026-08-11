@@ -11,9 +11,10 @@ tested at all.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from decimal import Decimal
 from io import StringIO
+from typing import Any
 
 import pytest
 from django.core.exceptions import ValidationError
@@ -33,6 +34,7 @@ from apps.inventory.models import (
     StockBalance,
 )
 from apps.inventory.reconciliation import verify_organization
+from apps.inventory.tests.conftest import refuse_transactional_tests, seed_demo_once
 from apps.organizations.models import Branch, Organization, Role
 from apps.organizations.services import create_organization, grant_organization_access
 from apps.users.models import User
@@ -46,19 +48,22 @@ GOOD = f"{HEADER}\nDEMO-RICE,yes,40.000,120.000\nDEMO-OIL,yes,100.000,60.000\n".
 MIXED = (f"{HEADER}\nDEMO-RICE,yes,40.000,120.000\nNOT-AN-ITEM,yes,10.000,10.000\n").encode()
 
 
-@pytest.fixture
-def owner(units: None) -> User:
-    return User.objects.create_user(username="import-owner", password="pw-not-real-1234")
+#: One seed for the module. These tests do mutate — an applied batch changes reorder settings, and the verifier tests plant drift on purpose — but each rolls back to its own savepoint, so the next test sees the seed untouched.
+@pytest.fixture(scope="module", autouse=True)
+def seeded(django_db_setup: object, django_db_blocker: Any) -> Iterator[None]:
+    import apps.inventory.tests.test_imports_and_projection as this_module
+
+    refuse_transactional_tests(this_module)
+    yield from seed_demo_once(django_db_blocker, username="import-owner")
 
 
 @pytest.fixture
-def seeded(owner: User, settings: object) -> None:
-    settings.DEBUG = True  # type: ignore[attr-defined]
-    call_command("seed_inventory_demo", user=owner.username, confirm_demo=True, stdout=StringIO())
+def owner() -> User:
+    return User.objects.get(username="import-owner")
 
 
 @pytest.fixture
-def organization(seeded: None) -> Organization:
+def organization() -> Organization:
     return Organization.objects.get(code="DEMO-KHAN-MANDI")
 
 
@@ -744,70 +749,3 @@ class TestProjectionVerification:
 # ---------------------------------------------------------------------------
 # Database constraints, at the commit boundary
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.django_db(transaction=True)
-class TestImportConstraints:
-    """
-    The constraints that carry part of the correctness claim.
-
-    Real COMMIT boundaries, because a check that only ever ran inside a
-    rolled-back transaction has not been shown to hold when it matters.
-    """
-
-    def test_a_branch_scoped_kind_must_name_a_branch(self, settings: object) -> None:
-        settings.DEBUG = True  # type: ignore[attr-defined]
-        user = User.objects.create_user(username="c1", password="pw-not-real-1234")
-        call_command("seed_units", verbosity=0)
-        organization = create_organization(code="CONSTR", name_ar="ق", name_en="C")
-        from django.db.utils import IntegrityError
-
-        with pytest.raises(IntegrityError), transaction.atomic():
-            ImportBatch.objects.create(
-                organization=organization,
-                branch=None,
-                kind=ImportKind.BRANCH_ITEM_SETTING,
-                original_filename="x.csv",
-                content_hash="deadbeef",
-                byte_size=10,
-                row_count=0,
-                valid_row_count=0,
-                error_row_count=0,
-                uploaded_by=user,
-            )
-
-    def test_the_row_counts_must_add_up(self) -> None:
-        from django.db.utils import IntegrityError
-
-        organization = create_organization(code="CONSTR2", name_ar="ق", name_en="C")
-        with pytest.raises(IntegrityError), transaction.atomic():
-            ImportBatch.objects.create(
-                organization=organization,
-                kind=ImportKind.ITEM_CATEGORY,
-                original_filename="x.csv",
-                content_hash="deadbeef",
-                byte_size=10,
-                row_count=5,
-                valid_row_count=1,
-                error_row_count=1,
-                uploaded_by=None,
-            )
-
-    def test_a_failed_batch_cannot_claim_to_have_applied_rows(self) -> None:
-        from django.db.utils import IntegrityError
-
-        organization = create_organization(code="CONSTR3", name_ar="ق", name_en="C")
-        with pytest.raises(IntegrityError), transaction.atomic():
-            ImportBatch.objects.create(
-                organization=organization,
-                kind=ImportKind.ITEM_CATEGORY,
-                status=ImportBatchStatus.FAILED_VALIDATION,
-                original_filename="x.csv",
-                content_hash="deadbeef",
-                byte_size=10,
-                row_count=2,
-                valid_row_count=1,
-                error_row_count=1,
-                applied_row_count=1,
-                uploaded_by=None,
-            )

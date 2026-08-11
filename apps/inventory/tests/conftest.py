@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import date, time
+from io import StringIO
+from typing import Any
 
 import pytest
 from django.core.management import call_command
@@ -196,3 +198,88 @@ def client_for() -> Callable[[User], Client]:
         return client
 
     return _login
+
+
+# ---------------------------------------------------------------------------
+# Sharing one demo seed across a module
+# ---------------------------------------------------------------------------
+
+
+def seed_demo_once(django_db_blocker: Any, *, username: str) -> Iterator[None]:
+    """
+    Seed the demo dataset once for a whole test module, then undo it.
+
+    `seed_inventory_demo` posts roughly eighty business documents through the
+    real services, and that costs about ten seconds. Running it per test made
+    three files take nineteen minutes between them — the seed was essentially
+    the entire runtime, and the tests themselves were free.
+
+    This is Django's own `setUpTestData` arrangement, expressed as a pytest
+    fixture: an outer atomic block is opened before any test runs, the seed
+    happens inside it, and each test's own `db` fixture then opens a **nested**
+    atomic, which PostgreSQL implements as a savepoint. A test rolls back to
+    its savepoint and the seeded data survives; the module's outer block rolls
+    back at the end and the database is left exactly as it was found.
+
+    ## The one rule for using this
+
+    **A module that uses this must contain no `django_db(transaction=True)`
+    test.** A transactional test needs a real COMMIT and truncates the tables
+    afterwards. Inside the outer block its commits would become savepoint
+    releases and its truncation would be invisible to the next test — so the
+    test would pass while proving nothing, which is the worst possible
+    outcome for a concurrency test. Move those tests to their own module
+    instead of reaching for this fixture.
+
+    That rule is checked, not merely written down: `_refuse_transactional_tests`
+    fails the module rather than letting it go quietly green.
+    """
+    from django.db import transaction
+    from django.test import override_settings
+
+    with django_db_blocker.unblock():
+        atomic = transaction.atomic()
+        atomic.__enter__()
+        try:
+            call_command("seed_units", verbosity=0)
+            User.objects.create_user(username=username, password=PASSWORD)
+            # DEBUG is the seed's own production guard, and the command reads
+            # it before it reads an argument. `override_settings` rather than
+            # the `settings` fixture, which is function-scoped and would be
+            # gone by the time the first test ran.
+            with override_settings(DEBUG=True):
+                call_command(
+                    "seed_inventory_demo",
+                    user=username,
+                    confirm_demo=True,
+                    stdout=StringIO(),
+                )
+            yield
+        finally:
+            transaction.set_rollback(True)
+            atomic.__exit__(None, None, None)
+
+
+def refuse_transactional_tests(module: Any) -> None:
+    """
+    Fail loudly if a module sharing a seed also holds a transactional test.
+
+    The two are incompatible (see `seed_demo_once`), and the failure mode
+    without this check is silent: the concurrency test would run inside an
+    outer transaction, prove nothing, and pass.
+    """
+    offenders = [
+        name
+        for name, value in vars(module).items()
+        if name.startswith("Test") and _is_transactional(value)
+    ]
+    if offenders:
+        raise RuntimeError(
+            f"{module.__name__} shares a demo seed and cannot hold transactional "
+            f"tests: {sorted(offenders)}. Move them to their own module."
+        )
+
+
+def _is_transactional(candidate: Any) -> bool:
+    marks = getattr(candidate, "pytestmark", [])
+    return any(mark.name == "django_db" and mark.kwargs.get("transaction") for mark in marks)
