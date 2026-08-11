@@ -23,7 +23,8 @@ from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
 from apps.core.models import TimeStampedModel
-from apps.core.money import MONEY_PLACES
+from apps.core.money import MONEY_PLACES, UNIT_PRICE_PLACES
+from apps.core.quantity import QUANTITY_PLACES
 
 #: Supplier codes. The same shape inventory item codes use, and canonicalised
 #: to uppercase before storage so uniqueness is case-insensitive in effect
@@ -32,6 +33,8 @@ CODE_PATTERN = r"^[A-Z0-9][A-Z0-9._-]*$"
 
 #: Room for a credit limit in IQD, a currency with large nominal amounts.
 MONEY_MAX_DIGITS = MONEY_PLACES + 18
+UNIT_PRICE_MAX_DIGITS = UNIT_PRICE_PLACES + 15
+QUANTITY_MAX_DIGITS = QUANTITY_PLACES + 15
 
 
 class Supplier(TimeStampedModel):
@@ -140,3 +143,139 @@ class Supplier(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.code} — {self.name_ar}"
+
+
+class SupplierItem(TimeStampedModel):
+    """
+    What one supplier calls one of our items, and on what terms.
+
+    The catalogue answers "what do we usually pay, in what package, and how
+    long does it take". It is **planning data**. It never values stock and no
+    posting service reads it: inventory value comes from a receipt line's own
+    price snapshot and nowhere else. That separation is the whole reason a
+    price can sit here at all — a catalogue that fed valuation would silently
+    reprice history every time somebody corrected a supplier's price list.
+
+    Effective-dated and versioned, like `ItemPackageConversion` and for the
+    same reason: a quotation raised in March referenced the terms that were
+    live in March, and correcting them in June must not restate it.
+
+    `supplier_sku` is stored as the supplier wrote it — stripped, never
+    upper-cased. It is **their** vocabulary, and the same reasoning ADR-017
+    applies to `source_document_id`: folding the case of somebody else's
+    identifier is a guess about a system we do not control.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="supplier_items",
+        verbose_name=_("organization"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="catalogue",
+        verbose_name=_("supplier"),
+    )
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="supplier_catalogue",
+        verbose_name=_("item"),
+    )
+
+    supplier_sku = models.CharField(_("supplier reference"), max_length=64, blank=True)
+    supplier_description = models.CharField(_("supplier description"), max_length=200, blank=True)
+
+    #: NULL means the item is bought in its own base unit. A package must be
+    #: one the *item* has a conversion for, because a receipt has to snapshot
+    #: a factor and there would be none.
+    package_unit = models.ForeignKey(
+        "inventory.PackageUnit",
+        on_delete=models.PROTECT,
+        related_name="supplier_items",
+        null=True,
+        blank=True,
+        verbose_name=_("purchase package"),
+    )
+
+    #: Informational. PRC-005: no posting service may read this field, and an
+    #: architectural test proves none does.
+    last_quoted_price = models.DecimalField(
+        _("last quoted price"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+        null=True,
+        blank=True,
+        help_text=_("Planning information only. Never used to value stock."),
+    )
+    lead_time_days = models.PositiveSmallIntegerField(_("lead time (days)"), null=True, blank=True)
+    #: In the purchase package where one is named, otherwise in base units.
+    minimum_order_quantity = models.DecimalField(
+        _("minimum order quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    #: At most one preferred row per item across every supplier — enforced by a
+    #: partial unique index, so "who do we normally buy this from" has exactly
+    #: one answer at a time.
+    is_preferred = models.BooleanField(_("preferred"), default=False)
+
+    effective_from = models.DateField(_("effective from"))
+    effective_to = models.DateField(_("effective to"), null=True, blank=True)
+
+    #: Incremented per (supplier, item, package) whenever terms are superseded.
+    version = models.PositiveIntegerField(_("version"), default=1)
+    is_active = models.BooleanField(_("active"), default=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier item")
+        verbose_name_plural = _("supplier items")
+        ordering = ["supplier__code", "item__code", "-effective_from"]
+        permissions = [
+            ("manage_supplier_items", _("Can maintain the supplier item catalogue")),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(effective_to__isnull=True)
+                | Q(effective_to__gte=models.F("effective_from")),
+                name="procurement_supplier_item_period_is_ordered",
+            ),
+            models.CheckConstraint(
+                condition=Q(last_quoted_price__isnull=True) | Q(last_quoted_price__gte=0),
+                name="procurement_supplier_item_price_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(minimum_order_quantity__isnull=True) | Q(minimum_order_quantity__gt=0),
+                name="procurement_supplier_item_minimum_is_positive",
+            ),
+            # One version of one supplier's terms for one item and package.
+            # `nulls_distinct=False` because a NULL package means "base units",
+            # which is one answer and not unlimited ones.
+            models.UniqueConstraint(
+                fields=["supplier", "item", "package_unit", "version"],
+                name="procurement_supplier_item_version_unique",
+                nulls_distinct=False,
+            ),
+            # One preferred source per item, among active rows.
+            models.UniqueConstraint(
+                fields=["organization", "item"],
+                condition=Q(is_preferred=True, is_active=True),
+                name="procurement_supplier_item_one_preferred_per_item",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "is_active"], name="supplier_item_org_active_idx"),
+            models.Index(fields=["item", "is_active"], name="supplier_item_item_idx"),
+        ]
+
+    def __str__(self) -> str:
+        package = self.package_unit.code if self.package_unit else "—"
+        return f"{self.supplier.code} · {self.item.code} · {package}"

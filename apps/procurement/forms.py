@@ -13,9 +13,11 @@ from typing import Any
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+from apps.inventory.models import InventoryItem, PackageUnit
+from apps.inventory.selectors import reachable_organization_ids
 from apps.organizations.authorization import organizations_with_permission
 from apps.organizations.models import Organization
-from apps.procurement.models import Supplier
+from apps.procurement.models import Supplier, SupplierItem
 from apps.procurement.permissions import MANAGE_SUPPLIERS
 from apps.procurement.selectors import visible_suppliers
 from apps.procurement.services import canonical_code
@@ -121,3 +123,98 @@ class SupplierActionForm(forms.Form):
 
     def visible(self) -> Any:
         return visible_suppliers(self.actor)
+
+
+class SupplierItemForm(forms.Form):
+    """
+    One supplier terms row for one item.
+
+    The package choices are narrowed to packages the **item** has a conversion
+    for, because a row naming any other package could never be received. The
+    service checks it again: a select element is a convenience, never a
+    control.
+    """
+
+    supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    package_unit = forms.ModelChoiceField(
+        queryset=PackageUnit.objects.none(),
+        label=_("وحدة الشراء"),
+        required=False,
+        help_text=_("اتركها فارغة إذا كان الشراء بوحدة الصنف الأساسية."),
+    )
+    supplier_sku = forms.CharField(
+        label=_("رمز المورد للصنف"),
+        max_length=64,
+        required=False,
+        help_text=_("يُحفظ كما كتبه المورد. لا يُحوَّل إلى أحرف كبيرة."),
+    )
+    supplier_description = forms.CharField(label=_("وصف المورد"), max_length=200, required=False)
+    last_quoted_price = forms.DecimalField(
+        label=_("آخر سعر معروض"),
+        min_value=0,
+        required=False,
+        help_text=_("للتخطيط فقط. لا يُستخدم في تقييم المخزون إطلاقاً."),
+    )
+    lead_time_days = forms.IntegerField(
+        label=_("مهلة التوريد (يوم)"), min_value=0, max_value=365, required=False
+    )
+    minimum_order_quantity = forms.DecimalField(
+        label=_("أقل كمية طلب"), min_value=0, required=False
+    )
+    is_preferred = forms.BooleanField(label=_("المورد المفضل لهذا الصنف"), required=False)
+    effective_from = forms.DateField(
+        label=_("ساري من"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    effective_to = forms.DateField(
+        label=_("ساري حتى"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text=_("اتركه فارغاً إذا لم يكن هناك تاريخ انتهاء."),
+    )
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(
+        self,
+        *args: Any,
+        actor: User,
+        instance: SupplierItem | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+
+        reachable = reachable_organization_ids(actor)
+        self.fields["supplier"].queryset = Supplier.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=reachable, is_active=True
+        ).order_by("code")
+        self.fields["item"].queryset = InventoryItem.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=reachable, is_active=True
+        ).order_by("code")
+        # Only packages some item in reach actually converts. The service
+        # narrows it again to the chosen item, which is the check that counts.
+        self.fields["package_unit"].queryset = (  # type: ignore[attr-defined]
+            PackageUnit.objects.filter(
+                organization_id__in=reachable,
+                is_active=True,
+                item_conversions__is_active=True,
+            )
+            .distinct()
+            .order_by("code")
+        )
+
+        if instance is not None:
+            # Supplier, item, package and start date identify the row. Changing
+            # one makes it a different row, which is what superseding is for.
+            for name in ("supplier", "item", "package_unit", "effective_from"):
+                self.fields[name].disabled = True
+
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean() or {}
+        start, end = data.get("effective_from"), data.get("effective_to")
+        if start and end and end < start:
+            raise forms.ValidationError(
+                _("تاريخ الانتهاء قبل تاريخ البداية."), code="period_reversed"
+            )
+        return data

@@ -16,6 +16,7 @@ the command shape a posting API needs. The Phase 0 rules are unchanged:
 
 from __future__ import annotations
 
+import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -23,15 +24,31 @@ from django.core.exceptions import ValidationError
 from django.http import HttpRequest
 from ninja import Router, Schema, Status
 
+from apps.inventory.selectors import resolve_item, resolve_package_unit
 from apps.organizations.authorization import (
     PermissionMissing,
     require_reachable_organization_permission,
     resolve_organization,
 )
-from apps.procurement.models import Supplier
-from apps.procurement.permissions import MANAGE_SUPPLIERS, VIEW_SUPPLIER, VIEW_SUPPLIER_COST
-from apps.procurement.selectors import resolve_supplier, visible_suppliers
-from apps.procurement.services import create_supplier, update_supplier
+from apps.procurement.models import Supplier, SupplierItem
+from apps.procurement.permissions import (
+    MANAGE_SUPPLIER_ITEMS,
+    MANAGE_SUPPLIERS,
+    VIEW_SUPPLIER,
+    VIEW_SUPPLIER_COST,
+    VIEW_SUPPLIER_ITEM,
+)
+from apps.procurement.selectors import (
+    resolve_supplier,
+    resolve_supplier_item,
+    visible_supplier_items,
+    visible_suppliers,
+)
+from apps.procurement.services import (
+    create_supplier,
+    create_supplier_item,
+    update_supplier,
+)
 from apps.users.models import User
 
 router = Router(tags=["procurement"])
@@ -196,3 +213,163 @@ def update(request: HttpRequest, supplier_id: int, payload: SupplierUpdateIn) ->
         is_active=payload.is_active,
     )
     return _serialize(updated, include_cost=True)
+
+
+# ---------------------------------------------------------------------------
+# Supplier item catalogue
+# ---------------------------------------------------------------------------
+
+
+class SupplierItemOut(Schema):
+    id: int
+    organization_id: int
+    supplier_id: int
+    supplier_code: str
+    item_id: int
+    item_code: str
+    item_name_ar: str
+    base_unit_code: str
+    package_unit_id: int | None
+    package_unit_code: str | None
+    supplier_sku: str
+    supplier_description: str
+    lead_time_days: int | None
+    #: Exact strings. A minimum order quantity that had been through a binary
+    #: float is no longer the quantity anybody agreed to.
+    minimum_order_quantity: str | None
+    is_preferred: bool
+    effective_from: str
+    effective_to: str | None
+    version: int
+    is_active: bool
+    #: Omitted without `view_supplier_cost`, never blanked.
+    last_quoted_price: str | None = None
+
+
+class SupplierItemIn(Schema):
+    supplier_id: int
+    item_id: int
+    effective_from: str
+    package_unit_id: int | None = None
+    supplier_sku: str = ""
+    supplier_description: str = ""
+    last_quoted_price: str | None = None
+    lead_time_days: int | None = None
+    minimum_order_quantity: str | None = None
+    is_preferred: bool = False
+    effective_to: str | None = None
+    notes: str = ""
+
+
+def _date(value: str | None, *, field: str) -> datetime.date | None:
+    if value is None or value == "":
+        return None
+    try:
+        return datetime.date.fromisoformat(value)
+    except ValueError:
+        raise ValidationError(
+            f"{field} is not an ISO date (YYYY-MM-DD).", code="invalid_date"
+        ) from None
+
+
+def _serialize_catalogue(row: SupplierItem, *, include_cost: bool) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "id": row.pk,
+        "organization_id": row.organization_id,
+        "supplier_id": row.supplier_id,
+        "supplier_code": row.supplier.code,
+        "item_id": row.item_id,
+        "item_code": row.item.code,
+        "item_name_ar": row.item.name_ar,
+        "base_unit_code": row.item.base_unit.code,
+        "package_unit_id": row.package_unit_id,
+        "package_unit_code": row.package_unit.code if row.package_unit else None,
+        "supplier_sku": row.supplier_sku,
+        "supplier_description": row.supplier_description,
+        "lead_time_days": row.lead_time_days,
+        "minimum_order_quantity": (
+            format(row.minimum_order_quantity, "f")
+            if row.minimum_order_quantity is not None
+            else None
+        ),
+        "is_preferred": row.is_preferred,
+        "effective_from": row.effective_from.isoformat(),
+        "effective_to": row.effective_to.isoformat() if row.effective_to else None,
+        "version": row.version,
+        "is_active": row.is_active,
+    }
+    if include_cost:
+        body["last_quoted_price"] = (
+            format(row.last_quoted_price, "f") if row.last_quoted_price is not None else None
+        )
+    return body
+
+
+def _require_catalogue_view(request: HttpRequest) -> User:
+    actor = _actor(request)
+    if not actor.has_perm(VIEW_SUPPLIER_ITEM):
+        raise PermissionMissing(f"{VIEW_SUPPLIER_ITEM} is not held.")
+    return actor
+
+
+@router.get("/catalogue/", response=list[SupplierItemOut], summary="List catalogue rows")
+def list_catalogue(
+    request: HttpRequest, supplier_id: int | None = None, item_id: int | None = None
+) -> Any:
+    actor = _require_catalogue_view(request)
+    rows = visible_supplier_items(actor)
+    if supplier_id is not None:
+        rows = rows.filter(supplier_id=supplier_id)
+    if item_id is not None:
+        rows = rows.filter(item_id=item_id)
+    include_cost = actor.has_perm(VIEW_SUPPLIER_COST)
+    return [
+        _serialize_catalogue(row, include_cost=include_cost)
+        for row in rows.order_by("supplier__code", "item__code", "-effective_from")
+    ]
+
+
+@router.get(
+    "/catalogue/{supplier_item_id}/", response=SupplierItemOut, summary="Read one catalogue row"
+)
+def read_catalogue_row(request: HttpRequest, supplier_item_id: int) -> Any:
+    actor = _require_catalogue_view(request)
+    return _serialize_catalogue(
+        resolve_supplier_item(actor, supplier_item_id),
+        include_cost=actor.has_perm(VIEW_SUPPLIER_COST),
+    )
+
+
+@router.post("/catalogue/", response={201: SupplierItemOut}, summary="Add a catalogue row")
+def create_catalogue_row(request: HttpRequest, payload: SupplierItemIn) -> Status[Any]:
+    actor = _actor(request)
+    supplier = resolve_supplier(actor, payload.supplier_id)
+    require_reachable_organization_permission(actor, MANAGE_SUPPLIER_ITEMS, supplier.organization)
+    item = resolve_item(actor, payload.item_id)
+    package = (
+        resolve_package_unit(actor, payload.package_unit_id)
+        if payload.package_unit_id is not None
+        else None
+    )
+
+    effective_from = _date(payload.effective_from, field="effective_from")
+    if effective_from is None:
+        raise ValidationError("effective_from is required.", code="date_required")
+
+    row = create_supplier_item(
+        supplier=supplier,
+        item=item,
+        package_unit=package,
+        effective_from=effective_from,
+        effective_to=_date(payload.effective_to, field="effective_to"),
+        supplier_sku=payload.supplier_sku,
+        supplier_description=payload.supplier_description,
+        last_quoted_price=_money(payload.last_quoted_price, field="last_quoted_price"),
+        lead_time_days=payload.lead_time_days,
+        minimum_order_quantity=_money(
+            payload.minimum_order_quantity, field="minimum_order_quantity"
+        ),
+        is_preferred=payload.is_preferred,
+        notes=payload.notes,
+    )
+    return Status(201, _serialize_catalogue(row, include_cost=True))

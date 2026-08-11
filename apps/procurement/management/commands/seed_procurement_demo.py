@@ -31,7 +31,15 @@ from apps.core.context import audit_context
 from apps.inventory.demo import DEMO_ORGANIZATION_CODE, DemoSelectionError
 from apps.inventory.management.commands.seed_inventory_demo import resolve_user
 from apps.organizations.models import Organization
-from apps.procurement.demo import seed_demo_suppliers
+from apps.procurement.demo import seed_demo_catalogue, seed_demo_suppliers
+
+#: The screens this dataset makes reviewable, in navigation order. Route
+#: names rather than literal paths: a hard-coded path is a second copy of
+#: the URL configuration, and the copy is the one that goes stale.
+INSPECTION_ROUTES: list[tuple[str, str]] = [
+    ("procurement:supplier_list", "الموردون"),
+    ("procurement:supplier_item_list", "كتالوج الموردين"),
+]
 
 
 class Command(SeedCommand):
@@ -75,6 +83,7 @@ class Command(SeedCommand):
 
         with audit_context(actor=user):
             suppliers = seed_demo_suppliers(organization=organization)
+            catalogue = seed_demo_catalogue(organization=organization)
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -82,7 +91,13 @@ class Command(SeedCommand):
         for supplier in suppliers:
             self.write(f"  {supplier.code:<24} {supplier.name_ar}")
         self.write("")
-        self.write(f"{len(suppliers)} suppliers present.")
+        self.write("catalogue:")
+        for row in catalogue:
+            package = row.package_unit.code if row.package_unit else row.item.base_unit.code
+            self.write(f"  {row.supplier.code:<24} {row.item.code:<16} {package}")
         self.write("")
-        self.write("Screen to inspect (python manage.py runserver, then):")
-        self.write(f"  http://127.0.0.1:8000{reverse('procurement:supplier_list'):<34} الموردون")
+        self.write(f"{len(suppliers)} suppliers and {len(catalogue)} catalogue rows present.")
+        self.write("")
+        self.write("Screens to inspect (python manage.py runserver, then):")
+        for route, label in INSPECTION_ROUTES:
+            self.write(f"  http://127.0.0.1:8000{reverse(route):<34} {label}")

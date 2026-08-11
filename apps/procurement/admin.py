@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from django.contrib import admin
 from django.http import HttpRequest
 
-from apps.procurement.models import Supplier
+from apps.procurement.models import Supplier, SupplierItem
 
 if TYPE_CHECKING:
     _ModelAdmin = admin.ModelAdmin[Any]
@@ -47,3 +47,18 @@ class SupplierAdmin(ReadOnlyAdmin):
     list_filter = ("organization", "is_active")
     search_fields = ("code", "name_ar", "name_en", "contact_name", "phone")
     ordering = ("organization__code", "code")
+
+
+@admin.register(SupplierItem)
+class SupplierItemAdmin(ReadOnlyAdmin):
+    list_display = (
+        "supplier",
+        "item",
+        "package_unit",
+        "effective_from",
+        "is_preferred",
+        "is_active",
+    )
+    list_filter = ("organization", "is_active", "is_preferred")
+    search_fields = ("supplier__code", "item__code", "supplier_sku")
+    ordering = ("supplier__code", "item__code", "-effective_from")

@@ -501,10 +501,10 @@ see Task 2.0 §0.
 | PRC-002 | Supplier code canonical uppercase, unique per organization, archived codes reserved | `create_supplier` + `UniqueConstraint` | `apps/procurement/tests/test_supplier.py::TestSupplierCode` | 2.1 | | Done |
 | PRC-003 | `Supplier` carries no balance field; balances derive from posted documents | model shape | `apps/procurement/tests/test_supplier.py::test_there_is_no_balance_field`, `apps/procurement/tests/test_supplier.py::test_there_is_no_account_field` | 2.1 | | Done |
 | PRC-004 | A supplier is archived, never deleted | `on_delete=PROTECT` | `apps/procurement/tests/test_supplier.py::test_archive_and_reactivate_keep_the_row`, `apps/procurement/tests/test_supplier.py::test_an_archived_code_stays_reserved` | 2.1 | | Done |
-| PRC-005 | A catalogue price values nothing; no posting service reads it | AST boundary test | — | 2.2 | | Specified |
-| PRC-006 | One preferred supplier per item; one preferred catalogue row per pair | partial unique index | — | 2.2 | | Specified |
-| PRC-007 | Catalogue effective periods cannot overlap | `EXCLUDE USING gist` | — | 2.2 | | Specified |
-| PRC-008 | A catalogue package must be one the item can convert to base | service guard | — | 2.2 | | Specified |
+| PRC-005 | A catalogue price values nothing; no posting service reads it | AST boundary test | `apps/procurement/tests/test_supplier_catalogue.py::TestTheCatalogueValuesNothing` | 2.2 | | Done |
+| PRC-006 | One preferred supplier per item; one preferred catalogue row per pair | partial unique index | `apps/procurement/tests/test_supplier_catalogue.py::TestPreferredSource` | 2.2 | | Done |
+| PRC-007 | Catalogue effective periods cannot overlap | `EXCLUDE USING gist` | `apps/procurement/tests/test_supplier_catalogue.py::test_overlapping_periods_are_impossible` | 2.2 | | Done |
+| PRC-008 | A catalogue package must be one the item can convert to base | service guard | `apps/procurement/tests/test_supplier_catalogue.py::TestPackageCompatibility` | 2.2 | | Done |
 | PRC-009 | A purchase request has no stock and no accounting effect | asserted per status | — | 2.3 | | Specified |
 | PRC-010 | A request approver is never its submitter | `CheckConstraint` | — | 2.3 | | Specified |
 | PRC-011 | Only a DRAFT request is editable | service guard + trigger | — | 2.3 | | Specified |

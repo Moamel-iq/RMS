@@ -9,12 +9,15 @@ simply not in the queryset.
 
 from __future__ import annotations
 
-from django.db.models import QuerySet
+import datetime
+
+from django.db.models import F, Q, QuerySet
 from django.utils.translation import gettext_lazy as _
 
+from apps.inventory.models import InventoryItem
 from apps.inventory.selectors import reachable_organization_ids
 from apps.organizations.authorization import OutOfScope
-from apps.procurement.models import Supplier
+from apps.procurement.models import Supplier, SupplierItem
 from apps.users.models import User
 
 
@@ -51,3 +54,59 @@ def resolve_supplier(user: User, supplier_id: int) -> Supplier:
     if supplier is None:
         raise OutOfScope(_("Supplier %(id)s does not exist.") % {"id": supplier_id})
     return supplier
+
+
+def visible_supplier_items(user: User) -> QuerySet[SupplierItem]:
+    """
+    Every catalogue row in an organization the caller reaches, archived
+    included.
+
+    Archived and expired rows stay visible for the reason archived suppliers
+    do: a quotation raised last March referenced terms that are no longer
+    current, and a screen that hid them would make that quotation unreadable.
+    """
+    return SupplierItem.objects.filter(
+        organization_id__in=reachable_organization_ids(user)
+    ).select_related("organization", "supplier", "item", "item__base_unit", "package_unit")
+
+
+def resolve_supplier_item(user: User, supplier_item_id: int) -> SupplierItem:
+    """
+    Turn a submitted catalogue id into one the caller may reach.
+
+    Resolved **with** the caller, never fetched and then checked.
+    """
+    row = visible_supplier_items(user).filter(pk=supplier_item_id).first()
+    if row is None:
+        raise OutOfScope(_("Supplier item %(id)s does not exist.") % {"id": supplier_item_id})
+    return row
+
+
+def catalogue_effective_on(
+    user: User, *, item: InventoryItem, on: datetime.date
+) -> QuerySet[SupplierItem]:
+    """
+    Who can supply this item on a given date, cheapest quoted first.
+
+    Ordered by price only as a **presentation** convenience. Nothing selects a
+    supplier from this list automatically — PRC-016 — and a null price sorts
+    last rather than first, because "no price on file" is not "free".
+    """
+    return (
+        visible_supplier_items(user)
+        .filter(item=item, is_active=True, effective_from__lte=on)
+        .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=on))
+        .order_by(F("last_quoted_price").asc(nulls_last=True), "supplier__code")
+    )
+
+
+def preferred_supplier_item(
+    user: User, *, item: InventoryItem, on: datetime.date
+) -> SupplierItem | None:
+    """
+    Where this item is normally bought, or None if nobody has said.
+
+    At most one row can answer this — a partial unique index guarantees it —
+    so `.first()` here is not a choice between candidates.
+    """
+    return catalogue_effective_on(user, item=item, on=on).filter(is_preferred=True).first()

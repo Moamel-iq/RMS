@@ -8,8 +8,10 @@ These **extend** `docs/invariants/inventory-invariants.md` and
 procurement posting that breaks an inventory invariant is broken twice, and a
 receipt is an inventory posting before it is anything else.
 
-**Status: proposed by Task 2.0, 2026-08-11.** Nothing below is implemented yet.
-The "Delivered by" column names the task that will make each one true.
+**Status: proposed by Task 2.0, 2026-08-11.** The "Delivered by" column names
+the task that makes each one true. Invariants 1–4 landed with Task 2.1 and
+5–8 with Task 2.2; the rest are still statements of intent, and the
+traceability matrix rather than this table is where the evidence lives.
 
 ## The forty
 

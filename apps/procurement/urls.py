@@ -26,4 +26,30 @@ urlpatterns = [
         views.SupplierActionView.as_view(activate=True),
         name="supplier_reactivate",
     ),
+    # --- supplier item catalogue -------------------------------------
+    path(
+        "catalogue/",
+        views.SupplierItemListView.as_view(),
+        name="supplier_item_list",
+    ),
+    path(
+        "catalogue/new/",
+        views.SupplierItemCreateView.as_view(),
+        name="supplier_item_create",
+    ),
+    path(
+        "catalogue/<int:pk>/",
+        views.SupplierItemUpdateView.as_view(),
+        name="supplier_item_update",
+    ),
+    path(
+        "catalogue/<int:pk>/archive/",
+        views.SupplierItemActionView.as_view(activate=False),
+        name="supplier_item_archive",
+    ),
+    path(
+        "catalogue/<int:pk>/reactivate/",
+        views.SupplierItemActionView.as_view(activate=True),
+        name="supplier_item_reactivate",
+    ),
 ]

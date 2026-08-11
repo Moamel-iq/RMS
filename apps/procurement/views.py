@@ -23,10 +23,26 @@ from django.utils.translation import gettext_lazy as _
 
 from apps.inventory.views import InventoryActionView, InventoryListView, InventoryWriteView
 from apps.organizations.authorization import require_reachable_organization_permission
-from apps.procurement.forms import SupplierForm
-from apps.procurement.permissions import MANAGE_SUPPLIERS, VIEW_SUPPLIER
-from apps.procurement.selectors import resolve_supplier, visible_suppliers
-from apps.procurement.services import create_supplier, update_supplier
+from apps.procurement.forms import SupplierForm, SupplierItemForm
+from apps.procurement.permissions import (
+    MANAGE_SUPPLIER_ITEMS,
+    MANAGE_SUPPLIERS,
+    VIEW_SUPPLIER,
+    VIEW_SUPPLIER_COST,
+    VIEW_SUPPLIER_ITEM,
+)
+from apps.procurement.selectors import (
+    resolve_supplier,
+    resolve_supplier_item,
+    visible_supplier_items,
+    visible_suppliers,
+)
+from apps.procurement.services import (
+    create_supplier,
+    create_supplier_item,
+    update_supplier,
+    update_supplier_item,
+)
 
 
 class SupplierListView(InventoryListView):
@@ -146,6 +162,159 @@ class SupplierActionView(InventoryActionView):
             address=instance.address,
             payment_terms_days=instance.payment_terms_days,
             credit_limit=instance.credit_limit,
+            notes=instance.notes,
+            is_active=self.activate,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Supplier item catalogue
+# ---------------------------------------------------------------------------
+
+
+class SupplierItemListView(InventoryListView):
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_ITEM
+    template_name = "procurement/supplier_item_list.html"
+    context_object_name = "supplier_items"
+    page_title = _("كتالوج الموردين")
+    page_hint = _(
+        "من يورّد أي صنف، بأي عبوة، وبأي مهلة. السعر هنا للتخطيط فقط — "
+        "تقييم المخزون يأتي من سعر الاستلام نفسه ولا يقرأ هذا الجدول."
+    )
+    search_fields = (
+        "supplier__code",
+        "supplier__name_ar",
+        "item__code",
+        "item__name_ar",
+        "supplier_sku",
+    )
+    manage_permission = MANAGE_SUPPLIER_ITEMS
+    create_url_name = "procurement:supplier_item_create"
+    create_label = _("سطر كتالوج جديد")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_supplier_items(self.actor).order_by(
+            "supplier__code", "item__code", "-effective_from"
+        )
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        # Prices are a separate permission, and the column is omitted rather
+        # than blanked — an empty cell still says a number belongs there.
+        context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        return context
+
+
+class SupplierItemWriteView(InventoryWriteView):
+    module_key = "procurement"
+    template_name = "procurement/supplier_item_form.html"
+    form_class = SupplierItemForm
+    required_permission = MANAGE_SUPPLIER_ITEMS
+    success_url_name = "procurement:supplier_item_list"
+
+    def _terms(self, form: Any) -> dict[str, Any]:
+        data = form.cleaned_data
+        return {
+            "supplier_sku": data.get("supplier_sku", ""),
+            "supplier_description": data.get("supplier_description", ""),
+            "last_quoted_price": data.get("last_quoted_price"),
+            "lead_time_days": data.get("lead_time_days"),
+            "minimum_order_quantity": data.get("minimum_order_quantity"),
+            "is_preferred": data.get("is_preferred", False),
+            "notes": data.get("notes", ""),
+        }
+
+
+class SupplierItemCreateView(SupplierItemWriteView):
+    page_title = _("سطر كتالوج جديد")
+    page_hint = _(
+        "العبوة يجب أن تكون عبوة يعرف الصنف تحويلها إلى وحدته الأساسية، "
+        "وإلا لن يجد الاستلام معاملاً يثبته."
+    )
+    success_message = _("تمت إضافة سطر الكتالوج.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_SUPPLIER_ITEMS, form.cleaned_data["supplier"].organization
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        create_supplier_item(
+            supplier=form.cleaned_data["supplier"],
+            item=form.cleaned_data["item"],
+            package_unit=form.cleaned_data.get("package_unit"),
+            effective_from=form.cleaned_data["effective_from"],
+            effective_to=form.cleaned_data.get("effective_to"),
+            **self._terms(form),
+        )
+
+
+class SupplierItemUpdateView(SupplierItemWriteView):
+    page_title = _("تعديل سطر كتالوج")
+    page_hint = _(
+        "المورد والصنف والعبوة وتاريخ البداية تُعرّف السطر ولا تُعدَّل. "
+        "تغييرها يعني سطراً آخر، وهذا ما يفعله الإصدار الجديد."
+    )
+    success_message = _("تم حفظ التعديل.")
+
+    def load(self) -> Any:
+        return resolve_supplier_item(self.actor, self.kwargs["pk"])
+
+    def initial_for(self, instance: Any) -> dict[str, Any]:
+        return {
+            "supplier": instance.supplier,
+            "item": instance.item,
+            "package_unit": instance.package_unit,
+            "supplier_sku": instance.supplier_sku,
+            "supplier_description": instance.supplier_description,
+            "last_quoted_price": instance.last_quoted_price,
+            "lead_time_days": instance.lead_time_days,
+            "minimum_order_quantity": instance.minimum_order_quantity,
+            "is_preferred": instance.is_preferred,
+            "effective_from": instance.effective_from,
+            "effective_to": instance.effective_to,
+            "notes": instance.notes,
+        }
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_SUPPLIER_ITEMS, instance.organization
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        update_supplier_item(
+            supplier_item=instance,
+            effective_to=form.cleaned_data.get("effective_to"),
+            is_active=instance.is_active,
+            **self._terms(form),
+        )
+
+
+class SupplierItemActionView(InventoryActionView):
+    module_key = "procurement"
+    required_permission = MANAGE_SUPPLIER_ITEMS
+    success_url_name = "procurement:supplier_item_list"
+
+    def load(self) -> Any:
+        return resolve_supplier_item(self.actor, self.kwargs["pk"])
+
+    def authorize(self, instance: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_SUPPLIER_ITEMS, instance.organization
+        )
+
+    def perform(self, instance: Any) -> None:
+        update_supplier_item(
+            supplier_item=instance,
+            supplier_sku=instance.supplier_sku,
+            supplier_description=instance.supplier_description,
+            last_quoted_price=instance.last_quoted_price,
+            lead_time_days=instance.lead_time_days,
+            minimum_order_quantity=instance.minimum_order_quantity,
+            # An archived row is not where anything is normally bought.
+            is_preferred=instance.is_preferred and self.activate,
+            effective_to=instance.effective_to,
             notes=instance.notes,
             is_active=self.activate,
         )

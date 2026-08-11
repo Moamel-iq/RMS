@@ -57,11 +57,18 @@ class PermissionScope(Enum):
 VIEW_SUPPLIER = f"{APP_LABEL}.view_supplier"
 MANAGE_SUPPLIERS = f"{APP_LABEL}.manage_suppliers"
 VIEW_SUPPLIER_COST = f"{APP_LABEL}.view_supplier_cost"
+#: Task 2.2. Reading the catalogue is reading who supplies what — the
+#: prices on it are guarded separately by `view_supplier_cost`, exactly as
+#: stock quantity and stock valuation are guarded separately in inventory.
+VIEW_SUPPLIER_ITEM = f"{APP_LABEL}.view_supplieritem"
+MANAGE_SUPPLIER_ITEMS = f"{APP_LABEL}.manage_supplier_items"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_SUPPLIER,
     MANAGE_SUPPLIERS,
     VIEW_SUPPLIER_COST,
+    VIEW_SUPPLIER_ITEM,
+    MANAGE_SUPPLIER_ITEMS,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -74,6 +81,10 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # who cannot is refused at the same boundary they are refused inventory
     # valuation.
     VIEW_SUPPLIER_COST: PermissionScope.ORGANIZATION_MASTER_DATA,
+    # The catalogue is organization master data for the same reason the
+    # supplier list is: it says what the group buys and from whom.
+    VIEW_SUPPLIER_ITEM: PermissionScope.ORGANIZATION_MASTER_DATA,
+    MANAGE_SUPPLIER_ITEMS: PermissionScope.ORGANIZATION_MASTER_DATA,
 }
 
 
@@ -85,19 +96,37 @@ _FULL = frozenset(ALL_PERMISSIONS)
 #: because deciding who the organization buys from is the substance of the
 #: role. Receipt posting will deliberately **not** come here when it arrives:
 #: whoever chose the supplier should not also confirm what arrived.
-_PURCHASING = frozenset({VIEW_SUPPLIER, MANAGE_SUPPLIERS, VIEW_SUPPLIER_COST})
+_PURCHASING = frozenset(
+    {
+        VIEW_SUPPLIER,
+        MANAGE_SUPPLIERS,
+        VIEW_SUPPLIER_COST,
+        VIEW_SUPPLIER_ITEM,
+        MANAGE_SUPPLIER_ITEMS,
+    }
+)
 
 #: Runs a branch end to end, including its buying.
-_MANAGER = frozenset({VIEW_SUPPLIER, MANAGE_SUPPLIERS, VIEW_SUPPLIER_COST})
+_MANAGER = frozenset(
+    {
+        VIEW_SUPPLIER,
+        MANAGE_SUPPLIERS,
+        VIEW_SUPPLIER_COST,
+        VIEW_SUPPLIER_ITEM,
+        MANAGE_SUPPLIER_ITEMS,
+    }
+)
 
 #: Answers for the figures. Reads the master and the money; maintains neither —
 #: inventing a supplier is a purchasing act, not an accounting one.
-_ACCOUNTING_MANAGER = frozenset({VIEW_SUPPLIER, VIEW_SUPPLIER_COST})
-_ACCOUNTANT = frozenset({VIEW_SUPPLIER, VIEW_SUPPLIER_COST})
+_ACCOUNTING_MANAGER = frozenset({VIEW_SUPPLIER, VIEW_SUPPLIER_COST, VIEW_SUPPLIER_ITEM})
+_ACCOUNTANT = frozenset({VIEW_SUPPLIER, VIEW_SUPPLIER_COST, VIEW_SUPPLIER_ITEM})
 
 #: Receives goods against a supplier's delivery note, and has no business
 #: seeing what was paid for them.
-_STOREKEEPER = frozenset({VIEW_SUPPLIER})
+#: Receives goods against a delivery note, so needs to know which supplier
+#: sends which item in which package — and still never what it cost.
+_STOREKEEPER = frozenset({VIEW_SUPPLIER, VIEW_SUPPLIER_ITEM})
 
 #: Reads what exists, never what it cost.
 _VIEWER = frozenset({VIEW_SUPPLIER})
