@@ -91,6 +91,7 @@ from apps.inventory.counts import (
     submit_count,
 )
 from apps.inventory.imports import apply_batch, create_batch, validate_batch
+from apps.inventory.locations import create_location, move_between_locations, put_away
 from apps.inventory.models import (
     AdjustmentLineKind,
     BranchItemSetting,
@@ -113,6 +114,8 @@ from apps.inventory.models import (
     ReasonCodeApplication,
     StockCount,
     StockCountLine,
+    StockLocation,
+    StockLocationBalance,
     StockMovement,
     StockTransfer,
     StockTransferStatus,
@@ -1947,6 +1950,79 @@ def _failed_import(
 
 
 # ---------------------------------------------------------------------------
+# Task 1.7B — locations
+# ---------------------------------------------------------------------------
+
+#: code, Arabic name. Three bins in the main store, which is enough to show a
+#: put-away, a move between two of them, and a bin that stays empty.
+DEMO_LOCATIONS: list[tuple[str, str]] = [
+    ("BIN-A", "رف أ — الحبوب"),
+    ("BIN-B", "رف ب — الزيوت"),
+    ("BIN-C", "رف ج — فارغ"),
+]
+
+
+def _locations(
+    log: DemoLog,
+    *,
+    warehouse: Warehouse,
+    items: dict[str, InventoryItem],
+    actor: User,
+) -> None:
+    """
+    Bins in the main store, with stock deliberately left partly unlocated.
+
+    The unlocated remainder is the point rather than an oversight. Locations are
+    optional and most rooms in this business are one room; a demo where every
+    kilo sat in a bin would hide the state every real warehouse starts in and
+    the one the reconciliation screen has to show.
+
+    Rice is put away and then partly moved between two bins — a move that posts
+    no `StockMovement` at all, because nothing entered or left the warehouse.
+    Oil is put away whole. Meat, chicken and packaging stay unlocated.
+    """
+    created: dict[str, StockLocation] = {}
+    for code, name_ar in DEMO_LOCATIONS:
+        existing = StockLocation.objects.filter(warehouse=warehouse, code=code).first()
+        if existing is not None:
+            created[code] = existing
+            log.record("location", f"{warehouse.code}/{code}", created=False)
+            continue
+        with audit_context(actor=actor):
+            created[code] = create_location(warehouse=warehouse, code=code, name_ar=name_ar)
+        log.record("location", f"{warehouse.code}/{code}", created=True)
+
+    # Idempotent by state: if anything is already put away, this ran before.
+    if StockLocationBalance.objects.filter(warehouse=warehouse).exists():
+        log.record("location stock", "put-away and internal move", created=False)
+        return
+
+    with audit_context(actor=actor):
+        put_away(
+            location=created["BIN-A"],
+            item=items["DEMO-RICE"],
+            quantity=Decimal("100.000"),
+            reference=reference("PUT-AWAY-RICE"),
+        )
+        put_away(
+            location=created["BIN-B"],
+            item=items["DEMO-OIL"],
+            quantity=Decimal("40.000"),
+            reference=reference("PUT-AWAY-OIL"),
+        )
+        # No StockMovement, no journal, no re-average — the warehouse position
+        # is identical before and after.
+        move_between_locations(
+            source=created["BIN-A"],
+            destination=created["BIN-C"],
+            item=items["DEMO-RICE"],
+            quantity=Decimal("25.000"),
+            reference=reference("MOVE-RICE-A-TO-C"),
+        )
+    log.record("location stock", "put-away and internal move", created=True)
+
+
+# ---------------------------------------------------------------------------
 # The whole scenario
 # ---------------------------------------------------------------------------
 
@@ -2197,6 +2273,7 @@ def seed_inventory_demo(
         # `ensure_branch_visibility` guaranteed above.
         _applied_import(log, organization=organization, branch=source_branch, actor=user)
         _failed_import(log, organization=organization, branch=source_branch, actor=user)
+        _locations(log, warehouse=main, items=items, actor=user)
         # The counts go last, and in this order. A cancelled count releases its
         # freeze, so the main store is usable again; the other two keep theirs,
         # and anything posted into a frozen warehouse afterwards is refused.

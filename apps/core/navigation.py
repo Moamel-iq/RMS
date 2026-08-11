@@ -216,15 +216,18 @@ MODULES: tuple[Module, ...] = (
                 url_name="inventory:reason_code_list",
                 available=True,
             ),
+            Section(
+                label=_("أرصدة المواقع"),
+                url_name="inventory:report_locations",
+                available=True,
+            ),
             # Task 1.7 onward — visible so the shape of the module is legible,
             # inert because the documents that would fill them do not exist.
             # "المرتجعات" is gone from this list: returns from a prior issue
             # are live above, and supplier returns belong to Procurement,
             # where they reconcile against an invoice and a credit note.
             *_sections(
-                _("مواقع التخزين الداخلية"),
                 _("تقييم المخزون"),
-                _("حدود إعادة الطلب"),
             ),
         ),
     ),

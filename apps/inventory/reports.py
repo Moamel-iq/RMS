@@ -69,6 +69,7 @@ from apps.inventory.models import (
     StockBalance,
     StockCountLine,
     StockCountStatus,
+    StockLocationBalance,
     StockMovement,
     StockTransfer,
     StockTransferStatus,
@@ -887,6 +888,86 @@ def adjustments(
             row["total_value"] = line.total_value
         rows.append(row)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# 10. Stock locations
+# ---------------------------------------------------------------------------
+
+
+def location_balances(
+    user: User, filters: ReportFilters, *, include_valuation: bool
+) -> list[dict[str, Any]]:
+    """
+    What sits in which bin, and what the warehouse holds that no bin claims.
+
+    The unlocated row is the interesting one and it is **derived** rather than
+    read: `warehouse quantity − sum(located)`. A warehouse that has never used
+    bins shows one unlocated row per position, which is the honest picture of
+    most stores in this business rather than an empty screen.
+
+    No value column at any permission level. `include_valuation` is accepted so
+    every report shares one signature, and deliberately ignored: ADR-018 §2
+    gives value to the warehouse, and a location that could show a figure would
+    be a location that had one.
+    """
+    warehouses = scoped_warehouses(user, filters)
+
+    located: dict[tuple[int, int, int | None], Decimal] = {}
+    rows: list[dict[str, Any]] = []
+    balances = _apply_item_filters(
+        StockLocationBalance.objects.filter(warehouse__in=warehouses), filters
+    )
+    for balance in balances.select_related(
+        "location", "warehouse", "warehouse__branch", "item", "item__base_unit", "lot"
+    ).order_by("warehouse__code", "location__code", "item__code"):
+        key = (balance.warehouse_id, balance.item_id, balance.lot_id)
+        located[key] = located.get(key, ZERO) + balance.quantity
+        rows.append(
+            {
+                "branch_code": balance.warehouse.branch.code,
+                "warehouse_code": balance.warehouse.code,
+                "location_code": balance.location.code,
+                "location_name": balance.location.name_ar,
+                "item_code": balance.item.code,
+                "item_name": balance.item.name_ar,
+                "lot_code": balance.lot.code if balance.lot else "",
+                "unit": balance.item.base_unit.code,
+                "quantity": balance.quantity,
+                "is_unlocated": False,
+            }
+        )
+
+    # One derived row per position the warehouse holds beyond its bins.
+    warehouse_balances = _apply_item_filters(
+        StockBalance.objects.filter(warehouse__in=warehouses).exclude(quantity=ZERO), filters
+    )
+    for balance in warehouse_balances.select_related(
+        "warehouse", "warehouse__branch", "item", "item__base_unit", "lot"
+    ).order_by("warehouse__code", "item__code"):
+        key = (balance.warehouse_id, balance.item_id, balance.lot_id)
+        remainder = quantize_quantity(balance.quantity - located.get(key, ZERO))
+        if remainder == ZERO:
+            continue
+        rows.append(
+            {
+                "branch_code": balance.warehouse.branch.code,
+                "warehouse_code": balance.warehouse.code,
+                "location_code": "—",
+                "location_name": _("غير مخصص لموقع"),
+                "item_code": balance.item.code,
+                "item_name": balance.item.name_ar,
+                "lot_code": balance.lot.code if balance.lot else "",
+                "unit": balance.item.base_unit.code,
+                "quantity": remainder,
+                "is_unlocated": True,
+            }
+        )
+
+    return sorted(
+        rows,
+        key=lambda row: (row["warehouse_code"], row["item_code"], row["location_code"]),
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -215,6 +215,7 @@ class Command(SeedCommand):
             "item",
             "conversion",
             "warehouse",
+            "location",
             "branch item",
             "reason code",
             "user",
@@ -229,6 +230,7 @@ class Command(SeedCommand):
             "stock count",
             "adjustment",
             "draft",
+            "location stock",
         ):
             rows = log.of_kind(kind)
             if not rows:

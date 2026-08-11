@@ -428,6 +428,11 @@ urlpatterns += [
         report_views.AdjustmentReportView.as_view(),
         name="report_adjustments",
     ),
+    path(
+        "reports/locations/",
+        report_views.LocationBalanceReportView.as_view(),
+        name="report_locations",
+    ),
 ]
 
 urlpatterns += [

@@ -505,3 +505,38 @@ class AdjustmentReportView(InventoryReportView):
         self, filters: ReportFilters, *, include_valuation: bool
     ) -> list[dict[str, Any]]:
         return reports.adjustments(self.actor, filters, include_valuation=include_valuation)
+
+
+class LocationBalanceReportView(InventoryReportView):
+    """
+    Where stock sits. No value column at any permission level — ADR-018 §2 gives
+    value to the warehouse, and a bin that could show a figure would have one.
+    """
+
+    template_name = "inventory/reports/_base_report.html"
+    page_title = _("أرصدة المواقع")
+    page_hint = _(
+        "ما يوجد في كل رف، وما يحمله المخزن دون تخصيص لموقع. المواقع اختيارية: "
+        "المخزن يملك القيمة والموقع يملك الكمية فقط."
+    )
+    export_stem = "location-balances"
+    columns = (
+        ("branch_code", _("الفرع")),
+        ("warehouse_code", _("المخزن")),
+        ("location_code", _("الموقع")),
+        ("location_name", _("اسم الموقع")),
+        ("item_code", _("الصنف")),
+        ("item_name", _("الاسم")),
+        ("lot_code", _("الدفعة")),
+        ("unit", _("الوحدة")),
+        ("quantity", _("الكمية")),
+        ("is_unlocated", _("غير مخصص")),
+    )
+    #: Deliberately empty. There is no location valuation to redact because
+    #: there is no location valuation.
+    valuation_columns = ()
+
+    def report_rows(
+        self, filters: ReportFilters, *, include_valuation: bool
+    ) -> list[dict[str, Any]]:
+        return reports.location_balances(self.actor, filters, include_valuation=include_valuation)

@@ -55,7 +55,15 @@ def organization(seeded: None) -> Organization:
 
 @pytest.fixture
 def main(organization: Organization) -> Warehouse:
-    return Warehouse.objects.get(branch__organization=organization, code="DEMO-MAIN")
+    """
+    The kitchen store, deliberately — the demo puts stock away in DEMO-MAIN.
+
+    These tests are about locations in the abstract, so they use the one
+    demo warehouse the seed leaves entirely unlocated. Pointing them at
+    DEMO-MAIN made them track the demo's own put-away and they broke the day
+    it gained bins, which is a test coupled to a fixture rather than to a rule.
+    """
+    return Warehouse.objects.get(branch__organization=organization, code="DEMO-KITCHEN")
 
 
 @pytest.fixture
@@ -66,8 +74,8 @@ def rice(organization: Organization) -> InventoryItem:
 @pytest.fixture
 def bins(main: Warehouse, owner: User) -> tuple[StockLocation, StockLocation]:
     with audit_context(actor=owner):
-        first = locations.create_location(warehouse=main, code="BIN-A", name_ar="رف أ")
-        second = locations.create_location(warehouse=main, code="BIN-B", name_ar="رف ب")
+        first = locations.create_location(warehouse=main, code="TEST-A", name_ar="رف أ")
+        second = locations.create_location(warehouse=main, code="TEST-B", name_ar="رف ب")
     return first, second
 
 
@@ -84,7 +92,7 @@ class TestLocationMasterData:
 
         with pytest.raises((ValidationError, IntegrityError)), transaction.atomic():
             with audit_context(actor=owner):
-                locations.create_location(warehouse=main, code="BIN-A", name_ar="مكرر")
+                locations.create_location(warehouse=main, code="TEST-A", name_ar="مكرر")
 
     def test_a_system_warehouse_takes_no_locations(
         self, organization: Organization, owner: User
@@ -95,7 +103,7 @@ class TestLocationMasterData:
         ).first()
         assert transit is not None
         with pytest.raises(ValidationError) as refusal, audit_context(actor=owner):
-            locations.create_location(warehouse=transit, code="BIN-X", name_ar="رف")
+            locations.create_location(warehouse=transit, code="TEST-X", name_ar="رف")
         assert refusal.value.code == "location_in_system_warehouse"
 
     def test_a_location_holding_stock_cannot_be_archived(
@@ -120,7 +128,7 @@ class TestTheInvariant:
     ) -> None:
         """A warehouse that has never used bins holds everything unlocated."""
         held = locations.warehouse_quantity(main, rice, None)
-        assert held == Decimal("145.000")
+        assert held == Decimal("29.500")
         assert locations.located_total(main, rice, None) == Decimal("0")
         assert locations.unlocated_quantity(main, rice, None) == held
 
@@ -134,10 +142,10 @@ class TestTheInvariant:
         first, _second = bins
         before = locations.warehouse_quantity(main, rice, None)
         with audit_context(actor=owner):
-            locations.put_away(location=first, item=rice, quantity=Decimal("40.000"))
+            locations.put_away(location=first, item=rice, quantity=Decimal("20.000"))
 
-        assert locations.located_total(main, rice, None) == Decimal("40.000")
-        assert locations.unlocated_quantity(main, rice, None) == before - Decimal("40.000")
+        assert locations.located_total(main, rice, None) == Decimal("20.000")
+        assert locations.unlocated_quantity(main, rice, None) == before - Decimal("20.000")
         # The warehouse total is untouched: nothing entered or left.
         assert locations.warehouse_quantity(main, rice, None) == before
 
@@ -230,7 +238,7 @@ class TestLocationsCarryNoValue:
         """
         first, second = bins
         with audit_context(actor=owner):
-            locations.put_away(location=first, item=rice, quantity=Decimal("30.000"))
+            locations.put_away(location=first, item=rice, quantity=Decimal("20.000"))
 
         before_movements = StockMovement.objects.count()
         balance = StockBalance.objects.get(warehouse=main, item=rice, lot=None)
@@ -238,7 +246,7 @@ class TestLocationsCarryNoValue:
 
         with audit_context(actor=owner):
             out, into = locations.move_between_locations(
-                source=first, destination=second, item=rice, quantity=Decimal("12.000")
+                source=first, destination=second, item=rice, quantity=Decimal("8.000")
             )
 
         assert StockMovement.objects.count() == before_movements
@@ -256,10 +264,12 @@ class TestLocationsCarryNoValue:
         owner: User,
         bins: tuple[StockLocation, StockLocation],
     ) -> None:
-        kitchen = Warehouse.objects.get(branch__organization=organization, code="DEMO-KITCHEN")
+        elsewhere_warehouse = Warehouse.objects.get(
+            branch__organization=organization, code="DEMO-MAIN"
+        )
         with audit_context(actor=owner):
             elsewhere = locations.create_location(
-                warehouse=kitchen, code="BIN-K", name_ar="رف المطبخ"
+                warehouse=elsewhere_warehouse, code="TEST-K", name_ar="رف آخر"
             )
             locations.put_away(location=bins[0], item=rice, quantity=Decimal("5.000"))
             with pytest.raises(ValidationError) as refusal:
@@ -323,18 +333,18 @@ class TestOutboundRelease:
             )
             add_line(
                 document=document,
-                line=DocumentLineInput(item=rice, base_quantity=Decimal("20.000")),
+                line=DocumentLineInput(item=rice, base_quantity=Decimal("9.000")),
             )
             post_document(document=document)
 
-        assert locations.warehouse_quantity(main, rice, None) == held - Decimal("20.000")
-        assert locations.located_total(main, rice, None) == held - Decimal("20.000")
+        assert locations.warehouse_quantity(main, rice, None) == held - Decimal("9.000")
+        assert locations.located_total(main, rice, None) == held - Decimal("9.000")
         assert locations.unlocated_quantity(main, rice, None) == Decimal("0.000")
         assert verify_locations(organization) == []
 
         released = StockLocationMovement.objects.filter(reference="auto-release")
         assert released.count() == 1
-        assert released.get().base_quantity == Decimal("-20.000")
+        assert released.get().base_quantity == Decimal("-9.000")
 
     def test_the_unlocated_pool_absorbs_an_issue_first(
         self,
@@ -361,16 +371,18 @@ class TestOutboundRelease:
         assert locations.located_total(main, rice, None) == Decimal("10.000")
 
     def test_a_warehouse_with_no_locations_is_untouched_by_the_hook(
-        self, main: Warehouse, rice: InventoryItem
+        self, organization: Organization, rice: InventoryItem
     ) -> None:
         """The common case: one query, no writes."""
+        bare = Warehouse.objects.get(branch__organization=organization, code="DEMO-WIP")
+        before = StockLocationMovement.objects.filter(warehouse=bare).count()
         assert (
             locations.release_for_outbound(
-                warehouse_id=main.pk, item_id=rice.pk, lot_id=None, quantity_after=Decimal("0.000")
+                warehouse_id=bare.pk, item_id=rice.pk, lot_id=None, quantity_after=Decimal("0.000")
             )
             == []
         )
-        assert not StockLocationMovement.objects.exists()
+        assert StockLocationMovement.objects.filter(warehouse=bare).count() == before
 
 
 @pytest.mark.django_db(transaction=True)
@@ -396,7 +408,7 @@ class TestLocationConcurrency:
         )
 
         organization = Organization.objects.get(code="DEMO-KHAN-MANDI")
-        warehouse = Warehouse.objects.get(branch__organization=organization, code="DEMO-MAIN")
+        warehouse = Warehouse.objects.get(branch__organization=organization, code="DEMO-KITCHEN")
         item = InventoryItem.objects.get(organization=organization, code="DEMO-RICE")
         held = locations.warehouse_quantity(warehouse, item, None)
 
