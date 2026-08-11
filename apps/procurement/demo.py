@@ -23,6 +23,7 @@ from apps.inventory.models import InventoryItem, PackageUnit, Warehouse
 from apps.organizations.models import Branch, Organization
 from apps.procurement.comparison import award_quotation
 from apps.procurement.models import (
+    PurchaseOrder,
     PurchaseRequest,
     PurchaseRequestStatus,
     Supplier,
@@ -31,13 +32,18 @@ from apps.procurement.models import (
     SupplierQuotationStatus,
 )
 from apps.procurement.services import (
+    add_order_line,
     add_quotation_line,
     add_request_line,
+    approve_purchase_order,
     approve_purchase_request,
+    cancel_purchase_order,
+    create_purchase_order,
     create_purchase_request,
     create_supplier,
     create_supplier_item,
     create_supplier_quotation,
+    issue_purchase_order,
     reject_purchase_request,
     submit_purchase_request,
     submit_supplier_quotation,
@@ -419,3 +425,108 @@ def seed_demo_award(*, organization: Organization, approver: User) -> PurchaseRe
         actor=approver,
         reason=("أغلى للكيلو لكن أرخص بعد النقل، والتسليم خلال يومين بدل ثلاثة."),
     )
+
+
+def seed_demo_orders(
+    *, organization: Organization, preparer: User, approver: User
+) -> list[PurchaseOrder]:
+    """
+    Three orders: a draft, one issued from the award, and one cancelled.
+
+    Two actors again, because approving an order is a spending commitment and
+    the preparer is refused by a database constraint. The issued one carries
+    the award from Task 2.5, so the chain request → quotation → award → order
+    is visible end to end rather than described.
+    """
+    existing = list(
+        PurchaseOrder.objects.filter(
+            organization=organization, supplier_reference__startswith="DEMO-PO"
+        ).order_by("id")
+    )
+    if existing:
+        return existing
+
+    branch = Branch.objects.filter(organization=organization, code="DEMO-BUNOOK").first()
+    warehouse = Warehouse.objects.filter(branch=branch, code="DEMO-MAIN", is_system=False).first()
+    rice = InventoryItem.objects.filter(organization=organization, code="DEMO-RICE").first()
+    oil = InventoryItem.objects.filter(organization=organization, code="DEMO-OIL").first()
+    sack = PackageUnit.objects.filter(organization=organization, code="SACK").first()
+    if branch is None or warehouse is None or rice is None or oil is None:
+        return []
+
+    awarded_request = PurchaseRequest.objects.filter(
+        organization=organization, awarded_quotation__isnull=False
+    ).first()
+    grocery = Supplier.objects.filter(
+        organization=organization, code="DEMO-GROCERY-SUPPLIER"
+    ).first()
+    if grocery is None:
+        return []
+
+    ordered_on = CATALOGUE_EFFECTIVE_FROM + datetime.timedelta(days=30)
+    orders: list[PurchaseOrder] = []
+
+    # 1. A draft nobody has approved yet.
+    drafted = create_purchase_order(
+        supplier=grocery,
+        branch=branch,
+        warehouse=warehouse,
+        created_by=preparer,
+        ordered_on=ordered_on,
+        expected_on=ordered_on + datetime.timedelta(days=7),
+        supplier_reference="DEMO-PO-DRAFT",
+    )
+    add_order_line(
+        order=drafted,
+        item=oil,
+        ordered_quantity=Decimal("40.000"),
+        unit_price=Decimal("1900.000000"),
+    )
+    orders.append(drafted)
+
+    # 2. The one that came from the award, approved and sent.
+    if awarded_request is not None and awarded_request.awarded_quotation is not None:
+        winner = awarded_request.awarded_quotation
+        issued = create_purchase_order(
+            supplier=winner.supplier,
+            branch=branch,
+            warehouse=warehouse,
+            created_by=preparer,
+            ordered_on=ordered_on,
+            expected_on=ordered_on + datetime.timedelta(days=2),
+            request=awarded_request,
+            quotation=winner,
+            supplier_reference="DEMO-PO-AWARDED",
+        )
+        add_order_line(
+            order=issued,
+            item=rice,
+            ordered_quantity=Decimal("120.000"),
+            unit_price=Decimal("1450.000000"),
+        )
+        issued = approve_purchase_order(order=issued, actor=approver)
+        issued = issue_purchase_order(order=issued, actor=preparer)
+        orders.append(issued)
+
+    # 3. One withdrawn, so the terminal state has a visible example.
+    withdrawn = create_purchase_order(
+        supplier=grocery,
+        branch=branch,
+        warehouse=warehouse,
+        created_by=preparer,
+        ordered_on=ordered_on,
+        supplier_reference="DEMO-PO-CANCELLED",
+    )
+    add_order_line(
+        order=withdrawn,
+        item=rice,
+        package_unit=sack,
+        ordered_quantity=Decimal("2.000"),
+        unit_price=Decimal("43000.000000"),
+    )
+    orders.append(
+        cancel_purchase_order(
+            order=withdrawn, actor=approver, reason="المورد اعتذر عن التوريد هذا الشهر"
+        )
+    )
+    return orders

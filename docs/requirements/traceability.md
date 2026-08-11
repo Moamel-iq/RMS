@@ -514,7 +514,7 @@ see Task 2.0 §0.
 | PRC-015 | Freight is shown separately **and** inside a landed unit price | comparison report | `apps/procurement/tests/test_comparison_and_award.py::TestChargeAllocation`, `apps/procurement/tests/test_comparison_and_award.py::test_the_comparison_screen_shows_both_cheapest_flags` | 2.5 | | Done |
 | PRC-016 | No automatic lowest-price award; a human names a reason | no auto-select path exists | `apps/procurement/tests/test_comparison_and_award.py::test_nothing_selects_a_winner_by_itself`, `apps/procurement/tests/test_comparison_and_award.py::test_an_award_without_a_reason_is_refused` | 2.5 | | Done |
 | PRC-017 | An award records actor, reason, and the same-organization check | `award_quotation` | `apps/procurement/tests/test_comparison_and_award.py::TestTheAward` | 2.5 | | Done |
-| PRC-018 | A purchase order creates no stock and no payable, including ISSUED | asserted per status | — | 2.6 | | Specified |
+| PRC-018 | A purchase order creates no stock and no payable, including ISSUED | asserted per status | `apps/procurement/tests/test_purchase_orders.py::TestNoLedgerEffect` | 2.6 | | Done |
 | PRC-019 | Issued terms are immutable; a change creates a version | allowlist trigger + version model | — | 2.7 | | Specified |
 | PRC-020 | A revision cannot reduce quantity below what was received | service guard under a lock | — | 2.7 | | Specified |
 | PRC-021 | The supplier cannot change once a receipt exists | service guard | — | 2.7 | | Specified |

@@ -10,8 +10,8 @@ receipt is an inventory posting before it is anything else.
 
 **Status: proposed by Task 2.0, 2026-08-11.** The "Delivered by" column names
 the task that makes each one true. Invariants 1–3 landed with Task 2.1,
-5–8 with Task 2.2, 9–12 with Task 2.3, 13 with Task 2.4 and 14–15 with
-Task 2.5; the rest are still statements of intent, and the
+5–8 with Task 2.2, 9–12 with Task 2.3, 13 with Task 2.4, 14–15 with
+Task 2.5 and 16 with Task 2.6; the rest are still statements of intent, and the
 traceability matrix rather than this table is where the evidence lives.
 
 ## The forty

@@ -36,6 +36,9 @@ from apps.inventory.models import (
 from apps.organizations.models import Branch, Organization
 from apps.procurement.models import (
     ProcurementDocumentSequence,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    PurchaseOrderStatus,
     PurchaseRequest,
     PurchaseRequestLine,
     PurchaseRequestStatus,
@@ -452,7 +455,11 @@ def supersede_supplier_item(
 
 #: Prefix per procurement document type. `PR` here; `PO`, `GRN` and the rest
 #: join it as their tasks land.
-DOCUMENT_NUMBER_PREFIX = {"PURCHASE_REQUEST": "PR", "SUPPLIER_QUOTATION": "QT"}
+DOCUMENT_NUMBER_PREFIX = {
+    "PURCHASE_REQUEST": "PR",
+    "SUPPLIER_QUOTATION": "QT",
+    "PURCHASE_ORDER": "PO",
+}
 
 
 def next_document_number(*, organization: Organization, document_type: str, year: int) -> str:
@@ -1067,6 +1074,333 @@ def decline_supplier_quotation(
     record_audit_event(
         action=AuditAction.REJECTED,
         target=locked,
+        previous_state=previous,
+        new_state=snapshot(locked),
+        reason=reason.strip(),
+    )
+    return locked
+
+
+# ---------------------------------------------------------------------------
+# Purchase orders
+# ---------------------------------------------------------------------------
+
+
+def _require_order_draft(order: PurchaseOrder) -> PurchaseOrder:
+    """
+    Only a draft may be edited, re-read under a row lock.
+
+    The third guard of this shape in procurement, and the third for the same
+    reason: a status taken from the caller's instance is a status that may
+    already be stale, and here the failure would be a line changing on an order
+    the supplier has already been sent.
+    """
+    locked = PurchaseOrder.objects.select_for_update().get(pk=order.pk)
+    if locked.status != PurchaseOrderStatus.DRAFT:
+        raise ValidationError(
+            _("Order %(number)s is %(status)s and can no longer be edited."),
+            code="order_not_editable",
+            params={
+                "number": locked.number or str(locked.public_id),
+                "status": locked.status,
+            },
+        )
+    return locked
+
+
+@transaction.atomic
+def create_purchase_order(
+    *,
+    supplier: Supplier,
+    branch: Branch,
+    warehouse: Warehouse,
+    created_by: User,
+    ordered_on: datetime.date,
+    request: PurchaseRequest | None = None,
+    quotation: SupplierQuotation | None = None,
+    location: StockLocation | None = None,
+    expected_on: datetime.date | None = None,
+    supplier_reference: str = "",
+    notes: str = "",
+) -> PurchaseOrder:
+    """
+    Open a draft order. Nothing is committed and nothing is owed.
+
+    Payment terms are copied from the supplier here and never read live again:
+    an order placed in January keeps January's terms when March renegotiates
+    them, which is the only way a due date computed later can be right.
+    """
+    if branch.organization_id != supplier.organization_id:
+        raise ValidationError(
+            _("The supplier belongs to another organization."), code="organization_mismatch"
+        )
+    if warehouse.branch_id != branch.pk:
+        raise ValidationError(
+            _("Warehouse %(code)s does not belong to this branch."),
+            code="warehouse_branch_mismatch",
+            params={"code": warehouse.code},
+        )
+    if location is not None and location.warehouse_id != warehouse.pk:
+        raise ValidationError(
+            _("Location %(code)s is not in this warehouse."),
+            code="location_warehouse_mismatch",
+            params={"code": location.code},
+        )
+    if request is not None and request.organization_id != supplier.organization_id:
+        raise ValidationError(
+            _("The request belongs to another organization."), code="organization_mismatch"
+        )
+    if quotation is not None:
+        if quotation.organization_id != supplier.organization_id:
+            raise ValidationError(
+                _("The quotation belongs to another organization."),
+                code="organization_mismatch",
+            )
+        if quotation.supplier_id != supplier.pk:
+            raise ValidationError(
+                _("That quotation was given by a different supplier."),
+                code="quotation_supplier_mismatch",
+            )
+    if expected_on is not None and expected_on < ordered_on:
+        raise ValidationError(
+            _("A delivery cannot be expected before the order was placed."),
+            code="expected_before_ordered",
+        )
+
+    order = PurchaseOrder(
+        organization=branch.organization,
+        branch=branch,
+        supplier=supplier,
+        request=request,
+        quotation=quotation,
+        warehouse=warehouse,
+        location=location,
+        created_by=created_by,
+        ordered_on=ordered_on,
+        expected_on=expected_on,
+        payment_terms_days=supplier.payment_terms_days,
+        supplier_reference=supplier_reference.strip(),
+        notes=notes.strip(),
+    )
+    order.full_clean()
+    order.save()
+    record_audit_event(
+        action=AuditAction.CREATED, target=order, branch=branch, new_state=snapshot(order)
+    )
+    return order
+
+
+@transaction.atomic
+def add_order_line(
+    *,
+    order: PurchaseOrder,
+    item: InventoryItem,
+    ordered_quantity: Decimal,
+    unit_price: Decimal,
+    package_unit: PackageUnit | None = None,
+    supplier_item: SupplierItem | None = None,
+    note: str = "",
+) -> PurchaseOrderLine:
+    """
+    Agree one item at one price on a draft order.
+
+    `line_total` is `quantity × price`, quantized once at the storage boundary.
+    """
+    order = _require_order_draft(order)
+
+    if item.organization_id != order.organization_id:
+        raise ValidationError(
+            _("The item belongs to another organization."), code="organization_mismatch"
+        )
+    if ordered_quantity <= 0:
+        raise ValidationError(
+            _("An ordered quantity must be greater than zero."), code="quantity_not_positive"
+        )
+    if unit_price < 0:
+        raise ValidationError(_("A price cannot be negative."), code="price_negative")
+    if supplier_item is not None and supplier_item.supplier_id != order.supplier_id:
+        raise ValidationError(
+            _("That catalogue row belongs to another supplier."), code="supplier_mismatch"
+        )
+
+    conversion = None
+    factor = None
+    if package_unit is not None:
+        conversion = _active_conversion(item=item, package_unit=package_unit, on=order.ordered_on)
+        if conversion is None:
+            raise ValidationError(
+                _("Item %(item)s has no conversion for package %(package)s on %(date)s."),
+                code="no_conversion_for_package",
+                params={
+                    "item": item.code,
+                    "package": package_unit.code,
+                    "date": order.ordered_on.isoformat(),
+                },
+            )
+        factor = conversion.factor_to_base
+        base = quantize_quantity(ordered_quantity * factor)
+    else:
+        base = quantize_quantity(ordered_quantity)
+
+    highest = (
+        PurchaseOrderLine.objects.filter(order=order)
+        .order_by("-sequence")
+        .values_list("sequence", flat=True)
+        .first()
+    )
+    line = PurchaseOrderLine(
+        order=order,
+        sequence=(highest or 0) + 1,
+        item=item,
+        supplier_item=supplier_item,
+        package_unit=package_unit,
+        conversion=conversion,
+        conversion_version=conversion.version if conversion else None,
+        conversion_factor=factor,
+        ordered_quantity=quantize_quantity(ordered_quantity),
+        ordered_base_quantity=base,
+        unit_price=quantize_unit_price(unit_price),
+        line_total=quantize_money(ordered_quantity * unit_price),
+        note=note.strip(),
+    )
+    line.full_clean()
+    line.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=line,
+        branch=order.branch,
+        new_state=snapshot(line),
+    )
+    return line
+
+
+@transaction.atomic
+def remove_order_line(*, line: PurchaseOrderLine) -> None:
+    """Drop a line from a draft. Sequences are not renumbered."""
+    _require_order_draft(line.order)
+    previous = snapshot(line)
+    record_audit_event(
+        action=AuditAction.DELETED,
+        target=line,
+        branch=line.order.branch,
+        previous_state=previous,
+    )
+    line.delete()
+
+
+@transaction.atomic
+def approve_purchase_order(*, order: PurchaseOrder, actor: User, reason: str = "") -> PurchaseOrder:
+    """
+    Agree to spend the money, and draw the document number.
+
+    Maker-checker: whoever prepared the order cannot approve it. Enforced here
+    and by a database constraint, because a spending commitment is exactly the
+    kind of rule somebody eventually tries to route around.
+
+    Still creates no stock, no journal and no payable.
+    """
+    locked = _require_order_draft(order)
+    previous = snapshot(locked)
+
+    if not locked.lines.exists():
+        raise ValidationError(
+            _("An order with no lines cannot be approved."), code="order_has_no_lines"
+        )
+    if locked.created_by_id == actor.pk:
+        raise ValidationError(
+            _("The person who prepared an order cannot approve it."),
+            code="maker_is_not_checker",
+        )
+
+    locked.status = PurchaseOrderStatus.APPROVED
+    locked.approved_by = actor
+    locked.approved_at = timezone.now()
+    locked.number = next_document_number(
+        organization=locked.organization,
+        document_type="PURCHASE_ORDER",
+        year=locked.ordered_on.year,
+    )
+    locked.full_clean()
+    locked.save()
+
+    record_audit_event(
+        action=AuditAction.APPROVED,
+        target=locked,
+        branch=locked.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+        reason=reason.strip(),
+    )
+    return locked
+
+
+@transaction.atomic
+def issue_purchase_order(*, order: PurchaseOrder, actor: User) -> PurchaseOrder:
+    """
+    Send the agreed order to the supplier.
+
+    After this the commercial terms are what somebody else has been told, and
+    changing them is a revision with its own version and reason (Task 2.7)
+    rather than an edit.
+    """
+    locked = PurchaseOrder.objects.select_for_update().get(pk=order.pk)
+    previous = snapshot(locked)
+
+    if locked.status != PurchaseOrderStatus.APPROVED:
+        raise ValidationError(
+            _("Only an approved order may be issued; %(number)s is %(status)s."),
+            code="illegal_transition",
+            params={"number": locked.number, "status": locked.status},
+        )
+
+    locked.status = PurchaseOrderStatus.ISSUED
+    locked.issued_by = actor
+    locked.issued_at = timezone.now()
+    locked.full_clean()
+    locked.save()
+
+    record_audit_event(
+        action=AuditAction.SUBMITTED,
+        target=locked,
+        branch=locked.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def cancel_purchase_order(*, order: PurchaseOrder, actor: User, reason: str) -> PurchaseOrder:
+    """
+    Withdraw an order. Terminal, and it creates no financial entry.
+
+    Task 2.7 adds the guard that refuses this once goods have been received
+    against the order; until receipts exist there is nothing to protect.
+    """
+    if not reason.strip():
+        raise ValidationError(_("A reason is required."), code="reason_required")
+
+    locked = PurchaseOrder.objects.select_for_update().get(pk=order.pk)
+    previous = snapshot(locked)
+
+    if locked.status == PurchaseOrderStatus.CANCELLED:
+        raise ValidationError(
+            _("Order %(number)s is already cancelled."),
+            code="already_cancelled",
+            params={"number": locked.number or str(locked.public_id)},
+        )
+
+    locked.status = PurchaseOrderStatus.CANCELLED
+    locked.cancelled_by = actor
+    locked.cancelled_at = timezone.now()
+    locked.cancellation_reason = reason.strip()
+    locked.full_clean()
+    locked.save()
+
+    record_audit_event(
+        action=AuditAction.CANCELLED,
+        target=locked,
+        branch=locked.branch,
         previous_state=previous,
         new_state=snapshot(locked),
         reason=reason.strip(),

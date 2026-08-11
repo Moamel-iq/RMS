@@ -126,4 +126,36 @@ urlpatterns = [
         views.QuotationAwardView.as_view(),
         name="quotation_award",
     ),
+    # --- purchase orders -------------------------------------------------
+    path("orders/", views.PurchaseOrderListView.as_view(), name="purchase_order_list"),
+    path(
+        "orders/new/",
+        views.PurchaseOrderCreateView.as_view(),
+        name="purchase_order_create",
+    ),
+    path(
+        "orders/<int:pk>/",
+        views.PurchaseOrderDetailView.as_view(),
+        name="purchase_order_detail",
+    ),
+    path(
+        "orders/<int:pk>/lines/<int:line_id>/delete/",
+        views.PurchaseOrderLineDeleteView.as_view(),
+        name="purchase_order_line_delete",
+    ),
+    path(
+        "orders/<int:pk>/approve/",
+        views.PurchaseOrderTransitionView.as_view(transition="approve"),
+        name="purchase_order_approve",
+    ),
+    path(
+        "orders/<int:pk>/issue/",
+        views.PurchaseOrderTransitionView.as_view(transition="issue"),
+        name="purchase_order_issue",
+    ),
+    path(
+        "orders/<int:pk>/cancel/",
+        views.PurchaseOrderTransitionView.as_view(transition="cancel"),
+        name="purchase_order_cancel",
+    ),
 ]

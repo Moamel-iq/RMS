@@ -19,6 +19,8 @@ from apps.inventory.selectors import reachable_organization_ids
 from apps.organizations.authorization import OutOfScope
 from apps.organizations.selectors import accessible_branches
 from apps.procurement.models import (
+    PurchaseOrder,
+    PurchaseOrderLine,
     PurchaseRequest,
     PurchaseRequestLine,
     Supplier,
@@ -178,4 +180,27 @@ def resolve_quotation_line(
     line = SupplierQuotationLine.objects.filter(pk=line_id, quotation=quotation).first()
     if line is None:
         raise OutOfScope(_("Quotation line %(id)s does not exist.") % {"id": line_id})
+    return line
+
+
+def visible_purchase_orders(user: User) -> QuerySet[PurchaseOrder]:
+    """Orders at branches the caller reaches, in every status."""
+    return PurchaseOrder.objects.filter(branch__in=accessible_branches(user)).select_related(
+        "organization", "branch", "supplier", "warehouse", "created_by"
+    )
+
+
+def resolve_purchase_order(user: User, order_id: int) -> PurchaseOrder:
+    """Turn a submitted order id into one the caller may reach, or 404."""
+    found = visible_purchase_orders(user).filter(pk=order_id).first()
+    if found is None:
+        raise OutOfScope(_("Purchase order %(id)s does not exist.") % {"id": order_id})
+    return found
+
+
+def resolve_order_line(user: User, *, order: PurchaseOrder, line_id: int) -> PurchaseOrderLine:
+    """A line, resolved under its own order — never by id alone."""
+    line = PurchaseOrderLine.objects.filter(pk=line_id, order=order).first()
+    if line is None:
+        raise OutOfScope(_("Order line %(id)s does not exist.") % {"id": line_id})
     return line

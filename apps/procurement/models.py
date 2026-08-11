@@ -932,3 +932,323 @@ class SupplierQuotationLine(TimeStampedModel):
         compared on, and Task 2.5 adds the freight share on top of it.
         """
         return quantize_unit_price(self.line_total / self.base_quantity)
+
+
+class PurchaseOrderStatus(models.TextChoices):
+    """
+    A commitment, and how far along it is.
+
+    `APPROVED` and `ISSUED` are separate because they are separate acts by
+    separate people: somebody inside the business agrees to spend the money,
+    and somebody sends the order to the supplier. Collapsing them would lose
+    the moment the commitment actually left the building, which is the moment
+    it stops being reversible by a decision alone.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    APPROVED = "APPROVED", _("معتمد")
+    ISSUED = "ISSUED", _("مُرسل للمورد")
+    CANCELLED = "CANCELLED", _("ملغى")
+
+
+class PurchaseOrder(TimeStampedModel):
+    """
+    What was agreed with a supplier, and at what price.
+
+    **Creates no stock and no payable, in any status including `ISSUED`.** An
+    order is a commitment, and a commitment is not a liability under the
+    accounting policy this system implements: nothing is owed until goods
+    arrive and an invoice states an amount. An order placed and never
+    delivered leaves the books exactly as it found them, and open orders are
+    reported rather than posted.
+
+    Terms are **snapshotted**, not looked up. `payment_terms_days` is copied
+    from the supplier when the order is raised, so renegotiating a supplier's
+    terms in March cannot restate the due date of an order placed in January.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="purchase_orders",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="purchase_orders",
+        verbose_name=_("branch"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="purchase_orders",
+        verbose_name=_("supplier"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    #: Where this came from, when it came from anywhere. Both nullable: buying
+    #: meat from the market without a formal request first is normal for this
+    #: business, and forcing a request would produce fictional ones written
+    #: after the fact.
+    request = models.ForeignKey(
+        PurchaseRequest,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="purchase_orders",
+        verbose_name=_("purchase request"),
+    )
+    quotation = models.ForeignKey(
+        SupplierQuotation,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="purchase_orders",
+        verbose_name=_("awarded quotation"),
+    )
+
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="purchase_orders",
+        verbose_name=_("destination warehouse"),
+    )
+    location = models.ForeignKey(
+        "inventory.StockLocation",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="purchase_orders",
+        verbose_name=_("destination location"),
+    )
+
+    ordered_on = models.DateField(_("order date"))
+    expected_on = models.DateField(_("expected delivery"), null=True, blank=True)
+    #: Copied from the supplier at creation. See the class docstring.
+    payment_terms_days = models.PositiveSmallIntegerField(_("payment terms (days)"), default=0)
+    supplier_reference = models.CharField(_("supplier reference"), max_length=64, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=PurchaseOrderStatus.choices,
+        default=PurchaseOrderStatus.DRAFT,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_purchase_orders",
+        verbose_name=_("created by"),
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_purchase_orders",
+        verbose_name=_("approved by"),
+    )
+    approved_at = models.DateTimeField(_("approved at"), null=True, blank=True)
+    issued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="issued_purchase_orders",
+        verbose_name=_("issued by"),
+    )
+    issued_at = models.DateTimeField(_("issued at"), null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="cancelled_purchase_orders",
+        verbose_name=_("cancelled by"),
+    )
+    cancelled_at = models.DateTimeField(_("cancelled at"), null=True, blank=True)
+    cancellation_reason = models.TextField(_("cancellation reason"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("purchase order")
+        verbose_name_plural = _("purchase orders")
+        ordering = ["-ordered_on", "-id"]
+        permissions = [
+            ("create_purchase_order", _("Can prepare a purchase order")),
+            ("approve_purchase_order", _("Can approve a purchase order")),
+            ("issue_purchase_order", _("Can issue a purchase order to a supplier")),
+            ("cancel_purchase_order", _("Can cancel a purchase order")),
+        ]
+        constraints = [
+            # Maker-checker on the money commitment: whoever prepared the order
+            # is not the person who agrees to spend it.
+            models.CheckConstraint(
+                condition=Q(approved_by__isnull=True) | ~Q(approved_by=models.F("created_by")),
+                name="procurement_order_approver_is_not_the_preparer",
+            ),
+            models.CheckConstraint(
+                condition=Q(approved_by__isnull=True, approved_at__isnull=True)
+                | Q(approved_by__isnull=False, approved_at__isnull=False),
+                name="procurement_order_approval_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(issued_by__isnull=True, issued_at__isnull=True)
+                | Q(issued_by__isnull=False, issued_at__isnull=False),
+                name="procurement_order_issue_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="CANCELLED") | ~Q(cancellation_reason=""),
+                name="procurement_order_cancellation_states_a_reason",
+            ),
+            models.CheckConstraint(
+                condition=Q(expected_on__isnull=True) | Q(expected_on__gte=models.F("ordered_on")),
+                name="procurement_order_expected_is_not_before_ordered",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="procurement_order_number_unique_per_organization",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="po_org_status_idx"),
+            models.Index(fields=["supplier", "status"], name="po_supplier_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"PO draft {self.public_id}"
+
+    @property
+    def is_editable(self) -> bool:
+        """Only a draft. Issued terms are what the supplier was told."""
+        return self.status == PurchaseOrderStatus.DRAFT
+
+    @property
+    def total_amount(self) -> Decimal:
+        """The sum of the posted lines, derived and never stored (ADR-012)."""
+        return quantize_money(
+            sum((line.line_total for line in self.lines.all()), start=Decimal("0.000"))
+        )
+
+
+class PurchaseOrderLine(TimeStampedModel):
+    """
+    One agreed item, at one agreed price.
+
+    Carries the conversion snapshot for the reason every procurement line
+    does: a receipt against this order will convert the delivered package to
+    base units, and it must use the factor that was agreed rather than the one
+    in force on the day the lorry arrives.
+    """
+
+    order = models.ForeignKey(
+        PurchaseOrder,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("order"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="purchase_order_lines",
+        verbose_name=_("item"),
+    )
+    supplier_item = models.ForeignKey(
+        SupplierItem,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="order_lines",
+        verbose_name=_("catalogue row"),
+    )
+    package_unit = models.ForeignKey(
+        "inventory.PackageUnit",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="purchase_order_lines",
+        verbose_name=_("package"),
+    )
+    conversion = models.ForeignKey(
+        "inventory.ItemPackageConversion",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="purchase_order_lines",
+        verbose_name=_("conversion"),
+    )
+    conversion_version = models.PositiveIntegerField(_("conversion version"), null=True, blank=True)
+    conversion_factor = models.DecimalField(
+        _("factor to base"),
+        max_digits=FACTOR_MAX_DIGITS,
+        decimal_places=FACTOR_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    ordered_quantity = models.DecimalField(
+        _("ordered quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    ordered_base_quantity = models.DecimalField(
+        _("ordered base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+    #: Per entered unit, as quoted. The base unit price is derived where it is
+    #: needed and never stored alongside this one.
+    unit_price = models.DecimalField(
+        _("agreed unit price"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+    )
+    line_total = models.DecimalField(
+        _("line total"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    note = models.CharField(_("note"), max_length=200, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("purchase order line")
+        verbose_name_plural = _("purchase order lines")
+        ordering = ["order", "sequence"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ordered_quantity__gt=0),
+                name="procurement_order_line_quantity_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(ordered_base_quantity__gt=0),
+                name="procurement_order_line_base_quantity_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_price__gte=0),
+                name="procurement_order_line_price_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(package_unit__isnull=True, conversion__isnull=True)
+                | Q(package_unit__isnull=False, conversion__isnull=False),
+                name="procurement_order_line_package_carries_its_conversion",
+            ),
+            models.UniqueConstraint(
+                fields=["order", "sequence"],
+                name="procurement_order_line_sequence_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["order", "item", "package_unit"],
+                nulls_distinct=False,
+                name="procurement_order_line_item_appears_once",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.order} · {self.item.code} × {self.ordered_quantity}"

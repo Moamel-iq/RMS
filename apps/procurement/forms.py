@@ -26,6 +26,8 @@ from apps.procurement.models import (
     PurchaseRequestStatus,
     Supplier,
     SupplierItem,
+    SupplierQuotation,
+    SupplierQuotationStatus,
 )
 from apps.procurement.permissions import MANAGE_SUPPLIERS
 from apps.procurement.selectors import visible_suppliers
@@ -375,6 +377,93 @@ class SupplierQuotationLineForm(forms.Form):
         self.actor = actor
         self.quotation = quotation
         organization_id = quotation.organization_id
+        self.fields["item"].queryset = InventoryItem.objects.filter(  # type: ignore[attr-defined]
+            organization_id=organization_id, is_active=True
+        ).order_by("code")
+        self.fields["package_unit"].queryset = PackageUnit.objects.filter(  # type: ignore[attr-defined]
+            organization_id=organization_id, is_active=True
+        ).order_by("code")
+
+
+class PurchaseOrderForm(forms.Form):
+    """The header of a draft order. Lines are agreed on the detail screen."""
+
+    supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
+    warehouse = forms.ModelChoiceField(queryset=Warehouse.objects.none(), label=_("المخزن المستلم"))
+    location = forms.ModelChoiceField(
+        queryset=StockLocation.objects.none(), label=_("الموقع"), required=False
+    )
+    request = forms.ModelChoiceField(
+        queryset=PurchaseRequest.objects.none(),
+        label=_("طلب الشراء"),
+        required=False,
+        help_text=_("اختياري. الشراء المباشر من السوق لا يمر بطلب رسمي."),
+    )
+    quotation = forms.ModelChoiceField(
+        queryset=SupplierQuotation.objects.none(),
+        label=_("العرض المُرسى"),
+        required=False,
+    )
+    ordered_on = forms.DateField(
+        label=_("تاريخ الأمر"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    expected_on = forms.DateField(
+        label=_("التسليم المتوقع"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    supplier_reference = forms.CharField(label=_("مرجع المورد"), max_length=64, required=False)
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+        reachable = reachable_organization_ids(actor)
+        warehouses = accessible_warehouses(actor).filter(is_active=True, is_system=False)
+
+        self.fields["supplier"].queryset = Supplier.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=reachable, is_active=True
+        ).order_by("code")
+        self.fields["warehouse"].queryset = warehouses.order_by("code")  # type: ignore[attr-defined]
+        self.fields["location"].queryset = StockLocation.objects.filter(  # type: ignore[attr-defined]
+            warehouse__in=warehouses, is_active=True
+        ).order_by("warehouse__code", "code")
+        self.fields["request"].queryset = PurchaseRequest.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=reachable, status=PurchaseRequestStatus.APPROVED
+        ).order_by("-id")
+        # Only awarded offers. An order raised against an offer nobody chose
+        # would make the award record meaningless.
+        self.fields["quotation"].queryset = SupplierQuotation.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=reachable, status=SupplierQuotationStatus.AWARDED
+        ).order_by("-id")
+
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean() or {}
+        warehouse, location = data.get("warehouse"), data.get("location")
+        if warehouse and location and location.warehouse_id != warehouse.pk:
+            raise forms.ValidationError(
+                _("الموقع لا يتبع المخزن المختار."), code="location_warehouse_mismatch"
+            )
+        return data
+
+
+class PurchaseOrderLineForm(forms.Form):
+    """One agreed item at one agreed price."""
+
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    package_unit = forms.ModelChoiceField(
+        queryset=PackageUnit.objects.none(), label=_("العبوة"), required=False
+    )
+    ordered_quantity = forms.DecimalField(label=_("الكمية"), min_value=Decimal("0.001"))
+    unit_price = forms.DecimalField(label=_("السعر المتفق"), min_value=0)
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, order: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.order = order
+        organization_id = order.organization_id
         self.fields["item"].queryset = InventoryItem.objects.filter(  # type: ignore[attr-defined]
             organization_id=organization_id, is_active=True
         ).order_by("code")

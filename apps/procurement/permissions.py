@@ -76,6 +76,16 @@ APPROVE_PURCHASE_REQUEST = f"{APP_LABEL}.approve_purchase_request"
 VIEW_QUOTATION = f"{APP_LABEL}.view_supplierquotation"
 MANAGE_QUOTATIONS = f"{APP_LABEL}.manage_quotations"
 AWARD_QUOTATION = f"{APP_LABEL}.award_quotation"
+#: Task 2.6. Four permissions for one document, because they are four
+#: decisions: prepare it, agree to spend the money, send it to the
+#: supplier, and withdraw it. A deployment that trusts a buyer to draft an
+#: order without trusting them to commit the business to it must be able to
+#: say so, and one permission could not.
+VIEW_PURCHASE_ORDER = f"{APP_LABEL}.view_purchaseorder"
+CREATE_PURCHASE_ORDER = f"{APP_LABEL}.create_purchase_order"
+APPROVE_PURCHASE_ORDER = f"{APP_LABEL}.approve_purchase_order"
+ISSUE_PURCHASE_ORDER = f"{APP_LABEL}.issue_purchase_order"
+CANCEL_PURCHASE_ORDER = f"{APP_LABEL}.cancel_purchase_order"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_SUPPLIER,
@@ -89,6 +99,11 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_QUOTATION,
     MANAGE_QUOTATIONS,
     AWARD_QUOTATION,
+    VIEW_PURCHASE_ORDER,
+    CREATE_PURCHASE_ORDER,
+    APPROVE_PURCHASE_ORDER,
+    ISSUE_PURCHASE_ORDER,
+    CANCEL_PURCHASE_ORDER,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -112,6 +127,12 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     VIEW_QUOTATION: PermissionScope.ORGANIZATION_MASTER_DATA,
     MANAGE_QUOTATIONS: PermissionScope.ORGANIZATION_MASTER_DATA,
     AWARD_QUOTATION: PermissionScope.ORGANIZATION_MASTER_DATA,
+    # An order names a branch warehouse and is answered at that branch.
+    VIEW_PURCHASE_ORDER: PermissionScope.BRANCH,
+    CREATE_PURCHASE_ORDER: PermissionScope.BRANCH,
+    APPROVE_PURCHASE_ORDER: PermissionScope.BRANCH,
+    ISSUE_PURCHASE_ORDER: PermissionScope.BRANCH,
+    CANCEL_PURCHASE_ORDER: PermissionScope.BRANCH,
 }
 
 
@@ -135,6 +156,11 @@ _PURCHASING = frozenset(
         VIEW_QUOTATION,
         MANAGE_QUOTATIONS,
         AWARD_QUOTATION,
+        VIEW_PURCHASE_ORDER,
+        CREATE_PURCHASE_ORDER,
+        # Sends the agreed order out, and deliberately cannot approve it:
+        # whoever chose the supplier does not also authorise the spend.
+        ISSUE_PURCHASE_ORDER,
     }
 )
 
@@ -152,6 +178,11 @@ _MANAGER = frozenset(
         VIEW_QUOTATION,
         MANAGE_QUOTATIONS,
         AWARD_QUOTATION,
+        VIEW_PURCHASE_ORDER,
+        CREATE_PURCHASE_ORDER,
+        APPROVE_PURCHASE_ORDER,
+        ISSUE_PURCHASE_ORDER,
+        CANCEL_PURCHASE_ORDER,
     }
 )
 
@@ -164,6 +195,10 @@ _ACCOUNTING_MANAGER = frozenset(
         VIEW_SUPPLIER_ITEM,
         VIEW_QUOTATION,
         VIEW_PURCHASE_REQUEST,
+        VIEW_PURCHASE_ORDER,
+        # Authorises the spend without being able to raise the order.
+        APPROVE_PURCHASE_ORDER,
+        CANCEL_PURCHASE_ORDER,
         # Approves what a branch asks for without being able to ask for it,
         # which is the separation the whole document exists to record.
         APPROVE_PURCHASE_REQUEST,
@@ -176,6 +211,7 @@ _ACCOUNTANT = frozenset(
         VIEW_SUPPLIER_ITEM,
         VIEW_PURCHASE_REQUEST,
         VIEW_QUOTATION,
+        VIEW_PURCHASE_ORDER,
     }
 )
 
@@ -190,6 +226,8 @@ _STOREKEEPER = frozenset(
         # Asks for what the store is running out of. Cannot approve it.
         VIEW_PURCHASE_REQUEST,
         CREATE_PURCHASE_REQUEST,
+        # Sees what is on order so a delivery can be checked against it.
+        VIEW_PURCHASE_ORDER,
     }
 )
 

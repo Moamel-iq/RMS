@@ -1,0 +1,151 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# One order: its header, its agreed lines, and whatever may still happen.   #}
+{# Every action is a POST — a GET that issued an order to a supplier would   #}
+{# fire on a link prefetch.                                                  #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">
+        {% if order.number %}<span dir="ltr">{{ order.number }}</span>{% else %}{% translate "مسودة أمر شراء" %}{% endif %}
+      </h1>
+      <p class="pagehead__hint">
+        {{ order.supplier.name_ar }} — <span class="chip">{{ order.get_status_display }}</span>
+      </p>
+    </div>
+    <a class="btn btn--ghost" href="{% url 'procurement:purchase_order_list' %}">{% translate "رجوع" %}</a>
+  </div>
+
+  <div class="formcard">
+    <dl class="detailgrid">
+      <dt>{% translate "المورد" %}</dt><dd>{{ order.supplier.code }} — {{ order.supplier.name_ar }}</dd>
+      <dt>{% translate "الفرع" %}</dt><dd>{{ order.branch.name_ar }}</dd>
+      <dt>{% translate "المخزن المستلم" %}</dt><dd>{{ order.warehouse.name_ar }}</dd>
+      <dt>{% translate "الموقع" %}</dt><dd>{{ order.location.name_ar|default:"—" }}</dd>
+      <dt>{% translate "تاريخ الأمر" %}</dt><dd><span dir="ltr">{{ order.ordered_on|date:"Y-m-d" }}</span></dd>
+      <dt>{% translate "التسليم المتوقع" %}</dt>
+      <dd>{% if order.expected_on %}<span dir="ltr">{{ order.expected_on|date:"Y-m-d" }}</span>{% else %}—{% endif %}</dd>
+      <dt>{% translate "مهلة السداد" %}</dt>
+      <dd>
+        {% if order.payment_terms_days %}
+          {% blocktranslate with days=order.payment_terms_days %}{{ days }} يوم{% endblocktranslate %}
+        {% else %}{% translate "عند الاستلام" %}{% endif %}
+      </dd>
+      <dt>{% translate "طلب الشراء" %}</dt><dd>{{ order.request.number|default:"—" }}</dd>
+      <dt>{% translate "العرض المُرسى" %}</dt><dd>{{ order.quotation.number|default:"—" }}</dd>
+      <dt>{% translate "أعدّه" %}</dt><dd>{{ order.created_by.username }}</dd>
+      <dt>{% translate "اعتمده" %}</dt><dd>{{ order.approved_by.username|default:"—" }}</dd>
+      <dt>{% translate "أرسله" %}</dt><dd>{{ order.issued_by.username|default:"—" }}</dd>
+      {% if order.cancellation_reason %}
+        <dt>{% translate "سبب الإلغاء" %}</dt><dd>{{ order.cancellation_reason }}</dd>
+      {% endif %}
+      {% if may_see_cost %}
+        <dt>{% translate "الإجمالي" %}</dt>
+        <dd><span dir="ltr">{{ order.total_amount|stringformat:"f" }}</span></dd>
+      {% endif %}
+    </dl>
+    <p class="muted">
+      {% translate "أمر الشراء التزام تجاري ولا يزيد مخزوناً ولا يُنشئ ذمة — لا شيء مستحق قبل وصول البضاعة وفاتورة تذكر مبلغاً." %}
+    </p>
+  </div>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>{% translate "الصنف" %}</th>
+        <th>{% translate "الكمية" %}</th>
+        <th>{% translate "العبوة" %}</th>
+        <th>{% translate "بالوحدة الأساسية" %}</th>
+        {% if may_see_cost %}
+          <th>{% translate "السعر المتفق" %}</th>
+          <th>{% translate "إجمالي السطر" %}</th>
+        {% endif %}
+        {% if may_edit %}<th>{% translate "إجراءات" %}</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+        <tr>
+          <td>{{ line.sequence }}</td>
+          <td>{{ line.item.code }} — {{ line.item.name_ar }}</td>
+          <td><span dir="ltr">{{ line.ordered_quantity|stringformat:"f" }}</span></td>
+          <td>{{ line.package_unit.name_ar|default:"—" }}</td>
+          <td>
+            <span dir="ltr">{{ line.ordered_base_quantity|stringformat:"f" }}</span>
+            {{ line.item.base_unit.code }}
+          </td>
+          {% if may_see_cost %}
+            <td><span dir="ltr">{{ line.unit_price|stringformat:"f" }}</span></td>
+            <td><span dir="ltr">{{ line.line_total|stringformat:"f" }}</span></td>
+          {% endif %}
+          {% if may_edit %}
+            <td>
+              <form method="post" action="{% url 'procurement:purchase_order_line_delete' order.pk line.pk %}">
+                {% csrf_token %}
+                <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+              </form>
+            </td>
+          {% endif %}
+        </tr>
+      {% empty %}
+        <tr><td colspan="8">{% translate "لا توجد أصناف بعد. الأمر الفارغ لا يمكن اعتماده." %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if may_edit %}
+    <form class="formcard" method="post" novalidate>
+      {% csrf_token %}
+      <h2>{% translate "إضافة صنف" %}</h2>
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+      <div class="formgrid">
+        {% for field in form %}
+          <label class="field">
+            <span class="field__label">{{ field.label }}</span>
+            {{ field }}
+            {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
+            {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+          </label>
+        {% endfor %}
+      </div>
+      <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+    </form>
+  {% endif %}
+
+  <div class="formcard">
+    <h2>{% translate "الإجراءات" %}</h2>
+    <div class="rowactions">
+      {% if may_approve %}
+        <form method="post" action="{% url 'procurement:purchase_order_approve' order.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--primary" type="submit">{% translate "اعتماد" %}</button>
+        </form>
+      {% endif %}
+      {% if may_issue %}
+        <form method="post" action="{% url 'procurement:purchase_order_issue' order.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--primary" type="submit">{% translate "إرسال للمورد" %}</button>
+        </form>
+      {% endif %}
+      {% if may_cancel %}
+        <form method="post" action="{% url 'procurement:purchase_order_cancel' order.pk %}">
+          {% csrf_token %}
+          <input type="text" name="reason" placeholder="{% translate 'سبب الإلغاء' %}" required>
+          <button class="btn btn--ghost" type="submit">{% translate "إلغاء الأمر" %}</button>
+        </form>
+      {% endif %}
+    </div>
+    <p class="muted">
+      {% translate "من أعدّ الأمر لا يستطيع اعتماده — القاعدة محفوظة في قاعدة البيانات وليس في الشاشة فقط." %}
+    </p>
+  </div>
+{% endblock %}
