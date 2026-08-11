@@ -1,6 +1,6 @@
 # Task 1.7B — Stock locations and the location quantity ledger
 
-**Status:** specified, not started · **Blocks:** Task 1.8 · **Depends on:** 1.7A
+**Status:** implemented · **Blocks:** Task 1.8 · **Depends on:** 1.7A
 
 Mandatory for Phase 1 exit. Invariant 22 is live in
 `docs/invariants/inventory-invariants.md`, is cited by `INV-038`, and Task 1.8's
@@ -78,15 +78,24 @@ unlocated so the reconciliation shows both buckets, and one location-to-location
 move. Screens: a location list under the warehouse and a location-balance
 report, on the existing shared list infrastructure with htmx filtering.
 
-## Open questions for review before implementation
+## Decisions taken during implementation
 
-1. **Does a location-aware issue pick a location, or is picking Phase 2?**
-   Proposed: the caller names the location explicitly. No FEFO/FIFO picking —
-   that is a strategy, and ADR-018 keeps strategies behind a boundary.
-2. **Does an unlocated position block a location move?** Proposed: no. Moving
-   from "unlocated" into a location is how an existing warehouse adopts bins.
-3. **Do locations nest?** Proposed: no. One level under a warehouse. Nesting
-   is a tree, and a tree needs the depth and cycle rules `ItemCategory` has.
+1. **An issue does not pick a location; the ledger releases one.** Requiring
+   every caller to name a bin would have made locations mandatory in all but
+   name and would have changed every posting service. Instead
+   `release_for_outbound` takes the shortfall from the unlocated pool first and
+   then from bins in ascending code order — a deterministic tie-break,
+   explicitly **not** FEFO or FIFO, which remain strategies behind ADR-018's
+   boundary. A caller that does name a bin gets exactly that bin debited.
+2. **An unlocated position does not block anything.** Moving from unlocated
+   into a bin is how an existing warehouse adopts them, and staying unlocated
+   forever is a supported permanent state.
+3. **Locations do not nest.** One level under a warehouse. Nesting is a tree,
+   and a tree needs the depth and cycle rules `ItemCategory` carries.
+4. **The lock is per `(warehouse, item, lot)`, not per bin.** Two concurrent
+   put-aways into different bins compete for the same unlocated remainder; a
+   per-bin lock would let both take it. Covered by a real COMMIT-boundary
+   test.
 
 ## What this task must not do
 

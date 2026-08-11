@@ -36,7 +36,7 @@ the ledger invariants land in Task 1.2 onward.
 | 19 | No residual is hidden by mutating a historical movement | Immutability trigger; residual absorbed at post time | 1.2 |
 | 20 | One economic event produces one stock effect | Source identity + organization-scoped idempotency key | 1.3 |
 | 21 | Inventory valuation reconciles to the inventory control account | Reconciliation report and test | 1.3 |
-| 22 | Sum of a warehouse's location quantities equals its warehouse quantity | Reconciliation test | 1.7 |
+| 22 | Sum of a warehouse's location quantities plus its unlocated remainder equals its warehouse quantity | `locations.py` services + `verify_locations` | 1.7B |
 | 23 | An item code is canonical uppercase and unique per organization; archived codes stay reserved | `strip().upper()` in the service + `UniqueConstraint` | 1.1 |
 | 24 | Categories: no cycles, depth ≤3, items on leaves only, a category with items gains no children, a category with children takes no items | Service guards + constraints | 1.1 |
 | 25 | A package unit never carries a universal conversion factor | `PackageUnit` has **no factor field** | 1.1 |
@@ -357,3 +357,36 @@ ADR-020 for the reasoning behind each.
 - **A `TRANSFER_IN` arrival leg carries a reference and no source triple.**
   ADR-017 requires a source identity to be complete or absent; absent is a
   legitimate state, and the arrival leg is attributable through its reference.
+
+## Location invariants, added by Task 1.7B
+
+| Invariant | Enforced by |
+|---|---|
+| A location belongs to exactly one warehouse and its code is unique there | `stock_location_code_unique_per_warehouse` |
+| A system warehouse takes no locations | `create_location` |
+| A location balance is never negative | `stock_location_balance_quantity_not_negative` |
+| A location balance key is NULL-safe on lot | `stock_location_balance_key_unique` (`nulls_distinct=False`) |
+| A location movement's sign matches its type | `stock_location_movement_sign_matches_type` |
+| A put-away cannot exceed the unlocated remainder | `put_away`, under the `(warehouse, item, lot)` advisory lock |
+| An outbound movement never leaves the bins claiming more than the warehouse holds | `release_for_outbound`, called by the ledger |
+| A location holding stock cannot be archived | `update_location` |
+| A location move stays inside one warehouse | `move_between_locations` |
+
+## Deliberate non-invariants, added by Task 1.7B
+
+- **`sum(located)` is usually *less* than the warehouse quantity.** The
+  remainder is unlocated and that is a permanent, supported state — locations
+  are optional and most stores here are one room. The invariant is stated as
+  `sum(located) + unlocated == warehouse quantity` with **unlocated derived**,
+  so the equality holds by construction and only the inequality
+  `sum(located) > warehouse` can be violated. That is what `verify_locations`
+  looks for.
+- **A location carries no value.** No average cost, no control account, no
+  journal. ADR-018 §2 gives value to the warehouse; a bin that could show a
+  figure would have one.
+- **The outbound release order is not a rotation policy.** Ascending location
+  code is an arbitrary deterministic tie-break so concurrent issues cannot
+  disagree about which bin emptied. FEFO and FIFO are strategies and ADR-018
+  keeps strategies behind a boundary.
+- **A location-to-location move posts no `StockMovement`.** Nothing entered or
+  left the warehouse and nothing was revalued.

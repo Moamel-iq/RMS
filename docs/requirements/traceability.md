@@ -227,7 +227,7 @@ whose cited test genuinely exists (`INV-015`) and left the rest honest.
 | INV-035 | Posting to a frozen warehouse refused | `freeze_state` guard | `::test_frozen_warehouse_refuses_posting` | 1.6 | | Specified |
 | INV-036 | Conducting and approving a count are separate permissions | Two permissions | `::test_count_approval_is_separated` | 1.6 | | Specified |
 | INV-037 | Import rollback is atomic | Import boundary | `::test_import_rollback_is_atomic` | 1.7 | AT-012 | Specified |
-| INV-038 | Location quantities sum to warehouse quantity | Reconciliation test | `::test_locations_sum_to_warehouse` | 1.7 | | Specified |
+| INV-038 | Located quantities plus the unlocated remainder equal the warehouse quantity | `locations.py` + `verify_locations` | `test_locations.py::TestTheInvariant` | 1.7B | AT-007 | Done |
 | INV-039 | A fresh database receives inventory reference data | Seed command | `::test_fresh_database_seeds_inventory` | 1.7 | | Specified |
 | INV-040 | No writable CRUD bypasses the posting services | Command API + read-only admin | `::test_no_crud_bypass` | 1.1 | AT-008 | Specified |
 | INV-041 | Category codes unique per organization; cycles rejected | Service guard + constraint | `::test_category_cycle_rejected` | 1.1 | | Specified |
@@ -469,3 +469,11 @@ source.
 | INV-270 | A depleted position replays to exactly zero and drops its control account | full-depletion rule mirrored in the replay | `::test_a_fully_depleted_position_replays_to_exactly_zero` | 1.7A | AT-007 | Done |
 | INV-271 | An unknown verification selector exits 2 rather than reporting clean | `_resolve_scope` | `::test_an_unknown_selector_exits_two` | 1.7A | | Done |
 | INV-272 | Import batch row counts, branch/kind pairing and applied state hold at COMMIT | migration 0016 constraints | `::TestImportConstraints` | 1.7A | | Done |
+| INV-273 | A location carries quantity and never value | schema has no money columns | `test_locations.py::test_the_balance_model_has_no_money_columns` | 1.7B | | Done |
+| INV-274 | A move between bins posts no stock movement and does not revalue | `move_between_locations` | `::test_a_move_between_bins_posts_no_stock_movement` | 1.7B | | Done |
+| INV-275 | A put-away cannot exceed the unlocated remainder | `put_away` under the position lock | `::test_putting_away_more_than_is_unlocated_is_refused` | 1.7B | | Done |
+| INV-276 | An issue naming no bin still leaves the invariant true | `release_for_outbound`, called by the ledger | `::test_an_issue_that_names_no_bin_still_leaves_the_invariant_true` | 1.7B | AT-007 | Done |
+| INV-277 | Two concurrent put-aways cannot both take the same unlocated stock | `(warehouse, item, lot)` advisory lock | `::TestLocationConcurrency` | 1.7B | | Done |
+| INV-278 | Bins claiming more than the warehouse holds is detected | `verify_locations` | `::test_planted_over_allocation_is_detected` | 1.7B | AT-007 | Done |
+| INV-279 | A system warehouse takes no locations | `create_location` | `::test_a_system_warehouse_takes_no_locations` | 1.7B | | Done |
+| INV-280 | A location holding stock cannot be archived | `update_location` | `::test_a_location_holding_stock_cannot_be_archived` | 1.7B | | Done |
