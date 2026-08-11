@@ -32,6 +32,7 @@ from apps.inventory.demo import DEMO_ORGANIZATION_CODE, DemoSelectionError
 from apps.inventory.management.commands.seed_inventory_demo import resolve_user
 from apps.organizations.models import Organization
 from apps.procurement.demo import (
+    seed_demo_award,
     seed_demo_catalogue,
     seed_demo_quotations,
     seed_demo_requests,
@@ -108,6 +109,7 @@ class Command(SeedCommand):
                 else []
             )
             quotations = seed_demo_quotations(organization=organization, recorder=user)
+            awarded = seed_demo_award(organization=organization, approver=user)
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -135,6 +137,12 @@ class Command(SeedCommand):
                     f"  {quotation.number:<24} {quotation.supplier.code:<24} "
                     f"{quotation.total_amount}"
                 )
+        if awarded is not None and awarded.awarded_quotation is not None:
+            self.write("")
+            self.write(
+                f"award: {awarded.number} -> {awarded.awarded_quotation.number} "
+                f"({awarded.awarded_quotation.supplier.code})"
+            )
         self.write("")
         self.write(
             f"{len(suppliers)} suppliers, {len(catalogue)} catalogue rows, "

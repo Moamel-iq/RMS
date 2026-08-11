@@ -21,12 +21,14 @@ from decimal import Decimal
 
 from apps.inventory.models import InventoryItem, PackageUnit, Warehouse
 from apps.organizations.models import Branch, Organization
+from apps.procurement.comparison import award_quotation
 from apps.procurement.models import (
     PurchaseRequest,
     PurchaseRequestStatus,
     Supplier,
     SupplierItem,
     SupplierQuotation,
+    SupplierQuotationStatus,
 )
 from apps.procurement.services import (
     add_quotation_line,
@@ -329,7 +331,11 @@ def seed_demo_quotations(*, organization: Organization, recorder: User) -> list[
         recorded_by=recorder,
         request=approved,
         quoted_at=quoted_on,
-        valid_until=quoted_on + datetime.timedelta(days=60),
+        # Two years, not sixty days. A demo dataset is read months after it
+        # is seeded, and an offer that quietly expires makes the comparison
+        # screen show nothing awardable — which looks like a broken feature
+        # rather than the honest state it is.
+        valid_until=quoted_on + datetime.timedelta(days=730),
         supplier_reference="DEMO-Q-GROC-001",
         freight_amount=Decimal("15000.000"),
         evidence_reference="بريد المورد بتاريخ العرض",
@@ -351,7 +357,8 @@ def seed_demo_quotations(*, organization: Organization, recorder: User) -> list[
         recorded_by=recorder,
         request=approved,
         quoted_at=quoted_on,
-        valid_until=quoted_on + datetime.timedelta(days=30),
+        # No stated expiry at all, which is the other real case and lets the
+        # comparison show both.
         supplier_reference="DEMO-Q-MEAT-001",
         evidence_reference="عرض مكتوب مسلّم باليد",
     )
@@ -364,3 +371,51 @@ def seed_demo_quotations(*, organization: Organization, recorder: User) -> list[
     free_delivery = submit_supplier_quotation(quotation=free_delivery, actor=recorder)
 
     return [cheaper_per_unit, free_delivery]
+
+
+def seed_demo_award(*, organization: Organization, approver: User) -> PurchaseRequest | None:
+    """
+    Award the dearer-per-unit offer, on purpose.
+
+    The two demo quotations disagree: DEMO-GROCERY is cheaper per kilogram and
+    DEMO-MEAT is cheaper once delivery is counted. Awarding the landed-cheapest
+    one would make the demo look like the system picks a winner. Awarding it
+    **with a stated reason** is the point — a buyer chose, and the reason is
+    the record of why.
+    """
+    awarded = PurchaseRequest.objects.filter(
+        organization=organization, awarded_quotation__isnull=False
+    ).first()
+    if awarded is not None:
+        return awarded
+
+    request = (
+        PurchaseRequest.objects.filter(
+            organization=organization,
+            status=PurchaseRequestStatus.APPROVED,
+            purpose__startswith="DEMO —",
+        )
+        .order_by("id")
+        .first()
+    )
+    if request is None:
+        return None
+
+    winner = (
+        SupplierQuotation.objects.filter(
+            request=request,
+            status=SupplierQuotationStatus.SUBMITTED,
+            supplier__code="DEMO-MEAT-SUPPLIER",
+        )
+        .order_by("id")
+        .first()
+    )
+    if winner is None:
+        return None
+
+    return award_quotation(
+        request=request,
+        quotation=winner,
+        actor=approver,
+        reason=("أغلى للكيلو لكن أرخص بعد النقل، والتسليم خلال يومين بدل ثلاثة."),
+    )

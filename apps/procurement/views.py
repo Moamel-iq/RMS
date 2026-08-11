@@ -40,6 +40,7 @@ from apps.organizations.authorization import (
     require_branch_permission,
     require_reachable_organization_permission,
 )
+from apps.procurement.comparison import award_quotation, comparison_for_request
 from apps.procurement.forms import (
     PurchaseRequestForm,
     PurchaseRequestLineForm,
@@ -51,6 +52,7 @@ from apps.procurement.forms import (
 from apps.procurement.models import PurchaseRequestStatus, SupplierQuotationStatus
 from apps.procurement.permissions import (
     APPROVE_PURCHASE_REQUEST,
+    AWARD_QUOTATION,
     CREATE_PURCHASE_REQUEST,
     MANAGE_QUOTATIONS,
     MANAGE_SUPPLIER_ITEMS,
@@ -749,3 +751,80 @@ class SupplierQuotationTransitionView(InventoryViewMixin, View):
         except ValidationError as error:
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
         return HttpResponseRedirect(reverse("procurement:quotation_detail", args=[quotation.pk]))
+
+
+# ---------------------------------------------------------------------------
+# Comparison and award
+# ---------------------------------------------------------------------------
+
+
+class QuotationComparisonView(InventoryViewMixin, View):
+    """
+    Every offer against one request, normalised and ranked.
+
+    Read-only. The award is a separate POST route, because a page that both
+    showed a comparison and could award from a GET would be a page a link
+    prefetch could commit the business to.
+    """
+
+    module_key = "procurement"
+    required_permission = VIEW_QUOTATION
+    template_name = "procurement/quotation_comparison.html"
+
+    def load(self) -> Any:
+        return resolve_purchase_request(self.actor, self.kwargs["pk"])
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = self.load()
+        item_filter = request.GET.get("item", "").strip()
+        rows = comparison_for_request(request=document)
+        if item_filter:
+            rows = [row for row in rows if row.item_code == item_filter]
+
+        context = {
+            "request_document": document,
+            "rows": rows,
+            "items": sorted({row.item_code for row in comparison_for_request(request=document)}),
+            "selected_item": item_filter,
+            "page_title": _("مقارنة العروض"),
+            "may_award": has_organization_master_data_permission(
+                self.actor, AWARD_QUOTATION, document.organization
+            ),
+            "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+            "is_awardable": document.status == PurchaseRequestStatus.APPROVED
+            and document.awarded_quotation_id is None,
+        }
+        # The comparison table is the only thing that changes when the item
+        # filter moves, so htmx swaps it alone and a full page is the fallback.
+        template = (
+            "procurement/_comparison_rows.html"
+            if request.headers.get("HX-Request") == "true"
+            else self.template_name
+        )
+        return render(request, template, context)
+
+
+class QuotationAwardView(InventoryViewMixin, View):
+    """POST-only. Awarding is a decision, never the side effect of a GET."""
+
+    module_key = "procurement"
+    required_permission = AWARD_QUOTATION
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = resolve_purchase_request(self.actor, self.kwargs["pk"])
+        require_reachable_organization_permission(
+            self.actor, AWARD_QUOTATION, document.organization
+        )
+        quotation = resolve_quotation(self.actor, int(request.POST.get("quotation", "0") or 0))
+        try:
+            award_quotation(
+                request=document,
+                quotation=quotation,
+                actor=self.actor,
+                reason=request.POST.get("reason", ""),
+            )
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم إرساء العرض."))
+        return HttpResponseRedirect(reverse("procurement:quotation_comparison", args=[document.pk]))

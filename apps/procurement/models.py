@@ -429,6 +429,33 @@ class PurchaseRequest(TimeStampedModel):
     decided_at = models.DateTimeField(_("decided at"), null=True, blank=True)
     decision_reason = models.TextField(_("decision reason"), blank=True)
 
+    #: Which offer was chosen, and why. On the request rather than on a
+    #: separate aggregate because the decision belongs to the need: one request
+    #: is answered by several quotations and exactly one of them wins. A
+    #: dedicated award model would add a row whose only content is a foreign
+    #: key to the winner.
+    #:
+    #: Awarding creates no stock, no journal, no payable and no GRNI. The
+    #: purchase order raised from it is the commitment.
+    awarded_quotation = models.ForeignKey(
+        "procurement.SupplierQuotation",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="awarded_for",
+        verbose_name=_("awarded quotation"),
+    )
+    awarded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="awarded_purchase_requests",
+        verbose_name=_("awarded by"),
+    )
+    awarded_at = models.DateTimeField(_("awarded at"), null=True, blank=True)
+    award_reason = models.TextField(_("award reason"), blank=True)
+
     history = HistoricalRecords()
 
     class Meta:
@@ -468,6 +495,24 @@ class PurchaseRequest(TimeStampedModel):
                 fields=["organization", "number"],
                 condition=~Q(number=""),
                 name="procurement_request_number_unique_per_organization",
+            ),
+            # An award is a complete statement or none of one: which offer,
+            # decided by whom, when, and why. Three of the four with the
+            # fourth missing is not a decision anybody can re-read.
+            models.CheckConstraint(
+                condition=Q(
+                    awarded_quotation__isnull=True,
+                    awarded_by__isnull=True,
+                    awarded_at__isnull=True,
+                    award_reason="",
+                )
+                | Q(
+                    awarded_quotation__isnull=False,
+                    awarded_by__isnull=False,
+                    awarded_at__isnull=False,
+                )
+                & ~Q(award_reason=""),
+                name="procurement_request_award_is_complete_or_absent",
             ),
         ]
         indexes = [

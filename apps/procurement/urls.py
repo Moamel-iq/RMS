@@ -116,4 +116,14 @@ urlpatterns = [
         views.SupplierQuotationTransitionView.as_view(transition="decline"),
         name="quotation_decline",
     ),
+    path(
+        "requests/<int:pk>/comparison/",
+        views.QuotationComparisonView.as_view(),
+        name="quotation_comparison",
+    ),
+    path(
+        "requests/<int:pk>/award/",
+        views.QuotationAwardView.as_view(),
+        name="quotation_award",
+    ),
 ]

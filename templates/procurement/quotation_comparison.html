@@ -1,0 +1,72 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# Every offer against one request, normalised so they can be compared.      #}
+{# The item filter swaps the table alone through htmx; without JavaScript    #}
+{# the same GET returns the whole page, which is the fallback.               #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{% translate "مقارنة العروض" %}</h1>
+      <p class="pagehead__hint">
+        {% if request_document.number %}<span dir="ltr">{{ request_document.number }}</span> — {% endif %}
+        {{ request_document.purpose }}
+      </p>
+    </div>
+    <a class="btn btn--ghost" href="{% url 'procurement:purchase_request_detail' request_document.pk %}">
+      {% translate "الطلب" %}
+    </a>
+  </div>
+
+  <div class="formcard">
+    <p class="muted">
+      {% translate "الأسعار مُوحَّدة إلى وحدة الصنف الأساسية. أجور النقل تُعرض منفصلة وداخل الكلفة النهائية معاً — إخفاؤها داخل السعر يجعل مورداً غالي التوصيل يبدو رخيصاً، وإخفاؤها خارجه يجعله أرخص مما هو." %}
+    </p>
+    <p class="muted">
+      {% translate "النظام يرتّب ويُبرز فقط. الاختيار قرار بشري، والسبب يُسجَّل." %}
+    </p>
+  </div>
+
+  {% if request_document.awarded_quotation %}
+    <div class="formcard">
+      <h2>{% translate "العرض المُرسى" %}</h2>
+      <dl class="detailgrid">
+        <dt>{% translate "العرض" %}</dt>
+        <dd><code dir="ltr">{{ request_document.awarded_quotation.number }}</code></dd>
+        <dt>{% translate "المورد" %}</dt>
+        <dd>{{ request_document.awarded_quotation.supplier.name_ar }}</dd>
+        <dt>{% translate "أرساه" %}</dt>
+        <dd>{{ request_document.awarded_by.username }}</dd>
+        <dt>{% translate "بتاريخ" %}</dt>
+        <dd><span dir="ltr">{{ request_document.awarded_at|date:"Y-m-d H:i" }}</span></dd>
+        <dt>{% translate "السبب" %}</dt>
+        <dd>{{ request_document.award_reason }}</dd>
+      </dl>
+      <p class="muted">
+        {% translate "الإرساء لا يُنشئ مخزوناً ولا قيداً ولا ذمة. أمر الشراء هو الالتزام." %}
+      </p>
+    </div>
+  {% endif %}
+
+  <form class="filters"
+        hx-get="{% url 'procurement:quotation_comparison' request_document.pk %}"
+        hx-target="#comparison-results"
+        hx-swap="outerHTML"
+        hx-trigger="change from:find select">
+    <label class="field">
+      <span class="field__label">{% translate "الصنف" %}</span>
+      <select name="item">
+        <option value="">{% translate "كل الأصناف" %}</option>
+        {% for code in items %}
+          <option value="{{ code }}" {% if code == selected_item %}selected{% endif %}>{{ code }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <noscript><button class="btn btn--ghost" type="submit">{% translate "تطبيق" %}</button></noscript>
+  </form>
+
+  {% include "procurement/_comparison_rows.html" %}
+{% endblock %}
