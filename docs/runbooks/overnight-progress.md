@@ -5,10 +5,10 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 10/20 — Goods receipt and inspection (NOT STARTED)
+CURRENT_PIPELINE_STEP: 11/20 — Atomic receipt posting and GRNI (NOT STARTED)
 CURRENT_TASK: none in flight
-LAST_GREEN_COMMIT: ee2365e
-LAST_PUSHED_COMMIT: ee2365e
+LAST_GREEN_COMMIT: aa12633
+LAST_PUSHED_COMMIT: aa12633
 WORKING_TREE: clean
 RUNNING_TESTS: none
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
@@ -28,43 +28,50 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Step 10 — Task 2.8, goods receipt and inspection.
-`GoodsReceipt` and `GoodsReceiptLine` with the draft and inspection
-workflow only. **Do not expose a stock-only final post**: the authoritative
-POST must be atomic with the GRNI accounting that Step 11 adds, so Step 10
-ships DRAFT and INSPECTED and stops there.
+NEXT_EXACT_ACTION: Step 11 — Task 2.9, the authoritative receipt POST.
+One transaction: receipt status, accepted `StockMovement` effects through
+the **certified inventory kernel** (never a second posting path),
+`StockBalance` and `StockLocation` quantity, valuation, and a balanced
+`Dr Inventory Control / Cr GOODS_RECEIVED_NOT_INVOICED` journal — plus
+source identity, idempotency, audit and document links.
 
-Two things already wait for this task:
-- `received_base_quantity` in `apps/procurement/services.py` returns zero
-  and has a `receipt_lines` reverse accessor written for it. Give it a
-  body when `GoodsReceiptLine` exists; the PO revision and cancellation
-  guards tighten automatically, and PRC-020/PRC-022 move from Partial to
-  Done.
-- `TestReceivedQuantityGuards` asserts the call sites exist. Extend it with
-  the real cases: a revision below accepted quantity, a cancellation with
-  goods already in.
+Step 10 left these deliberately in place for it:
+- `GoodsReceipt.posted_by/posted_at/reversed_at/reversal_reason` columns
+  exist and are null; two check constraints already refuse a POSTED with
+  no timestamp and a DRAFT that carries one.
+- `GoodsReceipt.is_ready_to_post` is the precondition, derived from the
+  lines. Posting should require it.
+- `GoodsReceiptLine.accepted_value` is the value to post: the accepted
+  share of `delivered_quantity × unit_price`.
+- `TestNothingPostsYet` asserts no posting service and no route exists.
+  **Those two assertions must be deleted in Step 11**, not worked around —
+  they are the boundary marker, and removing them is the deliberate act of
+  crossing it.
 
-Also add the stale-instance regression for receipt posting/reversal to
-`TestTheStaleInstanceRule` (§D lists it).
+Price basis (PRC-028): a linked order line supplies the price; an unlinked
+receipt requires an entered one. Never the supplier catalogue.
+
+Read `apps/inventory/ledger.py` lock order before adding locks.
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 243 passed
+.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 293 passed
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
 organization DEMO-KHAN-MANDI; start at http://127.0.0.1:8000/inventory/stock/.
 Procurement: 3 suppliers, 6 catalogue rows, 4 purchase requests, 2
-quotations, one award, 3 purchase orders and one
-order revision seeded
+quotations, one award, 3 purchase orders, one order
+revision and 4 goods receipts (all DRAFT) seeded
 and visible; the seed is idempotent (same counts on re-run). Routes:
 /procurement/suppliers/, /procurement/catalogue/, /procurement/requests/,
 /procurement/quotations/,
 /procurement/requests/<pk>/comparison/,
 /procurement/orders/,
-/procurement/orders/<pk>/history/.
+/procurement/orders/<pk>/history/,
+/procurement/receipts/.
 Requests are raised by `demo-storekeeper` and decided by `moamel`, because
 maker-checker is a database constraint and one actor could not do both.
 RECONCILIATION_STATE: all three inventory verifiers clean on `khan_mandi_dev`
@@ -78,6 +85,13 @@ ASSUMPTIONS:
   field that is usually empty is a field nobody reads.
 - Purchasing issues but never approves a purchase order. The spec does not
   name the split; it follows the same separation the request already uses.
+
+- Task 2.0 §7 gives the receipt three statuses only: DRAFT, POSTED,
+  REVERSED. Inspection is line data, and readiness is derived
+  (`is_ready_to_post`), so no INSPECTED/READY state was invented.
+- Delivery-reference uniqueness is scoped per supplier, not globally.
+- An inspected-but-unposted receipt reserves nothing on the order;
+  `add_receipt_line` compensates by also subtracting other drafts.
 
 BLOCKERS: none
 
@@ -150,4 +164,5 @@ the item, and it is addressed.
 | 08 Purchase orders | **COMPLETE, PUSHED** | c89ac1d | 36 tests, 3 demo orders, chain visible end to end |
 | 09 PO change control | **COMPLETE, PUSHED** | ee2365e | 28 tests, versioned history, shared lifecycle helper |
 | **Batch 3 cert (07–09)** | **PASS** | ee2365e | 414 tests, verifiers clean, no procurement posting |
-| 10–20 | not started | — | — |
+| 10 Goods receipt | **COMPLETE, PUSHED** | aa12633 | 50 tests, 4 demo drafts, seam activated, no posting path |
+| 11–20 | not started | — | — |
