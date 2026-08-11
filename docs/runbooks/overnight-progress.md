@@ -5,10 +5,10 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 07/20 — Quotation comparison and award (NOT STARTED)
+CURRENT_PIPELINE_STEP: 08/20 — Purchase orders (NOT STARTED)
 CURRENT_TASK: none in flight
-LAST_GREEN_COMMIT: 63c82be
-LAST_PUSHED_COMMIT: 63c82be
+LAST_GREEN_COMMIT: c169941
+LAST_PUSHED_COMMIT: c169941
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
 
 ACTIVE_WORKTREES:
@@ -26,36 +26,32 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Step 07 — Task 2.5, quotation comparison and award.
-A comparison service that normalises every offer to base quantity and a
-**landed** base unit price (line total plus that line's share of freight
-and other charges, allocated with `apps/core/allocation.py` and never
-stored), an Arabic RTL comparison screen showing freight separately *and*
-inside the landed price, and an award recorded on the `PurchaseRequest`
-(`awarded_quotation`, `awarded_by`, `awarded_at`, `award_reason`).
+NEXT_EXACT_ACTION: Step 08 — Task 2.6, purchase orders.
+`PurchaseOrder` and `PurchaseOrderLine`: supplier, source request and
+award, destination warehouse and location, order and expected dates,
+payment-terms snapshot, ordered entered and base quantity with the
+conversion snapshot, agreed price, line total. DRAFT → APPROVED → ISSUED,
+with CANCELLED terminal. Numbers drawn from `next_document_number` with
+prefix "PO" at the same boundary requests and quotations use.
 
-No automatic lowest-price selection — the system ranks and shows, a human
-awards and names a reason. An expired quotation cannot be awarded.
-Awarding creates no stock, no journal and no payable. PRC-014 – PRC-017.
-
-The demo already contains the case this exists for: DEMO-GROCERY quotes
-rice at 1,400/kg with 15,000 freight (183,000 landed) and DEMO-MEAT at
-1,450/kg delivered free (174,000). Cheaper per unit, dearer landed.
+Creates no stock, no journal, no payable and no GRNI in any status —
+including ISSUED. PRC-018 – PRC-023 (revision guards land in Step 09).
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 151 passed
+.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 179 passed
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
 organization DEMO-KHAN-MANDI; start at http://127.0.0.1:8000/inventory/stock/.
-Procurement: 3 suppliers, 6 catalogue rows, 4 purchase requests and 2
-quotations seeded
+Procurement: 3 suppliers, 6 catalogue rows, 4 purchase requests, 2
+quotations and one award seeded
 and visible; the seed is idempotent (same counts on re-run). Routes:
 /procurement/suppliers/, /procurement/catalogue/, /procurement/requests/,
-/procurement/quotations/.
+/procurement/quotations/,
+/procurement/requests/<pk>/comparison/.
 Requests are raised by `demo-storekeeper` and decided by `moamel`, because
 maker-checker is a database constraint and one actor could not do both.
 RECONCILIATION_STATE: all three inventory verifiers clean on `khan_mandi_dev`
@@ -76,6 +72,11 @@ BLOCKERS: none
 - `view_supplier` is Django's **builtin** view permission for the `Supplier`
   model, not a custom one. Declaring it in `Meta.permissions` is an
   `auth.E005` clash. The codename is still `procurement.view_supplier`.
+- Every lifecycle guard re-reads its document under a row lock rather than
+  trusting the instance it was handed. Found twice — `_require_draft` in
+  Task 2.3 and `award_quotation` in Task 2.5. Assume the next one too.
+- Demo and test dates must stay meaningful as the calendar moves. Two
+  defects came from validity windows that had silently expired.
 - `_require_draft` re-reads status under a row lock rather than trusting the
   instance handed to it. A stale in-memory DRAFT would otherwise let a line
   be added to an approved request, and no constraint could catch it.
@@ -124,4 +125,5 @@ the item, and it is addressed.
 | 05 Purchase requests | **COMPLETE, PUSHED** | 1692d50 | 39 tests, 4 demo requests, maker-checker at the database |
 | 06 Supplier quotations | **COMPLETE, PUSHED** | 63c82be | 35 tests, 2 demo offers, derived totals |
 | **Batch 2 cert (04–06)** | **PASS** | 63c82be | 301 tests, verifiers clean, no procurement posting |
-| 07–20 | not started | — | — |
+| 07 Comparison and award | **COMPLETE, PUSHED** | c169941 | 28 tests, ranking inversion visible on the route |
+| 08–20 | not started | — | — |
