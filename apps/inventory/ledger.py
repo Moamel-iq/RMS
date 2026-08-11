@@ -1086,6 +1086,24 @@ def _save_position(position: _Position, *, movement: StockMovement, step: Valuat
     position.average = step.average_after
     position.control_account = balance.control_account
 
+    # Locations hold quantity only (ADR-018 §2) and are optional, but an issue
+    # posted without naming a bin would leave the bins claiming more than the
+    # warehouse holds. Releasing here keeps
+    # `sum(located) + unlocated == warehouse quantity` true by construction on
+    # every posting path rather than by asking each caller to remember.
+    #
+    # One indexed query and no writes for a warehouse that uses no locations,
+    # which is most of them.
+    from apps.inventory.locations import release_for_outbound
+
+    release_for_outbound(
+        warehouse_id=balance.warehouse_id,
+        item_id=balance.item_id,
+        lot_id=balance.lot_id,
+        quantity_after=step.quantity_after,
+        stock_movement=movement,
+    )
+
 
 def _record_layer(
     *, entry: StockLedgerEntry, effect: MovementInput, movement: StockMovement, step: ValuationStep

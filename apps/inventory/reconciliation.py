@@ -36,6 +36,7 @@ from apps.inventory.models import (
     StockBalance,
     StockCount,
     StockCountStatus,
+    StockLocationBalance,
     StockMovement,
     StockTransfer,
     StockTransferLine,
@@ -1025,6 +1026,64 @@ def verify_warehouse_freezes(organization: Organization) -> list[Discrepancy]:
     return problems
 
 
+def verify_locations(organization: Organization) -> list[Discrepancy]:
+    """
+    Invariant 22 — a warehouse's located quantities never exceed what it holds.
+
+    Stated as an inequality rather than an equality on purpose. Locations are
+    optional, so `sum(located) + unlocated == warehouse quantity` with
+    `unlocated` **derived**: the equality holds by construction and there is no
+    second stored number to compare. What can actually go wrong is the bins
+    claiming more than the warehouse has, which is what this looks for.
+
+    A negative unlocated remainder therefore means either a location write that
+    bypassed the services or an outbound the ledger hook did not see — both
+    defects, and both invisible without this check.
+    """
+    problems: list[Discrepancy] = []
+
+    located: dict[tuple[int, int, int | None], Decimal] = {}
+    for row in (
+        StockLocationBalance.objects.filter(warehouse__branch__organization=organization)
+        .values("warehouse_id", "item_id", "lot_id")
+        .annotate(total=Sum("quantity"))
+    ):
+        located[(row["warehouse_id"], row["item_id"], row["lot_id"])] = row["total"] or ZERO
+
+    if not located:
+        return problems
+
+    balances = {
+        (balance.warehouse_id, balance.item_id, balance.lot_id): balance
+        for balance in StockBalance.objects.filter(
+            organization=organization,
+            warehouse_id__in={key[0] for key in located},
+        ).select_related("warehouse", "item", "lot")
+    }
+
+    for key, total in sorted(located.items(), key=lambda pair: pair[0]):
+        balance = balances.get(key)
+        held = balance.quantity if balance is not None else ZERO
+        if total > held:
+            warehouse_id, item_id, lot_id = key
+            scope = (
+                f"{organization.code}/{balance.warehouse.code}/{balance.item.code}"
+                if balance is not None
+                else f"{organization.code}/warehouse#{warehouse_id}/item#{item_id}"
+            )
+            if lot_id is not None and balance is not None and balance.lot is not None:
+                scope = f"{scope}/{balance.lot.code}"
+            problems.append(
+                Discrepancy(
+                    scope=scope,
+                    field="located_exceeds_warehouse",
+                    expected=held,
+                    actual=total,
+                )
+            )
+    return problems
+
+
 def verify_inventory_accounting(organization: Organization) -> list[str]:
     """
     The full reconciliation for one organization, as report lines.
@@ -1077,6 +1136,7 @@ def verify_inventory_accounting(organization: Organization) -> list[str]:
     ):
         lines.extend(str(problem) for problem in verify_adjustment(adjustment))
     lines.extend(str(problem) for problem in verify_warehouse_freezes(organization))
+    lines.extend(str(problem) for problem in verify_locations(organization))
     lines.extend(str(mismatch) for mismatch in verify_organization(organization))
     lines.extend(str(problem) for problem in verify_inventory_against_gl(organization))
     return lines
