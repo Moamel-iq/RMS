@@ -5,10 +5,12 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 08/20 — Purchase orders (NOT STARTED)
+CURRENT_PIPELINE_STEP: 09/20 — PO revision and cancellation (NOT STARTED)
 CURRENT_TASK: none in flight
-LAST_GREEN_COMMIT: c169941
-LAST_PUSHED_COMMIT: c169941
+LAST_GREEN_COMMIT: c89ac1d
+LAST_PUSHED_COMMIT: c89ac1d
+WORKING_TREE: clean
+RUNNING_TESTS: none
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
 
 ACTIVE_WORKTREES:
@@ -26,38 +28,54 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Step 08 — Task 2.6, purchase orders.
-`PurchaseOrder` and `PurchaseOrderLine`: supplier, source request and
-award, destination warehouse and location, order and expected dates,
-payment-terms snapshot, ordered entered and base quantity with the
-conversion snapshot, agreed price, line total. DRAFT → APPROVED → ISSUED,
-with CANCELLED terminal. Numbers drawn from `next_document_number` with
-prefix "PO" at the same boundary requests and quotations use.
+NEXT_EXACT_ACTION: Step 09 — Task 2.7, purchase order change control.
+`PurchaseOrderVersion` capturing the superseded header and lines, plus
+`revise_purchase_order`: revision reason, revised_by, revised_at, the
+current-version link, and a version-history screen showing the difference.
+An issued order is never edited in place.
 
-Creates no stock, no journal, no payable and no GRNI in any status —
-including ISSUED. PRC-018 – PRC-023 (revision guards land in Step 09).
+Guards to add (PRC-019 – PRC-022): supplier cannot change once a receipt
+exists; destination cannot change after receipt; a revised quantity cannot
+fall below what has been accepted; a cancelled order cannot receive.
+Receipts arrive in Step 10, so those guards are written now against a
+`_received_base_quantity(line)` helper that returns zero until then —
+write the helper and its call sites now, not the zero as an assumption.
+
+After Step 09: BATCH 3 certification over Steps 07–09 — comparison
+arithmetic, award, PO lifecycle, issued immutability, version history,
+cancellation guards, maker-checker, scope, demo, htmx, no ledger effect,
+migrations and gates. Confirm again that no journal or ledger entry cites
+a procurement source.
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 179 passed
+.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 215 passed
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
 organization DEMO-KHAN-MANDI; start at http://127.0.0.1:8000/inventory/stock/.
 Procurement: 3 suppliers, 6 catalogue rows, 4 purchase requests, 2
-quotations and one award seeded
+quotations, one award and 3 purchase orders seeded
 and visible; the seed is idempotent (same counts on re-run). Routes:
 /procurement/suppliers/, /procurement/catalogue/, /procurement/requests/,
 /procurement/quotations/,
-/procurement/requests/<pk>/comparison/.
+/procurement/requests/<pk>/comparison/,
+/procurement/orders/.
 Requests are raised by `demo-storekeeper` and decided by `moamel`, because
 maker-checker is a database constraint and one actor could not do both.
 RECONCILIATION_STATE: all three inventory verifiers clean on `khan_mandi_dev`
 and `khan_mandi_p1_exit`. Batch 2 additionally confirmed that no journal or
 ledger entry cites a procurement source: requests and quotations produce
 zero postings, which is the claim both documents rest on.
+
+ASSUMPTIONS:
+- An award requires a reason unconditionally, not only when the winner is
+  dearer as PRC-017 states. Stricter than specified, and deliberate: a
+  field that is usually empty is a field nobody reads.
+- Purchasing issues but never approves a purchase order. The spec does not
+  name the split; it follows the same separation the request already uses.
 
 BLOCKERS: none
 
@@ -126,4 +144,5 @@ the item, and it is addressed.
 | 06 Supplier quotations | **COMPLETE, PUSHED** | 63c82be | 35 tests, 2 demo offers, derived totals |
 | **Batch 2 cert (04–06)** | **PASS** | 63c82be | 301 tests, verifiers clean, no procurement posting |
 | 07 Comparison and award | **COMPLETE, PUSHED** | c169941 | 28 tests, ranking inversion visible on the route |
-| 08–20 | not started | — | — |
+| 08 Purchase orders | **COMPLETE, PUSHED** | c89ac1d | 36 tests, 3 demo orders, chain visible end to end |
+| 09–20 | not started | — | — |
