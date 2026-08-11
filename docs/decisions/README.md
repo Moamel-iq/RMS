@@ -90,3 +90,18 @@ documented answers yet:
   gain into an empty position needs an explicitly approved unit cost, and a
   confirmed zero is not an omitted one; an active count blocks closing its
   period.
+- **Supplier return valuation and purchase variance treatment** — ADR-022
+  (*proposed*). A supplier return leaves stock at the standing moving average,
+  never at the original receipt price, because there are no cost layers
+  underneath the average to pick from; the difference against what the supplier
+  credits is a purchase return variance. A price variance never restates a
+  posted movement, because the average is a function of posting order and
+  repricing would restate closed periods. Revaluation of stock still on hand is
+  explicit and permissioned, never automatic.
+- **GRNI clearing and three-way matching allocations** — ADR-023
+  (*proposed*). The GRNI balance equals the value of accepted receipt lines no
+  invoice has matched, and that is a testable equality. Matching is allocation
+  rows, not a status field, because it is genuinely many-to-many and partial;
+  matching status is derived and never stored. Over-allocation is refused under
+  a row lock and re-verified by reconciliation. An invoice with no receipt
+  posts and is reported as an exception rather than refused.

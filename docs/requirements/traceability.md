@@ -484,3 +484,83 @@ source.
 | INV-278 | Bins claiming more than the warehouse holds is detected | `verify_locations` | `test_locations.py::test_planted_over_allocation_is_detected` | 1.7B | AT-007 | Done |
 | INV-279 | A system warehouse takes no locations | `create_location` | `test_locations.py::test_a_system_warehouse_takes_no_locations` | 1.7B | | Done |
 | INV-280 | A location holding stock cannot be archived | `update_location` | `test_locations.py::test_a_location_holding_stock_cannot_be_archived` | 1.7B | | Done |
+
+## Phase 2 — Procurement and Accounts Payable
+
+Established by `docs/tasks/task-2-0-procurement-domain-spec.md` (2026-08-11).
+Every row is `Specified` until its task lands: Task 2.0 wrote no code, and a
+row that claimed evidence today would be claiming a test that does not exist —
+which is the failure `tests/test_traceability.py` was written to stop.
+
+Requirement identifiers are **repository-local**. No SRS exists to map them to;
+see Task 2.0 §0.
+
+| ID | Requirement | Implementation | Test | Task | AT | Status |
+|---|---|---|---|---|---|---|
+| PRC-001 | No model combines two of the seven procurement events | separate aggregates | — | 2.1–2.15 | | Specified |
+| PRC-002 | Supplier code canonical uppercase, unique per organization, archived codes reserved | `create_supplier` + `UniqueConstraint` | — | 2.1 | | Specified |
+| PRC-003 | `Supplier` carries no balance field; balances derive from posted documents | model shape | — | 2.1 | | Specified |
+| PRC-004 | A supplier is archived, never deleted | `on_delete=PROTECT` | — | 2.1 | | Specified |
+| PRC-005 | A catalogue price values nothing; no posting service reads it | AST boundary test | — | 2.2 | | Specified |
+| PRC-006 | One preferred supplier per item; one preferred catalogue row per pair | partial unique index | — | 2.2 | | Specified |
+| PRC-007 | Catalogue effective periods cannot overlap | `EXCLUDE USING gist` | — | 2.2 | | Specified |
+| PRC-008 | A catalogue package must be one the item can convert to base | service guard | — | 2.2 | | Specified |
+| PRC-009 | A purchase request has no stock and no accounting effect | asserted per status | — | 2.3 | | Specified |
+| PRC-010 | A request approver is never its submitter | `CheckConstraint` | — | 2.3 | | Specified |
+| PRC-011 | Only a DRAFT request is editable | service guard + trigger | — | 2.3 | | Specified |
+| PRC-012 | Request lines snapshot conversion, version, factor and base quantity | non-null columns | — | 2.3 | | Specified |
+| PRC-013 | A quotation has no stock and no accounting effect | asserted per status | — | 2.4 | | Specified |
+| PRC-014 | Comparison normalises to base quantity and base unit price | comparison service | — | 2.5 | | Specified |
+| PRC-015 | Freight is shown separately **and** inside a landed unit price | comparison report | — | 2.5 | | Specified |
+| PRC-016 | No automatic lowest-price award; a human names a reason | no auto-select path exists | — | 2.5 | | Specified |
+| PRC-017 | An award records actor, reason, and the same-organization check | `award_quotation` | — | 2.5 | | Specified |
+| PRC-018 | A purchase order creates no stock and no payable, including ISSUED | asserted per status | — | 2.6 | | Specified |
+| PRC-019 | Issued terms are immutable; a change creates a version | allowlist trigger + version model | — | 2.7 | | Specified |
+| PRC-020 | A revision cannot reduce quantity below what was received | service guard under a lock | — | 2.7 | | Specified |
+| PRC-021 | The supplier cannot change once a receipt exists | service guard | — | 2.7 | | Specified |
+| PRC-022 | Cancellation needs a reason, is refused after a receipt, and is terminal | service guard | — | 2.7 | | Specified |
+| PRC-023 | Over-receipt is refused at zero tolerance | service guard under a lock | — | 2.8 | | Specified |
+| PRC-024 | Delivered equals accepted plus rejected on every line | `CheckConstraint` | — | 2.8 | | Specified |
+| PRC-025 | Only accepted quantity increases stock | posting service | — | 2.8 | | Specified |
+| PRC-026 | A VARIABLE package line requires its measured quantity | reuses the inventory guard | — | 2.8 | | Specified |
+| PRC-027 | Lot and expiry follow the rules of the item, unchanged | reuses `_validate_lot` | — | 2.8 | | Specified |
+| PRC-028 | A receipt without a purchase order is permitted, but never without a price | service guard | — | 2.8 | | Specified |
+| PRC-029 | Receipts post through the inventory kernel; no second posting path | AST boundary test | — | 2.8 | | Specified |
+| PRC-030 | Partial receipt; cumulative accepted tracked against the order line | selector + guard | — | 2.8 | | Specified |
+| PRC-031 | A posted receipt is immutable; correction is reversal plus replacement | allowlist trigger | — | 2.8 | | Specified |
+| PRC-032 | Receipt journal value equals receipt stock value, per line, to 3 dp | reconciliation test | — | 2.9 | | Specified |
+| PRC-033 | Grouped debits where items resolve to different control accounts | reuses the opening-stock shape | — | 2.9 | | Specified |
+| PRC-034 | No account, id or code is named in a posting service | effective-dated role resolution | — | 2.9 | | Specified |
+| PRC-035 | Source identity is complete or absent, never partial | reuses the accounting guard | — | 2.9 | | Specified |
+| PRC-036 | Document, movement, journal and status commit or roll back together | `transaction.atomic()` | — | 2.9 | | Specified |
+| PRC-037 | Supplier invoice number unique per supplier over non-reversed invoices | partial unique index | — | 2.10 | | Specified |
+| PRC-038 | A supplier invoice never mutates stock | asserted: no movements | — | 2.10 | | Specified |
+| PRC-039 | An invoice total is the sum of its lines; freight allocated, never rated | `apps/core/allocation.py` | — | 2.10 | | Specified |
+| PRC-040 | Allocation is many-to-many and partial | `MatchAllocation` | — | 2.11 | | Specified |
+| PRC-041 | Over-allocation is impossible on both sides | service under a lock + verifier | — | 2.11 | | Specified |
+| PRC-042 | Matching status is derived, never a stored mutable flag | selector only | — | 2.11 | | Specified |
+| PRC-043 | Price variance never restates a posted movement or a closed period | posting service | — | 2.12 | | Specified |
+| PRC-044 | The on-hand versus consumed split is deterministic | `apps/core/allocation.py` | — | 2.12 | | Specified |
+| PRC-045 | Release 1 expenses the variance; revaluation is an explicit permissioned act | ADR-022 | — | 2.12 | | Specified |
+| PRC-046 | Landed-cost capitalisation is captured but not implemented | fields present, no posting | — | 2.12 | | Specified |
+| PRC-047 | A supplier return is not an inventory `RETURN_IN` | distinct movement type | — | 2.13 | | Specified |
+| PRC-048 | A return leaves stock at the standing moving average | reuses the kernel; ADR-022 | — | 2.13 | | Specified |
+| PRC-049 | The average-versus-credit difference is a purchase return variance | posting service | — | 2.13 | | Specified |
+| PRC-050 | Negative stock is refused on a return, with no bypass | reuses `_require_available` | — | 2.13 | | Specified |
+| PRC-051 | A credit note reduces the payable or stands as unallocated credit; no stock | posting service | — | 2.14 | | Specified |
+| PRC-052 | Credit note document number unique per supplier over non-reversed notes | partial unique index | — | 2.14 | | Specified |
+| PRC-053 | Partial payment across several invoices is normal | `PaymentAllocation` | — | 2.15 | | Specified |
+| PRC-054 | Payment over-allocation is impossible on both sides | service under a lock + verifier | — | 2.15 | | Specified |
+| PRC-055 | An unallocated remainder is a supplier advance, never a negative payable | posting service | — | 2.15 | | Specified |
+| PRC-056 | Cash and bank come from effective-dated roles, never an id | two new `AccountRole` rows | — | 2.15 | | Specified |
+| PRC-057 | Oldest-invoice allocation is a visible default, never silent | UI default; API requires explicit | — | 2.15 | | Specified |
+| PRC-058 | Procurement-to-GL reconciliation proves four equalities | `verify_procurement_accounting` | — | 2.16 | | Specified |
+| PRC-059 | Verification reports and refuses to repair | no repair mode exists | — | 2.16 | | Specified |
+| PRC-060 | Receipt and return permissions are warehouse-scoped; money is organization-scoped | `PERMISSION_SCOPE` | — | 2.1–2.15 | | Specified |
+| PRC-061 | Cost columns are omitted, not blanked, without `view_supplier_cost` | view layer | — | 2.8 | | Specified |
+| PRC-062 | No writable CRUD API and no writable admin for a posted record | command API + read-only admin | — | 2.17 | | Specified |
+| PRC-063 | API money and quantities are exact strings in both directions | schema layer | — | 2.1–2.15 | | Specified |
+| PRC-064 | Every command carries an organization-scoped idempotency key and fingerprint | reuses ADR-017 | — | 2.1–2.15 | | Specified |
+| PRC-065 | Arabic RTL screens, logical properties, HTMX filters surviving pagination | templates + `_filter_query` | — | 2.1–2.16 | | Specified |
+| PRC-066 | Demo data: three suppliers, the five existing items, idempotent, DEBUG-only | demo tooling | — | 2.1–2.17 | | Specified |
+| PRC-067 | `source_document_id` is the immutable `public_id`, never a number or pk | posting services | — | 2.9 | | Specified |
