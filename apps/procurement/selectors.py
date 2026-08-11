@@ -10,6 +10,7 @@ simply not in the queryset.
 from __future__ import annotations
 
 import datetime
+from typing import cast
 
 from django.db.models import F, Q, QuerySet
 from django.utils.translation import gettext_lazy as _
@@ -21,6 +22,7 @@ from apps.organizations.selectors import accessible_branches
 from apps.procurement.models import (
     PurchaseOrder,
     PurchaseOrderLine,
+    PurchaseOrderVersion,
     PurchaseRequest,
     PurchaseRequestLine,
     Supplier,
@@ -204,3 +206,123 @@ def resolve_order_line(user: User, *, order: PurchaseOrder, line_id: int) -> Pur
     if line is None:
         raise OutOfScope(_("Order line %(id)s does not exist.") % {"id": line_id})
     return line
+
+
+def order_version_history(user: User, *, order: PurchaseOrder) -> list[dict[str, object]]:
+    """
+    Every version of an order, newest first, each paired with what changed.
+
+    The differences are computed here rather than stored. A stored diff is a
+    third copy of the same facts — the version snapshot and the live row
+    already hold them — and the copy is what goes stale when a later migration
+    renames a field.
+
+    The newest entry compares the live order against the most recent snapshot;
+    each older entry compares one snapshot against the one before it.
+    """
+    versions = list(
+        PurchaseOrderVersion.objects.filter(order=order)
+        .select_related("revised_by")
+        .order_by("-version")
+    )
+    if not versions:
+        return []
+
+    live = {
+        "version": order.version,
+        "header": _live_header(order),
+        "lines": _live_lines(order),
+        "reason": "",
+        "revised_by": None,
+        "revised_at": order.revised_at,
+        "is_current": True,
+    }
+
+    entries: list[dict[str, object]] = []
+    newer: dict[str, object] = live
+    for snapshot_row in versions:
+        older = {
+            "version": snapshot_row.version,
+            "header": snapshot_row.header,
+            "lines": snapshot_row.lines,
+            "reason": snapshot_row.reason,
+            "revised_by": snapshot_row.revised_by,
+            "revised_at": snapshot_row.revised_at,
+            "is_current": False,
+        }
+        entries.append(
+            {
+                **newer,
+                "changes": _difference(older, newer),
+                "superseded_reason": snapshot_row.reason,
+            }
+        )
+        newer = older
+    entries.append({**newer, "changes": []})
+    return entries
+
+
+def _live_header(order: PurchaseOrder) -> dict[str, object]:
+    return {
+        "number": order.number,
+        "status": order.status,
+        "supplier_code": order.supplier.code,
+        "warehouse_code": order.warehouse.code,
+        "location_code": order.location.code if order.location else None,
+        "ordered_on": order.ordered_on.isoformat(),
+        "expected_on": order.expected_on.isoformat() if order.expected_on else None,
+        "payment_terms_days": order.payment_terms_days,
+        "supplier_reference": order.supplier_reference,
+        "notes": order.notes,
+        "total_amount": format(order.total_amount, "f"),
+    }
+
+
+def _live_lines(order: PurchaseOrder) -> list[dict[str, object]]:
+    return [
+        {
+            "line_uid": str(line.line_uid),
+            "sequence": line.sequence,
+            "item_code": line.item.code,
+            "ordered_quantity": format(line.ordered_quantity, "f"),
+            "ordered_base_quantity": format(line.ordered_base_quantity, "f"),
+            "unit_price": format(line.unit_price, "f"),
+            "line_total": format(line.line_total, "f"),
+        }
+        for line in order.lines.select_related("item").order_by("sequence")
+    ]
+
+
+def _difference(older: dict[str, object], newer: dict[str, object]) -> list[str]:
+    """
+    What changed between two versions, in words a buyer can read.
+
+    Compared field by field rather than by dumping both sides: a diff that
+    says "the header changed" is a diff nobody can act on.
+    """
+    changes: list[str] = []
+    old_header = cast(dict[str, object], older["header"])
+    new_header = cast(dict[str, object], newer["header"])
+    for field, old_value in old_header.items():
+        new_value = new_header.get(field)
+        if old_value != new_value:
+            changes.append(f"{field}: {old_value} → {new_value}")
+
+    old_rows = cast(list[dict[str, object]], older["lines"])
+    new_rows = cast(list[dict[str, object]], newer["lines"])
+    old_lines = {row["line_uid"]: row for row in old_rows}
+    new_lines = {row["line_uid"]: row for row in new_rows}
+    for uid, old_row in old_lines.items():
+        new_row = new_lines.get(uid)
+        if new_row is None:
+            changes.append(f"{old_row['item_code']}: removed")
+            continue
+        for field in ("ordered_quantity", "unit_price", "line_total"):
+            if old_row[field] != new_row[field]:
+                changes.append(
+                    f"{old_row['item_code']} {field}: {old_row[field]} → {new_row[field]}"
+                )
+    for uid, new_row in new_lines.items():
+        if uid not in old_lines:
+            changes.append(f"{new_row['item_code']}: added")
+    return changes

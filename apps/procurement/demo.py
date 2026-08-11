@@ -45,6 +45,7 @@ from apps.procurement.services import (
     create_supplier_quotation,
     issue_purchase_order,
     reject_purchase_request,
+    revise_purchase_order,
     submit_purchase_request,
     submit_supplier_quotation,
 )
@@ -530,3 +531,29 @@ def seed_demo_orders(
         )
     )
     return orders
+
+
+def seed_demo_order_revision(*, organization: Organization, actor: User) -> PurchaseOrder | None:
+    """
+    Revise the issued demo order once, so both versions are visible.
+
+    The change is a real one a buyer would make: the supplier confirms a
+    smaller quantity than was ordered. Version 1 keeps what they were first
+    told; the live row says what was agreed in the end.
+    """
+    order = PurchaseOrder.objects.filter(
+        organization=organization, supplier_reference="DEMO-PO-AWARDED"
+    ).first()
+    if order is None or order.versions.exists():
+        return order
+
+    line = order.lines.order_by("sequence").first()
+    if line is None:
+        return order
+
+    return revise_purchase_order(
+        order=order,
+        actor=actor,
+        reason="المورد أكّد توفر ١٠٠ كغم فقط من أصل ١٢٠",
+        line_quantities={str(line.line_uid): Decimal("100.000")},
+    )

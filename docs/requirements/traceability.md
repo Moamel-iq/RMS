@@ -515,10 +515,10 @@ see Task 2.0 §0.
 | PRC-016 | No automatic lowest-price award; a human names a reason | no auto-select path exists | `apps/procurement/tests/test_comparison_and_award.py::test_nothing_selects_a_winner_by_itself`, `apps/procurement/tests/test_comparison_and_award.py::test_an_award_without_a_reason_is_refused` | 2.5 | | Done |
 | PRC-017 | An award records actor, reason, and the same-organization check | `award_quotation` | `apps/procurement/tests/test_comparison_and_award.py::TestTheAward` | 2.5 | | Done |
 | PRC-018 | A purchase order creates no stock and no payable, including ISSUED | asserted per status | `apps/procurement/tests/test_purchase_orders.py::TestNoLedgerEffect` | 2.6 | | Done |
-| PRC-019 | Issued terms are immutable; a change creates a version | allowlist trigger + version model | — | 2.7 | | Specified |
-| PRC-020 | A revision cannot reduce quantity below what was received | service guard under a lock | — | 2.7 | | Specified |
-| PRC-021 | The supplier cannot change once a receipt exists | service guard | — | 2.7 | | Specified |
-| PRC-022 | Cancellation needs a reason, is refused after a receipt, and is terminal | service guard | — | 2.7 | | Specified |
+| PRC-019 | Issued terms are immutable; a change creates a version | allowlist trigger + version model | `apps/procurement/tests/test_order_change_control.py::TestRevision` | 2.7 | | Done |
+| PRC-020 | A revision cannot reduce quantity below what was received | service guard under a lock | `apps/procurement/tests/test_order_change_control.py::TestReceivedQuantityGuards` | 2.7 | | Partial |
+| PRC-021 | The supplier cannot change once a receipt exists | service guard | `apps/procurement/tests/test_order_change_control.py::test_the_supplier_cannot_be_revised_at_all` | 2.7 | | Done |
+| PRC-022 | Cancellation needs a reason, is refused after a receipt, and is terminal | service guard | `apps/procurement/tests/test_order_change_control.py::test_a_cancelled_order_cannot_be_revised_from_a_stale_copy` | 2.7 | | Partial |
 | PRC-023 | Over-receipt is refused at zero tolerance | service guard under a lock | — | 2.8 | | Specified |
 | PRC-024 | Delivered equals accepted plus rejected on every line | `CheckConstraint` | — | 2.8 | | Specified |
 | PRC-025 | Only accepted quantity increases stock | posting service | — | 2.8 | | Specified |

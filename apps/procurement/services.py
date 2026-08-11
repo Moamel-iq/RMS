@@ -18,7 +18,7 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -34,11 +34,13 @@ from apps.inventory.models import (
     Warehouse,
 )
 from apps.organizations.models import Branch, Organization
+from apps.procurement.lifecycle import lock_and_require_status
 from apps.procurement.models import (
     ProcurementDocumentSequence,
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseOrderStatus,
+    PurchaseOrderVersion,
     PurchaseRequest,
     PurchaseRequestLine,
     PurchaseRequestStatus,
@@ -495,17 +497,13 @@ def _require_draft(request: PurchaseRequest) -> PurchaseRequest:
     constraint would catch it, because "which lines existed when this was
     approved" is not something a column can say.
     """
-    locked = PurchaseRequest.objects.select_for_update().get(pk=request.pk)
-    if locked.status != PurchaseRequestStatus.DRAFT:
-        raise ValidationError(
-            _("Request %(number)s is %(status)s and can no longer be edited."),
-            code="request_not_editable",
-            params={
-                "number": locked.number or str(locked.public_id),
-                "status": locked.status,
-            },
-        )
-    return locked
+    return lock_and_require_status(
+        PurchaseRequest,
+        request.pk,
+        {PurchaseRequestStatus.DRAFT},
+        code="request_not_editable",
+        message=_("This request has been submitted and can no longer be edited."),
+    )
 
 
 @transaction.atomic
@@ -837,17 +835,13 @@ def _require_quotation_draft(quotation: SupplierQuotation) -> SupplierQuotation:
     and the failure would be a priced line appearing on an offer somebody had
     already compared against.
     """
-    locked = SupplierQuotation.objects.select_for_update().get(pk=quotation.pk)
-    if locked.status != SupplierQuotationStatus.DRAFT:
-        raise ValidationError(
-            _("Quotation %(number)s is %(status)s and can no longer be edited."),
-            code="quotation_not_editable",
-            params={
-                "number": locked.number or str(locked.public_id),
-                "status": locked.status,
-            },
-        )
-    return locked
+    return lock_and_require_status(
+        SupplierQuotation,
+        quotation.pk,
+        {SupplierQuotationStatus.DRAFT},
+        code="quotation_not_editable",
+        message=_("This quotation has been received and can no longer be edited."),
+    )
 
 
 @transaction.atomic
@@ -1095,17 +1089,13 @@ def _require_order_draft(order: PurchaseOrder) -> PurchaseOrder:
     already be stale, and here the failure would be a line changing on an order
     the supplier has already been sent.
     """
-    locked = PurchaseOrder.objects.select_for_update().get(pk=order.pk)
-    if locked.status != PurchaseOrderStatus.DRAFT:
-        raise ValidationError(
-            _("Order %(number)s is %(status)s and can no longer be edited."),
-            code="order_not_editable",
-            params={
-                "number": locked.number or str(locked.public_id),
-                "status": locked.status,
-            },
-        )
-    return locked
+    return lock_and_require_status(
+        PurchaseOrder,
+        order.pk,
+        {PurchaseOrderStatus.DRAFT},
+        code="order_not_editable",
+        message=_("This order has been approved and can no longer be edited."),
+    )
 
 
 @transaction.atomic
@@ -1380,15 +1370,33 @@ def cancel_purchase_order(*, order: PurchaseOrder, actor: User, reason: str) -> 
     if not reason.strip():
         raise ValidationError(_("A reason is required."), code="reason_required")
 
-    locked = PurchaseOrder.objects.select_for_update().get(pk=order.pk)
+    locked = lock_and_require_status(
+        PurchaseOrder,
+        order.pk,
+        {
+            PurchaseOrderStatus.DRAFT,
+            PurchaseOrderStatus.APPROVED,
+            PurchaseOrderStatus.ISSUED,
+        },
+        code="already_cancelled",
+        message=_("This order is already cancelled."),
+    )
     previous = snapshot(locked)
 
-    if locked.status == PurchaseOrderStatus.CANCELLED:
-        raise ValidationError(
-            _("Order %(number)s is already cancelled."),
-            code="already_cancelled",
-            params={"number": locked.number or str(locked.public_id)},
+    # Cancelling closes the *unreceived* remainder. Goods already accepted are
+    # a fact and stay on the books; what a cancellation withdraws is the
+    # expectation of anything further. Receipts arrive in Task 2.8, and this
+    # guard is written against the real interface rather than around it.
+    received = sum(
+        (received_base_quantity(line) for line in locked.lines.all()),
+        start=Decimal("0.000"),
+    )
+    if received > 0:
+        note = (
+            f"Cancelled with {format(received, 'f')} already received; "
+            "the received quantity stands and only the remainder is withdrawn."
         )
+        locked.notes = "\n".join(part for part in (locked.notes, note) if part).strip()
 
     locked.status = PurchaseOrderStatus.CANCELLED
     locked.cancelled_by = actor
@@ -1399,6 +1407,236 @@ def cancel_purchase_order(*, order: PurchaseOrder, actor: User, reason: str) -> 
 
     record_audit_event(
         action=AuditAction.CANCELLED,
+        target=locked,
+        branch=locked.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+        reason=reason.strip(),
+    )
+    return locked
+
+
+# ---------------------------------------------------------------------------
+# Purchase order change control
+# ---------------------------------------------------------------------------
+
+# What a revision may change is the signature of `revise_purchase_order`, and
+# `supplier` is absent from it on purpose. Changing who an order is with is not
+# a revision of that order, it is a different order — and once goods have been
+# received, it would re-attribute stock somebody else delivered.
+
+
+def received_base_quantity(line: PurchaseOrderLine) -> Decimal:
+    """
+    How much of this order line has already been accepted into stock.
+
+    Goods receipts arrive in Task 2.8. Until then this is zero — but it is a
+    **function with a call site**, not an assumption written into the guards
+    that use it. When `GoodsReceiptLine` exists, this body changes and every
+    guard tightens with it; if the guards had hard-coded zero instead, they
+    would keep passing and nobody would know to look.
+    """
+    receipt_lines = getattr(line, "receipt_lines", None)
+    if receipt_lines is None:
+        return Decimal("0.000")
+    accepted: Decimal | None = receipt_lines.filter(receipt__status="POSTED").aggregate(
+        total=Sum("accepted_base_quantity")
+    )["total"]
+    return accepted or Decimal("0.000")
+
+
+def _snapshot_lines(order: PurchaseOrder) -> list[dict[str, object]]:
+    """
+    The lines as they stand, frozen for a version row.
+
+    Decimals become **strings**, not floats: a snapshot that went through
+    binary floating point would be a record of a price nobody agreed to.
+    """
+    return [
+        {
+            "line_uid": str(line.line_uid),
+            "sequence": line.sequence,
+            "item_code": line.item.code,
+            "item_name_ar": line.item.name_ar,
+            "package_code": line.package_unit.code if line.package_unit else None,
+            "conversion_factor": (
+                format(line.conversion_factor, "f") if line.conversion_factor else None
+            ),
+            "ordered_quantity": format(line.ordered_quantity, "f"),
+            "ordered_base_quantity": format(line.ordered_base_quantity, "f"),
+            "unit_price": format(line.unit_price, "f"),
+            "line_total": format(line.line_total, "f"),
+            "note": line.note,
+        }
+        for line in order.lines.select_related("item", "package_unit").order_by("sequence")
+    ]
+
+
+def _snapshot_header(order: PurchaseOrder) -> dict[str, object]:
+    return {
+        "number": order.number,
+        "status": order.status,
+        "supplier_code": order.supplier.code,
+        "warehouse_code": order.warehouse.code,
+        "location_code": order.location.code if order.location else None,
+        "ordered_on": order.ordered_on.isoformat(),
+        "expected_on": order.expected_on.isoformat() if order.expected_on else None,
+        "payment_terms_days": order.payment_terms_days,
+        "supplier_reference": order.supplier_reference,
+        "notes": order.notes,
+        "total_amount": format(order.total_amount, "f"),
+    }
+
+
+@transaction.atomic
+def revise_purchase_order(
+    *,
+    order: PurchaseOrder,
+    actor: User,
+    reason: str,
+    warehouse: Warehouse | None = None,
+    location: StockLocation | None = None,
+    clear_location: bool = False,
+    expected_on: datetime.date | None = None,
+    supplier_reference: str | None = None,
+    notes: str | None = None,
+    line_quantities: dict[str, Decimal] | None = None,
+    line_prices: dict[str, Decimal] | None = None,
+) -> PurchaseOrder:
+    """
+    Supersede an approved or issued order with a new version.
+
+    The previous version is copied into a `PurchaseOrderVersion` before
+    anything changes, so what the supplier was told stays readable exactly as
+    they received it. The live row then moves to `version + 1`.
+
+    Lines are addressed by `line_uid` rather than by primary key or sequence:
+    the uid is stable for the life of the document and is what a downstream
+    receipt will point at, so a revision cannot silently re-target a different
+    line by renumbering.
+
+    Creates no stock, no journal, no payable and no GRNI. A revision is a
+    change to a commitment, and a commitment is still not a liability.
+    """
+    if not reason.strip():
+        raise ValidationError(
+            _("A revision must record why the order changed."), code="reason_required"
+        )
+
+    locked = lock_and_require_status(
+        PurchaseOrder,
+        order.pk,
+        {PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.ISSUED},
+        code="order_not_revisable",
+        message=_("Only an approved or issued order is revised; a draft is edited."),
+    )
+    previous = snapshot(locked)
+
+    # Freeze what the order says now, before touching it.
+    PurchaseOrderVersion.objects.create(
+        order=locked,
+        version=locked.version,
+        header=_snapshot_header(locked),
+        lines=_snapshot_lines(locked),
+        reason=reason.strip(),
+        revised_by=actor,
+        revised_at=timezone.now(),
+    )
+
+    received_anything = any(received_base_quantity(line) > 0 for line in locked.lines.all())
+
+    if warehouse is not None or location is not None or clear_location:
+        if received_anything:
+            raise ValidationError(
+                _("The destination cannot change once goods have been received."),
+                code="destination_locked_after_receipt",
+            )
+        destination = warehouse or locked.warehouse
+        if destination.branch_id != locked.branch_id:
+            raise ValidationError(
+                _("Warehouse %(code)s does not belong to this branch."),
+                code="warehouse_branch_mismatch",
+                params={"code": destination.code},
+            )
+        wanted = None if clear_location else (location or locked.location)
+        if wanted is not None and wanted.warehouse_id != destination.pk:
+            raise ValidationError(
+                _("Location %(code)s is not in this warehouse."),
+                code="location_warehouse_mismatch",
+                params={"code": wanted.code},
+            )
+        locked.warehouse = destination
+        locked.location = wanted
+
+    # `None` means "leave it alone"; the signature is the allowlist, and unlike
+    # a set of field names it cannot be bypassed by a caller passing a string.
+    if expected_on is not None:
+        locked.expected_on = expected_on
+    if supplier_reference is not None:
+        locked.supplier_reference = supplier_reference.strip()
+    if notes is not None:
+        locked.notes = notes.strip()
+
+    for uid, quantity in (line_quantities or {}).items():
+        line = locked.lines.select_for_update().filter(line_uid=uid).first()
+        if line is None:
+            raise ValidationError(
+                _("Line %(uid)s is not on this order."),
+                code="line_not_on_order",
+                params={"uid": uid},
+            )
+        if quantity <= 0:
+            raise ValidationError(
+                _("A revised quantity must be greater than zero."),
+                code="quantity_not_positive",
+            )
+        base = (
+            quantize_quantity(quantity * line.conversion_factor)
+            if line.conversion_factor is not None
+            else quantize_quantity(quantity)
+        )
+        accepted = received_base_quantity(line)
+        if base < accepted:
+            raise ValidationError(
+                _(
+                    "Line %(item)s has already accepted %(accepted)s; it cannot be "
+                    "revised down to %(wanted)s."
+                ),
+                code="below_received_quantity",
+                params={
+                    "item": line.item.code,
+                    "accepted": format(accepted, "f"),
+                    "wanted": format(base, "f"),
+                },
+            )
+        line.ordered_quantity = quantize_quantity(quantity)
+        line.ordered_base_quantity = base
+        line.line_total = quantize_money(quantity * line.unit_price)
+        line.full_clean()
+        line.save()
+
+    for uid, price in (line_prices or {}).items():
+        line = locked.lines.select_for_update().filter(line_uid=uid).first()
+        if line is None:
+            raise ValidationError(
+                _("Line %(uid)s is not on this order."),
+                code="line_not_on_order",
+                params={"uid": uid},
+            )
+        if price < 0:
+            raise ValidationError(_("A price cannot be negative."), code="price_negative")
+        line.unit_price = quantize_unit_price(price)
+        line.line_total = quantize_money(line.ordered_quantity * price)
+        line.full_clean()
+        line.save()
+
+    locked.version += 1
+    locked.revised_at = timezone.now()
+    locked.full_clean()
+    locked.save()
+
+    record_audit_event(
+        action=AuditAction.UPDATED,
         target=locked,
         branch=locked.branch,
         previous_state=previous,

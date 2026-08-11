@@ -1073,6 +1073,11 @@ class PurchaseOrder(TimeStampedModel):
     cancelled_at = models.DateTimeField(_("cancelled at"), null=True, blank=True)
     cancellation_reason = models.TextField(_("cancellation reason"), blank=True)
 
+    #: 1 until the first revision. The live row is always the current version;
+    #: every earlier one is a `PurchaseOrderVersion` snapshot.
+    version = models.PositiveIntegerField(_("version"), default=1)
+    revised_at = models.DateTimeField(_("last revised at"), null=True, blank=True)
+
     history = HistoricalRecords()
 
     class Meta:
@@ -1252,3 +1257,63 @@ class PurchaseOrderLine(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.order} · {self.item.code} × {self.ordered_quantity}"
+
+
+class PurchaseOrderVersion(TimeStampedModel):
+    """
+    What an order said before it was revised.
+
+    An issued order is a statement somebody outside the business has been
+    given, so it is never edited in place. A revision copies the current
+    header and lines into one of these rows, then changes the live order — so
+    the live row is always what is true now, and every version before it stays
+    readable exactly as the supplier received it.
+
+    Lines are held as JSON rather than as a second line table. They are a
+    frozen photograph and nothing will ever join to them, query across them or
+    reconcile against them; a parallel `PurchaseOrderVersionLine` model would
+    add foreign keys that make an item or a package undeletable for the sake of
+    a snapshot nobody navigates.
+    """
+
+    order = models.ForeignKey(
+        PurchaseOrder,
+        on_delete=models.CASCADE,
+        related_name="versions",
+        verbose_name=_("order"),
+    )
+    #: 1 is what the order said when it was first approved. The live row is
+    #: always `order.version`, which is this plus one after each revision.
+    version = models.PositiveIntegerField(_("version"))
+
+    #: The header as it stood, keyed by field name. JSON because it is read as
+    #: a whole and never filtered on.
+    header = models.JSONField(_("header snapshot"), default=dict)
+    lines = models.JSONField(_("line snapshot"), default=list)
+
+    reason = models.TextField(_("revision reason"))
+    revised_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="purchase_order_revisions",
+        verbose_name=_("revised by"),
+    )
+    revised_at = models.DateTimeField(_("revised at"))
+
+    class Meta:
+        verbose_name = _("purchase order version")
+        verbose_name_plural = _("purchase order versions")
+        ordering = ["order", "-version"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["order", "version"],
+                name="procurement_order_version_unique",
+            ),
+            models.CheckConstraint(
+                condition=~Q(reason=""),
+                name="procurement_order_version_states_a_reason",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.order} v{self.version}"

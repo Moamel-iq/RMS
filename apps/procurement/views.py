@@ -16,7 +16,8 @@ is a refactor of certified code and does not belong inside a feature task.
 
 from __future__ import annotations
 
-from decimal import Decimal
+import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.contrib import messages
@@ -75,6 +76,7 @@ from apps.procurement.permissions import (
     VIEW_SUPPLIER_ITEM,
 )
 from apps.procurement.selectors import (
+    order_version_history,
     resolve_order_line,
     resolve_purchase_order,
     resolve_purchase_request,
@@ -108,6 +110,7 @@ from apps.procurement.services import (
     remove_order_line,
     remove_quotation_line,
     remove_request_line,
+    revise_purchase_order,
     submit_purchase_request,
     submit_supplier_quotation,
     update_supplier,
@@ -955,6 +958,8 @@ class PurchaseOrderDetailView(InventoryViewMixin, View):
             "may_cancel": has_branch_permission(self.actor, CANCEL_PURCHASE_ORDER, order.branch)
             and order.status != PurchaseOrderStatus.CANCELLED,
             "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+            "may_revise": may_edit
+            and order.status in {PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.ISSUED},
         }
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -1038,3 +1043,74 @@ class PurchaseOrderTransitionView(InventoryViewMixin, View):
         except ValidationError as error:
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
         return HttpResponseRedirect(reverse("procurement:purchase_order_detail", args=[order.pk]))
+
+
+class PurchaseOrderHistoryView(InventoryViewMixin, View):
+    """Every version of one order, with what changed between each pair."""
+
+    module_key = "procurement"
+    required_permission = VIEW_PURCHASE_ORDER
+    template_name = "procurement/purchase_order_history.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        order = resolve_purchase_order(self.actor, self.kwargs["pk"])
+        return render(
+            request,
+            self.template_name,
+            {
+                "order": order,
+                "entries": order_version_history(self.actor, order=order),
+                "page_title": _("سجل إصدارات أمر الشراء"),
+                "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+            },
+        )
+
+
+class PurchaseOrderReviseView(InventoryViewMixin, View):
+    """POST-only. A revision changes what a supplier was told."""
+
+    module_key = "procurement"
+    required_permission = CREATE_PURCHASE_ORDER
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        order = resolve_purchase_order(self.actor, self.kwargs["pk"])
+        require_branch_permission(self.actor, CREATE_PURCHASE_ORDER, order.branch)
+
+        quantities: dict[str, Decimal] = {}
+        prices: dict[str, Decimal] = {}
+        # `request.POST.items()` types values as `str | list`; `dict.items()`
+        # on the underlying QueryDict gives the last value per key, which is
+        # what a single form field means anyway.
+        for key in request.POST:
+            value = request.POST.get(key, "").strip()
+            if not value:
+                continue
+            try:
+                if key.startswith("quantity-"):
+                    quantities[key.removeprefix("quantity-")] = Decimal(value)
+                elif key.startswith("price-"):
+                    prices[key.removeprefix("price-")] = Decimal(value)
+            except InvalidOperation:
+                messages.error(request, _("قيمة عددية غير صالحة."))
+                return HttpResponseRedirect(
+                    reverse("procurement:purchase_order_detail", args=[order.pk])
+                )
+
+        expected = request.POST.get("expected_on", "").strip()
+        try:
+            revise_purchase_order(
+                order=order,
+                actor=self.actor,
+                reason=request.POST.get("reason", ""),
+                expected_on=datetime.date.fromisoformat(expected) if expected else None,
+                supplier_reference=request.POST.get("supplier_reference") or None,
+                line_quantities=quantities or None,
+                line_prices=prices or None,
+            )
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        except ValueError:
+            messages.error(request, _("تاريخ غير صالح."))
+        else:
+            messages.success(request, _("تم إصدار نسخة جديدة من الأمر."))
+        return HttpResponseRedirect(reverse("procurement:purchase_order_history", args=[order.pk]))

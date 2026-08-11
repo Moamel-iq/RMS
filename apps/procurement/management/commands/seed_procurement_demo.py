@@ -34,6 +34,7 @@ from apps.organizations.models import Organization
 from apps.procurement.demo import (
     seed_demo_award,
     seed_demo_catalogue,
+    seed_demo_order_revision,
     seed_demo_orders,
     seed_demo_quotations,
     seed_demo_requests,
@@ -117,6 +118,7 @@ class Command(SeedCommand):
                 if approver is not None and approver.pk != user.pk
                 else []
             )
+            seed_demo_order_revision(organization=organization, actor=user)
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")

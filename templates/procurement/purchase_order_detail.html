@@ -148,4 +148,43 @@
       {% translate "من أعدّ الأمر لا يستطيع اعتماده — القاعدة محفوظة في قاعدة البيانات وليس في الشاشة فقط." %}
     </p>
   </div>
+
+  <div class="formcard">
+    <h2>
+      {% translate "التعديل والإصدارات" %}
+      <span class="chip">{% blocktranslate with number=order.version %}الإصدار {{ number }}{% endblocktranslate %}</span>
+    </h2>
+    <p><a class="btn btn--ghost" href="{% url 'procurement:purchase_order_history' order.pk %}">
+      {% translate "سجل الإصدارات" %}
+    </a></p>
+
+    {% if may_revise %}
+      <form method="post" action="{% url 'procurement:purchase_order_revise' order.pk %}" novalidate>
+        {% csrf_token %}
+        <div class="formgrid">
+          {% for line in lines %}
+            <label class="field">
+              <span class="field__label">{{ line.item.code }} — {% translate "كمية جديدة" %}</span>
+              {# dir="ltr" only where a value exists; an empty RTL input with #}
+              {# dir="auto" puts its padding on the wrong side.               #}
+              <input type="text" name="quantity-{{ line.line_uid }}"
+                     placeholder="{{ line.ordered_quantity|stringformat:'f' }}">
+            </label>
+          {% endfor %}
+          <label class="field">
+            <span class="field__label">{% translate "التسليم المتوقع" %}</span>
+            <input type="date" name="expected_on">
+          </label>
+          <label class="field">
+            <span class="field__label">{% translate "سبب التعديل" %}</span>
+            <input type="text" name="reason" required>
+          </label>
+        </div>
+        <button class="btn btn--primary" type="submit">{% translate "إصدار نسخة جديدة" %}</button>
+      </form>
+      <p class="muted">
+        {% translate "الأمر المُرسل لا يُعدَّل في مكانه: النسخة السابقة تبقى كما استلمها المورد، والنسخة الجديدة تصبح السارية." %}
+      </p>
+    {% endif %}
+  </div>
 {% endblock %}

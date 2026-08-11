@@ -158,4 +158,14 @@ urlpatterns = [
         views.PurchaseOrderTransitionView.as_view(transition="cancel"),
         name="purchase_order_cancel",
     ),
+    path(
+        "orders/<int:pk>/history/",
+        views.PurchaseOrderHistoryView.as_view(),
+        name="purchase_order_history",
+    ),
+    path(
+        "orders/<int:pk>/revise/",
+        views.PurchaseOrderReviseView.as_view(),
+        name="purchase_order_revise",
+    ),
 ]
