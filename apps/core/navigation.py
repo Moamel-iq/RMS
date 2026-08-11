@@ -236,17 +236,28 @@ MODULES: tuple[Module, ...] = (
         label=_("المشتريات"),
         icon_name="cart",
         phase=_("المرحلة ٢"),
-        sections=_sections(
-            _("الموردون"),
-            _("أوامر الشراء"),
-            _("استلام البضاعة"),
-            _("فواتير الموردين"),
-            _("التكاليف الإضافية"),
-            _("مرتجعات الموردين"),
-            _("دفعات الموردين"),
-            _("تخصيص الدفعات"),
-            _("أرصدة الموردين"),
-            _("شروط الائتمان"),
+        url_name="procurement:supplier_list",
+        available=True,
+        sections=(
+            # Task 2.1 — the supplier master. Built and reachable.
+            Section(
+                label=_("الموردون"),
+                url_name="procurement:supplier_list",
+                available=True,
+            ),
+            # Task 2.2 onward — visible so the shape of the module is legible,
+            # inert because the documents that would fill them do not exist.
+            *_sections(
+                _("أوامر الشراء"),
+                _("استلام البضاعة"),
+                _("فواتير الموردين"),
+                _("التكاليف الإضافية"),
+                _("مرتجعات الموردين"),
+                _("دفعات الموردين"),
+                _("تخصيص الدفعات"),
+                _("أرصدة الموردين"),
+                _("شروط الائتمان"),
+            ),
         ),
     ),
     Module(

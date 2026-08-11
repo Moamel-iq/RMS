@@ -498,9 +498,9 @@ see Task 2.0 §0.
 | ID | Requirement | Implementation | Test | Task | AT | Status |
 |---|---|---|---|---|---|---|
 | PRC-001 | No model combines two of the seven procurement events | separate aggregates | — | 2.1–2.15 | | Specified |
-| PRC-002 | Supplier code canonical uppercase, unique per organization, archived codes reserved | `create_supplier` + `UniqueConstraint` | — | 2.1 | | Specified |
-| PRC-003 | `Supplier` carries no balance field; balances derive from posted documents | model shape | — | 2.1 | | Specified |
-| PRC-004 | A supplier is archived, never deleted | `on_delete=PROTECT` | — | 2.1 | | Specified |
+| PRC-002 | Supplier code canonical uppercase, unique per organization, archived codes reserved | `create_supplier` + `UniqueConstraint` | `apps/procurement/tests/test_supplier.py::TestSupplierCode` | 2.1 | | Done |
+| PRC-003 | `Supplier` carries no balance field; balances derive from posted documents | model shape | `apps/procurement/tests/test_supplier.py::test_there_is_no_balance_field`, `apps/procurement/tests/test_supplier.py::test_there_is_no_account_field` | 2.1 | | Done |
+| PRC-004 | A supplier is archived, never deleted | `on_delete=PROTECT` | `apps/procurement/tests/test_supplier.py::test_archive_and_reactivate_keep_the_row`, `apps/procurement/tests/test_supplier.py::test_an_archived_code_stays_reserved` | 2.1 | | Done |
 | PRC-005 | A catalogue price values nothing; no posting service reads it | AST boundary test | — | 2.2 | | Specified |
 | PRC-006 | One preferred supplier per item; one preferred catalogue row per pair | partial unique index | — | 2.2 | | Specified |
 | PRC-007 | Catalogue effective periods cannot overlap | `EXCLUDE USING gist` | — | 2.2 | | Specified |
@@ -556,11 +556,11 @@ see Task 2.0 §0.
 | PRC-057 | Oldest-invoice allocation is a visible default, never silent | UI default; API requires explicit | — | 2.15 | | Specified |
 | PRC-058 | Procurement-to-GL reconciliation proves four equalities | `verify_procurement_accounting` | — | 2.16 | | Specified |
 | PRC-059 | Verification reports and refuses to repair | no repair mode exists | — | 2.16 | | Specified |
-| PRC-060 | Receipt and return permissions are warehouse-scoped; money is organization-scoped | `PERMISSION_SCOPE` | — | 2.1–2.15 | | Specified |
-| PRC-061 | Cost columns are omitted, not blanked, without `view_supplier_cost` | view layer | — | 2.8 | | Specified |
-| PRC-062 | No writable CRUD API and no writable admin for a posted record | command API + read-only admin | — | 2.17 | | Specified |
-| PRC-063 | API money and quantities are exact strings in both directions | schema layer | — | 2.1–2.15 | | Specified |
+| PRC-060 | Receipt and return permissions are warehouse-scoped; money is organization-scoped | `PERMISSION_SCOPE` | `apps/procurement/tests/test_supplier.py::test_every_permission_declares_a_scope` | 2.1–2.15 | | Done |
+| PRC-061 | Cost columns are omitted, not blanked, without `view_supplier_cost` | view layer | `apps/procurement/tests/test_supplier.py::test_a_storekeeper_sees_suppliers_and_never_their_prices` | 2.8 | | Done |
+| PRC-062 | No writable CRUD API and no writable admin for a posted record | command API + read-only admin | `apps/procurement/tests/test_supplier.py::TestAdminIsReadOnly` | 2.17 | | Done |
+| PRC-063 | API money and quantities are exact strings in both directions | schema layer | `apps/procurement/tests/test_supplier.py::TestScreens` | 2.1–2.15 | | Done |
 | PRC-064 | Every command carries an organization-scoped idempotency key and fingerprint | reuses ADR-017 | — | 2.1–2.15 | | Specified |
 | PRC-065 | Arabic RTL screens, logical properties, HTMX filters surviving pagination | templates + `_filter_query` | — | 2.1–2.16 | | Specified |
-| PRC-066 | Demo data: three suppliers, the five existing items, idempotent, DEBUG-only | demo tooling | — | 2.1–2.17 | | Specified |
+| PRC-066 | Demo data: three suppliers, the five existing items, idempotent, DEBUG-only | demo tooling | `apps/procurement/tests/test_supplier.py::TestDemoSuppliers` | 2.1–2.17 | | Done |
 | PRC-067 | `source_document_id` is the immutable `public_id`, never a number or pk | posting services | — | 2.9 | | Specified |
