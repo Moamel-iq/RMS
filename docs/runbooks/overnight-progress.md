@@ -5,10 +5,10 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 03/20 — Supplier master (IN PROGRESS)
-CURRENT_TASK: Task 2.1 — `apps/procurement`, supplier master data
-LAST_GREEN_COMMIT: d9ff702
-LAST_PUSHED_COMMIT: d9ff702
+CURRENT_PIPELINE_STEP: 04/20 — Supplier item catalogue (NOT STARTED)
+CURRENT_TASK: none in flight
+LAST_GREEN_COMMIT: be918c0
+LAST_PUSHED_COMMIT: be918c0
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
 
 ACTIVE_WORKTREES:
@@ -26,26 +26,28 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: finish Task 2.1 — `apps/procurement` is written
-(models, permissions, services, selectors, forms, views, urls, admin,
-migration `0001_initial`, and the app registered in `config/settings/base.py`
-and `config/urls.py`). Still to add: `templates/procurement/supplier_list.html`
-and `supplier_form.html`, `apps/procurement/api.py` wired into
-`config/api.py`, `apps/procurement/demo.py`, the
-`seed_procurement_demo` command, `apps/procurement/tests/`, the live
-navigation entry, and the traceability rows for PRC-002/003/004/060/061/062.
-Drafts for every one of those are in the session scratchpad.
+NEXT_EXACT_ACTION: Step 04 — Task 2.2, the supplier item catalogue.
+`SupplierItem` linking `Supplier` to `inventory.InventoryItem`: supplier
+SKU, purchase package, lead time, minimum order, preferred flag, effective
+dating with an `EXCLUDE USING gist` no-overlap constraint, versioning
+rather than editing once referenced. Services, scope-safe selectors,
+permissions, API, Arabic RTL screens, demo catalogue rows against the five
+existing inventory demo items. See Task 2.0 §3 (PRC-005 – PRC-008).
+
+A catalogue price values nothing and no posting service may read it —
+PRC-005 is an AST boundary test, not a comment.
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                      # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q
+.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 41 passed
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
 organization DEMO-KHAN-MANDI; start at http://127.0.0.1:8000/inventory/stock/.
-Procurement demo suppliers are not seeded yet.
+Procurement: three demo suppliers seeded and visible at
+http://127.0.0.1:8000/procurement/suppliers/ (`0 created` on re-run).
 RECONCILIATION_STATE: all three inventory verifiers clean on `khan_mandi_dev`
 and `khan_mandi_p1_exit`
 
@@ -78,7 +80,17 @@ Both Phase 1 hygiene items are done.
   to 2:05 on the same 123 tests, by sharing one seed per module. Two
   transactional classes moved to `test_location_concurrency.py` and
   `test_import_constraints.py`; `refuse_transactional_tests` stops the
-  incompatible combination from ever going quietly green.
+  incompatible combination from ever going quietly green. The move broke
+  two traceability citations, which the full suite caught and `51024b6`
+  fixed forward.
+
+Measured honestly: the three files went 18:48 → 2:05 back to back on the
+same machine, but the **full** suite went 38:42 → 34:56, not the ~22
+minutes that saving alone implies. The file-level number is a controlled
+comparison; the full-suite number is against a baseline taken on a
+different day. Where the rest of the difference went is not established,
+and no further optimisation was attempted — the known repeated setup was
+the item, and it is addressed.
 
 ## Step log
 
@@ -90,5 +102,5 @@ Both Phase 1 hygiene items are done.
 | B1 Traceability | **COMPLETE, PUSHED** | e1afe79 | 0 unresolved citations, was 233 |
 | B2 Suite runtime | **COMPLETE, PUSHED** | d9ff702 | 123 tests, 18:48 → 2:05 |
 | 02 Procurement spec | **COMPLETE, PUSHED** | d6c2b0f | 67 PRC requirements, 50 invariants, ADR-022/023 |
-| 03 Supplier master | in progress | — | app written; templates, API, demo, tests outstanding |
+| 03 Supplier master | **COMPLETE, PUSHED** | be918c0 | 41 tests, 3 demo suppliers, route + htmx verified |
 | 04–20 | not started | — | — |
