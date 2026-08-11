@@ -8,14 +8,18 @@ the view calls a service, which is the only place a write happens.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from apps.inventory.models import InventoryItem, PackageUnit
+from apps.inventory.models import InventoryItem, PackageUnit, StockLocation, Warehouse
 from apps.inventory.selectors import reachable_organization_ids
-from apps.organizations.authorization import organizations_with_permission
+from apps.organizations.authorization import (
+    accessible_warehouses,
+    organizations_with_permission,
+)
 from apps.organizations.models import Organization
 from apps.procurement.models import Supplier, SupplierItem
 from apps.procurement.permissions import MANAGE_SUPPLIERS
@@ -218,3 +222,78 @@ class SupplierItemForm(forms.Form):
                 _("تاريخ الانتهاء قبل تاريخ البداية."), code="period_reversed"
             )
         return data
+
+
+class PurchaseRequestForm(forms.Form):
+    """The header of a draft request. Lines are added on the detail screen."""
+
+    warehouse = forms.ModelChoiceField(queryset=Warehouse.objects.none(), label=_("المخزن المستلم"))
+    location = forms.ModelChoiceField(
+        queryset=StockLocation.objects.none(),
+        label=_("الموقع داخل المخزن"),
+        required=False,
+        help_text=_("اختياري. اتركه فارغاً إذا لم تكن المواقع مستخدمة."),
+    )
+    required_date = forms.DateField(
+        label=_("مطلوب بتاريخ"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    purpose = forms.CharField(label=_("الغرض"), max_length=200)
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+        warehouses = accessible_warehouses(actor).filter(is_active=True, is_system=False)
+        self.fields["warehouse"].queryset = warehouses.order_by("code")  # type: ignore[attr-defined]
+        self.fields["location"].queryset = StockLocation.objects.filter(  # type: ignore[attr-defined]
+            warehouse__in=warehouses, is_active=True
+        ).order_by("warehouse__code", "code")
+
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean() or {}
+        warehouse, location = data.get("warehouse"), data.get("location")
+        if warehouse and location and location.warehouse_id != warehouse.pk:
+            raise forms.ValidationError(
+                _("الموقع لا يتبع المخزن المختار."), code="location_warehouse_mismatch"
+            )
+        return data
+
+
+class PurchaseRequestLineForm(forms.Form):
+    """
+    One wanted item, in the unit the requester thinks in.
+
+    The package list is every package in reach; the service narrows it to one
+    the chosen item can actually convert, and rejects the rest. A select is a
+    convenience, never a control.
+    """
+
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    package_unit = forms.ModelChoiceField(
+        queryset=PackageUnit.objects.none(),
+        label=_("العبوة"),
+        required=False,
+        help_text=_("اتركها فارغة للطلب بوحدة الصنف الأساسية."),
+    )
+    entered_quantity = forms.DecimalField(label=_("الكمية"), min_value=Decimal("0.001"))
+    preferred_supplier = forms.ModelChoiceField(
+        queryset=Supplier.objects.none(), label=_("المورد المقترح"), required=False
+    )
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, request_document: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.request_document = request_document
+        organization_id = request_document.organization_id
+
+        self.fields["item"].queryset = InventoryItem.objects.filter(  # type: ignore[attr-defined]
+            organization_id=organization_id, is_active=True
+        ).order_by("code")
+        self.fields["package_unit"].queryset = PackageUnit.objects.filter(  # type: ignore[attr-defined]
+            organization_id=organization_id, is_active=True
+        ).order_by("code")
+        self.fields["preferred_supplier"].queryset = Supplier.objects.filter(  # type: ignore[attr-defined]
+            organization_id=organization_id, is_active=True
+        ).order_by("code")

@@ -52,4 +52,41 @@ urlpatterns = [
         views.SupplierItemActionView.as_view(activate=True),
         name="supplier_item_reactivate",
     ),
+    # --- purchase requests -------------------------------------------
+    path("requests/", views.PurchaseRequestListView.as_view(), name="purchase_request_list"),
+    path(
+        "requests/new/",
+        views.PurchaseRequestCreateView.as_view(),
+        name="purchase_request_create",
+    ),
+    path(
+        "requests/<int:pk>/",
+        views.PurchaseRequestDetailView.as_view(),
+        name="purchase_request_detail",
+    ),
+    path(
+        "requests/<int:pk>/lines/<int:line_id>/delete/",
+        views.PurchaseRequestLineDeleteView.as_view(),
+        name="purchase_request_line_delete",
+    ),
+    path(
+        "requests/<int:pk>/submit/",
+        views.PurchaseRequestTransitionView.as_view(transition="submit"),
+        name="purchase_request_submit",
+    ),
+    path(
+        "requests/<int:pk>/approve/",
+        views.PurchaseRequestTransitionView.as_view(transition="approve"),
+        name="purchase_request_approve",
+    ),
+    path(
+        "requests/<int:pk>/reject/",
+        views.PurchaseRequestTransitionView.as_view(transition="reject"),
+        name="purchase_request_reject",
+    ),
+    path(
+        "requests/<int:pk>/cancel/",
+        views.PurchaseRequestTransitionView.as_view(transition="cancel"),
+        name="purchase_request_cancel",
+    ),
 ]

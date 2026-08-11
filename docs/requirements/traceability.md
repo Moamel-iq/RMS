@@ -505,10 +505,10 @@ see Task 2.0 §0.
 | PRC-006 | One preferred supplier per item; one preferred catalogue row per pair | partial unique index | `apps/procurement/tests/test_supplier_catalogue.py::TestPreferredSource` | 2.2 | | Done |
 | PRC-007 | Catalogue effective periods cannot overlap | `EXCLUDE USING gist` | `apps/procurement/tests/test_supplier_catalogue.py::test_overlapping_periods_are_impossible` | 2.2 | | Done |
 | PRC-008 | A catalogue package must be one the item can convert to base | service guard | `apps/procurement/tests/test_supplier_catalogue.py::TestPackageCompatibility` | 2.2 | | Done |
-| PRC-009 | A purchase request has no stock and no accounting effect | asserted per status | — | 2.3 | | Specified |
-| PRC-010 | A request approver is never its submitter | `CheckConstraint` | — | 2.3 | | Specified |
-| PRC-011 | Only a DRAFT request is editable | service guard + trigger | — | 2.3 | | Specified |
-| PRC-012 | Request lines snapshot conversion, version, factor and base quantity | non-null columns | — | 2.3 | | Specified |
+| PRC-009 | A purchase request has no stock and no accounting effect | asserted per status | `apps/procurement/tests/test_purchase_requests.py::TestNoLedgerEffect` | 2.3 | | Done |
+| PRC-010 | A request approver is never its submitter | `CheckConstraint` | `apps/procurement/tests/test_purchase_requests.py::TestMakerChecker` | 2.3 | | Done |
+| PRC-011 | Only a DRAFT request is editable | service guard + trigger | `apps/procurement/tests/test_purchase_requests.py::test_a_submitted_request_is_frozen`, `apps/procurement/tests/test_purchase_requests.py::test_a_line_cannot_be_removed_after_submission` | 2.3 | | Done |
+| PRC-012 | Request lines snapshot conversion, version, factor and base quantity | non-null columns | `apps/procurement/tests/test_purchase_requests.py::TestLines` | 2.3 | | Done |
 | PRC-013 | A quotation has no stock and no accounting effect | asserted per status | — | 2.4 | | Specified |
 | PRC-014 | Comparison normalises to base quantity and base unit price | comparison service | — | 2.5 | | Specified |
 | PRC-015 | Freight is shown separately **and** inside a landed unit price | comparison report | — | 2.5 | | Specified |

@@ -31,7 +31,19 @@ from apps.core.context import audit_context
 from apps.inventory.demo import DEMO_ORGANIZATION_CODE, DemoSelectionError
 from apps.inventory.management.commands.seed_inventory_demo import resolve_user
 from apps.organizations.models import Organization
-from apps.procurement.demo import seed_demo_catalogue, seed_demo_suppliers
+from apps.procurement.demo import (
+    seed_demo_catalogue,
+    seed_demo_requests,
+    seed_demo_suppliers,
+)
+from apps.users.models import User
+
+#: The demo storekeeper the inventory seed creates. Requests are raised by
+#: them and decided by the signed-in user, so the two actors differ and the
+#: maker-checker constraint is satisfied by real people rather than a
+#: workaround.
+CHECKER_USERNAME = "demo-storekeeper"
+
 
 #: The screens this dataset makes reviewable, in navigation order. Route
 #: names rather than literal paths: a hard-coded path is a second copy of
@@ -39,6 +51,7 @@ from apps.procurement.demo import seed_demo_catalogue, seed_demo_suppliers
 INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:supplier_list", "الموردون"),
     ("procurement:supplier_item_list", "كتالوج الموردين"),
+    ("procurement:purchase_request_list", "طلبات الشراء"),
 ]
 
 
@@ -84,6 +97,14 @@ class Command(SeedCommand):
         with audit_context(actor=user):
             suppliers = seed_demo_suppliers(organization=organization)
             catalogue = seed_demo_catalogue(organization=organization)
+            # Two actors, because maker-checker is a database constraint
+            # and a demo that approved its own request would not insert.
+            approver = User.objects.filter(username=CHECKER_USERNAME).first()
+            requests = (
+                seed_demo_requests(organization=organization, requester=approver, approver=user)
+                if approver is not None and approver.pk != user.pk
+                else []
+            )
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -96,7 +117,17 @@ class Command(SeedCommand):
             package = row.package_unit.code if row.package_unit else row.item.base_unit.code
             self.write(f"  {row.supplier.code:<24} {row.item.code:<16} {package}")
         self.write("")
-        self.write(f"{len(suppliers)} suppliers and {len(catalogue)} catalogue rows present.")
+        if requests:
+            self.write("")
+            self.write("purchase requests:")
+            for document in requests:
+                label = document.number or "draft"
+                self.write(f"  {label:<24} {document.get_status_display()}")
+        self.write("")
+        self.write(
+            f"{len(suppliers)} suppliers, {len(catalogue)} catalogue rows and "
+            f"{len(requests)} requests present."
+        )
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")
         for route, label in INSPECTION_ROUTES:

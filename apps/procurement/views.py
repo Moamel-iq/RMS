@@ -18,28 +18,62 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.db.models import QuerySet
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.shortcuts import render
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
+from django.views import View
 
-from apps.inventory.views import InventoryActionView, InventoryListView, InventoryWriteView
-from apps.organizations.authorization import require_reachable_organization_permission
-from apps.procurement.forms import SupplierForm, SupplierItemForm
+from apps.inventory.views import (
+    InventoryActionView,
+    InventoryListView,
+    InventoryViewMixin,
+    InventoryWriteView,
+)
+from apps.organizations.authorization import (
+    has_branch_permission,
+    require_branch_permission,
+    require_reachable_organization_permission,
+)
+from apps.procurement.forms import (
+    PurchaseRequestForm,
+    PurchaseRequestLineForm,
+    SupplierForm,
+    SupplierItemForm,
+)
+from apps.procurement.models import PurchaseRequestStatus
 from apps.procurement.permissions import (
+    APPROVE_PURCHASE_REQUEST,
+    CREATE_PURCHASE_REQUEST,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
+    VIEW_PURCHASE_REQUEST,
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
     VIEW_SUPPLIER_ITEM,
 )
 from apps.procurement.selectors import (
+    resolve_purchase_request,
+    resolve_request_line,
     resolve_supplier,
     resolve_supplier_item,
+    visible_purchase_requests,
     visible_supplier_items,
     visible_suppliers,
 )
 from apps.procurement.services import (
+    add_request_line,
+    approve_purchase_request,
+    cancel_purchase_request,
+    create_purchase_request,
     create_supplier,
     create_supplier_item,
+    reject_purchase_request,
+    remove_request_line,
+    submit_purchase_request,
     update_supplier,
     update_supplier_item,
 )
@@ -317,4 +351,210 @@ class SupplierItemActionView(InventoryActionView):
             effective_to=instance.effective_to,
             notes=instance.notes,
             is_active=self.activate,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Purchase requests
+# ---------------------------------------------------------------------------
+
+
+class PurchaseRequestListView(InventoryListView):
+    module_key = "procurement"
+    required_permission = VIEW_PURCHASE_REQUEST
+    template_name = "procurement/purchase_request_list.html"
+    context_object_name = "requests"
+    page_title = _("طلبات الشراء")
+    page_hint = _(
+        "ما يطلبه الفرع. لا يحرّك مخزوناً ولا يُنشئ التزاماً في أي حالة — "
+        "الاعتماد اتفاق على الحاجة، وأمر الشراء وحده هو الالتزام التجاري."
+    )
+    search_fields = ("number", "purpose", "warehouse__code", "requested_by__username")
+    manage_permission = CREATE_PURCHASE_REQUEST
+    manage_scope = "branch"
+    create_url_name = "procurement:purchase_request_create"
+    create_label = _("طلب شراء جديد")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_purchase_requests(self.actor)
+        status = self.request.GET.get("status", "").strip().upper()
+        if status in PurchaseRequestStatus.values:
+            queryset = queryset.filter(status=status)
+        return queryset.order_by("-id")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["statuses"] = PurchaseRequestStatus.choices
+        context["selected_status"] = self.request.GET.get("status", "")
+        return context
+
+
+class PurchaseRequestCreateView(InventoryWriteView):
+    module_key = "procurement"
+    template_name = "procurement/purchase_request_form.html"
+    form_class = PurchaseRequestForm
+    required_permission = CREATE_PURCHASE_REQUEST
+    success_url_name = "procurement:purchase_request_list"
+    page_title = _("طلب شراء جديد")
+    page_hint = _("يُفتح كمسودة بلا رقم. الرقم يُسحب عند الإرسال حتى لا تحرق مسودةٌ رقماً.")
+    success_message = _("تم إنشاء المسودة. أضف الأصناف ثم أرسلها.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_branch_permission(
+            self.actor, CREATE_PURCHASE_REQUEST, form.cleaned_data["warehouse"].branch
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        warehouse = form.cleaned_data["warehouse"]
+        self.created = create_purchase_request(
+            branch=warehouse.branch,
+            requested_by=self.actor,
+            warehouse=warehouse,
+            location=form.cleaned_data.get("location"),
+            required_date=form.cleaned_data["required_date"],
+            purpose=form.cleaned_data["purpose"],
+            notes=form.cleaned_data.get("notes", ""),
+        )
+
+    def get_success_url(self) -> str:
+        created = getattr(self, "created", None)
+        if created is None:
+            return reverse(self.success_url_name)
+        # Straight to the detail screen: a header with no lines is not yet a
+        # request, and sending the user back to the list would hide that.
+        return reverse("procurement:purchase_request_detail", args=[created.pk])
+
+
+class PurchaseRequestDetailView(InventoryViewMixin, View):
+    """The header, its lines, the add-line form, and whatever may happen next."""
+
+    module_key = "procurement"
+    required_permission = VIEW_PURCHASE_REQUEST
+    template_name = "procurement/purchase_request_detail.html"
+
+    def load(self) -> Any:
+        return resolve_purchase_request(self.actor, self.kwargs["pk"])
+
+    def context(self, request_document: Any, form: Any) -> dict[str, Any]:
+        may_edit = self.actor.has_perm(CREATE_PURCHASE_REQUEST) and has_branch_permission(
+            self.actor, CREATE_PURCHASE_REQUEST, request_document.branch
+        )
+        may_decide = has_branch_permission(
+            self.actor, APPROVE_PURCHASE_REQUEST, request_document.branch
+        )
+        return {
+            "request_document": request_document,
+            "lines": request_document.lines.select_related(
+                "item", "item__base_unit", "package_unit", "preferred_supplier"
+            ).order_by("sequence"),
+            "form": form,
+            "page_title": request_document.number or _("مسودة طلب شراء"),
+            "may_edit": may_edit and request_document.is_editable,
+            "may_decide": may_decide,
+            "is_submitted": request_document.status == PurchaseRequestStatus.SUBMITTED,
+            "may_cancel": (may_edit or may_decide)
+            and request_document.status
+            in {
+                PurchaseRequestStatus.DRAFT,
+                PurchaseRequestStatus.SUBMITTED,
+                PurchaseRequestStatus.APPROVED,
+            },
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = self.load()
+        form = PurchaseRequestLineForm(actor=self.actor, request_document=document)
+        return render(request, self.template_name, self.context(document, form))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = self.load()
+        require_branch_permission(self.actor, CREATE_PURCHASE_REQUEST, document.branch)
+        form = PurchaseRequestLineForm(
+            actor=self.actor, request_document=document, data=request.POST
+        )
+        if form.is_valid():
+            try:
+                add_request_line(
+                    request=document,
+                    item=form.cleaned_data["item"],
+                    package_unit=form.cleaned_data.get("package_unit"),
+                    entered_quantity=form.cleaned_data["entered_quantity"],
+                    preferred_supplier=form.cleaned_data.get("preferred_supplier"),
+                    note=form.cleaned_data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة السطر."))
+                return HttpResponseRedirect(
+                    reverse("procurement:purchase_request_detail", args=[document.pk])
+                )
+        return render(request, self.template_name, self.context(document, form))
+
+
+class PurchaseRequestLineDeleteView(InventoryViewMixin, View):
+    """POST-only. A GET that deleted a line would fire on a link prefetch."""
+
+    module_key = "procurement"
+    required_permission = CREATE_PURCHASE_REQUEST
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = resolve_purchase_request(self.actor, self.kwargs["pk"])
+        require_branch_permission(self.actor, CREATE_PURCHASE_REQUEST, document.branch)
+        line = resolve_request_line(self.actor, request=document, line_id=self.kwargs["line_id"])
+        try:
+            remove_request_line(line=line)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم حذف السطر."))
+        return HttpResponseRedirect(
+            reverse("procurement:purchase_request_detail", args=[document.pk])
+        )
+
+
+class PurchaseRequestTransitionView(InventoryViewMixin, View):
+    """
+    Submit, approve, reject or cancel — one POST-only route per act.
+
+    The permission differs per transition and is checked against the request's
+    own branch, never globally: holding `approve_purchase_request` somewhere is
+    not holding it here.
+    """
+
+    module_key = "procurement"
+    required_permission = VIEW_PURCHASE_REQUEST
+    #: One of "submit", "approve", "reject", "cancel".
+    transition: str = ""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = resolve_purchase_request(self.actor, self.kwargs["pk"])
+        reason = request.POST.get("reason", "").strip()
+
+        needed = (
+            CREATE_PURCHASE_REQUEST
+            if self.transition in {"submit", "cancel"}
+            else APPROVE_PURCHASE_REQUEST
+        )
+        require_branch_permission(self.actor, needed, document.branch)
+
+        try:
+            if self.transition == "submit":
+                submit_purchase_request(request=document, actor=self.actor)
+                messages.success(request, _("تم إرسال الطلب."))
+            elif self.transition == "approve":
+                approve_purchase_request(request=document, actor=self.actor, reason=reason)
+                messages.success(request, _("تم اعتماد الطلب."))
+            elif self.transition == "reject":
+                reject_purchase_request(request=document, actor=self.actor, reason=reason)
+                messages.success(request, _("تم رفض الطلب."))
+            else:
+                cancel_purchase_request(request=document, actor=self.actor, reason=reason)
+                messages.success(request, _("تم إلغاء الطلب."))
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+
+        return HttpResponseRedirect(
+            reverse("procurement:purchase_request_detail", args=[document.pk])
         )

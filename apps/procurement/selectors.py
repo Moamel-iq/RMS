@@ -17,7 +17,13 @@ from django.utils.translation import gettext_lazy as _
 from apps.inventory.models import InventoryItem
 from apps.inventory.selectors import reachable_organization_ids
 from apps.organizations.authorization import OutOfScope
-from apps.procurement.models import Supplier, SupplierItem
+from apps.organizations.selectors import accessible_branches
+from apps.procurement.models import (
+    PurchaseRequest,
+    PurchaseRequestLine,
+    Supplier,
+    SupplierItem,
+)
 from apps.users.models import User
 
 
@@ -110,3 +116,39 @@ def preferred_supplier_item(
     so `.first()` here is not a choice between candidates.
     """
     return catalogue_effective_on(user, item=item, on=on).filter(is_preferred=True).first()
+
+
+def visible_purchase_requests(user: User) -> QuerySet[PurchaseRequest]:
+    """
+    Requests at branches the caller reaches, in every status.
+
+    Branch-scoped rather than organization-scoped: a request names a branch
+    warehouse, and a manager at one branch has no business reading another
+    branch's shopping list.
+    """
+    return PurchaseRequest.objects.filter(branch__in=accessible_branches(user)).select_related(
+        "organization", "branch", "warehouse", "requested_by"
+    )
+
+
+def resolve_purchase_request(user: User, request_id: int) -> PurchaseRequest:
+    """Turn a submitted request id into one the caller may reach, or 404."""
+    found = visible_purchase_requests(user).filter(pk=request_id).first()
+    if found is None:
+        raise OutOfScope(_("Purchase request %(id)s does not exist.") % {"id": request_id})
+    return found
+
+
+def resolve_request_line(
+    user: User, *, request: PurchaseRequest, line_id: int
+) -> PurchaseRequestLine:
+    """
+    A line, resolved **under its own request**.
+
+    Passing the parent is not decoration: without it, a line id from another
+    branch's request would resolve here and the route would act on it.
+    """
+    line = PurchaseRequestLine.objects.filter(pk=line_id, request=request).first()
+    if line is None:
+        raise OutOfScope(_("Request line %(id)s does not exist.") % {"id": line_id})
+    return line

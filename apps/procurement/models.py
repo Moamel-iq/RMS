@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
@@ -24,7 +25,7 @@ from simple_history.models import HistoricalRecords
 
 from apps.core.models import TimeStampedModel
 from apps.core.money import MONEY_PLACES, UNIT_PRICE_PLACES
-from apps.core.quantity import QUANTITY_PLACES
+from apps.core.quantity import FACTOR_PLACES, QUANTITY_PLACES
 
 #: Supplier codes. The same shape inventory item codes use, and canonicalised
 #: to uppercase before storage so uniqueness is case-insensitive in effect
@@ -35,6 +36,9 @@ CODE_PATTERN = r"^[A-Z0-9][A-Z0-9._-]*$"
 MONEY_MAX_DIGITS = MONEY_PLACES + 18
 UNIT_PRICE_MAX_DIGITS = UNIT_PRICE_PLACES + 15
 QUANTITY_MAX_DIGITS = QUANTITY_PLACES + 15
+#: A factor is a technical identity at the same precision inventory uses
+#: (ADR-006). Twelve places, because an ounce needs them.
+FACTOR_MAX_DIGITS = FACTOR_PLACES + 12
 
 
 class Supplier(TimeStampedModel):
@@ -279,3 +283,306 @@ class SupplierItem(TimeStampedModel):
     def __str__(self) -> str:
         package = self.package_unit.code if self.package_unit else "—"
         return f"{self.supplier.code} · {self.item.code} · {package}"
+
+
+class ProcurementDocumentSequence(models.Model):
+    """
+    The gapless per-organization, per-type, per-year counter.
+
+    A second table rather than inventory's, because the two modules number
+    different vocabularies: `PR` and `PO` are not inventory document types and
+    keying them into an inventory enum would make the enum a lie. The counting
+    *rule* is four lines under a row lock and is deliberately identical — what
+    must never be duplicated is a sequence a document could draw from twice.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="procurement_sequences",
+        verbose_name=_("organization"),
+    )
+    document_type = models.CharField(_("document type"), max_length=32)
+    year = models.PositiveSmallIntegerField(_("year"))
+    last_number = models.PositiveIntegerField(_("last number"), default=0)
+
+    class Meta:
+        verbose_name = _("procurement document sequence")
+        verbose_name_plural = _("procurement document sequences")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "document_type", "year"],
+                name="procurement_sequence_unique_per_type_and_year",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.organization.code} {self.document_type} {self.year}: {self.last_number}"
+
+
+class PurchaseRequestStatus(models.TextChoices):
+    """
+    What a request is, and what may still happen to it.
+
+    Three terminal states rather than one. `REJECTED` is somebody refusing the
+    need; `CANCELLED` is the requester withdrawing it; and the difference
+    matters to whoever later asks why a branch never got what it asked for.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    SUBMITTED = "SUBMITTED", _("مُرسل")
+    APPROVED = "APPROVED", _("معتمد")
+    REJECTED = "REJECTED", _("مرفوض")
+    CANCELLED = "CANCELLED", _("ملغى")
+
+
+class PurchaseRequest(TimeStampedModel):
+    """
+    What a branch says it needs, and nothing more.
+
+    **No inventory effect and no accounting effect, in any status.** A request
+    is a statement of need: approving one commits nobody to anything and moves
+    no goods and no money. That is the whole reason it is a separate document
+    from the order — the two happen on different days, are decided by different
+    people, and only one of them is a commercial commitment.
+
+    Identity is `public_id`, immutable from birth. The human `number` is
+    presentation and is assigned at **submission**, so a draft that is
+    abandoned cannot burn a number out of a gapless sequence.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="purchase_requests",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="purchase_requests",
+        verbose_name=_("branch"),
+    )
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=PurchaseRequestStatus.choices,
+        default=PurchaseRequestStatus.DRAFT,
+    )
+
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="purchase_requests",
+        verbose_name=_("requested by"),
+    )
+    #: Where the goods are wanted. Validated against the caller's warehouse
+    #: scope, so a request cannot name a store somebody cannot reach.
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="purchase_requests",
+        verbose_name=_("destination warehouse"),
+    )
+    location = models.ForeignKey(
+        "inventory.StockLocation",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="purchase_requests",
+        verbose_name=_("destination location"),
+    )
+    required_date = models.DateField(_("required by"))
+    purpose = models.CharField(_("purpose"), max_length=200)
+    notes = models.TextField(_("notes"), blank=True)
+
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="submitted_purchase_requests",
+        verbose_name=_("submitted by"),
+    )
+    submitted_at = models.DateTimeField(_("submitted at"), null=True, blank=True)
+    #: The one actor for approve, reject **and** cancel. One pair of columns
+    #: rather than three: the maker-checker constraint has to compare against a
+    #: single field, and three nullable pairs would let two of them be set at
+    #: once and mean nothing.
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="decided_purchase_requests",
+        verbose_name=_("decided by"),
+    )
+    decided_at = models.DateTimeField(_("decided at"), null=True, blank=True)
+    decision_reason = models.TextField(_("decision reason"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("purchase request")
+        verbose_name_plural = _("purchase requests")
+        ordering = ["-submitted_at", "-id"]
+        permissions = [
+            ("create_purchase_request", _("Can prepare and submit a purchase request")),
+            ("approve_purchase_request", _("Can approve or reject a purchase request")),
+        ]
+        constraints = [
+            # Maker-checker, at the database and not only in the service. A
+            # service check is a promise; this survives a data fix applied at
+            # two in the morning through a shell.
+            models.CheckConstraint(
+                condition=Q(decided_by__isnull=True) | ~Q(decided_by=models.F("submitted_by")),
+                name="procurement_request_approver_is_not_the_submitter",
+            ),
+            # A decided request names who decided it and when. Half a decision
+            # is not a state this document has.
+            models.CheckConstraint(
+                condition=Q(decided_by__isnull=True, decided_at__isnull=True)
+                | Q(decided_by__isnull=False, decided_at__isnull=False),
+                name="procurement_request_decision_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(submitted_by__isnull=True, submitted_at__isnull=True)
+                | Q(submitted_by__isnull=False, submitted_at__isnull=False),
+                name="procurement_request_submission_is_complete",
+            ),
+            # A refusal or a withdrawal has to say why. An approval need not.
+            models.CheckConstraint(
+                condition=~Q(status__in=["REJECTED", "CANCELLED"]) | ~Q(decision_reason=""),
+                name="procurement_request_refusal_states_a_reason",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="procurement_request_number_unique_per_organization",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="pr_org_status_idx"),
+            models.Index(fields=["branch", "status"], name="pr_branch_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"PR draft {self.public_id}"
+
+    @property
+    def is_editable(self) -> bool:
+        """Only a draft. A submitted request is frozen — PRC-011."""
+        return self.status == PurchaseRequestStatus.DRAFT
+
+
+class PurchaseRequestLine(TimeStampedModel):
+    """
+    One item somebody wants, in the unit they think in.
+
+    Carries the same conversion snapshot a posted movement does — factor,
+    version, entered unit, base quantity — even though nothing here posts.
+    A request approved in March against a 30 kg sack must still mean 30 kg in
+    June when the sack is redefined, or the order raised from it would quietly
+    buy a different amount from the one that was approved.
+    """
+
+    request = models.ForeignKey(
+        PurchaseRequest,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("request"),
+    )
+    #: Stable per line and never renumbered, so an allocation or an order line
+    #: can name it for the life of the document.
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="purchase_request_lines",
+        verbose_name=_("item"),
+    )
+    package_unit = models.ForeignKey(
+        "inventory.PackageUnit",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="purchase_request_lines",
+        verbose_name=_("package"),
+    )
+    #: The conversion the base quantity was derived with, and its version.
+    #: Null when the line is entered in the item's own base unit.
+    conversion = models.ForeignKey(
+        "inventory.ItemPackageConversion",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="purchase_request_lines",
+        verbose_name=_("conversion"),
+    )
+    conversion_version = models.PositiveIntegerField(_("conversion version"), null=True, blank=True)
+    conversion_factor = models.DecimalField(
+        _("factor to base"),
+        max_digits=FACTOR_MAX_DIGITS,
+        decimal_places=FACTOR_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    entered_quantity = models.DecimalField(
+        _("quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    base_quantity = models.DecimalField(
+        _("base quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+
+    #: Where the requester expects it to come from. Advisory: the order decides.
+    preferred_supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="requested_lines",
+        verbose_name=_("preferred supplier"),
+    )
+    note = models.CharField(_("note"), max_length=200, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("purchase request line")
+        verbose_name_plural = _("purchase request lines")
+        ordering = ["request", "sequence"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(entered_quantity__gt=0),
+                name="procurement_request_line_quantity_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(base_quantity__gt=0),
+                name="procurement_request_line_base_quantity_is_positive",
+            ),
+            # A package means a conversion. Without one there is no factor, and
+            # the base quantity would be a number nobody can retrace.
+            models.CheckConstraint(
+                condition=Q(package_unit__isnull=True, conversion__isnull=True)
+                | Q(package_unit__isnull=False, conversion__isnull=False),
+                name="procurement_request_line_package_carries_its_conversion",
+            ),
+            models.UniqueConstraint(
+                fields=["request", "sequence"],
+                name="procurement_request_line_sequence_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["request", "item", "package_unit"],
+                nulls_distinct=False,
+                name="procurement_request_line_item_appears_once",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.request} · {self.item.code} × {self.entered_quantity}"

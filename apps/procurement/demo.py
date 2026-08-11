@@ -19,10 +19,19 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
-from apps.inventory.models import InventoryItem, PackageUnit
-from apps.organizations.models import Organization
-from apps.procurement.models import Supplier, SupplierItem
-from apps.procurement.services import create_supplier, create_supplier_item
+from apps.inventory.models import InventoryItem, PackageUnit, Warehouse
+from apps.organizations.models import Branch, Organization
+from apps.procurement.models import PurchaseRequest, Supplier, SupplierItem
+from apps.procurement.services import (
+    add_request_line,
+    approve_purchase_request,
+    create_purchase_request,
+    create_supplier,
+    create_supplier_item,
+    reject_purchase_request,
+    submit_purchase_request,
+)
+from apps.users.models import User
 
 #: code, Arabic name, English name, contact, phone, payment terms in days.
 #:
@@ -181,3 +190,82 @@ def seed_demo_catalogue(*, organization: Organization) -> list[SupplierItem]:
             )
         )
     return rows
+
+
+#: Four requests, one per lifecycle outcome, so every branch of the state
+#: machine has a visible example rather than a description.
+#:
+#: Two people are needed and not one. The maker-checker rule is a database
+#: constraint, so a demo where the requester also approved would not merely
+#: look wrong — it would fail to insert, which is the point of building the
+#: demo through the real services.
+def seed_demo_requests(
+    *, organization: Organization, requester: User, approver: User
+) -> list[PurchaseRequest]:
+    """
+    A draft, a submitted, an approved and a rejected request.
+
+    Idempotent by purpose text within the organization: re-running returns
+    what is there rather than raising a second set. A request carries no
+    ledger effect, so nothing here is irreversible — but a demo that doubled
+    its own data every run would still be useless by the third run.
+    """
+    branch = Branch.objects.filter(organization=organization, code="DEMO-BUNOOK").first()
+    if branch is None:
+        return []
+    warehouse = Warehouse.objects.filter(branch=branch, code="DEMO-MAIN", is_system=False).first()
+    rice = InventoryItem.objects.filter(organization=organization, code="DEMO-RICE").first()
+    oil = InventoryItem.objects.filter(organization=organization, code="DEMO-OIL").first()
+    sack = PackageUnit.objects.filter(organization=organization, code="SACK").first()
+    if warehouse is None or rice is None or oil is None:
+        return []
+
+    existing = list(
+        PurchaseRequest.objects.filter(
+            organization=organization, purpose__startswith="DEMO —"
+        ).order_by("id")
+    )
+    if existing:
+        return existing
+
+    grocery = Supplier.objects.filter(
+        organization=organization, code="DEMO-GROCERY-SUPPLIER"
+    ).first()
+
+    def build(purpose: str) -> PurchaseRequest:
+        document = create_purchase_request(
+            branch=branch,
+            requested_by=requester,
+            warehouse=warehouse,
+            required_date=CATALOGUE_EFFECTIVE_FROM + datetime.timedelta(days=45),
+            purpose=purpose,
+        )
+        add_request_line(
+            request=document,
+            item=rice,
+            package_unit=sack,
+            entered_quantity=Decimal("4.000"),
+            preferred_supplier=grocery,
+            note="مخزون الرز منخفض",
+        )
+        add_request_line(request=document, item=oil, entered_quantity=Decimal("60.000"))
+        return document
+
+    drafted = build("DEMO — قائمة الأسبوع القادم")
+
+    submitted = build("DEMO — طلب بانتظار الاعتماد")
+    submitted = submit_purchase_request(request=submitted, actor=requester)
+
+    approved = build("DEMO — طلب معتمد")
+    approved = submit_purchase_request(request=approved, actor=requester)
+    approved = approve_purchase_request(
+        request=approved, actor=approver, reason="الكميات ضمن المعدل الشهري"
+    )
+
+    rejected = build("DEMO — طلب مرفوض")
+    rejected = submit_purchase_request(request=rejected, actor=requester)
+    rejected = reject_purchase_request(
+        request=rejected, actor=approver, reason="المخزون الحالي يكفي حتى نهاية الشهر"
+    )
+
+    return [drafted, submitted, approved, rejected]

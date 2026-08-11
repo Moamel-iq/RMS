@@ -19,13 +19,29 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import AuditAction
+from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
-from apps.inventory.models import InventoryItem, ItemPackageConversion, PackageUnit
-from apps.organizations.models import Organization
-from apps.procurement.models import Supplier, SupplierItem
+from apps.inventory.models import (
+    InventoryItem,
+    ItemPackageConversion,
+    PackageUnit,
+    StockLocation,
+    Warehouse,
+)
+from apps.organizations.models import Branch, Organization
+from apps.procurement.models import (
+    ProcurementDocumentSequence,
+    PurchaseRequest,
+    PurchaseRequestLine,
+    PurchaseRequestStatus,
+    Supplier,
+    SupplierItem,
+)
+from apps.users.models import User
 from apps.users.phone import normalize_iraqi_mobile
 
 
@@ -424,3 +440,373 @@ def supersede_supplier_item(
     # `create_supplier_item` already numbered it: the version sequence belongs
     # to creation, not to this particular way of reaching it.
     return replacement
+
+
+# ---------------------------------------------------------------------------
+# Purchase requests
+# ---------------------------------------------------------------------------
+
+#: Prefix per procurement document type. `PR` here; `PO`, `GRN` and the rest
+#: join it as their tasks land.
+DOCUMENT_NUMBER_PREFIX = {"PURCHASE_REQUEST": "PR"}
+
+
+def next_document_number(*, organization: Organization, document_type: str, year: int) -> str:
+    """
+    The next gapless number for this type and year, under a row lock.
+
+    The lock is the point. Two people submitting at the same instant both read
+    the same counter without it, and a duplicated document number is the kind
+    of defect nobody notices until an auditor asks which of the two `PR-2026-
+    000014` documents was approved.
+    """
+    sequence, _created = ProcurementDocumentSequence.objects.get_or_create(
+        organization=organization, document_type=document_type, year=year
+    )
+    locked = ProcurementDocumentSequence.objects.select_for_update().get(pk=sequence.pk)
+    locked.last_number += 1
+    locked.save(update_fields=["last_number"])
+    return f"{DOCUMENT_NUMBER_PREFIX[document_type]}-{year}-{locked.last_number:06d}"
+
+
+def _require_draft(request: PurchaseRequest) -> PurchaseRequest:
+    """
+    Only a draft may be edited — PRC-011. Returns the row it locked.
+
+    A submitted request is what somebody is being asked to approve. Editing it
+    underneath them would mean an approval attached to a document that no
+    longer says what was approved.
+
+    The status is re-read **from the database under a row lock**, never taken
+    from the instance the caller passed. A caller holding an object loaded
+    before submission would otherwise carry a stale `DRAFT` past this guard and
+    add a line to a document somebody had already approved — and no database
+    constraint would catch it, because "which lines existed when this was
+    approved" is not something a column can say.
+    """
+    locked = PurchaseRequest.objects.select_for_update().get(pk=request.pk)
+    if locked.status != PurchaseRequestStatus.DRAFT:
+        raise ValidationError(
+            _("Request %(number)s is %(status)s and can no longer be edited."),
+            code="request_not_editable",
+            params={
+                "number": locked.number or str(locked.public_id),
+                "status": locked.status,
+            },
+        )
+    return locked
+
+
+@transaction.atomic
+def create_purchase_request(
+    *,
+    branch: Branch,
+    requested_by: User,
+    warehouse: Warehouse,
+    required_date: datetime.date,
+    purpose: str,
+    location: StockLocation | None = None,
+    notes: str = "",
+) -> PurchaseRequest:
+    """
+    Open a draft request for a branch.
+
+    No number is drawn yet. A draft that is abandoned would otherwise burn one
+    out of a gapless sequence, and a gap in a document series is a question
+    somebody has to answer years later.
+    """
+    if warehouse.branch_id != branch.pk:
+        raise ValidationError(
+            _("Warehouse %(code)s does not belong to this branch."),
+            code="warehouse_branch_mismatch",
+            params={"code": warehouse.code},
+        )
+    if location is not None and location.warehouse_id != warehouse.pk:
+        raise ValidationError(
+            _("Location %(code)s is not in this warehouse."),
+            code="location_warehouse_mismatch",
+            params={"code": location.code},
+        )
+    if not purpose.strip():
+        raise ValidationError(_("A purpose is required."), code="purpose_required")
+
+    request = PurchaseRequest(
+        organization=branch.organization,
+        branch=branch,
+        requested_by=requested_by,
+        warehouse=warehouse,
+        location=location,
+        required_date=required_date,
+        purpose=purpose.strip(),
+        notes=notes.strip(),
+    )
+    request.full_clean()
+    request.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=request,
+        branch=branch,
+        new_state=snapshot(request),
+    )
+    return request
+
+
+@transaction.atomic
+def add_request_line(
+    *,
+    request: PurchaseRequest,
+    item: InventoryItem,
+    entered_quantity: Decimal,
+    package_unit: PackageUnit | None = None,
+    preferred_supplier: Supplier | None = None,
+    note: str = "",
+) -> PurchaseRequestLine:
+    """
+    Add a wanted item to a draft, resolving its base quantity once.
+
+    The conversion is snapshotted — the row, its version and its factor —
+    exactly as a posted movement snapshots it. Nothing here reaches the ledger,
+    but the order raised from this request will, and it must buy the amount
+    that was approved rather than the amount today's factor would imply.
+    """
+    request = _require_draft(request)
+
+    if item.organization_id != request.organization_id:
+        raise ValidationError(
+            _("The item belongs to another organization."), code="organization_mismatch"
+        )
+    if entered_quantity <= 0:
+        raise ValidationError(
+            _("A requested quantity must be greater than zero."), code="quantity_not_positive"
+        )
+
+    conversion = None
+    factor = None
+    if package_unit is not None:
+        conversion = _active_conversion(
+            item=item, package_unit=package_unit, on=request.required_date
+        )
+        if conversion is None:
+            raise ValidationError(
+                _("Item %(item)s has no conversion for package %(package)s on %(date)s."),
+                code="no_conversion_for_package",
+                params={
+                    "item": item.code,
+                    "package": package_unit.code,
+                    "date": request.required_date.isoformat(),
+                },
+            )
+        factor = conversion.factor_to_base
+        base = quantize_quantity(entered_quantity * factor)
+    else:
+        base = quantize_quantity(entered_quantity)
+
+    highest = (
+        PurchaseRequestLine.objects.filter(request=request)
+        .order_by("-sequence")
+        .values_list("sequence", flat=True)
+        .first()
+    )
+    line = PurchaseRequestLine(
+        request=request,
+        sequence=(highest or 0) + 1,
+        item=item,
+        package_unit=package_unit,
+        conversion=conversion,
+        conversion_version=conversion.version if conversion else None,
+        conversion_factor=factor,
+        entered_quantity=quantize_quantity(entered_quantity),
+        base_quantity=base,
+        preferred_supplier=preferred_supplier,
+        note=note.strip(),
+    )
+    line.full_clean()
+    line.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=line,
+        branch=request.branch,
+        new_state=snapshot(line),
+    )
+    return line
+
+
+@transaction.atomic
+def remove_request_line(*, line: PurchaseRequestLine) -> None:
+    """Drop a line from a draft. Sequences are not renumbered."""
+    _require_draft(line.request)
+    previous = snapshot(line)
+    branch = line.request.branch
+    record_audit_event(
+        action=AuditAction.DELETED,
+        target=line,
+        branch=branch,
+        previous_state=previous,
+    )
+    line.delete()
+
+
+@transaction.atomic
+def submit_purchase_request(*, request: PurchaseRequest, actor: User) -> PurchaseRequest:
+    """
+    Freeze the lines and draw the document number.
+
+    An empty request cannot be submitted: asking for nothing is not a request,
+    and an approver would have nothing to decide about.
+    """
+    locked = _require_draft(request)
+    previous = snapshot(locked)
+
+    if not locked.lines.exists():
+        raise ValidationError(
+            _("A request with no lines cannot be submitted."), code="request_has_no_lines"
+        )
+
+    locked.status = PurchaseRequestStatus.SUBMITTED
+    locked.submitted_by = actor
+    locked.submitted_at = timezone.now()
+    locked.number = next_document_number(
+        organization=locked.organization,
+        document_type="PURCHASE_REQUEST",
+        year=locked.required_date.year,
+    )
+    locked.full_clean()
+    locked.save()
+
+    record_audit_event(
+        action=AuditAction.SUBMITTED,
+        target=locked,
+        branch=locked.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+def _decide(
+    *,
+    request: PurchaseRequest,
+    actor: User,
+    status: str,
+    action: AuditAction,
+    reason: str,
+    from_statuses: tuple[str, ...],
+) -> PurchaseRequest:
+    locked = PurchaseRequest.objects.select_for_update().get(pk=request.pk)
+    previous = snapshot(locked)
+
+    if locked.status not in from_statuses:
+        raise ValidationError(
+            _("Request %(number)s is %(status)s and cannot change to %(target)s."),
+            code="illegal_transition",
+            params={
+                "number": locked.number or str(locked.public_id),
+                "status": locked.status,
+                "target": status,
+            },
+        )
+    if locked.submitted_by_id == actor.pk:
+        raise ValidationError(
+            _("The person who submitted a request cannot decide it."),
+            code="maker_is_not_checker",
+        )
+
+    locked.status = status
+    locked.decided_by = actor
+    locked.decided_at = timezone.now()
+    locked.decision_reason = reason.strip()
+    locked.full_clean()
+    locked.save()
+
+    record_audit_event(
+        action=action,
+        target=locked,
+        branch=locked.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+        reason=reason.strip(),
+    )
+    return locked
+
+
+@transaction.atomic
+def approve_purchase_request(
+    *, request: PurchaseRequest, actor: User, reason: str = ""
+) -> PurchaseRequest:
+    """
+    Agree the need. Still no stock and no money.
+
+    Maker-checker is enforced here **and** by a database constraint. The
+    service message is the useful one; the constraint is the one that holds
+    when somebody reaches past the service.
+    """
+    return _decide(
+        request=request,
+        actor=actor,
+        status=PurchaseRequestStatus.APPROVED,
+        action=AuditAction.APPROVED,
+        reason=reason,
+        from_statuses=(PurchaseRequestStatus.SUBMITTED,),
+    )
+
+
+@transaction.atomic
+def reject_purchase_request(
+    *, request: PurchaseRequest, actor: User, reason: str
+) -> PurchaseRequest:
+    """Refuse the need. A reason is required and is not optional prose."""
+    if not reason.strip():
+        raise ValidationError(_("A reason is required."), code="reason_required")
+    return _decide(
+        request=request,
+        actor=actor,
+        status=PurchaseRequestStatus.REJECTED,
+        action=AuditAction.REJECTED,
+        reason=reason,
+        from_statuses=(PurchaseRequestStatus.SUBMITTED,),
+    )
+
+
+@transaction.atomic
+def cancel_purchase_request(
+    *, request: PurchaseRequest, actor: User, reason: str
+) -> PurchaseRequest:
+    """
+    Withdraw a request that is no longer wanted.
+
+    Available from `DRAFT`, `SUBMITTED` and `APPROVED`, because a need can
+    evaporate after somebody agreed to it and before anything was ordered.
+    Cancelling from a draft is the one case where maker-checker does not
+    apply — nobody has submitted it, so there is no checker to be.
+    """
+    if not reason.strip():
+        raise ValidationError(_("A reason is required."), code="reason_required")
+
+    locked = PurchaseRequest.objects.select_for_update().get(pk=request.pk)
+    if locked.status == PurchaseRequestStatus.DRAFT:
+        previous = snapshot(locked)
+        locked.status = PurchaseRequestStatus.CANCELLED
+        locked.decision_reason = reason.strip()
+        # `decided_by` stays null: there was no submission, so the
+        # maker-checker constraint has nothing to compare and correctly says
+        # nothing about this transition.
+        locked.full_clean()
+        locked.save()
+        record_audit_event(
+            action=AuditAction.CANCELLED,
+            target=locked,
+            branch=locked.branch,
+            previous_state=previous,
+            new_state=snapshot(locked),
+            reason=reason.strip(),
+        )
+        return locked
+
+    return _decide(
+        request=request,
+        actor=actor,
+        status=PurchaseRequestStatus.CANCELLED,
+        action=AuditAction.CANCELLED,
+        reason=reason,
+        from_statuses=(PurchaseRequestStatus.SUBMITTED, PurchaseRequestStatus.APPROVED),
+    )
