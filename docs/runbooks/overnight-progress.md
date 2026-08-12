@@ -5,10 +5,10 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 12/20 — Supplier invoices and payables (NOT STARTED)
+CURRENT_PIPELINE_STEP: 13/20 — Three-way matching (NOT STARTED)
 CURRENT_TASK: none in flight
-LAST_GREEN_COMMIT: ca18fc9
-LAST_PUSHED_COMMIT: ca18fc9
+LAST_GREEN_COMMIT: 64d94f8
+LAST_PUSHED_COMMIT: 64d94f8
 WORKING_TREE: clean
 RUNNING_TESTS: none
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
@@ -20,6 +20,8 @@ ACTIVE_DATABASES (none to be dropped):
 - `khan_mandi_dev` — development, seeded and visible
 - `test_khan_mandi_dev` — test runs
 - `khan_mandi_p1_exit` — Phase 1 exit verification, seeded
+- `khan_mandi_p2_b4` — Batch 4 verification, migrated from zero and
+  seeded; created by Step 12, never to be dropped
 - `khan_mandi_t17a_check`, `khan_mandi_t16_check`, `_t15_`, `_t14_`, `_t13_`,
   `khan_mandi_ledger_check`, `khan_mandi_inv_check`, `khan_mandi_freshcheck`
 
@@ -28,75 +30,80 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Step 12 — Task 2.10, supplier invoices and payables.
-`SupplierInvoice` + `SupplierInvoiceLine`, lifecycle
-DRAFT → APPROVED → POSTED → REVERSED, every transition authorised by the
-locked row. An invoice creates or confirms a **payable** and touches no
-stock at all (PRC-038): no movement, no `StockBalance` write, no location
-quantity. Price differences against the receipt are preserved for Step 13
-matching and Step 14 variance, never hidden in the payable.
+NEXT_EXACT_ACTION: Step 13 — Task 2.11, explicit three-way matching.
+`MatchAllocation` among purchase order line, goods receipt line and supplier
+invoice line. Ordered, accepted, invoiced, matched quantity and value;
+quantity and price variance; derived exception status (PRC-042 — never a
+stored flag). Partial and multiple allocations both ways; over-allocation
+impossible under a row lock **and** as a reconciliation invariant.
 
-What Step 11 leaves in place for it:
-- `PROCUREMENT_GOODS_RECEIPT` is the receipt's canonical source type;
-  the invoice needs its own, following the same `PROCUREMENT_*` shape.
-- `GoodsReceiptLine.posted_value` is the GRNI figure an invoice will clear.
-  It is stored, not derived, precisely so Step 13 can allocate against it.
-- `apps/procurement/reconciliation.py` holds `verify_goods_receipt`,
-  `verify_order_received_quantities`, `verify_grni` and `verify_procurement`.
-  Extend those rather than starting a second verifier module.
-- `apps/procurement/posting.py` is the shape to copy: one atomic command per
-  economic event, the documented lock order, source identity derived from the
-  document's own `public_id`.
-- Do **not** create Step 13 match allocations during invoice posting. The
-  invoice may reference receipt lines; allocations stay explicit Step 13 rows.
+The boundary Step 13 inherits, and the one it may not cross alone:
 
-Duplicate protection (PRC-037, G3): unique per
-`(organization, supplier, normalized supplier_invoice_number)`. Trim
-surrounding whitespace consistently *before* validation, uniqueness lookup,
-fingerprint and persistence, so `"INV-001"` and `" INV-001 "` cannot become
-two invoices. Preserve meaningful leading zeros; never cast to int.
+- `apps/procurement/invoices.py::_require_every_line_has_a_route` refuses to
+  post any invoice carrying an `INVENTORY` line, with
+  `invoice_awaiting_matching`. That refusal is correct and must NOT be
+  removed by Task 2.11 on its own. The GRNI/variance entry (Task 2.0 §9) needs
+  the *matched receipt value* AND the variance account, and
+  `PURCHASE_PRICE_VARIANCE` is deliberately unseeded until Task 2.12 posts to
+  it. Matching may become complete as a non-financial workflow; the financial
+  POST activates when 2.11 and 2.12 land together.
+- `TestTheMatchingBoundary` in `test_supplier_invoices.py` is the marker.
+  Its assertions — no `MatchAllocation` model, no variance role, an invoice
+  that approves and holds — are the negatives whose positive twins Task 2.11
+  and 2.12 must write. Replace them; do not merely delete them.
+- `SupplierInvoiceLine.receipt_line` and `.order_line` already exist and are
+  populated. They are **evidence, not allocation**: nothing consumes a
+  receipt's matchable remainder today, and `test_no_match_allocation_is_
+  created_by_referencing_a_receipt` holds that line.
+- `GoodsReceiptLine.posted_value` is the GRNI figure an allocation clears.
+  Stored, not derived, precisely so 2.11 can allocate against it.
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 346 passed
+.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 437 passed
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
-organization DEMO-KHAN-MANDI; start at http://127.0.0.1:8000/inventory/stock/.
-Procurement: 3 suppliers, 6 catalogue rows, 4 purchase requests, 2
-quotations, one award, 3 purchase orders, one order revision and **5 goods
-receipts** — GRN-2026-000001 posted (60 kg rice against the order),
-GRN-2026-000002 posted with three of twelve chicken cartons rejected,
-GRN-2026-000003 posted from a weighed variable container, GRN-2026-000004
-posted then reversed, and DEMO-GRN-PARTIAL-2 left DRAFT so a reader has
-something to inspect and post by hand. The seed is idempotent: a second run
-leaves movements at 44, journals at 30 and receipts at 5.
+organization DEMO-KHAN-MANDI. Procurement now shows 3 suppliers, 6 catalogue
+rows, 4 purchase requests, 2 quotations, one award, 3 purchase orders, one
+order revision, 5 goods receipts and **4 supplier invoices**:
+
+- `DEMO-SINV-EXPENSE` — SINV-2026-000001, POSTED. A delivery charge of 75,000
+  with no goods on it: `Dr` 5-01-02-003 (cost centre DELIVERY),
+  `Cr` 2-01-01-001. The whole of what Task 2.10 can post.
+- `DEMO-SINV-GOODS` — APPROVED and waiting. Bills the rice that arrived, at
+  1,450 against the 1,400 the receipt posted, so the difference the three-way
+  match exists to surface is really there for Task 2.11 to find.
+- `DEMO-SINV-DRAFT` — a draft carrying 10,000 freight and a 3,000 discount
+  allocated across two lines, so the largest-remainder split is visible.
+- `DEMO-SINV-REVERSED` — SINV-2026-000002, posted then reversed.
+
+Counts after the invoices: stock movements **44** (unchanged — an invoice
+moves none) and journals **30 → 33**. Supplier outstanding derives to 75,000
+for DEMO-GROCERY-SUPPLIER and 0 for the other two. A second seed run changes
+nothing.
 
 Routes verified rendering for an authorised user (Django test client with
-`force_login`, so no credential is read or typed):
-/procurement/suppliers/, /procurement/catalogue/, /procurement/requests/,
-/procurement/quotations/, /procurement/requests/<pk>/comparison/,
-/procurement/orders/, /procurement/orders/<pk>/history/,
-/procurement/receipts/, /procurement/receipts/<pk>/.
-Commands are POST-only: /procurement/receipts/<pk>/post/ and
-/procurement/receipts/<pk>/reverse/ — a GET returns 405.
-HTMX verified: the receipt list returns a fragment only (3,465 bytes against
-17,035 for the full page) and `?status=POSTED` narrows it to the three posted
-rows with no draft chip.
+`force_login`, so no credential is read or typed): /procurement/invoices/,
+/procurement/invoices/new/, /procurement/invoices/<pk>/. Commands are POST-only
+— approve, return, post and reverse each answer 405 to a GET. HTMX verified:
+the list returns a fragment only (2,993 bytes against 16,616 for the full page)
+and `?status=POSTED` narrows to the two numbered rows with no draft chip.
 
-Requests are raised by `demo-storekeeper` and decided by `moamel`, because
-maker-checker is a database constraint and one actor could not do both.
+RECONCILIATION_STATE: clean on `khan_mandi_dev` and on the fresh
+`khan_mandi_p2_b4` across all four verifiers — `verify_procurement` (now
+including `verify_supplier_invoice`, `verify_invoice_charges` and
+`verify_supplier_payables`), `verify_organization`,
+`verify_inventory_against_gl` and `verify_locations`.
 
-RECONCILIATION_STATE: clean on `khan_mandi_dev` across all four verifiers —
-`verify_procurement`, `verify_organization`, `verify_inventory_against_gl`
-and `verify_locations`. Step 11 is the first task where a procurement
-document reaches either ledger, so the Batch 2 claim ("no journal or ledger
-entry cites a procurement source") is now deliberately false and replaced by
-the equalities in `apps/procurement/reconciliation.py`: accepted quantity ==
-movement quantity == location effect, and posted value == movement value ==
-inventory-control debit == GRNI credit.
+BATCH 4 CERTIFICATION (Steps 10–12): **PASS** at 64d94f8. Complete project
+suite 2053 passed, 0 failed. Fresh database `khan_mandi_p2_b4` migrated from
+zero, roles and permissions seeded, both demo seeds run twice with identical
+counts, every procurement route rendered, all four verifiers clean. Quality
+gates: ruff, ruff format, mypy (224 files), manage.py check, makemigrations
+--check, pre-commit 13 hooks — all pass.
 
 ASSUMPTIONS:
 - An award requires a reason unconditionally, not only when the winner is
@@ -136,6 +143,45 @@ ASSUMPTIONS:
   already follows and inventory exposes no posting command over its API
   either. There is deliberately no writable generic CRUD over a posted
   receipt.
+
+- Task 2.10. **A supplier invoice carrying a goods line cannot post here.**
+  Task 2.0 §9 posts the matched receipt value to GRNI and the difference to
+  purchase price variance, and both come from a Task 2.11 match allocation.
+  Posting the invoiced amount to GRNI instead would balance and be wrong.
+  The whole document waits in APPROVED with `invoice_awaiting_matching`;
+  half-posting would create a payable for part of what is owed.
+- **Invoice-before-receipt is not supported**, and that is a reading of the
+  spec rather than an omission: §15's account-role table contains no
+  `UNRECEIVED_INVENTORY_CLEARING`, so the clearing route has no approved
+  account behind it.
+- Supplier invoice numbers are compared **case-insensitively**, which Task 2.0
+  does not state either way. Stricter than specified and deliberate: the
+  reference is stored exactly as the supplier wrote it and folded only for
+  the uniqueness key, and paying the same invoice twice is the expensive
+  direction to be wrong in. Leading zeros and internal spacing are preserved,
+  so `INV-001` and `INV-0001` remain different documents.
+- A direct account line lets the person entering the invoice **choose the
+  account**. PRC-034 forbids a *posting service* naming an account, and none
+  does — `SUPPLIER_PAYABLE` still resolves through an effective-dated role.
+  Which expense a delivery charge belongs to is a judgement only the person
+  holding the document can make; the alternative is a role per expense
+  category, invented by us.
+- Every expense account in the seeded chart sets `requires_cost_center`, so
+  every demo and test expense line names one. That is the chart's policy
+  working, not a workaround.
+- `AccountRoleDomain` gains `PURCHASING`. The enum's own docstring invited it
+  ("Purchases, Sales and Payroll add their own values when their posting
+  rules arrive"), and a supplier payable filed under `INVENTORY` would make
+  the domain column a label rather than a fact.
+- Only `SUPPLIER_PAYABLE` of Task 2.0 §15's five new roles is seeded. A role
+  with no posting rule behind it is a mapping an accounting manager can be
+  asked to fill in for a workflow that does not exist — the mistake
+  `import_opening_draft` records in inventory.
+- Approval is **not** maker-checker at the database. Task 2.0 states that rule
+  for the purchase request (PRC-010) and not for the invoice, so no
+  `approved_by != created_by` constraint was invented. The role map achieves
+  the separation instead: `ACCOUNTANT` creates and cannot approve;
+  `ACCOUNTING_MANAGER` approves, posts and reverses, and cannot create.
 
 BLOCKERS: none
 
@@ -210,4 +256,6 @@ the item, and it is addressed.
 | **Batch 3 cert (07–09)** | **PASS** | ee2365e | 414 tests, verifiers clean, no procurement posting |
 | 10 Goods receipt | **COMPLETE, PUSHED** | aa12633 | 50 tests, 4 demo drafts, seam activated, no posting path |
 | 11 Receipt posting + GRNI | **COMPLETE, PUSHED** | ca18fc9 | 346 tests, 6 real-COMMIT races, demo 39→44 movements and 25→30 journals |
-| 12–20 | not started | — | — |
+| 12 Supplier invoices | **COMPLETE, PUSHED** | 64d94f8 | 91 tests, 4 demo invoices, payable derived, matching boundary held |
+| **Batch 4 cert (10–12)** | **PASS** | 64d94f8 | 2053 project tests, fresh DB from zero, four verifiers clean |
+| 13–20 | not started | — | — |
