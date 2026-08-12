@@ -1,11 +1,13 @@
 {% extends "shell.html" %}
 {% load i18n %}
 
-{# One delivery: what arrived, and what inspection made of it.               #}
+{# One delivery: what arrived, what inspection made of it, and — once it has #}
+{# posted — where the stock and the money went.                              #}
 {#                                                                           #}
-{# The screen never says "posted" while Task 2.9 is unwritten. A draft that  #}
-{# is complete says "inspected and ready", which is a different claim: the   #}
-{# goods are checked, and nothing has reached stock or the ledger yet.       #}
+{# A complete draft says "inspected and ready", which is a different claim   #}
+{# from "posted": the goods are checked and nothing has reached stock or the #}
+{# ledger yet. Posting moves both together or neither, so there is no third  #}
+{# state for the screen to have to describe.                                 #}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
@@ -49,7 +51,26 @@
       <dt>{% translate "فحصه" %}</dt><dd>{{ receipt.inspected_by.username|default:"—" }}</dd>
       {% if may_see_cost %}
         <dt>{% translate "قيمة المقبول" %}</dt>
-        <dd><span dir="ltr">{{ receipt.accepted_value|stringformat:"f" }}</span></dd>
+        <dd>
+          {# The posted figure once it exists: that is the one that reached #}
+          {# both ledgers. Before then, what the lines currently say.       #}
+          <span dir="ltr">
+            {% if receipt.posted_value %}{{ receipt.posted_value|stringformat:"f" }}
+            {% else %}{{ receipt.accepted_value|stringformat:"f" }}{% endif %}
+          </span>
+        </dd>
+      {% endif %}
+      {% if receipt.stock_entry_id %}
+        <dt>{% translate "قيد المخزون" %}</dt>
+        <dd><span dir="ltr">#{{ receipt.stock_entry_id }}</span></dd>
+        <dt>{% translate "القيد المحاسبي" %}</dt>
+        <dd><span dir="ltr">{{ receipt.journal_entry.entry_number }}</span></dd>
+      {% endif %}
+      {% if receipt.reversal_journal_entry_id %}
+        <dt>{% translate "قيد العكس" %}</dt>
+        <dd><span dir="ltr">{{ receipt.reversal_journal_entry.entry_number }}</span></dd>
+        <dt>{% translate "سبب العكس" %}</dt>
+        <dd>{{ receipt.reversal_reason }}</dd>
       {% endif %}
     </dl>
     <p class="muted">
@@ -100,6 +121,8 @@
         <th>{% translate "نتيجة الفحص" %}</th>
         <th>{% translate "اللوط" %}</th>
         {% if may_see_cost %}<th>{% translate "سعر الوحدة" %}</th>{% endif %}
+        {% if may_see_cost %}<th>{% translate "القيمة المرحّلة" %}</th>{% endif %}
+        <th>{% translate "الحركة المخزنية" %}</th>
         {% if may_inspect or may_edit %}<th>{% translate "إجراءات" %}</th>{% endif %}
       </tr>
     </thead>
@@ -134,7 +157,23 @@
           <td>{{ line.lot.code|default:"—" }}</td>
           {% if may_see_cost %}
             <td><span dir="ltr">{{ line.unit_price|stringformat:"f" }}</span></td>
+            <td>
+              {% if line.posted_value is not None %}
+                <span dir="ltr">{{ line.posted_value|stringformat:"f" }}</span>
+                {% if line.inventory_account %}
+                  <span class="muted" dir="ltr">{{ line.inventory_account.code }}</span>
+                {% endif %}
+              {% else %}—{% endif %}
+            </td>
           {% endif %}
+          <td>
+            {% if line.movement_id %}
+              <span dir="ltr">#{{ line.movement_id }}</span>
+            {% elif receipt.status == "POSTED" %}
+              {# Wholly rejected: correct, and stated rather than left blank. #}
+              <span class="muted">{% translate "مرفوض — لا حركة" %}</span>
+            {% else %}—{% endif %}
+          </td>
           {% if may_inspect or may_edit %}
             <td>
               <div class="rowactions">
@@ -157,7 +196,7 @@
           {% endif %}
         </tr>
       {% empty %}
-        <tr><td colspan="11">{% translate "لم تُسجَّل أصناف بعد." %}</td></tr>
+        <tr><td colspan="13">{% translate "لم تُسجَّل أصناف بعد." %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -190,11 +229,54 @@
     {% if receipt.status == "DRAFT" %}
       <p class="muted">
         {% if receipt.is_ready_to_post %}
-          {% translate "هذا الاستلام مفحوص بالكامل وجاهز. أمر الترحيل يصل مع القيد المحاسبي — المخزون والقيد يُرحّلان معاً في معاملة واحدة، فلا يوجد مخزون بلا قيد." %}
+          {% translate "هذا الاستلام مفحوص بالكامل وجاهز. الترحيل يُدخل الكمية المقبولة إلى المخزون ويُنشئ القيد في معاملة واحدة: مدين مراقبة المخزون، دائن بضاعة مستلمة غير مفوترة." %}
         {% else %}
           {% translate "لم يكتمل الفحص بعد: كل سطر يحتاج قراراً، ومجموع المقبول والمرفوض يجب أن يساوي المستلم، ومرجع الإثبات مطلوب." %}
         {% endif %}
       </p>
+      {% if may_post %}
+        <form method="post" action="{% url 'procurement:goods_receipt_post' receipt.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+        </form>
+      {% endif %}
+    {% elif receipt.status == "POSTED" %}
+      <p class="muted">
+        {% translate "مرحّل. المخزون والقيد المحاسبي أُنشئا معاً؛ الاستلام المرحّل لا يُعدَّل، ويُصحَّح بالعكس ثم بإعادة تسجيله." %}
+      </p>
+      {% if may_reverse %}
+        <form method="post" action="{% url 'procurement:goods_receipt_reverse' receipt.pk %}">
+          {% csrf_token %}
+          <label class="field">
+            <span class="field__label">{% translate "سبب العكس" %}</span>
+            <input type="text" name="reason" required>
+            <span class="field__hint">
+              {% translate "العكس يُخرج نفس الكمية بنفس القيمة ويعكس نفس الحسابات. يُرفض إذا كانت البضاعة قد صُرفت." %}
+            </span>
+          </label>
+          <button class="btn btn--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
+        </form>
+      {% endif %}
+    {% else %}
+      <p class="muted">
+        {% translate "معكوس. السجل باقٍ كما هو؛ التصحيح يكون باستلام جديد." %}
+      </p>
     {% endif %}
+  </div>
+
+  <div class="formcard">
+    <h2>{% translate "المسار الزمني" %}</h2>
+    <table class="table">
+      <tbody>
+        {% for event in timeline %}
+          <tr>
+            <td>{{ event.label }}</td>
+            <td><span dir="ltr">{{ event.at|date:"Y-m-d H:i" }}</span></td>
+            <td>{{ event.who|default:"—" }}</td>
+            <td>{{ event.note|default:"" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 {% endblock %}

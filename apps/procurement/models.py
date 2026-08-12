@@ -1331,10 +1331,10 @@ class GoodsReceiptStatus(models.TextChoices):
     stored readiness flag would be a second opinion that goes stale the moment
     somebody edits a line.
 
-    `POSTED` and `REVERSED` are unreachable in Task 2.8: the command that
-    reaches them arrives in Task 2.9, where the stock effect and the GRNI
-    journal commit in one transaction. Exposing a stock-only post now would
-    create inventory with no accounting behind it.
+    Task 2.9 reached `POSTED` and `REVERSED` through one command each, and
+    both commit the stock effect and the GRNI journal in a single transaction.
+    There is still no stock-only post: `apps.procurement.posting` is the only
+    module that writes either status, and it never calls the kernel twice.
     """
 
     DRAFT = "DRAFT", _("مسودة")
@@ -1459,8 +1459,6 @@ class GoodsReceipt(TimeStampedModel):
     )
     inspected_at = models.DateTimeField(_("inspected at"), null=True, blank=True)
 
-    #: Written by Task 2.9 when the receipt posts. Present now so the schema
-    #: does not change under a posting service, and null until then.
     posted_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -1470,8 +1468,66 @@ class GoodsReceipt(TimeStampedModel):
         verbose_name=_("posted by"),
     )
     posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_goods_receipts",
+        verbose_name=_("reversed by"),
+    )
     reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
     reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    #: The branch settings that were in force when this receipt posted, stored
+    #: so the business date it claims can be re-derived exactly. `received_at`
+    #: is entered rather than computed — a lorry arrives on a day somebody
+    #: knows — but which day that *is* depends on the branch timezone and
+    #: operating-day cutoff, and a cutoff changed later must not restate which
+    #: period a posted receipt belongs to (ADR-008).
+    business_date_timezone = models.CharField(_("business timezone"), max_length=64, blank=True)
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+
+    #: What actually posted: the stock side, the accounting side, and — after a
+    #: reversal — the journal that took it back. A posted receipt without all
+    #: three of the first two is a half-applied transaction, and the database
+    #: refuses that shape outright.
+    stock_entry = models.ForeignKey(
+        "inventory.StockLedgerEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipts",
+        verbose_name=_("stock entry"),
+    )
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipts",
+        verbose_name=_("journal entry"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_goods_receipts",
+        verbose_name=_("reversal journal entry"),
+    )
+
+    #: The sum of the posted line values, stored once at posting. Derived
+    #: figures answer "what is it worth now"; this one answers "what did it
+    #: post", which is the question reconciliation asks and the only one a
+    #: reversal may act on (ADR-012: a total is the sum of its lines).
+    posted_value = models.DecimalField(
+        _("posted value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
 
     history = HistoricalRecords()
 
@@ -1506,6 +1562,48 @@ class GoodsReceipt(TimeStampedModel):
             models.CheckConstraint(
                 condition=~Q(status="POSTED") | Q(posted_at__isnull=False),
                 name="procurement_receipt_posted_says_when",
+            ),
+            # A posted receipt names both ledgers it reached and what it was
+            # worth. Together with the trigger that freezes the row, this is
+            # what makes "stock without accounting" unrepresentable rather
+            # than merely unwritten: the shape does not exist in the table.
+            models.CheckConstraint(
+                condition=~Q(status__in=["POSTED", "REVERSED"])
+                | Q(
+                    stock_entry__isnull=False,
+                    journal_entry__isnull=False,
+                    posted_value__isnull=False,
+                    business_date_timezone__gt="",
+                    business_day_start__isnull=False,
+                ),
+                name="procurement_receipt_posted_names_both_ledgers",
+            ),
+            # A draft has reached neither.
+            models.CheckConstraint(
+                condition=~Q(status="DRAFT")
+                | Q(stock_entry__isnull=True, journal_entry__isnull=True),
+                name="procurement_receipt_draft_reached_no_ledger",
+            ),
+            # A reversal says who, when, why, and which journal took it back.
+            models.CheckConstraint(
+                condition=~Q(status="REVERSED")
+                | Q(
+                    reversed_by__isnull=False,
+                    reversed_at__isnull=False,
+                    reversal_journal_entry__isnull=False,
+                )
+                & ~Q(reversal_reason=""),
+                name="procurement_receipt_reversal_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="REVERSED")
+                | Q(
+                    reversed_by__isnull=True,
+                    reversed_at__isnull=True,
+                    reversal_journal_entry__isnull=True,
+                    reversal_reason="",
+                ),
+                name="procurement_receipt_unreversed_carries_no_reversal",
             ),
             models.UniqueConstraint(
                 fields=["organization", "number"],
@@ -1542,10 +1640,19 @@ class GoodsReceipt(TimeStampedModel):
         goes stale the moment somebody edits a line, and the one that is stale
         is always the flag.
 
-        Posting itself arrives in Task 2.9; this is what its precondition will
-        be, surfaced now so the screen can say "ready" without saying "posted".
+        This is `post_goods_receipt`'s precondition, surfaced so the screen can
+        say "ready" before anybody presses anything. Posting re-derives it from
+        the locked rows rather than trusting what a screen last rendered.
+
+        Every line must be *fully disposed of*: `accepted + rejected` equals
+        `delivered`, with no undisposed remainder. A line where three of twelve
+        cartons are still unexamined is not a receipt anybody can post — the
+        goods are neither in stock nor claimed against the supplier, and
+        posting it would silently drop the difference.
         """
         lines = list(self.lines.all())
+        if self.status != GoodsReceiptStatus.DRAFT:
+            return False
         if not lines or not self.evidence_reference:
             return False
         return all(
@@ -1700,6 +1807,82 @@ class GoodsReceiptLine(TimeStampedModel):
     )
     note = models.CharField(_("note"), max_length=200, blank=True)
 
+    # --- what posting wrote ------------------------------------------------
+    #
+    # Written by `apps.procurement.posting` in the window between resolving the
+    # accounts and flipping the status, which is exactly as long as the trigger
+    # leaves the line unfrozen. `accepted_value` computes the same figure from
+    # today's row; `posted_value` records the figure that actually reached both
+    # ledgers, and only the second one may be reversed.
+
+    #: The cost per **base** unit the stock entered at. Derived from the
+    #: entered unit price and the package conversion, so a partial rejection
+    #: values the accepted kilograms at the rate the whole delivery was priced.
+    posted_unit_cost = models.DecimalField(
+        _("posted unit cost"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+        null=True,
+        blank=True,
+    )
+    posted_value = models.DecimalField(
+        _("posted value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    inventory_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipt_lines",
+        verbose_name=_("inventory account"),
+    )
+    contra_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipt_contra_lines",
+        verbose_name=_("GRNI account"),
+    )
+    #: The mapping rows that produced the account, kept so a later mapping
+    #: change cannot make a posted line unexplainable (ADR-019).
+    resolved_mapping = models.ForeignKey(
+        "inventory.InventoryAccountMapping",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipt_lines",
+        verbose_name=_("item mapping"),
+    )
+    resolved_organization_mapping = models.ForeignKey(
+        "accounting.OrganizationAccountMapping",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipt_lines",
+        verbose_name=_("organization mapping"),
+    )
+    movement = models.ForeignKey(
+        "inventory.StockMovement",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipt_lines",
+        verbose_name=_("stock movement"),
+    )
+    journal_line = models.ForeignKey(
+        "accounting.JournalLine",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="goods_receipt_lines",
+        verbose_name=_("journal line"),
+    )
+
     history = HistoricalRecords()
 
     class Meta:
@@ -1751,6 +1934,34 @@ class GoodsReceiptLine(TimeStampedModel):
                 fields=["receipt", "sequence"],
                 name="procurement_receipt_line_sequence_unique",
             ),
+            # A movement always names the value it carried.
+            models.CheckConstraint(
+                condition=Q(movement__isnull=True) | Q(posted_value__isnull=False),
+                name="procurement_receipt_line_movement_states_its_value",
+            ),
+            # A posted line that accepted something must name the movement it
+            # produced. A wholly rejected line is the one shape where "posted
+            # nothing" is the correct answer rather than a missing link: the
+            # goods never entered inventory, so there is no movement to name
+            # and its posted value is zero (PRC-025).
+            models.CheckConstraint(
+                condition=Q(posted_value__isnull=True)
+                | Q(accepted_base_quantity=0)
+                | Q(movement__isnull=False),
+                name="procurement_receipt_line_accepted_stock_has_a_movement",
+            ),
+            # Both sides of the entry or neither — and a line with a movement
+            # has both, because value that entered inventory came from
+            # somewhere.
+            models.CheckConstraint(
+                condition=Q(inventory_account__isnull=True, contra_account__isnull=True)
+                | Q(inventory_account__isnull=False, contra_account__isnull=False),
+                name="procurement_receipt_line_names_both_accounts",
+            ),
+            models.CheckConstraint(
+                condition=Q(movement__isnull=True) | Q(inventory_account__isnull=False),
+                name="procurement_receipt_line_movement_names_its_account",
+            ),
         ]
         indexes = [
             models.Index(fields=["order_line"], name="gr_line_order_line_idx"),
@@ -1760,16 +1971,37 @@ class GoodsReceiptLine(TimeStampedModel):
         return f"{self.receipt} · {self.item.code}"
 
     @property
+    def base_unit_cost(self) -> Decimal:
+        """
+        What one **base** unit of this delivery cost.
+
+        The entered price is per entered unit — per carton, per container — and
+        stock is held per kilogram, so the two have to be reconciled once,
+        here, rather than at each of the four places that need the answer.
+
+        Twelve cartons at 14,000 over 120 kg is 1,400 a kilogram. A container
+        priced at 9,500 that weighed 17.4 kg is 545.977011 a kilogram, and the
+        scale decides the divisor, not the planning factor (PRC-026).
+        """
+        if self.delivered_base_quantity == 0:  # pragma: no cover - a constraint refuses it
+            return Decimal("0.000000")
+        return quantize_unit_price(
+            self.delivered_quantity * self.unit_price / self.delivered_base_quantity
+        )
+
+    @property
     def accepted_value(self) -> Decimal:
         """
-        What the accepted portion is worth.
+        What the accepted portion is worth, at the moment it is asked.
 
-        Derived from the accepted **base** quantity and the entered unit price
-        converted to base, so a partial rejection is valued at the same rate
-        per kilogram as a full acceptance would be.
+        Quantized **once**, from the accepted base quantity at the base unit
+        cost — the same arithmetic `post_goods_receipt` will hand the kernel,
+        so the figure the screen shows before posting is the figure that
+        posts. Rating the whole line and then taking a share of it would round
+        twice and could disagree with the ledger by a unit in the last place,
+        which is exactly the disagreement ADR-006 exists to prevent.
+
+        Once posted, `posted_value` is the authoritative figure: this one
+        recomputes from today's row, and only the stored one reached a ledger.
         """
-        if self.delivered_base_quantity == 0:
-            return Decimal("0.000")
-        line_value = quantize_money(self.delivered_quantity * self.unit_price)
-        share = self.accepted_base_quantity / self.delivered_base_quantity
-        return quantize_money(line_value * share)
+        return quantize_money(self.accepted_base_quantity * self.base_unit_cost)

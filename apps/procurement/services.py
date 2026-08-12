@@ -462,12 +462,12 @@ def supersede_supplier_item(
 # Purchase requests
 # ---------------------------------------------------------------------------
 
-#: Prefix per procurement document type. `PR` here; `PO`, `GRN` and the rest
-#: join it as their tasks land.
+#: Prefix per procurement document type. The rest join as their tasks land.
 DOCUMENT_NUMBER_PREFIX = {
     "PURCHASE_REQUEST": "PR",
     "SUPPLIER_QUOTATION": "QT",
     "PURCHASE_ORDER": "PO",
+    "GOODS_RECEIPT": "GRN",
 }
 
 

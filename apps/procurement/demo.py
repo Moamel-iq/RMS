@@ -30,6 +30,7 @@ from apps.organizations.models import Branch, Organization
 from apps.procurement.comparison import award_quotation
 from apps.procurement.models import (
     GoodsReceipt,
+    GoodsReceiptStatus,
     PurchaseOrder,
     PurchaseOrderStatus,
     PurchaseRequest,
@@ -39,6 +40,7 @@ from apps.procurement.models import (
     SupplierQuotation,
     SupplierQuotationStatus,
 )
+from apps.procurement.posting import post_goods_receipt, reverse_goods_receipt
 from apps.procurement.services import (
     add_order_line,
     add_quotation_line,
@@ -574,26 +576,38 @@ def seed_demo_receipts(
     *, organization: Organization, receiver: User, inspector: User
 ) -> list[GoodsReceipt]:
     """
-    Four deliveries, each showing something the next one does not.
+    Five deliveries, each showing something the others do not.
 
-    1. Fully accepted, against the issued order — the ordinary case.
-    2. Partly rejected — three of twelve cartons were off, with a reason.
-    3. A partial receipt against the same order, so the outstanding quantity
-       on the screen is a real remainder rather than a contrived one.
-    4. A `VARIABLE` meat container weighed on arrival, because the planning
-       factor is an estimate and the scale is the quantity (PRC-026).
+    1. Fully accepted against the issued order, **posted** — the ordinary case,
+       and the one that puts stock and a GRNI credit into the books together.
+    2. A partial receipt against the same order, left **DRAFT**, so the screen
+       shows a real outstanding remainder rather than a contrived one and there
+       is something to inspect and post by hand.
+    3. Partly rejected and **posted** — three of twelve cartons were off. Ninety
+       kilograms entered stock and thirty did not; the rejected thirty produce
+       no movement, no GRNI and no payable (PRC-025).
+    4. A `VARIABLE` meat container weighed on arrival and **posted**, because
+       the planning factor is an estimate and the scale is the quantity
+       (PRC-026).
+    5. A direct market purchase with no order, posted and then **reversed**,
+       so a reader can see that a reversal mirrors the original exactly rather
+       than netting it off with a fresh valuation.
 
-    None of them posts. Stock and the GRNI journal move together in Task 2.9,
-    and a demo that created inventory here would be demonstrating the exact
-    thing the boundary exists to prevent.
+    Every one of them goes through `post_goods_receipt`. Nothing here writes a
+    `StockMovement` or a `JournalEntry` directly — a demo that did would be
+    demonstrating a path the system does not actually have.
     """
-    existing = list(
-        GoodsReceipt.objects.filter(
+    # Idempotent per receipt rather than all-or-nothing. An early return on
+    # "some of these already exist" would leave a database seeded by an
+    # earlier task permanently short of the ones this one adds, and would
+    # never post the drafts it left behind. Idempotent means the second run
+    # reaches the same state as the first, not that it does nothing.
+    existing = {
+        row.delivery_reference: row
+        for row in GoodsReceipt.objects.filter(
             organization=organization, delivery_reference__startswith="DEMO-GRN"
         ).order_by("id")
-    )
-    if existing:
-        return existing
+    }
 
     branch = Branch.objects.filter(organization=organization, code="DEMO-BUNOOK").first()
     warehouse = Warehouse.objects.filter(branch=branch, code="DEMO-MAIN", is_system=False).first()
@@ -626,11 +640,15 @@ def seed_demo_receipts(
     received_on = CATALOGUE_EFFECTIVE_FROM + datetime.timedelta(days=32)
     receipts: list[GoodsReceipt] = []
 
-    # 1 + 3. Two partial deliveries against the one issued order, which was
-    # revised down to 100 kg — 60 now, 40 later.
+    # 1 + 2. Two partial deliveries against the one issued order, which was
+    # revised down to 100 kg — 60 posted, 40 left as a draft to inspect.
     if order is not None:
         order_line = order.lines.order_by("sequence").first()
         for index, quantity in enumerate((Decimal("60.000"), Decimal("40.000")), start=1):
+            reference = f"DEMO-GRN-PARTIAL-{index}"
+            if reference in existing:
+                receipts.append(existing[reference])
+                continue
             receipt = create_goods_receipt(
                 supplier=order.supplier,
                 branch=branch,
@@ -650,8 +668,10 @@ def seed_demo_receipts(
             inspect_receipt_line(line=line, accepted_base_quantity=quantity, actor=inspector)
             receipts.append(receipt)
 
-    # 2. Partly rejected: three of twelve chicken cartons arrived warm.
-    if chicken_supplier is not None and chicken is not None and carton is not None:
+    # 3. Partly rejected: three of twelve chicken cartons arrived warm.
+    if "DEMO-GRN-REJECT" in existing:
+        receipts.append(existing["DEMO-GRN-REJECT"])
+    elif chicken_supplier is not None and chicken is not None and carton is not None:
         spoiled = create_goods_receipt(
             supplier=chicken_supplier,
             branch=branch,
@@ -681,7 +701,9 @@ def seed_demo_receipts(
         receipts.append(spoiled)
 
     # 4. A variable meat container: the scale decides, not the factor.
-    if meat_supplier is not None and meat is not None and container is not None:
+    if "DEMO-GRN-WEIGHED" in existing:
+        receipts.append(existing["DEMO-GRN-WEIGHED"])
+    elif meat_supplier is not None and meat is not None and container is not None:
         weighed = create_goods_receipt(
             supplier=meat_supplier,
             branch=branch,
@@ -705,4 +727,71 @@ def seed_demo_receipts(
         inspect_receipt_line(line=line, accepted_base_quantity=Decimal("17.400"), actor=inspector)
         receipts.append(weighed)
 
+    # 5. A direct market purchase — no order, its own entered price (PRC-028).
+    if "DEMO-GRN-REVERSED" in existing:
+        receipts.append(existing["DEMO-GRN-REVERSED"])
+    else:
+        returned = create_goods_receipt(
+            supplier=grocery,
+            branch=branch,
+            warehouse=warehouse,
+            created_by=receiver,
+            received_at=received_on,
+            delivery_reference="DEMO-GRN-REVERSED",
+            evidence_reference="وصل السوق",
+            notes="شراء مباشر من السوق",
+        )
+        line = add_receipt_line(
+            receipt=returned,
+            item=rice,
+            delivered_quantity=Decimal("10.000"),
+            unit_price=Decimal("1400.000000"),
+        )
+        inspect_receipt_line(line=line, accepted_base_quantity=Decimal("10.000"), actor=inspector)
+        receipts.append(returned)
+
+    _post_demo_receipts(receipts, actor=inspector)
     return receipts
+
+
+#: Which demo deliveries post, and which stays a draft. `DEMO-GRN-PARTIAL-2` is
+#: deliberately absent: a reader needs one receipt they can inspect and post
+#: themselves, and a seed that posted everything would leave the two commands
+#: with nothing to demonstrate.
+_DEMO_RECEIPTS_TO_POST = frozenset(
+    {
+        "DEMO-GRN-PARTIAL-1",
+        "DEMO-GRN-REJECT",
+        "DEMO-GRN-WEIGHED",
+        "DEMO-GRN-REVERSED",
+    }
+)
+
+
+def _post_demo_receipts(receipts: list[GoodsReceipt], *, actor: User) -> None:
+    """
+    Post through the real command, and reverse the one that is meant to be.
+
+    Idempotent by construction rather than by a flag: `post_goods_receipt`
+    refuses a receipt that is not DRAFT, so a second seed run finds them all
+    POSTED and skips. The kernel's source-identity uniqueness would refuse a
+    duplicate even if this did not.
+    """
+    for receipt in receipts:
+        if receipt.delivery_reference not in _DEMO_RECEIPTS_TO_POST:
+            continue
+        if receipt.status != GoodsReceiptStatus.DRAFT:
+            continue
+        post_goods_receipt(receipt=receipt, actor=actor)
+        receipt.refresh_from_db()
+
+    reversed_one = next(
+        (row for row in receipts if row.delivery_reference == "DEMO-GRN-REVERSED"), None
+    )
+    if reversed_one is not None and reversed_one.status == GoodsReceiptStatus.POSTED:
+        reverse_goods_receipt(
+            receipt=reversed_one,
+            actor=actor,
+            reason="المورد استرجع البضاعة في نفس اليوم",
+        )
+        reversed_one.refresh_from_db()

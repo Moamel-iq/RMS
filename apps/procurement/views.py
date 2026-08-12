@@ -76,6 +76,8 @@ from apps.procurement.permissions import (
     MANAGE_QUOTATIONS,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
+    POST_GOODS_RECEIPT,
+    REVERSE_GOODS_RECEIPT,
     VIEW_GOODS_RECEIPT,
     VIEW_PURCHASE_ORDER,
     VIEW_PURCHASE_REQUEST,
@@ -83,6 +85,11 @@ from apps.procurement.permissions import (
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
     VIEW_SUPPLIER_ITEM,
+)
+from apps.procurement.posting import (
+    post_goods_receipt,
+    receipt_timeline,
+    reverse_goods_receipt,
 )
 from apps.procurement.selectors import (
     order_version_history,
@@ -1146,8 +1153,8 @@ class GoodsReceiptListView(InventoryListView):
     page_title = _("استلام البضاعة")
     page_hint = _(
         "ما وصل فعلاً، وما قرّره الفحص. الكمية المقبولة وحدها تدخل المخزون؛ "
-        "المرفوضة تُسجَّل للمطالبة ولا ترحّل شيئاً. الترحيل يأتي مع القيد "
-        "المحاسبي في مهمة لاحقة، فلا يوجد ترحيل مخزون بلا قيد."
+        "المرفوضة تُسجَّل للمطالبة ولا ترحّل شيئاً. الترحيل يُنشئ الحركة "
+        "المخزنية والقيد المحاسبي معاً في معاملة واحدة."
     )
     search_fields = ("number", "delivery_reference", "supplier__code", "supplier__name_ar")
     manage_permission = CREATE_GOODS_RECEIPT
@@ -1223,7 +1230,15 @@ class GoodsReceiptDetailView(InventoryViewMixin, View):
         return {
             "receipt": receipt,
             "lines": receipt.lines.select_related(
-                "item", "item__base_unit", "package_unit", "lot", "rejection_reason"
+                "item",
+                "item__base_unit",
+                "package_unit",
+                "lot",
+                "rejection_reason",
+                "movement",
+                "inventory_account",
+                "contra_account",
+                "journal_line",
             ).order_by("sequence"),
             "form": form,
             "page_title": receipt.number or _("مسودة استلام"),
@@ -1232,8 +1247,18 @@ class GoodsReceiptDetailView(InventoryViewMixin, View):
                 self.actor, INSPECT_GOODS_RECEIPT, receipt.warehouse
             )
             and receipt.is_editable,
+            # The button appears only where the act is actually available:
+            # the permission, the warehouse, and the receipt's own state all
+            # have to agree. The service re-checks every one of them.
+            "may_post": has_warehouse_permission(self.actor, POST_GOODS_RECEIPT, receipt.warehouse)
+            and receipt.is_ready_to_post,
+            "may_reverse": has_warehouse_permission(
+                self.actor, REVERSE_GOODS_RECEIPT, receipt.warehouse
+            )
+            and receipt.status == GoodsReceiptStatus.POSTED,
             "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
             "outstanding": outstanding_order_lines(receipt.order) if receipt.order else [],
+            "timeline": receipt_timeline(receipt),
         }
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -1316,4 +1341,51 @@ class GoodsReceiptInspectView(InventoryViewMixin, View):
                 messages.error(request, "؛ ".join(str(m) for m in error.messages))
             else:
                 messages.success(request, _("تم تسجيل نتيجة الفحص."))
+        return HttpResponseRedirect(reverse("procurement:goods_receipt_detail", args=[receipt.pk]))
+
+
+class GoodsReceiptPostView(InventoryViewMixin, View):
+    """
+    POST-only. This is the act that puts goods into stock and money into the
+    ledger, and a GET that did it would be a link a crawler could follow.
+    """
+
+    module_key = "procurement"
+    required_permission = POST_GOODS_RECEIPT
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        receipt = resolve_goods_receipt(self.actor, self.kwargs["pk"])
+        require_warehouse_permission(self.actor, POST_GOODS_RECEIPT, receipt.warehouse)
+        try:
+            posted = post_goods_receipt(receipt=receipt, actor=self.actor)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(
+                request,
+                _("تم ترحيل الاستلام %(number)s. دخل المخزون وأُنشئ القيد معاً.")
+                % {"number": posted.number},
+            )
+        return HttpResponseRedirect(reverse("procurement:goods_receipt_detail", args=[receipt.pk]))
+
+
+class GoodsReceiptReverseView(InventoryViewMixin, View):
+    """POST-only, and a reason is required — an unexplained reversal is a hole."""
+
+    module_key = "procurement"
+    required_permission = REVERSE_GOODS_RECEIPT
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        receipt = resolve_goods_receipt(self.actor, self.kwargs["pk"])
+        require_warehouse_permission(self.actor, REVERSE_GOODS_RECEIPT, receipt.warehouse)
+        try:
+            reverse_goods_receipt(
+                receipt=receipt,
+                actor=self.actor,
+                reason=request.POST.get("reason", ""),
+            )
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم عكس الاستلام. خرج المخزون وعُكس القيد معاً."))
         return HttpResponseRedirect(reverse("procurement:goods_receipt_detail", args=[receipt.pk]))

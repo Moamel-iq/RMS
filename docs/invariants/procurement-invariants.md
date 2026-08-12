@@ -12,8 +12,8 @@ receipt is an inventory posting before it is anything else.
 the task that makes each one true. Invariants 1–3 landed with Task 2.1,
 5–8 with Task 2.2, 9–12 with Task 2.3, 13 with Task 2.4, 14–15 with
 Task 2.5 16 with Task 2.6, 17–19 with Task 2.7
-(18–19 activated by Task 2.8) and 20–24 with Task 2.8. The rest are still
-statements of intent, and the
+(18–19 activated by Task 2.8), 20–24 with Task 2.8, and 25–31 with Task 2.9.
+The rest are still statements of intent, and the
 traceability matrix rather than this table is where the evidence lives.
 
 ## The forty
@@ -44,13 +44,13 @@ traceability matrix rather than this table is where the evidence lives.
 | 22 | A `VARIABLE` package line requires its measured quantity | Reuses the inventory guard; no procurement bypass | 2.8 |
 | 23 | Lot and expiry follow the item's own rules, unchanged | Reuses `_validate_lot` | 2.8 |
 | 24 | Cumulative accepted quantity may not exceed the ordered base quantity | Service guard under a lock | 2.8 |
-| 25 | A receipt posts through the inventory kernel; procurement has no second posting path | Import-boundary test over the AST | 2.8 |
-| 26 | A posted receipt is immutable; correction is reversal plus replacement | Allowlist trigger | 2.8 |
-| 27 | A receipt reversal respects stock availability | Reuses the kernel check | 2.8 |
-| 28 | Receipt journal value equals receipt stock value, per line, to 3 dp | Reconciliation test | 2.9 |
-| 29 | No procurement service names an account, id or code; all come from effective-dated roles | AST test + missing-mapping rollback test | 2.9 |
-| 30 | Document, movement, journal and status commit or roll back together | `transaction.atomic()` + a forced-failure test | 2.9 |
-| 31 | Source identity is complete or absent, never partial (ADR-017) | Reuses the accounting guard | 2.9 |
+| 25 | A receipt posts through the inventory kernel; procurement has no second posting path | `post_stock_entry` + `post_entry` are the only calls; a test asserts no stock-only service exists | 2.8, 2.9 |
+| 26 | A posted receipt is immutable; correction is reversal plus replacement | Whole-row allowlist trigger over the receipt and a freeze over its lines | 2.9 |
+| 27 | A receipt reversal respects stock availability | Reuses the kernel check | 2.9 |
+| 28 | Receipt journal value equals receipt stock value, per line, to 3 dp | `verify_goods_receipt`, plus a trigger asserting the stored value is its own quantity at its own cost | 2.9 |
+| 29 | No procurement service names an account, id or code; all come from effective-dated roles | Role resolution + missing-mapping rollback test + a mapping-mutation race | 2.9 |
+| 30 | Document, movement, journal, location and status commit or roll back together | `transaction.atomic()` + a forced journal failure | 2.9 |
+| 31 | Source identity is complete or absent, never partial (ADR-017) | Reuses the accounting guard; `PROCUREMENT_GOODS_RECEIPT` + `public_id` + event | 2.9 |
 | 32 | A supplier invoice number is unique per supplier over non-reversed invoices | Partial unique index | 2.10 |
 | 33 | A supplier invoice never mutates stock | Asserted: no movement rows for any invoice source event | 2.10 |
 | 34 | An invoice total is the sum of its posted lines, never independently rounded | Service + test on a 3-way split | 2.10 |

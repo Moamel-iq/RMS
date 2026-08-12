@@ -1,12 +1,13 @@
 """
-Goods receipts: what arrived, what was accepted, and what still posts nothing.
+Goods receipts: what arrived, what was accepted, and what a draft does not do.
 
 Three classes carry the weight.
 
-`TestNothingPostsYet` is the boundary this task exists to hold. Stock and the
-GRNI journal must commit in one transaction, so Task 2.8 ships no posting
-command at all — and the tests assert that absence directly rather than
-trusting that nobody added one.
+`TestADraftPostsNothing` holds the line between recording a delivery and
+posting one. Task 2.8 asserted that no posting command existed at all; Task 2.9
+wrote one, so those three assertions were replaced by their positive twins in
+`test_goods_receipt_posting.py` rather than deleted. What remains here is the
+part that is still true: inspecting a receipt moves neither ledger.
 
 `TestTheReceivedQuantitySeam` is the other half of Task 2.7. That task wrote
 its guards against a function returning zero; this one gives the function a
@@ -63,6 +64,7 @@ from apps.procurement.permissions import (
     VIEW_GOODS_RECEIPT,
     permissions_for_role,
 )
+from apps.procurement.posting import post_goods_receipt, reverse_goods_receipt
 from apps.procurement.selectors import (
     outstanding_order_lines,
     resolve_goods_receipt,
@@ -242,20 +244,72 @@ def draft(grocery: Supplier, branch: Branch, store: Warehouse, keeper: User) -> 
     )
 
 
+# --- accounting, for the tests that actually post -----------------------------
+#
+# Task 2.8 fabricated a POSTED status with `update()` to exercise the seam's
+# query. Task 2.9 added the constraint that makes that shape unrepresentable —
+# a posted receipt names both ledgers or it is not a row — so these tests now
+# post through `post_goods_receipt`, which is what they were always standing in
+# for. The fixtures are requested per test rather than module-wide, because the
+# rest of this file needs no chart of accounts and should not pay for one.
+
+
+@pytest.fixture
+def accounting(organization: Organization) -> None:
+    from django.core.management import call_command
+
+    from apps.accounting.services import configure_accounting, open_fiscal_year
+
+    configure_accounting(organization=organization, fiscal_year_start_month=1)
+    open_fiscal_year(organization=organization, year=2026)
+    call_command("seed_chart_of_accounts", organization=organization.code, verbosity=0)
+
+
+@pytest.fixture
+def mapped(organization: Organization, accounting: None) -> None:
+    """`INVENTORY_CONTROL` and GRNI, the two roles a receipt posting resolves."""
+    import datetime as _datetime
+
+    from apps.accounting.models import (
+        GOODS_RECEIVED_NOT_INVOICED,
+        INVENTORY_CONTROL,
+        Account,
+        AccountRole,
+    )
+    from apps.accounting.services import create_account_mapping
+
+    for code, account_code in (
+        (INVENTORY_CONTROL, "1-03-01-001"),
+        (GOODS_RECEIVED_NOT_INVOICED, "2-01-02-001"),
+    ):
+        create_account_mapping(
+            organization=organization,
+            account_role=AccountRole.objects.get(code=code),
+            account=Account.objects.get(organization=organization, code=account_code),
+            effective_from=_datetime.date(2026, 1, 1),
+        )
+
+
 # ---------------------------------------------------------------------------
-# The boundary
+# The boundary, and what is on the far side of it
 # ---------------------------------------------------------------------------
 
 
-class TestNothingPostsYet:
+class TestADraftPostsNothing:
+    """
+    What Task 2.8 asserted, kept: a draft moves neither ledger.
+
+    The three assertions that said *no posting path exists at all* were the
+    boundary marker for Task 2.9, and deleting them was the deliberate act of
+    crossing it. They are replaced — not dropped — by
+    `test_goods_receipt_posting.py::TestBothLedgersMoveTogether`, which asserts
+    the positive twin of each one. What survives here is the claim that still
+    holds and always will: inspection is not posting.
+    """
+
     def test_no_stock_or_journal_exists_after_a_full_inspection(
         self, draft: GoodsReceipt, rice: InventoryItem, keeper: User
     ) -> None:
-        """
-        The boundary this task exists to hold. Stock and the GRNI journal
-        commit together in Task 2.9; anything that moved stock here would
-        create inventory with no accounting behind it.
-        """
         line = add_receipt_line(
             receipt=draft,
             item=rice,
@@ -270,26 +324,23 @@ class TestNothingPostsYet:
         assert StockLedgerEntry.objects.count() == 0
         assert JournalEntry.objects.count() == 0
 
-    def test_no_posting_service_is_exported(self) -> None:
+    def test_posting_is_one_command_not_two(self) -> None:
         """
-        Asserted rather than assumed. A stock-only post added later would be
-        exactly the defect the boundary is here to prevent, and this fails the
-        moment somebody writes one without the journal.
+        The claim the old absence-assertions were really making, stated
+        directly: there is no way to move stock without moving the journal,
+        because no service does either half on its own.
         """
-        from apps.procurement import services
+        from apps.procurement import posting, services
 
-        for name in ("post_goods_receipt", "reverse_goods_receipt"):
-            assert not hasattr(services, name), (
-                f"{name} exists before Task 2.9. Stock and GRNI must commit in one transaction."
-            )
-
-    def test_no_route_offers_posting(self) -> None:
-        from django.urls import NoReverseMatch
-        from django.urls import reverse as resolve
-
-        for name in ("procurement:goods_receipt_post", "procurement:goods_receipt_reverse"):
-            with pytest.raises(NoReverseMatch):
-                resolve(name, args=[1])
+        assert hasattr(posting, "post_goods_receipt")
+        assert hasattr(posting, "reverse_goods_receipt")
+        for name in (
+            "post_receipt_stock",
+            "post_receipt_accounting",
+            "post_goods_receipt_stock_only",
+        ):
+            assert not hasattr(posting, name), f"{name} would be a stock-only posting path"
+            assert not hasattr(services, name)
 
     def test_a_posted_status_with_no_timestamp_is_refused(self, draft: GoodsReceipt) -> None:
         with pytest.raises(IntegrityError), transaction.atomic():
@@ -305,6 +356,15 @@ class TestNothingPostsYet:
             GoodsReceipt.objects.filter(pk=draft.pk).update(
                 posted_by=keeper, posted_at=timezone.now()
             )
+
+    def test_an_unreversed_receipt_carries_no_reversal(self, draft: GoodsReceipt) -> None:
+        """
+        New in Task 2.9. Reversal metadata on something that has not been
+        reversed is the same class of half-applied state as a posted timestamp
+        on a draft, and the database refuses it for the same reason.
+        """
+        with pytest.raises(IntegrityError), transaction.atomic():
+            GoodsReceipt.objects.filter(pk=draft.pk).update(reversal_reason="بلا سبب")
 
 
 # ---------------------------------------------------------------------------
@@ -489,6 +549,7 @@ class TestLineRules:
             created_by=keeper,
             received_at=RECEIVED,
             order=issued_order,
+            evidence_reference="إشعار التسليم",
         )
         line = add_receipt_line(
             receipt=receipt,
@@ -599,6 +660,7 @@ class TestTheReceivedQuantitySeam:
             created_by=keeper,
             received_at=RECEIVED,
             order=issued_order,
+            evidence_reference="إشعار التسليم",
         )
         line = add_receipt_line(
             receipt=receipt,
@@ -616,6 +678,7 @@ class TestTheReceivedQuantitySeam:
         store: Warehouse,
         keeper: User,
         rice: InventoryItem,
+        mapped: None,
     ) -> None:
         """
         Posting arrives in Task 2.9, so the status is set directly here — the
@@ -628,6 +691,7 @@ class TestTheReceivedQuantitySeam:
             created_by=keeper,
             received_at=RECEIVED,
             order=issued_order,
+            evidence_reference="إشعار التسليم",
         )
         order_line = issued_order.lines.get()
         line = add_receipt_line(
@@ -637,11 +701,7 @@ class TestTheReceivedQuantitySeam:
             order_line=order_line,
         )
         inspect_receipt_line(line=line, accepted_base_quantity=Decimal("40.000"), actor=keeper)
-        from django.utils import timezone
-
-        GoodsReceipt.objects.filter(pk=receipt.pk).update(
-            status=GoodsReceiptStatus.POSTED, posted_by=keeper, posted_at=timezone.now()
-        )
+        post_goods_receipt(receipt=receipt, actor=keeper)
         assert received_base_quantity(order_line) == Decimal("40.000")
 
     def test_a_reversed_receipt_gives_its_quantity_back(
@@ -651,6 +711,7 @@ class TestTheReceivedQuantitySeam:
         store: Warehouse,
         keeper: User,
         rice: InventoryItem,
+        mapped: None,
     ) -> None:
         receipt = create_goods_receipt(
             supplier=issued_order.supplier,
@@ -659,6 +720,7 @@ class TestTheReceivedQuantitySeam:
             created_by=keeper,
             received_at=RECEIVED,
             order=issued_order,
+            evidence_reference="إشعار التسليم",
         )
         order_line = issued_order.lines.get()
         line = add_receipt_line(
@@ -668,7 +730,9 @@ class TestTheReceivedQuantitySeam:
             order_line=order_line,
         )
         inspect_receipt_line(line=line, accepted_base_quantity=Decimal("40.000"), actor=keeper)
-        GoodsReceipt.objects.filter(pk=receipt.pk).update(status=GoodsReceiptStatus.REVERSED)
+        posted = post_goods_receipt(receipt=receipt, actor=keeper)
+        assert received_base_quantity(order_line) == Decimal("40.000")
+        reverse_goods_receipt(receipt=posted, actor=keeper, reason="أُعيدت الشحنة")
         assert received_base_quantity(order_line) == Decimal("0.000")
 
     def test_a_revision_below_the_received_quantity_is_now_refused(
@@ -679,6 +743,7 @@ class TestTheReceivedQuantitySeam:
         keeper: User,
         buyer: User,
         rice: InventoryItem,
+        mapped: None,
     ) -> None:
         """
         The Task 2.7 guard, activated. It was written against a function
@@ -691,6 +756,7 @@ class TestTheReceivedQuantitySeam:
             created_by=keeper,
             received_at=RECEIVED,
             order=issued_order,
+            evidence_reference="إشعار التسليم",
         )
         order_line = issued_order.lines.get()
         line = add_receipt_line(
@@ -700,11 +766,7 @@ class TestTheReceivedQuantitySeam:
             order_line=order_line,
         )
         inspect_receipt_line(line=line, accepted_base_quantity=Decimal("80.000"), actor=keeper)
-        from django.utils import timezone
-
-        GoodsReceipt.objects.filter(pk=receipt.pk).update(
-            status=GoodsReceiptStatus.POSTED, posted_by=keeper, posted_at=timezone.now()
-        )
+        post_goods_receipt(receipt=receipt, actor=keeper)
 
         with pytest.raises(ValidationError) as refused:
             revise_purchase_order(
@@ -723,6 +785,7 @@ class TestTheReceivedQuantitySeam:
         keeper: User,
         buyer: User,
         rice: InventoryItem,
+        mapped: None,
     ) -> None:
         receipt = create_goods_receipt(
             supplier=issued_order.supplier,
@@ -731,6 +794,7 @@ class TestTheReceivedQuantitySeam:
             created_by=keeper,
             received_at=RECEIVED,
             order=issued_order,
+            evidence_reference="إشعار التسليم",
         )
         order_line = issued_order.lines.get()
         line = add_receipt_line(
@@ -740,11 +804,7 @@ class TestTheReceivedQuantitySeam:
             order_line=order_line,
         )
         inspect_receipt_line(line=line, accepted_base_quantity=Decimal("40.000"), actor=keeper)
-        from django.utils import timezone
-
-        GoodsReceipt.objects.filter(pk=receipt.pk).update(
-            status=GoodsReceiptStatus.POSTED, posted_by=keeper, posted_at=timezone.now()
-        )
+        post_goods_receipt(receipt=receipt, actor=keeper)
         revised = revise_purchase_order(
             order=issued_order,
             actor=buyer,
@@ -760,6 +820,7 @@ class TestTheReceivedQuantitySeam:
         store: Warehouse,
         keeper: User,
         rice: InventoryItem,
+        mapped: None,
     ) -> None:
         receipt = create_goods_receipt(
             supplier=issued_order.supplier,
@@ -768,6 +829,7 @@ class TestTheReceivedQuantitySeam:
             created_by=keeper,
             received_at=RECEIVED,
             order=issued_order,
+            evidence_reference="إشعار التسليم",
         )
         order_line = issued_order.lines.get()
         line = add_receipt_line(
@@ -777,11 +839,7 @@ class TestTheReceivedQuantitySeam:
             order_line=order_line,
         )
         inspect_receipt_line(line=line, accepted_base_quantity=Decimal("30.000"), actor=keeper)
-        from django.utils import timezone
-
-        GoodsReceipt.objects.filter(pk=receipt.pk).update(
-            status=GoodsReceiptStatus.POSTED, posted_by=keeper, posted_at=timezone.now()
-        )
+        post_goods_receipt(receipt=receipt, actor=keeper)
         rows = outstanding_order_lines(issued_order)
         assert rows[0]["ordered"] == Decimal("100.000")
         assert rows[0]["received"] == Decimal("30.000")
@@ -809,6 +867,7 @@ class TestOrderRules:
             created_by=keeper,
             received_at=RECEIVED,
             order=issued_order,
+            evidence_reference="إشعار التسليم",
         )
         with pytest.raises(ValidationError) as refused:
             add_receipt_line(
@@ -904,14 +963,21 @@ class TestOrderRules:
         assert refused.value.code == "order_cancelled"
 
     def test_a_stale_receipt_instance_cannot_gain_a_line_after_posting(
-        self, draft: GoodsReceipt, rice: InventoryItem, keeper: User
+        self,
+        draft: GoodsReceipt,
+        rice: InventoryItem,
+        keeper: User,
+        mapped: None,
     ) -> None:
-        from django.utils import timezone
-
         stale = GoodsReceipt.objects.get(pk=draft.pk)
-        GoodsReceipt.objects.filter(pk=draft.pk).update(
-            status=GoodsReceiptStatus.POSTED, posted_by=keeper, posted_at=timezone.now()
+        line = add_receipt_line(
+            receipt=draft,
+            item=rice,
+            delivered_quantity=Decimal("5.000"),
+            unit_price=Decimal("1400.000000"),
         )
+        inspect_receipt_line(line=line, accepted_base_quantity=Decimal("5.000"), actor=keeper)
+        post_goods_receipt(receipt=draft, actor=keeper)
         assert stale.status == GoodsReceiptStatus.DRAFT
         with pytest.raises(ValidationError) as refused:
             add_receipt_line(
@@ -964,6 +1030,7 @@ class TestOrderRules:
             created_by=keeper,
             received_at=RECEIVED,
             order=issued_order,
+            evidence_reference="إشعار التسليم",
         )
         assert receipt.order_version == 1
         revise_purchase_order(order=issued_order, actor=buyer, reason="تعديل")

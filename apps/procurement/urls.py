@@ -190,4 +190,17 @@ urlpatterns = [
         views.GoodsReceiptInspectView.as_view(),
         name="goods_receipt_inspect",
     ),
+    # Command routes, POST-only. Named for the act rather than for the record,
+    # because posting a receipt is not editing one: there is no generic write
+    # endpoint over a posted receipt and there is deliberately not going to be.
+    path(
+        "receipts/<int:pk>/post/",
+        views.GoodsReceiptPostView.as_view(),
+        name="goods_receipt_post",
+    ),
+    path(
+        "receipts/<int:pk>/reverse/",
+        views.GoodsReceiptReverseView.as_view(),
+        name="goods_receipt_reverse",
+    ),
 ]
