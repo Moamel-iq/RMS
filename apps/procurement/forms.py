@@ -14,6 +14,7 @@ from typing import Any
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+from apps.accounting.models import Account, CostCenter
 from apps.inventory.models import (
     InventoryItem,
     InventoryLot,
@@ -27,8 +28,9 @@ from apps.organizations.authorization import (
     accessible_warehouses,
     organizations_with_permission,
 )
-from apps.organizations.models import Organization
+from apps.organizations.models import Branch, Organization
 from apps.procurement.models import (
+    GoodsReceiptLine,
     PurchaseOrder,
     PurchaseOrderStatus,
     PurchaseRequest,
@@ -38,7 +40,7 @@ from apps.procurement.models import (
     SupplierQuotation,
     SupplierQuotationStatus,
 )
-from apps.procurement.permissions import MANAGE_SUPPLIERS
+from apps.procurement.permissions import CREATE_SUPPLIER_INVOICE, MANAGE_SUPPLIERS
 from apps.procurement.selectors import visible_suppliers
 from apps.procurement.services import canonical_code
 from apps.users.models import User
@@ -604,3 +606,125 @@ class InspectLineForm(forms.Form):
         self.fields["rejection_reason"].queryset = InventoryReasonCode.objects.filter(  # type: ignore[attr-defined]
             organization_id=receipt.organization_id, is_active=True
         ).order_by("code")
+
+
+class SupplierInvoiceForm(forms.Form):
+    """
+    The header of a draft invoice. Lines are entered on the detail screen.
+
+    `supplier` and `branch` narrow to organizations the caller holds real
+    authority over, not merely reaches: an invoice commits the organization to
+    paying somebody, and a branch membership is custody of a store.
+    """
+
+    supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
+    branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع المحاسبي"))
+    supplier_invoice_number = forms.CharField(
+        label=_("رقم فاتورة المورد"),
+        max_length=64,
+        help_text=_("رقمهم كما كتبوه. لا يتكرر لنفس المورد — الحماية من الدفع مرتين."),
+    )
+    invoice_date = forms.DateField(
+        label=_("تاريخ الفاتورة"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    business_date = forms.DateField(
+        label=_("التاريخ المحاسبي"),
+        widget=forms.DateInput(attrs={"type": "date"}),
+        required=False,
+        help_text=_("يوم العمل الذي يُرحّل فيه. يُترك فارغاً ليأخذ يوم الفرع الحالي."),
+    )
+    supplier_reference = forms.CharField(label=_("مرجع المورد"), max_length=200, required=False)
+    freight_amount = forms.DecimalField(label=_("أجور النقل"), min_value=0, required=False)
+    discount_amount = forms.DecimalField(label=_("الخصم"), min_value=0, required=False)
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+        organizations = organizations_with_permission(actor, CREATE_SUPPLIER_INVOICE)
+        self.fields["supplier"].queryset = Supplier.objects.filter(  # type: ignore[attr-defined]
+            organization__in=organizations, is_active=True
+        ).order_by("code")
+        self.fields["branch"].queryset = Branch.objects.filter(  # type: ignore[attr-defined]
+            organization__in=organizations, is_active=True
+        ).order_by("code")
+
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean() or {}
+        supplier, branch = data.get("supplier"), data.get("branch")
+        if supplier and branch and branch.organization_id != supplier.organization_id:
+            raise forms.ValidationError(
+                _("الفرع لا يتبع مؤسسة المورد."), code="organization_mismatch"
+            )
+        return data
+
+
+class InvoiceInventoryLineForm(forms.Form):
+    """A charge for goods. References a delivery as evidence, never as a match."""
+
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    receipt_line = forms.ModelChoiceField(
+        queryset=GoodsReceiptLine.objects.none(),
+        label=_("سطر الاستلام"),
+        required=False,
+        help_text=_("إسناد فقط. المطابقة الثلاثية وتسوية الفروق تأتي في مهمة لاحقة."),
+    )
+    base_quantity = forms.DecimalField(
+        label=_("الكمية بالوحدة الأساسية"), min_value=Decimal("0.001")
+    )
+    unit_price = forms.DecimalField(label=_("سعر الوحدة"), min_value=0)
+    description = forms.CharField(label=_("البيان"), max_length=200, required=False)
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, invoice: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.invoice = invoice
+        self.fields["item"].queryset = InventoryItem.objects.filter(  # type: ignore[attr-defined]
+            organization_id=invoice.organization_id, is_active=True
+        ).order_by("code")
+        # Only posted deliveries from this supplier. A draft receipt has not
+        # reached stock, and an invoice citing one would claim goods nobody
+        # has confirmed arrived.
+        self.fields["receipt_line"].queryset = (  # type: ignore[attr-defined]
+            GoodsReceiptLine.objects.filter(
+                receipt__organization_id=invoice.organization_id,
+                receipt__supplier_id=invoice.supplier_id,
+                receipt__status="POSTED",
+            )
+            .select_related("receipt", "item")
+            .order_by("-receipt__id", "sequence")
+        )
+
+
+class InvoiceAccountLineForm(forms.Form):
+    """A charge for something that never entered stock."""
+
+    account = forms.ModelChoiceField(queryset=Account.objects.none(), label=_("الحساب"))
+    cost_center = forms.ModelChoiceField(
+        queryset=CostCenter.objects.none(), label=_("مركز التكلفة"), required=False
+    )
+    description = forms.CharField(label=_("البيان"), max_length=200)
+    quantity = forms.DecimalField(
+        label=_("الكمية"), min_value=Decimal("0.001"), initial=Decimal("1.000")
+    )
+    unit_price = forms.DecimalField(label=_("السعر"), min_value=0)
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, invoice: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.invoice = invoice
+        self.fields["account"].queryset = Account.objects.filter(  # type: ignore[attr-defined]
+            organization_id=invoice.organization_id, is_active=True, is_postable=True
+        ).order_by("code")
+        self.fields["cost_center"].queryset = CostCenter.objects.filter(  # type: ignore[attr-defined]
+            organization_id=invoice.organization_id, is_active=True
+        ).order_by("code")
+
+
+class InvoiceReversalForm(forms.Form):
+    """A reversal states why. An unexplained one is a hole in the record."""
+
+    reason = forms.CharField(label=_("السبب"), max_length=500)

@@ -99,6 +99,19 @@ CREATE_GOODS_RECEIPT = f"{APP_LABEL}.create_goods_receipt"
 INSPECT_GOODS_RECEIPT = f"{APP_LABEL}.inspect_goods_receipt"
 POST_GOODS_RECEIPT = f"{APP_LABEL}.post_goods_receipt"
 REVERSE_GOODS_RECEIPT = f"{APP_LABEL}.reverse_goods_receipt"
+#: Task 2.10. Five, because entering a claim, agreeing it is real, putting it
+#: in the ledger and taking it back out are four different acts by up to four
+#: different people — the separation the whole approval step exists to record.
+#:
+#: All five are **organization**-scoped and, unlike the supplier master,
+#: require real organization authority rather than mere reach: an invoice is
+#: money the organization owes, and a branch membership is custody of a store
+#: rather than authority over a debt (PRC-060).
+VIEW_SUPPLIER_INVOICE = f"{APP_LABEL}.view_supplierinvoice"
+CREATE_SUPPLIER_INVOICE = f"{APP_LABEL}.create_supplier_invoice"
+APPROVE_SUPPLIER_INVOICE = f"{APP_LABEL}.approve_supplier_invoice"
+POST_SUPPLIER_INVOICE = f"{APP_LABEL}.post_supplier_invoice"
+REVERSE_SUPPLIER_INVOICE = f"{APP_LABEL}.reverse_supplier_invoice"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_SUPPLIER,
@@ -122,6 +135,11 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     INSPECT_GOODS_RECEIPT,
     POST_GOODS_RECEIPT,
     REVERSE_GOODS_RECEIPT,
+    VIEW_SUPPLIER_INVOICE,
+    CREATE_SUPPLIER_INVOICE,
+    APPROVE_SUPPLIER_INVOICE,
+    POST_SUPPLIER_INVOICE,
+    REVERSE_SUPPLIER_INVOICE,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -157,6 +175,15 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     INSPECT_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
     POST_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
     REVERSE_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
+    # Money the organization owes. `ORGANIZATION_AUTHORITY` rather than
+    # `ORGANIZATION_MASTER_DATA`: reaching an organization through a branch
+    # membership is enough to maintain the shared supplier list, and is not
+    # enough to commit the organization to paying somebody.
+    VIEW_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
+    CREATE_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
+    APPROVE_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
+    POST_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
+    REVERSE_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
 }
 
 
@@ -188,6 +215,9 @@ _PURCHASING = frozenset(
         # Reads deliveries; confirms none. Whoever chose the supplier does
         # not also certify that what they sent was acceptable.
         VIEW_GOODS_RECEIPT,
+        # Reads what was billed against the orders it raised, and agrees to
+        # none of it. Whoever chose the supplier does not approve their bill.
+        VIEW_SUPPLIER_INVOICE,
     }
 )
 
@@ -215,6 +245,11 @@ _MANAGER = frozenset(
         INSPECT_GOODS_RECEIPT,
         POST_GOODS_RECEIPT,
         REVERSE_GOODS_RECEIPT,
+        # Held, but organization-scoped: a branch manager with no organization
+        # membership reaches no invoice, which is the scope doing its job
+        # rather than the permission being pointless.
+        VIEW_SUPPLIER_INVOICE,
+        CREATE_SUPPLIER_INVOICE,
     }
 )
 
@@ -238,6 +273,13 @@ _ACCOUNTING_MANAGER = frozenset(
         # Approves what a branch asks for without being able to ask for it,
         # which is the separation the whole document exists to record.
         APPROVE_PURCHASE_REQUEST,
+        # The money side of a purchase, end to end — and deliberately without
+        # `CREATE_SUPPLIER_INVOICE`. Whoever agrees a claim is real should not
+        # be the person who typed it in.
+        VIEW_SUPPLIER_INVOICE,
+        APPROVE_SUPPLIER_INVOICE,
+        POST_SUPPLIER_INVOICE,
+        REVERSE_SUPPLIER_INVOICE,
     }
 )
 _ACCOUNTANT = frozenset(
@@ -249,6 +291,11 @@ _ACCOUNTANT = frozenset(
         VIEW_QUOTATION,
         VIEW_PURCHASE_ORDER,
         VIEW_GOODS_RECEIPT,
+        # Enters what arrives in the post, and agrees to none of it. The
+        # maker-checker split the purchase request already uses, applied to
+        # the document that actually commits money.
+        VIEW_SUPPLIER_INVOICE,
+        CREATE_SUPPLIER_INVOICE,
     }
 )
 

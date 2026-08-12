@@ -24,23 +24,53 @@ from django.core.exceptions import ValidationError
 from django.http import HttpRequest
 from ninja import Router, Schema, Status
 
+from apps.accounting.models import Account, CostCenter
 from apps.inventory.selectors import resolve_item, resolve_package_unit
 from apps.organizations.authorization import (
+    OutOfScope,
     PermissionMissing,
+    require_organization_permission,
     require_reachable_organization_permission,
+    resolve_branch,
     resolve_organization,
 )
-from apps.procurement.models import Supplier, SupplierItem
+from apps.procurement.invoices import (
+    add_account_line,
+    add_inventory_line,
+    approve_supplier_invoice,
+    create_supplier_invoice,
+    delete_supplier_invoice,
+    outstanding_amount,
+    post_supplier_invoice,
+    reverse_supplier_invoice,
+)
+from apps.procurement.models import (
+    GoodsReceiptLine,
+    PurchaseOrderLine,
+    Supplier,
+    SupplierInvoice,
+    SupplierInvoiceLine,
+    SupplierItem,
+)
 from apps.procurement.permissions import (
+    APPROVE_SUPPLIER_INVOICE,
+    CREATE_SUPPLIER_INVOICE,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
+    POST_SUPPLIER_INVOICE,
+    REVERSE_SUPPLIER_INVOICE,
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
+    VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
 )
 from apps.procurement.selectors import (
     resolve_supplier,
+    resolve_supplier_invoice,
     resolve_supplier_item,
+    visible_goods_receipts,
+    visible_purchase_orders,
+    visible_supplier_invoices,
     visible_supplier_items,
     visible_suppliers,
 )
@@ -373,3 +403,399 @@ def create_catalogue_row(request: HttpRequest, payload: SupplierItemIn) -> Statu
         notes=payload.notes,
     )
     return Status(201, _serialize_catalogue(row, include_cost=True))
+
+
+# ---------------------------------------------------------------------------
+# Supplier invoices (Task 2.10)
+# ---------------------------------------------------------------------------
+#
+# Commands, not CRUD (PRC-063). There is no writable endpoint over a posted
+# invoice: `approve`, `post` and `reverse` are the only ways its state changes,
+# and each one calls the same service the screen does. Every money value
+# crosses the wire as an exact string in both directions.
+
+
+class InvoiceLineOut(Schema):
+    id: int
+    sequence: int
+    line_type: str
+    description: str
+    target: str
+    item_id: int | None = None
+    account_code: str | None = None
+    cost_center_code: str | None = None
+    receipt_line_id: int | None = None
+    order_line_id: int | None = None
+    quantity: str
+    unit_price: str | None = None
+    line_amount: str | None = None
+    allocated_freight: str | None = None
+    allocated_discount: str | None = None
+    net_amount: str | None = None
+
+
+class SupplierInvoiceOut(Schema):
+    id: int
+    public_id: str
+    organization_id: int
+    branch_id: int
+    supplier_id: int
+    supplier_code: str
+    number: str
+    supplier_invoice_number: str
+    invoice_date: str
+    business_date: str
+    due_date: str
+    payment_terms_days: int
+    status: str
+    is_ready_to_post: bool
+    blocking_line_sequences: list[int]
+    journal_entry: str | None = None
+    #: Omitted entirely without `view_supplier_cost`, never blanked — a null
+    #: total is indistinguishable from an invoice for nothing, which is a
+    #: different statement from "you were not shown it".
+    lines_total: str | None = None
+    freight_amount: str | None = None
+    discount_amount: str | None = None
+    total_amount: str | None = None
+    posted_amount: str | None = None
+    outstanding: str | None = None
+    lines: list[InvoiceLineOut] = []
+
+
+class SupplierInvoiceIn(Schema):
+    branch_id: int
+    supplier_id: int
+    supplier_invoice_number: str
+    invoice_date: str
+    business_date: str | None = None
+    supplier_reference: str = ""
+    freight_amount: str | None = None
+    discount_amount: str | None = None
+    notes: str = ""
+
+
+class InvoiceInventoryLineIn(Schema):
+    item_id: int
+    base_quantity: str
+    unit_price: str
+    receipt_line_id: int | None = None
+    order_line_id: int | None = None
+    description: str = ""
+    note: str = ""
+
+
+class InvoiceAccountLineIn(Schema):
+    account_id: int
+    description: str
+    quantity: str = "1.000"
+    unit_price: str
+    cost_center_id: int | None = None
+    note: str = ""
+
+
+class ReasonIn(Schema):
+    reason: str
+
+
+def _require_invoice_view(request: HttpRequest) -> User:
+    actor = _actor(request)
+    if not actor.has_perm(VIEW_SUPPLIER_INVOICE):
+        raise PermissionMissing(f"{VIEW_SUPPLIER_INVOICE} is not held.")
+    return actor
+
+
+def _serialize_invoice_line(line: SupplierInvoiceLine, *, include_cost: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": line.pk,
+        "sequence": line.sequence,
+        "line_type": line.line_type,
+        "description": line.description,
+        "target": line.target_label,
+        "item_id": line.item_id,
+        "account_code": line.account.code if line.account else None,
+        "cost_center_code": line.cost_center.code if line.cost_center else None,
+        "receipt_line_id": line.receipt_line_id,
+        "order_line_id": line.order_line_id,
+        "quantity": format(line.quantity, "f"),
+    }
+    if include_cost:
+        payload.update(
+            {
+                "unit_price": format(line.unit_price, "f"),
+                "line_amount": format(line.line_amount, "f"),
+                "allocated_freight": format(line.allocated_freight, "f"),
+                "allocated_discount": format(line.allocated_discount, "f"),
+                "net_amount": format(line.net_amount, "f"),
+            }
+        )
+    return payload
+
+
+def _serialize_invoice(invoice: SupplierInvoice, *, include_cost: bool) -> dict[str, Any]:
+    lines = list(
+        invoice.lines.select_related("item", "account", "cost_center").order_by("sequence")
+    )
+    payload: dict[str, Any] = {
+        "id": invoice.pk,
+        "public_id": str(invoice.public_id),
+        "organization_id": invoice.organization_id,
+        "branch_id": invoice.branch_id,
+        "supplier_id": invoice.supplier_id,
+        "supplier_code": invoice.supplier.code,
+        "number": invoice.number,
+        "supplier_invoice_number": invoice.supplier_invoice_number,
+        "invoice_date": invoice.invoice_date.isoformat(),
+        "business_date": invoice.business_date.isoformat(),
+        "due_date": invoice.due_date.isoformat(),
+        "payment_terms_days": invoice.payment_terms_days,
+        "status": invoice.status,
+        "is_ready_to_post": invoice.is_ready_to_post,
+        "blocking_line_sequences": [line.sequence for line in invoice.blocking_lines],
+        "journal_entry": invoice.journal_entry.entry_number if invoice.journal_entry else None,
+        "lines": [_serialize_invoice_line(line, include_cost=include_cost) for line in lines],
+    }
+    if include_cost:
+        payload.update(
+            {
+                "lines_total": format(invoice.lines_total, "f"),
+                "freight_amount": format(invoice.freight_amount, "f"),
+                "discount_amount": format(invoice.discount_amount, "f"),
+                "total_amount": format(invoice.total_amount, "f"),
+                "posted_amount": (
+                    format(invoice.posted_amount, "f")
+                    if invoice.posted_amount is not None
+                    else None
+                ),
+                "outstanding": format(outstanding_amount(invoice), "f"),
+            }
+        )
+    return payload
+
+
+def _required_money(value: str, *, field: str) -> Decimal:
+    parsed = _money(value, field=field)
+    if parsed is None:
+        raise ValidationError(f"{field} is required.", code="required")
+    return parsed
+
+
+def _required_date(value: str, *, field: str) -> datetime.date:
+    parsed = _date(value, field=field)
+    if parsed is None:
+        raise ValidationError(f"{field} is required.", code="required")
+    return parsed
+
+
+@router.get(
+    "/supplier-invoices/", response=list[SupplierInvoiceOut], summary="List supplier invoices"
+)
+def list_supplier_invoices(request: HttpRequest, status: str | None = None) -> Any:
+    actor = _require_invoice_view(request)
+    queryset = visible_supplier_invoices(actor)
+    if status:
+        queryset = queryset.filter(status=status.strip().upper())
+    include_cost = actor.has_perm(VIEW_SUPPLIER_COST)
+    return [
+        _serialize_invoice(invoice, include_cost=include_cost)
+        for invoice in queryset.order_by("-id")
+    ]
+
+
+@router.get(
+    "/supplier-invoices/{invoice_id}/",
+    response=SupplierInvoiceOut,
+    summary="Read one supplier invoice",
+)
+def read_supplier_invoice(request: HttpRequest, invoice_id: int) -> Any:
+    actor = _require_invoice_view(request)
+    invoice = resolve_supplier_invoice(actor, invoice_id)
+    return _serialize_invoice(invoice, include_cost=actor.has_perm(VIEW_SUPPLIER_COST))
+
+
+@router.post(
+    "/supplier-invoices/",
+    response={201: SupplierInvoiceOut},
+    summary="Record a supplier invoice",
+)
+def create_invoice(request: HttpRequest, payload: SupplierInvoiceIn) -> Status[Any]:
+    actor = _actor(request)
+    branch = resolve_branch(actor, payload.branch_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_INVOICE, branch.organization)
+    supplier = resolve_supplier(actor, payload.supplier_id)
+
+    invoice = create_supplier_invoice(
+        supplier=supplier,
+        branch=branch,
+        created_by=actor,
+        supplier_invoice_number=payload.supplier_invoice_number,
+        invoice_date=_required_date(payload.invoice_date, field="invoice_date"),
+        business_date=_date(payload.business_date, field="business_date"),
+        supplier_reference=payload.supplier_reference,
+        freight_amount=_money(payload.freight_amount, field="freight_amount"),
+        discount_amount=_money(payload.discount_amount, field="discount_amount"),
+        notes=payload.notes,
+    )
+    return Status(201, _serialize_invoice(invoice, include_cost=True))
+
+
+@router.delete(
+    "/supplier-invoices/{invoice_id}/", response={204: None}, summary="Discard a draft invoice"
+)
+def delete_invoice(request: HttpRequest, invoice_id: int) -> Status[Any]:
+    actor = _actor(request)
+    invoice = resolve_supplier_invoice(actor, invoice_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_INVOICE, invoice.organization)
+    delete_supplier_invoice(invoice=invoice)
+    return Status(204, None)
+
+
+@router.post(
+    "/supplier-invoices/{invoice_id}/lines/inventory/",
+    response={201: SupplierInvoiceOut},
+    summary="Add a goods line",
+)
+def add_invoice_inventory_line(
+    request: HttpRequest, invoice_id: int, payload: InvoiceInventoryLineIn
+) -> Status[Any]:
+    actor = _actor(request)
+    invoice = resolve_supplier_invoice(actor, invoice_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_INVOICE, invoice.organization)
+    item = resolve_item(actor, payload.item_id)
+
+    receipt_line = None
+    if payload.receipt_line_id is not None:
+        receipt_line = _resolve_receipt_line_for_invoice(actor, invoice, payload.receipt_line_id)
+    order_line = None
+    if payload.order_line_id is not None:
+        order_line = _resolve_order_line_for_invoice(actor, invoice, payload.order_line_id)
+
+    add_inventory_line(
+        invoice=invoice,
+        item=item,
+        base_quantity=_required_money(payload.base_quantity, field="base_quantity"),
+        unit_price=_required_money(payload.unit_price, field="unit_price"),
+        receipt_line=receipt_line,
+        order_line=order_line,
+        description=payload.description,
+        note=payload.note,
+    )
+    return Status(201, _serialize_invoice(_reload(invoice), include_cost=True))
+
+
+@router.post(
+    "/supplier-invoices/{invoice_id}/lines/account/",
+    response={201: SupplierInvoiceOut},
+    summary="Add a direct expense line",
+)
+def add_invoice_account_line(
+    request: HttpRequest, invoice_id: int, payload: InvoiceAccountLineIn
+) -> Status[Any]:
+    actor = _actor(request)
+    invoice = resolve_supplier_invoice(actor, invoice_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_INVOICE, invoice.organization)
+
+    # Resolved inside the invoice's own organization, never by id alone.
+    account = Account.objects.filter(
+        pk=payload.account_id, organization_id=invoice.organization_id
+    ).first()
+    if account is None:
+        raise OutOfScope(f"Account {payload.account_id} does not exist.")
+    cost_center = None
+    if payload.cost_center_id is not None:
+        cost_center = CostCenter.objects.filter(
+            pk=payload.cost_center_id, organization_id=invoice.organization_id
+        ).first()
+        if cost_center is None:
+            raise OutOfScope(f"Cost center {payload.cost_center_id} does not exist.")
+
+    add_account_line(
+        invoice=invoice,
+        account=account,
+        cost_center=cost_center,
+        description=payload.description,
+        quantity=_required_money(payload.quantity, field="quantity"),
+        unit_price=_required_money(payload.unit_price, field="unit_price"),
+        note=payload.note,
+    )
+    return Status(201, _serialize_invoice(_reload(invoice), include_cost=True))
+
+
+@router.post(
+    "/supplier-invoices/{invoice_id}/approve/",
+    response=SupplierInvoiceOut,
+    summary="Approve a supplier invoice",
+)
+def approve_invoice(request: HttpRequest, invoice_id: int) -> Any:
+    actor = _actor(request)
+    invoice = resolve_supplier_invoice(actor, invoice_id)
+    require_organization_permission(actor, APPROVE_SUPPLIER_INVOICE, invoice.organization)
+    approved = approve_supplier_invoice(invoice=invoice, actor=actor)
+    return _serialize_invoice(approved, include_cost=True)
+
+
+@router.post(
+    "/supplier-invoices/{invoice_id}/post/",
+    response=SupplierInvoiceOut,
+    summary="Post a supplier invoice",
+)
+def post_invoice(request: HttpRequest, invoice_id: int) -> Any:
+    actor = _actor(request)
+    invoice = resolve_supplier_invoice(actor, invoice_id)
+    require_organization_permission(actor, POST_SUPPLIER_INVOICE, invoice.organization)
+    posted = post_supplier_invoice(invoice=invoice, actor=actor)
+    return _serialize_invoice(posted, include_cost=True)
+
+
+@router.post(
+    "/supplier-invoices/{invoice_id}/reverse/",
+    response=SupplierInvoiceOut,
+    summary="Reverse a posted supplier invoice",
+)
+def reverse_invoice(request: HttpRequest, invoice_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    invoice = resolve_supplier_invoice(actor, invoice_id)
+    require_organization_permission(actor, REVERSE_SUPPLIER_INVOICE, invoice.organization)
+    reversed_invoice = reverse_supplier_invoice(invoice=invoice, actor=actor, reason=payload.reason)
+    return _serialize_invoice(reversed_invoice, include_cost=True)
+
+
+def _reload(invoice: SupplierInvoice) -> SupplierInvoice:
+    """Re-read after a line change, so the totals in the response are the stored ones."""
+    return SupplierInvoice.objects.select_related("supplier", "journal_entry").get(pk=invoice.pk)
+
+
+def _resolve_receipt_line_for_invoice(
+    actor: User, invoice: SupplierInvoice, line_id: int
+) -> GoodsReceiptLine:
+    """A receipt line the caller may reach, under this invoice's own supplier."""
+    line = (
+        GoodsReceiptLine.objects.filter(
+            pk=line_id,
+            receipt__in=visible_goods_receipts(actor),
+            receipt__organization_id=invoice.organization_id,
+        )
+        .select_related("receipt")
+        .first()
+    )
+    if line is None:
+        raise OutOfScope(f"Receipt line {line_id} does not exist.")
+    return line
+
+
+def _resolve_order_line_for_invoice(
+    actor: User, invoice: SupplierInvoice, line_id: int
+) -> PurchaseOrderLine:
+    """An order line the caller may reach, under this invoice's own organization."""
+    line = (
+        PurchaseOrderLine.objects.filter(
+            pk=line_id,
+            order__in=visible_purchase_orders(actor),
+            order__organization_id=invoice.organization_id,
+        )
+        .select_related("order")
+        .first()
+    )
+    if line is None:
+        raise OutOfScope(f"Order line {line_id} does not exist.")
+    return line

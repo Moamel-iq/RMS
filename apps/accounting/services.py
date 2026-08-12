@@ -482,20 +482,30 @@ def sync_system_account_roles() -> None:
     Reference data the application cannot run without has to survive that,
     exactly as the role groups do.
     """
-    from apps.accounting.models import SYSTEM_INVENTORY_ROLES, AccountRole, AccountRoleDomain
+    from apps.accounting.models import (
+        SYSTEM_INVENTORY_ROLES,
+        SYSTEM_PURCHASING_ROLES,
+        AccountRole,
+        AccountRoleDomain,
+    )
 
-    for code, name_ar, name_en, mapping_scope in SYSTEM_INVENTORY_ROLES:
-        AccountRole.objects.update_or_create(
-            code=code,
-            defaults={
-                "name_ar": name_ar,
-                "name_en": name_en,
-                "domain": AccountRoleDomain.INVENTORY,
-                "mapping_scope": mapping_scope,
-                "is_system": True,
-                "is_active": True,
-            },
-        )
+    vocabularies = (
+        (SYSTEM_INVENTORY_ROLES, AccountRoleDomain.INVENTORY),
+        (SYSTEM_PURCHASING_ROLES, AccountRoleDomain.PURCHASING),
+    )
+    for roles, domain in vocabularies:
+        for code, name_ar, name_en, mapping_scope in roles:
+            AccountRole.objects.update_or_create(
+                code=code,
+                defaults={
+                    "name_ar": name_ar,
+                    "name_en": name_en,
+                    "domain": domain,
+                    "mapping_scope": mapping_scope,
+                    "is_system": True,
+                    "is_active": True,
+                },
+            )
 
 
 #: A guard takes the organization and role about to change and returns a

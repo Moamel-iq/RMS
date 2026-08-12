@@ -2005,3 +2005,586 @@ class GoodsReceiptLine(TimeStampedModel):
         recomputes from today's row, and only the stored one reached a ledger.
         """
         return quantize_money(self.accepted_base_quantity * self.base_unit_cost)
+
+
+# ---------------------------------------------------------------------------
+# Supplier invoices (Task 2.10)
+# ---------------------------------------------------------------------------
+
+
+class SupplierInvoiceStatus(models.TextChoices):
+    """
+    The four Task 2.0 §9 statuses, and no more.
+
+    `APPROVED` is not decoration. A receipt goes straight from draft to posted
+    because the goods are either acceptable or they are not; an invoice is a
+    claim on the organization's money, and somebody other than the person who
+    typed it has to agree the claim is real before it reaches the ledger.
+
+    `APPROVED` is also where an invoice **waits**. An invoice carrying an
+    inventory line has no determinate accounting until it is matched against
+    the receipt it covers (Task 2.0 §9), so it approves and then holds — see
+    `SupplierInvoice.blocking_lines`.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    APPROVED = "APPROVED", _("معتمدة")
+    POSTED = "POSTED", _("مرحّلة")
+    REVERSED = "REVERSED", _("معكوسة")
+
+
+class SupplierInvoiceLineType(models.TextChoices):
+    """
+    What one invoice line economically *is*. Exactly one answer per line.
+
+    `INVENTORY` bills for goods. Its accounting is `Dr GRNI / Cr payable` for
+    the matched portion, with the difference going to purchase price variance
+    (Task 2.0 §9) — and "the matched portion" is a Task 2.11 fact, so a line of
+    this type is enterable and approvable here and posts in Task 2.12.
+
+    `ACCOUNT` bills for something that never entered stock: a delivery charge,
+    a repair, a subscription. It names the account it belongs to, its
+    accounting is `Dr that account / Cr payable`, and nothing about it depends
+    on matching — so it posts here, today.
+
+    The two are mutually exclusive by database constraint. A line that was both
+    would have two contradictory debits and no way to choose between them.
+    """
+
+    INVENTORY = "INVENTORY", _("بضاعة")
+    ACCOUNT = "ACCOUNT", _("مصروف أو حساب مباشر")
+
+
+class SupplierInvoice(TimeStampedModel):
+    """
+    What the supplier says is owed, and for what.
+
+    A separate event from the receipt, on a different date, often for a
+    different amount — which is the whole reason Task 2.0 §1 refuses to model a
+    purchase as one editable form. The meat arrived Sunday; the invoice is
+    approved Tuesday for a figure that does not quite agree; the payment leaves
+    at month end covering three invoices and part of a fourth.
+
+    **This document never touches stock** (PRC-038). Not a quantity, not a lot,
+    not a movement, not a valuation. What it creates is a *payable*: an amount
+    owed to one supplier, due on one date, that a credit note or a payment will
+    later reduce.
+
+    **The supplier's balance is not stored anywhere.** It is derived from
+    posted invoices less active credit and payment allocations, every time it
+    is asked for — see `apps.procurement.selectors.supplier_outstanding`. A
+    stored balance is a second source of truth, and the second one is always
+    the one that is wrong.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="supplier_invoices",
+        verbose_name=_("organization"),
+    )
+    #: The accounting scope every journal line carries. An invoice belongs to
+    #: the branch that will answer for the spend, even though the payable is
+    #: the organization's.
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="supplier_invoices",
+        verbose_name=_("branch"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="invoices",
+        verbose_name=_("supplier"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    #: Our own gapless number, drawn at posting. The supplier's number is
+    #: theirs and may be anything; this one is ours and is what the ledger
+    #: cites.
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    #: The supplier's own reference, stored exactly as they wrote it.
+    supplier_invoice_number = models.CharField(_("supplier invoice number"), max_length=64)
+    #: The same reference, folded for comparison. Stored rather than computed
+    #: in a functional index so the uniqueness rule is legible in the schema
+    #: and identical in Python and in PostgreSQL. See
+    #: `apps.procurement.invoices.normalize_invoice_number`.
+    supplier_invoice_number_key = models.CharField(
+        _("supplier invoice number (key)"), max_length=64, editable=False
+    )
+    supplier_reference = models.CharField(_("supplier reference"), max_length=200, blank=True)
+
+    #: The date on the supplier's document. Theirs, and not necessarily ours.
+    invoice_date = models.DateField(_("invoice date"))
+    #: The branch business date this posts on. Ours (ADR-008), and the date
+    #: whose accounting period must be open.
+    business_date = models.DateField(_("business date"))
+    #: `invoice_date` plus the terms snapshot, computed once and stored.
+    #: Renegotiating a supplier's terms in March must not restate the due date
+    #: of an invoice received in January.
+    due_date = models.DateField(_("due date"))
+    payment_terms_days = models.PositiveSmallIntegerField(_("payment terms (days)"), default=0)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=SupplierInvoiceStatus.choices,
+        default=SupplierInvoiceStatus.DRAFT,
+    )
+
+    #: The sum of the stored line amounts, before document-level charges.
+    lines_total = models.DecimalField(
+        _("lines total"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
+    )
+    #: Captured because the supplier charged it. Whether freight is
+    #: capitalised into inventory value is PRC-046, deferred with its reason;
+    #: here it is allocated across the lines and billed.
+    freight_amount = models.DecimalField(
+        _("freight"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
+    )
+    discount_amount = models.DecimalField(
+        _("discount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
+    )
+    #: `lines_total + freight - discount`, and equal to the sum of the stored
+    #: line net amounts. Never rounded independently of its lines (ADR-012).
+    total_amount = models.DecimalField(
+        _("total"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
+    )
+
+    notes = models.TextField(_("notes"), blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_supplier_invoices",
+        verbose_name=_("created by"),
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_supplier_invoices",
+        verbose_name=_("approved by"),
+    )
+    approved_at = models.DateTimeField(_("approved at"), null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_supplier_invoices",
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_invoices",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    #: The branch settings in force when this posted, so the business date it
+    #: claims can be re-derived exactly however the cutoff changes later.
+    business_date_timezone = models.CharField(_("business timezone"), max_length=64, blank=True)
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_invoices",
+        verbose_name=_("journal entry"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_invoices",
+        verbose_name=_("reversal journal entry"),
+    )
+    #: What actually reached the ledger. `total_amount` is what the document
+    #: says today; this is what was posted, and only this may be reversed.
+    posted_amount = models.DecimalField(
+        _("posted amount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier invoice")
+        verbose_name_plural = _("supplier invoices")
+        ordering = ["-invoice_date", "-id"]
+        permissions = [
+            ("create_supplier_invoice", _("Can record a supplier invoice")),
+            ("approve_supplier_invoice", _("Can approve a supplier invoice")),
+            ("post_supplier_invoice", _("Can post a supplier invoice to the ledger")),
+            ("reverse_supplier_invoice", _("Can reverse a posted supplier invoice")),
+        ]
+        constraints = [
+            # PRC-037. Paying the same invoice twice is the most expensive
+            # ordinary mistake in accounts payable, so the database refuses it
+            # rather than a service remembering to. Scoped to the supplier,
+            # because two suppliers both numbering an invoice "1" is not a
+            # conflict; excluding reversed rows, because a reversed invoice is
+            # corrected by re-entering the same supplier reference.
+            models.UniqueConstraint(
+                fields=["organization", "supplier", "supplier_invoice_number_key"],
+                condition=~Q(status="REVERSED"),
+                name="procurement_invoice_number_unique_per_supplier",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="procurement_invoice_number_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=~Q(supplier_invoice_number="") & ~Q(supplier_invoice_number_key=""),
+                name="procurement_invoice_states_the_supplier_reference",
+            ),
+            models.CheckConstraint(
+                condition=Q(due_date__gte=models.F("invoice_date")),
+                name="procurement_invoice_due_after_invoice_date",
+            ),
+            models.CheckConstraint(
+                condition=Q(freight_amount__gte=0) & Q(discount_amount__gte=0),
+                name="procurement_invoice_charges_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(approved_by__isnull=True, approved_at__isnull=True)
+                | Q(approved_by__isnull=False, approved_at__isnull=False),
+                name="procurement_invoice_approval_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(posted_by__isnull=True, posted_at__isnull=True)
+                | Q(posted_by__isnull=False, posted_at__isnull=False),
+                name="procurement_invoice_posting_is_complete",
+            ),
+            # A draft has been neither approved nor posted.
+            models.CheckConstraint(
+                condition=~Q(status="DRAFT")
+                | Q(approved_at__isnull=True, posted_at__isnull=True, journal_entry__isnull=True),
+                name="procurement_invoice_draft_has_done_nothing",
+            ),
+            # An approved invoice says who agreed to it and has not posted.
+            models.CheckConstraint(
+                condition=~Q(status="APPROVED")
+                | Q(approved_at__isnull=False, posted_at__isnull=True, journal_entry__isnull=True),
+                name="procurement_invoice_approved_says_who",
+            ),
+            # A posted invoice names its journal and what it posted. Together
+            # with the immutability trigger this is what makes "a payable with
+            # no journal" a shape the table cannot hold.
+            models.CheckConstraint(
+                condition=~Q(status__in=["POSTED", "REVERSED"])
+                | Q(
+                    approved_at__isnull=False,
+                    posted_at__isnull=False,
+                    journal_entry__isnull=False,
+                    posted_amount__isnull=False,
+                    business_date_timezone__gt="",
+                    business_day_start__isnull=False,
+                ),
+                name="procurement_invoice_posted_names_its_journal",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="REVERSED")
+                | Q(
+                    reversed_by__isnull=False,
+                    reversed_at__isnull=False,
+                    reversal_journal_entry__isnull=False,
+                )
+                & ~Q(reversal_reason=""),
+                name="procurement_invoice_reversal_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="REVERSED")
+                | Q(
+                    reversed_by__isnull=True,
+                    reversed_at__isnull=True,
+                    reversal_journal_entry__isnull=True,
+                    reversal_reason="",
+                ),
+                name="procurement_invoice_unreversed_carries_no_reversal",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="sinv_org_status_idx"),
+            models.Index(fields=["supplier", "status"], name="sinv_supplier_status_idx"),
+            models.Index(fields=["due_date"], name="sinv_due_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"{self.supplier.code} {self.supplier_invoice_number}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == SupplierInvoiceStatus.DRAFT
+
+    @property
+    def blocking_lines(self) -> list[SupplierInvoiceLine]:
+        """
+        The lines that have no complete accounting route yet.
+
+        Today that is every `INVENTORY` line, and the reason is specific rather
+        than provisional: Task 2.0 §9 posts the **matched receipt value** to
+        GRNI and the difference to purchase price variance. Both figures come
+        from a match allocation, which is Task 2.11. Posting the invoice amount
+        to GRNI instead would clear a variance nobody computed and leave Task
+        2.12 nothing to recognise — so the invoice waits in `APPROVED` and says
+        why, rather than posting an entry that is merely balanced.
+        """
+        return [
+            line for line in self.lines.all() if line.line_type == SupplierInvoiceLineType.INVENTORY
+        ]
+
+    @property
+    def is_ready_to_post(self) -> bool:
+        """
+        Whether every line has a complete, approved accounting route.
+
+        Derived, never stored. A readiness flag would be a second opinion that
+        goes stale the moment somebody edits a line.
+        """
+        lines = list(self.lines.all())
+        if self.status != SupplierInvoiceStatus.APPROVED or not lines:
+            return False
+        return not self.blocking_lines
+
+
+class SupplierInvoiceLine(TimeStampedModel):
+    """
+    One thing the supplier is charging for.
+
+    Exactly one economic type (`SupplierInvoiceLineType`), enforced by a
+    database constraint rather than by a service remembering. A line that named
+    both an inventory item and a direct expense account would have two
+    contradictory debits and no principled way to choose.
+
+    A line may **reference** a purchase order line or a goods receipt line.
+    That reference is evidence, not an allocation: it says "this is what I
+    believe this charge covers", and it does not consume a receipt's matchable
+    remainder, mark anything matched, or clear any variance. Those are Task
+    2.11 records and they are deliberately absent here (PRC-040 – PRC-042).
+    """
+
+    invoice = models.ForeignKey(
+        SupplierInvoice,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("invoice"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    line_type = models.CharField(
+        _("line type"), max_length=16, choices=SupplierInvoiceLineType.choices
+    )
+
+    # --- the inventory shape ------------------------------------------------
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_invoice_lines",
+        verbose_name=_("item"),
+    )
+    supplier_item = models.ForeignKey(
+        SupplierItem,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="invoice_lines",
+        verbose_name=_("catalogue row"),
+    )
+    order_line = models.ForeignKey(
+        PurchaseOrderLine,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="invoice_lines",
+        verbose_name=_("order line"),
+    )
+    #: Which version of the order this charge was checked against, copied
+    #: rather than joined to for the same reason the receipt copies it.
+    order_version = models.PositiveIntegerField(_("order version"), null=True, blank=True)
+    receipt_line = models.ForeignKey(
+        GoodsReceiptLine,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="invoice_lines",
+        verbose_name=_("receipt line"),
+    )
+    base_quantity = models.DecimalField(
+        _("quantity (base)"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    # --- the direct-account shape -------------------------------------------
+    account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_invoice_lines",
+        verbose_name=_("account"),
+    )
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_invoice_lines",
+        verbose_name=_("cost center"),
+    )
+
+    # --- what both shapes carry ---------------------------------------------
+    description = models.CharField(_("description"), max_length=200, blank=True)
+    quantity = models.DecimalField(
+        _("quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    unit_price = models.DecimalField(
+        _("unit price"), max_digits=UNIT_PRICE_MAX_DIGITS, decimal_places=UNIT_PRICE_PLACES
+    )
+    #: `quantize_money(quantity * unit_price)`, stored once at the boundary.
+    line_amount = models.DecimalField(
+        _("line amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: This line's share of the document freight and discount, allocated with
+    #: `apps.core.allocation.allocate` — largest remainder over an explicit
+    #: sequence, so the parts sum exactly to the whole and the answer does not
+    #: depend on queryset order (PRC-039).
+    allocated_freight = models.DecimalField(
+        _("allocated freight"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
+    )
+    allocated_discount = models.DecimalField(
+        _("allocated discount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
+    )
+    #: `line_amount + allocated_freight - allocated_discount`. The figure that
+    #: posts, and the one the document total is the sum of.
+    net_amount = models.DecimalField(
+        _("net amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    note = models.CharField(_("note"), max_length=200, blank=True)
+
+    # --- what posting wrote --------------------------------------------------
+    journal_line = models.ForeignKey(
+        "accounting.JournalLine",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_invoice_lines",
+        verbose_name=_("journal line"),
+    )
+    resolved_organization_mapping = models.ForeignKey(
+        "accounting.OrganizationAccountMapping",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_invoice_lines",
+        verbose_name=_("organization mapping"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier invoice line")
+        verbose_name_plural = _("supplier invoice lines")
+        ordering = ["invoice", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["invoice", "sequence"],
+                name="procurement_invoice_line_sequence_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(quantity__gt=0), name="procurement_invoice_line_quantity_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_price__gte=0), name="procurement_invoice_line_price_not_negative"
+            ),
+            models.CheckConstraint(
+                condition=Q(allocated_freight__gte=0) & Q(allocated_discount__gte=0),
+                name="procurement_invoice_line_shares_not_negative",
+            ),
+            # The exclusive line-type invariant, at the database. An inventory
+            # line names an item and a base quantity and never an account; a
+            # direct line names an account and never an item, an order line or
+            # a receipt line. There is no third shape and no overlap.
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        line_type="INVENTORY",
+                        item__isnull=False,
+                        base_quantity__isnull=False,
+                        account__isnull=True,
+                    )
+                    | Q(
+                        line_type="ACCOUNT",
+                        account__isnull=False,
+                        item__isnull=True,
+                        supplier_item__isnull=True,
+                        order_line__isnull=True,
+                        receipt_line__isnull=True,
+                        base_quantity__isnull=True,
+                    )
+                ),
+                name="procurement_invoice_line_has_one_economic_type",
+            ),
+            # A cost centre belongs to the account that demanded it, so it can
+            # only appear on a line that names one.
+            models.CheckConstraint(
+                condition=Q(cost_center__isnull=True) | Q(account__isnull=False),
+                name="procurement_invoice_line_cost_center_needs_an_account",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["receipt_line"], name="sinv_line_receipt_idx"),
+            models.Index(fields=["order_line"], name="sinv_line_order_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.invoice} · {self.sequence}"
+
+    @property
+    def target_label(self) -> str:
+        """What this line is for, in one string, for a screen or an export."""
+        if self.line_type == SupplierInvoiceLineType.INVENTORY and self.item is not None:
+            return f"{self.item.code} — {self.item.name_ar}"
+        if self.account is not None:
+            return f"{self.account.code} — {self.account.name_ar}"
+        return self.description  # pragma: no cover - a constraint refuses this row

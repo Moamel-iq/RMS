@@ -38,8 +38,10 @@ from apps.inventory.views import (
 from apps.organizations.authorization import (
     has_branch_permission,
     has_organization_master_data_permission,
+    has_organization_permission,
     has_warehouse_permission,
     require_branch_permission,
+    require_organization_permission,
     require_reachable_organization_permission,
     require_warehouse_permission,
 )
@@ -48,42 +50,63 @@ from apps.procurement.forms import (
     GoodsReceiptForm,
     GoodsReceiptLineForm,
     InspectLineForm,
+    InvoiceAccountLineForm,
+    InvoiceInventoryLineForm,
     PurchaseOrderForm,
     PurchaseOrderLineForm,
     PurchaseRequestForm,
     PurchaseRequestLineForm,
     SupplierForm,
+    SupplierInvoiceForm,
     SupplierItemForm,
     SupplierQuotationForm,
     SupplierQuotationLineForm,
+)
+from apps.procurement.invoices import (
+    add_account_line,
+    add_inventory_line,
+    approve_supplier_invoice,
+    create_supplier_invoice,
+    invoice_timeline,
+    outstanding_amount,
+    post_supplier_invoice,
+    remove_invoice_line,
+    return_supplier_invoice_to_draft,
+    reverse_supplier_invoice,
 )
 from apps.procurement.models import (
     GoodsReceiptStatus,
     PurchaseOrderStatus,
     PurchaseRequestStatus,
+    SupplierInvoiceStatus,
     SupplierQuotationStatus,
 )
 from apps.procurement.permissions import (
     APPROVE_PURCHASE_ORDER,
     APPROVE_PURCHASE_REQUEST,
+    APPROVE_SUPPLIER_INVOICE,
     AWARD_QUOTATION,
     CANCEL_PURCHASE_ORDER,
     CREATE_GOODS_RECEIPT,
     CREATE_PURCHASE_ORDER,
     CREATE_PURCHASE_REQUEST,
+    CREATE_SUPPLIER_INVOICE,
     INSPECT_GOODS_RECEIPT,
     ISSUE_PURCHASE_ORDER,
     MANAGE_QUOTATIONS,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
     POST_GOODS_RECEIPT,
+    POST_SUPPLIER_INVOICE,
     REVERSE_GOODS_RECEIPT,
+    REVERSE_SUPPLIER_INVOICE,
     VIEW_GOODS_RECEIPT,
     VIEW_PURCHASE_ORDER,
     VIEW_PURCHASE_REQUEST,
     VIEW_QUOTATION,
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
+    VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
 )
 from apps.procurement.posting import (
@@ -95,6 +118,7 @@ from apps.procurement.selectors import (
     order_version_history,
     outstanding_order_lines,
     resolve_goods_receipt,
+    resolve_invoice_line,
     resolve_order_line,
     resolve_purchase_order,
     resolve_purchase_request,
@@ -103,11 +127,13 @@ from apps.procurement.selectors import (
     resolve_receipt_line,
     resolve_request_line,
     resolve_supplier,
+    resolve_supplier_invoice,
     resolve_supplier_item,
     visible_goods_receipts,
     visible_purchase_orders,
     visible_purchase_requests,
     visible_quotations,
+    visible_supplier_invoices,
     visible_supplier_items,
     visible_suppliers,
 )
@@ -1389,3 +1415,254 @@ class GoodsReceiptReverseView(InventoryViewMixin, View):
         else:
             messages.success(request, _("تم عكس الاستلام. خرج المخزون وعُكس القيد معاً."))
         return HttpResponseRedirect(reverse("procurement:goods_receipt_detail", args=[receipt.pk]))
+
+
+# ---------------------------------------------------------------------------
+# Supplier invoices (Task 2.10)
+# ---------------------------------------------------------------------------
+
+
+class SupplierInvoiceListView(InventoryListView):
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_INVOICE
+    template_name = "procurement/supplier_invoice_list.html"
+    context_object_name = "invoices"
+    page_title = _("فواتير الموردين")
+    page_hint = _(
+        "ما يقوله المورد إنه مستحق. الفاتورة لا تحرّك مخزوناً إطلاقاً؛ تُنشئ ذمة "
+        "دائنة فقط. أسطر البضاعة تنتظر المطابقة الثلاثية قبل الترحيل، وأسطر "
+        "المصروف المباشر تُرحّل فوراً."
+    )
+    search_fields = ("number", "supplier_invoice_number", "supplier__code", "supplier__name_ar")
+    manage_permission = CREATE_SUPPLIER_INVOICE
+    manage_scope = "organization"
+    create_url_name = "procurement:supplier_invoice_create"
+    create_label = _("فاتورة جديدة")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_supplier_invoices(self.actor)
+        status = self.request.GET.get("status", "").strip().upper()
+        if status in SupplierInvoiceStatus.values:
+            queryset = queryset.filter(status=status)
+        return queryset.order_by("-id")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["statuses"] = SupplierInvoiceStatus.choices
+        context["selected_status"] = self.request.GET.get("status", "")
+        context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        return context
+
+
+class SupplierInvoiceCreateView(InventoryWriteView):
+    module_key = "procurement"
+    template_name = "procurement/supplier_invoice_form.html"
+    form_class = SupplierInvoiceForm
+    required_permission = CREATE_SUPPLIER_INVOICE
+    success_url_name = "procurement:supplier_invoice_list"
+    page_title = _("فاتورة مورد جديدة")
+    page_hint = _("تُفتح كمسودة. لا ذمة ولا قيد حتى الاعتماد ثم الترحيل.")
+    success_message = _("تم إنشاء المسودة. أضف الأسطر ثم اعتمدها.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_organization_permission(
+            self.actor, CREATE_SUPPLIER_INVOICE, form.cleaned_data["branch"].organization
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        data = form.cleaned_data
+        self.created = create_supplier_invoice(
+            supplier=data["supplier"],
+            branch=data["branch"],
+            created_by=self.actor,
+            supplier_invoice_number=data["supplier_invoice_number"],
+            invoice_date=data["invoice_date"],
+            business_date=data.get("business_date"),
+            supplier_reference=data.get("supplier_reference", ""),
+            freight_amount=data.get("freight_amount"),
+            discount_amount=data.get("discount_amount"),
+            notes=data.get("notes", ""),
+        )
+
+    def get_success_url(self) -> str:
+        created = getattr(self, "created", None)
+        if created is None:
+            return reverse(self.success_url_name)
+        return reverse("procurement:supplier_invoice_detail", args=[created.pk])
+
+
+class SupplierInvoiceDetailView(InventoryViewMixin, View):
+    """Header, lines, what each line costs, and what still blocks posting."""
+
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_INVOICE
+    template_name = "procurement/supplier_invoice_detail.html"
+
+    def load(self) -> Any:
+        return resolve_supplier_invoice(self.actor, self.kwargs["pk"])
+
+    def context(
+        self, invoice: Any, item_form: Any = None, account_form: Any = None
+    ) -> dict[str, Any]:
+        may_edit = has_organization_permission(
+            self.actor, CREATE_SUPPLIER_INVOICE, invoice.organization
+        )
+        return {
+            "invoice": invoice,
+            "lines": invoice.lines.select_related(
+                "item", "account", "cost_center", "receipt_line", "receipt_line__receipt"
+            ).order_by("sequence"),
+            "item_form": item_form or InvoiceInventoryLineForm(actor=self.actor, invoice=invoice),
+            "account_form": account_form
+            or InvoiceAccountLineForm(actor=self.actor, invoice=invoice),
+            "page_title": invoice.number or invoice.supplier_invoice_number,
+            "may_edit": may_edit and invoice.is_editable,
+            "may_approve": has_organization_permission(
+                self.actor, APPROVE_SUPPLIER_INVOICE, invoice.organization
+            )
+            and invoice.status == SupplierInvoiceStatus.DRAFT,
+            "may_post": has_organization_permission(
+                self.actor, POST_SUPPLIER_INVOICE, invoice.organization
+            )
+            and invoice.is_ready_to_post,
+            "may_reverse": has_organization_permission(
+                self.actor, REVERSE_SUPPLIER_INVOICE, invoice.organization
+            )
+            and invoice.status == SupplierInvoiceStatus.POSTED,
+            "blocking": invoice.blocking_lines,
+            "timeline": invoice_timeline(invoice),
+            "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+            "outstanding": outstanding_amount(invoice),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return render(request, self.template_name, self.context(self.load()))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        invoice = self.load()
+        require_organization_permission(self.actor, CREATE_SUPPLIER_INVOICE, invoice.organization)
+        if request.POST.get("line_type", "") == "ACCOUNT":
+            return self._add_account_line(request, invoice)
+        return self._add_inventory_line(request, invoice)
+
+    def _add_inventory_line(self, request: HttpRequest, invoice: Any) -> HttpResponse:
+        form = InvoiceInventoryLineForm(actor=self.actor, invoice=invoice, data=request.POST)
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                add_inventory_line(
+                    invoice=invoice,
+                    item=data["item"],
+                    base_quantity=data["base_quantity"],
+                    unit_price=data["unit_price"],
+                    receipt_line=data.get("receipt_line"),
+                    description=data.get("description", ""),
+                    note=data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة سطر البضاعة."))
+                return HttpResponseRedirect(
+                    reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
+                )
+        return render(request, self.template_name, self.context(invoice, item_form=form))
+
+    def _add_account_line(self, request: HttpRequest, invoice: Any) -> HttpResponse:
+        form = InvoiceAccountLineForm(actor=self.actor, invoice=invoice, data=request.POST)
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                add_account_line(
+                    invoice=invoice,
+                    account=data["account"],
+                    cost_center=data.get("cost_center"),
+                    description=data["description"],
+                    quantity=data["quantity"],
+                    unit_price=data["unit_price"],
+                    note=data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة سطر المصروف."))
+                return HttpResponseRedirect(
+                    reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
+                )
+        return render(request, self.template_name, self.context(invoice, account_form=form))
+
+
+class SupplierInvoiceLineDeleteView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = CREATE_SUPPLIER_INVOICE
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        invoice = resolve_supplier_invoice(self.actor, self.kwargs["pk"])
+        require_organization_permission(self.actor, CREATE_SUPPLIER_INVOICE, invoice.organization)
+        line = resolve_invoice_line(self.actor, invoice=invoice, line_id=self.kwargs["line_id"])
+        try:
+            remove_invoice_line(line=line)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم حذف السطر."))
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
+        )
+
+
+class SupplierInvoiceTransitionView(InventoryViewMixin, View):
+    """
+    POST-only: approve, return to draft, post, reverse.
+
+    One view rather than four, because they differ only in the permission they
+    demand and the service they call — and a shared shape is what keeps the
+    authorization identical across all of them.
+    """
+
+    module_key = "procurement"
+    transition = "approve"
+
+    PERMISSIONS = {
+        "approve": APPROVE_SUPPLIER_INVOICE,
+        "return_to_draft": APPROVE_SUPPLIER_INVOICE,
+        "post": POST_SUPPLIER_INVOICE,
+        "reverse": REVERSE_SUPPLIER_INVOICE,
+    }
+
+    @property
+    def required_permission(self) -> str:  # type: ignore[override]
+        return self.PERMISSIONS[self.transition]
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        invoice = resolve_supplier_invoice(self.actor, self.kwargs["pk"])
+        require_organization_permission(
+            self.actor, self.PERMISSIONS[self.transition], invoice.organization
+        )
+        reason = request.POST.get("reason", "")
+        try:
+            self._apply(request, invoice, reason)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
+        )
+
+    def _apply(self, request: HttpRequest, invoice: Any, reason: str) -> None:
+        if self.transition == "approve":
+            approve_supplier_invoice(invoice=invoice, actor=self.actor)
+            messages.success(request, _("تم اعتماد الفاتورة."))
+        elif self.transition == "return_to_draft":
+            return_supplier_invoice_to_draft(invoice=invoice, actor=self.actor, reason=reason)
+            messages.success(request, _("أُعيدت الفاتورة إلى المسودة."))
+        elif self.transition == "post":
+            posted = post_supplier_invoice(invoice=invoice, actor=self.actor)
+            messages.success(
+                request,
+                _("تم ترحيل الفاتورة %(number)s وأُنشئت ذمة المورد.") % {"number": posted.number},
+            )
+        else:
+            reverse_supplier_invoice(invoice=invoice, actor=self.actor, reason=reason)
+            messages.success(request, _("تم عكس الفاتورة وعُكست الذمة معها."))

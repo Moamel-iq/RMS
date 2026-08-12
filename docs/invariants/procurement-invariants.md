@@ -12,7 +12,8 @@ receipt is an inventory posting before it is anything else.
 the task that makes each one true. Invariants 1–3 landed with Task 2.1,
 5–8 with Task 2.2, 9–12 with Task 2.3, 13 with Task 2.4, 14–15 with
 Task 2.5 16 with Task 2.6, 17–19 with Task 2.7
-(18–19 activated by Task 2.8), 20–24 with Task 2.8, and 25–31 with Task 2.9.
+(18–19 activated by Task 2.8), 20–24 with Task 2.8, 25–31 with Task 2.9, and
+32–34 with Task 2.10.
 The rest are still statements of intent, and the
 traceability matrix rather than this table is where the evidence lives.
 
@@ -51,9 +52,11 @@ traceability matrix rather than this table is where the evidence lives.
 | 29 | No procurement service names an account, id or code; all come from effective-dated roles | Role resolution + missing-mapping rollback test + a mapping-mutation race | 2.9 |
 | 30 | Document, movement, journal, location and status commit or roll back together | `transaction.atomic()` + a forced journal failure | 2.9 |
 | 31 | Source identity is complete or absent, never partial (ADR-017) | Reuses the accounting guard; `PROCUREMENT_GOODS_RECEIPT` + `public_id` + event | 2.9 |
-| 32 | A supplier invoice number is unique per supplier over non-reversed invoices | Partial unique index | 2.10 |
-| 33 | A supplier invoice never mutates stock | Asserted: no movement rows for any invoice source event | 2.10 |
-| 34 | An invoice total is the sum of its posted lines, never independently rounded | Service + test on a 3-way split | 2.10 |
+| 32 | A supplier invoice number is unique per supplier over non-reversed invoices | Partial unique index over a stored normalized key; whitespace and case fold, leading zeros do not | 2.10 |
+| 33 | A supplier invoice never mutates stock | No inventory call exists in the path; movement and location counts asserted either side of a posting | 2.10 |
+| 34 | An invoice total is the sum of its posted lines, never independently rounded | `apps/core/allocation.py` for freight and discount; a trigger states each line's net arithmetic | 2.10 |
+| 34a | An invoice line has exactly one economic type — goods or a direct account, never both and never neither | `CheckConstraint` over the whole line shape | 2.10 |
+| 34b | An invoice posts only where every line has a complete approved accounting route; a goods line waits for matching | Service guard `invoice_awaiting_matching`; the whole document waits, never half of it | 2.10 |
 | 35 | Matched quantity may not exceed the receipt line's accepted quantity, nor the invoice line's quantity | Service under a lock + reconciliation invariant | 2.11 |
 | 36 | Matching status is derived, never stored as a mutable flag | Selector only; no status column exists | 2.11 |
 | 37 | Price variance never restates a posted movement or a closed period | Posting service; test that the original average is unchanged | 2.12 |

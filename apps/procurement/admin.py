@@ -17,7 +17,12 @@ from typing import TYPE_CHECKING, Any
 from django.contrib import admin
 from django.http import HttpRequest
 
-from apps.procurement.models import Supplier, SupplierItem
+from apps.procurement.models import (
+    Supplier,
+    SupplierInvoice,
+    SupplierInvoiceLine,
+    SupplierItem,
+)
 
 if TYPE_CHECKING:
     _ModelAdmin = admin.ModelAdmin[Any]
@@ -62,3 +67,36 @@ class SupplierItemAdmin(ReadOnlyAdmin):
     list_filter = ("organization", "is_active", "is_preferred")
     search_fields = ("supplier__code", "item__code", "supplier_sku")
     ordering = ("supplier__code", "item__code", "-effective_from")
+
+
+@admin.register(SupplierInvoice)
+class SupplierInvoiceAdmin(ReadOnlyAdmin):
+    """
+    Read-only, and emphatically so (PRC-062).
+
+    A posted invoice carries a payable and a journal entry. An admin form over
+    it would be a write path that skips approval, the period check, the source
+    identity and the audit event — every one of which is the reason the
+    document exists.
+    """
+
+    list_display = (
+        "number",
+        "supplier",
+        "supplier_invoice_number",
+        "invoice_date",
+        "due_date",
+        "total_amount",
+        "status",
+    )
+    list_filter = ("organization", "status")
+    search_fields = ("number", "supplier_invoice_number", "supplier__code", "supplier__name_ar")
+    ordering = ("-invoice_date", "-id")
+
+
+@admin.register(SupplierInvoiceLine)
+class SupplierInvoiceLineAdmin(ReadOnlyAdmin):
+    list_display = ("invoice", "sequence", "line_type", "description", "net_amount")
+    list_filter = ("line_type",)
+    search_fields = ("invoice__number", "invoice__supplier_invoice_number", "description")
+    ordering = ("invoice", "sequence")

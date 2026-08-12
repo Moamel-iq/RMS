@@ -141,6 +141,18 @@ posting, no stock mutation. Demo: a matched and an unmatched invoice.
 
 Depends on: 2.9. **Run the complete project suite at this boundary.**
 
+**Delivered, with one boundary that was not obvious when this was written.**
+"The payable posting" is complete for a **direct account** line:
+`Dr` the chosen expense or asset account, `Cr SUPPLIER_PAYABLE`. It is *not*
+complete for an **inventory** line, because §9 of Task 2.0 posts the *matched
+receipt value* to GRNI and the difference to purchase price variance — and both
+figures come from a match allocation, which is Task 2.11. An invoice carrying a
+goods line therefore approves and holds, with `invoice_awaiting_matching` and a
+screen that says why. Posting the invoiced amount to GRNI instead would balance
+and be wrong: it would clear a variance nobody computed and leave 2.12 nothing
+to recognise. Task 2.11 and 2.12 activate that path together, and
+`TestTheMatchingBoundary` holds the line until they do.
+
 ---
 
 ### Task 2.11 — Three-way matching

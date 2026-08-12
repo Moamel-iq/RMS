@@ -620,11 +620,16 @@ class AccountRoleDomain(models.TextChoices):
     """
     Which module's posting rules refer to a role.
 
-    Closed and extended intentionally: Purchases, Sales, and Payroll add their
-    own values when their posting rules arrive, never before.
+    Closed and extended intentionally: Sales and Payroll add their own values
+    when their posting rules arrive, never before. `PURCHASING` arrived with
+    Task 2.10, which is the first task whose posting rules are about what the
+    organization **owes** rather than what it holds — a supplier payable is
+    not an inventory concept and filing it under `INVENTORY` would make the
+    domain column a label rather than a fact.
     """
 
     INVENTORY = "INVENTORY", _("المخزون")
+    PURCHASING = "PURCHASING", _("المشتريات")
 
 
 class AccountRoleMappingScope(models.TextChoices):
@@ -752,6 +757,28 @@ SYSTEM_INVENTORY_ROLES: tuple[tuple[str, str, str, str], ...] = (
         "Inter-branch clearing",
         "ORGANIZATION",
     ),
+)
+
+#: Added by Task 2.10 — the credit side of every supplier invoice, and the
+#: account a payment will later clear (Task 2.0 §15).
+SUPPLIER_PAYABLE = "SUPPLIER_PAYABLE"
+
+#: The purchasing vocabulary, same shape as `SYSTEM_INVENTORY_ROLES`.
+#:
+#: Organization-only, and necessarily so. Which item was bought says nothing
+#: about who is owed for it: one supplier's invoice covering rice, chicken and
+#: a delivery charge is one debt to one company, and a per-item payable would
+#: split a single obligation across three accounts that no statement could
+#: reassemble.
+#:
+#: `PURCHASE_PRICE_VARIANCE`, `SUPPLIER_ADVANCE` and the two payment-source
+#: roles are specified in Task 2.0 §15 and are deliberately **not** seeded
+#: here. A role with no posting rule behind it is a grant nobody can audit —
+#: the same mistake `import_opening_draft` records in inventory. Each arrives
+#: with the task that posts to it: variance with 2.12, advance and the payment
+#: sources with 2.15.
+SYSTEM_PURCHASING_ROLES: tuple[tuple[str, str, str, str], ...] = (
+    (SUPPLIER_PAYABLE, "ذمم الموردين", "Supplier payable", "ORGANIZATION"),
 )
 
 

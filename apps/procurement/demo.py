@@ -19,6 +19,14 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
+from apps.accounting.models import (
+    SUPPLIER_PAYABLE,
+    Account,
+    AccountRole,
+    CostCenter,
+    OrganizationAccountMapping,
+)
+from apps.accounting.services import create_account_mapping
 from apps.inventory.models import (
     InventoryItem,
     InventoryLot,
@@ -28,14 +36,25 @@ from apps.inventory.models import (
 )
 from apps.organizations.models import Branch, Organization
 from apps.procurement.comparison import award_quotation
+from apps.procurement.invoices import (
+    add_account_line,
+    add_inventory_line,
+    approve_supplier_invoice,
+    create_supplier_invoice,
+    post_supplier_invoice,
+    reverse_supplier_invoice,
+)
 from apps.procurement.models import (
     GoodsReceipt,
+    GoodsReceiptLine,
     GoodsReceiptStatus,
     PurchaseOrder,
     PurchaseOrderStatus,
     PurchaseRequest,
     PurchaseRequestStatus,
     Supplier,
+    SupplierInvoice,
+    SupplierInvoiceStatus,
     SupplierItem,
     SupplierQuotation,
     SupplierQuotationStatus,
@@ -168,6 +187,50 @@ DEMO_CATALOGUE: list[tuple[str, str, str | None, str, str | None, int | None, st
 #: The catalogue starts the day the inventory demo opened its stock, so the
 #: whole demo tells one story on one timeline.
 CATALOGUE_EFFECTIVE_FROM = datetime.date(2026, 1, 1)
+
+
+#: The procurement roles the implemented postings resolve, and their demo
+#: accounts. Procurement seeds its own rather than adding to the inventory
+#: demo's list: `SUPPLIER_PAYABLE` is not an inventory concept, and a module
+#: that maps another module's vocabulary is a dependency nobody declared.
+#:
+#: One entry, because Task 2.10 posts to one role. The rest of Task 2.0 §15
+#: joins as the tasks that post to them land.
+PROCUREMENT_ACCOUNT_MAPPINGS: list[tuple[str, str]] = [
+    (SUPPLIER_PAYABLE, "2-01-01-001"),
+]
+
+
+def seed_demo_account_mappings(*, organization: Organization) -> list[str]:
+    """
+    Map the procurement roles to demo accounts, idempotently.
+
+    Skips a role already mapped rather than superseding it — a seed that
+    versioned its own mappings every run would grow an effective-dated history
+    nobody wrote, and the resolver would start answering with a version number
+    that means nothing.
+    """
+    mapped: list[str] = []
+    for code, account_code in PROCUREMENT_ACCOUNT_MAPPINGS:
+        role = AccountRole.objects.filter(code=code).first()
+        account = Account.objects.filter(
+            organization=organization, code=account_code, is_postable=True, is_active=True
+        ).first()
+        if role is None or account is None:
+            continue
+        if OrganizationAccountMapping.objects.filter(
+            organization=organization, account_role=role
+        ).exists():
+            mapped.append(code)
+            continue
+        create_account_mapping(
+            organization=organization,
+            account_role=role,
+            account=account,
+            effective_from=CATALOGUE_EFFECTIVE_FROM,
+        )
+        mapped.append(code)
+    return mapped
 
 
 def seed_demo_catalogue(*, organization: Organization) -> list[SupplierItem]:
@@ -795,3 +858,319 @@ def _post_demo_receipts(receipts: list[GoodsReceipt], *, actor: User) -> None:
             reason="المورد استرجع البضاعة في نفس اليوم",
         )
         reversed_one.refresh_from_db()
+
+
+#: The expense account a demo delivery charge belongs to, and the cost centre
+#: it is charged to. Both are looked up in the seeded chart rather than
+#: created, so a chart that does not carry them is skipped rather than
+#: invented.
+#:
+#: Every expense account in this chart of accounts sets `requires_cost_center`,
+#: which is a real policy rather than an accident: an expense nobody can
+#: attribute to a part of the business is an expense nobody can manage. The
+#: demo therefore has to name one, and naming `DELIVERY` for a delivery charge
+#: is the honest answer.
+DEMO_FREIGHT_ACCOUNT = "5-01-02-003"
+DEMO_FREIGHT_COST_CENTER = "DELIVERY"
+
+
+def seed_demo_invoices(
+    *, organization: Organization, recorder: User, approver: User
+) -> list[SupplierInvoice]:
+    """
+    Four invoices, each showing a state the others do not.
+
+    1. `DEMO-SINV-EXPENSE` — a delivery charge with no goods on it. Every line
+       has a complete accounting route, so it approves and **posts**:
+       `Dr` the expense account, `Cr` supplier payable. This is the whole of
+       what Task 2.10 can post.
+    2. `DEMO-SINV-GOODS` — a bill for the rice that actually arrived, citing
+       the posted delivery as evidence. It approves and then **waits**: the
+       amount that clears GRNI is the matched receipt value, and matching is
+       Task 2.11. The screen says so rather than leaving a reader guessing.
+    3. `DEMO-SINV-DRAFT` — a draft with freight and a discount on it, so the
+       allocation across lines is visible and there is something to edit.
+    4. `DEMO-SINV-REVERSED` — posted and then reversed, so a reader can see
+       that the payable goes back to nothing without any figure being edited.
+
+    Idempotent per invoice rather than all-or-nothing: a second run reaches the
+    same state as the first, which is what idempotent means. Nothing here
+    writes a `JournalEntry` directly — every one goes through the real command.
+    """
+    existing = {
+        row.supplier_invoice_number: row
+        for row in SupplierInvoice.objects.filter(
+            organization=organization, supplier_invoice_number__startswith="DEMO-SINV"
+        ).order_by("id")
+    }
+
+    branch = Branch.objects.filter(organization=organization, code="DEMO-BUNOOK").first()
+    grocery = Supplier.objects.filter(
+        organization=organization, code="DEMO-GROCERY-SUPPLIER"
+    ).first()
+    chicken_supplier = Supplier.objects.filter(
+        organization=organization, code="DEMO-CHICKEN-SUPPLIER"
+    ).first()
+    rice = InventoryItem.objects.filter(organization=organization, code="DEMO-RICE").first()
+    freight_account = Account.objects.filter(
+        organization=organization, code=DEMO_FREIGHT_ACCOUNT, is_postable=True, is_active=True
+    ).first()
+    cost_center = CostCenter.objects.filter(
+        organization=organization, code=DEMO_FREIGHT_COST_CENTER, is_active=True
+    ).first()
+    if (
+        branch is None
+        or grocery is None
+        or rice is None
+        or freight_account is None
+        or cost_center is None
+    ):
+        return []
+
+    invoiced_on = CATALOGUE_EFFECTIVE_FROM + datetime.timedelta(days=40)
+    invoices: list[SupplierInvoice] = []
+
+    # 1. A pure expense invoice: the one shape Task 2.10 posts end to end.
+    invoices.append(
+        _demo_expense_invoice(
+            existing=existing,
+            supplier=grocery,
+            branch=branch,
+            recorder=recorder,
+            approver=approver,
+            account=freight_account,
+            cost_center=cost_center,
+            invoiced_on=invoiced_on,
+        )
+    )
+
+    # 2. A goods invoice against the posted rice delivery. Approves and holds.
+    invoices.append(
+        _demo_goods_invoice(
+            existing=existing,
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            item=rice,
+            recorder=recorder,
+            approver=approver,
+            invoiced_on=invoiced_on,
+        )
+    )
+
+    # 3. A draft carrying freight and a discount, so the allocation is visible.
+    invoices.append(
+        _demo_draft_invoice(
+            existing=existing,
+            supplier=chicken_supplier or grocery,
+            branch=branch,
+            recorder=recorder,
+            account=freight_account,
+            cost_center=cost_center,
+            invoiced_on=invoiced_on,
+        )
+    )
+
+    # 4. Posted then reversed, so the payable visibly returns to nothing.
+    invoices.append(
+        _demo_reversed_invoice(
+            existing=existing,
+            supplier=grocery,
+            branch=branch,
+            recorder=recorder,
+            approver=approver,
+            account=freight_account,
+            cost_center=cost_center,
+            invoiced_on=invoiced_on,
+        )
+    )
+    return [invoice for invoice in invoices if invoice is not None]
+
+
+def _demo_expense_invoice(
+    *,
+    existing: dict[str, SupplierInvoice],
+    supplier: Supplier,
+    branch: Branch,
+    recorder: User,
+    approver: User,
+    account: Account,
+    cost_center: CostCenter,
+    invoiced_on: datetime.date,
+) -> SupplierInvoice:
+    reference = "DEMO-SINV-EXPENSE"
+    invoice = existing.get(reference)
+    if invoice is None:
+        invoice = create_supplier_invoice(
+            supplier=supplier,
+            branch=branch,
+            created_by=recorder,
+            supplier_invoice_number=reference,
+            invoice_date=invoiced_on,
+            business_date=invoiced_on,
+            supplier_reference="أجور توصيل الشهر",
+            notes="نقل بضاعة الشهر — لا يدخل المخزون",
+        )
+        add_account_line(
+            invoice=invoice,
+            account=account,
+            cost_center=cost_center,
+            description="أجور نقل",
+            quantity=Decimal("1.000"),
+            unit_price=Decimal("75000.000000"),
+        )
+    return _advance_demo_invoice(invoice, approver=approver, to_status=SupplierInvoiceStatus.POSTED)
+
+
+def _demo_goods_invoice(
+    *,
+    existing: dict[str, SupplierInvoice],
+    organization: Organization,
+    supplier: Supplier,
+    branch: Branch,
+    item: InventoryItem,
+    recorder: User,
+    approver: User,
+    invoiced_on: datetime.date,
+) -> SupplierInvoice:
+    reference = "DEMO-SINV-GOODS"
+    invoice = existing.get(reference)
+    if invoice is None:
+        invoice = create_supplier_invoice(
+            supplier=supplier,
+            branch=branch,
+            created_by=recorder,
+            supplier_invoice_number=reference,
+            invoice_date=invoiced_on,
+            business_date=invoiced_on,
+            supplier_reference="فاتورة الرز المسلّم",
+            notes="مقابل التسليم الجزئي الأول",
+        )
+        receipt_line = (
+            GoodsReceiptLine.objects.filter(
+                receipt__organization=organization,
+                receipt__supplier=supplier,
+                receipt__status=GoodsReceiptStatus.POSTED,
+                item=item,
+            )
+            .order_by("id")
+            .first()
+        )
+        add_inventory_line(
+            invoice=invoice,
+            item=item,
+            base_quantity=Decimal("60.000"),
+            # Deliberately a hair above the 1,400 the receipt posted at, so the
+            # difference the three-way match exists to surface is actually
+            # there to be found in Task 2.11.
+            unit_price=Decimal("1450.000000"),
+            receipt_line=receipt_line,
+            description="رز — فاتورة المورد",
+        )
+    # Approves and stops. `post_supplier_invoice` would refuse it with
+    # `invoice_awaiting_matching`, which is the state this row is here to show.
+    return _advance_demo_invoice(
+        invoice, approver=approver, to_status=SupplierInvoiceStatus.APPROVED
+    )
+
+
+def _demo_draft_invoice(
+    *,
+    existing: dict[str, SupplierInvoice],
+    supplier: Supplier,
+    branch: Branch,
+    recorder: User,
+    account: Account,
+    cost_center: CostCenter,
+    invoiced_on: datetime.date,
+) -> SupplierInvoice:
+    reference = "DEMO-SINV-DRAFT"
+    invoice = existing.get(reference)
+    if invoice is not None:
+        return invoice
+    invoice = create_supplier_invoice(
+        supplier=supplier,
+        branch=branch,
+        created_by=recorder,
+        supplier_invoice_number=reference,
+        invoice_date=invoiced_on,
+        business_date=invoiced_on,
+        supplier_reference="مسودة للمراجعة",
+        freight_amount=Decimal("10000.000"),
+        discount_amount=Decimal("3000.000"),
+        notes="مسودة: النقل والخصم موزَّعان على الأسطر بطريقة أكبر باقٍ",
+    )
+    for label, price in (("خدمة تنظيف", "40000.000000"), ("صيانة ثلاجة", "60000.000000")):
+        add_account_line(
+            invoice=invoice,
+            account=account,
+            cost_center=cost_center,
+            description=label,
+            quantity=Decimal("1.000"),
+            unit_price=Decimal(price),
+        )
+    return SupplierInvoice.objects.get(pk=invoice.pk)
+
+
+def _demo_reversed_invoice(
+    *,
+    existing: dict[str, SupplierInvoice],
+    supplier: Supplier,
+    branch: Branch,
+    recorder: User,
+    approver: User,
+    account: Account,
+    cost_center: CostCenter,
+    invoiced_on: datetime.date,
+) -> SupplierInvoice:
+    reference = "DEMO-SINV-REVERSED"
+    invoice = existing.get(reference)
+    if invoice is None:
+        invoice = create_supplier_invoice(
+            supplier=supplier,
+            branch=branch,
+            created_by=recorder,
+            supplier_invoice_number=reference,
+            invoice_date=invoiced_on,
+            business_date=invoiced_on,
+            supplier_reference="فوترة مكررة من المورد",
+        )
+        add_account_line(
+            invoice=invoice,
+            account=account,
+            cost_center=cost_center,
+            description="رسوم إدارية",
+            quantity=Decimal("1.000"),
+            unit_price=Decimal("25000.000000"),
+        )
+    invoice = _advance_demo_invoice(
+        invoice, approver=approver, to_status=SupplierInvoiceStatus.POSTED
+    )
+    if invoice.status == SupplierInvoiceStatus.POSTED:
+        reverse_supplier_invoice(
+            invoice=invoice,
+            actor=approver,
+            reason="المورد أرسل الفاتورة مرتين",
+        )
+    return SupplierInvoice.objects.get(pk=invoice.pk)
+
+
+def _advance_demo_invoice(
+    invoice: SupplierInvoice, *, approver: User, to_status: str
+) -> SupplierInvoice:
+    """
+    Walk one demo invoice up to the state it is meant to be in, and no further.
+
+    Idempotent by construction rather than by a flag: each service refuses a
+    document already past the transition it performs, so a second seed run
+    finds every invoice where it left it and does nothing.
+    """
+    if invoice.status == SupplierInvoiceStatus.DRAFT:
+        approve_supplier_invoice(invoice=invoice, actor=approver)
+        invoice = SupplierInvoice.objects.get(pk=invoice.pk)
+    if to_status == SupplierInvoiceStatus.POSTED and invoice.status == (
+        SupplierInvoiceStatus.APPROVED
+    ):
+        post_supplier_invoice(invoice=invoice, actor=approver)
+        invoice = SupplierInvoice.objects.get(pk=invoice.pk)
+    return invoice

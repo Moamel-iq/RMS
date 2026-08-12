@@ -32,8 +32,10 @@ from apps.inventory.demo import DEMO_ORGANIZATION_CODE, DemoSelectionError
 from apps.inventory.management.commands.seed_inventory_demo import resolve_user
 from apps.organizations.models import Organization
 from apps.procurement.demo import (
+    seed_demo_account_mappings,
     seed_demo_award,
     seed_demo_catalogue,
+    seed_demo_invoices,
     seed_demo_order_revision,
     seed_demo_orders,
     seed_demo_quotations,
@@ -60,6 +62,7 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:quotation_list", "عروض الموردين"),
     ("procurement:purchase_order_list", "أوامر الشراء"),
     ("procurement:goods_receipt_list", "استلام البضاعة"),
+    ("procurement:supplier_invoice_list", "فواتير الموردين"),
 ]
 
 
@@ -126,6 +129,13 @@ class Command(SeedCommand):
                 if approver is not None and approver.pk != user.pk
                 else []
             )
+            # The payable role has to be mapped before an invoice can post.
+            seed_demo_account_mappings(organization=organization)
+            invoices = (
+                seed_demo_invoices(organization=organization, recorder=approver, approver=user)
+                if approver is not None and approver.pk != user.pk
+                else []
+            )
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -163,8 +173,18 @@ class Command(SeedCommand):
         self.write(
             f"{len(suppliers)} suppliers, {len(catalogue)} catalogue rows, "
             f"{len(requests)} requests, {len(quotations)} quotations and "
-            f"{len(orders)} orders and {len(receipts)} receipts present."
+            f"{len(orders)} orders, {len(receipts)} receipts and "
+            f"{len(invoices)} supplier invoices present."
         )
+        if invoices:
+            self.write("")
+            self.write("supplier invoices:")
+            for invoice in invoices:
+                label = invoice.number or "draft"
+                self.write(
+                    f"  {invoice.supplier_invoice_number:<22} {label:<18} "
+                    f"{invoice.get_status_display()}"
+                )
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")
         for route, label in INSPECTION_ROUTES:

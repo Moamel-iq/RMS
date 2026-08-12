@@ -28,6 +28,9 @@ from apps.procurement.models import (
     PurchaseRequest,
     PurchaseRequestLine,
     Supplier,
+    SupplierInvoice,
+    SupplierInvoiceLine,
+    SupplierInvoiceStatus,
     SupplierItem,
     SupplierQuotation,
     SupplierQuotationLine,
@@ -378,4 +381,72 @@ def outstanding_order_lines(order: PurchaseOrder) -> list[dict[str, object]]:
             "outstanding": line.ordered_base_quantity - received_base_quantity(line),
         }
         for line in order.lines.select_related("item", "package_unit").order_by("sequence")
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Supplier invoices (Task 2.10)
+# ---------------------------------------------------------------------------
+
+
+def visible_supplier_invoices(user: User) -> QuerySet[SupplierInvoice]:
+    """
+    Invoices in organizations the caller holds real authority over.
+
+    Narrower than every other procurement selector on purpose. The rest use
+    `reachable_organization_ids`, which a branch membership satisfies — right
+    for a shared supplier list, wrong for a debt. An invoice is money the
+    organization owes, so the scope is `organizations_with_permission` against
+    the view permission itself: authority over the organization, not reach into
+    it (PRC-060).
+    """
+    from apps.organizations.authorization import organizations_with_permission
+    from apps.procurement.permissions import VIEW_SUPPLIER_INVOICE
+
+    allowed = organizations_with_permission(user, VIEW_SUPPLIER_INVOICE)
+    return SupplierInvoice.objects.filter(organization__in=allowed).select_related(
+        "organization", "branch", "supplier", "created_by", "approved_by", "journal_entry"
+    )
+
+
+def resolve_supplier_invoice(user: User, invoice_id: int) -> SupplierInvoice:
+    """Turn a submitted invoice id into one the caller may reach, or 404."""
+    found = visible_supplier_invoices(user).filter(pk=invoice_id).first()
+    if found is None:
+        raise OutOfScope(_("Supplier invoice %(id)s does not exist.") % {"id": invoice_id})
+    return found
+
+
+def resolve_invoice_line(
+    user: User, *, invoice: SupplierInvoice, line_id: int
+) -> SupplierInvoiceLine:
+    """A line, resolved under its own invoice — never by id alone."""
+    line = SupplierInvoiceLine.objects.filter(pk=line_id, invoice=invoice).first()
+    if line is None:
+        raise OutOfScope(_("Invoice line %(id)s does not exist.") % {"id": line_id})
+    return line
+
+
+def open_payables(user: User, *, supplier: Supplier | None = None) -> list[dict[str, object]]:
+    """
+    What is still owed, invoice by invoice, derived every time it is asked.
+
+    There is no stored balance and no subledger table to rebuild. Task 2.14
+    will subtract credit allocations and Task 2.15 payment allocations from
+    `outstanding`, and neither has to find and correct a cached figure to do
+    it — which is the entire reason the figure is not cached.
+    """
+    from apps.procurement.invoices import outstanding_amount
+
+    queryset = visible_supplier_invoices(user).filter(status=SupplierInvoiceStatus.POSTED)
+    if supplier is not None:
+        queryset = queryset.filter(supplier=supplier)
+    return [
+        {
+            "invoice": invoice,
+            "posted": invoice.posted_amount,
+            "outstanding": outstanding_amount(invoice),
+            "due_date": invoice.due_date,
+        }
+        for invoice in queryset.order_by("due_date", "id")
     ]

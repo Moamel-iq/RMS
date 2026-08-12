@@ -33,14 +33,21 @@ from decimal import Decimal
 from django.db.models import Sum
 
 from apps.accounting.models import JournalEntry
-from apps.inventory.models import StockLocationMovement
+from apps.inventory.models import StockLocationMovement, StockMovement
 from apps.inventory.reconciliation import Discrepancy
 from apps.organizations.models import Organization
+from apps.procurement.invoices import (
+    SOURCE_DOCUMENT_TYPE as INVOICE_SOURCE_TYPE,
+)
+from apps.procurement.invoices import supplier_outstanding
 from apps.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
     GoodsReceiptStatus,
     PurchaseOrderLine,
+    Supplier,
+    SupplierInvoice,
+    SupplierInvoiceStatus,
 )
 from apps.procurement.posting import SOURCE_DOCUMENT_TYPE
 
@@ -287,12 +294,200 @@ def verify_procurement(organization: Organization) -> list[str]:
         problems.extend(verify_goods_receipt(receipt))
     problems.extend(verify_order_received_quantities(organization))
     problems.extend(verify_grni(organization))
+    for invoice in SupplierInvoice.objects.filter(organization=organization).exclude(
+        status=SupplierInvoiceStatus.DRAFT
+    ):
+        problems.extend(verify_supplier_invoice(invoice))
+    problems.extend(verify_invoice_charges(organization))
+    problems.extend(verify_supplier_payables(organization))
     return [str(problem) for problem in problems]
 
 
 __all__ = [
     "verify_goods_receipt",
     "verify_grni",
+    "verify_invoice_charges",
     "verify_order_received_quantities",
     "verify_procurement",
+    "verify_supplier_invoice",
+    "verify_supplier_payables",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Supplier invoices (Task 2.10)
+# ---------------------------------------------------------------------------
+
+
+def verify_supplier_invoice(invoice: SupplierInvoice) -> list[Discrepancy]:
+    """
+    One posted invoice, across every representation of what it did.
+
+        posted amount == sum of stored line net amounts
+                      == the journal's debits
+                      == the payable credit
+
+    and, separately from all of those, that it moved no stock at all.
+    """
+    if invoice.status not in (SupplierInvoiceStatus.POSTED, SupplierInvoiceStatus.REVERSED):
+        return []
+
+    label = invoice.number or str(invoice.public_id)
+    problems: list[Discrepancy] = []
+    lines = list(invoice.lines.order_by("sequence"))
+
+    line_total = sum((line.net_amount for line in lines), ZERO)
+    if invoice.total_amount != line_total:
+        problems.append(
+            Discrepancy(
+                scope=label,
+                field="document_total",
+                expected=line_total,
+                actual=invoice.total_amount,
+            )
+        )
+    if invoice.posted_amount != line_total:
+        problems.append(
+            Discrepancy(
+                scope=label,
+                field="posted_amount",
+                expected=line_total,
+                actual=invoice.posted_amount if invoice.posted_amount is not None else "missing",
+            )
+        )
+
+    if invoice.journal_entry is None:
+        problems.append(
+            Discrepancy(scope=label, field="journal_entry", expected="present", actual="missing")
+        )
+        return problems
+
+    journal_lines = list(invoice.journal_entry.lines.select_related("account"))
+    debits = sum((row.debit for row in journal_lines), ZERO)
+    credits = sum((row.credit for row in journal_lines), ZERO)
+    if debits != line_total:
+        problems.append(
+            Discrepancy(scope=label, field="journal_debits", expected=line_total, actual=debits)
+        )
+    if credits != line_total:
+        problems.append(
+            Discrepancy(scope=label, field="payable_credit", expected=line_total, actual=credits)
+        )
+
+    # PRC-038, asserted rather than assumed: this document is the reason the
+    # goods receipt and the invoice are two models, so the claim that it moves
+    # no stock is worth one query.
+    moved = StockMovement.objects.filter(
+        entry__source_document_type=INVOICE_SOURCE_TYPE,
+        entry__source_document_id=str(invoice.public_id),
+    ).count()
+    if moved:
+        problems.append(Discrepancy(scope=label, field="stock_movements", expected=0, actual=moved))
+
+    for line in lines:
+        scope = f"{label}#{line.sequence}"
+        expected = line.line_amount + line.allocated_freight - line.allocated_discount
+        if line.net_amount != expected:
+            problems.append(
+                Discrepancy(
+                    scope=scope, field="line_net_amount", expected=expected, actual=line.net_amount
+                )
+            )
+        if line.journal_line is None:
+            problems.append(
+                Discrepancy(scope=scope, field="journal_line", expected="present", actual="missing")
+            )
+    return problems
+
+
+def verify_invoice_charges(organization: Organization) -> list[Discrepancy]:
+    """
+    Every document-level charge is fully allocated across its own lines.
+
+    `allocate` guarantees the parts sum to the whole, so this checks the
+    guarantee held rather than re-deriving it — a residual that went missing
+    between allocation and storage is exactly the drift a reconciliation exists
+    to surface (PRC-039).
+    """
+    problems: list[Discrepancy] = []
+    invoices = SupplierInvoice.objects.filter(organization=organization).exclude(
+        status=SupplierInvoiceStatus.DRAFT
+    )
+    for invoice in invoices:
+        lines = list(invoice.lines.all())
+        if not lines:
+            continue
+        freight = sum((line.allocated_freight for line in lines), ZERO)
+        discount = sum((line.allocated_discount for line in lines), ZERO)
+        label = invoice.number or str(invoice.public_id)
+        if freight != invoice.freight_amount:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="allocated_freight",
+                    expected=invoice.freight_amount,
+                    actual=freight,
+                )
+            )
+        if discount != invoice.discount_amount:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="allocated_discount",
+                    expected=invoice.discount_amount,
+                    actual=discount,
+                )
+            )
+    return problems
+
+
+def verify_supplier_payables(organization: Organization) -> list[Discrepancy]:
+    """
+    Each supplier's derived outstanding equals its posted invoices.
+
+    Trivially true today and deliberately written anyway: Task 2.14 and Task
+    2.15 subtract credit and payment allocations from the same expression, and
+    the equation this asserts is where their arithmetic will be caught.
+
+    Also catches the fabricated journal: an entry citing
+    `PROCUREMENT_SUPPLIER_INVOICE` with an id no invoice owns is reported and
+    left exactly where it is. There is no repair mode.
+    """
+    problems: list[Discrepancy] = []
+    suppliers = Supplier.objects.filter(organization=organization)
+    for supplier in suppliers:
+        posted: Decimal | None = SupplierInvoice.objects.filter(
+            supplier=supplier, status=SupplierInvoiceStatus.POSTED
+        ).aggregate(total=Sum("posted_amount"))["total"]
+        expected = posted or ZERO
+        actual = supplier_outstanding(supplier)
+        if actual != expected:
+            problems.append(
+                Discrepancy(
+                    scope=supplier.code,
+                    field="supplier_outstanding",
+                    expected=expected,
+                    actual=actual,
+                )
+            )
+
+    known = {
+        str(public_id)
+        for public_id in SupplierInvoice.objects.filter(organization=organization).values_list(
+            "public_id", flat=True
+        )
+    }
+    cited = JournalEntry.objects.filter(
+        organization=organization, source_document_type=INVOICE_SOURCE_TYPE
+    ).values_list("source_document_id", flat=True)
+    for document_id in set(cited):
+        if document_id not in known:
+            problems.append(
+                Discrepancy(
+                    scope=INVOICE_SOURCE_TYPE,
+                    field="journal_cites_unknown_invoice",
+                    expected="an invoice in this organization",
+                    actual=document_id,
+                )
+            )
+    return problems

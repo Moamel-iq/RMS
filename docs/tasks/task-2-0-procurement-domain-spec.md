@@ -2,6 +2,17 @@
 
 - **Status:** Specification only. Task 2.0 creates no models, migrations,
   services, API or UI. Implementation begins at Task 2.1.
+- **Implemented through Task 2.10** (supplier invoices and the payable).
+  §15's new account roles are seeded one at a time by the task that posts to
+  them: `SUPPLIER_PAYABLE` arrived with 2.10; `PURCHASE_PRICE_VARIANCE`,
+  `SUPPLIER_ADVANCE` and the two payment-source roles are still unseeded, and
+  deliberately so — a role with no posting rule behind it is a mapping an
+  accounting manager can be asked to fill in for a workflow that does not
+  exist. §9's invoice posting is **partially** implemented: the direct-account
+  route is live, and the GRNI/variance route waits for the match allocation
+  2.11 defines. There is no `UNRECEIVED_INVENTORY_CLEARING` role in §15 and
+  none was invented, so posting an invoice that arrives before its goods is
+  not supported.
 - **Date:** 2026-08-11
 - **Branch:** `phase/2-procurement`, from tag `phase-1-inventory-complete`
   (`e49da77`)

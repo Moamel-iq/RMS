@@ -203,4 +203,47 @@ urlpatterns = [
         views.GoodsReceiptReverseView.as_view(),
         name="goods_receipt_reverse",
     ),
+    # --- supplier invoices -----------------------------------------------
+    path(
+        "invoices/",
+        views.SupplierInvoiceListView.as_view(),
+        name="supplier_invoice_list",
+    ),
+    path(
+        "invoices/new/",
+        views.SupplierInvoiceCreateView.as_view(),
+        name="supplier_invoice_create",
+    ),
+    path(
+        "invoices/<int:pk>/",
+        views.SupplierInvoiceDetailView.as_view(),
+        name="supplier_invoice_detail",
+    ),
+    path(
+        "invoices/<int:pk>/lines/<int:line_id>/delete/",
+        views.SupplierInvoiceLineDeleteView.as_view(),
+        name="supplier_invoice_line_delete",
+    ),
+    # Command routes, POST-only. There is no writable generic endpoint over a
+    # posted invoice and there is deliberately not going to be (PRC-062).
+    path(
+        "invoices/<int:pk>/approve/",
+        views.SupplierInvoiceTransitionView.as_view(transition="approve"),
+        name="supplier_invoice_approve",
+    ),
+    path(
+        "invoices/<int:pk>/return/",
+        views.SupplierInvoiceTransitionView.as_view(transition="return_to_draft"),
+        name="supplier_invoice_return",
+    ),
+    path(
+        "invoices/<int:pk>/post/",
+        views.SupplierInvoiceTransitionView.as_view(transition="post"),
+        name="supplier_invoice_post",
+    ),
+    path(
+        "invoices/<int:pk>/reverse/",
+        views.SupplierInvoiceTransitionView.as_view(transition="reverse"),
+        name="supplier_invoice_reverse",
+    ),
 ]
