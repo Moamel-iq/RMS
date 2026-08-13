@@ -22,6 +22,8 @@ from apps.organizations.selectors import accessible_branches
 from apps.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
+    PurchaseMatch,
+    PurchaseMatchAllocation,
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseOrderVersion,
@@ -449,4 +451,85 @@ def open_payables(user: User, *, supplier: Supplier | None = None) -> list[dict[
             "due_date": invoice.due_date,
         }
         for invoice in queryset.order_by("due_date", "id")
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Three-way matching (Task 2.11)
+# ---------------------------------------------------------------------------
+
+
+def visible_purchase_matches(user: User) -> QuerySet[PurchaseMatch]:
+    """
+    Matches in organizations the caller holds real authority over.
+
+    The same narrow scope the supplier invoice uses, and for the same reason:
+    a match decides what a payable will be settled against, and a branch
+    membership is custody of a store rather than authority over a debt.
+    """
+    from apps.organizations.authorization import organizations_with_permission
+    from apps.procurement.permissions import VIEW_PURCHASE_MATCH
+
+    allowed = organizations_with_permission(user, VIEW_PURCHASE_MATCH)
+    return PurchaseMatch.objects.filter(organization__in=allowed).select_related(
+        "organization", "supplier", "supplier_invoice", "created_by", "ready_by"
+    )
+
+
+def resolve_purchase_match(user: User, match_id: int) -> PurchaseMatch:
+    """Turn a submitted match id into one the caller may reach, or 404."""
+    found = visible_purchase_matches(user).filter(pk=match_id).first()
+    if found is None:
+        raise OutOfScope(_("Purchase match %(id)s does not exist.") % {"id": match_id})
+    return found
+
+
+def resolve_match_allocation(
+    user: User, *, match: PurchaseMatch, allocation_id: int
+) -> PurchaseMatchAllocation:
+    """An allocation, resolved under its own match — never by id alone."""
+    allocation = PurchaseMatchAllocation.objects.filter(pk=allocation_id, match=match).first()
+    if allocation is None:
+        raise OutOfScope(_("Allocation %(id)s does not exist.") % {"id": allocation_id})
+    return allocation
+
+
+def matching_queue(user: User) -> list[dict[str, object]]:
+    """
+    What still needs reconciling, in the two directions it can be missing.
+
+    A delivery nobody has billed and an invoice nobody has covered are
+    different problems — the first is money owed that has not arrived on
+    paper, the second is a claim with nothing behind it — so the queue keeps
+    them apart rather than merging them into one "exceptions" count.
+    """
+    from apps.organizations.authorization import organizations_with_permission
+    from apps.procurement.matching import (
+        invoice_line_match_state,
+        unmatched_receipt_lines,
+    )
+    from apps.procurement.models import SupplierInvoiceLineType
+    from apps.procurement.permissions import VIEW_PURCHASE_MATCH
+
+    allowed = list(
+        organizations_with_permission(user, VIEW_PURCHASE_MATCH).values_list("id", flat=True)
+    )
+    receipts: list[GoodsReceiptLine] = []
+    for organization_id in allowed:
+        receipts.extend(unmatched_receipt_lines(organization_id=organization_id))
+
+    invoice_lines: list[SupplierInvoiceLine] = []
+    for line in SupplierInvoiceLine.objects.filter(
+        invoice__organization_id__in=allowed,
+        invoice__status=SupplierInvoiceStatus.APPROVED,
+        line_type=SupplierInvoiceLineType.INVENTORY,
+    ).select_related("invoice", "invoice__supplier", "item"):
+        state = invoice_line_match_state(line)
+        if state not in {"UNMATCHED", "PARTIALLY_MATCHED"}:
+            continue
+        line.match_state = state  # type: ignore[attr-defined]
+        invoice_lines.append(line)
+    return [
+        {"kind": "RECEIPT", "receipt_lines": receipts},
+        {"kind": "INVOICE", "invoice_lines": invoice_lines},
     ]

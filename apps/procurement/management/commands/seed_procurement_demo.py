@@ -36,6 +36,7 @@ from apps.procurement.demo import (
     seed_demo_award,
     seed_demo_catalogue,
     seed_demo_invoices,
+    seed_demo_matches,
     seed_demo_order_revision,
     seed_demo_orders,
     seed_demo_quotations,
@@ -63,6 +64,8 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:purchase_order_list", "أوامر الشراء"),
     ("procurement:goods_receipt_list", "استلام البضاعة"),
     ("procurement:supplier_invoice_list", "فواتير الموردين"),
+    ("procurement:matching_queue", "قائمة المطابقة"),
+    ("procurement:purchase_match_list", "مطابقة المشتريات"),
 ]
 
 
@@ -136,6 +139,7 @@ class Command(SeedCommand):
                 if approver is not None and approver.pk != user.pk
                 else []
             )
+            matches = seed_demo_matches(organization=organization, matcher=user)
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -174,8 +178,14 @@ class Command(SeedCommand):
             f"{len(suppliers)} suppliers, {len(catalogue)} catalogue rows, "
             f"{len(requests)} requests, {len(quotations)} quotations and "
             f"{len(orders)} orders, {len(receipts)} receipts and "
-            f"{len(invoices)} supplier invoices present."
+            f"{len(invoices)} supplier invoices and {len(matches)} matches present."
         )
+        if matches:
+            self.write("")
+            self.write("purchase matches:")
+            for match in matches:
+                label = match.number or "draft"
+                self.write(f"  {match.notes:<24} {label:<18} {match.get_status_display()}")
         if invoices:
             self.write("")
             self.write("supplier invoices:")

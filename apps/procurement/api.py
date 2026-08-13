@@ -44,8 +44,19 @@ from apps.procurement.invoices import (
     post_supplier_invoice,
     reverse_supplier_invoice,
 )
+from apps.procurement.matching import (
+    add_allocation,
+    cancel_purchase_match,
+    coverage_for_invoice,
+    create_purchase_match,
+    delete_purchase_match,
+    mark_match_ready,
+    remove_allocation,
+)
 from apps.procurement.models import (
     GoodsReceiptLine,
+    PurchaseMatch,
+    PurchaseMatchAllocation,
     PurchaseOrderLine,
     Supplier,
     SupplierInvoice,
@@ -54,21 +65,27 @@ from apps.procurement.models import (
 )
 from apps.procurement.permissions import (
     APPROVE_SUPPLIER_INVOICE,
+    CANCEL_PURCHASE_MATCH,
     CREATE_SUPPLIER_INVOICE,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
+    MATCH_SUPPLIER_INVOICE,
     POST_SUPPLIER_INVOICE,
     REVERSE_SUPPLIER_INVOICE,
+    VIEW_PURCHASE_MATCH,
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
     VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
 )
 from apps.procurement.selectors import (
+    resolve_match_allocation,
+    resolve_purchase_match,
     resolve_supplier,
     resolve_supplier_invoice,
     resolve_supplier_item,
     visible_goods_receipts,
+    visible_purchase_matches,
     visible_purchase_orders,
     visible_supplier_invoices,
     visible_supplier_items,
@@ -799,3 +816,286 @@ def _resolve_order_line_for_invoice(
     if line is None:
         raise OutOfScope(f"Order line {line_id} does not exist.")
     return line
+
+
+# ---------------------------------------------------------------------------
+# Three-way matching (Task 2.11)
+# ---------------------------------------------------------------------------
+#
+# Commands, not CRUD. Allocations are writable only while the match is a
+# draft; once it is READY the only remaining command is cancellation. Nothing
+# here posts, and there is deliberately no endpoint that could be mistaken for
+# one — `ready` freezes evidence and returns a match whose invoice is still
+# APPROVED.
+
+
+class MatchAllocationOut(Schema):
+    id: int
+    sequence: int
+    invoice_line_id: int
+    invoice_line_sequence: int
+    receipt_line_id: int
+    receipt_number: str
+    order_line_id: int | None = None
+    order_version: int | None = None
+    item_code: str
+    matched_base_quantity: str
+    #: Omitted without `view_supplier_cost`, never blanked.
+    receipt_allocated_value: str | None = None
+    invoice_allocated_value: str | None = None
+    price_variance: str | None = None
+
+
+class MatchCoverageOut(Schema):
+    invoice_line_id: int
+    sequence: int
+    item_code: str
+    invoiced_quantity: str
+    matched_quantity: str
+    unmatched_quantity: str
+    state: str
+    invoiced_value: str | None = None
+    unmatched_value: str | None = None
+    price_variance: str | None = None
+
+
+class PurchaseMatchOut(Schema):
+    id: int
+    public_id: str
+    organization_id: int
+    supplier_id: int
+    supplier_code: str
+    supplier_invoice_id: int
+    supplier_invoice_number: str
+    #: The invoice's own state, restated here so no caller has to infer that a
+    #: READY match means the invoice posted. It does not.
+    supplier_invoice_status: str
+    number: str
+    status: str
+    #: Always false in Task 2.11. Task 2.12 is what makes a posting possible,
+    #: and until it exists this field says so rather than being absent and
+    #: leaving a client to guess.
+    is_financially_posted: bool
+    total_matched_quantity: str
+    total_price_variance: str | None = None
+    allocations: list[MatchAllocationOut] = []
+    coverage: list[MatchCoverageOut] = []
+
+
+class MatchAllocationIn(Schema):
+    invoice_line_id: int
+    receipt_line_id: int
+    matched_base_quantity: str
+    note: str = ""
+
+
+def _require_match_view(request: HttpRequest) -> User:
+    actor = _actor(request)
+    if not actor.has_perm(VIEW_PURCHASE_MATCH):
+        raise PermissionMissing(f"{VIEW_PURCHASE_MATCH} is not held.")
+    return actor
+
+
+def _serialize_allocation(
+    allocation: PurchaseMatchAllocation, *, include_cost: bool
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": allocation.pk,
+        "sequence": allocation.sequence,
+        "invoice_line_id": allocation.supplier_invoice_line_id,
+        "invoice_line_sequence": allocation.supplier_invoice_line.sequence,
+        "receipt_line_id": allocation.goods_receipt_line_id,
+        "receipt_number": allocation.goods_receipt_line.receipt.number,
+        "order_line_id": allocation.purchase_order_line_id,
+        "order_version": allocation.purchase_order_version,
+        "item_code": allocation.goods_receipt_line.item.code,
+        "matched_base_quantity": format(allocation.matched_base_quantity, "f"),
+    }
+    if include_cost:
+        payload.update(
+            {
+                "receipt_allocated_value": format(allocation.receipt_allocated_value, "f"),
+                "invoice_allocated_value": format(allocation.invoice_allocated_value, "f"),
+                "price_variance": format(allocation.price_variance, "f"),
+            }
+        )
+    return payload
+
+
+def _serialize_match(match: PurchaseMatch, *, include_cost: bool) -> dict[str, Any]:
+    allocations = list(
+        match.allocations.select_related(
+            "supplier_invoice_line",
+            "goods_receipt_line",
+            "goods_receipt_line__receipt",
+            "goods_receipt_line__item",
+            "purchase_order_line",
+        ).order_by("sequence")
+    )
+    payload: dict[str, Any] = {
+        "id": match.pk,
+        "public_id": str(match.public_id),
+        "organization_id": match.organization_id,
+        "supplier_id": match.supplier_id,
+        "supplier_code": match.supplier.code,
+        "supplier_invoice_id": match.supplier_invoice_id,
+        "supplier_invoice_number": match.supplier_invoice.supplier_invoice_number,
+        "supplier_invoice_status": match.supplier_invoice.status,
+        "number": match.number,
+        "status": match.status,
+        # Task 2.11 posts nothing. Stated rather than implied.
+        "is_financially_posted": False,
+        "total_matched_quantity": format(match.total_matched_quantity, "f"),
+        "allocations": [
+            _serialize_allocation(row, include_cost=include_cost) for row in allocations
+        ],
+        "coverage": [
+            {
+                "invoice_line_id": row["line"].pk,
+                "sequence": row["line"].sequence,
+                "item_code": row["line"].item.code if row["line"].item else "",
+                "invoiced_quantity": format(row["invoiced_quantity"], "f"),
+                "matched_quantity": format(row["matched_quantity"], "f"),
+                "unmatched_quantity": format(row["unmatched_quantity"], "f"),
+                "state": row["state"],
+                **(
+                    {
+                        "invoiced_value": format(row["invoiced_value"], "f"),
+                        "unmatched_value": format(row["unmatched_value"], "f"),
+                        "price_variance": format(row["price_variance"], "f"),
+                    }
+                    if include_cost
+                    else {}
+                ),
+            }
+            for row in coverage_for_invoice(match.supplier_invoice)
+        ],
+    }
+    if include_cost:
+        payload["total_price_variance"] = format(match.total_price_variance, "f")
+    return payload
+
+
+@router.get("/matches/", response=list[PurchaseMatchOut], summary="List purchase matches")
+def list_matches(request: HttpRequest, status: str | None = None) -> Any:
+    actor = _require_match_view(request)
+    queryset = visible_purchase_matches(actor)
+    if status:
+        queryset = queryset.filter(status=status.strip().upper())
+    include_cost = actor.has_perm(VIEW_SUPPLIER_COST)
+    return [
+        _serialize_match(match, include_cost=include_cost) for match in queryset.order_by("-id")
+    ]
+
+
+@router.get("/matches/{match_id}/", response=PurchaseMatchOut, summary="Read one match")
+def read_match(request: HttpRequest, match_id: int) -> Any:
+    actor = _require_match_view(request)
+    match = resolve_purchase_match(actor, match_id)
+    return _serialize_match(match, include_cost=actor.has_perm(VIEW_SUPPLIER_COST))
+
+
+@router.post(
+    "/supplier-invoices/{invoice_id}/match/",
+    response={201: PurchaseMatchOut},
+    summary="Open a match against a supplier invoice",
+)
+def open_match(request: HttpRequest, invoice_id: int) -> Status[Any]:
+    actor = _actor(request)
+    invoice = resolve_supplier_invoice(actor, invoice_id)
+    require_organization_permission(actor, MATCH_SUPPLIER_INVOICE, invoice.organization)
+    match = create_purchase_match(invoice=invoice, created_by=actor)
+    return Status(201, _serialize_match(match, include_cost=True))
+
+
+@router.delete("/matches/{match_id}/", response={204: None}, summary="Discard a draft match")
+def discard_match(request: HttpRequest, match_id: int) -> Status[Any]:
+    actor = _actor(request)
+    match = resolve_purchase_match(actor, match_id)
+    require_organization_permission(actor, MATCH_SUPPLIER_INVOICE, match.organization)
+    delete_purchase_match(match=match)
+    return Status(204, None)
+
+
+@router.post(
+    "/matches/{match_id}/allocations/",
+    response={201: PurchaseMatchOut},
+    summary="Allocate a delivery against an invoice line",
+)
+def create_allocation(
+    request: HttpRequest, match_id: int, payload: MatchAllocationIn
+) -> Status[Any]:
+    actor = _actor(request)
+    match = resolve_purchase_match(actor, match_id)
+    require_organization_permission(actor, MATCH_SUPPLIER_INVOICE, match.organization)
+
+    # Both lines resolved inside this match's own documents, never by id alone.
+    invoice_line = SupplierInvoiceLine.objects.filter(
+        pk=payload.invoice_line_id, invoice=match.supplier_invoice
+    ).first()
+    if invoice_line is None:
+        raise OutOfScope(f"Invoice line {payload.invoice_line_id} does not exist.")
+    receipt_line = (
+        GoodsReceiptLine.objects.filter(
+            pk=payload.receipt_line_id,
+            receipt__organization_id=match.organization_id,
+            receipt__supplier_id=match.supplier_id,
+        )
+        .select_related("receipt")
+        .first()
+    )
+    if receipt_line is None:
+        raise OutOfScope(f"Receipt line {payload.receipt_line_id} does not exist.")
+
+    add_allocation(
+        match=match,
+        invoice_line=invoice_line,
+        receipt_line=receipt_line,
+        matched_base_quantity=_required_money(
+            payload.matched_base_quantity, field="matched_base_quantity"
+        ),
+        created_by=actor,
+        note=payload.note,
+    )
+    return Status(201, _serialize_match(_reload_match(match), include_cost=True))
+
+
+@router.delete(
+    "/matches/{match_id}/allocations/{allocation_id}/",
+    response={204: None},
+    summary="Remove a draft allocation",
+)
+def delete_allocation(request: HttpRequest, match_id: int, allocation_id: int) -> Status[Any]:
+    actor = _actor(request)
+    match = resolve_purchase_match(actor, match_id)
+    require_organization_permission(actor, MATCH_SUPPLIER_INVOICE, match.organization)
+    allocation = resolve_match_allocation(actor, match=match, allocation_id=allocation_id)
+    remove_allocation(allocation=allocation)
+    return Status(204, None)
+
+
+@router.post(
+    "/matches/{match_id}/ready/",
+    response=PurchaseMatchOut,
+    summary="Freeze a match's evidence (posts nothing)",
+)
+def ready_match(request: HttpRequest, match_id: int) -> Any:
+    actor = _actor(request)
+    match = resolve_purchase_match(actor, match_id)
+    require_organization_permission(actor, MATCH_SUPPLIER_INVOICE, match.organization)
+    ready = mark_match_ready(match=match, actor=actor)
+    return _serialize_match(ready, include_cost=True)
+
+
+@router.post("/matches/{match_id}/cancel/", response=PurchaseMatchOut, summary="Withdraw a match")
+def cancel_match(request: HttpRequest, match_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    match = resolve_purchase_match(actor, match_id)
+    require_organization_permission(actor, CANCEL_PURCHASE_MATCH, match.organization)
+    cancelled = cancel_purchase_match(match=match, actor=actor, reason=payload.reason)
+    return _serialize_match(cancelled, include_cost=True)
+
+
+def _reload_match(match: PurchaseMatch) -> PurchaseMatch:
+    """Re-read after an allocation change, so the response carries stored totals."""
+    return PurchaseMatch.objects.select_related("supplier", "supplier_invoice").get(pk=match.pk)

@@ -608,6 +608,137 @@ class TestTheLineTypeInvariant:
             )
         assert error.value.code == "account_not_postable"
 
+    def test_a_role_owned_account_is_refused(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        clerk: User,
+        delivery: CostCenter,
+        organization: Organization,
+        inventory_mapped: None,
+        mapped: None,
+    ) -> None:
+        """
+        The dangerous one. `INVENTORY_CONTROL` is an ordinary postable asset
+        account, so nothing about its class stops an operator selecting it —
+        and a direct line billed into it would inflate stock value with no
+        stock behind it and break `verify_inventory_against_gl` in a way no
+        procurement screen would explain. An account a posting rule owns is
+        not one a person entering an invoice gets to choose (ADR-019).
+        """
+        control = Account.objects.get(organization=organization, code="1-03-01-001")
+        invoice = _invoice(grocery=grocery, branch=branch, clerk=clerk)
+        with pytest.raises(ValidationError) as error:
+            add_account_line(
+                invoice=invoice,
+                account=control,
+                cost_center=delivery,
+                description="محاولة",
+                quantity=Decimal("1.000"),
+                unit_price=Decimal("1000.000000"),
+            )
+        assert error.value.code == "account_is_role_owned"
+
+    def test_grni_cannot_be_cleared_by_hand(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        clerk: User,
+        delivery: CostCenter,
+        organization: Organization,
+        inventory_mapped: None,
+        mapped: None,
+    ) -> None:
+        """
+        Task 2.10 refuses to clear GRNI without a match. Selecting the GRNI
+        account on a direct line would do it by typing instead.
+        """
+        grni = Account.objects.get(organization=organization, code="2-01-02-001")
+        invoice = _invoice(grocery=grocery, branch=branch, clerk=clerk)
+        with pytest.raises(ValidationError) as error:
+            add_account_line(
+                invoice=invoice,
+                account=grni,
+                cost_center=delivery,
+                description="محاولة",
+                quantity=Decimal("1.000"),
+                unit_price=Decimal("1000.000000"),
+            )
+        assert error.value.code in {"account_class_not_billable", "account_is_role_owned"}
+
+    def test_the_payable_itself_is_refused(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        clerk: User,
+        delivery: CostCenter,
+        payable_account: Account,
+        mapped: None,
+    ) -> None:
+        """`Dr` supplier payable `Cr` supplier payable balances and means nothing."""
+        invoice = _invoice(grocery=grocery, branch=branch, clerk=clerk)
+        with pytest.raises(ValidationError) as error:
+            add_account_line(
+                invoice=invoice,
+                account=payable_account,
+                cost_center=delivery,
+                description="محاولة",
+                quantity=Decimal("1.000"),
+                unit_price=Decimal("1000.000000"),
+            )
+        assert error.value.code in {"account_class_not_billable", "account_is_role_owned"}
+
+    def test_a_revenue_account_is_refused(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        clerk: User,
+        delivery: CostCenter,
+        organization: Organization,
+        accounting: None,
+    ) -> None:
+        """A supplier bills for an expense or an asset, not for our revenue."""
+        revenue = Account.objects.filter(
+            organization=organization, account_class="4", is_postable=True
+        ).first()
+        assert revenue is not None
+        invoice = _invoice(grocery=grocery, branch=branch, clerk=clerk)
+        with pytest.raises(ValidationError) as error:
+            add_account_line(
+                invoice=invoice,
+                account=revenue,
+                cost_center=delivery,
+                description="محاولة",
+                quantity=Decimal("1.000"),
+                unit_price=Decimal("1000.000000"),
+            )
+        assert error.value.code == "account_class_not_billable"
+
+    def test_an_unowned_expense_account_is_still_allowed(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        clerk: User,
+        delivery: CostCenter,
+        expense_account: Account,
+        mapped: None,
+    ) -> None:
+        """
+        The guard narrows the choice; it does not remove it. An ordinary
+        expense account no posting rule owns is exactly what a delivery charge
+        belongs to.
+        """
+        invoice = _invoice(grocery=grocery, branch=branch, clerk=clerk)
+        line = add_account_line(
+            invoice=invoice,
+            account=expense_account,
+            cost_center=delivery,
+            description="أجور نقل",
+            quantity=Decimal("1.000"),
+            unit_price=Decimal("1000.000000"),
+        )
+        assert line.account == expense_account
+
     def test_a_foreign_receipt_is_refused(
         self,
         grocery: Supplier,
@@ -1360,17 +1491,35 @@ class TestTheMatchingBoundary:
         assert receipt_line.accepted_base_quantity == Decimal("50.000")
         assert receipt_line.posted_value == Decimal("70000.000")
 
-    def test_no_matching_model_exists_yet(self) -> None:
+    def test_matching_lives_outside_invoice_posting(self) -> None:
         """
-        Asserted rather than assumed. A `MatchAllocation` appearing before
-        Task 2.11 would mean somebody built matching inside invoice posting,
-        which is the thing this boundary exists to prevent.
+        The positive twin of this task's boundary marker.
+
+        Until Task 2.11 this asserted that no matching model existed at all,
+        because one appearing early would have meant somebody built matching
+        inside invoice posting. Task 2.11 delivered the models, so the claim
+        moves to the thing that actually mattered: matching is a *separate*
+        module. `apps/procurement/invoices.py` imports nothing from it and
+        names none of its models, so no posting path can reach one.
+
+        It does still say the word — `invoice_awaiting_matching` is the code a
+        held goods line reports, and explaining why is the point of it.
         """
+        from pathlib import Path
+
         from django.apps import apps as django_apps
 
+        from apps.procurement import invoices as invoice_module
+
         names = {model.__name__ for model in django_apps.get_app_config("procurement").get_models()}
-        assert "MatchAllocation" not in names
-        assert "PurchaseMatch" not in names
+        assert "PurchaseMatch" in names
+        assert "PurchaseMatchAllocation" in names
+
+        assert invoice_module.__file__ is not None
+        source = Path(invoice_module.__file__).read_text(encoding="utf-8")
+        assert "from apps.procurement.matching import" not in source
+        assert "import matching" not in source
+        assert "PurchaseMatch" not in source
 
     def test_no_variance_role_is_mapped_yet(self) -> None:
         """

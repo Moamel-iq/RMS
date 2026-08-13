@@ -1,0 +1,204 @@
+{% extends "shell.html" %}
+{% load i18n money_tags quantity_tags %}
+
+{# One reconciliation: which delivery covers which invoice line, and by how  #}
+{# much the two disagree.                                                     #}
+{#                                                                            #}
+{# The screen is careful about one sentence. "جاهزة للترحيل المالي" means the #}
+{# evidence is complete and frozen. It does NOT mean anything was posted, and #}
+{# the panel says so in as many words — a matching workspace that implied     #}
+{# otherwise would be the most expensive kind of wrong.                       #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">
+        {% if match.number %}<span dir="ltr">{{ match.number }}</span>
+        {% else %}{% translate "مسودة مطابقة" %}{% endif %}
+      </h1>
+      <p class="pagehead__hint">
+        {{ match.supplier.name_ar }} —
+        <span class="chip">{{ match.get_status_display }}</span>
+      </p>
+    </div>
+    <a class="btn btn--ghost" href="{% url 'procurement:purchase_match_list' %}">{% translate "رجوع" %}</a>
+  </div>
+
+  <div class="formcard">
+    <dl class="detailgrid">
+      <dt>{% translate "المورد" %}</dt><dd>{{ match.supplier.code }} — {{ match.supplier.name_ar }}</dd>
+      <dt>{% translate "الفاتورة" %}</dt>
+      <dd>
+        <a href="{% url 'procurement:supplier_invoice_detail' invoice.pk %}">
+          <span dir="ltr">{{ invoice.supplier_invoice_number }}</span>
+        </a>
+        <span class="chip">{{ invoice.get_status_display }}</span>
+      </dd>
+      <dt>{% translate "فتحها" %}</dt><dd>{{ match.created_by.username }}</dd>
+      <dt>{% translate "أجازها" %}</dt><dd>{{ match.ready_by.username|default:"—" }}</dd>
+      {% if may_see_cost %}
+        <dt>{% translate "مجموع فرق السعر" %}</dt>
+        <dd><span dir="ltr">{{ match.total_price_variance|money_full }}</span></dd>
+      {% endif %}
+      {% if match.status == "CANCELLED" %}
+        <dt>{% translate "سبب الإلغاء" %}</dt><dd>{{ match.cancellation_reason }}</dd>
+      {% endif %}
+    </dl>
+    <p class="muted">
+      {% translate "المطابقة أدلة، لا نقود. لا تُنشئ قيداً محاسبياً ولا تُسوّي حساب البضاعة المستلمة غير المفوترة ولا تُحرّك مخزوناً، وتبقى الفاتورة معتمدة حتى يأتي الترحيل المالي في مهمة لاحقة." %}
+    </p>
+  </div>
+
+  <div class="formcard">
+    <h2>{% translate "تغطية الفاتورة" %}</h2>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{% translate "الصنف" %}</th>
+          <th>{% translate "المفوتر" %}</th>
+          <th>{% translate "المطابَق" %}</th>
+          <th>{% translate "غير المطابَق" %}</th>
+          {% if may_see_cost %}<th>{% translate "قيمة الفاتورة" %}</th>{% endif %}
+          {% if may_see_cost %}<th>{% translate "فرق السعر" %}</th>{% endif %}
+          <th>{% translate "الحالة" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in coverage %}
+          <tr>
+            <td>{{ row.line.item.code }} — {{ row.line.item.name_ar }}</td>
+            {# Re-enterable exact values: never localised. #}
+            <td><span dir="ltr">{{ row.invoiced_quantity|quantity }}</span></td>
+            <td><span dir="ltr">{{ row.matched_quantity|quantity }}</span></td>
+            <td><span dir="ltr">{{ row.unmatched_quantity|quantity }}</span></td>
+            {% if may_see_cost %}
+              <td><span dir="ltr">{{ row.invoiced_value|money_full }}</span></td>
+              <td><span dir="ltr">{{ row.price_variance|money_full }}</span></td>
+            {% endif %}
+            <td>
+              {% if row.state == "MATCHED" %}
+                <span class="chip chip--on">{{ row.state }}</span>
+              {% elif row.state == "EXCEPTION" %}
+                <span class="chip chip--off">{{ row.state }}</span>
+              {% else %}
+                <span class="chip">{{ row.state }}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted">
+      {% translate "الكمية غير المطابَقة وفرق السعر مشكلتان مختلفتان: الأولى بضاعة لم يُقَل ما يُغطّيها، والثانية اتفاق على الكمية واختلاف على المبلغ. لا تُجمعان في رقم واحد." %}
+    </p>
+  </div>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>{% translate "سطر الفاتورة" %}</th>
+        <th>{% translate "سطر الاستلام" %}</th>
+        <th>{% translate "أمر الشراء" %}</th>
+        <th>{% translate "الكمية" %}</th>
+        {% if may_see_cost %}<th>{% translate "قيمة الاستلام" %}</th>{% endif %}
+        {% if may_see_cost %}<th>{% translate "قيمة الفاتورة" %}</th>{% endif %}
+        {% if may_see_cost %}<th>{% translate "الفرق" %}</th>{% endif %}
+        {% if may_edit %}<th>{% translate "إجراءات" %}</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in allocations %}
+        <tr>
+          <td>{{ row.sequence }}</td>
+          <td>{{ row.supplier_invoice_line.item.code }} — {% translate "سطر" %} {{ row.supplier_invoice_line.sequence }}</td>
+          <td><span dir="ltr">{{ row.goods_receipt_line.receipt.number }}</span> · {{ row.goods_receipt_line.sequence }}</td>
+          <td>
+            {% if row.purchase_order_line %}
+              <span dir="ltr">{{ row.purchase_order_line.order.number }}</span>
+              {# The version this was matched against, not today's. A later #}
+              {# revision must not restate what was agreed here.            #}
+              <span class="muted">({% translate "الإصدار" %} {{ row.purchase_order_version }})</span>
+            {% else %}
+              {% translate "بلا أمر" %}
+            {% endif %}
+          </td>
+          <td><span dir="ltr">{{ row.matched_base_quantity|quantity }}</span></td>
+          {% if may_see_cost %}
+            <td><span dir="ltr">{{ row.receipt_allocated_value|money_full }}</span></td>
+            <td><span dir="ltr">{{ row.invoice_allocated_value|money_full }}</span></td>
+            <td><span dir="ltr">{{ row.price_variance|money_full }}</span></td>
+          {% endif %}
+          {% if may_edit %}
+            <td>
+              <form method="post"
+                    action="{% url 'procurement:match_allocation_delete' match.pk row.pk %}">
+                {% csrf_token %}
+                <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+              </form>
+            </td>
+          {% endif %}
+        </tr>
+      {% empty %}
+        <tr><td colspan="9">{% translate "لم تُسجَّل تخصيصات بعد." %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if may_edit %}
+    <form class="formcard" method="post" novalidate>
+      {% csrf_token %}
+      <h2>{% translate "تخصيص جديد" %}</h2>
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+      <div class="formgrid">
+        {% for field in form %}
+          <label class="field">
+            <span class="field__label">{{ field.label }}</span>
+            {{ field }}
+            {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
+            {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+          </label>
+        {% endfor %}
+      </div>
+      <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+    </form>
+  {% endif %}
+
+  <div class="formcard">
+    <h2>{% translate "الإجراءات" %}</h2>
+    {% if match.status == "DRAFT" %}
+      <p class="muted">
+        {% translate "الإجازة تُجمّد التخصيصات: بعدها لا تُعدَّل ولا تُحذف، والتصحيح يكون بالإلغاء ثم بمطابقة بديلة." %}
+      </p>
+      {% if may_ready %}
+        <form method="post" action="{% url 'procurement:purchase_match_ready' match.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--primary" type="submit">{% translate "إجازة المطابقة" %}</button>
+        </form>
+      {% endif %}
+    {% elif match.status == "READY" %}
+      <p class="muted">
+        {% translate "الأدلة مُجمّدة. لم يُرحَّل أي مبلغ: لا قيد محاسبي ولا تسوية لحساب البضاعة المستلمة غير المفوترة ولا تسجيل لفرق السعر. الفاتورة ما زالت معتمدة، والترحيل المالي مهمة لاحقة." %}
+      </p>
+    {% else %}
+      <p class="muted">{% translate "ملغاة. الكميات والقيم التي كانت محجوزة عادت متاحة للمطابقة." %}</p>
+    {% endif %}
+
+    {% if may_cancel %}
+      <form method="post" action="{% url 'procurement:purchase_match_cancel' match.pk %}">
+        {% csrf_token %}
+        <label class="field">
+          <span class="field__label">{% translate "سبب الإلغاء" %}</span>
+          <input type="text" name="reason" required>
+        </label>
+        <button class="btn btn--ghost" type="submit">{% translate "إلغاء المطابقة" %}</button>
+      </form>
+    {% endif %}
+  </div>
+{% endblock %}

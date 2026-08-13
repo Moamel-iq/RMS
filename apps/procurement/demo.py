@@ -44,16 +44,24 @@ from apps.procurement.invoices import (
     post_supplier_invoice,
     reverse_supplier_invoice,
 )
+from apps.procurement.matching import (
+    add_allocation,
+    cancel_purchase_match,
+    create_purchase_match,
+    mark_match_ready,
+)
 from apps.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
     GoodsReceiptStatus,
+    PurchaseMatch,
     PurchaseOrder,
     PurchaseOrderStatus,
     PurchaseRequest,
     PurchaseRequestStatus,
     Supplier,
     SupplierInvoice,
+    SupplierInvoiceLineType,
     SupplierInvoiceStatus,
     SupplierItem,
     SupplierQuotation,
@@ -639,7 +647,7 @@ def seed_demo_receipts(
     *, organization: Organization, receiver: User, inspector: User
 ) -> list[GoodsReceipt]:
     """
-    Five deliveries, each showing something the others do not.
+    Six deliveries, each showing something the others do not.
 
     1. Fully accepted against the issued order, **posted** — the ordinary case,
        and the one that puts stock and a GRNI credit into the books together.
@@ -655,6 +663,9 @@ def seed_demo_receipts(
     5. A direct market purchase with no order, posted and then **reversed**,
        so a reader can see that a reversal mirrors the original exactly rather
        than netting it off with a fresh valuation.
+    6. The delivery the rice invoice is a bill for, **posted** at 1,400 against
+       the 1,450 that invoice charges, so three-way matching has a real price
+       variance to surface rather than a contrived zero.
 
     Every one of them goes through `post_goods_receipt`. Nothing here writes a
     `StockMovement` or a `JournalEntry` directly — a demo that did would be
@@ -813,6 +824,35 @@ def seed_demo_receipts(
         inspect_receipt_line(line=line, accepted_base_quantity=Decimal("10.000"), actor=inspector)
         receipts.append(returned)
 
+    # 6. The delivery `DEMO-SINV-GOODS` is actually a bill for, posted at the
+    # 1,400 the invoice then charges 1,450 against. Added by Task 2.11: the
+    # goods invoice was written to cite a posted grocery delivery and there
+    # was not one — the award went to the meat supplier, so every posted rice
+    # delivery belonged to somebody else and the evidence link quietly
+    # resolved to nothing. Without this, matching has nothing to demonstrate
+    # and neither does the invoice it was written for.
+    if "DEMO-GRN-MATCHED" in existing:
+        receipts.append(existing["DEMO-GRN-MATCHED"])
+    else:
+        billed = create_goods_receipt(
+            supplier=grocery,
+            branch=branch,
+            warehouse=warehouse,
+            created_by=receiver,
+            received_at=received_on,
+            delivery_reference="DEMO-GRN-MATCHED",
+            evidence_reference="إشعار تسليم المورد",
+            notes="التسليم الذي تقابله فاتورة الرز",
+        )
+        line = add_receipt_line(
+            receipt=billed,
+            item=rice,
+            delivered_quantity=Decimal("60.000"),
+            unit_price=Decimal("1400.000000"),
+        )
+        inspect_receipt_line(line=line, accepted_base_quantity=Decimal("60.000"), actor=inspector)
+        receipts.append(billed)
+
     _post_demo_receipts(receipts, actor=inspector)
     return receipts
 
@@ -827,6 +867,7 @@ _DEMO_RECEIPTS_TO_POST = frozenset(
         "DEMO-GRN-REJECT",
         "DEMO-GRN-WEIGHED",
         "DEMO-GRN-REVERSED",
+        "DEMO-GRN-MATCHED",
     }
 )
 
@@ -1174,3 +1215,109 @@ def _advance_demo_invoice(
         post_supplier_invoice(invoice=invoice, actor=approver)
         invoice = SupplierInvoice.objects.get(pk=invoice.pk)
     return invoice
+
+
+def seed_demo_matches(*, organization: Organization, matcher: User) -> list[PurchaseMatch]:
+    """
+    Two matches against the rice invoice, and the four queue states around them.
+
+    1. A first attempt, **cancelled** with a reason. It exists so the history
+       shows an answer somebody withdrew, and so the release of the quantity it
+       was holding is visible: a cancelled match consumes nothing, which is the
+       whole reason availability is derived rather than stored.
+    2. The replacement, allocated in full and **READY**, carrying a real
+       positive price variance — the invoice bills 1,450 a kilogram against the
+       1,400 the receipt posted, so the difference three-way matching exists to
+       surface is genuinely there rather than contrived to zero.
+
+    Both live on the same invoice, which is exactly what the one-active-match
+    constraint permits: it excludes cancelled rows, because a withdrawn answer
+    is history rather than a competing claim.
+
+    **Nothing is posted.** The invoice stays `APPROVED`, no journal exists, and
+    Task 2.12 is what changes that. The screens say so in as many words.
+
+    What is deliberately left alone gives the queue its other rows: the chicken
+    and meat deliveries stay posted with nothing billed against them, and
+    `DEMO-SINV-DRAFT` stays a draft with no delivery behind it.
+
+    Idempotent per match, keyed on the note. A second run finds both and does
+    nothing.
+    """
+    existing = {
+        row.notes: row
+        for row in PurchaseMatch.objects.filter(
+            organization=organization, notes__startswith="DEMO-MATCH"
+        ).order_by("id")
+    }
+
+    goods_invoice = SupplierInvoice.objects.filter(
+        organization=organization,
+        supplier_invoice_number="DEMO-SINV-GOODS",
+        status=SupplierInvoiceStatus.APPROVED,
+    ).first()
+    if goods_invoice is None:
+        return []
+
+    invoice_line = (
+        goods_invoice.lines.filter(line_type=SupplierInvoiceLineType.INVENTORY)
+        .order_by("sequence")
+        .first()
+    )
+    if invoice_line is None:
+        return []
+    receipt_line = (
+        GoodsReceiptLine.objects.filter(
+            receipt__organization=organization,
+            receipt__supplier=goods_invoice.supplier,
+            receipt__status=GoodsReceiptStatus.POSTED,
+            item=invoice_line.item,
+        )
+        .order_by("id")
+        .first()
+    )
+    if receipt_line is None:
+        return []
+
+    matches: list[PurchaseMatch] = []
+
+    # 1. The withdrawn attempt. Allocated, then cancelled with a reason, so
+    # both the history and the release of held quantity are visible.
+    withdrawn = existing.get("DEMO-MATCH-CANCELLED")
+    if withdrawn is None:
+        withdrawn = create_purchase_match(
+            invoice=goods_invoice, created_by=matcher, notes="DEMO-MATCH-CANCELLED"
+        )
+        add_allocation(
+            match=withdrawn,
+            invoice_line=invoice_line,
+            receipt_line=receipt_line,
+            matched_base_quantity=Decimal("20.000"),
+            created_by=matcher,
+        )
+        cancel_purchase_match(
+            match=withdrawn,
+            actor=matcher,
+            reason="خُصّص السطر الخطأ — أُلغيت وأُعيدت المطابقة",
+        )
+        withdrawn = PurchaseMatch.objects.get(pk=withdrawn.pk)
+    matches.append(withdrawn)
+
+    # 2. The replacement: allocated in full, frozen, and posting nothing.
+    agreed = existing.get("DEMO-MATCH-FULL")
+    if agreed is None:
+        agreed = create_purchase_match(
+            invoice=goods_invoice, created_by=matcher, notes="DEMO-MATCH-FULL"
+        )
+        add_allocation(
+            match=agreed,
+            invoice_line=invoice_line,
+            receipt_line=receipt_line,
+            matched_base_quantity=invoice_line.base_quantity or Decimal("0.000"),
+            created_by=matcher,
+        )
+        mark_match_ready(match=agreed, actor=matcher)
+        agreed = PurchaseMatch.objects.get(pk=agreed.pk)
+    matches.append(agreed)
+
+    return matches

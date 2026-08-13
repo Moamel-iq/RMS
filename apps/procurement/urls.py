@@ -246,4 +246,35 @@ urlpatterns = [
         views.SupplierInvoiceTransitionView.as_view(transition="reverse"),
         name="supplier_invoice_reverse",
     ),
+    # --- three-way matching ------------------------------------------------
+    path("matching/", views.MatchingQueueView.as_view(), name="matching_queue"),
+    path("matches/", views.PurchaseMatchListView.as_view(), name="purchase_match_list"),
+    path(
+        "matches/<int:pk>/",
+        views.PurchaseMatchDetailView.as_view(),
+        name="purchase_match_detail",
+    ),
+    # Opening a match is an act on the invoice, so it hangs off the invoice.
+    path(
+        "invoices/<int:pk>/match/",
+        views.PurchaseMatchCreateView.as_view(),
+        name="purchase_match_create",
+    ),
+    path(
+        "matches/<int:pk>/allocations/<int:allocation_id>/delete/",
+        views.MatchAllocationDeleteView.as_view(),
+        name="match_allocation_delete",
+    ),
+    # Command routes, POST-only. `ready` freezes the evidence and posts
+    # nothing — Task 2.12 is what turns a ready match into a journal.
+    path(
+        "matches/<int:pk>/ready/",
+        views.PurchaseMatchTransitionView.as_view(transition="ready"),
+        name="purchase_match_ready",
+    ),
+    path(
+        "matches/<int:pk>/cancel/",
+        views.PurchaseMatchTransitionView.as_view(transition="cancel"),
+        name="purchase_match_cancel",
+    ),
 ]

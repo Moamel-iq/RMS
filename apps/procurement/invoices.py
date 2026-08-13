@@ -74,6 +74,7 @@ from django.utils.translation import gettext_lazy as _
 from apps.accounting.models import (
     SUPPLIER_PAYABLE,
     Account,
+    AccountClass,
     CostCenter,
     JournalEntry,
     JournalLine,
@@ -93,7 +94,7 @@ from apps.core.models import AuditAction
 from apps.core.money import quantize_money, quantize_unit_price
 from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
-from apps.inventory.models import InventoryItem
+from apps.inventory.models import InventoryAccountMapping, InventoryItem
 from apps.organizations.business_dates import business_date_for, resolve_business_day
 from apps.organizations.models import Branch
 from apps.procurement.lifecycle import lock_and_require_status
@@ -492,10 +493,73 @@ def add_account_line(
     return SupplierInvoiceLine.objects.get(pk=line.pk)
 
 
+#: The account classes a supplier may bill directly to.
+#:
+#: An expense (`COST_OF_SALES`, `OPERATING_EXPENSE`, `OTHER`) or a capitalised
+#: purchase (`ASSET`) is a thing a supplier can charge for. A liability, an
+#: equity account, revenue, a clearing account or a memo account is not: those
+#: are where postings *land*, not what anybody sells. Selecting one would
+#: produce an entry that balances and means nothing — `Dr` supplier payable
+#: `Cr` supplier payable being the clearest example.
+DIRECT_LINE_ACCOUNT_CLASSES = frozenset(
+    {
+        AccountClass.ASSET,
+        AccountClass.COST_OF_SALES,
+        AccountClass.OPERATING_EXPENSE,
+        AccountClass.OTHER,
+    }
+)
+
+
+def _refuse_role_owned_account(*, organization_id: int, account: Account) -> None:
+    """
+    An account a posting rule owns may not be hand-picked on an invoice line.
+
+    The class check above is not enough on its own, and the gap it leaves is
+    the dangerous one: `INVENTORY_CONTROL` is a perfectly ordinary `ASSET`, so
+    without this an operator could bill a direct line straight into the
+    inventory control account — inflating stock value with no stock behind it
+    and breaking `verify_inventory_against_gl` in a way no procurement report
+    would explain.
+
+    GRNI is the second: hand-picking it would clear, by typing, exactly the
+    balance Task 2.10 refuses to clear without a match. And supplier payable
+    is the third, producing a balanced entry that says nothing.
+
+    So the rule is stated structurally rather than as a list of codes: an
+    account that is the target of any account-role mapping in this
+    organization belongs to the posting rule that resolves it, and a person
+    entering an invoice does not get to choose it (ADR-019).
+    """
+    mapping: OrganizationAccountMapping | InventoryAccountMapping | None = (
+        OrganizationAccountMapping.objects.filter(organization_id=organization_id, account=account)
+        .select_related("account_role")
+        .first()
+    )
+    if mapping is None:
+        mapping = (
+            InventoryAccountMapping.objects.filter(organization_id=organization_id, account=account)
+            .select_related("account_role")
+            .first()
+        )
+    if mapping is not None:
+        raise ValidationError(
+            _(
+                "Account %(code)s carries the %(role)s role and is written by a posting "
+                "rule. An invoice line cannot name it directly."
+            ),
+            code="account_is_role_owned",
+            params={"code": account.code, "role": mapping.account_role.code},
+        )
+
+
 def _validate_direct_account(
     *, organization_id: int, account: Account, cost_center: CostCenter | None
 ) -> None:
-    """An account line may only name an account this organization can post to."""
+    """
+    An account line may only name an account this organization can post to,
+    and only one a supplier could plausibly be charging for.
+    """
     if account.organization_id != organization_id:
         raise ValidationError(
             _("That account belongs to another organization."), code="organization_mismatch"
@@ -512,6 +576,16 @@ def _validate_direct_account(
             code="account_not_postable",
             params={"code": account.code},
         )
+    if account.account_class not in DIRECT_LINE_ACCOUNT_CLASSES:
+        raise ValidationError(
+            _(
+                "Account %(code)s is a %(kind)s account. A supplier bills for an expense "
+                "or an asset, not for one of these."
+            ),
+            code="account_class_not_billable",
+            params={"code": account.code, "kind": account.get_account_class_display()},
+        )
+    _refuse_role_owned_account(organization_id=organization_id, account=account)
     if account.requires_cost_center and cost_center is None:
         raise ValidationError(
             _("Account %(code)s requires a cost center."),

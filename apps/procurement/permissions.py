@@ -107,6 +107,14 @@ REVERSE_GOODS_RECEIPT = f"{APP_LABEL}.reverse_goods_receipt"
 #: require real organization authority rather than mere reach: an invoice is
 #: money the organization owes, and a branch membership is custody of a store
 #: rather than authority over a debt (PRC-060).
+#: Task 2.11. Matching decides what covers what; it reaches no ledger, so
+#: `match_supplier_invoice` is the working permission and `cancel` is the
+#: separate one, because withdrawing an agreed answer somebody may already
+#: have acted on is a different act from proposing one. Both are
+#: organization-scoped per Task 2.0 §13.
+VIEW_PURCHASE_MATCH = f"{APP_LABEL}.view_purchasematch"
+MATCH_SUPPLIER_INVOICE = f"{APP_LABEL}.match_supplier_invoice"
+CANCEL_PURCHASE_MATCH = f"{APP_LABEL}.cancel_purchase_match"
 VIEW_SUPPLIER_INVOICE = f"{APP_LABEL}.view_supplierinvoice"
 CREATE_SUPPLIER_INVOICE = f"{APP_LABEL}.create_supplier_invoice"
 APPROVE_SUPPLIER_INVOICE = f"{APP_LABEL}.approve_supplier_invoice"
@@ -140,6 +148,9 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     APPROVE_SUPPLIER_INVOICE,
     POST_SUPPLIER_INVOICE,
     REVERSE_SUPPLIER_INVOICE,
+    VIEW_PURCHASE_MATCH,
+    MATCH_SUPPLIER_INVOICE,
+    CANCEL_PURCHASE_MATCH,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -184,6 +195,12 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     APPROVE_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
     POST_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
     REVERSE_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
+    # Matching reconciles a debt against deliveries. It posts nothing, but it
+    # decides what a later posting will be built on, so it sits with the
+    # money permissions rather than with warehouse custody (PRC-060).
+    VIEW_PURCHASE_MATCH: PermissionScope.ORGANIZATION_AUTHORITY,
+    MATCH_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
+    CANCEL_PURCHASE_MATCH: PermissionScope.ORGANIZATION_AUTHORITY,
 }
 
 
@@ -250,6 +267,7 @@ _MANAGER = frozenset(
         # rather than the permission being pointless.
         VIEW_SUPPLIER_INVOICE,
         CREATE_SUPPLIER_INVOICE,
+        VIEW_PURCHASE_MATCH,
     }
 )
 
@@ -280,6 +298,11 @@ _ACCOUNTING_MANAGER = frozenset(
         APPROVE_SUPPLIER_INVOICE,
         POST_SUPPLIER_INVOICE,
         REVERSE_SUPPLIER_INVOICE,
+        # Reads every match and can withdraw one. Whoever will post from a
+        # match is the person who decides it should stop being the answer.
+        VIEW_PURCHASE_MATCH,
+        MATCH_SUPPLIER_INVOICE,
+        CANCEL_PURCHASE_MATCH,
     }
 )
 _ACCOUNTANT = frozenset(
@@ -296,6 +319,11 @@ _ACCOUNTANT = frozenset(
         # the document that actually commits money.
         VIEW_SUPPLIER_INVOICE,
         CREATE_SUPPLIER_INVOICE,
+        # Does the reconciling. Matching is clerical work over evidence and
+        # reaches no ledger, so it belongs here rather than with approval —
+        # and withdrawing an agreed match deliberately does not.
+        VIEW_PURCHASE_MATCH,
+        MATCH_SUPPLIER_INVOICE,
     }
 )
 

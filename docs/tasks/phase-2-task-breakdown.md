@@ -164,6 +164,28 @@ impossible.
 
 Depends on: 2.10.
 
+**Delivered, with two shapes this outline did not fix.**
+
+*An explicit header.* §9 of Task 2.0 sketches `MatchAllocation` as bare rows.
+Rows alone have no moment at which the answer is agreed, so there is a
+`PurchaseMatch` above them with `DRAFT → READY → CANCELLED` and no `POSTED` —
+readiness is what Task 2.12 will consume, and cancellation with a reason is the
+correction. One active match per invoice; a cancelled one is history and frees
+the invoice for its replacement.
+
+*Two values, not one.* §9's single `matched_value` cannot express the posting
+§9 itself specifies — `Dr` GRNI the matched **receipt** value, `Dr` variance the
+difference, `Cr` payable the **invoiced** value. Each allocation therefore
+stores `receipt_allocated_value`, `invoice_allocated_value` and their
+difference, with the database asserting the subtraction.
+
+**The variance is information here, not an entry.** It is computed, stored,
+displayed behind the cost permission and summed on the header. Nothing posts:
+no journal, no stock, no GRNI clearing, and the invoice is still `APPROVED`
+after a match is `READY`. `PURCHASE_PRICE_VARIANCE` stays unseeded until 2.12
+has a posting rule to put behind it, and `TestTheStepFourteenBoundary` fails
+the moment any of that stops being true.
+
 ---
 
 ### Task 2.12 — Price and quantity variance accounting

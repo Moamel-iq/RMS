@@ -36,6 +36,7 @@ from apps.procurement.models import (
     PurchaseRequest,
     PurchaseRequestStatus,
     Supplier,
+    SupplierInvoiceLine,
     SupplierItem,
     SupplierQuotation,
     SupplierQuotationStatus,
@@ -726,5 +727,59 @@ class InvoiceAccountLineForm(forms.Form):
 
 class InvoiceReversalForm(forms.Form):
     """A reversal states why. An unexplained one is a hole in the record."""
+
+    reason = forms.CharField(label=_("السبب"), max_length=500)
+
+
+class MatchAllocationForm(forms.Form):
+    """
+    One allocation: this much of that delivery covers this much of this line.
+
+    Both selects narrow to the match's own invoice and supplier, so a
+    submitted id cannot reach a delivery from somebody else — the service
+    re-checks, but a form that offered the choice at all would be inviting the
+    attempt.
+    """
+
+    invoice_line = forms.ModelChoiceField(
+        queryset=SupplierInvoiceLine.objects.none(), label=_("سطر الفاتورة")
+    )
+    receipt_line = forms.ModelChoiceField(
+        queryset=GoodsReceiptLine.objects.none(), label=_("سطر الاستلام")
+    )
+    matched_base_quantity = forms.DecimalField(
+        label=_("الكمية المطابَقة بالوحدة الأساسية"),
+        min_value=Decimal("0.001"),
+        help_text=_("بالوحدة الأساسية دائماً — الكراتين والكيلوغرامات لا تُقارن مباشرة."),
+    )
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, match: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.match = match
+        self.fields["invoice_line"].queryset = (  # type: ignore[attr-defined]
+            SupplierInvoiceLine.objects.filter(
+                invoice=match.supplier_invoice, line_type="INVENTORY"
+            )
+            .select_related("item")
+            .order_by("sequence")
+        )
+        # Posted deliveries from this supplier only. A draft receipt has no
+        # value to match against, and a reversed one gave its stock back.
+        self.fields["receipt_line"].queryset = (  # type: ignore[attr-defined]
+            GoodsReceiptLine.objects.filter(
+                receipt__organization_id=match.organization_id,
+                receipt__supplier_id=match.supplier_id,
+                receipt__status="POSTED",
+                accepted_base_quantity__gt=Decimal("0.000"),
+            )
+            .select_related("receipt", "item")
+            .order_by("-receipt__id", "sequence")
+        )
+
+
+class MatchCancellationForm(forms.Form):
+    """Withdrawing an agreed answer states why."""
 
     reason = forms.CharField(label=_("السبب"), max_length=500)

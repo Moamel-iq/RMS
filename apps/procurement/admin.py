@@ -18,6 +18,8 @@ from django.contrib import admin
 from django.http import HttpRequest
 
 from apps.procurement.models import (
+    PurchaseMatch,
+    PurchaseMatchAllocation,
     Supplier,
     SupplierInvoice,
     SupplierInvoiceLine,
@@ -100,3 +102,27 @@ class SupplierInvoiceLineAdmin(ReadOnlyAdmin):
     list_filter = ("line_type",)
     search_fields = ("invoice__number", "invoice__supplier_invoice_number", "description")
     ordering = ("invoice", "sequence")
+
+
+@admin.register(PurchaseMatch)
+class PurchaseMatchAdmin(ReadOnlyAdmin):
+    """Read-only. A match decides what a later posting is built on."""
+
+    list_display = ("number", "supplier", "supplier_invoice", "status", "created_by")
+    list_filter = ("organization", "status")
+    search_fields = ("number", "supplier__code", "supplier_invoice__supplier_invoice_number")
+    ordering = ("-id",)
+
+
+@admin.register(PurchaseMatchAllocation)
+class PurchaseMatchAllocationAdmin(ReadOnlyAdmin):
+    list_display = (
+        "match",
+        "sequence",
+        "matched_base_quantity",
+        "receipt_allocated_value",
+        "invoice_allocated_value",
+        "price_variance",
+    )
+    search_fields = ("match__number",)
+    ordering = ("match", "sequence")

@@ -2,6 +2,14 @@
 
 - **Status:** Specification only. Task 2.0 creates no models, migrations,
   services, API or UI. Implementation begins at Task 2.1.
+- **Implemented through Task 2.11** (three-way matching). §9's allocation is
+  live as `PurchaseMatchAllocation` beneath an explicit `PurchaseMatch` header,
+  and its single `matched_value` is split into `receipt_allocated_value`,
+  `invoice_allocated_value` and their difference, because §9's own posting
+  formula needs both sides and cannot be computed from one figure. The variance
+  is **information** at this task: computed, stored, displayed and summed, but
+  posted by nothing. Matching moves no stock, clears no GRNI and leaves the
+  invoice `APPROVED`; §9's journal is Task 2.12's to write.
 - **Implemented through Task 2.10** (supplier invoices and the payable).
   §15's new account roles are seeded one at a time by the task that posts to
   them: `SUPPLIER_PAYABLE` arrived with 2.10; `PURCHASE_PRICE_VARIANCE`,

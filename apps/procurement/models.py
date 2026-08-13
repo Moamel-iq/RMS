@@ -31,7 +31,7 @@ from apps.core.money import (
     quantize_money,
     quantize_unit_price,
 )
-from apps.core.quantity import FACTOR_PLACES, QUANTITY_PLACES
+from apps.core.quantity import FACTOR_PLACES, QUANTITY_PLACES, quantize_quantity
 
 #: Supplier codes. The same shape inventory item codes use, and canonicalised
 #: to uppercase before storage so uniqueness is case-insensitive in effect
@@ -2588,3 +2588,358 @@ class SupplierInvoiceLine(TimeStampedModel):
         if self.account is not None:
             return f"{self.account.code} — {self.account.name_ar}"
         return self.description  # pragma: no cover - a constraint refuses this row
+
+
+# ---------------------------------------------------------------------------
+# Three-way matching (Task 2.11)
+# ---------------------------------------------------------------------------
+
+
+class PurchaseMatchStatus(models.TextChoices):
+    """
+    Three states, and deliberately no `POSTED`.
+
+    Matching decides *what covers what*. Turning that into a payable and a
+    GRNI clearing is a separate act with its own accounting, and it is Task
+    2.12's. A `POSTED` value here would let a screen or an API say a match had
+    reached the ledger when nothing had, which is the one thing a matching
+    workspace must never imply.
+
+    `READY` therefore means "the evidence is complete and immutable" and
+    nothing more. Task 2.12 adds the financial transition, and the test that
+    asserts this enum has exactly these three values is the boundary marker it
+    must deliberately replace.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    READY = "READY", _("جاهزة للترحيل المالي")
+    CANCELLED = "CANCELLED", _("ملغاة")
+
+
+class PurchaseMatch(TimeStampedModel):
+    """
+    One reconciliation of a supplier invoice against what actually arrived.
+
+    Task 2.0 §9 sketches `MatchAllocation` rows and no header. The rows are
+    kept exactly as specified — they are where the economics live — but they
+    are gathered under this aggregate, because Task 2.12 has to post from a set
+    of allocations that cannot change underneath it. Without a header, "the
+    allocations for this invoice" is a query whose answer moves every time
+    somebody adds a row, and a financial posting cannot be built on that.
+
+    So the division is: allocations say what covers what, and the match says
+    *this* set of them is the agreed answer. `READY` freezes it.
+
+    **Nothing here reaches a ledger.** No journal, no stock movement, no
+    payable. The invoice stays `APPROVED` throughout, and a test asserts it.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="purchase_matches",
+        verbose_name=_("organization"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="purchase_matches",
+        verbose_name=_("supplier"),
+    )
+    #: `PROTECT` rather than `CASCADE`: a match is evidence about an invoice,
+    #: and an invoice that has been matched is not one anybody deletes.
+    supplier_invoice = models.ForeignKey(
+        SupplierInvoice,
+        on_delete=models.PROTECT,
+        related_name="matches",
+        verbose_name=_("supplier invoice"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=12,
+        choices=PurchaseMatchStatus.choices,
+        default=PurchaseMatchStatus.DRAFT,
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_purchase_matches",
+        verbose_name=_("created by"),
+    )
+    ready_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="readied_purchase_matches",
+        verbose_name=_("marked ready by"),
+    )
+    ready_at = models.DateTimeField(_("ready at"), null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="cancelled_purchase_matches",
+        verbose_name=_("cancelled by"),
+    )
+    cancelled_at = models.DateTimeField(_("cancelled at"), null=True, blank=True)
+    cancellation_reason = models.TextField(_("cancellation reason"), blank=True)
+
+    notes = models.TextField(_("notes"), blank=True)
+
+    #: A canonical hash of the allocation set at the moment it was frozen.
+    #: A retried `ready` command carrying the same allocations returns the
+    #: same match; one carrying different allocations is a different economic
+    #: claim and is refused (ADR-017).
+    allocation_fingerprint = models.CharField(
+        _("allocation fingerprint"), max_length=64, blank=True
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("purchase match")
+        verbose_name_plural = _("purchase matches")
+        ordering = ["-id"]
+        permissions = [
+            ("match_supplier_invoice", _("Can match a supplier invoice to its deliveries")),
+            ("cancel_purchase_match", _("Can cancel a purchase match")),
+        ]
+        constraints = [
+            # One live match per invoice. Two competing answers to "what does
+            # this invoice cover" is not a state anybody can act on, and Task
+            # 2.12 would have to pick one arbitrarily. A cancelled match stays
+            # for the history and stops competing.
+            models.UniqueConstraint(
+                fields=["supplier_invoice"],
+                condition=~Q(status="CANCELLED"),
+                name="procurement_one_active_match_per_invoice",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="procurement_match_number_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="READY")
+                | Q(ready_by__isnull=False, ready_at__isnull=False) & ~Q(allocation_fingerprint=""),
+                name="procurement_match_ready_says_who_and_what",
+            ),
+            # A draft has not been readied. Deliberately not "only READY may
+            # carry readiness": cancelling a READY match is the correction
+            # mechanism, and it must keep the record of who froze it and when.
+            # Wiping that on cancellation would erase the fact that somebody
+            # agreed the match before it was withdrawn.
+            models.CheckConstraint(
+                condition=~Q(status="DRAFT") | Q(ready_by__isnull=True, ready_at__isnull=True),
+                name="procurement_match_draft_carries_no_readiness",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="CANCELLED")
+                | Q(cancelled_by__isnull=False, cancelled_at__isnull=False)
+                & ~Q(cancellation_reason=""),
+                name="procurement_match_cancellation_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="CANCELLED")
+                | Q(
+                    cancelled_by__isnull=True,
+                    cancelled_at__isnull=True,
+                    cancellation_reason="",
+                ),
+                name="procurement_match_uncancelled_carries_no_cancellation",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="match_org_status_idx"),
+            models.Index(fields=["supplier_invoice"], name="match_invoice_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"match {self.public_id}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == PurchaseMatchStatus.DRAFT
+
+    @property
+    def is_active(self) -> bool:
+        """A match that still counts against availability."""
+        return self.status != PurchaseMatchStatus.CANCELLED
+
+    @property
+    def total_matched_quantity(self) -> Decimal:
+        return quantize_quantity(
+            sum(
+                (row.matched_base_quantity for row in self.allocations.all()),
+                start=Decimal("0.000"),
+            )
+        )
+
+    @property
+    def total_price_variance(self) -> Decimal:
+        """
+        What this match says the invoice differs from the deliveries by.
+
+        Informational in Task 2.11. It becomes the purchase price variance
+        posting in Task 2.12, and until then it is a number on a screen that a
+        human reads and nothing else acts on.
+        """
+        return quantize_money(
+            sum((row.price_variance for row in self.allocations.all()), start=Decimal("0.000"))
+        )
+
+
+class PurchaseMatchAllocation(TimeStampedModel):
+    """
+    One statement that this much of a delivery covers this much of an invoice.
+
+    Task 2.0 §9's `MatchAllocation`, with its single `matched_value` split into
+    the two figures the same section's posting formula actually needs:
+
+        Dr  GRNI                     the matched **receipt** value
+        Dr  purchase price variance  the difference
+            Cr  supplier payable     the **invoiced** value
+
+    One value cannot express that. The receipt side is what the delivery
+    parked in GRNI; the invoice side is what the supplier is charging; the
+    difference between them is the whole reason three-way matching exists, and
+    storing only one of the two would make it uncomputable (PRC-043).
+
+    The purchase order line **and its version** are both retained. A revision
+    after this allocation was made must not reinterpret what was matched: the
+    order that was agreed when the goods arrived is the order this covers.
+    """
+
+    #: Task 2.9's reversal guard asks each dependent relation which of its rows
+    #: still stand, and this is the answer for allocations. A cancelled match
+    #: consumes no availability, so it must not hold a delivery hostage either;
+    #: the two answers have to agree, or cancelling — the documented correction
+    #: — would leave the receipt permanently unreversible. Not a field: `Q` has
+    #: no `contribute_to_class`, so Django leaves it alone.
+    live_dependency = Q(match__status__in=(PurchaseMatchStatus.DRAFT, PurchaseMatchStatus.READY))
+
+    match = models.ForeignKey(
+        PurchaseMatch,
+        on_delete=models.CASCADE,
+        related_name="allocations",
+        verbose_name=_("match"),
+    )
+    allocation_uid = models.UUIDField(_("allocation uid"), default=uuid.uuid4, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    supplier_invoice_line = models.ForeignKey(
+        SupplierInvoiceLine,
+        on_delete=models.PROTECT,
+        related_name="match_allocations",
+        verbose_name=_("invoice line"),
+    )
+    goods_receipt_line = models.ForeignKey(
+        GoodsReceiptLine,
+        on_delete=models.PROTECT,
+        related_name="match_allocations",
+        verbose_name=_("receipt line"),
+    )
+    #: Derived from the receipt line where it has one (Task 2.0 §9), and null
+    #: for a direct market purchase that never had an order.
+    purchase_order_line = models.ForeignKey(
+        PurchaseOrderLine,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="match_allocations",
+        verbose_name=_("order line"),
+    )
+    #: The version this allocation was made against, copied rather than joined
+    #: to. A later revision must not restate what was matched.
+    purchase_order_version = models.PositiveIntegerField(_("order version"), null=True, blank=True)
+
+    #: Base units, always. Two cartons and sixty kilograms are comparable only
+    #: through the conversion each document already snapshotted (PRC-014).
+    matched_base_quantity = models.DecimalField(
+        _("matched quantity (base)"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+    #: This much of what the receipt posted. Derived from the receipt's own
+    #: posted value, never from today's warehouse average.
+    receipt_allocated_value = models.DecimalField(
+        _("receipt value"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: This much of what the invoice charges, after any Task 2.10 freight and
+    #: discount allocation.
+    invoice_allocated_value = models.DecimalField(
+        _("invoice value"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: `invoice_allocated_value - receipt_allocated_value`. Stored rather than
+    #: derived so the database can assert the arithmetic, and so a report can
+    #: sum it without recomputing.
+    price_variance = models.DecimalField(
+        _("price variance"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_match_allocations",
+        verbose_name=_("created by"),
+    )
+    note = models.CharField(_("note"), max_length=200, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("purchase match allocation")
+        verbose_name_plural = _("purchase match allocations")
+        ordering = ["match", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["match", "sequence"], name="procurement_match_allocation_sequence_unique"
+            ),
+            # One pairing per match. Two rows for the same invoice line and
+            # receipt line are one allocation entered twice, and summing them
+            # would consume the remainder at double the rate.
+            models.UniqueConstraint(
+                fields=["match", "supplier_invoice_line", "goods_receipt_line"],
+                name="procurement_match_allocation_pair_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(matched_base_quantity__gt=0),
+                name="procurement_match_allocation_quantity_positive",
+            ),
+            # Values are non-negative: a delivery cannot cover a negative
+            # amount. The variance is the only figure that may be either sign.
+            models.CheckConstraint(
+                condition=Q(receipt_allocated_value__gte=0) & Q(invoice_allocated_value__gte=0),
+                name="procurement_match_allocation_values_not_negative",
+            ),
+            # The variance is its own arithmetic, asserted by the database so
+            # no path can store a difference its own components do not support.
+            models.CheckConstraint(
+                condition=Q(
+                    price_variance=models.F("invoice_allocated_value")
+                    - models.F("receipt_allocated_value")
+                ),
+                name="procurement_match_allocation_variance_is_the_difference",
+            ),
+            # An order line brings its version, or neither is recorded.
+            models.CheckConstraint(
+                condition=Q(purchase_order_line__isnull=True, purchase_order_version__isnull=True)
+                | Q(purchase_order_line__isnull=False, purchase_order_version__isnull=False),
+                name="procurement_match_allocation_order_carries_its_version",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["supplier_invoice_line"], name="match_alloc_invoice_line_idx"),
+            models.Index(fields=["goods_receipt_line"], name="match_alloc_receipt_line_idx"),
+            models.Index(fields=["purchase_order_line"], name="match_alloc_order_line_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.match} · {self.sequence}"

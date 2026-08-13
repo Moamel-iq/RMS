@@ -44,9 +44,12 @@ from apps.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
     GoodsReceiptStatus,
+    PurchaseMatchAllocation,
+    PurchaseMatchStatus,
     PurchaseOrderLine,
     Supplier,
     SupplierInvoice,
+    SupplierInvoiceLine,
     SupplierInvoiceStatus,
 )
 from apps.procurement.posting import SOURCE_DOCUMENT_TYPE
@@ -300,6 +303,7 @@ def verify_procurement(organization: Organization) -> list[str]:
         problems.extend(verify_supplier_invoice(invoice))
     problems.extend(verify_invoice_charges(organization))
     problems.extend(verify_supplier_payables(organization))
+    problems.extend(verify_matching(organization))
     return [str(problem) for problem in problems]
 
 
@@ -309,6 +313,7 @@ __all__ = [
     "verify_invoice_charges",
     "verify_order_received_quantities",
     "verify_procurement",
+    "verify_matching",
     "verify_supplier_invoice",
     "verify_supplier_payables",
 ]
@@ -490,4 +495,165 @@ def verify_supplier_payables(organization: Organization) -> list[Discrepancy]:
                     actual=document_id,
                 )
             )
+    return problems
+
+
+# ---------------------------------------------------------------------------
+# Three-way matching (Task 2.11)
+# ---------------------------------------------------------------------------
+
+
+def verify_matching(organization: Organization) -> list[Discrepancy]:
+    """
+    Every allocation adds up, and matching has moved nothing.
+
+    Four equalities per source line, plus the claim Task 2.11 exists to keep:
+
+        receipt accepted quantity == active matched + unmatched
+        receipt posted value      == active allocated + remaining
+        invoice base quantity     == active matched + unmatched
+        invoice net amount        == active allocated + remaining
+
+    The last two are what make Task 2.12's arithmetic safe. If the allocations
+    against a line did not sum back to what the line said, the variance it
+    computes would be a difference between two figures that no longer describe
+    the same thing.
+    """
+    from apps.procurement.matching import (
+        invoice_line_availability,
+        matched_quantity_for_invoice_line,
+        matched_quantity_for_order_line,
+        matched_quantity_for_receipt_line,
+        receipt_availability,
+    )
+
+    problems: list[Discrepancy] = []
+    active = PurchaseMatchAllocation.objects.exclude(match__status=PurchaseMatchStatus.CANCELLED)
+
+    for line in GoodsReceiptLine.objects.filter(
+        receipt__organization=organization, receipt__status=GoodsReceiptStatus.POSTED
+    ).select_related("receipt", "item"):
+        label = f"{line.receipt.number or line.receipt.public_id}#{line.sequence}"
+        left = receipt_availability(line)
+        matched = matched_quantity_for_receipt_line(line)
+        if matched + left.quantity != line.accepted_base_quantity:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="receipt_quantity_coverage",
+                    expected=line.accepted_base_quantity,
+                    actual=matched + left.quantity,
+                )
+            )
+        allocated: Decimal | None = active.filter(goods_receipt_line=line).aggregate(
+            total=Sum("receipt_allocated_value")
+        )["total"]
+        posted = line.posted_value or ZERO
+        if (allocated or ZERO) + left.value != posted:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="receipt_value_coverage",
+                    expected=posted,
+                    actual=(allocated or ZERO) + left.value,
+                )
+            )
+
+    for invoice_line in (
+        SupplierInvoiceLine.objects.filter(
+            invoice__organization=organization, line_type="INVENTORY"
+        )
+        .exclude(invoice__status=SupplierInvoiceStatus.DRAFT)
+        .select_related("invoice", "item")
+    ):
+        invoice = invoice_line.invoice
+        label = f"{invoice.number or invoice.supplier_invoice_number}#{invoice_line.sequence}"
+        invoice_left = invoice_line_availability(invoice_line)
+        invoice_matched = matched_quantity_for_invoice_line(invoice_line)
+        invoiced = invoice_line.base_quantity or ZERO
+        if invoice_matched + invoice_left.quantity != invoiced:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="invoice_quantity_coverage",
+                    expected=invoiced,
+                    actual=invoice_matched + invoice_left.quantity,
+                )
+            )
+        invoice_allocated: Decimal | None = active.filter(
+            supplier_invoice_line=invoice_line
+        ).aggregate(total=Sum("invoice_allocated_value"))["total"]
+        if (invoice_allocated or ZERO) + invoice_left.value != invoice_line.net_amount:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="invoice_value_coverage",
+                    expected=invoice_line.net_amount,
+                    actual=(invoice_allocated or ZERO) + invoice_left.value,
+                )
+            )
+
+    for allocation in PurchaseMatchAllocation.objects.filter(
+        match__organization=organization
+    ).select_related("match"):
+        expected = allocation.invoice_allocated_value - allocation.receipt_allocated_value
+        if allocation.price_variance != expected:
+            problems.append(
+                Discrepancy(
+                    scope=f"{allocation.match} #{allocation.sequence}",
+                    field="price_variance",
+                    expected=expected,
+                    actual=allocation.price_variance,
+                )
+            )
+
+    for order_line in PurchaseOrderLine.objects.filter(
+        order__organization=organization
+    ).select_related("order"):
+        matched = matched_quantity_for_order_line(order_line)
+        if matched > order_line.ordered_base_quantity:
+            problems.append(
+                Discrepancy(
+                    scope=f"{order_line.order.number}#{order_line.sequence}",
+                    field="order_over_allocation",
+                    expected=order_line.ordered_base_quantity,
+                    actual=matched,
+                )
+            )
+
+    problems.extend(_verify_matching_moved_nothing(organization))
+    return problems
+
+
+def _verify_matching_moved_nothing(organization: Organization) -> list[Discrepancy]:
+    """
+    The Task 2.12 boundary, asserted as reconciliation and not only as a unit
+    test.
+
+    A journal or a stock movement citing a purchase match would mean somebody
+    built financial posting into the matching workspace, which is the one
+    thing Task 2.11 must not do — and a reconciliation that runs nightly finds
+    it whether or not anybody remembered to run the test.
+    """
+    from apps.procurement.matching import AUDIT_DOCUMENT_TYPE
+
+    problems: list[Discrepancy] = []
+    journals = JournalEntry.objects.filter(
+        organization=organization, source_document_type=AUDIT_DOCUMENT_TYPE
+    ).count()
+    if journals:
+        problems.append(
+            Discrepancy(
+                scope=AUDIT_DOCUMENT_TYPE, field="journal_entries", expected=0, actual=journals
+            )
+        )
+    movements = StockMovement.objects.filter(
+        entry__source_document_type=AUDIT_DOCUMENT_TYPE
+    ).count()
+    if movements:
+        problems.append(
+            Discrepancy(
+                scope=AUDIT_DOCUMENT_TYPE, field="stock_movements", expected=0, actual=movements
+            )
+        )
     return problems

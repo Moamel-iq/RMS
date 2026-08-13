@@ -40,6 +40,7 @@ from apps.organizations.authorization import (
     has_organization_master_data_permission,
     has_organization_permission,
     has_warehouse_permission,
+    organizations_with_permission,
     require_branch_permission,
     require_organization_permission,
     require_reachable_organization_permission,
@@ -52,6 +53,7 @@ from apps.procurement.forms import (
     InspectLineForm,
     InvoiceAccountLineForm,
     InvoiceInventoryLineForm,
+    MatchAllocationForm,
     PurchaseOrderForm,
     PurchaseOrderLineForm,
     PurchaseRequestForm,
@@ -74,8 +76,17 @@ from apps.procurement.invoices import (
     return_supplier_invoice_to_draft,
     reverse_supplier_invoice,
 )
+from apps.procurement.matching import (
+    add_allocation,
+    cancel_purchase_match,
+    coverage_for_invoice,
+    create_purchase_match,
+    mark_match_ready,
+    remove_allocation,
+)
 from apps.procurement.models import (
     GoodsReceiptStatus,
+    PurchaseMatchStatus,
     PurchaseOrderStatus,
     PurchaseRequestStatus,
     SupplierInvoiceStatus,
@@ -86,6 +97,7 @@ from apps.procurement.permissions import (
     APPROVE_PURCHASE_REQUEST,
     APPROVE_SUPPLIER_INVOICE,
     AWARD_QUOTATION,
+    CANCEL_PURCHASE_MATCH,
     CANCEL_PURCHASE_ORDER,
     CREATE_GOODS_RECEIPT,
     CREATE_PURCHASE_ORDER,
@@ -96,11 +108,13 @@ from apps.procurement.permissions import (
     MANAGE_QUOTATIONS,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
+    MATCH_SUPPLIER_INVOICE,
     POST_GOODS_RECEIPT,
     POST_SUPPLIER_INVOICE,
     REVERSE_GOODS_RECEIPT,
     REVERSE_SUPPLIER_INVOICE,
     VIEW_GOODS_RECEIPT,
+    VIEW_PURCHASE_MATCH,
     VIEW_PURCHASE_ORDER,
     VIEW_PURCHASE_REQUEST,
     VIEW_QUOTATION,
@@ -115,11 +129,14 @@ from apps.procurement.posting import (
     reverse_goods_receipt,
 )
 from apps.procurement.selectors import (
+    matching_queue,
     order_version_history,
     outstanding_order_lines,
     resolve_goods_receipt,
     resolve_invoice_line,
+    resolve_match_allocation,
     resolve_order_line,
+    resolve_purchase_match,
     resolve_purchase_order,
     resolve_purchase_request,
     resolve_quotation,
@@ -130,6 +147,7 @@ from apps.procurement.selectors import (
     resolve_supplier_invoice,
     resolve_supplier_item,
     visible_goods_receipts,
+    visible_purchase_matches,
     visible_purchase_orders,
     visible_purchase_requests,
     visible_quotations,
@@ -1666,3 +1684,232 @@ class SupplierInvoiceTransitionView(InventoryViewMixin, View):
         else:
             reverse_supplier_invoice(invoice=invoice, actor=self.actor, reason=reason)
             messages.success(request, _("تم عكس الفاتورة وعُكست الذمة معها."))
+
+
+# ---------------------------------------------------------------------------
+# Three-way matching (Task 2.11)
+# ---------------------------------------------------------------------------
+
+
+class PurchaseMatchListView(InventoryListView):
+    module_key = "procurement"
+    required_permission = VIEW_PURCHASE_MATCH
+    template_name = "procurement/purchase_match_list.html"
+    context_object_name = "matches"
+    page_title = _("مطابقة المشتريات")
+    page_hint = _(
+        "ما الذي يُغطّي ماذا: أي جزء من أي تسليم يقابل أي جزء من أي فاتورة، وما الفرق "
+        "بينهما. المطابقة لا تُنشئ قيداً ولا تُسوّي ذمة ولا تُحرّك مخزوناً؛ الترحيل "
+        "المالي يأتي في مهمة لاحقة."
+    )
+    search_fields = (
+        "number",
+        "supplier__code",
+        "supplier__name_ar",
+        "supplier_invoice__supplier_invoice_number",
+    )
+    manage_permission = MATCH_SUPPLIER_INVOICE
+    manage_scope = "organization"
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_purchase_matches(self.actor)
+        status = self.request.GET.get("status", "").strip().upper()
+        if status in PurchaseMatchStatus.values:
+            queryset = queryset.filter(status=status)
+        return queryset.order_by("-id")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["statuses"] = PurchaseMatchStatus.choices
+        context["selected_status"] = self.request.GET.get("status", "")
+        context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        return context
+
+
+class MatchingQueueView(InventoryViewMixin, View):
+    """
+    What still needs reconciling, in the two directions it can be missing.
+
+    A delivery nobody has billed and an invoice nobody has covered are
+    different problems, so the queue keeps them in separate columns rather
+    than merging them into one count that answers neither question.
+    """
+
+    module_key = "procurement"
+    required_permission = VIEW_PURCHASE_MATCH
+    template_name = "procurement/matching_queue.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        queue = matching_queue(self.actor)
+        receipts = next((row for row in queue if row["kind"] == "RECEIPT"), {})
+        invoices = next((row for row in queue if row["kind"] == "INVOICE"), {})
+        return render(
+            request,
+            self.template_name,
+            {
+                "page_title": _("قائمة المطابقة"),
+                "receipt_lines": receipts.get("receipt_lines", []),
+                "invoice_lines": invoices.get("invoice_lines", []),
+                "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+                "may_match": has_organization_permission(
+                    self.actor, MATCH_SUPPLIER_INVOICE, self.actor_organization()
+                )
+                if self.actor_organization()
+                else False,
+            },
+        )
+
+    def actor_organization(self) -> Any:
+        """Any organization the caller may view matches in, for the create gate."""
+        return organizations_with_permission(self.actor, VIEW_PURCHASE_MATCH).first()
+
+
+class PurchaseMatchCreateView(InventoryViewMixin, View):
+    """POST-only. Opens a draft match against one approved supplier invoice."""
+
+    module_key = "procurement"
+    required_permission = MATCH_SUPPLIER_INVOICE
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        invoice = resolve_supplier_invoice(self.actor, self.kwargs["pk"])
+        require_organization_permission(self.actor, MATCH_SUPPLIER_INVOICE, invoice.organization)
+        try:
+            match = create_purchase_match(invoice=invoice, created_by=self.actor)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+            return HttpResponseRedirect(
+                reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
+            )
+        messages.success(request, _("فُتحت مسودة مطابقة."))
+        return HttpResponseRedirect(reverse("procurement:purchase_match_detail", args=[match.pk]))
+
+
+class PurchaseMatchDetailView(InventoryViewMixin, View):
+    """Allocations, coverage, variance, and what may still be done."""
+
+    module_key = "procurement"
+    required_permission = VIEW_PURCHASE_MATCH
+    template_name = "procurement/purchase_match_detail.html"
+
+    def load(self) -> Any:
+        return resolve_purchase_match(self.actor, self.kwargs["pk"])
+
+    def context(self, match: Any, form: Any = None) -> dict[str, Any]:
+        invoice = match.supplier_invoice
+        may_edit = (
+            has_organization_permission(self.actor, MATCH_SUPPLIER_INVOICE, match.organization)
+            and match.is_editable
+        )
+        return {
+            "match": match,
+            "invoice": invoice,
+            "allocations": match.allocations.select_related(
+                "supplier_invoice_line",
+                "supplier_invoice_line__item",
+                "goods_receipt_line",
+                "goods_receipt_line__receipt",
+                "purchase_order_line",
+                "purchase_order_line__order",
+            ).order_by("sequence"),
+            "coverage": coverage_for_invoice(invoice),
+            "form": form or MatchAllocationForm(actor=self.actor, match=match),
+            "page_title": match.number or _("مسودة مطابقة"),
+            "may_edit": may_edit,
+            "may_ready": may_edit and match.allocations.exists(),
+            "may_cancel": has_organization_permission(
+                self.actor, CANCEL_PURCHASE_MATCH, match.organization
+            )
+            and match.status != PurchaseMatchStatus.CANCELLED,
+            # Price and variance are money. Omitted, not blanked, without the
+            # cost permission — a blanked column says a number exists and you
+            # are not trusted with it, which is a different statement.
+            "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return render(request, self.template_name, self.context(self.load()))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        match = self.load()
+        require_organization_permission(self.actor, MATCH_SUPPLIER_INVOICE, match.organization)
+        form = MatchAllocationForm(actor=self.actor, match=match, data=request.POST)
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                add_allocation(
+                    match=match,
+                    invoice_line=data["invoice_line"],
+                    receipt_line=data["receipt_line"],
+                    matched_base_quantity=data["matched_base_quantity"],
+                    created_by=self.actor,
+                    note=data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة التخصيص."))
+                return HttpResponseRedirect(
+                    reverse("procurement:purchase_match_detail", args=[match.pk])
+                )
+        return render(request, self.template_name, self.context(match, form=form))
+
+
+class MatchAllocationDeleteView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = MATCH_SUPPLIER_INVOICE
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        match = resolve_purchase_match(self.actor, self.kwargs["pk"])
+        require_organization_permission(self.actor, MATCH_SUPPLIER_INVOICE, match.organization)
+        allocation = resolve_match_allocation(
+            self.actor, match=match, allocation_id=self.kwargs["allocation_id"]
+        )
+        try:
+            remove_allocation(allocation=allocation)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم حذف التخصيص."))
+        return HttpResponseRedirect(reverse("procurement:purchase_match_detail", args=[match.pk]))
+
+
+class PurchaseMatchTransitionView(InventoryViewMixin, View):
+    """POST-only: freeze the evidence, or withdraw it."""
+
+    module_key = "procurement"
+    transition = "ready"
+
+    PERMISSIONS = {
+        "ready": MATCH_SUPPLIER_INVOICE,
+        "cancel": CANCEL_PURCHASE_MATCH,
+    }
+
+    @property
+    def required_permission(self) -> str:  # type: ignore[override]
+        permission: str = self.PERMISSIONS[self.transition]
+        return permission
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        match = resolve_purchase_match(self.actor, self.kwargs["pk"])
+        require_organization_permission(
+            self.actor, self.PERMISSIONS[self.transition], match.organization
+        )
+        try:
+            if self.transition == "ready":
+                mark_match_ready(match=match, actor=self.actor)
+                messages.success(
+                    request,
+                    _(
+                        "المطابقة جاهزة. الأدلة مُجمّدة — ولم يُرحّل أي مبلغ بعد: "
+                        "الترحيل المالي مهمة لاحقة."
+                    ),
+                )
+            else:
+                cancel_purchase_match(
+                    match=match, actor=self.actor, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, _("أُلغيت المطابقة وأُفرجت عن الكميات."))
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        return HttpResponseRedirect(reverse("procurement:purchase_match_detail", args=[match.pk]))

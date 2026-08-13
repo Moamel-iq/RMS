@@ -800,6 +800,17 @@ def _require_no_downstream_dependency(receipt: GoodsReceipt) -> None:
             related = getattr(line, name, None)
             if related is None or not hasattr(related, "exists"):
                 continue
+            # A dependent document that has been withdrawn depends on nothing.
+            # A model says which of its rows still stand by declaring
+            # `live_dependency`, a `Q`; without one every row counts, which is
+            # the safe default for a relation nobody has considered yet. Task
+            # 2.11 needs this: a cancelled match releases the quantity it was
+            # holding, so it must release the delivery too. If the two answers
+            # disagreed, cancelling — the documented correction — would leave
+            # the receipt permanently unreversible.
+            live = getattr(relation.related_model, "live_dependency", None)
+            if live is not None:
+                related = related.filter(live)
             if related.exists():
                 raise ValidationError(
                     _(
