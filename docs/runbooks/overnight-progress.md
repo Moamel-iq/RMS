@@ -70,7 +70,7 @@ NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 526 passed
+.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 521 passed
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
@@ -123,7 +123,11 @@ gates: ruff, ruff format, mypy (224 files), manage.py check, makemigrations
 --check, pre-commit 13 hooks — all pass.
 
 STEP 13 (Task 2.11, three-way matching): **COMPLETE** at 0c2ee51.
-Complete project suite 2143 passed, 0 failed. Fresh database `khan_mandi_p2_b5` migrated
+Complete project suite 2143 passed, 0 failed; procurement 521, of which 84 are
+new (73 matching, 6 matching races, 5 on the direct-account preflight). The
+0c2ee51 commit message says "526 of them procurement, 79 new" — both figures
+were estimated before the final collection and are wrong; this line is the
+record, and the commit was not amended because it had already been pushed. Fresh database `khan_mandi_p2_b5` migrated
 from zero through all 16 procurement migrations, seeded, both demo seeds run
 twice with identical counts, every matching route rendered, all four verifiers
 clean on it and on `khan_mandi_dev`. Quality gates: ruff, ruff format, mypy
