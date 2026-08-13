@@ -5,10 +5,11 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 13/20 — Three-way matching (NOT STARTED)
+CURRENT_PIPELINE_STEP: 14/20 — Price and quantity variance accounting (NOT
+STARTED). Step 13 complete.
 CURRENT_TASK: none in flight
-LAST_GREEN_COMMIT: 64d94f8
-LAST_PUSHED_COMMIT: 64d94f8
+LAST_GREEN_COMMIT: 0c2ee51
+LAST_PUSHED_COMMIT: 0c2ee51
 WORKING_TREE: clean
 RUNNING_TESTS: none
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
@@ -22,6 +23,8 @@ ACTIVE_DATABASES (none to be dropped):
 - `khan_mandi_p1_exit` — Phase 1 exit verification, seeded
 - `khan_mandi_p2_b4` — Batch 4 verification, migrated from zero and
   seeded; created by Step 12, never to be dropped
+- `khan_mandi_p2_b5` — Step 13 verification, migrated from zero and seeded;
+  created by Step 13, never to be dropped
 - `khan_mandi_t17a_check`, `khan_mandi_t16_check`, `_t15_`, `_t14_`, `_t13_`,
   `khan_mandi_ledger_check`, `khan_mandi_inv_check`, `khan_mandi_freshcheck`
 
@@ -30,73 +33,87 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Step 13 — Task 2.11, explicit three-way matching.
-`MatchAllocation` among purchase order line, goods receipt line and supplier
-invoice line. Ordered, accepted, invoiced, matched quantity and value;
-quantity and price variance; derived exception status (PRC-042 — never a
-stored flag). Partial and multiple allocations both ways; over-allocation
-impossible under a row lock **and** as a reconciliation invariant.
+NEXT_EXACT_ACTION: Step 14 — Task 2.12, price and quantity variance
+accounting. Turn a `READY` `PurchaseMatch` into the entry Task 2.0 §9
+specifies, using the two figures Task 2.11 already stores per allocation:
 
-The boundary Step 13 inherits, and the one it may not cross alone:
+    Dr  GRNI                     SUM(receipt_allocated_value)
+    Dr  purchase price variance  SUM(price_variance)      (Cr if negative)
+        Cr  supplier payable     SUM(invoice_allocated_value)
 
-- `apps/procurement/invoices.py::_require_every_line_has_a_route` refuses to
-  post any invoice carrying an `INVENTORY` line, with
-  `invoice_awaiting_matching`. That refusal is correct and must NOT be
-  removed by Task 2.11 on its own. The GRNI/variance entry (Task 2.0 §9) needs
-  the *matched receipt value* AND the variance account, and
-  `PURCHASE_PRICE_VARIANCE` is deliberately unseeded until Task 2.12 posts to
-  it. Matching may become complete as a non-financial workflow; the financial
-  POST activates when 2.11 and 2.12 land together.
-- `TestTheMatchingBoundary` in `test_supplier_invoices.py` is the marker.
-  Its assertions — no `MatchAllocation` model, no variance role, an invoice
-  that approves and holds — are the negatives whose positive twins Task 2.11
-  and 2.12 must write. Replace them; do not merely delete them.
-- `SupplierInvoiceLine.receipt_line` and `.order_line` already exist and are
-  populated. They are **evidence, not allocation**: nothing consumes a
-  receipt's matchable remainder today, and `test_no_match_allocation_is_
-  created_by_referencing_a_receipt` holds that line.
-- `GoodsReceiptLine.posted_value` is the GRNI figure an allocation clears.
-  Stored, not derived, precisely so 2.11 can allocate against it.
+The boundary Step 14 inherits, and everything it has to replace:
+
+- `PurchaseMatchStatus` has **no** `POSTED`. Adding one is Step 14's decision,
+  and `test_the_status_enum_has_no_posted_value` is the marker that says so.
+- `TestTheStepFourteenBoundary` in `test_matching.py` is nine negatives —
+  no journal, no stock movement, no GRNI clearing, an invoice still `APPROVED`
+  after a `READY` match, no posting service, no posting route, no `POSTED`
+  status, an unmapped variance role, and an API that reports it posted
+  nothing. Replace each with its positive twin; do not merely delete them.
+- `PURCHASE_PRICE_VARIANCE` is still unseeded. Seed it in the accounting
+  kernel the way Step 12 seeded `SUPPLIER_PAYABLE` (domain `PURCHASING`,
+  scope `ORGANIZATION`), and extend `sync_system_account_roles` — that replay
+  on `post_migrate` is what keeps the role alive across the flush a
+  transactional test performs.
+- `invoices.py::_require_every_line_has_a_route` still refuses to post an
+  invoice carrying an `INVENTORY` line, with `invoice_awaiting_matching`.
+  That refusal is now removable **only** for a line covered by a `READY`
+  match, and only together with the posting above.
+- `_verify_matching_moved_nothing` in `reconciliation.py` asserts that no
+  journal or stock movement cites `PROCUREMENT_PURCHASE_MATCH`. Step 14 makes
+  the journal legitimate: replace this check with one that asserts the entry
+  balances and clears exactly `SUM(receipt_allocated_value)` from GRNI.
+- Matching is deliberately non-financial and must stay that way where it is:
+  the entry belongs to a new posting service, not inside `matching.py`.
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 437 passed
+.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 526 passed
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
 organization DEMO-KHAN-MANDI. Procurement now shows 3 suppliers, 6 catalogue
 rows, 4 purchase requests, 2 quotations, one award, 3 purchase orders, one
-order revision, 5 goods receipts and **4 supplier invoices**:
+order revision, **6 goods receipts**, 4 supplier invoices and **2 purchase
+matches**:
 
-- `DEMO-SINV-EXPENSE` — SINV-2026-000001, POSTED. A delivery charge of 75,000
-  with no goods on it: `Dr` 5-01-02-003 (cost centre DELIVERY),
-  `Cr` 2-01-01-001. The whole of what Task 2.10 can post.
-- `DEMO-SINV-GOODS` — APPROVED and waiting. Bills the rice that arrived, at
-  1,450 against the 1,400 the receipt posted, so the difference the three-way
-  match exists to surface is really there for Task 2.11 to find.
-- `DEMO-SINV-DRAFT` — a draft carrying 10,000 freight and a 3,000 discount
-  allocated across two lines, so the largest-remainder split is visible.
-- `DEMO-SINV-REVERSED` — SINV-2026-000002, posted then reversed.
+- `DEMO-GRN-MATCHED` — GRN-2026-000005, POSTED. Added by Step 13. Sixty kilos
+  of rice from the grocery supplier at 1,400, which is the delivery
+  `DEMO-SINV-GOODS` is actually a bill for. Step 12 wrote that invoice to cite
+  a posted grocery delivery and there was not one — the award went to the meat
+  supplier, so every posted rice delivery belonged to somebody else and the
+  evidence link quietly resolved to nothing. Matching had nothing to
+  demonstrate until this existed.
+- `DEMO-MATCH-CANCELLED` — a draft match, allocated 20 kg, then withdrawn with
+  a reason. It is there so the release is visible: a cancelled match consumes
+  no availability, which is the whole reason availability is derived.
+- `DEMO-MATCH-FULL` — MTC-2026-000001, READY. Sixty kilos allocated in full:
+  receipt value 84,000, invoice value 87,000, price variance **+3,000**. The
+  screen says, in Arabic, that nothing was posted, because nothing was.
 
-Counts after the invoices: stock movements **44** (unchanged — an invoice
-moves none) and journals **30 → 33**. Supplier outstanding derives to 75,000
-for DEMO-GROCERY-SUPPLIER and 0 for the other two. A second seed run changes
-nothing.
+Counts after the matches: stock movements **44 → 45** and journals **33 → 34**
+— both from the new *delivery*, not from the matching. Matching itself moves
+and posts nothing, and the same two numbers hold before and after both matches
+exist. A second seed run changes nothing (verified: 45 / 4 / 34 / 6 / 2 / 2
+identical on the second pass).
 
 Routes verified rendering for an authorised user (Django test client with
-`force_login`, so no credential is read or typed): /procurement/invoices/,
-/procurement/invoices/new/, /procurement/invoices/<pk>/. Commands are POST-only
-— approve, return, post and reverse each answer 405 to a GET. HTMX verified:
-the list returns a fragment only (2,993 bytes against 16,616 for the full page)
-and `?status=POSTED` narrows to the two numbered rows with no draft chip.
+`force_login`, so no credential is read or typed): /procurement/matching/
+(15,739 bytes), /procurement/matches/ (15,953), /procurement/matches/?status=
+READY (15,309), and both match detail screens (17,200 and 16,600). Commands
+are POST-only — open, ready and cancel each answer 405 to a GET. HTMX
+verified: the list returns a fragment only, 1,787 bytes against 15,953 for the
+full page.
 
-RECONCILIATION_STATE: clean on `khan_mandi_dev` and on the fresh
-`khan_mandi_p2_b4` across all four verifiers — `verify_procurement` (now
-including `verify_supplier_invoice`, `verify_invoice_charges` and
-`verify_supplier_payables`), `verify_organization`,
-`verify_inventory_against_gl` and `verify_locations`.
+RECONCILIATION_STATE: clean on `khan_mandi_dev` (both organizations) and on
+the fresh `khan_mandi_p2_b5` across all four verifiers — `verify_procurement`
+(now including `verify_matching`), `verify_organization`,
+`verify_inventory_against_gl` and `verify_locations`. `verify_matching` checks
+four equalities per source line, that no order line is over-allocated, that
+every stored `price_variance` equals its own two components, and that no
+journal or stock movement cites a purchase match at all.
 
 BATCH 4 CERTIFICATION (Steps 10–12): **PASS** at 64d94f8. Complete project
 suite 2053 passed, 0 failed. Fresh database `khan_mandi_p2_b4` migrated from
@@ -104,6 +121,50 @@ zero, roles and permissions seeded, both demo seeds run twice with identical
 counts, every procurement route rendered, all four verifiers clean. Quality
 gates: ruff, ruff format, mypy (224 files), manage.py check, makemigrations
 --check, pre-commit 13 hooks — all pass.
+
+STEP 13 (Task 2.11, three-way matching): **COMPLETE** at 0c2ee51.
+Complete project suite 2143 passed, 0 failed. Fresh database `khan_mandi_p2_b5` migrated
+from zero through all 16 procurement migrations, seeded, both demo seeds run
+twice with identical counts, every matching route rendered, all four verifiers
+clean on it and on `khan_mandi_dev`. Quality gates: ruff, ruff format, mypy
+(228 files), manage.py check, makemigrations --check, pre-commit 13 hooks —
+all pass.
+
+Three defects were found and fixed rather than worked around:
+
+1. **A production hole in Step 12.** `invoices.py::_validate_direct_account`
+   accepted any postable account, including Inventory control, GRNI and
+   Supplier payable — so a direct charge line could credit the payable twice
+   or clear GRNI without any match. Now refused twice over: by account class
+   (`account_class_not_billable`) and by role ownership
+   (`account_is_role_owned`), because a role-owned account belongs to the
+   posting rule that owns it, not to whoever picks it from a dropdown.
+2. **A constraint of my own that broke the correction path.** The first
+   version of `procurement_match_unready_carries_no_readiness` refused to
+   *cancel* a READY match, since cancelling leaves `ready_by`/`ready_at` in
+   place. Corrected to `procurement_match_draft_carries_no_readiness`
+   (migration 0016): only a draft may carry no readiness, and a cancelled
+   match keeps the evidence of when it was agreed.
+3. **Money rendered through float on every procurement screen.**
+   `{{ value|stringformat:"f" }}` is printf: it converts through float — which
+   CLAUDE.md forbids outright — and prints six decimals whatever the column
+   holds, so 84,000 IQD rendered as `84000.000000` and a 3-dp quantity as
+   `60.000000`. Task 2.11's three templates now use `|money_full` and a new
+   `|quantity` filter (`apps/core/templatetags/quantity_tags.py`, six tests).
+   **The rest of the module still has it** — `supplier_invoice_detail.html`,
+   `goods_receipt_detail.html` and the order and quotation screens — and that
+   sweep is deliberately left out of this commit so the diff stays one
+   concern. It is filed as its own task.
+
+A fourth thing was learned rather than fixed: Task 2.9's
+`_require_no_downstream_dependency` walks a receipt line's relations rather
+than a list of imports, so declaring `match_allocations` gave the receipt its
+guard with nobody remembering to add one. That worked exactly as designed —
+but it counted cancelled matches too, which would have made cancelling, the
+documented correction, leave the delivery permanently unreversible. Models now
+declare `live_dependency` (a `Q`) to say which of their rows still stand; the
+default without one is still "every row", which is the safe answer for a
+relation nobody has considered.
 
 ASSUMPTIONS:
 - An award requires a reason unconditionally, not only when the winner is
