@@ -9,7 +9,7 @@ CURRENT_PIPELINE_STEP: 14/20 — Price and quantity variance accounting (NOT
 STARTED). Step 13 complete.
 CURRENT_TASK: none in flight
 LAST_GREEN_COMMIT: 0c2ee51
-LAST_PUSHED_COMMIT: 4d00241
+LAST_PUSHED_COMMIT: 6a734aa
 WORKING_TREE: clean
 RUNNING_TESTS: none
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
