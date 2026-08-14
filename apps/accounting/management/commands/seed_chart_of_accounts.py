@@ -118,6 +118,19 @@ CHART: list[tuple[str, str, str]] = [
     ("7-09-02-001", "فروقات الجرد", "Inventory Count Variance"),
     ("7-09-03", "تسويات المخزون", "Inventory adjustments"),
     ("7-09-03-001", "تسويات المخزون", "Inventory Adjustment"),
+    # The difference between the book value that left on a supplier return and
+    # the credit the supplier allows (Task 2.13 seeds it, Task 2.14 posts it).
+    # Class 7 beside the other bidirectional difference accounts, and for the
+    # same reason they are here: a return that credits more than it removed is
+    # a gain and one that credits less is a loss, both are real, and neither is
+    # negative spending. ADR-022 says both belong where somebody can see them.
+    #
+    # Deliberately NOT the purchase price variance account. That figure is
+    # invoice-versus-receipt on goods coming in; this one is credit-versus-book
+    # value on goods going out. Merging them would hide a supplier's pricing
+    # behaviour inside the arithmetic of having averaged two deliveries.
+    ("7-09-04", "فروقات إرجاع المشتريات", "Purchase return variance"),
+    ("7-09-04-001", "فروقات إرجاع المشتريات", "Purchase Return Variance"),
     # 8 Clearing and control
     ("8", "حسابات وسيطة ورقابية", "Clearing and control"),
     ("8-01", "حسابات وسيطة", "Clearing accounts"),
@@ -144,6 +157,13 @@ CHART: list[tuple[str, str, str]] = [
     # allocation rather than cleared.
     ("8-01-03", "فروقات أسعار المشتريات", "Purchase price variance"),
     ("8-01-03-001", "تسوية فروقات أسعار المشتريات", "Purchase Price Variance Clearing"),
+    # Where the book value of goods sent back to a supplier waits for the
+    # credit note that settles it (Task 2.13). A clearing account in the exact
+    # sense: stock has left the warehouse and the supplier has not yet agreed
+    # what it is worth, so there is a real claim in flight and no document
+    # stating its amount. Task 2.14's credit note clears it.
+    ("8-01-04", "مرتجعات الموردين", "Supplier returns"),
+    ("8-01-04-001", "تسوية مرتجعات الموردين", "Supplier Return Clearing"),
 ]
 
 #: The account the cash settlement rounding policy will post its difference to

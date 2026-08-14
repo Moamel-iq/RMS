@@ -785,6 +785,41 @@ SUPPLIER_PAYABLE = "SUPPLIER_PAYABLE"
 #: not build that process and does not guess at it.
 PURCHASE_PRICE_VARIANCE = "PURCHASE_PRICE_VARIANCE"
 
+#: Added by Task 2.13 — where the book value of goods sent back to a supplier
+#: waits for the credit note that settles it.
+#:
+#: A **clearing** account, and this time the word is exact: the balance is a
+#: claim in flight. Stock has left the warehouse and the supplier has not yet
+#: agreed what it is worth, so there is a real obligation to somebody and no
+#: document stating its amount. Task 2.14's credit note is what clears it, and
+#: the difference between the book value that left and the credit that arrives
+#: is `PURCHASE_RETURN_VARIANCE` — recognised there, not here.
+#:
+#: The physical return deliberately posts no variance. An expected credit is
+#: commercial metadata until the supplier says otherwise, and booking a gain
+#: or a loss from an expectation would put a number on the profit and loss
+#: that nobody has agreed to.
+SUPPLIER_RETURN_CLEARING = "SUPPLIER_RETURN_CLEARING"
+
+#: Added by Task 2.13 as vocabulary, and posted to by Task 2.14.
+#:
+#:     PURCHASE_RETURN_VARIANCE = credit the supplier allows
+#:                              - inventory book value that left
+#:
+#: Deliberately **not** `PURCHASE_PRICE_VARIANCE`, which is a different fact:
+#: invoice value less receipt value on goods coming *in*. Merging them would
+#: make it impossible to tell a supplier's pricing differences from the
+#: consequence of having averaged two deliveries together and then unwound one
+#: of them — and ADR-022's worked example exists precisely because the second
+#: looks like a bug to anyone seeing it for the first time.
+#:
+#: Seeded here without a mapping and without a posting rule, which is a
+#: departure from this module's usual practice and is the narrower of two
+#: evils: Task 2.13's returns are meaningless without the credit note that
+#: follows, and naming the destination now is what stops Task 2.14 quietly
+#: reusing the price-variance account.
+PURCHASE_RETURN_VARIANCE = "PURCHASE_RETURN_VARIANCE"
+
 #: The purchasing vocabulary, same shape as `SYSTEM_INVENTORY_ROLES`.
 #:
 #: Organization-only, and necessarily so. Which item was bought says nothing
@@ -804,6 +839,18 @@ SYSTEM_PURCHASING_ROLES: tuple[tuple[str, str, str, str], ...] = (
         PURCHASE_PRICE_VARIANCE,
         "تسوية فروقات أسعار المشتريات",
         "Purchase price variance clearing",
+        "ORGANIZATION",
+    ),
+    (
+        SUPPLIER_RETURN_CLEARING,
+        "تسوية مرتجعات الموردين",
+        "Supplier return clearing",
+        "ORGANIZATION",
+    ),
+    (
+        PURCHASE_RETURN_VARIANCE,
+        "فروقات إرجاع المشتريات",
+        "Purchase return variance",
         "ORGANIZATION",
     ),
 )

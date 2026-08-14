@@ -24,12 +24,14 @@ class TestSeed:
         # branches (eight accounts), plus Task 1.4's goods-received-not-invoiced
         # liability and the three consumption leaves with their parents (six),
         # plus Task 1.5's transfer-shortage loss leaf with its parents (three),
-        # plus Task 2.12's purchase price variance clearing leaf and its group.
-        assert Account.objects.filter(organization=organization).count() == 70
+        # plus Task 2.12's purchase price variance clearing leaf and its group,
+        # plus Task 2.13's supplier return clearing and return variance leaves
+        # with their groups.
+        assert Account.objects.filter(organization=organization).count() == 74
 
     def test_the_seed_is_idempotent(self, organization: Organization, chart: None) -> None:
         call_command("seed_chart_of_accounts", organization="KM", verbosity=0)
-        assert Account.objects.filter(organization=organization).count() == 70
+        assert Account.objects.filter(organization=organization).count() == 74
 
     def test_the_purchase_variance_account_is_a_clearing_account(
         self, organization: Organization, chart: None
@@ -49,6 +51,37 @@ class TestSeed:
         assert account.account_class == AccountClass.CLEARING
         assert account.is_postable
         assert account.requires_cost_center is False
+
+    def test_the_supplier_return_accounts_split_the_two_facts(
+        self, organization: Organization, chart: None
+    ) -> None:
+        """
+        Task 2.13 seeds two, and keeping them apart is the point.
+
+        The clearing account holds the book value of goods that have left while
+        the supplier has not yet said what they are worth — a claim in flight,
+        so class 8. The variance account holds the difference once the credit
+        note settles it, and that is a gain or a loss somebody should be able
+        to see, so class 7 beside the other bidirectional difference accounts.
+
+        Neither is the purchase *price* variance. That figure is
+        invoice-versus-receipt on goods coming in; these are about goods going
+        out, and merging them would hide a supplier's pricing behaviour inside
+        the arithmetic of unwinding an average.
+        """
+        clearing = Account.objects.get(organization=organization, code="8-01-04-001")
+        assert clearing.account_class == AccountClass.CLEARING
+        assert clearing.is_postable
+        assert clearing.requires_cost_center is False
+
+        variance = Account.objects.get(organization=organization, code="7-09-04-001")
+        assert variance.account_class == AccountClass.OTHER
+        assert variance.is_postable
+        assert variance.requires_cost_center is False
+
+        assert clearing.pk != variance.pk
+        price = Account.objects.get(organization=organization, code="8-01-03-001")
+        assert {clearing.pk, variance.pk}.isdisjoint({price.pk})
 
     def test_the_cash_rounding_account_exists_though_the_policy_is_off(
         self, organization: Organization, chart: None
