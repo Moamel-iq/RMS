@@ -98,6 +98,8 @@ from apps.procurement.models import (
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierInvoiceLineType,
+    SupplierInvoicePosting,
+    SupplierInvoicePostingStatus,
     SupplierInvoiceStatus,
 )
 from apps.users.models import User
@@ -301,15 +303,7 @@ def create_purchase_match(
     may already have been reversed.
     """
     locked_invoice = SupplierInvoice.objects.select_for_update().get(pk=invoice.pk)
-    if locked_invoice.status == SupplierInvoiceStatus.REVERSED:
-        raise ValidationError(
-            _("That invoice has been reversed and cannot be matched."), code="invoice_reversed"
-        )
-    if locked_invoice.status == SupplierInvoiceStatus.DRAFT:
-        raise ValidationError(
-            _("An invoice must be approved before it can be matched."),
-            code="invoice_not_approved",
-        )
+    _require_invoice_is_matchable(locked_invoice)
     if not _matchable_lines(locked_invoice):
         raise ValidationError(
             _(
@@ -503,14 +497,32 @@ def _require_within(quantity: Decimal, available: Decimal, *, what: str, line: A
 
 
 def _require_invoice_is_matchable(invoice: SupplierInvoice) -> None:
-    if invoice.status == SupplierInvoiceStatus.REVERSED:
-        raise ValidationError(
-            _("That invoice has been reversed and cannot be matched."), code="invoice_reversed"
-        )
+    """
+    Approved, and not yet paid for in the ledger.
+
+    `POSTED` is refused as of Task 2.12, and the reason is not obvious. A
+    posted invoice has already cleared its deliveries from GRNI, so a second
+    match against it would consume receipt availability that the ledger has
+    spent, re-block those deliveries from being reversed, and have no posting
+    path of its own to ever resolve it. It would be a claim that does nothing
+    and blocks something.
+
+    `REVERSED` stays matchable on purpose: correcting the match is exactly why
+    an invoice gets reversed, and the new match is what generation N+1 posts
+    from.
+    """
     if invoice.status == SupplierInvoiceStatus.DRAFT:
         raise ValidationError(
             _("An invoice must be approved before it can be matched."),
             code="invoice_not_approved",
+        )
+    if invoice.status == SupplierInvoiceStatus.POSTED:
+        raise ValidationError(
+            _(
+                "That invoice is posted. Its deliveries are already cleared; reverse it "
+                "first if the match was wrong."
+            ),
+            code="invoice_already_posted",
         )
 
 
@@ -812,12 +824,20 @@ def cancel_purchase_match(*, match: PurchaseMatch, actor: User, reason: str) -> 
     Cancelling releases the quantity and value the match was holding, because
     availability counts active matches only. That is the whole reason
     availability is derived.
+
+    **Not while a live posting stands on it.** Task 2.12 posts from a `READY`
+    match, and releasing the deliveries underneath a ledger entry that has
+    already cleared them would let the same delivery be billed twice — with
+    both sides of every Task 2.11 equality moving together, so no verifier
+    would notice. The correction is to reverse the invoice, which cancels this
+    match itself as its final step.
     """
     locked = PurchaseMatch.objects.select_for_update().get(pk=match.pk)
     if locked.status == PurchaseMatchStatus.CANCELLED:
         raise ValidationError(_("This match is already cancelled."), code="already_cancelled")
     if not reason.strip():
         raise ValidationError(_("A cancellation needs a reason."), code="reason_required")
+    _require_no_live_posting(locked)
 
     previous = snapshot(locked)
     locked.status = PurchaseMatchStatus.CANCELLED
@@ -842,6 +862,43 @@ def cancel_purchase_match(*, match: PurchaseMatch, actor: User, reason: str) -> 
         reason=reason.strip(),
     )
     return locked
+
+
+def _require_no_live_posting(match: PurchaseMatch) -> None:
+    live = (
+        SupplierInvoicePosting.objects.filter(
+            purchase_match=match, status=SupplierInvoicePostingStatus.LIVE
+        )
+        .values_list("generation", flat=True)
+        .first()
+    )
+    if live is not None:
+        raise ValidationError(
+            _(
+                "Generation %(generation)s of this invoice is posted against this match. "
+                "Reverse the invoice; that releases the match as its last step."
+            ),
+            code="match_backs_a_live_posting",
+            params={"generation": live},
+        )
+
+
+def live_posting_for(match: PurchaseMatch) -> SupplierInvoicePosting | None:
+    """
+    The generation currently standing on this match, if any.
+
+    Derived rather than stored, for the same reason line match state is
+    (PRC-042): a `POSTED` value on `PurchaseMatchStatus` would be a second copy
+    of a fact the posting table already holds, and the two would drift the
+    first time a reversal touched one and not the other.
+    """
+    return (
+        SupplierInvoicePosting.objects.filter(
+            purchase_match=match, status=SupplierInvoicePostingStatus.LIVE
+        )
+        .select_related("journal_entry", "supplier_invoice")
+        .first()
+    )
 
 
 @transaction.atomic

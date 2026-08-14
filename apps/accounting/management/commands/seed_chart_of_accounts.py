@@ -125,6 +125,25 @@ CHART: list[tuple[str, str, str]] = [
     ("8-01-01-001", "حساب وسيط بين الفروع", "Inter-branch Clearing"),
     ("8-01-02", "وكالة ميم", "MEM agency"),
     ("8-01-02-001", "حساب وسيط وكالة ميم", "MEM Agency Clearing"),
+    # Where an invoice-versus-receipt price difference is parked (Task 2.12).
+    # A clearing account rather than an expense one, and deliberately so.
+    #
+    # Task 2.0 §15 proposed `5-02-01-001`. Class 5 sets `requires_cost_center`,
+    # and a supplier invoice has no cost centre to give — the document belongs
+    # to a branch, not a department. More importantly ADR-022 already rejects
+    # posting the variance to cost of goods sold: it conflates a purchasing
+    # outcome with a consumption outcome, and food cost would then move for
+    # reasons that have nothing to do with the kitchen.
+    #
+    # So the difference is parked rather than classified. A later, explicitly
+    # specified period-end process splits this balance between inventory still
+    # on hand and cost of sales for what was consumed, taking its branch and
+    # cost centre from inventory ownership — never from the supplier invoice.
+    # Task 2.12 does not build that process, and until it exists this balance
+    # is expected to be non-zero and is reconciled by invoice, match and
+    # allocation rather than cleared.
+    ("8-01-03", "فروقات أسعار المشتريات", "Purchase price variance"),
+    ("8-01-03-001", "تسوية فروقات أسعار المشتريات", "Purchase Price Variance Clearing"),
 ]
 
 #: The account the cash settlement rounding policy will post its difference to

@@ -13,7 +13,7 @@ the task that makes each one true. Invariants 1–3 landed with Task 2.1,
 5–8 with Task 2.2, 9–12 with Task 2.3, 13 with Task 2.4, 14–15 with
 Task 2.5 16 with Task 2.6, 17–19 with Task 2.7
 (18–19 activated by Task 2.8), 20–24 with Task 2.8, 25–31 with Task 2.9,
-32–34 with Task 2.10, and 35–36 with Task 2.11.
+32–34 with Task 2.10, 35–36 with Task 2.11, and 37 with Task 2.12.
 The rest are still statements of intent, and the
 traceability matrix rather than this table is where the evidence lives.
 
@@ -63,7 +63,14 @@ traceability matrix rather than this table is where the evidence lives.
 | 36b | Price variance is `invoice_allocated_value - receipt_allocated_value`, asserted by the database | `CheckConstraint` over the three columns; no path can store a difference its components do not support | 2.11 |
 | 36c | A `READY` match is immutable except for its cancellation; a `CANCELLED` match consumes nothing | Whole-row allowlist triggers on both tables; availability counts only draft and ready rows | 2.11 |
 | 36d | Matching moves no stock and posts no journal | Asserted either side of a readiness: movement, location-movement and journal counts unchanged | 2.11 |
-| 37 | Price variance never restates a posted movement or a closed period | Posting service; test that the original average is unchanged | 2.12 |
+| 37 | Price variance never restates a posted movement or a closed period | Recognised where discovered; stock quantity, value and average asserted unchanged either side of a posting | 2.12 |
+| 37a | An invoice posts for the whole document or not at all; every goods line needs a `READY` match covering it in full | `invoice_awaiting_matching`, `match_not_ready`, `invoice_partly_matched` | 2.12 |
+| 37b | The payable is recognised exactly once per invoice, and the entry balances by construction | One live posting generation per invoice, enforced by a partial unique index; `Dr A + R + D = Cr A + V` | 2.12 |
+| 37c | A price difference is parked in a clearing account, never classified as cost of sales | `PURCHASE_PRICE_VARIANCE` maps to a CLEARING account needing no cost centre (ADR-022, amended) | 2.12 |
+| 37d | GRNI is debited at the account each delivery actually credited, never re-resolved | `GoodsReceiptLine.contra_account`, grouped; survives a mapping supersession | 2.12 |
+| 37e | A posted generation is immutable except for its own reversal, and is never deleted | Whole-row allowlist trigger | 2.12 |
+| 37f | A match backing a live posting cannot be cancelled; a reversed generation blocks nothing | Service guard plus a database trigger; `live_dependency` is `status=LIVE` | 2.12 |
+| 37g | Procurement's own GRNI movement equals its accepted delivery value no posted invoice covers | `verify_grni_clearing` (invariant 47, scoped to this module's entries) | 2.12 |
 | 38 | A supplier return is not an inventory `RETURN_IN` and uses a distinct movement type | Enum + test asserting the types differ | 2.13 |
 | 39 | A return leaves stock at the standing moving average; a full depletion surrenders its whole remaining value | Reuses the kernel; ADR-022 | 2.13 |
 | 40 | Negative stock is refused on a return, with no procurement bypass | Reuses `_require_available` | 2.13 |

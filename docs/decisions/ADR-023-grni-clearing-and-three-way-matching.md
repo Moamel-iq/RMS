@@ -1,6 +1,9 @@
 # ADR-023 — GRNI clearing and three-way matching allocations
 
-- **Status:** **Proposed** (2026-08-11, Task 2.0). To be accepted at Task 2.11.
+- **Status:** **Accepted** (Task 2.12, 2026-08-14), amended in three places where
+  the shipped implementation settled a detail differently. Not accepted at Task
+  2.11 as originally planned, because §1's GRNI equality could not be true until
+  something cleared the account, and that is Task 2.12.
 - **Date:** 2026-08-11
 - **Related:** ADR-012 (money and allocation), ADR-017 (source identity and
   idempotency), ADR-018 (stock ledger), ADR-019 (account roles), ADR-022
@@ -39,6 +42,21 @@ Supplier invoice:   Dr GRNI (+ variance)   Cr Supplier payable
 The GRNI balance at any moment **equals the value of accepted receipt lines
 that no invoice has matched**. That is not a description; it is a testable
 equality and it is invariant 47.
+
+**Amendment (Task 2.12), two corrections to that sentence.**
+
+*"Matched" means "cleared".* Task 2.11 gave matching a draft stage, and a draft
+or ready match consumes availability while clearing nothing: the evidence is
+agreed but nobody has been billed. GRNI is released when an invoice **posts**,
+so the equality's right-hand side counts allocations whose match carries a live
+posting. Availability and clearing are two sets with two purposes, and
+conflating them is how a matching workspace comes to disagree with its ledger.
+
+*The account is shared.* Task 1.4's uninvoiced stock receipts credit the same
+GRNI account, and they are not procurement's to explain. The implemented
+equality is therefore over procurement's **own** contribution: what its
+documents put into GRNI, less what its invoices took out, equals the value of
+its accepted delivery lines that no posted invoice covers.
 
 This is why GRNI is organization-scoped and not item-overridable. Which item
 arrived says nothing about who is owed for it, and splitting the clearing
@@ -83,11 +101,17 @@ uses. A guard that lives only inside one service function is one refactor, one
 new code path, or one management command away from not existing. A verifier
 that recomputes the sums from the rows will notice.
 
-Locking is on the **parent lines**, acquired in canonical order — receipt line
-then invoice line, each by primary key ascending — so two people matching the
-same delivery from two screens serialise rather than deadlock. This is the
-`_StockKey.sort_key` discipline from Task 1.2 applied to a different pair of
-tables.
+Locking is on the **parent lines**, acquired in a canonical order, so two
+people matching the same delivery from two screens serialise rather than
+deadlock. This is the `_StockKey.sort_key` discipline from Task 1.2 applied to
+a different pair of tables.
+
+**Amendment (Task 2.12).** The implemented order is match header, then invoice,
+then invoice line, then receipt line, then order line, then the allocation rows
+— not "receipt line then invoice line" as first written. Taking the invoice
+header first is what serialises same-invoice contention before any line lock is
+reached, and Task 2.12's posting extends the same order by taking the match
+header **above** the invoice, even though its command names the invoice.
 
 ### 4. Quantity variance and price variance are different questions
 
@@ -101,6 +125,16 @@ Conflating them produces the classic mess where a short delivery looks like a
 pricing dispute. They are reported separately for the same reason.
 
 ### 5. An invoice may be posted with no matching receipt, and it is an exception, not an error
+
+**Amendment (Task 2.12): deferred, not implemented.** A goods line with no
+match still refuses to post, with `invoice_awaiting_matching`. The reason is
+that this section's own prescription — *"the debit goes to the item's or line's
+account"* — resolves to `INVENTORY_CONTROL` for a goods line, and debiting
+inventory value with no stock movement behind it breaks the inventory-to-GL
+equality `verify_inventory_against_gl` checks, by the whole invoice amount.
+Task 2.0 §16 defines no `UNRECEIVED_INVENTORY_CLEARING` account and Task 2.12
+did not invent one. The dispute this section wants visible is real; recording
+it needs an account somebody has approved.
 
 Refusing it would be worse. A supplier who invoices for goods never delivered
 has created a real dispute, and a system that refuses to record the invoice
@@ -116,8 +150,15 @@ about a supplier's paperwork.
 
 `created_by` and `created_at` on every row, plus an audit event. Matching is a
 judgement — deciding that *this* invoice line covers *that* delivery — and a
-judgement with no name attached is not auditable. Allocations are deleted only
-by reversing the invoice, never edited.
+judgement with no name attached is not auditable.
+
+**Amendment (Task 2.12).** The original sentence read *"Allocations are deleted
+only by reversing the invoice, never edited"*, and neither half survived
+contact with the implementation. Allocations are added and removed only while
+their match is `DRAFT`; once `READY` a trigger freezes them, and reversing the
+invoice **cancels** the match rather than deleting its rows — the withdrawn
+answer is history worth keeping, and its reason is on it. Nothing on any path
+deletes an allocation once its match has left draft.
 
 ## Consequences
 

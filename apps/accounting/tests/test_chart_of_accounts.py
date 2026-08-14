@@ -23,12 +23,32 @@ class TestSeed:
         # 63: the original 46, plus Task 1.3's inventory and opening-equity
         # branches (eight accounts), plus Task 1.4's goods-received-not-invoiced
         # liability and the three consumption leaves with their parents (six),
-        # plus Task 1.5's transfer-shortage loss leaf with its parents (three).
-        assert Account.objects.filter(organization=organization).count() == 68
+        # plus Task 1.5's transfer-shortage loss leaf with its parents (three),
+        # plus Task 2.12's purchase price variance clearing leaf and its group.
+        assert Account.objects.filter(organization=organization).count() == 70
 
     def test_the_seed_is_idempotent(self, organization: Organization, chart: None) -> None:
         call_command("seed_chart_of_accounts", organization="KM", verbosity=0)
-        assert Account.objects.filter(organization=organization).count() == 68
+        assert Account.objects.filter(organization=organization).count() == 70
+
+    def test_the_purchase_variance_account_is_a_clearing_account(
+        self, organization: Organization, chart: None
+    ) -> None:
+        """
+        Task 2.0 §15 proposed a cost-of-sales code and it is superseded
+        (ADR-022, amended at Task 2.12).
+
+        Class 5 would have set `requires_cost_center`, and a supplier invoice
+        has no cost centre to give — the document belongs to a branch, not a
+        department. ADR-022 independently rejects booking a purchasing outcome
+        as cost of sales. So the difference is parked in a clearing account
+        until a later period-end process splits it between stock still on hand
+        and what has been consumed.
+        """
+        account = Account.objects.get(organization=organization, code="8-01-03-001")
+        assert account.account_class == AccountClass.CLEARING
+        assert account.is_postable
+        assert account.requires_cost_center is False
 
     def test_the_cash_rounding_account_exists_though_the_policy_is_off(
         self, organization: Organization, chart: None

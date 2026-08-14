@@ -763,6 +763,28 @@ SYSTEM_INVENTORY_ROLES: tuple[tuple[str, str, str, str], ...] = (
 #: account a payment will later clear (Task 2.0 §15).
 SUPPLIER_PAYABLE = "SUPPLIER_PAYABLE"
 
+#: Added by Task 2.12 — where an invoice-versus-receipt price difference is
+#: parked. A **clearing** account, not an expense one, and that is a decision
+#: rather than a detail.
+#:
+#: Task 2.0 §15 proposed `5-02-01-001`, a cost-of-sales code. That is superseded
+#: (ADR-022, amended at Task 2.12) for two independent reasons. Mechanically,
+#: class 5 sets `requires_cost_center` and a supplier invoice has no cost centre
+#: to give: the document belongs to a branch, not to a department, and
+#: `SupplierInvoiceLine.cost_center` is constrained to direct-account lines.
+#: Substantively, ADR-022 already rejects "post the variance to cost of goods
+#: sold directly" — it "conflates a purchasing outcome with a consumption
+#: outcome", and food cost would then move for reasons that have nothing to do
+#: with the kitchen.
+#:
+#: So the difference is **parked, not classified**. It sits in a clearing
+#: account until a later, explicitly specified period-end process splits it
+#: between inventory still on hand and cost of sales for what has been
+#: consumed — a split that must take its branch and cost centre from inventory
+#: ownership and consumption, never from the supplier invoice. Task 2.12 does
+#: not build that process and does not guess at it.
+PURCHASE_PRICE_VARIANCE = "PURCHASE_PRICE_VARIANCE"
+
 #: The purchasing vocabulary, same shape as `SYSTEM_INVENTORY_ROLES`.
 #:
 #: Organization-only, and necessarily so. Which item was bought says nothing
@@ -771,14 +793,19 @@ SUPPLIER_PAYABLE = "SUPPLIER_PAYABLE"
 #: split a single obligation across three accounts that no statement could
 #: reassemble.
 #:
-#: `PURCHASE_PRICE_VARIANCE`, `SUPPLIER_ADVANCE` and the two payment-source
-#: roles are specified in Task 2.0 §15 and are deliberately **not** seeded
-#: here. A role with no posting rule behind it is a grant nobody can audit —
-#: the same mistake `import_opening_draft` records in inventory. Each arrives
-#: with the task that posts to it: variance with 2.12, advance and the payment
-#: sources with 2.15.
+#: `SUPPLIER_ADVANCE` and the two payment-source roles are specified in Task
+#: 2.0 §15 and are deliberately **not** seeded here. A role with no posting
+#: rule behind it is a grant nobody can audit — the same mistake
+#: `import_opening_draft` records in inventory. Each arrives with the task
+#: that posts to it: the advance and the payment sources with 2.15.
 SYSTEM_PURCHASING_ROLES: tuple[tuple[str, str, str, str], ...] = (
     (SUPPLIER_PAYABLE, "ذمم الموردين", "Supplier payable", "ORGANIZATION"),
+    (
+        PURCHASE_PRICE_VARIANCE,
+        "تسوية فروقات أسعار المشتريات",
+        "Purchase price variance clearing",
+        "ORGANIZATION",
+    ),
 )
 
 

@@ -1333,15 +1333,30 @@ class TestPostingAndThePayable:
         assert error.value.code == "already_posted"
         assert JournalEntry.objects.count() == 1
 
-    def test_the_source_identity_is_complete(
+    def test_the_source_identity_is_complete_and_names_the_generation(
         self, expense_invoice: SupplierInvoice, controller: User
     ) -> None:
+        """
+        Complete, and pointing at the **posting generation** rather than the
+        invoice as of Task 2.12.
+
+        An invoice may legitimately reach the ledger twice — posted, reversed
+        because its match was wrong, posted again from a corrected one — and
+        ADR-017's source identity has to tell those entries apart. Keyed on the
+        invoice, the second would look like a retry of the first and the kernel
+        would refuse it.
+        """
+        from apps.procurement.models import SupplierInvoicePosting
+
         approve_supplier_invoice(invoice=expense_invoice, actor=controller)
         posted = post_supplier_invoice(invoice=expense_invoice, actor=controller)
         journal = JournalEntry.objects.get()
+        posting = SupplierInvoicePosting.objects.get()
         assert journal.source_document_type == SOURCE_DOCUMENT_TYPE
-        assert journal.source_document_id == str(posted.public_id)
+        assert journal.source_document_id == str(posting.public_id)
+        assert journal.source_document_id != str(posted.public_id)
         assert journal.source_event == "POSTED"
+        assert posting.generation == 1
 
     def test_the_payable_is_derived_not_stored(
         self,
@@ -1495,21 +1510,23 @@ class TestTheMatchingBoundary:
         """
         The positive twin of this task's boundary marker.
 
-        Until Task 2.11 this asserted that no matching model existed at all,
-        because one appearing early would have meant somebody built matching
-        inside invoice posting. Task 2.11 delivered the models, so the claim
-        moves to the thing that actually mattered: matching is a *separate*
-        module. `apps/procurement/invoices.py` imports nothing from it and
-        names none of its models, so no posting path can reach one.
+        Until Task 2.11 this asserted that no matching model existed at all.
+        Task 2.11 delivered the models and the claim narrowed to "matching is a
+        separate module that invoice posting cannot reach". Task 2.12 posts
+        *from* a match, so posting now imports one function from it — and the
+        claim narrows again to the part that was always the real one:
 
-        It does still say the word — `invoice_awaiting_matching` is the code a
-        held goods line reports, and explaining why is the point of it.
+        **the dependency runs one way.** Posting reads matching's agreed
+        answer; matching never resolves an account, never opens a journal, and
+        never defines a posting service. A cycle in that direction is what a
+        matching workspace that quietly posts money looks like.
         """
         from pathlib import Path
 
         from django.apps import apps as django_apps
 
         from apps.procurement import invoices as invoice_module
+        from apps.procurement import matching as matching_module
 
         names = {model.__name__ for model in django_apps.get_app_config("procurement").get_models()}
         assert "PurchaseMatch" in names
@@ -1517,17 +1534,38 @@ class TestTheMatchingBoundary:
 
         assert invoice_module.__file__ is not None
         source = Path(invoice_module.__file__).read_text(encoding="utf-8")
-        assert "from apps.procurement.matching import" not in source
-        assert "import matching" not in source
-        assert "PurchaseMatch" not in source
+        assert "from apps.procurement.matching import" in source
+        assert "def add_allocation" not in source
+        assert "def mark_match_ready" not in source
+        assert "def create_purchase_match" not in source
 
-    def test_no_variance_role_is_mapped_yet(self) -> None:
+        assert matching_module.__file__ is not None
+        matching_source = Path(matching_module.__file__).read_text(encoding="utf-8")
+        assert "post_entry" not in matching_source
+        assert "def post_supplier_invoice" not in matching_source
+
+    def test_the_variance_role_is_seeded_and_is_a_clearing_role(self) -> None:
         """
-        `PURCHASE_PRICE_VARIANCE` is specified by Task 2.0 §15 and deliberately
-        unseeded: a role with no posting rule behind it is a mapping somebody
-        can be asked to fill in for a workflow that does not exist.
+        Task 2.12 seeded it, because Task 2.12 is what posts to it.
+
+        Task 2.0 §15 proposed the cost-of-sales code `5-02-01-001` and that is
+        superseded (ADR-022, amended here). Class 5 would have demanded a cost
+        centre a supplier invoice has nowhere to get, and ADR-022 separately
+        rejects booking a purchasing outcome as cost of sales. The difference
+        is parked in a clearing account until a later, separately specified
+        period-end process splits it between stock still on hand and what has
+        been consumed.
         """
-        assert not AccountRole.objects.filter(code="PURCHASE_PRICE_VARIANCE").exists()
+        role = AccountRole.objects.get(code="PURCHASE_PRICE_VARIANCE")
+        assert role.domain == "PURCHASING"
+        assert role.mapping_scope == "ORGANIZATION"
+        assert role.is_system
+
+    def test_the_remaining_specified_roles_are_still_unseeded(self) -> None:
+        """The 2.15 vocabulary waits for the task that posts to it."""
+        assert not AccountRole.objects.filter(
+            code__in=["SUPPLIER_ADVANCE", "SUPPLIER_PAYMENT_CASH", "SUPPLIER_PAYMENT_BANK"]
+        ).exists()
 
     def test_the_grni_balance_is_untouched_by_an_invoice(
         self,

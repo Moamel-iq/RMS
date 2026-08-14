@@ -1,20 +1,69 @@
-# Three-way matching
+# Three-way matching and the variance posting
 
-Task 2.11. What a match is, what it refuses to do, and the one sentence an
-operator has to believe before using the screens.
+Tasks 2.11 and 2.12. What a match is, what posting one does to the ledger, and
+the one sentence an operator has to believe before using the screens.
 
-## A match decides, it does not pay
+## A match decides; posting the invoice is what pays
 
-**Making a match `READY` posts nothing.** No journal, no stock movement, no
-GRNI clearing, no change to the invoice — it is still `APPROVED` afterwards,
-and still unpaid. A match is the *evidence* that a supplier's charge is
-covered by deliveries the branch actually accepted. Turning that evidence into
-an entry is Task 2.12, and until 2.12 ships, a `READY` match is a decision
-waiting for one.
+**Making a match `READY` still posts nothing.** No journal, no stock movement,
+no GRNI clearing, no change to the invoice — it is `APPROVED` afterwards and
+unpaid. A match is the *evidence* that a supplier's charge is covered by
+deliveries the branch actually accepted.
 
-The detail screen says this in as many words, in Arabic, above the totals. It
-is there because a screen showing a price variance next to a frozen document
-looks exactly like a screen that posted it.
+**Posting the invoice is the act that reaches the ledger** (Task 2.12):
+
+    Dr  each direct charge account                     A
+    Dr  GRNI, per account the deliveries credited      R
+    Dr  purchase price variance clearing               D    (Cr if negative)
+        Cr  supplier payable                           A + V
+
+`R` is what the deliveries posted, `V` is what the supplier charges for the
+same goods, `D = V − R`. Debits less credits is `A + R + D − (A + V)`, which is
+zero — balanced by construction, not by a reconciliation afterwards. An invoice
+that agrees with its delivery produces a clean two-line entry: the variance
+line is **absent**, not zero.
+
+The detail screen changes its sentence the moment something posts. Before, it
+says matching is evidence and not money; after, it names the journal, the value
+cleared from GRNI, and the fact that no stock moved.
+
+### Where the difference goes, and where it does not
+
+Into `8-01-03-001 تسوية فروقات أسعار المشتريات`, a **clearing** account. Not
+cost of sales: a purchasing outcome is not a consumption outcome, and food cost
+must not move for reasons that have nothing to do with the kitchen (ADR-022).
+
+**That balance is meant to stand.** Nothing in this task empties it. A later,
+separately specified period-end process must split it between inventory still
+on hand and cost of sales for what was consumed, taking its branch and cost
+centre from inventory ownership — never from the supplier invoice. Until then
+`verify_parked_variance` proves every fils in it traces to a posting and to the
+allocation rows beneath that posting.
+
+**Nothing is revalued and no average moves.** Carrying the difference into
+inventory value where the goods are still on hand (PRC-044) is **deferred and
+not elected**: it has no approved permission, source identity, allocation
+policy or reversal rule, and a partial version would move a figure nobody could
+derive from a document they were shown.
+
+### Correcting a posted invoice
+
+One command, and the order inside it is load-bearing:
+
+    reverse the journal → mark the generation REVERSED → cancel the match,
+    releasing the deliveries → check nothing else depends on the invoice →
+    mark the invoice REVERSED
+
+As two separate operator actions there would be no legal order at all:
+cancelling first is refused while a live posting stands on the match, and
+reversing first is refused while the match's allocations are live. Reversing
+the generation first dissolves both, because a reversed generation governs
+nothing.
+
+Afterwards the deliveries are matchable again and the same invoice may be
+posted again from a new match, as **generation 2**. Its terms cannot change —
+the database refuses any edit — so what is being corrected is always the
+evidence. If the *invoice* was wrong, raise a replacement document instead.
 
 ## The three documents
 
@@ -64,20 +113,18 @@ exact remainder**. Three allocations against a 1,000.000 delivery come out at
 independently would lose a millifils, and Task 2.12 would then post a GRNI
 clearing that did not clear.
 
-## Price variance is a number here, not an entry
+## Price variance
 
     price_variance = invoice_allocated_value - receipt_allocated_value
 
 Positive means the supplier is charging more than the delivery posted. The
 database asserts the subtraction, so no path can store a difference its own
-components do not support. The header sums it.
+components do not support. The header sums it, and posting the invoice is what
+puts it in the ledger.
 
-That is the whole treatment at this task. The figure is displayed only to
-someone holding the cost permission, and the API omits it entirely otherwise —
-a null would still tell a warehouse user that a variance exists. Nothing posts
-it, `PURCHASE_PRICE_VARIANCE` is deliberately unmapped, and asking an
-accounting manager to map an account for a workflow that does not exist is how
-a chart of accounts fills up with roles nobody can explain.
+The figure is displayed only to someone holding the cost permission, and the
+API omits it entirely otherwise — a null would still tell a warehouse user that
+a variance exists.
 
 ## Derived line states
 
@@ -102,8 +149,10 @@ find.
 
 - **`DRAFT`** — allocations may be added and removed freely. Discarding one
   deletes it; it drew no number and burns nothing.
-- **`READY`** — frozen. Database triggers refuse every change to the match row
-  and to its allocations except the cancellation. It draws a gapless
+- **`READY`** — frozen, and the state a posting is made from. Database triggers
+  refuse every change to the match row and to its allocations except the
+  cancellation, and refuse the cancellation itself while a live posting stands
+  on it. It draws a gapless
   `MTC-YYYY-NNNNNN` number at this point, from its own counter rather than the
   procurement document sequence — a match is not a ledger document, and putting
   abandoned drafts through that sequence would leave gaps an auditor reads as
@@ -130,6 +179,10 @@ the match first and the delivery is reversible again — the reversal guard and
 the availability calculation are made to give the same answer on purpose, since
 a cancelled match that still held a delivery hostage would make the documented
 correction path a dead end.
+
+Once the invoice has **posted**, the match cannot be cancelled on its own
+either. Reverse the invoice: that unwinds the journal, cancels the match and
+releases the deliveries in one transaction, in that order.
 
 ## Screens
 

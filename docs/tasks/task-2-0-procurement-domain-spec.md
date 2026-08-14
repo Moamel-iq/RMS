@@ -2,6 +2,17 @@
 
 - **Status:** Specification only. Task 2.0 creates no models, migrations,
   services, API or UI. Implementation begins at Task 2.1.
+- **Implemented through Task 2.12** (price variance accounting). §9's posting
+  is live in full: GRNI clears at the delivered value, the payable takes the
+  invoiced value, and the difference is parked. Two amendments to this
+  document, both recorded in ADR-022 and ADR-023:
+  **(1)** §15's `PURCHASE_PRICE_VARIANCE | 5-02-01-001` is **superseded** by
+  `8-01-03-001`, class CLEARING. Class 5 sets `requires_cost_center` and a
+  supplier invoice has no cost centre to supply; ADR-022 separately rejects
+  booking a purchasing outcome as cost of sales.
+  **(2)** PRC-044's on-hand revaluation is **DEFERRED and NOT ELECTED** — its
+  permission, source identity, allocation policy and reversal rules are
+  undefined here, and inventing them was refused.
 - **Implemented through Task 2.11** (three-way matching). §9's allocation is
   live as `PurchaseMatchAllocation` beneath an explicit `PurchaseMatch` header,
   and its single `matched_value` is split into `receipt_allocated_value`,

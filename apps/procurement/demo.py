@@ -20,6 +20,7 @@ import datetime
 from decimal import Decimal
 
 from apps.accounting.models import (
+    PURCHASE_PRICE_VARIANCE,
     SUPPLIER_PAYABLE,
     Account,
     AccountRole,
@@ -202,10 +203,16 @@ CATALOGUE_EFFECTIVE_FROM = datetime.date(2026, 1, 1)
 #: demo's list: `SUPPLIER_PAYABLE` is not an inventory concept, and a module
 #: that maps another module's vocabulary is a dependency nobody declared.
 #:
-#: One entry, because Task 2.10 posts to one role. The rest of Task 2.0 §15
-#: joins as the tasks that post to them land.
+#: Two entries, because Tasks 2.10 and 2.12 post to two roles. The rest of Task
+#: 2.0 §15 joins as the tasks that post to them land.
+#:
+#: The variance account is a **clearing** account, not cost of sales: Task 2.0
+#: §15's `5-02-01-001` is superseded (ADR-022, amended at Task 2.12), because
+#: class 5 would demand a cost centre a supplier invoice has nowhere to get and
+#: because ADR-022 separately rejects booking a purchasing outcome as food cost.
 PROCUREMENT_ACCOUNT_MAPPINGS: list[tuple[str, str]] = [
     (SUPPLIER_PAYABLE, "2-01-01-001"),
+    (PURCHASE_PRICE_VARIANCE, "8-01-03-001"),
 ]
 
 
@@ -1319,5 +1326,18 @@ def seed_demo_matches(*, organization: Organization, matcher: User) -> list[Purc
         mark_match_ready(match=agreed, actor=matcher)
         agreed = PurchaseMatch.objects.get(pk=agreed.pk)
     matches.append(agreed)
+
+    # 3. And post it (Task 2.12). The whole reason the demo carries a real
+    # price difference rather than a contrived zero: this puts 84,000 back out
+    # of GRNI, 87,000 into the payable, and the 3,000 between them into the
+    # purchase price variance clearing account, where it is expected to sit
+    # until a later period-end process decides how much of it belongs to stock
+    # still on hand.
+    #
+    # Idempotent without a flag: `post_supplier_invoice` refuses an invoice
+    # that is already posted, so a second seed run finds it POSTED and skips.
+    goods_invoice.refresh_from_db()
+    if goods_invoice.status == SupplierInvoiceStatus.APPROVED:
+        post_supplier_invoice(invoice=goods_invoice, actor=matcher)
 
     return matches

@@ -50,6 +50,7 @@ from apps.procurement.matching import (
     coverage_for_invoice,
     create_purchase_match,
     delete_purchase_match,
+    live_posting_for,
     mark_match_ready,
     remove_allocation,
 )
@@ -872,12 +873,20 @@ class PurchaseMatchOut(Schema):
     supplier_invoice_status: str
     number: str
     status: str
-    #: Always false in Task 2.11. Task 2.12 is what makes a posting possible,
-    #: and until it exists this field says so rather than being absent and
-    #: leaving a client to guess.
+    #: Whether a live posting generation stands on this match. Derived from
+    #: the posting table, never stored on the match — a second copy of the
+    #: fact would drift the first time a reversal touched one and not the
+    #: other. False after a reversal, because the generation is history.
     is_financially_posted: bool
+    posting_generation: int | None = None
+    journal_entry: str | None = None
     total_matched_quantity: str
     total_price_variance: str | None = None
+    #: The three figures the posting actually used, behind the cost
+    #: permission. Omitted, not blanked, for a caller without it (PRC-061).
+    goods_cleared_value: str | None = None
+    invoice_matched_value: str | None = None
+    posted_price_variance: str | None = None
     allocations: list[MatchAllocationOut] = []
     coverage: list[MatchCoverageOut] = []
 
@@ -923,6 +932,7 @@ def _serialize_allocation(
 
 
 def _serialize_match(match: PurchaseMatch, *, include_cost: bool) -> dict[str, Any]:
+    posting = live_posting_for(match)
     allocations = list(
         match.allocations.select_related(
             "supplier_invoice_line",
@@ -943,8 +953,12 @@ def _serialize_match(match: PurchaseMatch, *, include_cost: bool) -> dict[str, A
         "supplier_invoice_status": match.supplier_invoice.status,
         "number": match.number,
         "status": match.status,
-        # Task 2.11 posts nothing. Stated rather than implied.
-        "is_financially_posted": False,
+        # Derived from the posting table rather than stored on the match, for
+        # the reason PRC-042 gives about line state: a second copy of a fact
+        # drifts the first time a reversal touches one and not the other.
+        "is_financially_posted": posting is not None,
+        "posting_generation": posting.generation if posting else None,
+        "journal_entry": posting.journal_entry.entry_number if posting else None,
         "total_matched_quantity": format(match.total_matched_quantity, "f"),
         "allocations": [
             _serialize_allocation(row, include_cost=include_cost) for row in allocations
@@ -973,6 +987,10 @@ def _serialize_match(match: PurchaseMatch, *, include_cost: bool) -> dict[str, A
     }
     if include_cost:
         payload["total_price_variance"] = format(match.total_price_variance, "f")
+        if posting is not None:
+            payload["goods_cleared_value"] = format(posting.goods_cleared_value, "f")
+            payload["invoice_matched_value"] = format(posting.invoice_matched_value, "f")
+            payload["posted_price_variance"] = format(posting.price_variance, "f")
     return payload
 
 

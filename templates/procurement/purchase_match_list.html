@@ -19,6 +19,7 @@
   <th>{% translate "الفاتورة" %}</th>
   <th>{% translate "التخصيصات" %}</th>
   <th>{% translate "الكمية المطابَقة" %}</th>
+  <th>{% translate "القيد المحاسبي" %}</th>
   {% if may_see_cost %}<th>{% translate "فرق السعر" %}</th>{% endif %}
   <th>{% translate "الحالة" %}</th>
   <th>{% translate "إجراءات" %}</th>
@@ -35,6 +36,13 @@
       <td><span dir="ltr">{{ row.supplier_invoice.supplier_invoice_number }}</span></td>
       <td>{{ row.allocations.count }}</td>
       <td><span dir="ltr">{{ row.total_matched_quantity|quantity }}</span></td>
+      <td>
+        {% if row.live_posting %}
+          <span class="chip chip--ok" dir="ltr">{{ row.live_posting.journal_entry.entry_number }}</span>
+        {% else %}
+          <span class="muted">{% translate "غير مُرحّلة" %}</span>
+        {% endif %}
+      </td>
       {% if may_see_cost %}
         <td><span dir="ltr">{{ row.total_price_variance|money_full }}</span></td>
       {% endif %}

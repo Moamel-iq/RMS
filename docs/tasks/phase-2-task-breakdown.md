@@ -196,6 +196,31 @@ mutation, reconciliation. ADR-022 is written here.
 
 Depends on: 2.11.
 
+**Delivered, with one half of the scope explicitly deferred.**
+
+*What shipped.* Posting a matched invoice clears GRNI at what the deliveries
+actually posted, credits the supplier with the whole invoice, and parks the
+difference. Each posting is a `SupplierInvoicePosting` **generation**, so the
+ordinary correction — reverse because the match was wrong, re-match, post again
+— works without a duplicate document and without the ledger mistaking the
+second entry for a retry of the first.
+
+*What was deferred, and why.* The **on-hand versus consumed split and the
+explicit revaluation path (PRC-044) are NOT ELECTED.** ADR-022 §4 asserted a
+permission and an audit event that no document ever defined, and the elected
+path additionally needs a source identity, an inventory-versus-cost-of-sales
+allocation policy, journal shapes for both directions, per-warehouse and
+per-lot allocation, and locking, reversal and period-close rules. Building a
+partial version would move an inventory figure nobody could derive from a
+document they were shown — the exact failure ADR-022 §4 exists to prevent. It
+becomes its own task with its own specification.
+
+*The account changed.* Task 2.0 §15's `5-02-01-001` is superseded: class 5
+demands a cost centre a supplier invoice has nowhere to get, and ADR-022 itself
+rejects booking a purchasing outcome as cost of sales. The difference parks in
+`8-01-03-001`, a clearing account, and its balance is expected to stand until
+the deferred period-end process splits it.
+
 ---
 
 ### Task 2.13 — Supplier returns

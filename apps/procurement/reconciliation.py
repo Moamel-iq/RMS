@@ -32,7 +32,14 @@ from decimal import Decimal
 
 from django.db.models import Sum
 
-from apps.accounting.models import JournalEntry
+from apps.accounting.models import (
+    GOODS_RECEIVED_NOT_INVOICED,
+    PURCHASE_PRICE_VARIANCE,
+    SUPPLIER_PAYABLE,
+    JournalEntry,
+    JournalLine,
+    OrganizationAccountMapping,
+)
 from apps.inventory.models import StockLocationMovement, StockMovement
 from apps.inventory.reconciliation import Discrepancy
 from apps.organizations.models import Organization
@@ -50,6 +57,9 @@ from apps.procurement.models import (
     Supplier,
     SupplierInvoice,
     SupplierInvoiceLine,
+    SupplierInvoiceLineType,
+    SupplierInvoicePosting,
+    SupplierInvoicePostingStatus,
     SupplierInvoiceStatus,
 )
 from apps.procurement.posting import SOURCE_DOCUMENT_TYPE
@@ -304,6 +314,8 @@ def verify_procurement(organization: Organization) -> list[str]:
     problems.extend(verify_invoice_charges(organization))
     problems.extend(verify_supplier_payables(organization))
     problems.extend(verify_matching(organization))
+    problems.extend(verify_grni_clearing(organization))
+    problems.extend(verify_parked_variance(organization))
     return [str(problem) for problem in problems]
 
 
@@ -312,6 +324,8 @@ __all__ = [
     "verify_grni",
     "verify_invoice_charges",
     "verify_order_received_quantities",
+    "verify_grni_clearing",
+    "verify_parked_variance",
     "verify_procurement",
     "verify_matching",
     "verify_supplier_invoice",
@@ -328,11 +342,24 @@ def verify_supplier_invoice(invoice: SupplierInvoice) -> list[Discrepancy]:
     """
     One posted invoice, across every representation of what it did.
 
-        posted amount == sum of stored line net amounts
-                      == the journal's debits
-                      == the payable credit
+        posted amount     == sum of stored line net amounts
+        payable credit    == the same figure, on `SUPPLIER_PAYABLE` alone
+        GRNI debit        == what the deliveries posted
+        variance movement == the difference, signed
 
     and, separately from all of those, that it moved no stock at all.
+
+    **Account-aware, and it has to be.** Task 2.10 compared the journal's total
+    debits and total credits against the line total, which was right while the
+    only entry shape was `Dr expense / Cr payable`. It is wrong the moment a
+    variance line exists: on a *cheaper* invoice the entry is
+    `Dr GRNI 70,000 / Cr variance 2,000 / Cr payable 68,000`, whose debits and
+    credits are both 70,000 against a line total of 68,000 — so both checks
+    would fire on a correct posting, and neither would fire on the dearer case,
+    where the arithmetic happens to cancel. A verifier that is wrong in one
+    direction and blind in the other is worse than none.
+
+    So each figure is checked against the account that carries it.
     """
     if invoice.status not in (SupplierInvoiceStatus.POSTED, SupplierInvoiceStatus.REVERSED):
         return []
@@ -368,23 +395,63 @@ def verify_supplier_invoice(invoice: SupplierInvoice) -> list[Discrepancy]:
         return problems
 
     journal_lines = list(invoice.journal_entry.lines.select_related("account"))
-    debits = sum((row.debit for row in journal_lines), ZERO)
-    credits = sum((row.credit for row in journal_lines), ZERO)
-    if debits != line_total:
+    posting = invoice.postings.select_related("purchase_match").order_by("-generation").first()
+
+    payable_account = _role_account(invoice.organization_id, SUPPLIER_PAYABLE)
+    payable_credit = sum(
+        (row.credit - row.debit for row in journal_lines if row.account_id == payable_account),
+        ZERO,
+    )
+    if payable_credit != line_total:
         problems.append(
-            Discrepancy(scope=label, field="journal_debits", expected=line_total, actual=debits)
+            Discrepancy(
+                scope=label, field="payable_credit", expected=line_total, actual=payable_credit
+            )
         )
-    if credits != line_total:
-        problems.append(
-            Discrepancy(scope=label, field="payable_credit", expected=line_total, actual=credits)
+
+    if posting is not None:
+        grni_accounts = {
+            row.contra_account_id
+            for row in GoodsReceiptLine.objects.filter(
+                match_allocations__match=posting.purchase_match
+            )
+            if row.contra_account_id is not None
+        }
+        grni_debit = sum(
+            (row.debit - row.credit for row in journal_lines if row.account_id in grni_accounts),
+            ZERO,
         )
+        if grni_debit != posting.goods_cleared_value:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="grni_cleared",
+                    expected=posting.goods_cleared_value,
+                    actual=grni_debit,
+                )
+            )
+        variance_account = _role_account(invoice.organization_id, PURCHASE_PRICE_VARIANCE)
+        variance_movement = sum(
+            (row.debit - row.credit for row in journal_lines if row.account_id == variance_account),
+            ZERO,
+        )
+        if variance_movement != posting.price_variance:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="price_variance",
+                    expected=posting.price_variance,
+                    actual=variance_movement,
+                )
+            )
 
     # PRC-038, asserted rather than assumed: this document is the reason the
     # goods receipt and the invoice are two models, so the claim that it moves
     # no stock is worth one query.
+    identities = {str(invoice.public_id)} | {str(row.public_id) for row in invoice.postings.all()}
     moved = StockMovement.objects.filter(
         entry__source_document_type=INVOICE_SOURCE_TYPE,
-        entry__source_document_id=str(invoice.public_id),
+        entry__source_document_id__in=identities,
     ).count()
     if moved:
         problems.append(Discrepancy(scope=label, field="stock_movements", expected=0, actual=moved))
@@ -398,11 +465,27 @@ def verify_supplier_invoice(invoice: SupplierInvoice) -> list[Discrepancy]:
                     scope=scope, field="line_net_amount", expected=expected, actual=line.net_amount
                 )
             )
-        if line.journal_line is None:
+        if line.journal_line is None and line.line_type == SupplierInvoiceLineType.ACCOUNT:
             problems.append(
                 Discrepancy(scope=scope, field="journal_line", expected="present", actual="missing")
             )
     return problems
+
+
+def _role_account(organization_id: int, role_code: str) -> int | None:
+    """
+    The account a role currently resolves to, or `None` where nobody has
+    mapped it. A verifier reads the mapping rather than a code, for the same
+    reason a posting service does (ADR-019).
+    """
+    return (
+        OrganizationAccountMapping.objects.filter(
+            organization_id=organization_id, account_role__code=role_code
+        )
+        .order_by("-effective_from")
+        .values_list("account_id", flat=True)
+        .first()
+    )
 
 
 def verify_invoice_charges(organization: Organization) -> list[Discrepancy]:
@@ -476,11 +559,20 @@ def verify_supplier_payables(organization: Organization) -> list[Discrepancy]:
                 )
             )
 
+    # A journal filed under this type names a **posting generation**, not the
+    # invoice — an invoice may reach the ledger more than once and ADR-017 has
+    # to tell the entries apart. Invoice ids stay in the set because entries
+    # posted before Task 2.12 introduced generations still carry them.
     known = {
         str(public_id)
         for public_id in SupplierInvoice.objects.filter(organization=organization).values_list(
             "public_id", flat=True
         )
+    } | {
+        str(public_id)
+        for public_id in SupplierInvoicePosting.objects.filter(
+            organization=organization
+        ).values_list("public_id", flat=True)
     }
     cited = JournalEntry.objects.filter(
         organization=organization, source_document_type=INVOICE_SOURCE_TYPE
@@ -627,13 +719,19 @@ def verify_matching(organization: Organization) -> list[Discrepancy]:
 
 def _verify_matching_moved_nothing(organization: Organization) -> list[Discrepancy]:
     """
-    The Task 2.12 boundary, asserted as reconciliation and not only as a unit
-    test.
+    Matching itself still posts nothing, and now it never will.
 
-    A journal or a stock movement citing a purchase match would mean somebody
-    built financial posting into the matching workspace, which is the one
-    thing Task 2.11 must not do — and a reconciliation that runs nightly finds
-    it whether or not anybody remembered to run the test.
+    Task 2.11 asserted that no journal and no stock movement cited a purchase
+    match. Half of that survives Task 2.12 unchanged and half of it had to
+    move. The **invoice** is what reaches the ledger, under its own source
+    identity; the matching workspace stayed non-financial, and a journal
+    filed under `PROCUREMENT_PURCHASE_MATCH` would still mean somebody built
+    posting into the wrong module.
+
+    The stock half is stronger than before, not weaker: **no procurement
+    invoice posting may move stock, ever**. PRC-038 said an invoice moves no
+    stock; PRC-043 adds that a price difference must not restate a posted
+    movement either. Both come to the same query.
     """
     from apps.procurement.matching import AUDIT_DOCUMENT_TYPE
 
@@ -648,12 +746,153 @@ def _verify_matching_moved_nothing(organization: Organization) -> list[Discrepan
             )
         )
     movements = StockMovement.objects.filter(
-        entry__source_document_type=AUDIT_DOCUMENT_TYPE
+        entry__source_document_type__in=(AUDIT_DOCUMENT_TYPE, INVOICE_SOURCE_TYPE),
+        entry__organization=organization,
     ).count()
     if movements:
         problems.append(
             Discrepancy(
                 scope=AUDIT_DOCUMENT_TYPE, field="stock_movements", expected=0, actual=movements
+            )
+        )
+    return problems
+
+
+def verify_grni_clearing(organization: Organization) -> list[Discrepancy]:
+    """
+    Invariant 47, and the reason GRNI is worth having at all.
+
+        the GRNI account balance
+            == the value of accepted receipt lines no posted invoice has cleared
+
+    ADR-023 §1 states it as the defining property of the account rather than as
+    a description of it: a reconciler who disagrees with the balance can be
+    shown the exact delivery lines that make it up.
+
+    **Cleared is not the same as matched**, and this is the subtlest thing in
+    the task. Task 2.11's availability excludes allocations on a cancelled
+    match, because a withdrawn claim holds no quantity. GRNI is an accounting
+    question and takes a narrower answer: a delivery stops sitting in GRNI when
+    an invoice **posts** against it, which means an allocation whose match
+    carries a **live** posting. A draft or ready match consumes availability
+    and clears nothing, which is exactly right — the evidence is agreed but
+    nobody has been billed.
+
+    Two sets, two purposes. Conflating them is how a matching workspace comes
+    to disagree with the ledger.
+
+    **Procurement's own contribution, not the whole account.** `GRNI` is
+    shared: Task 1.4's uninvoiced stock receipts credit the same account, for
+    the same reason — goods owned with no stated debt behind them yet. Those
+    are not procurement's to explain, and a verifier in this module that
+    claimed the whole balance would report a discrepancy the size of the
+    inventory module every time somebody received stock outside a purchase
+    order. So the ledger side is restricted to entries this module produced,
+    and the claim becomes exactly what procurement can prove: **what its own
+    documents put into GRNI, less what its own invoices have taken out, equals
+    the value of its accepted delivery lines that no posted invoice covers.**
+    """
+    grni_account = _role_account(organization.pk, GOODS_RECEIVED_NOT_INVOICED)
+    if grni_account is None:
+        return []
+
+    balance = ZERO
+    for row in JournalLine.objects.filter(
+        account_id=grni_account,
+        entry__organization=organization,
+        entry__source_document_type__in=(SOURCE_DOCUMENT_TYPE, INVOICE_SOURCE_TYPE),
+    ).values("debit", "credit"):
+        balance += row["credit"] - row["debit"]
+
+    cleared_ids = set(
+        PurchaseMatchAllocation.objects.filter(
+            match__postings__status=SupplierInvoicePostingStatus.LIVE
+        ).values_list("goods_receipt_line_id", flat=True)
+    )
+    cleared_value: dict[int, Decimal] = {}
+    for allocation in PurchaseMatchAllocation.objects.filter(
+        match__postings__status=SupplierInvoicePostingStatus.LIVE
+    ).values("goods_receipt_line_id", "receipt_allocated_value"):
+        key = allocation["goods_receipt_line_id"]
+        cleared_value[key] = cleared_value.get(key, ZERO) + allocation["receipt_allocated_value"]
+
+    outstanding = ZERO
+    for line in GoodsReceiptLine.objects.filter(
+        receipt__organization=organization, receipt__status=GoodsReceiptStatus.POSTED
+    ).values("id", "posted_value"):
+        posted = line["posted_value"] or ZERO
+        outstanding += posted - cleared_value.get(line["id"], ZERO)
+
+    if balance != outstanding:
+        return [
+            Discrepancy(
+                scope=organization.code,
+                field="procurement_grni_uncleared_receipt_value",
+                expected=outstanding,
+                actual=balance,
+            )
+        ]
+    _ = cleared_ids
+    return []
+
+
+def verify_parked_variance(organization: Organization) -> list[Discrepancy]:
+    """
+    Every fils in the purchase price variance clearing account traces to a
+    live posting, and to the allocation rows beneath it.
+
+    The balance is **expected to be non-zero and is not an error**. It is
+    parked, not classified: a later, separately specified period-end process
+    splits it between inventory still on hand and cost of sales for what has
+    been consumed, taking its branch and cost centre from inventory ownership
+    rather than from the supplier invoice. Until that exists, what this checks
+    is that the balance is exactly the sum of the differences somebody can be
+    shown, document by document.
+    """
+    variance_account = _role_account(organization.pk, PURCHASE_PRICE_VARIANCE)
+    if variance_account is None:
+        return []
+
+    balance = ZERO
+    for row in JournalLine.objects.filter(
+        account_id=variance_account, entry__organization=organization
+    ).values("debit", "credit"):
+        balance += row["debit"] - row["credit"]
+
+    claimed = ZERO
+    problems: list[Discrepancy] = []
+    for posting in SupplierInvoicePosting.objects.filter(
+        organization=organization, status=SupplierInvoicePostingStatus.LIVE
+    ).select_related("purchase_match", "supplier_invoice"):
+        claimed += posting.price_variance
+        rows = PurchaseMatchAllocation.objects.filter(match=posting.purchase_match).aggregate(
+            receipt=Sum("receipt_allocated_value"),
+            invoice=Sum("invoice_allocated_value"),
+            variance=Sum("price_variance"),
+        )
+        label = posting.supplier_invoice.number or str(posting.supplier_invoice.public_id)
+        for field, stored, summed in (
+            ("goods_cleared_value", posting.goods_cleared_value, rows["receipt"] or ZERO),
+            ("invoice_matched_value", posting.invoice_matched_value, rows["invoice"] or ZERO),
+            ("price_variance", posting.price_variance, rows["variance"] or ZERO),
+        ):
+            if stored != summed:
+                problems.append(
+                    Discrepancy(
+                        scope=f"{label}/{posting.generation}",
+                        field=field,
+                        expected=summed,
+                        actual=stored,
+                    )
+                )
+
+    if balance != claimed:
+        problems.append(
+            Discrepancy(
+                scope=organization.code,
+                field="parked_price_variance",
+                expected=claimed,
+                actual=balance,
             )
         )
     return problems

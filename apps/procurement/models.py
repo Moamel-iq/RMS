@@ -2597,18 +2597,21 @@ class SupplierInvoiceLine(TimeStampedModel):
 
 class PurchaseMatchStatus(models.TextChoices):
     """
-    Three states, and deliberately no `POSTED`.
+    Three states, and still deliberately no `POSTED` — now for a better reason
+    than when Task 2.11 wrote it.
 
-    Matching decides *what covers what*. Turning that into a payable and a
-    GRNI clearing is a separate act with its own accounting, and it is Task
-    2.12's. A `POSTED` value here would let a screen or an API say a match had
-    reached the ledger when nothing had, which is the one thing a matching
-    workspace must never imply.
+    Matching decides *what covers what*. Turning that into a payable and a GRNI
+    clearing is a separate act, and Task 2.12 made it one: a
+    `SupplierInvoicePosting` generation, which knows whether it is live and
+    which journal it produced. Adding a fourth value here would be a second
+    copy of a fact that table already holds, and the two would drift the first
+    time a reversal touched one and not the other. `live_posting_for(match)`
+    derives it instead, exactly as line match state is derived (PRC-042).
 
-    `READY` therefore means "the evidence is complete and immutable" and
-    nothing more. Task 2.12 adds the financial transition, and the test that
-    asserts this enum has exactly these three values is the boundary marker it
-    must deliberately replace.
+    `READY` therefore still means "the evidence is complete and immutable" and
+    nothing more. What changed at Task 2.12 is that a `READY` match may now be
+    *stood on* by a live posting, and cancelling one that is refuses — in the
+    service and at the database both.
     """
 
     DRAFT = "DRAFT", _("مسودة")
@@ -2943,3 +2946,277 @@ class PurchaseMatchAllocation(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.match} · {self.sequence}"
+
+
+# ---------------------------------------------------------------------------
+# The financial posting of a matched invoice (Task 2.12)
+# ---------------------------------------------------------------------------
+
+
+class SupplierInvoicePostingStatus(models.TextChoices):
+    """Two states. A posting is live, or it has been reversed by its own twin."""
+
+    LIVE = "LIVE", _("سارٍ")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class SupplierInvoicePosting(TimeStampedModel):
+    """
+    One generation of the financial posting of one matched supplier invoice.
+
+    Task 2.11 decided *what covers what*. This is the act that turns that into
+    money: it clears from GRNI exactly what the deliveries posted, credits the
+    supplier with exactly what they are charging, and parks the difference.
+
+    ## Why a record and not just a journal
+
+    Because "has this invoice been posted?", "may this match be cancelled?" and
+    "may this delivery be reversed?" are the same question, and the answer has
+    to survive a correction. A boolean on the invoice cannot express *posted,
+    then reversed, then posted again from a corrected match* — and that
+    sequence is the ordinary correction path, not an exotic one.
+
+    So each posting is a **generation**. Generation 1 posts; reversing it marks
+    that generation `REVERSED` and leaves it in place; a replacement match
+    produces generation 2. Nothing is edited and nothing is deleted, and the
+    history reads as what happened rather than as the latest opinion.
+
+    ## What "live" governs
+
+    While a `LIVE` posting exists for an invoice:
+
+    - its match cannot be cancelled — the ledger is standing on it;
+    - its allocations stay frozen, as they already are from `READY`;
+    - the deliveries it cites cannot be reversed;
+    - the invoice cannot be posted again.
+
+    Every one of those reads the same predicate, `status=LIVE`, rather than
+    each guard inventing its own idea of "in use". A reversed generation
+    governs nothing: it is history, and history holds nothing hostage. That is
+    the property that makes the correction path work — the guard that stops a
+    match being cancelled underneath a live ledger entry must not also be the
+    guard that stops the reversal from ever happening.
+
+    ## Source identity
+
+    The journal names **this record's** `public_id`, not the invoice's. An
+    invoice may legitimately reach the ledger twice — posted, reversed,
+    re-posted from a corrected match — and ADR-017's source identity has to
+    tell those two entries apart. Keying on the invoice would make the second
+    posting look like a retry of the first, and the kernel would refuse it.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="supplier_invoice_postings",
+        verbose_name=_("organization"),
+    )
+    #: `PROTECT` throughout. A posted record is evidence, and evidence does not
+    #: disappear because somebody deleted the thing it describes.
+    supplier_invoice = models.ForeignKey(
+        SupplierInvoice,
+        on_delete=models.PROTECT,
+        related_name="postings",
+        verbose_name=_("supplier invoice"),
+    )
+    #: The match this generation posted from. Retained after reversal: "which
+    #: evidence did we act on" is exactly what an auditor asks.
+    #:
+    #: Null on an invoice with no goods on it. A delivery charge or a repair
+    #: bill is matched against nothing — there is no delivery to compare it to
+    #: — and inventing an empty match for it would put a row in the matching
+    #: workspace that says nothing and that somebody would have to explain.
+    purchase_match = models.ForeignKey(
+        PurchaseMatch,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="postings",
+        verbose_name=_("purchase match"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    #: 1, 2, 3 … per invoice. How many times this invoice has reached the
+    #: ledger, and the reason a re-post is not mistaken for a retry.
+    generation = models.PositiveIntegerField(_("generation"), default=1)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=SupplierInvoicePostingStatus.choices,
+        default=SupplierInvoicePostingStatus.LIVE,
+    )
+
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        related_name="supplier_invoice_postings",
+        verbose_name=_("journal entry"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_invoice_postings",
+        verbose_name=_("reversal journal entry"),
+    )
+
+    #: The allocation set this generation acted on, hashed. Copied from the
+    #: match rather than recomputed, so the posting names the exact evidence
+    #: that existed when it ran. Empty where there was no match.
+    allocation_fingerprint = models.CharField(
+        _("allocation fingerprint"), max_length=64, blank=True
+    )
+
+    #: What the deliveries posted, and therefore what clears from GRNI.
+    #: `SUM(allocation.receipt_allocated_value)`.
+    goods_cleared_value = models.DecimalField(
+        _("goods cleared from GRNI"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: What the supplier charges for those same goods.
+    #: `SUM(allocation.invoice_allocated_value)`.
+    invoice_matched_value = models.DecimalField(
+        _("invoiced value of matched goods"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+    )
+    #: `invoice_matched_value - goods_cleared_value`, signed. Positive means
+    #: the supplier is charging more than the delivery posted.
+    price_variance = models.DecimalField(
+        _("price variance"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: The direct-charge lines — freight, repairs, subscriptions — which post
+    #: to their own accounts and have nothing to do with matching.
+    direct_charge_value = models.DecimalField(
+        _("direct charges"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: What the supplier is owed: the whole invoice, never a re-derivation.
+    payable_value = models.DecimalField(
+        _("supplier payable"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="posted_supplier_invoice_postings",
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"))
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_invoice_postings",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    history = HistoricalRecords()
+
+    #: Task 2.9's and Task 2.10's reversal guards ask each dependent relation
+    #: which of its rows still stand. For a posting the answer is `LIVE`: a
+    #: reversed generation is history and holds nothing hostage.
+    live_dependency = Q(status="LIVE")
+
+    class Meta:
+        verbose_name = _("supplier invoice posting")
+        verbose_name_plural = _("supplier invoice postings")
+        ordering = ["supplier_invoice", "generation"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["supplier_invoice", "generation"],
+                name="procurement_posting_generation_unique",
+            ),
+            # At most one live generation per invoice. This is what makes
+            # "already posted" a database fact rather than a service opinion,
+            # and it is what two concurrent posts of one invoice collide on
+            # when both pass the status check.
+            models.UniqueConstraint(
+                fields=["supplier_invoice"],
+                condition=Q(status="LIVE"),
+                name="procurement_one_live_posting_per_invoice",
+            ),
+            # And at most one live generation per match. A match is one agreed
+            # answer; posting it twice would clear the same GRNI twice. Nulls
+            # do not collide in a Postgres unique index, which is the right
+            # answer here: two direct-charge invoices share no evidence.
+            models.UniqueConstraint(
+                fields=["purchase_match"],
+                condition=Q(status="LIVE", purchase_match__isnull=False),
+                name="procurement_one_live_posting_per_match",
+            ),
+            # Goods figures and a match arrive together or not at all.
+            models.CheckConstraint(
+                condition=Q(purchase_match__isnull=False)
+                | Q(goods_cleared_value=0, invoice_matched_value=0, price_variance=0),
+                name="procurement_posting_goods_need_a_match",
+            ),
+            models.CheckConstraint(
+                condition=Q(generation__gte=1),
+                name="procurement_posting_generation_is_positive",
+            ),
+            # The variance is its own arithmetic, asserted here as it is on the
+            # allocation rows, so no path can store a difference its own
+            # components do not support.
+            models.CheckConstraint(
+                condition=Q(
+                    price_variance=models.F("invoice_matched_value")
+                    - models.F("goods_cleared_value")
+                ),
+                name="procurement_posting_variance_is_the_difference",
+            ),
+            # The payable is the whole invoice: direct charges plus the
+            # invoiced value of the matched goods. A full match makes the
+            # second term exactly the inventory lines' net total, because the
+            # final allocation against a line takes the exact remainder.
+            models.CheckConstraint(
+                condition=Q(
+                    payable_value=models.F("direct_charge_value")
+                    + models.F("invoice_matched_value")
+                ),
+                name="procurement_posting_payable_is_the_whole_invoice",
+            ),
+            models.CheckConstraint(
+                condition=Q(goods_cleared_value__gte=0)
+                & Q(invoice_matched_value__gte=0)
+                & Q(direct_charge_value__gte=0)
+                & Q(payable_value__gt=0),
+                name="procurement_posting_values_are_not_negative",
+            ),
+            # A reversal is complete or it did not happen.
+            models.CheckConstraint(
+                condition=~Q(status="REVERSED")
+                | Q(
+                    reversal_journal_entry__isnull=False,
+                    reversed_by__isnull=False,
+                    reversed_at__isnull=False,
+                )
+                & ~Q(reversal_reason=""),
+                name="procurement_posting_reversal_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="REVERSED")
+                | Q(
+                    reversal_journal_entry__isnull=True,
+                    reversed_by__isnull=True,
+                    reversed_at__isnull=True,
+                    reversal_reason="",
+                ),
+                name="procurement_posting_live_carries_no_reversal",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="posting_org_status_idx"),
+            models.Index(fields=["supplier_invoice", "status"], name="posting_invoice_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.supplier_invoice.supplier_invoice_number} · {self.generation}"
+
+    @property
+    def is_live(self) -> bool:
+        return self.status == SupplierInvoicePostingStatus.LIVE

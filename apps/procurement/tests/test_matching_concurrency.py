@@ -38,9 +38,11 @@ from django.db import IntegrityError
 from apps.accounting.models import (
     GOODS_RECEIVED_NOT_INVOICED,
     INVENTORY_CONTROL,
+    PURCHASE_PRICE_VARIANCE,
     SUPPLIER_PAYABLE,
     Account,
     AccountRole,
+    JournalEntry,
 )
 from apps.accounting.services import (
     configure_accounting,
@@ -60,9 +62,12 @@ from apps.procurement.invoices import (
     add_inventory_line,
     approve_supplier_invoice,
     create_supplier_invoice,
+    post_supplier_invoice,
+    reverse_supplier_invoice,
 )
 from apps.procurement.matching import (
     add_allocation,
+    cancel_purchase_match,
     create_purchase_match,
     mark_match_ready,
     receipt_availability,
@@ -73,6 +78,7 @@ from apps.procurement.models import (
     PurchaseMatchAllocation,
     PurchaseMatchStatus,
     SupplierInvoice,
+    SupplierInvoicePosting,
 )
 from apps.procurement.posting import post_goods_receipt, reverse_goods_receipt
 from apps.procurement.services import (
@@ -119,6 +125,7 @@ class _Scene:
             (INVENTORY_CONTROL, "1-03-01-001"),
             (GOODS_RECEIVED_NOT_INVOICED, "2-01-02-001"),
             (SUPPLIER_PAYABLE, "2-01-01-001"),
+            (PURCHASE_PRICE_VARIANCE, "8-01-03-001"),
         ):
             create_account_mapping(
                 organization=self.organization,
@@ -466,3 +473,164 @@ class TestMatchingConcurrency:
             assert match.cancellation_reason
         else:
             assert match.ready_at is not None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestPostingConcurrency:
+    """
+    Real-COMMIT races around the entry Task 2.12 posts.
+
+    Each one is a pair of operators doing something reasonable at the same
+    moment. What must never happen is two payables for one invoice, GRNI
+    cleared twice, or a match released while the ledger still stands on it.
+    """
+
+    def test_two_posts_of_one_invoice(self, settings: object) -> None:
+        """
+        The expensive one. Both threads pass the status check, and only one may
+        reach the ledger — first on the invoice row lock, and independently on
+        the partial unique index over live generations.
+        """
+        scene = _Scene()
+        receipt = scene.receipt(item=scene.rice, quantity="100.000", reference="DN-P1")
+        invoice = scene.invoice(reference="INV-P1")
+        match = scene.match(invoice)
+        with audit_context(actor=scene.clerk):
+            add_allocation(
+                match=match,
+                invoice_line=invoice.lines.get(),
+                receipt_line=receipt.lines.get(),
+                matched_base_quantity=Decimal("100.000"),
+                created_by=scene.clerk,
+            )
+            mark_match_ready(match=match, actor=scene.clerk)
+
+        def post() -> None:
+            with audit_context(actor=scene.controller):
+                post_supplier_invoice(
+                    invoice=SupplierInvoice.objects.get(pk=invoice.pk), actor=scene.controller
+                )
+
+        results = _run(post, post)
+        assert sorted(results) == ["already_posted", "ok"], results
+        assert SupplierInvoicePosting.objects.filter(status="LIVE").count() == 1
+        assert (
+            JournalEntry.objects.filter(
+                source_document_type="PROCUREMENT_SUPPLIER_INVOICE",
+                source_event="POSTED",
+            ).count()
+            == 1
+        )
+
+    def test_posting_racing_its_own_match_cancellation(self, settings: object) -> None:
+        """
+        Either the posting lands and the cancellation is refused because the
+        ledger now stands on the match, or the cancellation lands and the
+        posting is refused because there is no ready match to post from.
+        Both orders are safe; a cleared GRNI beside a released delivery is not.
+        """
+        scene = _Scene()
+        receipt = scene.receipt(item=scene.rice, quantity="100.000", reference="DN-P2")
+        invoice = scene.invoice(reference="INV-P2")
+        match = scene.match(invoice)
+        with audit_context(actor=scene.clerk):
+            add_allocation(
+                match=match,
+                invoice_line=invoice.lines.get(),
+                receipt_line=receipt.lines.get(),
+                matched_base_quantity=Decimal("100.000"),
+                created_by=scene.clerk,
+            )
+            mark_match_ready(match=match, actor=scene.clerk)
+
+        def post() -> None:
+            with audit_context(actor=scene.controller):
+                post_supplier_invoice(
+                    invoice=SupplierInvoice.objects.get(pk=invoice.pk), actor=scene.controller
+                )
+
+        def withdraw() -> None:
+            with audit_context(actor=scene.controller):
+                cancel_purchase_match(
+                    match=PurchaseMatch.objects.get(pk=match.pk),
+                    actor=scene.controller,
+                    reason="سحب المطابقة",
+                )
+
+        _run(post, withdraw)
+        invoice.refresh_from_db()
+        match.refresh_from_db()
+        if invoice.status == "POSTED":
+            assert match.status != "CANCELLED"
+            assert SupplierInvoicePosting.objects.filter(status="LIVE").count() == 1
+        else:
+            assert match.status == "CANCELLED"
+            assert not SupplierInvoicePosting.objects.exists()
+
+    def test_posting_racing_a_receipt_reversal(self, settings: object) -> None:
+        """A delivery cited by a live posting cannot be undone underneath it."""
+        scene = _Scene()
+        receipt = scene.receipt(item=scene.rice, quantity="100.000", reference="DN-P3")
+        invoice = scene.invoice(reference="INV-P3")
+        match = scene.match(invoice)
+        with audit_context(actor=scene.clerk):
+            add_allocation(
+                match=match,
+                invoice_line=invoice.lines.get(),
+                receipt_line=receipt.lines.get(),
+                matched_base_quantity=Decimal("100.000"),
+                created_by=scene.clerk,
+            )
+            mark_match_ready(match=match, actor=scene.clerk)
+
+        def post() -> None:
+            with audit_context(actor=scene.controller):
+                post_supplier_invoice(
+                    invoice=SupplierInvoice.objects.get(pk=invoice.pk), actor=scene.controller
+                )
+
+        def undo() -> None:
+            with audit_context(actor=scene.controller):
+                reverse_goods_receipt(
+                    receipt=GoodsReceipt.objects.get(pk=receipt.pk),
+                    actor=scene.controller,
+                    reason="أُعيدت",
+                )
+
+        _run(post, undo)
+        receipt.refresh_from_db()
+        if receipt.status != "POSTED":
+            assert not SupplierInvoicePosting.objects.filter(status="LIVE").exists()
+
+    def test_two_reversals_of_one_posting(self, settings: object) -> None:
+        """One reversing journal, one cancelled match, no double credit."""
+        scene = _Scene()
+        receipt = scene.receipt(item=scene.rice, quantity="100.000", reference="DN-P4")
+        invoice = scene.invoice(reference="INV-P4")
+        match = scene.match(invoice)
+        with audit_context(actor=scene.clerk):
+            add_allocation(
+                match=match,
+                invoice_line=invoice.lines.get(),
+                receipt_line=receipt.lines.get(),
+                matched_base_quantity=Decimal("100.000"),
+                created_by=scene.clerk,
+            )
+            mark_match_ready(match=match, actor=scene.clerk)
+        with audit_context(actor=scene.controller):
+            post_supplier_invoice(
+                invoice=SupplierInvoice.objects.get(pk=invoice.pk), actor=scene.controller
+            )
+
+        def undo() -> None:
+            with audit_context(actor=scene.controller):
+                reverse_supplier_invoice(
+                    invoice=SupplierInvoice.objects.get(pk=invoice.pk),
+                    actor=scene.controller,
+                    reason="خطأ",
+                )
+
+        results = _run(undo, undo)
+        assert sorted(results) == ["already_reversed", "ok"], results
+        assert SupplierInvoicePosting.objects.filter(status="REVERSED").count() == 1
+        assert JournalEntry.objects.filter(source_event="REVERSED").count() == 1

@@ -1,6 +1,8 @@
 # ADR-022 — Supplier return valuation and purchase variance treatment
 
-- **Status:** **Proposed** (2026-08-11, Task 2.0). To be accepted at Task 2.12.
+- **Status:** **Accepted** (Task 2.12, 2026-08-14). Decisions 3, 4 and the price
+  half of 5 are implemented; 1, 2 and the return half of 5 remain proposed until
+  Task 2.13 posts a supplier return.
 - **Date:** 2026-08-11
 - **Related:** ADR-006 (rounding), ADR-012 (money and allocation), ADR-013
   (periods), ADR-017 (source identity), ADR-018 (moving weighted average, the
@@ -110,7 +112,23 @@ restated forward from today — which the inventory kernel already supports and
 tests.
 
 Release 1 does **not** do this automatically. The default is: variance to the
-expense account, inventory value untouched.
+clearing account, inventory value untouched.
+
+**Amendment (Task 2.12): PRC-044 is formally DEFERRED and NOT ELECTED.** Not
+merely "off by default" — unbuilt. The elected path needs a permission code, a
+source-document identity, an inventory-versus-cost-of-sales allocation policy,
+journal shapes for both directions, per-warehouse and per-lot allocation, and
+locking, idempotency, reversal and period-close rules. None of those exist in
+any approved document, and this ADR asserted a permission and an audit event it
+never defined. A partial implementation would move an inventory figure nobody
+could derive from a document they were shown, which is the exact failure
+decision 4 exists to prevent.
+
+Task 2.12 therefore posts the whole difference to the clearing account, creates
+no inventory movement, and never rewrites a moving average — asserted by tests
+on the stock balance's quantity, value and average cost either side of a
+posting. The balance stays open and reconcilable by invoice, match and
+allocation until the revaluation feature is specified and approved.
 
 **Why not automate it.** Stock is usually partly consumed by the time the
 invoice arrives, so an automatic rule has to split the variance between "adjust
@@ -125,10 +143,35 @@ own audit event, taken by somebody who knows why.
 
 ### 5. Two new account roles, resolved the usual way
 
-| Role | Scope | Carries |
-|---|---|---|
-| `PURCHASE_PRICE_VARIANCE` | organization | Invoice-versus-receipt differences |
-| `PURCHASE_RETURN_VARIANCE` | organization | Average-versus-credit differences |
+| Role | Scope | Account | Carries |
+|---|---|---|---|
+| `PURCHASE_PRICE_VARIANCE` | organization | `8-01-03-001`, class CLEARING | Invoice-versus-receipt differences |
+| `PURCHASE_RETURN_VARIANCE` | organization | to be decided at Task 2.13 | Average-versus-credit differences |
+
+**Amendment (Task 2.12): the variance account is a clearing account, and Task
+2.0 §15's `5-02-01-001` is superseded.**
+
+Two independent reasons, either sufficient. Mechanically, class 5 sets
+`requires_cost_center`, and a supplier invoice has no cost centre to give: the
+document belongs to a branch, not to a department, and
+`SupplierInvoiceLine.cost_center` is constrained to direct-account lines.
+Substantively, this ADR's own rejected alternatives include *"post the variance
+to cost of goods sold directly — conflates a purchasing outcome with a
+consumption outcome"*, and `5-02-01-001` is a cost-of-sales code.
+
+So the difference is **parked, not classified**. It sits in
+`8-01-03-001 تسوية فروقات أسعار المشتريات`, beside the chart's other
+bidirectional difference accounts, and its balance is **expected to be non-zero
+and is not a fault**. `verify_parked_variance` checks that every fils in it
+traces to a live posting and to the allocation rows beneath that posting, which
+is the strongest claim available until the balance is split.
+
+**The split is a required future accounting step.** A later, separately
+specified period-end process must distribute this balance between inventory
+valuation for quantities still on hand and cost of sales for quantities already
+consumed or sold, taking its branch and cost centre from inventory ownership
+and consumption — **never** from the supplier invoice. Task 2.12 does not build
+it and does not guess at it.
 
 Both organization-scoped, both effective-dated `OrganizationAccountMapping`
 rows, both resolved at the business date by the posting service, which names

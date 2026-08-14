@@ -45,10 +45,27 @@
       {% if match.status == "CANCELLED" %}
         <dt>{% translate "سبب الإلغاء" %}</dt><dd>{{ match.cancellation_reason }}</dd>
       {% endif %}
+      {% if posting %}
+        <dt>{% translate "القيد المحاسبي" %}</dt>
+        <dd><span dir="ltr">{{ posting.journal_entry.entry_number }}</span>
+          <span class="chip">{% translate "الترحيل رقم" %} {{ posting.generation }}</span></dd>
+        {% if may_see_cost %}
+          <dt>{% translate "المُسوّى من البضاعة المستلمة غير المفوترة" %}</dt>
+          <dd><span dir="ltr">{{ posting.goods_cleared_value|money_full }}</span></dd>
+          <dt>{% translate "قيمة الفاتورة المطابقة" %}</dt>
+          <dd><span dir="ltr">{{ posting.invoice_matched_value|money_full }}</span></dd>
+        {% endif %}
+      {% endif %}
     </dl>
-    <p class="muted">
-      {% translate "المطابقة أدلة، لا نقود. لا تُنشئ قيداً محاسبياً ولا تُسوّي حساب البضاعة المستلمة غير المفوترة ولا تُحرّك مخزوناً، وتبقى الفاتورة معتمدة حتى يأتي الترحيل المالي في مهمة لاحقة." %}
-    </p>
+    {% if posting %}
+      <p class="muted">
+        {% translate "رُحِّلت هذه المطابقة مالياً: سُوّي حساب البضاعة المستلمة غير المفوترة بقيمة ما استلمته المخازن فعلاً، وقُيِّد الفرق في حساب تسوية فروقات أسعار المشتريات. لم تتحرّك أي كمية مخزنية ولم يتغيّر متوسط التكلفة." %}
+      </p>
+    {% else %}
+      <p class="muted">
+        {% translate "المطابقة أدلة، لا نقود. لا تُنشئ قيداً محاسبياً ولا تُسوّي حساب البضاعة المستلمة غير المفوترة ولا تُحرّك مخزوناً، وتبقى الفاتورة معتمدة حتى تُرحَّل مالياً." %}
+      </p>
+    {% endif %}
   </div>
 
   <div class="formcard">
@@ -182,15 +199,19 @@
           <button class="btn btn--primary" type="submit">{% translate "إجازة المطابقة" %}</button>
         </form>
       {% endif %}
+    {% elif match.status == "READY" and posting %}
+      <p class="muted">
+        {% translate "الأدلة مُجمّدة والفاتورة مُرحّلة. التصحيح يكون بعكس الفاتورة: ذلك يعكس القيد ويُلغي هذه المطابقة ويُحرّر الشحنات، ثم تُفتح مطابقة جديدة وتُرحَّل الفاتورة من جديد." %}
+      </p>
     {% elif match.status == "READY" %}
       <p class="muted">
-        {% translate "الأدلة مُجمّدة. لم يُرحَّل أي مبلغ: لا قيد محاسبي ولا تسوية لحساب البضاعة المستلمة غير المفوترة ولا تسجيل لفرق السعر. الفاتورة ما زالت معتمدة، والترحيل المالي مهمة لاحقة." %}
+        {% translate "الأدلة مُجمّدة ولم يُرحَّل أي مبلغ بعد. ترحيل الفاتورة هو ما يُسوّي حساب البضاعة المستلمة غير المفوترة ويُنشئ الذمة." %}
       </p>
     {% else %}
       <p class="muted">{% translate "ملغاة. الكميات والقيم التي كانت محجوزة عادت متاحة للمطابقة." %}</p>
     {% endif %}
 
-    {% if may_cancel %}
+    {% if may_cancel and not posting %}
       <form method="post" action="{% url 'procurement:purchase_match_cancel' match.pk %}">
         {% csrf_token %}
         <label class="field">

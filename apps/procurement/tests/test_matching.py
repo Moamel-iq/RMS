@@ -35,6 +35,7 @@ from django.urls import reverse
 from apps.accounting.models import (
     GOODS_RECEIVED_NOT_INVOICED,
     INVENTORY_CONTROL,
+    PURCHASE_PRICE_VARIANCE,
     SUPPLIER_PAYABLE,
     Account,
     AccountRole,
@@ -148,6 +149,9 @@ def mapped(organization: Organization, accounting: None) -> None:
         (INVENTORY_CONTROL, "1-03-01-001"),
         (GOODS_RECEIVED_NOT_INVOICED, "2-01-02-001"),
         (SUPPLIER_PAYABLE, "2-01-01-001"),
+        # Mapped as of Task 2.12: a match whose invoice posts needs somewhere
+        # to park the difference. Matching itself never resolves it.
+        (PURCHASE_PRICE_VARIANCE, "8-01-03-001"),
     ):
         create_account_mapping(
             organization=organization,
@@ -466,9 +470,31 @@ class TestTheStepFourteenBoundary:
         """
         assert set(PurchaseMatchStatus.values) == {"DRAFT", "READY", "CANCELLED"}
 
-    def test_the_variance_role_is_still_unmapped(self) -> None:
-        """`PURCHASE_PRICE_VARIANCE` arrives with the task that posts to it."""
-        assert not AccountRole.objects.filter(code="PURCHASE_PRICE_VARIANCE").exists()
+    def test_the_variance_role_exists_but_matching_never_resolves_it(self) -> None:
+        """
+        The positive twin of Task 2.11's "still unmapped".
+
+        Task 2.12 seeded the role, because Task 2.12 is what posts to it. What
+        stayed true is the part that mattered: **matching never resolves an
+        account**. A price difference is computed and displayed here and put
+        into a ledger somewhere else entirely.
+        """
+        from pathlib import Path
+
+        from apps.procurement import matching as matching_module
+
+        assert AccountRole.objects.filter(code="PURCHASE_PRICE_VARIANCE").exists()
+
+        assert matching_module.__file__ is not None
+        source = Path(matching_module.__file__).read_text(encoding="utf-8")
+        for forbidden in (
+            "resolve_default_account",
+            "resolve_inventory_account",
+            "post_entry",
+            "PURCHASE_PRICE_VARIANCE",
+            "GOODS_RECEIVED_NOT_INVOICED",
+        ):
+            assert forbidden not in source, f"{forbidden} belongs to the posting service"
 
     def test_the_api_says_it_posted_nothing(
         self,
@@ -1238,39 +1264,54 @@ class TestMatchability:
             )
         assert error.value.code == "receipt_not_posted"
 
-    def test_a_reversed_invoice_cannot_be_matched(
+    def test_a_reversed_invoice_may_be_matched_again(
         self,
-        grocery: Supplier,
-        branch: Branch,
+        invoice: SupplierInvoice,
+        receipt: GoodsReceipt,
         clerk: User,
         controller: User,
-        organization: Organization,
-        mapped: None,
     ) -> None:
+        """
+        The twin of Task 2.11's "a reversed invoice cannot be matched", and it
+        had to flip.
+
+        Task 2.11 refused it because a reversed invoice was a debt that no
+        longer existed and could never exist again. Task 2.12 gave reversal a
+        second meaning that is now the ordinary one: **the match was wrong**.
+        The invoice is right, the supplier is owed exactly what it says, and
+        what has to change is which deliveries it was set against. Refusing to
+        re-match it would leave a correct invoice permanently unpostable and
+        force a duplicate supplier reference into the system.
+
+        What refuses instead is matching a **posted** invoice, which Task 2.11
+        silently permitted.
+        """
         from apps.procurement.invoices import post_supplier_invoice
 
-        raw = create_supplier_invoice(
-            supplier=grocery,
-            branch=branch,
+        first = create_purchase_match(invoice=invoice, created_by=clerk)
+        add_allocation(
+            match=first,
+            invoice_line=invoice.lines.get(),
+            receipt_line=receipt.lines.get(),
+            matched_base_quantity=Decimal("50.000"),
             created_by=clerk,
-            supplier_invoice_number="INV-REV",
-            invoice_date=INVOICED,
-            business_date=INVOICED,
         )
-        add_account_line(
-            invoice=raw,
-            account=Account.objects.get(organization=organization, code="5-01-02-003"),
-            cost_center=CostCenter.objects.get(organization=organization, code="DELIVERY"),
-            description="أجور نقل",
-            quantity=Decimal("1.000"),
-            unit_price=Decimal("5000.000000"),
-        )
-        approve_supplier_invoice(invoice=raw, actor=controller)
-        posted = post_supplier_invoice(invoice=raw, actor=controller)
-        reversed_invoice = reverse_supplier_invoice(invoice=posted, actor=controller, reason="خطأ")
+        mark_match_ready(match=first, actor=clerk)
+        post_supplier_invoice(invoice=invoice, actor=controller)
+
         with pytest.raises(ValidationError) as error:
-            create_purchase_match(invoice=reversed_invoice, created_by=clerk)
-        assert error.value.code == "invoice_reversed"
+            create_purchase_match(
+                invoice=SupplierInvoice.objects.get(pk=invoice.pk), created_by=clerk
+            )
+        assert error.value.code == "invoice_already_posted"
+
+        reverse_supplier_invoice(
+            invoice=SupplierInvoice.objects.get(pk=invoice.pk), actor=controller, reason="خطأ"
+        )
+        second = create_purchase_match(
+            invoice=SupplierInvoice.objects.get(pk=invoice.pk), created_by=clerk
+        )
+        assert second.status == PurchaseMatchStatus.DRAFT
 
     def test_a_matched_receipt_cannot_be_reversed(
         self, match: PurchaseMatch, invoice: SupplierInvoice, receipt: GoodsReceipt, clerk: User

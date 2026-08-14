@@ -81,6 +81,7 @@ from apps.procurement.matching import (
     cancel_purchase_match,
     coverage_for_invoice,
     create_purchase_match,
+    live_posting_for,
     mark_match_ready,
     remove_allocation,
 )
@@ -1723,6 +1724,8 @@ class PurchaseMatchListView(InventoryListView):
         context["statuses"] = PurchaseMatchStatus.choices
         context["selected_status"] = self.request.GET.get("status", "")
         context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        for row in context.get("matches", []):
+            row.live_posting = live_posting_for(row)
         return context
 
 
@@ -1812,6 +1815,10 @@ class PurchaseMatchDetailView(InventoryViewMixin, View):
                 "purchase_order_line__order",
             ).order_by("sequence"),
             "coverage": coverage_for_invoice(invoice),
+            # Derived, never stored: whether a generation currently stands on
+            # this match. `None` after a reversal, because the generation is
+            # history and history holds nothing.
+            "posting": live_posting_for(match),
             "form": form or MatchAllocationForm(actor=self.actor, match=match),
             "page_title": match.number or _("مسودة مطابقة"),
             "may_edit": may_edit,
