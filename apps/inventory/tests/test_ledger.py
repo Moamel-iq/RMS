@@ -1832,3 +1832,99 @@ class TestArchivingAWarehouseThatHoldsStock:
         update_warehouse(warehouse=main_store, name_ar=main_store.name_ar, is_active=False)
         main_store.refresh_from_db()
         assert main_store.is_active is False
+
+
+class TestTheSupplierReturnMovementType:
+    """
+    `RETURN_OUT`, reserved by Task 1.0's movement table and delivered at Task
+    2.13 with the document that produces it.
+
+    The kernel owns the movement and nothing else: there is no supplier-return
+    document in this module, and `apps.procurement` is the only caller. These
+    tests are what say the value is wired correctly rather than merely present.
+    """
+
+    def test_it_is_outbound_and_is_not_return_in(self) -> None:
+        """
+        PRC-047, the whole of it. `RETURN_IN` is stock coming back from a
+        kitchen to a store at the cost it was issued at; `RETURN_OUT` is stock
+        leaving the business at the standing average. Opposite directions, two
+        different reports, and one shared value would make each report wrong
+        about the other.
+        """
+        from apps.inventory.models import INBOUND_MOVEMENT_TYPES, OUTBOUND_MOVEMENT_TYPES
+
+        # Compared as stored values: mypy rightly refuses `A != B` on two
+        # distinct enum literals, and the claim worth making is about the
+        # closed set the database holds anyway.
+        assert {MovementType.RETURN_OUT.value, MovementType.RETURN_IN.value} <= set(
+            MovementType.values
+        )
+        assert MovementType.RETURN_OUT.value != MovementType.RETURN_IN.value
+        assert MovementType.RETURN_OUT in OUTBOUND_MOVEMENT_TYPES
+        assert MovementType.RETURN_OUT not in INBOUND_MOVEMENT_TYPES
+        assert MovementType.RETURN_IN in INBOUND_MOVEMENT_TYPES
+
+    def test_it_carries_its_own_sign_and_needs_no_direction(self) -> None:
+        """An outbound type states its direction; only a signless one asks."""
+        from apps.inventory.models import SIGNLESS_MOVEMENT_TYPES
+
+        assert MovementType.RETURN_OUT not in SIGNLESS_MOVEMENT_TYPES
+
+    def test_it_may_take_an_expired_lot_off_the_shelf(self) -> None:
+        """
+        A decision recorded rather than assumed — Task 2.0 §10 is silent.
+
+        Goods that arrived spoiled or too near their date are among the
+        commonest things a restaurant sends back. Refusing to move an expired
+        lot would force the storekeeper to waste it instead, destroying a
+        legitimate claim against the supplier in order to obey a rule written
+        to keep expired food out of a kitchen. Nothing here reaches a kitchen.
+        """
+        from apps.inventory.ledger import EXPIRED_LOT_REMOVAL_TYPES
+
+        assert MovementType.RETURN_OUT in EXPIRED_LOT_REMOVAL_TYPES
+        assert MovementType.ISSUE not in EXPIRED_LOT_REMOVAL_TYPES
+
+    def test_this_module_defines_no_supplier_return_document(self) -> None:
+        """
+        The movement lives here; the document that causes it does not. A
+        supplier return needs a supplier, a delivery and a payable, none of
+        which inventory knows about — Task 1.7 recorded exactly that when it
+        moved this work to Phase 2.
+        """
+        from django.apps import apps as django_apps
+
+        names = {model.__name__ for model in django_apps.get_app_config("inventory").get_models()}
+        assert "SupplierReturn" not in names
+        assert "SupplierReturnLine" not in names
+
+    def test_inventory_never_imports_procurement(self) -> None:
+        """
+        The dependency runs one way. Procurement orchestrates inventory through
+        its public services; inventory knowing about suppliers would make the
+        kernel unusable by any other module.
+        """
+        import ast
+        from pathlib import Path
+
+        import apps.inventory as inventory_package
+
+        assert inventory_package.__file__ is not None
+        root = Path(inventory_package.__file__).parent
+        offenders: list[str] = []
+        for path in root.glob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                    "apps.procurement"
+                ):
+                    offenders.append(f"{path.name}:{node.lineno}")
+                elif isinstance(node, ast.Import) and any(
+                    alias.name.startswith("apps.procurement") for alias in node.names
+                ):
+                    offenders.append(f"{path.name}:{node.lineno}")
+        # Parsed rather than grepped: a prose mention of the module in a
+        # docstring is not a dependency, and a test that could not tell the
+        # difference would fail on its own explanation.
+        assert offenders == []

@@ -126,12 +126,21 @@ ZERO = Decimal("0")
 #: Outbound types that may take an expired lot off the shelf, because getting
 #: it off the shelf is what they are for (Task 1.6 §F). Ordinary issue is
 #: deliberately absent and stays absent.
+#:
+#: `RETURN_OUT` joins them at Task 2.13, and the case is the same one: goods
+#: that arrived spoiled or too near their date are among the commonest things
+#: a restaurant sends back, and refusing to move an expired lot would force
+#: the storekeeper to waste it instead — destroying a legitimate claim against
+#: the supplier in order to obey a rule written to stop expired food reaching
+#: a kitchen. Nothing here reaches a kitchen. Task 2.0 §10 is silent on the
+#: point; this is a decision, recorded rather than assumed.
 EXPIRED_LOT_REMOVAL_TYPES = frozenset(
     {
         MovementType.WASTE,
         MovementType.COUNT_LOSS,
         MovementType.MANUAL_ADJUSTMENT,
         MovementType.TRANSFER_SHORTAGE,
+        MovementType.RETURN_OUT,
     }
 )
 

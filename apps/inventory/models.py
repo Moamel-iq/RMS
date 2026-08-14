@@ -717,6 +717,25 @@ class MovementType(models.TextChoices):
     #: original issue's cost, never today's average, so the pair nets to zero
     #: (spec §8). Added by Task 1.4 with the document that produces it.
     RETURN_IN = "RETURN_IN", _("إرجاع من صرف")
+    #: Goods going back **out** to the supplier they came from. Reserved by
+    #: Task 1.0's movement table and deliberately left unbuilt until Phase 2
+    #: had a document to produce it (Task 1.7's note: "a supplier return must
+    #: reconcile against a supplier invoice, a payable, and a credit note,
+    #: none of which exist yet"). Task 2.13 is that document.
+    #:
+    #: Its own value rather than `RETURN_IN`, and the distinction is the whole
+    #: of PRC-047: `RETURN_IN` is stock coming back from a kitchen to a store,
+    #: at the cost it was issued at, and this is stock leaving the business
+    #: altogether at the standing average. Opposite directions, opposite signs,
+    #: and two different reports. Sharing one value would make each report
+    #: wrong about the other.
+    #:
+    #: The inventory module owns the movement and nothing else. There is no
+    #: supplier-return document here and no generic screen that produces one:
+    #: this type is reachable only through `apps.procurement`'s service, which
+    #: is what keeps the causing document in the module that understands
+    #: suppliers.
+    RETURN_OUT = "RETURN_OUT", _("إرجاع إلى المورد")
     TRANSFER_OUT = "TRANSFER_OUT", _("تحويل صادر")
     TRANSFER_IN = "TRANSFER_IN", _("تحويل وارد")
     #: Dispatched goods that will never arrive, written off out of in-transit
@@ -751,6 +770,7 @@ INBOUND_MOVEMENT_TYPES = frozenset(
 OUTBOUND_MOVEMENT_TYPES = frozenset(
     {
         MovementType.ISSUE,
+        MovementType.RETURN_OUT,
         MovementType.TRANSFER_OUT,
         MovementType.TRANSFER_SHORTAGE,
         MovementType.WASTE,
