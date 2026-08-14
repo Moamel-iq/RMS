@@ -5,11 +5,11 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 14/20 — Price and quantity variance accounting (NOT
-STARTED). Step 13 complete.
+CURRENT_PIPELINE_STEP: 15/20 — Supplier returns (NOT STARTED). Step 14
+complete.
 CURRENT_TASK: none in flight
-LAST_GREEN_COMMIT: 0c2ee51
-LAST_PUSHED_COMMIT: 6a734aa
+LAST_GREEN_COMMIT: 29b0ea0
+LAST_PUSHED_COMMIT: 29b0ea0
 WORKING_TREE: clean
 RUNNING_TESTS: none
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
@@ -25,6 +25,8 @@ ACTIVE_DATABASES (none to be dropped):
   seeded; created by Step 12, never to be dropped
 - `khan_mandi_p2_b5` — Step 13 verification, migrated from zero and seeded;
   created by Step 13, never to be dropped
+- `khan_mandi_p2_b6` — Step 14 verification, migrated from zero and seeded;
+  created by Step 14, never to be dropped
 - `khan_mandi_t17a_check`, `khan_mandi_t16_check`, `_t15_`, `_t14_`, `_t13_`,
   `khan_mandi_ledger_check`, `khan_mandi_inv_check`, `khan_mandi_freshcheck`
 
@@ -33,87 +35,84 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Step 14 — Task 2.12, price and quantity variance
-accounting. Turn a `READY` `PurchaseMatch` into the entry Task 2.0 §9
-specifies, using the two figures Task 2.11 already stores per allocation:
+NEXT_EXACT_ACTION: Step 15 — Task 2.13, supplier returns. Goods going back
+out to the supplier, through the inventory kernel as an ordinary outbound at
+the standing moving average (ADR-022 §1), with a distinct movement type that is
+**not** inventory's `RETURN_IN` (PRC-047).
 
-    Dr  GRNI                     SUM(receipt_allocated_value)
-    Dr  purchase price variance  SUM(price_variance)      (Cr if negative)
-        Cr  supplier payable     SUM(invoice_allocated_value)
+What Step 15 inherits, and what it must settle:
 
-The boundary Step 14 inherits, and everything it has to replace:
+- ADR-022's decisions 1, 2 and the return half of §5 are still **Proposed**.
+  Step 15 is where they are accepted or amended, exactly as Step 14 did for the
+  price half. `PURCHASE_RETURN_VARIANCE` is unseeded and has no account chosen;
+  Task 2.0 §15's role table omits it entirely, so its account is Step 15's to
+  decide and record — and the Step 14 precedent is that a **bidirectional**
+  difference account belongs in class 8 or 7, never in cost of sales.
+- A posted delivery cited by a live match or a live posting cannot be reversed.
+  A supplier return is not a reversal and must not be built as one: the receipt
+  stays posted, the return is its own document, and PRC-049's average-versus-
+  credit difference is a second variance with its own account.
+- `apps/procurement/models.py` declares `live_dependency` on
+  `PurchaseMatchAllocation` and `SupplierInvoicePosting`. A return that cites a
+  receipt line should declare the same, or Task 2.9's guard will count a
+  cancelled return as a live dependent.
 
-- `PurchaseMatchStatus` has **no** `POSTED`. Adding one is Step 14's decision,
-  and `test_the_status_enum_has_no_posted_value` is the marker that says so.
-- `TestTheStepFourteenBoundary` in `test_matching.py` is nine negatives —
-  no journal, no stock movement, no GRNI clearing, an invoice still `APPROVED`
-  after a `READY` match, no posting service, no posting route, no `POSTED`
-  status, an unmapped variance role, and an API that reports it posted
-  nothing. Replace each with its positive twin; do not merely delete them.
-- `PURCHASE_PRICE_VARIANCE` is still unseeded. Seed it in the accounting
-  kernel the way Step 12 seeded `SUPPLIER_PAYABLE` (domain `PURCHASING`,
-  scope `ORGANIZATION`), and extend `sync_system_account_roles` — that replay
-  on `post_migrate` is what keeps the role alive across the flush a
-  transactional test performs.
-- `invoices.py::_require_every_line_has_a_route` still refuses to post an
-  invoice carrying an `INVENTORY` line, with `invoice_awaiting_matching`.
-  That refusal is now removable **only** for a line covered by a `READY`
-  match, and only together with the posting above.
-- `_verify_matching_moved_nothing` in `reconciliation.py` asserts that no
-  journal or stock movement cites `PROCUREMENT_PURCHASE_MATCH`. Step 14 makes
-  the journal legitimate: replace this check with one that asserts the entry
-  balances and clears exactly `SUM(receipt_allocated_value)` from GRNI.
-- Matching is deliberately non-financial and must stay that way where it is:
-  the entry belongs to a new posting service, not inside `matching.py`.
+Do NOT start Task 2.14 (credit notes) or 2.15 (payments) in the same step.
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 521 passed
+.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 617 passed
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
-organization DEMO-KHAN-MANDI. Procurement now shows 3 suppliers, 6 catalogue
-rows, 4 purchase requests, 2 quotations, one award, 3 purchase orders, one
-order revision, **6 goods receipts**, 4 supplier invoices and **2 purchase
-matches**:
+organization DEMO-KHAN-MANDI. Unchanged from Step 13 except that the goods
+invoice now **posts**:
 
-- `DEMO-GRN-MATCHED` — GRN-2026-000005, POSTED. Added by Step 13. Sixty kilos
-  of rice from the grocery supplier at 1,400, which is the delivery
-  `DEMO-SINV-GOODS` is actually a bill for. Step 12 wrote that invoice to cite
-  a posted grocery delivery and there was not one — the award went to the meat
-  supplier, so every posted rice delivery belonged to somebody else and the
-  evidence link quietly resolved to nothing. Matching had nothing to
-  demonstrate until this existed.
-- `DEMO-MATCH-CANCELLED` — a draft match, allocated 20 kg, then withdrawn with
-  a reason. It is there so the release is visible: a cancelled match consumes
-  no availability, which is the whole reason availability is derived.
-- `DEMO-MATCH-FULL` — MTC-2026-000001, READY. Sixty kilos allocated in full:
-  receipt value 84,000, invoice value 87,000, price variance **+3,000**. The
-  screen says, in Arabic, that nothing was posted, because nothing was.
+- `DEMO-SINV-GOODS` — SINV-2026-000003, **POSTED** from `DEMO-MATCH-FULL`
+  (MTC-2026-000001) as generation 1. `Dr` GRNI 84,000, `Dr` purchase price
+  variance clearing 3,000, `Cr` supplier payable 87,000. The delivery posted at
+  1,400 a kilo and the supplier billed 1,450, so the difference three-way
+  matching exists to surface is genuinely in the ledger rather than contrived
+  to zero.
+- `DEMO-MATCH-CANCELLED` — still there, still withdrawn with a reason.
 
-Counts after the matches: stock movements **44 → 45** and journals **33 → 34**
-— both from the new *delivery*, not from the matching. Matching itself moves
-and posts nothing, and the same two numbers hold before and after both matches
-exist. A second seed run changes nothing (verified: 45 / 4 / 34 / 6 / 2 / 2
-identical on the second pass).
+Counts: stock movements **45** and locations **4**, both unchanged by the
+posting — an invoice moves no stock and a price difference restates no average.
+Journals **34 → 35**. Postings **3**: the goods invoice live, the expense
+invoice live, and the reversed invoice's generation 1 marked REVERSED. The
+`8-01-03-001` balance is **3,000** and is expected to stand until the deferred
+period-end split.
 
 Routes verified rendering for an authorised user (Django test client with
 `force_login`, so no credential is read or typed): /procurement/matching/
-(15,739 bytes), /procurement/matches/ (15,953), /procurement/matches/?status=
-READY (15,309), and both match detail screens (17,200 and 16,600). Commands
-are POST-only — open, ready and cancel each answer 405 to a GET. HTMX
-verified: the list returns a fragment only, 1,787 bytes against 15,953 for the
-full page.
+(15,715 bytes), /procurement/matches/ (16,193), the posted match detail
+(17,221), /procurement/invoices/ (17,520) and the posted invoice (18,654). The
+match detail screen stops saying "matching is evidence, not money" and starts
+naming the journal, the 84,000 cleared and the 87,000 billed; it also stops
+offering a cancel button, because the service would refuse one. Commands are
+POST-only — post and reverse each answer 405 to a GET. HTMX verified: the list
+returns a fragment only, 2,027 bytes against 16,193 for the full page.
+
+A second and a third seed run change nothing (postings stay at 3).
 
 RECONCILIATION_STATE: clean on `khan_mandi_dev` (both organizations) and on
-the fresh `khan_mandi_p2_b5` across all four verifiers — `verify_procurement`
-(now including `verify_matching`), `verify_organization`,
-`verify_inventory_against_gl` and `verify_locations`. `verify_matching` checks
-four equalities per source line, that no order line is over-allocated, that
-every stored `price_variance` equals its own two components, and that no
-journal or stock movement cites a purchase match at all.
+the fresh `khan_mandi_p2_b6` across all four verifiers — `verify_procurement`
+(now including `verify_grni_clearing` and `verify_parked_variance`),
+`verify_organization`, `verify_inventory_against_gl` and `verify_locations`.
+
+`verify_grni_clearing` is invariant 47, and two things about it are worth
+writing down. **Cleared is not matched**: a draft or ready match consumes
+availability and clears nothing, so only allocations under a *live posting*
+count. And the check is scoped to **procurement's own** GRNI movement, because
+Task 1.4's uninvoiced stock receipts credit the same account and are not this
+module's to explain — the unscoped version reported a discrepancy the size of
+the inventory demo, which is how the scoping was found.
+
+`verify_parked_variance` proves every fils in `8-01-03-001` traces to a live
+posting and to the allocation rows beneath it, and catches a manual journal
+against the account.
 
 BATCH 4 CERTIFICATION (Steps 10–12): **PASS** at 64d94f8. Complete project
 suite 2053 passed, 0 failed. Fresh database `khan_mandi_p2_b4` migrated from
@@ -123,6 +122,44 @@ gates: ruff, ruff format, mypy (224 files), manage.py check, makemigrations
 --check, pre-commit 13 hooks — all pass.
 
 STEP 13 (Task 2.11, three-way matching): **COMPLETE** at 0c2ee51.
+
+STEP 14 (Task 2.12, price and quantity variance accounting): **COMPLETE** at
+29b0ea0. Complete project suite 2203 passed, 0 failed; procurement 580, of which 54 are new plus four real-COMMIT races. Fresh database
+`khan_mandi_p2_b6` migrated from zero through all 21 procurement migrations,
+seeded, both demo seeds run three times with identical counts, every matching
+and invoice route rendered, all four verifiers clean on it and on
+`khan_mandi_dev` — and the two databases now reproduce each other exactly.
+Quality gates: ruff, ruff format, mypy (229 files), manage.py check,
+makemigrations --check, pre-commit 13 hooks — all pass.
+
+**Four blocking conflicts were put to the human before any code was written**,
+and their answers shaped the design:
+
+1. *The variance account.* Task 2.0 §15's `5-02-01-001` is cost of sales, which
+   sets `requires_cost_center` — and a supplier invoice has no cost centre to
+   give. ADR-022 separately rejects booking a purchasing outcome as food cost.
+   Resolved: a **clearing** account, `8-01-03-001`, parked rather than
+   classified, with the period-end split recorded as a required future step.
+2. *PRC-044.* Deferred and formally **not elected**: its permission, source
+   identity, allocation policy and reversal rules are undefined, and a partial
+   valuation rule is worse than none.
+3. *Reversibility.* The invoice's own dependency guard counted the match
+   allocations that are the precondition for posting, so every matched invoice
+   would have been permanently irreversible. Resolved with posting
+   **generations**: reversal marks the generation REVERSED, then cancels the
+   match, then checks dependents — and a reversed generation governs nothing.
+4. *Cancellation.* Nothing stopped a READY match being withdrawn after its
+   invoice posted, which would release a delivery the ledger had already
+   cleared with both sides of every Task 2.11 equality moving together, so no
+   verifier would have noticed. Refused now in the service **and** by a
+   database trigger.
+
+Two further defects were found and fixed in passing: `verify_supplier_invoice`
+compared total debits and total credits against the line total, which fires on
+a correct *cheaper* invoice and is blind on a dearer one — now account-aware;
+and `posted_amount` held only the direct-charge total, which would have
+understated every matched invoice in `verify_supplier_payables` by the goods
+portion.
 Complete project suite 2143 passed, 0 failed; procurement 521, of which 84 are
 new (73 matching, 6 matching races, 5 on the direct-account preflight). The
 0c2ee51 commit message says "526 of them procurement, 79 new" — both figures
