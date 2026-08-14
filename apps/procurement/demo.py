@@ -22,6 +22,7 @@ from decimal import Decimal
 from apps.accounting.models import (
     PURCHASE_PRICE_VARIANCE,
     SUPPLIER_PAYABLE,
+    SUPPLIER_RETURN_CLEARING,
     Account,
     AccountRole,
     CostCenter,
@@ -67,8 +68,16 @@ from apps.procurement.models import (
     SupplierItem,
     SupplierQuotation,
     SupplierQuotationStatus,
+    SupplierReturn,
+    SupplierReturnStatus,
 )
 from apps.procurement.posting import post_goods_receipt, reverse_goods_receipt
+from apps.procurement.returns import (
+    add_return_line,
+    create_supplier_return,
+    post_supplier_return,
+    reverse_supplier_return,
+)
 from apps.procurement.services import (
     add_order_line,
     add_quotation_line,
@@ -213,6 +222,10 @@ CATALOGUE_EFFECTIVE_FROM = datetime.date(2026, 1, 1)
 PROCUREMENT_ACCOUNT_MAPPINGS: list[tuple[str, str]] = [
     (SUPPLIER_PAYABLE, "2-01-01-001"),
     (PURCHASE_PRICE_VARIANCE, "8-01-03-001"),
+    # Task 2.13. The return's clearing account only — `PURCHASE_RETURN_VARIANCE`
+    # is deliberately absent: nothing posts to it until Task 2.14's credit
+    # note, and a role with no posting rule behind it must not be mapped.
+    (SUPPLIER_RETURN_CLEARING, "8-01-04-001"),
 ]
 
 
@@ -1341,3 +1354,145 @@ def seed_demo_matches(*, organization: Organization, matcher: User) -> list[Purc
         post_supplier_invoice(invoice=goods_invoice, actor=matcher)
 
     return matches
+
+
+def seed_demo_returns(
+    *, organization: Organization, storekeeper: User, manager: User
+) -> list[SupplierReturn]:
+    """
+    Three returns, one per lifecycle state (Task 2.13).
+
+    1. `DEMO-SRET-CHICKEN` — **POSTED**. Twenty of the ninety kilograms that
+       passed inspection on the warm-chicken delivery spoiled on the shelf and
+       went back. The same delivery already had thirty kilograms rejected *at
+       the gate*, so the two mechanisms sit side by side on one document
+       trail: rejection never entered stock and produced no accounting;
+       the return leaves stock at the standing average and parks the claim in
+       the supplier-return clearing account.
+    2. `DEMO-SRET-DRAFT` — **DRAFT**, five kilograms of rice against the
+       matched delivery. A reader needs one return they can post by hand, and
+       this one doubles as proof that a live match and a live invoice posting
+       do not make a delivery unreturnable — the return takes goods, not the
+       payable.
+    3. `DEMO-SRET-REVERSED` — two kilograms of meat, posted and then
+       **reversed**, so a reader can see that the reversal restores the exact
+       value the movement removed rather than today's average, and that the
+       delivery becomes returnable again.
+
+    The expected-credit figures are quoted at the *receipt* price on purpose:
+    the book value that leaves is the standing moving average, and the gap
+    between the two is the difference ADR-022 §2 defers to the credit note.
+
+    Everything goes through the real services. Idempotent per return, keyed on
+    the evidence reference: a second run finds each and does nothing further.
+    """
+    existing = {
+        row.evidence_reference: row
+        for row in SupplierReturn.objects.filter(
+            organization=organization, evidence_reference__startswith="DEMO-SRET"
+        ).order_by("id")
+    }
+
+    reason = InventoryReasonCode.objects.filter(organization=organization, is_active=True).first()
+    returns: list[SupplierReturn] = []
+
+    def _receipt(reference: str) -> GoodsReceipt | None:
+        return GoodsReceipt.objects.filter(
+            organization=organization,
+            delivery_reference=reference,
+            status=GoodsReceiptStatus.POSTED,
+        ).first()
+
+    def _line(receipt: GoodsReceipt) -> GoodsReceiptLine | None:
+        return (
+            receipt.lines.filter(accepted_base_quantity__gt=Decimal("0.000"))
+            .order_by("sequence")
+            .first()
+        )
+
+    # 1. The chicken that spoiled after inspection accepted it: POSTED.
+    posted = existing.get("DEMO-SRET-CHICKEN")
+    if posted is None:
+        receipt = _receipt("DEMO-GRN-REJECT")
+        line = _line(receipt) if receipt is not None else None
+        if receipt is not None and line is not None:
+            posted = create_supplier_return(
+                receipt=receipt,
+                created_by=storekeeper,
+                returned_at=receipt.received_at + datetime.timedelta(days=3),
+                reason_code=reason,
+                reason="تلف بعد القبول — عشرون كيلوغراماً فسدت على الرف",
+                evidence_reference="DEMO-SRET-CHICKEN",
+            )
+            add_return_line(
+                supplier_return=posted,
+                receipt_line=line,
+                returned_base_quantity=Decimal("20.000"),
+                expected_credit_value=Decimal("280000.000"),
+                note="بسعر الاستلام ١٤٬٠٠٠ للمطالبة",
+            )
+    if posted is not None:
+        if posted.status == SupplierReturnStatus.DRAFT:
+            post_supplier_return(supplier_return=posted, actor=storekeeper)
+            posted.refresh_from_db()
+        returns.append(posted)
+
+    # 2. Rice against the matched delivery: DRAFT, left for the reader.
+    draft = existing.get("DEMO-SRET-DRAFT")
+    if draft is None:
+        receipt = _receipt("DEMO-GRN-MATCHED")
+        line = _line(receipt) if receipt is not None else None
+        if receipt is not None and line is not None:
+            draft = create_supplier_return(
+                receipt=receipt,
+                created_by=storekeeper,
+                returned_at=receipt.received_at + datetime.timedelta(days=5),
+                reason_code=reason,
+                reason="أكياس متضررة اكتُشفت عند الفتح",
+                evidence_reference="DEMO-SRET-DRAFT",
+            )
+            add_return_line(
+                supplier_return=draft,
+                receipt_line=line,
+                returned_base_quantity=Decimal("5.000"),
+                expected_credit_value=Decimal("7000.000"),
+            )
+    if draft is not None:
+        returns.append(draft)
+
+    # 3. Meat, posted then reversed: the mirror, visible.
+    undone = existing.get("DEMO-SRET-REVERSED")
+    if undone is None:
+        receipt = _receipt("DEMO-GRN-WEIGHED")
+        line = _line(receipt) if receipt is not None else None
+        if receipt is not None and line is not None:
+            undone = create_supplier_return(
+                receipt=receipt,
+                created_by=storekeeper,
+                returned_at=receipt.received_at + datetime.timedelta(days=2),
+                reason_code=reason,
+                reason="اشتُبه بكيلوغرامين ثم تبيّن سلامتهما",
+                evidence_reference="DEMO-SRET-REVERSED",
+            )
+            add_return_line(
+                supplier_return=undone,
+                receipt_line=line,
+                returned_base_quantity=Decimal("2.000"),
+                expected_credit_value=Decimal("19000.000"),
+            )
+    if undone is not None:
+        if undone.status == SupplierReturnStatus.DRAFT:
+            post_supplier_return(supplier_return=undone, actor=storekeeper)
+            undone.refresh_from_db()
+        if undone.status == SupplierReturnStatus.POSTED:
+            # Reversal is the manager's act: the storekeeper role can record
+            # and post a return but deliberately cannot unwind one.
+            reverse_supplier_return(
+                supplier_return=undone,
+                actor=manager,
+                reason="فحص المورد أكّد سلامة الكمية — أُعيدت إلى المخزن",
+            )
+            undone.refresh_from_db()
+        returns.append(undone)
+
+    return returns

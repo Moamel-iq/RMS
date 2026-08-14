@@ -42,6 +42,7 @@ from apps.procurement.demo import (
     seed_demo_quotations,
     seed_demo_receipts,
     seed_demo_requests,
+    seed_demo_returns,
     seed_demo_suppliers,
 )
 from apps.users.models import User
@@ -66,6 +67,7 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:supplier_invoice_list", "فواتير الموردين"),
     ("procurement:matching_queue", "قائمة المطابقة"),
     ("procurement:purchase_match_list", "مطابقة المشتريات"),
+    ("procurement:supplier_return_list", "مرتجعات الموردين"),
 ]
 
 
@@ -140,6 +142,11 @@ class Command(SeedCommand):
                 else []
             )
             matches = seed_demo_matches(organization=organization, matcher=user)
+            returns = (
+                seed_demo_returns(organization=organization, storekeeper=approver, manager=user)
+                if approver is not None and approver.pk != user.pk
+                else []
+            )
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -178,7 +185,8 @@ class Command(SeedCommand):
             f"{len(suppliers)} suppliers, {len(catalogue)} catalogue rows, "
             f"{len(requests)} requests, {len(quotations)} quotations and "
             f"{len(orders)} orders, {len(receipts)} receipts and "
-            f"{len(invoices)} supplier invoices and {len(matches)} matches present."
+            f"{len(invoices)} supplier invoices, {len(matches)} matches and "
+            f"{len(returns)} supplier returns present."
         )
         if matches:
             self.write("")
@@ -194,6 +202,15 @@ class Command(SeedCommand):
                 self.write(
                     f"  {invoice.supplier_invoice_number:<22} {label:<18} "
                     f"{invoice.get_status_display()}"
+                )
+        if returns:
+            self.write("")
+            self.write("supplier returns:")
+            for supplier_return in returns:
+                label = supplier_return.number or "draft"
+                self.write(
+                    f"  {supplier_return.evidence_reference:<22} {label:<18} "
+                    f"{supplier_return.get_status_display()}"
                 )
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")

@@ -63,6 +63,8 @@ from apps.procurement.forms import (
     SupplierItemForm,
     SupplierQuotationForm,
     SupplierQuotationLineForm,
+    SupplierReturnForm,
+    SupplierReturnLineForm,
 )
 from apps.procurement.invoices import (
     add_account_line,
@@ -92,6 +94,7 @@ from apps.procurement.models import (
     PurchaseRequestStatus,
     SupplierInvoiceStatus,
     SupplierQuotationStatus,
+    SupplierReturnStatus,
 )
 from apps.procurement.permissions import (
     APPROVE_PURCHASE_ORDER,
@@ -104,6 +107,7 @@ from apps.procurement.permissions import (
     CREATE_PURCHASE_ORDER,
     CREATE_PURCHASE_REQUEST,
     CREATE_SUPPLIER_INVOICE,
+    CREATE_SUPPLIER_RETURN,
     INSPECT_GOODS_RECEIPT,
     ISSUE_PURCHASE_ORDER,
     MANAGE_QUOTATIONS,
@@ -112,8 +116,10 @@ from apps.procurement.permissions import (
     MATCH_SUPPLIER_INVOICE,
     POST_GOODS_RECEIPT,
     POST_SUPPLIER_INVOICE,
+    POST_SUPPLIER_RETURN,
     REVERSE_GOODS_RECEIPT,
     REVERSE_SUPPLIER_INVOICE,
+    REVERSE_SUPPLIER_RETURN,
     VIEW_GOODS_RECEIPT,
     VIEW_PURCHASE_MATCH,
     VIEW_PURCHASE_ORDER,
@@ -123,11 +129,20 @@ from apps.procurement.permissions import (
     VIEW_SUPPLIER_COST,
     VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
+    VIEW_SUPPLIER_RETURN,
 )
 from apps.procurement.posting import (
     post_goods_receipt,
     receipt_timeline,
     reverse_goods_receipt,
+)
+from apps.procurement.returns import (
+    add_return_line,
+    create_supplier_return,
+    post_supplier_return,
+    remove_return_line,
+    return_timeline,
+    reverse_supplier_return,
 )
 from apps.procurement.selectors import (
     matching_queue,
@@ -144,9 +159,12 @@ from apps.procurement.selectors import (
     resolve_quotation_line,
     resolve_receipt_line,
     resolve_request_line,
+    resolve_return_line,
     resolve_supplier,
     resolve_supplier_invoice,
     resolve_supplier_item,
+    resolve_supplier_return,
+    returnable_receipt_lines,
     visible_goods_receipts,
     visible_purchase_matches,
     visible_purchase_orders,
@@ -154,6 +172,7 @@ from apps.procurement.selectors import (
     visible_quotations,
     visible_supplier_invoices,
     visible_supplier_items,
+    visible_supplier_returns,
     visible_suppliers,
 )
 from apps.procurement.services import (
@@ -1920,3 +1939,230 @@ class PurchaseMatchTransitionView(InventoryViewMixin, View):
         except ValidationError as error:
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
         return HttpResponseRedirect(reverse("procurement:purchase_match_detail", args=[match.pk]))
+
+
+# ---------------------------------------------------------------------------
+# Supplier returns (Task 2.13)
+# ---------------------------------------------------------------------------
+
+
+class SupplierReturnListView(InventoryListView):
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_RETURN
+    template_name = "procurement/supplier_return_list.html"
+    context_object_name = "supplier_returns"
+    page_title = _("مرتجعات الموردين")
+    page_hint = _(
+        "بضاعة تعود إلى موردها. الإرجاع يُخرج المخزون بالمتوسط المتحرك القائم "
+        "ويقيّد المطالبة في حساب تسوية المرتجعات — لا ذمة تُمسّ ولا فرق يُسجَّل "
+        "حتى يصل إشعار الدائن."
+    )
+    search_fields = (
+        "number",
+        "evidence_reference",
+        "supplier__code",
+        "supplier__name_ar",
+        "receipt__number",
+    )
+    manage_permission = CREATE_SUPPLIER_RETURN
+    manage_scope = "branch"
+    create_url_name = "procurement:supplier_return_create"
+    create_label = _("مرتجع جديد")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_supplier_returns(self.actor)
+        status = self.request.GET.get("status", "").strip().upper()
+        if status in SupplierReturnStatus.values:
+            queryset = queryset.filter(status=status)
+        return queryset.order_by("-id")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["statuses"] = SupplierReturnStatus.choices
+        context["selected_status"] = self.request.GET.get("status", "")
+        context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        return context
+
+
+class SupplierReturnCreateView(InventoryWriteView):
+    module_key = "procurement"
+    template_name = "procurement/supplier_return_form.html"
+    form_class = SupplierReturnForm
+    required_permission = CREATE_SUPPLIER_RETURN
+    success_url_name = "procurement:supplier_return_list"
+    page_title = _("مرتجع مورد جديد")
+    page_hint = _("يُفتح كمسودة على تسليم مرحّل. لا يتحرك مخزون ولا يُنشأ قيد حتى الترحيل.")
+    success_message = _("تم إنشاء المسودة. أضف الأسطر ثم رحّلها.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_warehouse_permission(
+            self.actor, CREATE_SUPPLIER_RETURN, form.cleaned_data["receipt"].warehouse
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        data = form.cleaned_data
+        self.created = create_supplier_return(
+            receipt=data["receipt"],
+            created_by=self.actor,
+            returned_at=data["returned_at"],
+            reason_code=data.get("reason_code"),
+            reason=data.get("reason", ""),
+            evidence_reference=data.get("evidence_reference", ""),
+            notes=data.get("notes", ""),
+        )
+
+    def get_success_url(self) -> str:
+        created = getattr(self, "created", None)
+        if created is None:
+            return reverse(self.success_url_name)
+        return reverse("procurement:supplier_return_detail", args=[created.pk])
+
+
+class SupplierReturnDetailView(InventoryViewMixin, View):
+    """Header, lines, and what the cited delivery still has left to send back."""
+
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_RETURN
+    template_name = "procurement/supplier_return_detail.html"
+
+    def load(self) -> Any:
+        return resolve_supplier_return(self.actor, self.kwargs["pk"])
+
+    def context(self, supplier_return: Any, form: Any) -> dict[str, Any]:
+        may_edit = has_warehouse_permission(
+            self.actor, CREATE_SUPPLIER_RETURN, supplier_return.warehouse
+        )
+        return {
+            "supplier_return": supplier_return,
+            "lines": supplier_return.lines.select_related(
+                "item",
+                "item__base_unit",
+                "lot",
+                "goods_receipt_line",
+                "movement",
+                "inventory_account",
+                "contra_account",
+            ).order_by("sequence"),
+            "availability": returnable_receipt_lines(supplier_return),
+            "form": form,
+            "page_title": supplier_return.number or _("مسودة مرتجع"),
+            "may_edit": may_edit and supplier_return.is_editable,
+            # The button appears only where the act is actually available: the
+            # permission, the warehouse and the document's own state all have
+            # to agree. The service re-checks every one of them.
+            "may_post": has_warehouse_permission(
+                self.actor, POST_SUPPLIER_RETURN, supplier_return.warehouse
+            )
+            and supplier_return.status == SupplierReturnStatus.DRAFT,
+            "may_reverse": has_warehouse_permission(
+                self.actor, REVERSE_SUPPLIER_RETURN, supplier_return.warehouse
+            )
+            and supplier_return.status == SupplierReturnStatus.POSTED,
+            "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+            "timeline": return_timeline(supplier_return),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        supplier_return = self.load()
+        return render(
+            request,
+            self.template_name,
+            self.context(
+                supplier_return,
+                SupplierReturnLineForm(actor=self.actor, supplier_return=supplier_return),
+            ),
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        supplier_return = self.load()
+        require_warehouse_permission(self.actor, CREATE_SUPPLIER_RETURN, supplier_return.warehouse)
+        form = SupplierReturnLineForm(
+            actor=self.actor, supplier_return=supplier_return, data=request.POST
+        )
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                add_return_line(
+                    supplier_return=supplier_return,
+                    receipt_line=data["receipt_line"],
+                    returned_base_quantity=data["returned_base_quantity"],
+                    expected_credit_value=data.get("expected_credit_value"),
+                    note=data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة السطر."))
+                return HttpResponseRedirect(
+                    reverse("procurement:supplier_return_detail", args=[supplier_return.pk])
+                )
+        return render(request, self.template_name, self.context(supplier_return, form))
+
+
+class SupplierReturnLineDeleteView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = CREATE_SUPPLIER_RETURN
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        supplier_return = resolve_supplier_return(self.actor, self.kwargs["pk"])
+        require_warehouse_permission(self.actor, CREATE_SUPPLIER_RETURN, supplier_return.warehouse)
+        line = resolve_return_line(
+            self.actor, supplier_return=supplier_return, line_id=self.kwargs["line_id"]
+        )
+        try:
+            remove_return_line(line=line)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم حذف السطر."))
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_return_detail", args=[supplier_return.pk])
+        )
+
+
+class SupplierReturnTransitionView(InventoryViewMixin, View):
+    """
+    POST-only: post, or reverse. This is the act that takes goods out of stock
+    and money out of the inventory account, and a GET that did it would be a
+    link a crawler could follow.
+    """
+
+    module_key = "procurement"
+    transition = "post"
+
+    PERMISSIONS = {
+        "post": POST_SUPPLIER_RETURN,
+        "reverse": REVERSE_SUPPLIER_RETURN,
+    }
+
+    @property
+    def required_permission(self) -> str:  # type: ignore[override]
+        permission: str = self.PERMISSIONS[self.transition]
+        return permission
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        supplier_return = resolve_supplier_return(self.actor, self.kwargs["pk"])
+        require_warehouse_permission(
+            self.actor, self.PERMISSIONS[self.transition], supplier_return.warehouse
+        )
+        try:
+            if self.transition == "post":
+                posted = post_supplier_return(supplier_return=supplier_return, actor=self.actor)
+                messages.success(
+                    request,
+                    _("تم ترحيل المرتجع %(number)s. خرج المخزون وقُيّدت المطالبة معاً.")
+                    % {"number": posted.number},
+                )
+            else:
+                reverse_supplier_return(
+                    supplier_return=supplier_return,
+                    actor=self.actor,
+                    reason=request.POST.get("reason", ""),
+                )
+                messages.success(request, _("تم عكس المرتجع. عادت البضاعة وعاد الحساب معاً."))
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_return_detail", args=[supplier_return.pk])
+        )

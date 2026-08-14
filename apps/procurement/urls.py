@@ -277,4 +277,34 @@ urlpatterns = [
         views.PurchaseMatchTransitionView.as_view(transition="cancel"),
         name="purchase_match_cancel",
     ),
+    # --- supplier returns --------------------------------------------------
+    path("returns/", views.SupplierReturnListView.as_view(), name="supplier_return_list"),
+    path(
+        "returns/new/",
+        views.SupplierReturnCreateView.as_view(),
+        name="supplier_return_create",
+    ),
+    path(
+        "returns/<int:pk>/",
+        views.SupplierReturnDetailView.as_view(),
+        name="supplier_return_detail",
+    ),
+    path(
+        "returns/<int:pk>/lines/<int:line_id>/delete/",
+        views.SupplierReturnLineDeleteView.as_view(),
+        name="supplier_return_line_delete",
+    ),
+    # Command routes, POST-only. Posting a return takes goods out of stock and
+    # money out of the inventory account; there is no writable generic
+    # endpoint over a posted return and there is deliberately not going to be.
+    path(
+        "returns/<int:pk>/post/",
+        views.SupplierReturnTransitionView.as_view(transition="post"),
+        name="supplier_return_post",
+    ),
+    path(
+        "returns/<int:pk>/reverse/",
+        views.SupplierReturnTransitionView.as_view(transition="reverse"),
+        name="supplier_return_reverse",
+    ),
 ]

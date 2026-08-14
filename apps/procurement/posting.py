@@ -790,7 +790,49 @@ def _require_no_downstream_dependency(receipt: GoodsReceipt) -> None:
     gets the guard by declaring the relation rather than by remembering this
     function. A dependency that reports zero rows is not evidence that none
     will ever exist; it is the extension point holding the line until one does.
+
+    The **header's** relations are walked as well as each line's. Task 2.13
+    found the gap under a real COMMIT race: a supplier return cites the
+    receipt at the header and its lines only afterwards, in a separate
+    transaction — so for a moment there is a standing draft return no line
+    relation can see, and a reversal in that window would unmake the delivery
+    underneath it. Both services lock the receipt row first, so with the
+    header walked the race serializes: whichever commits second sees the
+    other.
     """
+
+    def refuse_if_standing(name: str, related: object, model: type) -> None:
+        # A dependent document that has been withdrawn depends on nothing.
+        # A model says which of its rows still stand by declaring
+        # `live_dependency`, a `Q`; without one every row counts, which is
+        # the safe default for a relation nobody has considered yet. Task
+        # 2.11 needs this: a cancelled match releases the quantity it was
+        # holding, so it must release the delivery too. If the two answers
+        # disagreed, cancelling — the documented correction — would leave
+        # the receipt permanently unreversible.
+        live = getattr(model, "live_dependency", None)
+        if live is not None:
+            related = related.filter(live)  # type: ignore[attr-defined]
+        if related.exists():  # type: ignore[attr-defined]
+            raise ValidationError(
+                _(
+                    "Another document (%(relation)s) already depends on this receipt. "
+                    "Reverse it first."
+                ),
+                code="receipt_has_dependents",
+                params={"relation": name},
+            )
+
+    known_on_header = {"history", "lines"}
+    for relation in receipt._meta.related_objects:
+        name = relation.get_accessor_name()
+        if name in known_on_header or name is None:
+            continue
+        related = getattr(receipt, name, None)
+        if related is None or not hasattr(related, "exists"):
+            continue
+        refuse_if_standing(name, related, relation.related_model)
+
     known = {"history", "goods_receipt_lines"}
     for line in receipt.lines.all():
         for relation in line._meta.related_objects:
@@ -800,26 +842,7 @@ def _require_no_downstream_dependency(receipt: GoodsReceipt) -> None:
             related = getattr(line, name, None)
             if related is None or not hasattr(related, "exists"):
                 continue
-            # A dependent document that has been withdrawn depends on nothing.
-            # A model says which of its rows still stand by declaring
-            # `live_dependency`, a `Q`; without one every row counts, which is
-            # the safe default for a relation nobody has considered yet. Task
-            # 2.11 needs this: a cancelled match releases the quantity it was
-            # holding, so it must release the delivery too. If the two answers
-            # disagreed, cancelling — the documented correction — would leave
-            # the receipt permanently unreversible.
-            live = getattr(relation.related_model, "live_dependency", None)
-            if live is not None:
-                related = related.filter(live)
-            if related.exists():
-                raise ValidationError(
-                    _(
-                        "Another document (%(relation)s) already depends on this receipt. "
-                        "Reverse it first."
-                    ),
-                    code="receipt_has_dependents",
-                    params={"relation": name},
-                )
+            refuse_if_standing(name, related, relation.related_model)
 
 
 # ---------------------------------------------------------------------------

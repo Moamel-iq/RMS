@@ -62,6 +62,7 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -775,6 +776,35 @@ def _require_no_downstream_dependency(supplier_return: SupplierReturn) -> None:
             )
 
 
+def return_timeline(supplier_return: SupplierReturn) -> list[dict[str, Any]]:
+    """The dated facts about one return, oldest first, for the detail screen."""
+    events: list[dict[str, Any]] = [
+        {
+            "label": _("سُجّل"),
+            "at": supplier_return.created_at,
+            "who": supplier_return.created_by.username,
+        }
+    ]
+    if supplier_return.posted_at is not None:
+        events.append(
+            {
+                "label": _("رُحّل"),
+                "at": supplier_return.posted_at,
+                "who": supplier_return.posted_by.username if supplier_return.posted_by else "",
+            }
+        )
+    if supplier_return.reversed_at is not None:
+        events.append(
+            {
+                "label": _("عُكس"),
+                "at": supplier_return.reversed_at,
+                "who": supplier_return.reversed_by.username if supplier_return.reversed_by else "",
+                "note": supplier_return.reversal_reason,
+            }
+        )
+    return events
+
+
 __all__ = [
     "DOCUMENT_TYPE",
     "POSTING_RULE",
@@ -786,6 +816,7 @@ __all__ = [
     "post_supplier_return",
     "remove_return_line",
     "return_availability",
+    "return_timeline",
     "returned_quantity_for",
     "reverse_supplier_return",
 ]

@@ -280,7 +280,16 @@ MODULES: tuple[Module, ...] = (
             *_sections(
                 _("فواتير الموردين"),
                 _("التكاليف الإضافية"),
-                _("مرتجعات الموردين"),
+            ),
+            # Task 2.13 — supplier returns. Built and reachable; the entry the
+            # inventory module gave up ("returns belong to Procurement, where
+            # they reconcile against an invoice and a credit note") lands here.
+            Section(
+                label=_("مرتجعات الموردين"),
+                url_name="procurement:supplier_return_list",
+                available=True,
+            ),
+            *_sections(
                 _("دفعات الموردين"),
                 _("تخصيص الدفعات"),
                 _("أرصدة الموردين"),

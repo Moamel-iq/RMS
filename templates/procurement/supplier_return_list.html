@@ -1,0 +1,67 @@
+{% extends "settings/base_list.html" %}
+{% load i18n money_tags %}
+
+{% block filters %}
+  <label class="field">
+    <span class="field__label">{% translate "الحالة" %}</span>
+    <select name="status">
+      <option value="">{% translate "كل الحالات" %}</option>
+      {% for value, label in statuses %}
+        <option value="{{ value }}" {% if value == selected_status %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الرقم" %}</th>
+  <th>{% translate "المورد" %}</th>
+  <th>{% translate "التسليم" %}</th>
+  <th>{% translate "المخزن" %}</th>
+  <th>{% translate "تاريخ الإرجاع" %}</th>
+  <th>{% translate "الأسطر" %}</th>
+  {% if may_see_cost %}<th>{% translate "القيمة المرحّلة" %}</th>{% endif %}
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for row in supplier_returns %}
+    <tr>
+      <td>
+        {% if row.number %}<code dir="ltr">{{ row.number }}</code>
+        {% else %}<span class="muted">{% translate "مسودة" %}</span>{% endif %}
+      </td>
+      <td>{{ row.supplier.code }} — {{ row.supplier.name_ar }}</td>
+      <td>{{ row.receipt.number|default:"—" }}</td>
+      <td><code>{{ row.warehouse.code }}</code></td>
+      <td><span dir="ltr">{{ row.returned_at|date:"Y-m-d" }}</span></td>
+      <td>{{ row.lines.count }}</td>
+      {% if may_see_cost %}
+        <td>
+          {% if row.posted_value is not None %}
+            <span dir="ltr">{{ row.posted_value|money_full }}</span>
+          {% else %}—{% endif %}
+        </td>
+      {% endif %}
+      <td>
+        {% if row.status == "POSTED" %}
+          <span class="chip chip--on">{{ row.get_status_display }}</span>
+        {% elif row.status == "REVERSED" %}
+          <span class="chip chip--off">{{ row.get_status_display }}</span>
+        {% else %}
+          <span class="chip">{{ row.get_status_display }}</span>
+        {% endif %}
+      </td>
+      <td>
+        <div class="rowactions">
+          <a class="btn btn--ghost btn--sm" href="{% url 'procurement:supplier_return_detail' row.pk %}">
+            {% translate "فتح" %}
+          </a>
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="9">{% translate "لا توجد مرتجعات بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

@@ -3502,7 +3502,10 @@ class SupplierReturn(TimeStampedModel):
     #: still stand. A reversed return has given the goods back and holds the
     #: delivery hostage no longer — the same rule Task 2.11 and 2.12 declare,
     #: and declared on the model that holds the FK so the guard can read it.
-    live_dependency = Q(supplier_return__status__in=("DRAFT", "POSTED"))
+    #: The `Q` is applied to a queryset of **this** model (the receipt's
+    #: `returns` accessor), so it names `status` directly; the line model
+    #: below reaches the same fact through its header.
+    live_dependency = Q(status__in=("DRAFT", "POSTED"))
 
     def __str__(self) -> str:
         return self.number or f"{self.supplier.code} · {self.receipt}"

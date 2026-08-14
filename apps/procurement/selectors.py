@@ -36,6 +36,8 @@ from apps.procurement.models import (
     SupplierItem,
     SupplierQuotation,
     SupplierQuotationLine,
+    SupplierReturn,
+    SupplierReturnLine,
 )
 from apps.users.models import User
 
@@ -451,6 +453,77 @@ def open_payables(user: User, *, supplier: Supplier | None = None) -> list[dict[
             "due_date": invoice.due_date,
         }
         for invoice in queryset.order_by("due_date", "id")
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Supplier returns (Task 2.13)
+# ---------------------------------------------------------------------------
+
+
+def visible_supplier_returns(user: User) -> QuerySet[SupplierReturn]:
+    """
+    Returns in warehouses the caller may reach, in every status.
+
+    Warehouse-scoped like the goods receipt and unlike the invoice, because the
+    return is the receipt's mirror: it takes goods out of one store, and the
+    person who answers for that store is the person who packs them onto the
+    supplier's truck. The claim against the supplier is money, but the claim is
+    the credit note's business (Task 2.14, organization-scoped there) — this
+    document is custody.
+    """
+    return SupplierReturn.objects.filter(warehouse__in=accessible_warehouses(user)).select_related(
+        "organization",
+        "branch",
+        "supplier",
+        "receipt",
+        "warehouse",
+        "reason_code",
+        "created_by",
+        "journal_entry",
+    )
+
+
+def resolve_supplier_return(user: User, return_id: int) -> SupplierReturn:
+    """Turn a submitted return id into one the caller may reach, or 404."""
+    found = visible_supplier_returns(user).filter(pk=return_id).first()
+    if found is None:
+        raise OutOfScope(_("Supplier return %(id)s does not exist.") % {"id": return_id})
+    return found
+
+
+def resolve_return_line(
+    user: User, *, supplier_return: SupplierReturn, line_id: int
+) -> SupplierReturnLine:
+    """A line, resolved under its own return — never by id alone."""
+    line = SupplierReturnLine.objects.filter(pk=line_id, supplier_return=supplier_return).first()
+    if line is None:
+        raise OutOfScope(_("Return line %(id)s does not exist.") % {"id": line_id})
+    return line
+
+
+def returnable_receipt_lines(supplier_return: SupplierReturn) -> list[dict[str, object]]:
+    """
+    What the cited delivery still has to send back, line by line.
+
+    Derived from standing returns every time, exactly as `outstanding_order_lines`
+    derives from posted receipts: a stored "remaining" column would drift the
+    first time a return was reversed. Wholly rejected lines are shown with a
+    zero bound rather than hidden — the reader who wonders why a line cannot be
+    returned deserves the answer on the screen.
+    """
+    from apps.procurement.returns import return_availability, returned_quantity_for
+
+    return [
+        {
+            "line": line,
+            "accepted": line.accepted_base_quantity,
+            "returned": returned_quantity_for(line),
+            "available": return_availability(line),
+        }
+        for line in supplier_return.receipt.lines.select_related(
+            "item", "item__base_unit", "lot"
+        ).order_by("sequence")
     ]
 
 

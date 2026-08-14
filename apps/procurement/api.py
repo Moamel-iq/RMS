@@ -25,12 +25,14 @@ from django.http import HttpRequest
 from ninja import Router, Schema, Status
 
 from apps.accounting.models import Account, CostCenter
+from apps.inventory.models import InventoryReasonCode
 from apps.inventory.selectors import resolve_item, resolve_package_unit
 from apps.organizations.authorization import (
     OutOfScope,
     PermissionMissing,
     require_organization_permission,
     require_reachable_organization_permission,
+    require_warehouse_permission,
     resolve_branch,
     resolve_organization,
 )
@@ -63,33 +65,50 @@ from apps.procurement.models import (
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
+    SupplierReturn,
+    SupplierReturnLine,
 )
 from apps.procurement.permissions import (
     APPROVE_SUPPLIER_INVOICE,
     CANCEL_PURCHASE_MATCH,
     CREATE_SUPPLIER_INVOICE,
+    CREATE_SUPPLIER_RETURN,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
     MATCH_SUPPLIER_INVOICE,
     POST_SUPPLIER_INVOICE,
+    POST_SUPPLIER_RETURN,
     REVERSE_SUPPLIER_INVOICE,
+    REVERSE_SUPPLIER_RETURN,
     VIEW_PURCHASE_MATCH,
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
     VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
+    VIEW_SUPPLIER_RETURN,
+)
+from apps.procurement.returns import (
+    add_return_line,
+    create_supplier_return,
+    delete_supplier_return,
+    post_supplier_return,
+    remove_return_line,
+    reverse_supplier_return,
 )
 from apps.procurement.selectors import (
     resolve_match_allocation,
     resolve_purchase_match,
+    resolve_return_line,
     resolve_supplier,
     resolve_supplier_invoice,
     resolve_supplier_item,
+    resolve_supplier_return,
     visible_goods_receipts,
     visible_purchase_matches,
     visible_purchase_orders,
     visible_supplier_invoices,
     visible_supplier_items,
+    visible_supplier_returns,
     visible_suppliers,
 )
 from apps.procurement.services import (
@@ -1117,3 +1136,292 @@ def cancel_match(request: HttpRequest, match_id: int, payload: ReasonIn) -> Any:
 def _reload_match(match: PurchaseMatch) -> PurchaseMatch:
     """Re-read after an allocation change, so the response carries stored totals."""
     return PurchaseMatch.objects.select_related("supplier", "supplier_invoice").get(pk=match.pk)
+
+
+# ---------------------------------------------------------------------------
+# Supplier returns (Task 2.13)
+# ---------------------------------------------------------------------------
+
+
+class ReturnLineOut(Schema):
+    id: int
+    sequence: int
+    goods_receipt_line_id: int
+    item_id: int
+    item_code: str
+    lot_code: str | None = None
+    returned_base_quantity: str
+    movement_id: int | None = None
+    note: str
+    #: Omitted entirely without `view_supplier_cost`, never blanked.
+    posted_value: str | None = None
+    expected_credit_value: str | None = None
+    inventory_account: str | None = None
+    clearing_account: str | None = None
+
+
+class SupplierReturnOut(Schema):
+    id: int
+    public_id: str
+    organization_id: int
+    branch_id: int
+    supplier_id: int
+    supplier_code: str
+    receipt_id: int
+    receipt_number: str
+    warehouse_code: str
+    number: str
+    status: str
+    returned_at: str
+    business_date: str
+    reason_code: str | None = None
+    reason: str
+    evidence_reference: str
+    journal_entry: str | None = None
+    reversal_journal_entry: str | None = None
+    posted_value: str | None = None
+    lines: list[ReturnLineOut] = []
+
+
+class SupplierReturnIn(Schema):
+    receipt_id: int
+    returned_at: str
+    reason_code_id: int | None = None
+    reason: str = ""
+    evidence_reference: str = ""
+    notes: str = ""
+
+
+class ReturnLineIn(Schema):
+    receipt_line_id: int
+    returned_base_quantity: str
+    expected_credit_value: str | None = None
+    note: str = ""
+
+
+def _require_return_view(request: HttpRequest) -> User:
+    actor = _actor(request)
+    if not actor.has_perm(VIEW_SUPPLIER_RETURN):
+        raise PermissionMissing(f"{VIEW_SUPPLIER_RETURN} is not held.")
+    return actor
+
+
+def _serialize_return_line(line: SupplierReturnLine, *, include_cost: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": line.pk,
+        "sequence": line.sequence,
+        "goods_receipt_line_id": line.goods_receipt_line_id,
+        "item_id": line.item_id,
+        "item_code": line.item.code,
+        "lot_code": line.lot.code if line.lot else None,
+        "returned_base_quantity": format(line.returned_base_quantity, "f"),
+        "movement_id": line.movement_id,
+        "note": line.note,
+    }
+    if include_cost:
+        payload.update(
+            {
+                "posted_value": (
+                    format(line.posted_value, "f") if line.posted_value is not None else None
+                ),
+                "expected_credit_value": (
+                    format(line.expected_credit_value, "f")
+                    if line.expected_credit_value is not None
+                    else None
+                ),
+                "inventory_account": (
+                    line.inventory_account.code if line.inventory_account else None
+                ),
+                "clearing_account": line.contra_account.code if line.contra_account else None,
+            }
+        )
+    return payload
+
+
+def _serialize_return(supplier_return: SupplierReturn, *, include_cost: bool) -> dict[str, Any]:
+    lines = list(
+        supplier_return.lines.select_related(
+            "item", "lot", "inventory_account", "contra_account"
+        ).order_by("sequence")
+    )
+    payload: dict[str, Any] = {
+        "id": supplier_return.pk,
+        "public_id": str(supplier_return.public_id),
+        "organization_id": supplier_return.organization_id,
+        "branch_id": supplier_return.branch_id,
+        "supplier_id": supplier_return.supplier_id,
+        "supplier_code": supplier_return.supplier.code,
+        "receipt_id": supplier_return.receipt_id,
+        "receipt_number": supplier_return.receipt.number,
+        "warehouse_code": supplier_return.warehouse.code,
+        "number": supplier_return.number,
+        "status": supplier_return.status,
+        "returned_at": supplier_return.returned_at.isoformat(),
+        "business_date": supplier_return.business_date.isoformat(),
+        "reason_code": supplier_return.reason_code.code if supplier_return.reason_code else None,
+        "reason": supplier_return.reason,
+        "evidence_reference": supplier_return.evidence_reference,
+        "journal_entry": (
+            supplier_return.journal_entry.entry_number if supplier_return.journal_entry else None
+        ),
+        "reversal_journal_entry": (
+            supplier_return.reversal_journal_entry.entry_number
+            if supplier_return.reversal_journal_entry
+            else None
+        ),
+        "lines": [_serialize_return_line(line, include_cost=include_cost) for line in lines],
+    }
+    if include_cost:
+        payload["posted_value"] = (
+            format(supplier_return.posted_value, "f")
+            if supplier_return.posted_value is not None
+            else None
+        )
+    return payload
+
+
+@router.get("/supplier-returns/", response=list[SupplierReturnOut], summary="List supplier returns")
+def list_supplier_returns(request: HttpRequest, status: str | None = None) -> Any:
+    actor = _require_return_view(request)
+    queryset = visible_supplier_returns(actor)
+    if status:
+        queryset = queryset.filter(status=status.strip().upper())
+    include_cost = actor.has_perm(VIEW_SUPPLIER_COST)
+    return [_serialize_return(row, include_cost=include_cost) for row in queryset.order_by("-id")]
+
+
+@router.get(
+    "/supplier-returns/{return_id}/",
+    response=SupplierReturnOut,
+    summary="Read one supplier return",
+)
+def read_supplier_return(request: HttpRequest, return_id: int) -> Any:
+    actor = _require_return_view(request)
+    supplier_return = resolve_supplier_return(actor, return_id)
+    return _serialize_return(supplier_return, include_cost=actor.has_perm(VIEW_SUPPLIER_COST))
+
+
+@router.post(
+    "/supplier-returns/",
+    response={201: SupplierReturnOut},
+    summary="Open a draft return against a posted delivery",
+)
+def create_return(request: HttpRequest, payload: SupplierReturnIn) -> Status[Any]:
+    actor = _actor(request)
+    # Resolved through the caller's own warehouse scope; the receipt names
+    # the warehouse, and the permission is checked against that warehouse.
+    receipt = visible_goods_receipts(actor).filter(pk=payload.receipt_id).first()
+    if receipt is None:
+        raise OutOfScope(f"Goods receipt {payload.receipt_id} does not exist.")
+    require_warehouse_permission(actor, CREATE_SUPPLIER_RETURN, receipt.warehouse)
+
+    reason_code = None
+    if payload.reason_code_id is not None:
+        reason_code = InventoryReasonCode.objects.filter(
+            pk=payload.reason_code_id, organization_id=receipt.organization_id
+        ).first()
+        if reason_code is None:
+            raise OutOfScope(f"Reason code {payload.reason_code_id} does not exist.")
+
+    supplier_return = create_supplier_return(
+        receipt=receipt,
+        created_by=actor,
+        returned_at=_required_date(payload.returned_at, field="returned_at"),
+        reason_code=reason_code,
+        reason=payload.reason,
+        evidence_reference=payload.evidence_reference,
+        notes=payload.notes,
+    )
+    return Status(201, _serialize_return(supplier_return, include_cost=True))
+
+
+@router.delete(
+    "/supplier-returns/{return_id}/", response={204: None}, summary="Discard a draft return"
+)
+def delete_return(request: HttpRequest, return_id: int) -> Status[Any]:
+    actor = _actor(request)
+    supplier_return = resolve_supplier_return(actor, return_id)
+    require_warehouse_permission(actor, CREATE_SUPPLIER_RETURN, supplier_return.warehouse)
+    delete_supplier_return(supplier_return=supplier_return)
+    return Status(204, None)
+
+
+@router.post(
+    "/supplier-returns/{return_id}/lines/",
+    response={201: SupplierReturnOut},
+    summary="Send part of one delivery line back",
+)
+def add_return_line_endpoint(
+    request: HttpRequest, return_id: int, payload: ReturnLineIn
+) -> Status[Any]:
+    actor = _actor(request)
+    supplier_return = resolve_supplier_return(actor, return_id)
+    require_warehouse_permission(actor, CREATE_SUPPLIER_RETURN, supplier_return.warehouse)
+
+    # Under the return's own delivery, never by id alone — the service
+    # re-checks, but the resolution itself must not widen access.
+    receipt_line = GoodsReceiptLine.objects.filter(
+        pk=payload.receipt_line_id, receipt_id=supplier_return.receipt_id
+    ).first()
+    if receipt_line is None:
+        raise OutOfScope(f"Receipt line {payload.receipt_line_id} does not exist.")
+
+    add_return_line(
+        supplier_return=supplier_return,
+        receipt_line=receipt_line,
+        returned_base_quantity=_required_money(
+            payload.returned_base_quantity, field="returned_base_quantity"
+        ),
+        expected_credit_value=_money(payload.expected_credit_value, field="expected_credit_value"),
+        note=payload.note,
+    )
+    return Status(201, _serialize_return(_reload_return(supplier_return), include_cost=True))
+
+
+@router.delete(
+    "/supplier-returns/{return_id}/lines/{line_id}/",
+    response={204: None},
+    summary="Take a line off a draft return",
+)
+def delete_return_line(request: HttpRequest, return_id: int, line_id: int) -> Status[Any]:
+    actor = _actor(request)
+    supplier_return = resolve_supplier_return(actor, return_id)
+    require_warehouse_permission(actor, CREATE_SUPPLIER_RETURN, supplier_return.warehouse)
+    line = resolve_return_line(actor, supplier_return=supplier_return, line_id=line_id)
+    remove_return_line(line=line)
+    return Status(204, None)
+
+
+@router.post(
+    "/supplier-returns/{return_id}/post/",
+    response=SupplierReturnOut,
+    summary="Post a supplier return",
+)
+def post_return(request: HttpRequest, return_id: int) -> Any:
+    actor = _actor(request)
+    supplier_return = resolve_supplier_return(actor, return_id)
+    require_warehouse_permission(actor, POST_SUPPLIER_RETURN, supplier_return.warehouse)
+    posted = post_supplier_return(supplier_return=supplier_return, actor=actor)
+    return _serialize_return(posted, include_cost=True)
+
+
+@router.post(
+    "/supplier-returns/{return_id}/reverse/",
+    response=SupplierReturnOut,
+    summary="Reverse a posted supplier return",
+)
+def reverse_return(request: HttpRequest, return_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    supplier_return = resolve_supplier_return(actor, return_id)
+    require_warehouse_permission(actor, REVERSE_SUPPLIER_RETURN, supplier_return.warehouse)
+    reversed_return = reverse_supplier_return(
+        supplier_return=supplier_return, actor=actor, reason=payload.reason
+    )
+    return _serialize_return(reversed_return, include_cost=True)
+
+
+def _reload_return(supplier_return: SupplierReturn) -> SupplierReturn:
+    """Re-read after a line change, so the response carries the stored rows."""
+    return SupplierReturn.objects.select_related(
+        "supplier", "receipt", "warehouse", "reason_code", "journal_entry"
+    ).get(pk=supplier_return.pk)

@@ -24,6 +24,8 @@ from apps.procurement.models import (
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
+    SupplierReturn,
+    SupplierReturnLine,
 )
 
 if TYPE_CHECKING:
@@ -126,3 +128,41 @@ class PurchaseMatchAllocationAdmin(ReadOnlyAdmin):
     )
     search_fields = ("match__number",)
     ordering = ("match", "sequence")
+
+
+@admin.register(SupplierReturn)
+class SupplierReturnAdmin(ReadOnlyAdmin):
+    """
+    Read-only, like every posted document here.
+
+    A posted return carries a stock movement and a journal entry. An admin
+    form over it would be a write path that skips the quantity bound, the
+    period check, the source identity and the audit event.
+    """
+
+    list_display = (
+        "number",
+        "supplier",
+        "receipt",
+        "warehouse",
+        "returned_at",
+        "posted_value",
+        "status",
+    )
+    list_filter = ("organization", "status")
+    search_fields = ("number", "evidence_reference", "supplier__code", "supplier__name_ar")
+    ordering = ("-id",)
+
+
+@admin.register(SupplierReturnLine)
+class SupplierReturnLineAdmin(ReadOnlyAdmin):
+    list_display = (
+        "supplier_return",
+        "sequence",
+        "item",
+        "returned_base_quantity",
+        "posted_value",
+        "expected_credit_value",
+    )
+    search_fields = ("supplier_return__number", "item__code")
+    ordering = ("supplier_return", "sequence")

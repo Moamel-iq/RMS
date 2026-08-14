@@ -30,7 +30,9 @@ from apps.organizations.authorization import (
 )
 from apps.organizations.models import Branch, Organization
 from apps.procurement.models import (
+    GoodsReceipt,
     GoodsReceiptLine,
+    GoodsReceiptStatus,
     PurchaseOrder,
     PurchaseOrderStatus,
     PurchaseRequest,
@@ -783,3 +785,99 @@ class MatchCancellationForm(forms.Form):
     """Withdrawing an agreed answer states why."""
 
     reason = forms.CharField(label=_("السبب"), max_length=500)
+
+
+class SupplierReturnForm(forms.Form):
+    """
+    The header of a draft return. Lines are entered on the detail screen.
+
+    The delivery is the field, not the supplier: a return is always *of
+    something that arrived*, and the service refuses one that cites no posted
+    delivery. The supplier, warehouse and branch all follow from the receipt.
+    """
+
+    receipt = forms.ModelChoiceField(
+        queryset=GoodsReceipt.objects.none(),
+        label=_("التسليم المرتجع منه"),
+        help_text=_("تسليم مرحّل فقط — المسودة لم تُدخل شيئاً إلى المخزون بعد."),
+    )
+    returned_at = forms.DateField(
+        label=_("تاريخ الإرجاع"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    reason_code = forms.ModelChoiceField(
+        queryset=InventoryReasonCode.objects.none(),
+        label=_("رمز السبب"),
+        required=False,
+    )
+    reason = forms.CharField(label=_("السبب"), required=False, widget=forms.Textarea)
+    evidence_reference = forms.CharField(
+        label=_("مرجع الإثبات"),
+        max_length=120,
+        required=False,
+        help_text=_("وصل الاستلام أو توقيع السائق. مطلوب قبل الترحيل، لا قبل الحفظ."),
+    )
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+        warehouses = accessible_warehouses(actor)
+        self.fields["receipt"].queryset = (  # type: ignore[attr-defined]
+            GoodsReceipt.objects.filter(warehouse__in=warehouses, status=GoodsReceiptStatus.POSTED)
+            .select_related("supplier", "warehouse")
+            .order_by("-id")
+        )
+        self.fields["reason_code"].queryset = InventoryReasonCode.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=reachable_organization_ids(actor), is_active=True
+        ).order_by("code")
+
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean() or {}
+        receipt, reason_code = data.get("receipt"), data.get("reason_code")
+        if receipt and reason_code and reason_code.organization_id != receipt.organization_id:
+            raise forms.ValidationError(
+                _("رمز السبب لا يتبع مؤسسة هذا التسليم."), code="reason_code_organization_mismatch"
+            )
+        return data
+
+
+class SupplierReturnLineForm(forms.Form):
+    """
+    One delivery line going back, in part or in whole.
+
+    The choices narrow to the return's own delivery, so a submitted id cannot
+    cite somebody else's receipt — the service re-checks, but a form that
+    offered the choice at all would be inviting the attempt.
+    """
+
+    receipt_line = forms.ModelChoiceField(
+        queryset=GoodsReceiptLine.objects.none(), label=_("سطر التسليم")
+    )
+    returned_base_quantity = forms.DecimalField(
+        label=_("الكمية المرتجعة بالوحدة الأساسية"),
+        min_value=Decimal("0.001"),
+        help_text=_("لا تتجاوز ما قُبل من ذلك السطر ناقص ما أُرجع منه سابقاً."),
+    )
+    expected_credit_value = forms.DecimalField(
+        label=_("الائتمان المتوقع"),
+        min_value=0,
+        required=False,
+        help_text=_("ما يُتوقع أن يقيّده المورد. معلومة للمطالبة، لا رقم القيد."),
+    )
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, supplier_return: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.supplier_return = supplier_return
+        # Lines that brought something into stock. A wholly rejected line
+        # never entered and cannot be returned from it.
+        self.fields["receipt_line"].queryset = (  # type: ignore[attr-defined]
+            GoodsReceiptLine.objects.filter(
+                receipt_id=supplier_return.receipt_id,
+                accepted_base_quantity__gt=Decimal("0.000"),
+            )
+            .select_related("item")
+            .order_by("sequence")
+        )

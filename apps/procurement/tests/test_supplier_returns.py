@@ -20,6 +20,8 @@ from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.db.models import Sum
+from django.test import Client
+from django.urls import reverse
 
 from apps.accounting.models import (
     GOODS_RECEIVED_NOT_INVOICED,
@@ -46,7 +48,11 @@ from apps.inventory.models import (
     Warehouse,
 )
 from apps.organizations.models import Branch, Organization, Role
-from apps.organizations.services import grant_branch_access, grant_organization_access
+from apps.organizations.services import (
+    create_organization,
+    grant_branch_access,
+    grant_organization_access,
+)
 from apps.procurement.models import (
     GoodsReceipt,
     Supplier,
@@ -842,3 +848,305 @@ class TestTheCreditNoteBoundary:
         ).exists()
         account = Account.objects.get(organization=organization, code=RETURN_VARIANCE_CODE)
         assert account.account_class == AccountClass.OTHER
+
+
+# ---------------------------------------------------------------------------
+# The screens
+# ---------------------------------------------------------------------------
+
+
+class TestTheScreens:
+    def test_the_list_and_detail_render_for_a_storekeeper(
+        self, receipt: GoodsReceipt, keeper: User, client: Client
+    ) -> None:
+        supplier_return = _draft_return(receipt=receipt, keeper=keeper)
+        post_supplier_return(supplier_return=supplier_return, actor=keeper)
+        supplier_return.refresh_from_db()
+
+        client.force_login(keeper)
+        listing = client.get(reverse("procurement:supplier_return_list"))
+        assert listing.status_code == 200
+        body = listing.content.decode()
+        assert supplier_return.number in body
+
+        detail = client.get(
+            reverse("procurement:supplier_return_detail", args=[supplier_return.pk])
+        )
+        assert detail.status_code == 200
+        page = detail.content.decode()
+        assert supplier_return.number in page
+        assert supplier_return.journal_entry is not None
+        assert supplier_return.journal_entry.entry_number in page
+        # The availability table names the bound: 50 accepted, 10 returned.
+        assert "المتاح للإرجاع" in page
+
+    def test_the_list_answers_htmx_with_a_fragment(
+        self, receipt: GoodsReceipt, keeper: User, client: Client
+    ) -> None:
+        _draft_return(receipt=receipt, keeper=keeper)
+        client.force_login(keeper)
+        full = client.get(reverse("procurement:supplier_return_list"))
+        fragment = client.get(reverse("procurement:supplier_return_list"), HTTP_HX_REQUEST="true")
+        assert fragment.status_code == 200
+        assert len(fragment.content) < len(full.content)
+
+    def test_the_create_screen_opens_a_draft_against_the_delivery(
+        self, receipt: GoodsReceipt, keeper: User, client: Client
+    ) -> None:
+        client.force_login(keeper)
+        response = client.post(
+            reverse("procurement:supplier_return_create"),
+            {
+                "receipt": receipt.pk,
+                "returned_at": "2026-03-05",
+                "reason": "تلف",
+                "evidence_reference": "وصل",
+            },
+        )
+        assert response.status_code == 302
+        created = SupplierReturn.objects.get(receipt=receipt)
+        assert created.status == SupplierReturnStatus.DRAFT
+        assert created.warehouse_id == receipt.warehouse_id
+        assert created.supplier_id == receipt.supplier_id
+
+    def test_the_detail_screen_adds_and_removes_a_line(
+        self, receipt: GoodsReceipt, keeper: User, client: Client
+    ) -> None:
+        supplier_return = create_supplier_return(
+            receipt=receipt,
+            created_by=keeper,
+            returned_at=RETURNED,
+            evidence_reference="وصل",
+        )
+        client.force_login(keeper)
+        added = client.post(
+            reverse("procurement:supplier_return_detail", args=[supplier_return.pk]),
+            {
+                "receipt_line": receipt.lines.get().pk,
+                "returned_base_quantity": "10.000",
+            },
+        )
+        assert added.status_code == 302
+        line = supplier_return.lines.get()
+        assert line.returned_base_quantity == Decimal("10.000")
+
+        removed = client.post(
+            reverse(
+                "procurement:supplier_return_line_delete",
+                args=[supplier_return.pk, line.pk],
+            )
+        )
+        assert removed.status_code == 302
+        assert supplier_return.lines.count() == 0
+
+    def test_the_command_routes_post_and_refuse_get(
+        self, receipt: GoodsReceipt, keeper: User, client: Client
+    ) -> None:
+        supplier_return = _draft_return(receipt=receipt, keeper=keeper)
+        client.force_login(keeper)
+
+        refused = client.get(reverse("procurement:supplier_return_post", args=[supplier_return.pk]))
+        assert refused.status_code == 405
+        supplier_return.refresh_from_db()
+        assert supplier_return.status == SupplierReturnStatus.DRAFT
+
+        posted = client.post(reverse("procurement:supplier_return_post", args=[supplier_return.pk]))
+        assert posted.status_code == 302
+        supplier_return.refresh_from_db()
+        assert supplier_return.status == SupplierReturnStatus.POSTED
+
+    def test_a_storekeeper_cannot_reverse_through_the_route(
+        self, receipt: GoodsReceipt, keeper: User, client: Client
+    ) -> None:
+        """The same separation the receipt draws: undoing a posted movement is elevated."""
+        supplier_return = _draft_return(receipt=receipt, keeper=keeper)
+        post_supplier_return(supplier_return=supplier_return, actor=keeper)
+
+        client.force_login(keeper)
+        response = client.post(
+            reverse("procurement:supplier_return_reverse", args=[supplier_return.pk]),
+            {"reason": "محاولة"},
+        )
+        assert response.status_code == 403
+        supplier_return.refresh_from_db()
+        assert supplier_return.status == SupplierReturnStatus.POSTED
+
+    def test_a_manager_reverses_through_the_route(
+        self, receipt: GoodsReceipt, keeper: User, manager: User, client: Client
+    ) -> None:
+        supplier_return = _draft_return(receipt=receipt, keeper=keeper)
+        post_supplier_return(supplier_return=supplier_return, actor=keeper)
+
+        client.force_login(manager)
+        response = client.post(
+            reverse("procurement:supplier_return_reverse", args=[supplier_return.pk]),
+            {"reason": "فحص المورد أكّد سلامة الكمية"},
+        )
+        assert response.status_code == 302
+        supplier_return.refresh_from_db()
+        assert supplier_return.status == SupplierReturnStatus.REVERSED
+
+    def test_out_of_scope_is_404_not_403(
+        self, receipt: GoodsReceipt, keeper: User, client: Client
+    ) -> None:
+        """A 403 would confirm the return exists, and ids are sequential."""
+        supplier_return = _draft_return(receipt=receipt, keeper=keeper)
+        outsider = User.objects.create_user(username="outsider", password=PASSWORD)
+        rival = create_organization(code="RIV", name_ar="منافس", name_en="Rival")
+        grant_organization_access(user=outsider, organization=rival, role=Role.MANAGER)
+        outsider = User.objects.get(pk=outsider.pk)
+
+        client.force_login(outsider)
+        response = client.get(
+            reverse("procurement:supplier_return_detail", args=[supplier_return.pk])
+        )
+        assert response.status_code == 404
+
+    def test_the_navigation_names_the_returns_screen(self) -> None:
+        """
+        The entry inventory gave up ("supplier returns belong to Procurement")
+        is live and points here, not at inventory.
+        """
+        from apps.core.navigation import MODULES
+
+        procurement = next(m for m in MODULES if m.key == "procurement")
+        section = next(s for s in procurement.sections if str(s.label) == "مرتجعات الموردين")
+        assert section.available is True
+        assert section.url_name == "procurement:supplier_return_list"
+        inventory = next(m for m in MODULES if m.key == "inventory")
+        assert all(str(s.label) != "مرتجعات الموردين" for s in inventory.sections)
+
+
+# ---------------------------------------------------------------------------
+# The API
+# ---------------------------------------------------------------------------
+
+
+class TestTheApi:
+    def test_the_command_endpoints_drive_the_lifecycle(
+        self, receipt: GoodsReceipt, keeper: User, manager: User, client: Client
+    ) -> None:
+        client.force_login(keeper)
+        created = client.post(
+            "/api/v1/procurement/supplier-returns/",
+            data={
+                "receipt_id": receipt.pk,
+                "returned_at": "2026-03-05",
+                "reason": "تلف",
+                "evidence_reference": "وصل السائق",
+            },
+            content_type="application/json",
+        )
+        assert created.status_code == 201
+        return_id = created.json()["id"]
+
+        lined = client.post(
+            f"/api/v1/procurement/supplier-returns/{return_id}/lines/",
+            data={
+                "receipt_line_id": receipt.lines.get().pk,
+                "returned_base_quantity": "10.000",
+                "expected_credit_value": "14000.000",
+            },
+            content_type="application/json",
+        )
+        assert lined.status_code == 201
+
+        posted = client.post(f"/api/v1/procurement/supplier-returns/{return_id}/post/")
+        assert posted.status_code == 200
+        payload = posted.json()
+        assert payload["status"] == "POSTED"
+        assert payload["journal_entry"]
+        assert payload["lines"][0]["movement_id"] is not None
+
+        client.force_login(manager)
+        reversed_response = client.post(
+            f"/api/v1/procurement/supplier-returns/{return_id}/reverse/",
+            data={"reason": "أُعيدت إلى المخزن"},
+            content_type="application/json",
+        )
+        assert reversed_response.status_code == 200
+        assert reversed_response.json()["status"] == "REVERSED"
+
+    def test_money_crosses_the_wire_as_strings(
+        self, receipt: GoodsReceipt, keeper: User, manager: User, client: Client
+    ) -> None:
+        supplier_return = _draft_return(receipt=receipt, keeper=keeper)
+        post_supplier_return(supplier_return=supplier_return, actor=keeper)
+
+        client.force_login(manager)
+        raw = client.get(
+            f"/api/v1/procurement/supplier-returns/{supplier_return.pk}/"
+        ).content.decode()
+        assert '"posted_value": "14000.000"' in raw or '"posted_value":"14000.000"' in raw
+        assert "14000.0," not in raw
+
+    def test_the_api_omits_cost_without_the_permission(
+        self, receipt: GoodsReceipt, keeper: User, client: Client
+    ) -> None:
+        """
+        A storekeeper sends goods back and must never see what they cost.
+        Omitted, never blanked — a null field says a number exists and you are
+        not trusted with it, which is a different statement.
+        """
+        supplier_return = _draft_return(receipt=receipt, keeper=keeper, expected="14000.000")
+        post_supplier_return(supplier_return=supplier_return, actor=keeper)
+
+        keeper = User.objects.get(pk=keeper.pk)
+        assert not keeper.has_perm("procurement.view_supplier_cost")
+        client.force_login(keeper)
+        payload = client.get(f"/api/v1/procurement/supplier-returns/{supplier_return.pk}/").json()
+        assert "posted_value" not in payload or payload["posted_value"] is None
+        line = payload["lines"][0]
+        assert line.get("posted_value") is None
+        assert line.get("expected_credit_value") is None
+        # The quantity is custody, not money, and stays visible.
+        assert line["returned_base_quantity"] == "10.000"
+
+    def test_a_draft_can_be_discarded_and_a_line_removed(
+        self, receipt: GoodsReceipt, keeper: User, client: Client
+    ) -> None:
+        supplier_return = _draft_return(receipt=receipt, keeper=keeper)
+        line = supplier_return.lines.get()
+
+        client.force_login(keeper)
+        unlined = client.delete(
+            f"/api/v1/procurement/supplier-returns/{supplier_return.pk}/lines/{line.pk}/"
+        )
+        assert unlined.status_code == 204
+        assert supplier_return.lines.count() == 0
+
+        discarded = client.delete(f"/api/v1/procurement/supplier-returns/{supplier_return.pk}/")
+        assert discarded.status_code == 204
+        assert not SupplierReturn.objects.filter(pk=supplier_return.pk).exists()
+
+    def test_out_of_scope_is_404(self, receipt: GoodsReceipt, keeper: User, client: Client) -> None:
+        supplier_return = _draft_return(receipt=receipt, keeper=keeper)
+        outsider = User.objects.create_user(username="api-outsider", password=PASSWORD)
+        rival = create_organization(code="RIV2", name_ar="منافس", name_en="Rival Two")
+        grant_organization_access(user=outsider, organization=rival, role=Role.MANAGER)
+        outsider = User.objects.get(pk=outsider.pk)
+
+        client.force_login(outsider)
+        response = client.get(f"/api/v1/procurement/supplier-returns/{supplier_return.pk}/")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Demo
+# ---------------------------------------------------------------------------
+
+
+class TestDemoReturns:
+    def test_the_seed_skips_what_is_missing(
+        self, organization: Organization, keeper: User, manager: User
+    ) -> None:
+        """
+        No procurement demo has run against this organization, so the seed
+        finds no posted demo delivery and returns nothing rather than
+        inventing one.
+        """
+        from apps.procurement.demo import seed_demo_returns
+
+        assert (
+            seed_demo_returns(organization=organization, storekeeper=keeper, manager=manager) == []
+        )
