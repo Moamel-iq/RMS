@@ -231,6 +231,31 @@ the supplier-credit-expected state, accounting clearing, reversal.
 
 Depends on: 2.9 — **not** on the invoice.
 
+**Status: DONE.**
+
+*What shipped.* `SupplierReturn` with a line per source `GoodsReceiptLine`
+(§10 amended — the header sketch alone has no quantity, no amount and no
+double-return guard), posting `RETURN_OUT` movements at the standing average
+through the kernel and one journal — `Dr SUPPLIER_RETURN_CLEARING /
+Cr INVENTORY_CONTROL` — in a single transaction. The clearing balance **is**
+the supplier-credit-expected state: no variance, no payable and no GRNI move
+at the return, because at the gate nobody knows what the supplier will credit
+(ADR-022 §2 as amended). `expected_credit_value` is recorded as claim
+metadata and posts nothing. The bound is per delivery line — accepted less
+standing returns, reversed ones release — checked under a receipt-line lock
+at drafting and re-checked at posting. Four warehouse-scoped permissions on
+the receipt's pattern; the storekeeper records and posts, only a manager
+reverses. Whole-row immutability triggers, reversal by exact mirror,
+`verify_supplier_returns` in the standing verifier, three demo returns (one
+per state), Arabic RTL screens with the navigation entry inventory gave up,
+API commands, read-only admin.
+
+*Found under a real COMMIT race and fixed here.* Task 2.9's receipt-reversal
+guard walked only line relations, and a return cites the receipt at the
+header before its first line exists in a separate transaction — so for a
+moment a standing draft return was invisible to it. The guard now walks the
+header's relations too, and the race serializes on the receipt row.
+
 ---
 
 ### Task 2.14 — Supplier credit notes

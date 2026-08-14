@@ -5,11 +5,13 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 15/20 — Supplier returns (NOT STARTED). Step 14
-complete.
-CURRENT_TASK: none in flight
-LAST_GREEN_COMMIT: 29b0ea0
-LAST_PUSHED_COMMIT: 29b0ea0
+CURRENT_PIPELINE_STEP: 15/20 — Supplier returns (Task 2.13) COMPLETE.
+CURRENT_TASK: none in flight. The active /goal directs the remainder at
+**Accounting and Procurement completion**: continue sequentially through
+every remaining approved Procurement and Accounting task — Task 2.14 (credit
+notes) is next — and both module-exit gates on fresh databases.
+LAST_GREEN_COMMIT: 3bb8194 (feature); the docs checkpoint follows it
+LAST_PUSHED_COMMIT: 3bb8194 and its checkpoint
 WORKING_TREE: clean
 RUNNING_TESTS: none
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
@@ -27,6 +29,9 @@ ACTIVE_DATABASES (none to be dropped):
   created by Step 13, never to be dropped
 - `khan_mandi_p2_b6` — Step 14 verification, migrated from zero and seeded;
   created by Step 14, never to be dropped
+- `khan_mandi_p2_b7` — Step 15 verification, migrated from zero through all
+  24 procurement migrations and seeded twice with identical counts; created
+  by Step 15, never to be dropped
 - `khan_mandi_t17a_check`, `khan_mandi_t16_check`, `_t15_`, `_t14_`, `_t13_`,
   `khan_mandi_ledger_check`, `khan_mandi_inv_check`, `khan_mandi_freshcheck`
 
@@ -35,72 +40,66 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Step 15 — Task 2.13, supplier returns. Goods going back
-out to the supplier, through the inventory kernel as an ordinary outbound at
-the standing moving average (ADR-022 §1), with a distinct movement type that is
-**not** inventory's `RETURN_IN` (PRC-047).
-
-What Step 15 inherits, and what it must settle:
-
-- ADR-022's decisions 1, 2 and the return half of §5 are still **Proposed**.
-  Step 15 is where they are accepted or amended, exactly as Step 14 did for the
-  price half. `PURCHASE_RETURN_VARIANCE` is unseeded and has no account chosen;
-  Task 2.0 §15's role table omits it entirely, so its account is Step 15's to
-  decide and record — and the Step 14 precedent is that a **bidirectional**
-  difference account belongs in class 8 or 7, never in cost of sales.
-- A posted delivery cited by a live match or a live posting cannot be reversed.
-  A supplier return is not a reversal and must not be built as one: the receipt
-  stays posted, the return is its own document, and PRC-049's average-versus-
-  credit difference is a second variance with its own account.
-- `apps/procurement/models.py` declares `live_dependency` on
-  `PurchaseMatchAllocation` and `SupplierInvoicePosting`. A return that cites a
-  receipt line should declare the same, or Task 2.9's guard will count a
-  cancelled return as a live dependent.
-
-Do NOT start Task 2.14 (credit notes) or 2.15 (payments) in the same step.
+NEXT_EXACT_ACTION: Task 2.14 — supplier credit notes (Task 2.0 §10, PRC-051,
+PRC-052; invariants 41–42). The agreed figure arrives on paper: the note
+clears the supplier-return clearing balance (`8-01-04-001`, currently
+40,514.706 on the demo) against the payable or a standing credit, and
+recognises the average-versus-credit difference in `PURCHASE_RETURN_VARIANCE`
+(`7-09-04-001` — seeded, deliberately unmapped; mapping it is Task 2.14's
+first deliberate act). `TestTheCreditNoteBoundary` in
+`test_supplier_returns.py` is the negative contract whose positive twins Task
+2.14 must write. `supplier_document_number` unique per supplier over
+non-reversed notes. A note referencing no invoice stands as unallocated
+supplier credit. It never moves stock.
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q   # expect 617 passed
+.venv/Scripts/python.exe -m pytest apps/procurement -q
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
-organization DEMO-KHAN-MANDI. Unchanged from Step 13 except that the goods
-invoice now **posts**:
+organization DEMO-KHAN-MANDI. Step 15 adds three supplier returns, one per
+lifecycle state, everything through the real services:
 
-- `DEMO-SINV-GOODS` — SINV-2026-000003, **POSTED** from `DEMO-MATCH-FULL`
-  (MTC-2026-000001) as generation 1. `Dr` GRNI 84,000, `Dr` purchase price
-  variance clearing 3,000, `Cr` supplier payable 87,000. The delivery posted at
-  1,400 a kilo and the supplier billed 1,450, so the difference three-way
-  matching exists to surface is genuinely in the ledger rather than contrived
-  to zero.
-- `DEMO-MATCH-CANCELLED` — still there, still withdrawn with a reason.
+- `DEMO-SRET-CHICKEN` — SRET-2026-000001, **POSTED**. Twenty kilograms of the
+  warm-chicken delivery (`DEMO-GRN-REJECT`) that passed inspection and
+  spoiled on the shelf — beside the thirty that were rejected at the gate, so
+  the two mechanisms sit on one document trail. Book value out **40,514.706**
+  at the standing average against an expected credit of 280,000 at the
+  receipt price — the ADR-022 §2 gap, visible.
+- `DEMO-SRET-DRAFT` — five kilograms of rice against `DEMO-GRN-MATCHED`, left
+  for the reader to post, and proof that a live match and a live invoice
+  posting do not make a delivery unreturnable.
+- `DEMO-SRET-REVERSED` — SRET-2026-000002, two kilograms of meat, posted by
+  the storekeeper and reversed by the manager (the storekeeper cannot).
 
-Counts: stock movements **45** and locations **4**, both unchanged by the
-posting — an invoice moves no stock and a price difference restates no average.
-Journals **34 → 35**. Postings **3**: the goods invoice live, the expense
-invoice live, and the reversed invoice's generation 1 marked REVERSED. The
-`8-01-03-001` balance is **3,000** and is expected to stand until the deferred
-period-end split.
+Counts: stock movements **45 → 48** (two `RETURN_OUT` plus the meat
+reversal), journals **35 → 38**, postings still **3**, locations unchanged.
+Balances: `8-01-03-001` still 3,000; `8-01-04-001` (supplier return clearing)
+**40,514.706** — exactly the standing posted return, the reversed one nets to
+zero; `7-09-04-001` (purchase return variance) **0**, and
+`verify_supplier_returns` asserts it stays 0 until Task 2.14.
 
 Routes verified rendering for an authorised user (Django test client with
-`force_login`, so no credential is read or typed): /procurement/matching/
-(15,715 bytes), /procurement/matches/ (16,193), the posted match detail
-(17,221), /procurement/invoices/ (17,520) and the posted invoice (18,654). The
-match detail screen stops saying "matching is evidence, not money" and starts
-naming the journal, the 84,000 cleared and the 87,000 billed; it also stops
-offering a cancel button, because the service would refuse one. Commands are
-POST-only — post and reverse each answer 405 to a GET. HTMX verified: the list
-returns a fragment only, 2,027 bytes against 16,193 for the full page.
+`force_login`, so no credential is read or typed): /procurement/returns/
+(16,696 bytes), the create form (15,705), the posted detail (18,292), the
+draft detail (19,531) and the reversed detail (17,900). HTMX verified: the
+list answers a fragment only, 2,510 bytes against 16,696. Commands are
+POST-only — post and reverse answer 405 to a GET (asserted in tests). The
+navigation entry "مرتجعات الموردين" is live and points at the procurement
+route — the entry inventory explicitly gave up in Phase 1.
 
-A second and a third seed run change nothing (postings stay at 3).
+A second and a third seed run change nothing (returns stay at 3, movements at
+48, journals at 38).
 
 RECONCILIATION_STATE: clean on `khan_mandi_dev` (both organizations) and on
-the fresh `khan_mandi_p2_b6` across all four verifiers — `verify_procurement`
-(now including `verify_grni_clearing` and `verify_parked_variance`),
-`verify_organization`, `verify_inventory_against_gl` and `verify_locations`.
+the fresh `khan_mandi_p2_b7` across all four verifiers — `verify_procurement`
+(now also including `verify_supplier_returns`), `verify_organization`,
+`verify_inventory_against_gl` and `verify_locations`. The two databases
+reproduce each other exactly: 48 movements, 38 journals, 3 postings,
+40,514.706 in the return clearing on both.
 
 `verify_grni_clearing` is invariant 47, and two things about it are worth
 writing down. **Cleared is not matched**: a draft or ready match consumes
@@ -113,6 +112,57 @@ the inventory demo, which is how the scoping was found.
 `verify_parked_variance` proves every fils in `8-01-03-001` traces to a live
 posting and to the allocation rows beneath it, and catches a manual journal
 against the account.
+
+STEP 15 (Task 2.13, supplier returns): **COMPLETE**. Definitive complete
+project suite on the final tree: **2258 passed, 0 failed** (52:07); the code
+was not touched between that run and the commits below — only this runbook
+and the docs. Four commits: `fce9a4a`
+(inventory: `RETURN_OUT`), `a0a0fc2` (accounting: the two return roles and
+chart accounts, 70 → 74), `e947941` (procurement: the document, the posting,
+the reversal, the verifier, 30 tests), and `3bb8194` — selectors, API
+commands, Arabic RTL screens, the navigation
+promotion, read-only admin, three demo returns, 15 more surface tests and 4
+real-COMMIT races. Fresh database `khan_mandi_p2_b7` migrated from zero
+through all 24 procurement migrations, seeded twice with identical counts,
+every return route rendered, all four verifiers clean on it and on
+`khan_mandi_dev` — and the two databases reproduce each other exactly.
+Quality gates: ruff, ruff format, mypy (232 files), manage.py check,
+makemigrations --check, pre-commit 13 hooks — all pass.
+
+**The design decision that shaped the step** was put to the human twice. The
+authoritative answers to B1/B2 (debit GRNI/payable per allocation, reverse
+PPV) and B3/B5 (clearing account only, no variance at the return) prescribed
+two mutually exclusive postings for the same event; the human chose **B3/B5**:
+the physical return posts `Dr SUPPLIER_RETURN_CLEARING (8-01-04-001) /
+Cr INVENTORY_CONTROL` for the book value at the standing average, and nothing
+else. No payable, no GRNI, no variance — at the gate nobody knows what the
+supplier will credit. The clearing balance **is** the claim outstanding;
+Task 2.14's credit note clears it and recognises the difference in
+`PURCHASE_RETURN_VARIANCE` (7-09-04-001, class OTHER, seeded and deliberately
+**unmapped** — a test asserts the unmapped state). ADR-022 is Accepted in
+full with the §2 amendment; Task 2.0 §10/§13/§15 amended; invariants rows
+38–40e; traceability PRC-047..050 updated.
+
+**A race found a real hole, fixed here.** Task 2.9's receipt-reversal guard
+walked only receipt-*line* relations, and a supplier return cites the receipt
+at the **header** before its first line exists in a separate transaction — so
+`test_a_new_return_racing_the_receipt_reversal` produced a reversed delivery
+with a standing draft return against it. The guard now walks the header's
+relations too (both services lock the receipt row first, so the race
+serializes), and `SupplierReturn.live_dependency` was corrected from
+`Q(supplier_return__status__in=…)` — the line model's shape, a FieldError if
+ever applied to the header's own queryset — to `Q(status__in=("DRAFT",
+"POSTED"))`. A second property worth writing down: a **draft** return
+consumes availability the moment its line is added, under a lock on the
+receipt line, so the sum of standing returns cannot exceed the accepted
+quantity through any interleaving — the interesting quantity race is two
+*adds*, not two posts, and the posting-time re-check stays as depth.
+
+Two smaller things: `tests/test_phase_0_exit.py`'s chart count moved 70 → 74
+(stale assertion, found by the exit test itself), and the demo needed
+`SUPPLIER_RETURN_CLEARING` added to `PROCUREMENT_ACCOUNT_MAPPINGS` plus a
+`seed_chart_of_accounts` re-run on `khan_mandi_dev` (4 accounts created) —
+the variance role is deliberately not in the demo mappings either.
 
 BATCH 4 CERTIFICATION (Steps 10–12): **PASS** at 64d94f8. Complete project
 suite 2053 passed, 0 failed. Fresh database `khan_mandi_p2_b4` migrated from
@@ -360,4 +410,7 @@ the item, and it is addressed.
 | 11 Receipt posting + GRNI | **COMPLETE, PUSHED** | ca18fc9 | 346 tests, 6 real-COMMIT races, demo 39→44 movements and 25→30 journals |
 | 12 Supplier invoices | **COMPLETE, PUSHED** | 64d94f8 | 91 tests, 4 demo invoices, payable derived, matching boundary held |
 | **Batch 4 cert (10–12)** | **PASS** | 64d94f8 | 2053 project tests, fresh DB from zero, four verifiers clean |
-| 13–20 | not started | — | — |
+| 13 Three-way matching | **COMPLETE, PUSHED** | 0c2ee51 | 2143 project tests; see the Step 13 note above |
+| 14 Variance accounting | **COMPLETE, PUSHED** | 29b0ea0 + 61552a1 | 2203 project tests, generations, PPV parked |
+| 15 Supplier returns | **COMPLETE, PUSHED** | fce9a4a + a0a0fc2 + e947941 + 3bb8194 | fresh DB b7, verifiers clean, ADR-022 accepted in full |
+| 16–20 | not started | — | next: Task 2.14 credit notes, then 2.15 payments, per the active /goal |

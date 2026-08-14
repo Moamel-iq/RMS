@@ -71,9 +71,14 @@ traceability matrix rather than this table is where the evidence lives.
 | 37e | A posted generation is immutable except for its own reversal, and is never deleted | Whole-row allowlist trigger | 2.12 |
 | 37f | A match backing a live posting cannot be cancelled; a reversed generation blocks nothing | Service guard plus a database trigger; `live_dependency` is `status=LIVE` | 2.12 |
 | 37g | Procurement's own GRNI movement equals its accepted delivery value no posted invoice covers | `verify_grni_clearing` (invariant 47, scoped to this module's entries) | 2.12 |
-| 38 | A supplier return is not an inventory `RETURN_IN` and uses a distinct movement type | Enum + test asserting the types differ | 2.13 |
-| 39 | A return leaves stock at the standing moving average; a full depletion surrenders its whole remaining value | Reuses the kernel; ADR-022 | 2.13 |
-| 40 | Negative stock is refused on a return, with no procurement bypass | Reuses `_require_available` | 2.13 |
+| 38 | A supplier return is not an inventory `RETURN_IN` and uses a distinct movement type | `MovementType.RETURN_OUT`, outbound; `TestTheSupplierReturnMovementType` asserts the directions differ | 2.13 |
+| 39 | A return leaves stock at the standing moving average; a full depletion surrenders its whole remaining value | Reuses the kernel; ADR-022 §1's worked example is `test_it_leaves_at_the_standing_average_not_the_receipt_price` | 2.13 |
+| 40 | Negative stock is refused on a return, with no procurement bypass | Reuses `_require_available`; race asserted in `test_a_return_racing_an_issue_of_the_same_stock` | 2.13 |
+| 40a | Returned quantity per delivery line never exceeds what that line accepted; standing returns consume the bound, reversed ones release it | `return_availability` under a receipt-line lock, re-checked at posting; `TestTheQuantityBound` + the two-drafts race | 2.13 |
+| 40b | A return posts `Dr SUPPLIER_RETURN_CLEARING / Cr INVENTORY_CONTROL` and nothing else — no payable, no GRNI, no variance at the return | ADR-022 §2 as amended; `TestTheCreditNoteBoundary` is the negative half Task 2.14 must overturn deliberately | 2.13 |
+| 40c | A posted return is immutable except for its reversal; only a draft can be deleted; lines freeze with their return | Whole-row allowlist triggers (migration 0023) | 2.13 |
+| 40d | A delivery cited by a standing return cannot be reversed, at the header from the moment the draft exists | `live_dependency` on `SupplierReturn` and its line; the receipt guard walks header and line relations both | 2.13 |
+| 40e | The clearing balance equals the posted value of standing returns, fils for fils, and the variance account is empty | `verify_supplier_returns` | 2.13 |
 | 41 | A credit note reduces the payable or stands as unallocated credit; it moves no stock | Posting service + test | 2.14 |
 | 42 | A credit note's supplier document number is unique per supplier over non-reversed notes | Partial unique index | 2.14 |
 | 43 | Payment allocations may not exceed the invoice total nor the payment amount | Service under a lock + reconciliation invariant | 2.15 |

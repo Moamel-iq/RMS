@@ -1,8 +1,10 @@
 # ADR-022 — Supplier return valuation and purchase variance treatment
 
-- **Status:** **Accepted** (Task 2.12, 2026-08-14). Decisions 3, 4 and the price
-  half of 5 are implemented; 1, 2 and the return half of 5 remain proposed until
-  Task 2.13 posts a supplier return.
+- **Status:** **Accepted** (Task 2.12, 2026-08-14; Task 2.13, 2026-08-14).
+  Every decision is now implemented: 3, 4 and the price half of 5 by Task 2.12;
+  1 and the return half of 5 by Task 2.13; 2 by Task 2.13 **as amended** — the
+  valuation rule stands exactly as written, the recognition point moved from
+  the return event to the credit note. See the amendment inside decision 2.
 - **Date:** 2026-08-11
 - **Related:** ADR-006 (rounding), ADR-012 (money and allocation), ADR-013
   (periods), ADR-017 (source identity), ADR-018 (moving weighted average, the
@@ -81,6 +83,30 @@ Inventory falls by exactly 30,000 and 180 kg remain at 1,500. The books
 reconcile; the 10,000 is not an error, it is the arithmetic consequence of
 having averaged two prices together and then unwound one of them.
 
+**Amendment (Task 2.13): the variance is recognised at the credit note, not at
+the physical return.** The valuation half of this decision stands exactly as
+written — stock leaves at the standing average, the worked example above is a
+test (`test_it_leaves_at_the_standing_average_not_the_receipt_price` asserts
+the 30,000) — but the entry
+this section originally sketched debited GRNI or the payable for *"what the
+supplier credits"*, and at the moment goods leave the gate **nobody knows that
+figure**. The supplier has not issued a credit note; booking a gain or a loss
+against an expectation would put a number on the profit and loss that nobody
+has agreed, and moving a liability with no document stating its amount is the
+same mistake with a different account. The physical return therefore posts:
+
+```
+Dr  Supplier return clearing     the book value that left, at average
+    Cr  Inventory control        the same figure
+```
+
+and nothing else — no payable, no GRNI, no variance. The clearing balance *is*
+the claim outstanding against the supplier. When Task 2.14's credit note
+arrives with an agreed figure, it clears this balance and recognises the
+difference in `PURCHASE_RETURN_VARIANCE` — which is where the original entry's
+third line went, one document later, backed by paper. The expected credit may
+be recorded on the return line as metadata for the claim; it posts nothing.
+
 ### 3. A price variance never restates a posted movement
 
 An invoice that disagrees with a receipt does **not** go back and reprice it.
@@ -146,7 +172,24 @@ own audit event, taken by somebody who knows why.
 | Role | Scope | Account | Carries |
 |---|---|---|---|
 | `PURCHASE_PRICE_VARIANCE` | organization | `8-01-03-001`, class CLEARING | Invoice-versus-receipt differences |
-| `PURCHASE_RETURN_VARIANCE` | organization | to be decided at Task 2.13 | Average-versus-credit differences |
+| `PURCHASE_RETURN_VARIANCE` | organization | `7-09-04-001`, class OTHER | Average-versus-credit differences |
+| `SUPPLIER_RETURN_CLEARING` | organization | `8-01-04-001`, class CLEARING | The claim between the return and its credit note |
+
+**Amendment (Task 2.13): the return half is decided, and it takes two roles,
+not one.** The amendment inside decision 2 splits the return's accounting
+across two documents, and each half needs its own account. The **clearing**
+role (`8-01-04-001 تسوية مرتجعات الموردين`) carries the claim from the moment
+goods leave until the credit note settles it; its balance is expected to be
+non-zero and is not a fault, and `verify_supplier_returns` proves every fils in
+it traces to a standing posted return. The **variance** role (`7-09-04-001
+فروقات مرتجعات المشتريات`) follows the Step 14 precedent that a bidirectional
+difference account belongs in class 7 or 8 and never in cost of sales — class
+OTHER, not class 5, because a supplier crediting less than book value is a
+purchasing outcome, not a kitchen one. It is seeded as vocabulary and
+deliberately **unmapped**: Task 2.13 posts nothing to it, no accounting manager
+should be asked to map an account for a workflow that does not exist, and a
+test asserts the unmapped state so Task 2.14 has to make mapping it a
+deliberate act.
 
 **Amendment (Task 2.12): the variance account is a clearing account, and Task
 2.0 §15's `5-02-01-001` is superseded.**

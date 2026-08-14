@@ -2,6 +2,20 @@
 
 - **Status:** Specification only. Task 2.0 creates no models, migrations,
   services, API or UI. Implementation begins at Task 2.1.
+- **Implemented through Task 2.13** (supplier returns). §10's return half is
+  live: a distinct `RETURN_OUT` movement (PRC-047), average-cost valuation with
+  full depletion (PRC-048), the kernel's negative-stock refusal (PRC-050).
+  Three amendments to this document, recorded in ADR-022:
+  **(1)** §10 gains `SupplierReturnLine` — the header sketch alone has no
+  quantity, no amount and no double-return guard.
+  **(2)** PRC-049's variance is recognised at the **credit note**, not at the
+  return; the return posts `Dr SUPPLIER_RETURN_CLEARING / Cr
+  INVENTORY_CONTROL` only, under two new §15 roles: `SUPPLIER_RETURN_CLEARING`
+  (`8-01-04-001`, CLEARING) and `PURCHASE_RETURN_VARIANCE` (`7-09-04-001`,
+  OTHER, seeded and deliberately unmapped until Task 2.14).
+  **(3)** §13 gains `view_supplier_return`, `create_supplier_return` and
+  `reverse_supplier_return` beside the lone `post_supplier_return`, all
+  warehouse-scoped; the storekeeper posts and cannot reverse.
 - **Implemented through Task 2.12** (price variance accounting). §9's posting
   is live in full: GRNI clears at the delivered value, the payable takes the
   invoiced value, and the difference is parked. Two amendments to this
@@ -549,7 +563,25 @@ SupplierReturn                      SupplierCreditNote
     reason        FK ReasonCode          invoice / return references
     status  DRAFT → POSTED → REVERSED    amount / reason
                                          status  DRAFT → POSTED → REVERSED
+
+SupplierReturnLine  (amended in, Task 2.13)
+    supplier_return         FK CASCADE, sequence unique per return
+    goods_receipt_line      FK PROTECT — the delivery line coming back
+    item / lot              copied from that line
+    returned_base_quantity  3 dp, > 0, bounded per delivery line
+    posted_value            what the kernel removed, written by posting only
+    expected_credit_value   the claim, metadata, posts nothing
+    movement / accounts     stamped by posting, frozen by trigger
 ```
+
+**Amendment (Task 2.13): the header sketch alone cannot post.** It records
+*that* something was returned and never *what* — not which item, not how much,
+not from which lot — so there is no quantity to move, no value to post, and no
+way to stop the same fifty kilograms being returned twice. The line model
+above was added, one line per source `GoodsReceiptLine`, with the returnable
+bound derived per delivery line: accepted quantity less what standing returns
+have already taken (REVERSED ones release their claim). A wholly rejected
+line never entered stock and cannot be returned from it.
 
 **PRC-047.** A supplier return is **not** an inventory `RETURN_IN`. `RETURN_IN`
 means goods coming back from a kitchen to a store, at the cost they were issued
@@ -567,6 +599,14 @@ the supplier agrees to credit (usually the original price) is a **purchase
 return variance**, posted to the variance account. Recorded in ADR-022 with the
 worked example, because the first person to see a return that credits more than
 it removed will otherwise assume a bug.
+
+> **Amendment (Task 2.13, ADR-022 §2 as amended):** the variance is recognised
+> at the **credit note**, not at the physical return — at the gate nobody knows
+> what the supplier will credit, and a figure nobody has agreed must not reach
+> the profit and loss. The return posts `Dr SUPPLIER_RETURN_CLEARING /
+> Cr INVENTORY_CONTROL` for the book value that left, and nothing else; the
+> clearing balance is the claim outstanding, and Task 2.14 clears it against
+> the agreed credit with the difference going to `PURCHASE_RETURN_VARIANCE`.
 
 **PRC-050.** Negative stock is refused on a return, by the kernel, with no
 procurement-specific bypass.
@@ -683,7 +723,9 @@ Every permission is a permission **plus a scope** (ADR-016). Out of scope is
 | `view_supplier_invoice`, `create_supplier_invoice` | organization | |
 | `approve_supplier_invoice`, `post_supplier_invoice` | organization | |
 | `match_supplier_invoice` | organization | |
+| `view_supplier_return`, `create_supplier_return` | **warehouse** | Amended in, Task 2.13 |
 | `post_supplier_return` | warehouse | It moves stock |
+| `reverse_supplier_return` | warehouse | Elevated, like the receipt's |
 | `post_supplier_credit_note` | organization | |
 | `post_supplier_payment` | organization | Money leaves |
 | `view_supplier_cost` | organization | Prices, separate from quantity |
@@ -694,6 +736,14 @@ Every permission is a permission **plus a scope** (ADR-016). Out of scope is
 they move stock and inventory already scopes stock movement that way. Invoice
 and payment permissions are organization-scoped, because money is not stored in
 a warehouse.
+
+> **Amendment (Task 2.13):** the original table named `post_supplier_return`
+> alone, which would make the return the one posting document with no view, no
+> create and no reversal permission. The three companions above were added on
+> the receipt's exact pattern, and the separation of duties follows it too:
+> the storekeeper records and posts a return (sending goods back is warehouse
+> work), and **reversal is withheld** — undoing a posted movement reverses a
+> journal as well as stock, and belongs to whoever answers for the figures.
 
 **PRC-061.** Cost visibility is separate from document visibility, exactly as
 in inventory: a storekeeper receiving goods sees quantities and lots, and the
@@ -767,6 +817,18 @@ a UUID cannot, and the journal has to still point at something in five years.
 
 `GOODS_RECEIVED_NOT_INVOICED` and `INVENTORY_CONTROL` already exist and are
 reused unchanged.
+
+> **Amendment (Task 2.12):** `PURCHASE_PRICE_VARIANCE`'s `5-02-01-001` is
+> superseded by `8-01-03-001`, class CLEARING — see the header note and
+> ADR-022 §5.
+>
+> **Amendment (Task 2.13):** this table omitted the return's accounts
+> entirely. Two roles were added, both organization-scoped, both recorded in
+> ADR-022 §5 as amended: `SUPPLIER_RETURN_CLEARING` → `8-01-04-001` (class
+> CLEARING, mapped and posted to by the return) and `PURCHASE_RETURN_VARIANCE`
+> → `7-09-04-001` (class OTHER — a bidirectional difference is never cost of
+> sales — seeded as vocabulary and deliberately unmapped until Task 2.14
+> posts to it).
 
 ---
 
