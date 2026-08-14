@@ -99,6 +99,18 @@ CREATE_GOODS_RECEIPT = f"{APP_LABEL}.create_goods_receipt"
 INSPECT_GOODS_RECEIPT = f"{APP_LABEL}.inspect_goods_receipt"
 POST_GOODS_RECEIPT = f"{APP_LABEL}.post_goods_receipt"
 REVERSE_GOODS_RECEIPT = f"{APP_LABEL}.reverse_goods_receipt"
+
+#: Task 2.13. Warehouse-scoped, all four, because a return moves stock and
+#: inventory already scopes custody that way (PRC-060) — the same reasoning
+#: that put the receipt's permissions there rather than on the organization.
+#:
+#: Posting and reversing are separate, and the split matches the receipt's:
+#: a storekeeper sends goods back, and undoing a posted movement is elevated
+#: and belongs to whoever answers for the warehouse's figures.
+VIEW_SUPPLIER_RETURN = f"{APP_LABEL}.view_supplierreturn"
+CREATE_SUPPLIER_RETURN = f"{APP_LABEL}.create_supplier_return"
+POST_SUPPLIER_RETURN = f"{APP_LABEL}.post_supplier_return"
+REVERSE_SUPPLIER_RETURN = f"{APP_LABEL}.reverse_supplier_return"
 #: Task 2.10. Five, because entering a claim, agreeing it is real, putting it
 #: in the ledger and taking it back out are four different acts by up to four
 #: different people — the separation the whole approval step exists to record.
@@ -143,6 +155,10 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     INSPECT_GOODS_RECEIPT,
     POST_GOODS_RECEIPT,
     REVERSE_GOODS_RECEIPT,
+    VIEW_SUPPLIER_RETURN,
+    CREATE_SUPPLIER_RETURN,
+    POST_SUPPLIER_RETURN,
+    REVERSE_SUPPLIER_RETURN,
     VIEW_SUPPLIER_INVOICE,
     CREATE_SUPPLIER_INVOICE,
     APPROVE_SUPPLIER_INVOICE,
@@ -186,6 +202,10 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     INSPECT_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
     POST_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
     REVERSE_GOODS_RECEIPT: PermissionScope.WAREHOUSE,
+    VIEW_SUPPLIER_RETURN: PermissionScope.WAREHOUSE,
+    CREATE_SUPPLIER_RETURN: PermissionScope.WAREHOUSE,
+    POST_SUPPLIER_RETURN: PermissionScope.WAREHOUSE,
+    REVERSE_SUPPLIER_RETURN: PermissionScope.WAREHOUSE,
     # Money the organization owes. `ORGANIZATION_AUTHORITY` rather than
     # `ORGANIZATION_MASTER_DATA`: reaching an organization through a branch
     # membership is enough to maintain the shared supplier list, and is not
@@ -262,6 +282,10 @@ _MANAGER = frozenset(
         INSPECT_GOODS_RECEIPT,
         POST_GOODS_RECEIPT,
         REVERSE_GOODS_RECEIPT,
+        VIEW_SUPPLIER_RETURN,
+        CREATE_SUPPLIER_RETURN,
+        POST_SUPPLIER_RETURN,
+        REVERSE_SUPPLIER_RETURN,
         # Held, but organization-scoped: a branch manager with no organization
         # membership reaches no invoice, which is the scope doing its job
         # rather than the permission being pointless.
@@ -285,6 +309,10 @@ _ACCOUNTING_MANAGER = frozenset(
         # Undoing a posted receipt is an accounting act, not a warehouse
         # one: it reverses a journal as well as stock.
         REVERSE_GOODS_RECEIPT,
+        VIEW_SUPPLIER_RETURN,
+        CREATE_SUPPLIER_RETURN,
+        POST_SUPPLIER_RETURN,
+        REVERSE_SUPPLIER_RETURN,
         # Authorises the spend without being able to raise the order.
         APPROVE_PURCHASE_ORDER,
         CANCEL_PURCHASE_ORDER,
@@ -344,6 +372,9 @@ _STOREKEEPER = frozenset(
         CREATE_GOODS_RECEIPT,
         INSPECT_GOODS_RECEIPT,
         POST_GOODS_RECEIPT,
+        VIEW_SUPPLIER_RETURN,
+        CREATE_SUPPLIER_RETURN,
+        POST_SUPPLIER_RETURN,
     }
 )
 

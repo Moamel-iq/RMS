@@ -3220,3 +3220,445 @@ class SupplierInvoicePosting(TimeStampedModel):
     @property
     def is_live(self) -> bool:
         return self.status == SupplierInvoicePostingStatus.LIVE
+
+
+# ---------------------------------------------------------------------------
+# Supplier returns (Task 2.13)
+# ---------------------------------------------------------------------------
+
+
+class SupplierReturnStatus(models.TextChoices):
+    """
+    Three states, and the same shape as every other posting document here.
+
+    `POSTED` is the moment stock leaves and the ledger moves. `REVERSED` is the
+    correction — never an edit, never a delete, because the movement it made is
+    append-only by design.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class SupplierReturn(TimeStampedModel):
+    """
+    Goods going back out to the supplier they came from.
+
+    The fourth procurement event, and the first that sends stock *out*. Task
+    2.0 §10 gives the header; the lines below it are Task 2.13's addition,
+    because §10's sketch has nowhere to record which delivery line came back
+    or how much of it — and without that there is no quantity to move, no value
+    to post, and no way to stop the same fifty kilograms being returned twice.
+
+    ## What it posts, and what it deliberately does not
+
+        Dr  SUPPLIER_RETURN_CLEARING     the book value that left
+            Cr  Inventory control        the same figure
+
+    and nothing else. **No variance at the return.** The supplier has not yet
+    said what they will credit, and booking a gain or a loss against an
+    expectation would put a figure on the profit and loss that nobody has
+    agreed to. The difference between this book value and the credit that
+    eventually arrives is `PURCHASE_RETURN_VARIANCE`, recognised by Task 2.14's
+    credit note. Until then the clearing balance *is* the claim outstanding —
+    which is what the breakdown's "supplier-credit-expected state" amounts to.
+
+    **No payable and no GRNI.** Both were considered and both are wrong here.
+    Debiting the payable would move a liability with no document stating its
+    amount; debiting GRNI would make the return's accounting depend on whether
+    an invoice had arrived, and Task 2.13 depends on 2.9, not on the invoice —
+    goods go back before anyone has agreed a price often enough that the
+    breakdown says so in as many words.
+
+    ## Valuation
+
+    Stock leaves at the **standing moving average**, like every other outbound,
+    and a return that empties a position surrenders its whole remaining book
+    value (ADR-018's full-depletion rule, PRC-048). Not at the receipt price:
+    that would need a cost layer this system does not keep, and under a moving
+    average it would be a fiction — if 100 kg arrived at 1,000 and 100 kg at
+    2,000, there is no kilogram in the warehouse that *is* the cheap one.
+
+    The consequence is the thing that will look like a bug, and ADR-022 §2
+    exists to explain it: what leaves inventory and what the supplier credits
+    are different numbers, on purpose.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="supplier_returns",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="supplier_returns",
+        verbose_name=_("branch"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="returns",
+        verbose_name=_("supplier"),
+    )
+    #: The delivery being sent back. Header-level as Task 2.0 §10 specifies,
+    #: and every line must cite a line of *this* receipt — one return, one
+    #: delivery, because the credit note that follows will be about one
+    #: delivery too.
+    receipt = models.ForeignKey(
+        GoodsReceipt,
+        on_delete=models.PROTECT,
+        related_name="returns",
+        verbose_name=_("goods receipt"),
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="supplier_returns",
+        verbose_name=_("warehouse"),
+    )
+    location = models.ForeignKey(
+        "inventory.StockLocation",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_returns",
+        verbose_name=_("location"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    returned_at = models.DateField(_("returned at"))
+    business_date = models.DateField(_("business date"))
+    business_date_timezone = models.CharField(
+        _("business date timezone"), max_length=64, blank=True
+    )
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+
+    #: Why the goods went back. Reuses inventory's vocabulary rather than
+    #: inventing a procurement one, exactly as Task 2.9 did for rejection.
+    reason_code = models.ForeignKey(
+        "inventory.InventoryReasonCode",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_returns",
+        verbose_name=_("reason code"),
+    )
+    reason = models.TextField(_("reason"), blank=True)
+    #: The supplier's own reference for the return — a collection note, a
+    #: driver's signature. Evidence, never an identity.
+    evidence_reference = models.CharField(_("evidence reference"), max_length=120, blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=SupplierReturnStatus.choices,
+        default=SupplierReturnStatus.DRAFT,
+    )
+
+    #: What the stock ledger actually removed, summed over the lines. Stored
+    #: because it is the figure the journal posted and the figure Task 2.14
+    #: will clear — never re-derived from today's average, which has moved.
+    posted_value = models.DecimalField(
+        _("posted value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    stock_entry = models.ForeignKey(
+        "inventory.StockLedgerEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_returns",
+        verbose_name=_("stock entry"),
+    )
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_returns",
+        verbose_name=_("journal entry"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_returns",
+        verbose_name=_("reversal journal entry"),
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_supplier_returns",
+        verbose_name=_("created by"),
+    )
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_supplier_returns",
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_returns",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    notes = models.TextField(_("notes"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier return")
+        verbose_name_plural = _("supplier returns")
+        ordering = ["-id"]
+        permissions = [
+            ("create_supplier_return", _("Can record a supplier return")),
+            ("post_supplier_return", _("Can post a supplier return")),
+            ("reverse_supplier_return", _("Can reverse a posted supplier return")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="procurement_return_number_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(posted_by__isnull=True, posted_at__isnull=True)
+                | Q(posted_by__isnull=False, posted_at__isnull=False),
+                name="procurement_return_posting_is_complete",
+            ),
+            # A draft has moved nothing.
+            models.CheckConstraint(
+                condition=~Q(status="DRAFT")
+                | Q(
+                    posted_at__isnull=True,
+                    stock_entry__isnull=True,
+                    journal_entry__isnull=True,
+                    posted_value__isnull=True,
+                ),
+                name="procurement_return_draft_has_moved_nothing",
+            ),
+            # A posted return names what it moved and what explains it. With
+            # the immutability trigger this is what makes "stock out with no
+            # journal" a shape the table cannot hold.
+            models.CheckConstraint(
+                condition=~Q(status__in=["POSTED", "REVERSED"])
+                | Q(
+                    posted_at__isnull=False,
+                    stock_entry__isnull=False,
+                    journal_entry__isnull=False,
+                    posted_value__isnull=False,
+                    business_date_timezone__gt="",
+                    business_day_start__isnull=False,
+                ),
+                name="procurement_return_posted_names_what_it_moved",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="REVERSED")
+                | Q(
+                    reversed_by__isnull=False,
+                    reversed_at__isnull=False,
+                    reversal_journal_entry__isnull=False,
+                )
+                & ~Q(reversal_reason=""),
+                name="procurement_return_reversal_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="REVERSED")
+                | Q(
+                    reversed_by__isnull=True,
+                    reversed_at__isnull=True,
+                    reversal_journal_entry__isnull=True,
+                    reversal_reason="",
+                ),
+                name="procurement_return_unreversed_carries_no_reversal",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="sret_org_status_idx"),
+            models.Index(fields=["supplier", "status"], name="sret_supplier_status_idx"),
+            models.Index(fields=["receipt"], name="sret_receipt_idx"),
+        ]
+
+    #: Task 2.9's reversal guard asks each dependent relation which of its rows
+    #: still stand. A reversed return has given the goods back and holds the
+    #: delivery hostage no longer — the same rule Task 2.11 and 2.12 declare,
+    #: and declared on the model that holds the FK so the guard can read it.
+    live_dependency = Q(supplier_return__status__in=("DRAFT", "POSTED"))
+
+    def __str__(self) -> str:
+        return self.number or f"{self.supplier.code} · {self.receipt}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == SupplierReturnStatus.DRAFT
+
+
+class SupplierReturnLine(TimeStampedModel):
+    """
+    One delivery line going back, in part or in whole.
+
+    Task 2.0 §10's sketch has no line model. It cannot: a header with a receipt
+    FK records *that* something was returned and never *what* — not which item,
+    not how much, not from which lot. Every question Task 2.13 has to answer
+    needs the line, and so does every guard: the quantity bound is per delivery
+    line, the stock movement is per lot and location, and Task 2.9's reversal
+    guard walks `GoodsReceiptLine`'s relations, so a header-only link would
+    leave a posted return invisible to it.
+
+    The shape is `GoodsReceiptLine`'s, deliberately: the two documents are
+    mirror images and a reader who knows one should recognise the other.
+    """
+
+    supplier_return = models.ForeignKey(
+        SupplierReturn,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("supplier return"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    #: `PROTECT`, and the reason the guard exists: this line is a claim about
+    #: that delivery, and the delivery cannot be unmade underneath it.
+    goods_receipt_line = models.ForeignKey(
+        GoodsReceiptLine,
+        on_delete=models.PROTECT,
+        related_name="supplier_return_lines",
+        verbose_name=_("delivery line"),
+    )
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="supplier_return_lines",
+        verbose_name=_("item"),
+    )
+    lot = models.ForeignKey(
+        "inventory.InventoryLot",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_return_lines",
+        verbose_name=_("lot"),
+    )
+
+    #: Base units, always — the delivery may have arrived in sacks and the
+    #: return may be in kilograms, and only the base unit compares.
+    returned_base_quantity = models.DecimalField(
+        _("returned quantity (base)"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+
+    #: What the kernel actually removed, at the standing average. Written by
+    #: posting and never by a caller: only the kernel knows what a full
+    #: depletion surrendered.
+    posted_value = models.DecimalField(
+        _("posted value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    #: What the supplier is expected to credit for this line. **Metadata.** It
+    #: posts nothing, it is not the journal's figure, and the variance is not
+    #: computed from it — an expectation is not an agreement. It exists so the
+    #: screen and the report can say what is being claimed, and so Task 2.14
+    #: has something to compare the credit note against.
+    expected_credit_value = models.DecimalField(
+        _("expected credit"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    movement = models.ForeignKey(
+        "inventory.StockMovement",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_return_lines",
+        verbose_name=_("stock movement"),
+    )
+    inventory_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_return_inventory_lines",
+        verbose_name=_("inventory account"),
+    )
+    contra_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_return_contra_lines",
+        verbose_name=_("clearing account"),
+    )
+
+    note = models.CharField(_("note"), max_length=200, blank=True)
+
+    history = HistoricalRecords()
+
+    #: What the receipt-side guard reads. Expressed through the header because
+    #: the status lives there — Task 2.12 declared this on a model whose FK
+    #: pointed at a header and the guard could never consult it, which is a
+    #: mistake worth not repeating.
+    live_dependency = Q(supplier_return__status__in=("DRAFT", "POSTED"))
+
+    class Meta:
+        verbose_name = _("supplier return line")
+        verbose_name_plural = _("supplier return lines")
+        ordering = ["supplier_return", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["supplier_return", "sequence"],
+                name="procurement_return_line_sequence_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(returned_base_quantity__gt=0),
+                name="procurement_return_line_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(posted_value__isnull=True) | Q(posted_value__gte=0),
+                name="procurement_return_line_posted_value_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(expected_credit_value__isnull=True) | Q(expected_credit_value__gte=0),
+                name="procurement_return_line_expected_credit_not_negative",
+            ),
+            # A posted line names the movement it made and the two accounts it
+            # moved between, or none of them.
+            models.CheckConstraint(
+                condition=Q(movement__isnull=True, inventory_account__isnull=True)
+                | Q(movement__isnull=False, inventory_account__isnull=False),
+                name="procurement_return_line_movement_names_its_account",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["goods_receipt_line"], name="sret_line_receipt_line_idx"),
+            models.Index(fields=["item"], name="sret_line_item_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.supplier_return} · {self.sequence}"

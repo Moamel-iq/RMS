@@ -35,7 +35,9 @@ from django.db.models import Sum
 from apps.accounting.models import (
     GOODS_RECEIVED_NOT_INVOICED,
     PURCHASE_PRICE_VARIANCE,
+    PURCHASE_RETURN_VARIANCE,
     SUPPLIER_PAYABLE,
+    SUPPLIER_RETURN_CLEARING,
     JournalEntry,
     JournalLine,
     OrganizationAccountMapping,
@@ -61,6 +63,9 @@ from apps.procurement.models import (
     SupplierInvoicePosting,
     SupplierInvoicePostingStatus,
     SupplierInvoiceStatus,
+    SupplierReturn,
+    SupplierReturnLine,
+    SupplierReturnStatus,
 )
 from apps.procurement.posting import SOURCE_DOCUMENT_TYPE
 
@@ -316,6 +321,7 @@ def verify_procurement(organization: Organization) -> list[str]:
     problems.extend(verify_matching(organization))
     problems.extend(verify_grni_clearing(organization))
     problems.extend(verify_parked_variance(organization))
+    problems.extend(verify_supplier_returns(organization))
     return [str(problem) for problem in problems]
 
 
@@ -325,6 +331,7 @@ __all__ = [
     "verify_invoice_charges",
     "verify_order_received_quantities",
     "verify_grni_clearing",
+    "verify_supplier_returns",
     "verify_parked_variance",
     "verify_procurement",
     "verify_matching",
@@ -753,6 +760,143 @@ def _verify_matching_moved_nothing(organization: Organization) -> list[Discrepan
         problems.append(
             Discrepancy(
                 scope=AUDIT_DOCUMENT_TYPE, field="stock_movements", expected=0, actual=movements
+            )
+        )
+    return problems
+
+
+def verify_supplier_returns(organization: Organization) -> list[Discrepancy]:
+    """
+    Every posted return moved what it says it moved, and no more than arrived.
+
+        posted value          == the sum of its lines' posted values
+                              == the debit on SUPPLIER_RETURN_CLEARING
+                              == the credit on the inventory control accounts
+        returned quantity     <= the delivery line's accepted quantity
+        return variance       == nothing at all, until Task 2.14
+
+    The last is the Task 2.14 boundary asserted as reconciliation rather than
+    only as a unit test: a figure in the return variance account before the
+    credit note exists would mean somebody recognised a gain or a loss against
+    an expectation, and a nightly report finds it whether or not anybody
+    remembered to run the suite.
+    """
+    from apps.procurement.returns import SOURCE_DOCUMENT_TYPE as RETURN_SOURCE_TYPE
+
+    problems: list[Discrepancy] = []
+    clearing_account = _role_account(organization.pk, SUPPLIER_RETURN_CLEARING)
+
+    for document in SupplierReturn.objects.filter(
+        organization=organization, status=SupplierReturnStatus.POSTED
+    ).select_related("journal_entry"):
+        label = document.number or str(document.public_id)
+        lines = list(document.lines.all())
+        line_total = sum((line.posted_value or ZERO for line in lines), ZERO)
+        if document.posted_value != line_total:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="return_posted_value",
+                    expected=line_total,
+                    actual=document.posted_value
+                    if document.posted_value is not None
+                    else "missing",
+                )
+            )
+        if document.journal_entry is None:  # pragma: no cover - a constraint refuses it
+            problems.append(
+                Discrepancy(
+                    scope=label, field="journal_entry", expected="present", actual="missing"
+                )
+            )
+            continue
+        journal_lines = list(document.journal_entry.lines.select_related("account"))
+        cleared = sum(
+            (row.debit - row.credit for row in journal_lines if row.account_id == clearing_account),
+            ZERO,
+        )
+        if cleared != line_total:
+            problems.append(
+                Discrepancy(
+                    scope=label, field="return_clearing_debit", expected=line_total, actual=cleared
+                )
+            )
+        # What left inventory: every credit that is not the clearing debit.
+        # Stated as its own equality rather than trusting the entry to balance,
+        # because a balanced entry against the *wrong* account balances too.
+        from_inventory = sum(
+            (row.credit - row.debit for row in journal_lines if row.account_id != clearing_account),
+            ZERO,
+        )
+        if from_inventory != line_total:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="return_inventory_credit",
+                    expected=line_total,
+                    actual=from_inventory,
+                )
+            )
+
+    # The quantity bound, recomputed from the rows rather than trusted to the
+    # service that wrote them — the same belt-and-braces the over-allocation
+    # check uses, and for the reason ADR-023 §3 gives: a guard that lives only
+    # inside one service function is one refactor away from not existing.
+    returned: dict[int, Decimal] = {}
+    for row in (
+        SupplierReturnLine.objects.filter(supplier_return__organization=organization)
+        .exclude(supplier_return__status=SupplierReturnStatus.REVERSED)
+        .values("goods_receipt_line_id", "returned_base_quantity")
+    ):
+        key = row["goods_receipt_line_id"]
+        returned[key] = returned.get(key, ZERO) + row["returned_base_quantity"]
+    for line_id, quantity in returned.items():
+        receipt_line = GoodsReceiptLine.objects.select_related("item").get(pk=line_id)
+        if quantity > receipt_line.accepted_base_quantity:
+            problems.append(
+                Discrepancy(
+                    scope=f"{receipt_line.receipt_id}#{receipt_line.sequence}",
+                    field="returned_more_than_arrived",
+                    expected=receipt_line.accepted_base_quantity,
+                    actual=quantity,
+                )
+            )
+
+    # Task 2.14's boundary: nothing recognises a return variance yet.
+    variance_account = _role_account(organization.pk, PURCHASE_RETURN_VARIANCE)
+    if variance_account is not None:
+        balance = ZERO
+        for entry_row in JournalLine.objects.filter(
+            account_id=variance_account, entry__organization=organization
+        ).values("debit", "credit"):
+            balance += entry_row["debit"] - entry_row["credit"]
+        if balance != ZERO:
+            problems.append(
+                Discrepancy(
+                    scope=organization.code,
+                    field="return_variance_before_a_credit_note",
+                    expected=ZERO,
+                    actual=balance,
+                )
+            )
+
+    # And a return moves stock, which an invoice never does — so the shape of
+    # this check is the opposite of `_verify_matching_moved_nothing`: every
+    # posted return must have movements, and they must be RETURN_OUT.
+    wrong_type = (
+        StockMovement.objects.filter(
+            entry__source_document_type=RETURN_SOURCE_TYPE, entry__organization=organization
+        )
+        .exclude(movement_type__in=("RETURN_OUT", "REVERSAL"))
+        .count()
+    )
+    if wrong_type:
+        problems.append(
+            Discrepancy(
+                scope=RETURN_SOURCE_TYPE,
+                field="return_movement_type",
+                expected="RETURN_OUT",
+                actual=wrong_type,
             )
         )
     return problems
