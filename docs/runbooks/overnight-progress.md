@@ -5,12 +5,12 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 16/20 — Supplier credit notes (Task 2.14) COMPLETE.
+CURRENT_PIPELINE_STEP: 17/20 — Supplier payments (Task 2.15) COMPLETE.
 CURRENT_TASK: none in flight. The active /goal directs the remainder at
-**Accounting and Procurement completion**: Task 2.15 (supplier payments) is
-next, then 2.16 (procurement-to-GL reconciliation) and both module-exit
-gates on fresh databases.
-LAST_GREEN_COMMIT: e26a051 (feature); the docs checkpoint follows it
+**Accounting and Procurement completion**: Task 2.16 (reports and
+`verify_procurement_accounting`) is next, then 2.17 (imports, demo
+completion, hardening) and both module-exit gates on fresh databases.
+LAST_GREEN_COMMIT: 772607b (feature); the docs checkpoint follows it
 LAST_PUSHED_COMMIT: same
 WORKING_TREE: clean
 RUNNING_TESTS: none
@@ -34,7 +34,10 @@ ACTIVE_DATABASES (none to be dropped):
   by Step 15, never to be dropped
 - `khan_mandi_p2_b8` — Task 2.14 verification, migrated from zero through all
   26 procurement migrations and seeded twice with identical counts; created
-  by Task 2.14, never to be dropped
+  by Task 2.14, never to be dropped (later migrated through 0028)
+- `khan_mandi_p2_b9` — Task 2.15 verification, migrated from zero through all
+  30 procurement migrations and seeded twice with identical counts; created
+  by Task 2.15, never to be dropped
 - `khan_mandi_t17a_check`, `khan_mandi_t16_check`, `_t15_`, `_t14_`, `_t13_`,
   `khan_mandi_ledger_check`, `khan_mandi_inv_check`, `khan_mandi_freshcheck`
 
@@ -43,18 +46,15 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Task 2.15 — supplier payments and allocations (Task 2.0
-§11, PRC-053..057; invariants 43–45). Cash and bank come from the
-effective-dated `SUPPLIER_PAYMENT_CASH` / `SUPPLIER_PAYMENT_BANK` roles
-(§15, unseeded — a role with no posting rule behind it stays unmapped until
-its task, the rule Tasks 2.13 and 2.14 both kept). Partial payment across
-several invoices is normal; over-allocation impossible on both sides; an
-unallocated remainder is a supplier advance (`SUPPLIER_ADVANCE`,
-`1-04-01-001`, also unseeded), never a negative payable; oldest-invoice
-allocation is a visible default, never applied silently. `outstanding_amount`
-already subtracts credit allocations — payments subtract from the same
-expression. A payment consuming standing credit must respect the credit
-note's dependency guard.
+NEXT_EXACT_ACTION: Task 2.16 — reports and reconciliation (Task 2.0 §12,
+PRC-058/059; invariants 46–49). Twelve reports under the Phase 1 contract
+(named cutoff, scope from memberships, cost columns omitted not blanked,
+exact Decimals in CSV with formula neutralisation, HTMX filters surviving
+pagination, no repair button) plus `verify_procurement_accounting` — whose
+three equalities are already live piecewise in `verify_supplier_payables`,
+`verify_grni_clearing` and the source-identity checks, and need composing
+under the §12 name with the aging/statement reads. Run the complete project
+suite at this boundary per the breakdown.
 
 NEXT_EXACT_COMMAND:
 ```
@@ -126,6 +126,36 @@ the inventory demo, which is how the scoping was found.
 `verify_parked_variance` proves every fils in `8-01-03-001` traces to a live
 posting and to the allocation rows beneath it, and catches a manual journal
 against the account.
+
+STEP 17 (Task 2.15, supplier payments): **COMPLETE**. Definitive complete
+project suite on the final tree: **2320 passed, 0 failed** (48:16); the code
+was untouched between that run and the commits — only this runbook. Three
+stale boundary assertions surfaced by the first run and fixed before it:
+the chart counts 74 → 77, and Step 12's "payment roles still unseeded"
+marker replaced by its positive twin, exactly the discipline that marker
+existed to enforce. §11's journal verbatim:
+`Dr SUPPLIER_PAYABLE allocated / Dr SUPPLIER_ADVANCE remainder / Cr
+cash-or-bank full amount`, the source resolved by `method` through the two
+new payment roles (PRC-056) and the remainder an asset in the new
+`1-04-01-001` (chart 74 → 77, phase-0 exit count updated), never a negative
+payable (PRC-055). Accounting migration 0014 seeds the three roles;
+procurement migrations 0029/0030 add the models and their whole-row guards.
+The allocation bound is `outstanding_amount` — ONE expression netting posted
+credit notes and posted payments, which also removed a double-subtraction
+the credit-note bounds had picked up. `verify_supplier_payments` proves each
+payment's journal against its allocations plus the organization-wide advance
+balance; `verify_supplier_payables` nets posted payments' allocated share.
+Four organization-scoped permissions with the invoice's maker-checker split
+(manager records and gets 403 on post; accounting manager releases the
+money), Arabic RTL screens with the oldest-due-first visible ordering
+(PRC-057), API commands, read-only admin, navigation promotion of
+"دفعات الموردين" (allocations live on the payment detail, so "تخصيص
+الدفعات" needs no separate route), `DEMO-SPAY-GOODS` (SPAY-2026-000001:
+60,000 by bank, 50,000 allocated against the 87,000 rice bill, a real
+10,000 advance standing; journals 39 → 40; idempotent), 17 payment tests
+and 3 real-COMMIT races. **Deferred, recorded:** consuming a standing
+advance or standing credit against a later invoice has no approved journal
+shape and awaits its own task.
 
 STEP 16 (Task 2.14, supplier credit notes): **COMPLETE**. Definitive complete
 project suite on the final tree: **2300 passed, 0 failed** (46:44); the code
@@ -480,5 +510,6 @@ the item, and it is addressed.
 | 13 Three-way matching | **COMPLETE, PUSHED** | 0c2ee51 | 2143 project tests; see the Step 13 note above |
 | 14 Variance accounting | **COMPLETE, PUSHED** | 29b0ea0 + 61552a1 | 2203 project tests, generations, PPV parked |
 | 15 Supplier returns | **COMPLETE, PUSHED** | fce9a4a + a0a0fc2 + e947941 + 3bb8194 | fresh DB b7, verifiers clean, ADR-022 accepted in full |
+| 17 Supplier payments | **COMPLETE, PUSHED** | 772607b + checkpoint | fresh DB b9, §11 verbatim, advance never a negative payable |
 | 16 Supplier credit notes | **COMPLETE, PUSHED** | e26a051 + checkpoint | fresh DB b8, ADR-022 fully implemented, invoice guard hole closed |
 | 17–20 | not started | — | next: Task 2.15 payments, then 2.16 reconciliation, per the active /goal |

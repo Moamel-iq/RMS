@@ -2,6 +2,22 @@
 
 - **Status:** Specification only. Task 2.0 creates no models, migrations,
   services, API or UI. Implementation begins at Task 2.1.
+- **Implemented through Task 2.15** (supplier payments). §11 is live exactly
+  as written: `Dr payable allocated / Dr advance remainder / Cr cash-or-bank
+  full amount`, the source resolved by `method` through §15's
+  `SUPPLIER_PAYMENT_CASH`/`SUPPLIER_PAYMENT_BANK` roles (PRC-056), partial
+  allocation across invoices (PRC-053), over-allocation impossible on both
+  sides against the invoice's **outstanding** — net of credit notes and
+  other payments, stricter than the stated "its total", deliberately
+  (PRC-054) — and the remainder an asset in the new `1-04-01-001` under
+  `SUPPLIER_ADVANCE`, never a negative payable (PRC-055). Oldest-due-first
+  is the allocation form's visible ordering and nothing is applied silently
+  (PRC-057). §13 gains `view_supplierpayment`, `create_supplier_payment` and
+  `reverse_supplier_payment` beside `post_supplier_payment`, all
+  organization-scoped with the invoice's maker-checker split. **Deferred,
+  recorded:** consuming a standing advance or a credit note's standing
+  credit against a later invoice has no approved journal shape anywhere and
+  awaits its own task.
 - **Implemented through Task 2.14** (supplier credit notes). §10's credit-note
   half is live for **return-referenced notes**: PRC-051's payable reduction
   and standing-credit outcome (both as allocation states against the payable),

@@ -1,4 +1,4 @@
-# Supplier returns and credit notes (Tasks 2.13, 2.14)
+# Supplier returns, credit notes and payments (Tasks 2.13–2.15)
 
 Goods going back out to the supplier they came from — the first procurement
 event that sends stock *out*. This is the operator- and developer-facing
@@ -115,6 +115,36 @@ record. Screens at `/procurement/credit-notes/`, API at
 `verify_supplier_credit_notes` proves each note's journal and the two
 organization-wide balances: clearing == unsettled standing returns, variance
 == Σ agreed-versus-book over posted notes.
+
+## The payment (Task 2.15)
+
+Money out, Task 2.0 §11 verbatim:
+
+```
+Dr  2-01-01-001  SUPPLIER_PAYABLE   the allocated amount
+Dr  1-04-01-001  SUPPLIER_ADVANCE   the unallocated remainder, where any
+    Cr  cash or bank                the full amount
+```
+
+The source is resolved by the payment's `method` through
+`SUPPLIER_PAYMENT_CASH` / `SUPPLIER_PAYMENT_BANK` (PRC-056) — no account id
+anywhere. `PaymentAllocation` rows say which posted invoices the money
+settles (PRC-053); the bound each allocation reads is `outstanding_amount`,
+one expression net of posted credit notes and posted payments (stricter than
+PRC-054's "its total", deliberately). The remainder is an **asset** — cash
+paid before an invoice exists to net it against — never a negative payable
+(PRC-055), and a different economic fact from a credit note's standing
+credit, which is the supplier owing money back inside the payable. The
+allocation form orders invoices oldest-due-first as a visible default and
+applies nothing silently (PRC-057). Permissions organization-scoped with the
+invoice's maker-checker split; a standing allocation pins its invoice
+against reversal via `live_dependency`; `verify_supplier_payments` proves
+each journal against its allocations plus the advance balance. Screens at
+`/procurement/payments/`, API at `/api/v1/procurement/supplier-payments/`,
+read-only admin.
+
+Deferred, recorded: consuming a standing advance or standing credit against
+a later invoice has no approved journal shape and awaits its own task.
 
 ## Demo
 

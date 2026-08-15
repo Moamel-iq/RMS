@@ -86,9 +86,11 @@ traceability matrix rather than this table is where the evidence lives.
 | 41c | A posted note is immutable except reversal; allocations freeze with it; a standing note pins its return and its allocated invoices | Whole-row triggers (migration 0026) + `live_dependency` read by both reversal guards | 2.14 |
 | 41d | Clearing balance == standing returns not yet settled; variance balance == Σ agreed-versus-book over posted notes; no invoice credited below zero | `verify_supplier_credit_notes` | 2.14 |
 | 42 | A credit note's supplier document number is unique per supplier over non-reversed notes | Partial unique index over the folded key; `test_the_same_document_number_twice_is_refused` | 2.14 |
-| 43 | Payment allocations may not exceed the invoice total nor the payment amount | Service under a lock + reconciliation invariant | 2.15 |
-| 44 | An unallocated payment remainder is a supplier advance, never a negative payable | Posting service; asserted on the aging report | 2.15 |
-| 45 | Oldest-invoice allocation is a visible default, never applied silently | UI default + a test that the API requires explicit allocations | 2.15 |
+| 43 | Payment allocations may not exceed the invoice's outstanding (net of credits and other payments) nor the payment amount | Checked at drafting and re-checked at posting under the invoice row locks; `test_over_allocating_the_invoice_is_refused`, `test_allocations_may_not_exceed_the_payment`, the two-payments race | 2.15 |
+| 43a | A posted payment is immutable except reversal; allocations freeze with it; a standing allocation pins its invoice against reversal | Whole-row triggers (migration 0030) + `live_dependency` read by the invoice's header guard; `test_a_posted_payments_allocation_blocks_the_invoice_reversal` | 2.15 |
+| 44 | An unallocated payment remainder is a supplier advance, never a negative payable; the advance balance equals the sum of standing remainders | `Dr SUPPLIER_ADVANCE` line + `verify_supplier_payments`; `test_the_remainder_stands_as_an_advance_never_a_negative_payable` | 2.15 |
+| 44a | The source account arrives through the method's effective-dated role, never an id | `METHOD_ROLES` + `test_the_method_chooses_the_source_through_its_role` | 2.15 |
+| 45 | Oldest-invoice allocation is a visible default, never applied silently | The allocation form orders by due date; the service and API require explicit allocations | 2.15 |
 | 46 | Open supplier balances sum to the supplier payable account balance | `verify_procurement_accounting` | 2.16 |
 | 47 | Accepted-and-unmatched receipt value sums to the GRNI account balance | Same verifier | 2.16 |
 | 48 | Every posted procurement journal traces to exactly one source document | Same verifier | 2.16 |

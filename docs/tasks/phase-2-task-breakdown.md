@@ -265,7 +265,7 @@ reduction or standing credit, reversal, duplicate-document protection.
 
 Depends on: 2.13.
 
-**Status: DONE.**
+**Status: DONE (2.14).**
 
 *What shipped.* `SupplierCreditNote` citing one posted return and settling it
 **partially, per line, across notes** through explicit
@@ -310,6 +310,28 @@ over-allocation, accounting, reversal. Demo: a partial payment leaving a
 correct open balance.
 
 Depends on: 2.10.
+
+**Status: DONE.**
+
+*What shipped.* `SupplierPayment` + `PaymentAllocation` posting §11's journal
+verbatim — `Dr payable allocated / Dr advance remainder / Cr cash-or-bank
+full amount` — with the source resolved by `method` through the new
+`SUPPLIER_PAYMENT_CASH`/`SUPPLIER_PAYMENT_BANK` roles and the remainder in
+the new `1-04-01-001` under `SUPPLIER_ADVANCE` (chart 74 → 77). The
+allocation bound is the invoice's **outstanding** — one expression net of
+credit notes and payments both, in `outstanding_amount` — stricter than
+PRC-054's "its total", deliberately. Whole-row triggers, exact-mirror
+reversal, `verify_supplier_payments` (per-payment journal equalities plus
+the organization-wide advance balance), four organization-scoped permissions
+with the invoice's maker-checker split, Arabic RTL screens with the
+oldest-due-first visible ordering (PRC-057), API commands, read-only admin,
+`DEMO-SPAY-GOODS` (50,000 allocated of 60,000, a real 10,000 advance
+standing), and three real-COMMIT races.
+
+*Deferred, recorded.* Consuming a standing advance or a credit note's
+standing credit against a later invoice has no approved journal shape
+anywhere and awaits its own task — the same discipline that scoped the
+credit note.
 
 ---
 
