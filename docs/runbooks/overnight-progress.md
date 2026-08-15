@@ -5,10 +5,11 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 20/20 — Phase 2 exit gate (Task 2.18) **COMPLETE**.
-Procurement module exit: **PASS**. Tagged `phase-2-procurement-complete`.
-Now working the Accounting completion queue ACCT-1..ACCT-6; the goal is not
-achieved until the Accounting exit is independently certified too.
+CURRENT_PIPELINE_STEP: COMPLETE. **Procurement module exit: PASS**
+(`phase-2-procurement-complete`, commit b865e7d, suite 2362/0).
+**Accounting module exit: PASS** (`accounting-module-complete`, commit
+1b6e943, suite 2380/0). Both tags pushed; `main` untouched at fd08e4c.
+ERRORS 0 · FAILURES 0 · BLOCKERS 0.
 CURRENT_TASK: Task 2.17 executed to plan; commit pending only the
 affected-domain run (`apps/procurement` + both inventory import test
 files) recorded in STEP 19 below. The active /goal directs the remainder
@@ -190,6 +191,64 @@ the inventory demo, which is how the scoping was found.
 `verify_parked_variance` proves every fils in `8-01-03-001` traces to a live
 posting and to the allocation rows beneath it, and catches a manual journal
 against the account.
+
+ACCOUNTING MODULE EXIT: **PASS**, tag `accounting-module-complete` on commit
+`1b6e943`. Definitive complete project suite **2380 passed, 0 failed**
+(48:21), sole pytest process, on a tree verified byte-identical to its
+baseline **and fully committed** — the tag points at the exact certified
+commit rather than at a checkpoint above it.
+
+The module is three approved tasks — 0.6 kernel, 0.7 permissions/admin/API,
+0.8 completion — plus the mapping surface Task 1.3 added to the same app.
+All DONE on code and test evidence. Gate defined in
+`docs/specs/accounting-module-exit-gate.md` (seventeen checks) and executed
+on `khan_mandi_acct_gate`, created empty and migrated from zero: 13
+permissions all scoped, 77 accounts, 6 cost centres, 12 periods and no
+thirteenth, 17 system roles, `SourceEvent` closed to exactly POSTED and
+REVERSED, the approved RTL screens 200, both admin add pages 403.
+
+**The six completion obligations, and what each actually was.** An
+independent seven-agent audit — whose critic re-ran the accounting suite
+itself and corrected the audit's own first draft — found six items, none of
+them new features:
+
+- **ACCT-1** (`c08118d`). Task 0.6 had *no traceability section and no
+  rows*, while a hundred of its tests passed. The checker resolved row→test
+  forward only, so a task with no rows passed trivially and the file
+  reported clean. Seventeen `ACC-` rows added (requirement-level, not one
+  per test) plus a coverage validator that reads the approved tasks from
+  CLAUDE.md and the breakdowns; verified both ways — 38 tasks parsed, none
+  missing, and exactly `['0.6']` missing when the new section is removed.
+  PRM-001 ("twelve" against a test asserting thirteen), EXIT-007 (cited a
+  dead selector) and MON-011 (Partial for a tested account) corrected.
+- **ACCT-2** (`d40c670`). The two shipped mapping-mutation screens had no
+  test anywhere. Eleven added. An earlier draft skipped the used-mapping
+  case conditionally; removed, because a skip that hides a gap is worse than
+  a reference to where the rule is genuinely held.
+- **ACCT-3** (`ea8c983`). ADR-013/014/015 each still said "not yet built"
+  for work built in Phase 0, and their "Open" questions had been settled in
+  code for many tasks. The decisions index omitted four accepted ADRs and
+  called two "proposed". ADR-023 §5 asserted both that an invoice with no
+  receipt posts *and* that it refuses; the shipped system refuses, and the
+  superseded half survived in three files.
+- **ACCT-4** (`6c1f1ac`). Not tidying: `verify_procurement_accounting`
+  aggregated the payable balance with **no entry-status filter**, so it
+  counted DRAFT entries, which the API can create. It now calls the
+  accounting module's own `account_balance` (posted and reversed only),
+  which fixes the gap and gives the selector a real production caller.
+  `entry_total`, `entries_for_period` and `chart_of_accounts` removed — zero
+  callers — and invariant 8's citation corrected, having named `entry_total`
+  as its enforcement site.
+- **ACCT-5** (`b81e910`). Two questions under one label. The spec: Task 0.7
+  §3 enumerates seven endpoints and never listed a chart route; §4 is a
+  policy table whose emphasis is a prohibition. So §4's row, §7's "Built"
+  mark and the `AccountAdmin` docstring were corrected — **no API scope
+  invented**. The real gap: `amend_account_role_mapping` had been a public
+  command since Task 1.3 with no view, URL, route or test while ADR-019
+  lists amending beside close and archive, both of which had screens. Now
+  wired, scoped, and covered by six tests.
+- **ACCT-6** (`1b6e943`). The gate itself, demanded three times and defined
+  nowhere.
 
 STEP 20 (Task 2.18, Phase 2 exit gate): **COMPLETE — PROCUREMENT EXIT PASS.**
 Certifying definitive suite on the final tree: **2362 passed, 0 failed**
