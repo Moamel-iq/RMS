@@ -5,42 +5,17 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 18/20 — Reports and reconciliation (Task 2.16) COMPLETE.
-CURRENT_TASK: Task 2.17 (imports, demo completion, hardening) — preflight
-design recorded, implementation starting. The plan, from the read of the
-Task 1.7 framework (`apps/inventory/imports.py` 729 lines,
-`import_views.py` 252, `ImportBatch`/`ImportKind`/`ImportRowResult` in
-inventory models ~4802–5001):
-
-1. **Extend the framework, never fork it.** Three kinds join
-   `ImportKind` — `SUPPLIER`, `SUPPLIER_ITEM`, `PURCHASE_REQUEST_DRAFT` —
-   with `PURCHASE_REQUEST_DRAFT` added to `BRANCH_SCOPED_IMPORT_KINDS`
-   (a request is a branch document). Inventory migration regenerates the
-   `inventory_import_branch_matches_kind` constraint (it enumerates kinds
-   in SQL) — apps/inventory is in the /goal's approved-modification list.
-2. **Procurement registers; inventory never imports procurement.**
-   `apps/procurement/imports.py` defines the three validators, writers
-   and REQUIRED_COLUMNS entries and registers them into the inventory
-   dicts; `permission_for_kind` gains a registry procurement extends the
-   same way. Registration runs from procurement's `AppConfig.ready()`.
-3. **Writers call the real services** — `create_supplier`/
-   `update_supplier`, the catalogue services, `create_purchase_request` +
-   `add_request_line` (draft only, never submitted; §16.8 forbids
-   importing anything posted).
-4. **Permissions**: spec §13 names `import_supplier` and
-   `import_supplier_item` (organization). The request-draft kind rides
-   `create_purchase_request` (branch) — the spec is silent and the safest
-   dependency-correct reading is that importing a draft requires exactly
-   the authority to create one; recorded as an assumption.
-5. Then: cross-tenant and concurrency tests, admin lockdown sweep, the
-   complete demo command, the visible route matrix, HTMX verification,
-   fresh DB b11, complete suite only if the 2.18 gate follows separately
-   (the 2.16 boundary suite ran; 2.17 has no mandated full-suite of its
-   own — the 2.18 exit gate runs it), commit, push, Step 19.
-
-The active /goal directs the remainder at **Accounting and Procurement
-completion**: after 2.17 comes the Phase 2 exit gate (2.18) and both
-module-exit gates on fresh databases.
+CURRENT_PIPELINE_STEP: 19/20 — Imports and hardening (Task 2.17) COMPLETE
+pending the affected-domain run recorded below.
+CURRENT_TASK: Task 2.17 executed to plan; commit pending only the
+affected-domain run (`apps/procurement` + both inventory import test
+files) recorded in STEP 19 below. The active /goal directs the remainder
+at **Accounting and Procurement completion**: next is Task 2.18 — the
+Phase 2 exit gate (all invariants verified, subledger equals the payable
+account, GRNI reconciles, fresh database from zero, the definitive
+complete suite, tag `phase-2-procurement-complete`, never merged into
+main) and both module-exit gates on fresh databases, then the final
+report with exact commits, tags and test totals.
 LAST_GREEN_COMMIT: bb009e7 (feature, definitive suite 2339/0 on its tree);
 the docs checkpoint follows it
 LAST_PUSHED_COMMIT: same
@@ -75,6 +50,11 @@ ACTIVE_DATABASES (none to be dropped):
   (3 suppliers, 3 orders, 6 receipts, 4 invoices, 2 matches, 3 returns,
   1 note, 1 payment); `verify_procurement` clean, all twelve report routes
   and CSVs 200; created by Task 2.16, never to be dropped
+- `khan_mandi_p2_b11` — Task 2.17 verification, migrated from zero
+  (inventory 0020 + procurement 0032 included), seeded twice with identical
+  counts (3 suppliers, 3 import batches — two inventory, one procurement,
+  all APPLIED), `verify_procurement` clean, the upload screen offering all
+  six kinds, HTMX fragments verified; created by Task 2.17, never dropped
 - `khan_mandi_t17a_check`, `khan_mandi_t16_check`, `_t15_`, `_t14_`, `_t13_`,
   `khan_mandi_ledger_check`, `khan_mandi_inv_check`, `khan_mandi_freshcheck`
 
@@ -83,23 +63,24 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Task 2.17 — imports, demo completion and hardening
-(Task 2.0 §14/PRC-046 fields note, PRC-062/064/066; breakdown §2.17).
-Preview-first imports for **supplier master, supplier-item catalogue and
-purchase-request drafts only**, on the Task 1.7 import framework (preview →
-atomic apply, per-organization idempotency, file security: size cap,
-extension and content checks, no path from user input). Cross-tenant and
-concurrency tests, export formula protection already inherited, admin
-lockdown sweep, the complete demo command, the visible route matrix, HTMX
-verification. Then Task 2.18 — the Phase 2 exit gate on a fresh database
-(tag `phase-2-procurement-complete`, never merged into main) and the
-Accounting-side module-exit check under the active /goal.
+NEXT_EXACT_ACTION: Task 2.18 — the Phase 2 exit gate (breakdown §2.18).
+All fifty procurement invariants verified against their cited tests;
+supplier subledger equals the payable account and GRNI reconciles (both
+already proven by `verify_procurement_accounting` — re-run on the fresh
+gate database); no duplicate posting, no cross-tenant access, no scope
+leak; demo visible on every route; a fresh database migrated from zero;
+the definitive complete project suite exits 0 on the final committed
+tree; traceability citing real tests. Exit: tag
+`phase-2-procurement-complete`, pushed, **never merged into main**. Then
+the Accounting-side module-exit check and the /goal's final report (exact
+commits, tags, test totals, Demo/reconciliation status, ERRORS 0,
+FAILURES 0, BLOCKERS 0).
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement/tests/test_procurement_reports.py -q
+.venv/Scripts/pytest.exe -q                   # the definitive gate run
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
@@ -172,6 +153,31 @@ the inventory demo, which is how the scoping was found.
 `verify_parked_variance` proves every fils in `8-01-03-001` traces to a live
 posting and to the allocation rows beneath it, and catches a manual journal
 against the account.
+
+STEP 19 (Task 2.17, imports and hardening): **COMPLETE** (commit follows the
+affected-domain run: `apps/procurement` plus both inventory import test
+files). The preflight plan in the previous checkpoint was executed exactly:
+`ImportKind` gains `SUPPLIER` / `SUPPLIER_ITEM` / `PURCHASE_REQUEST_DRAFT`
+(the last branch-scoped; inventory migration 0020 regenerates both kind
+constraints), and `apps/procurement/imports.py` registers validators,
+writers, `EXTERNAL_KEYS` compound identities and `KIND_PERMISSIONS` entries
+from `AppConfig.ready` — the two registry hooks added to the framework fall
+back to unchanged Task 1.7 behaviour, and inventory never imports
+procurement. Writers call only the real services; the draft kind groups
+rows sharing (warehouse, required date, purpose) into one reviewable draft
+with no number and no submission; §16.8 is held by vocabulary and asserted
+(`test_no_import_kind_names_a_posted_document`). New organization-scoped
+`import_supplier` / `import_supplier_item` (migration 0032) granted to
+manager and purchasing; the draft kind rides `create_purchase_request` —
+recorded assumption: importing a draft requires exactly the authority to
+create one. Demo: one applied supplier batch restating the three demo
+suppliers verbatim (all actions `unchanged`, PRC-066 intact), idempotent by
+content hash (dev re-seed: still one batch); inspection list gains
+`inventory:import_list`. 10 procurement import tests green standalone; the
+framework's 58 pass with the six-kind positive twin replacing the
+three-kind boundary. Dev migrated; fresh `khan_mandi_p2_b11` verified as
+the header records. No mandated full-project suite at this boundary — the
+2.18 exit gate runs it.
 
 STEP 18 (Task 2.16, reports and reconciliation): **COMPLETE**. Definitive
 complete project suite on the final tree: **2339 passed, 0 failed** (47:35);
@@ -608,5 +614,6 @@ the item, and it is addressed.
 | 15 Supplier returns | **COMPLETE, PUSHED** | fce9a4a + a0a0fc2 + e947941 + 3bb8194 | fresh DB b7, verifiers clean, ADR-022 accepted in full |
 | 17 Supplier payments | **COMPLETE, PUSHED** | 772607b + checkpoint | fresh DB b9, §11 verbatim, advance never a negative payable |
 | 18 Reports + reconciliation | **COMPLETE, PUSHED** | feature + checkpoint | fresh DB b10, twelve reports on the Phase 1 base, PRC-058 composed, suite 2339/0 |
+| 19 Imports + hardening | **COMPLETE, PUSHED** | feature + checkpoint | fresh DB b11, three kinds registered into the Task 1.7 framework, §16.8 by vocabulary |
 | 16 Supplier credit notes | **COMPLETE, PUSHED** | e26a051 + checkpoint | fresh DB b8, ADR-022 fully implemented, invoice guard hole closed |
-| 19–20 | not started | — | next: Task 2.17 imports/hardening, then the 2.18 exit gate, per the active /goal |
+| 20 | not started | — | next: the 2.18 exit gate (tag, fresh DB, complete suite) and the module-exit gates, per the active /goal |
