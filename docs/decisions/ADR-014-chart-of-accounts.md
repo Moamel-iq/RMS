@@ -1,6 +1,10 @@
 # ADR-014 — Chart of accounts
 
-- **Status:** Accepted. **Implemented by Task 0.6**, not yet built.
+- **Status:** Accepted and **built** by Task 0.6. `Account` and `AccountClass`
+  are in `apps/accounting/models.py`; `seed_chart_of_accounts` seeds the
+  chart (77 accounts as of Task 2.15); the code structure and scoping rules
+  are held by `test_chart_of_accounts.py` and traced as ACC-013 – ACC-015.
+  (This line read "not yet built" until the Phase 2 gate, long after it was.)
 - **Date:** 2026-08-08
 - **Related:** ADR-012 (monetary precision), ADR-015 (cost centers)
 
@@ -136,9 +140,21 @@ Archived codes stay reserved permanently, as already implemented.
 - Adding a child to an account that already has postings is a migration
   problem, because that account would stop being a leaf. Needs a guard.
 
-## Open
+## Settled since (was "Open")
 
-- The full account list beyond the seed above.
-- Whether account codes are unique per organization or globally.
-- Whether the external mapping is one-to-one or allows several statutory
-  systems per account.
+All three were answered by Task 0.6 and its successors; the section stayed
+open long after the code closed it, which is how a reader could conclude the
+chart had never been designed.
+
+- **The full account list beyond the seed.** `seed_chart_of_accounts` is the
+  list, and it grows with the tasks that need roles: 46 accounts at Phase 0,
+  74 by Task 2.13, 77 once Task 2.15 added supplier advances. The count is
+  asserted, so a chart change cannot pass unnoticed.
+- **Per organization or global codes?** **Per organization**, enforced by
+  `account_code_unique_per_organization`. Two organizations may use the same
+  code for different accounts, and an archived code stays reserved within its
+  own (`test_chart_of_accounts.py::TestScoping`, ACC-014).
+- **One-to-one external mapping, or several statutory systems?** **One**, and
+  it is complete or absent — never half-filled — enforced by
+  `account_external_mapping_is_complete_or_absent`. It affects no posting
+  (`test_chart_of_accounts.py::TestExternalMapping`, ACC-015).

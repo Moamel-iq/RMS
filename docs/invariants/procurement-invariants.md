@@ -132,9 +132,18 @@ Things a reader might expect to find here, and the reason each is absent:
 - **"A purchase order must exist before a receipt."** It must not. Buying meat
   from the market without raising an order first is normal for this business,
   and forcing an order would produce fictional orders written after the fact.
-- **"An invoice must match a receipt."** Invoicing without a receipt is an
-  exception to *report*, not an error to refuse — refusing it would leave a
-  real liability unrecorded.
+- **"An invoice must match a receipt."** Still not an invariant — but the
+  reason recorded here was wrong, and it was the third place the superseded
+  ADR-023 §5 prose survived. What actually ships: an invoice carrying a
+  **goods** line refuses to post until it is matched
+  (`invoice_awaiting_matching`), because the only account its debit could
+  reach is `INVENTORY_CONTROL`, and debiting inventory with no stock movement
+  behind it breaks the inventory-to-GL equality by the whole invoice amount.
+  An invoice of **account** lines only — a delivery charge, a repair bill —
+  posts with no receipt and no matching, which is the case this entry was
+  reaching for. The liability is not lost either way: the goods invoice sits
+  in APPROVED where the invoice-without-receipt report lists it. See ADR-023
+  §5 as amended by Task 2.12.
 - **"A supplier balance may be cached."** Deliberately never. See invariant 3.
 - **"Freight is capitalised into inventory value."** Not in Release 1. Task 2.0
   §16.2 records why, and the fields exist for when it is approved.

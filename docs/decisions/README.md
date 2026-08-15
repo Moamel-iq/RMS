@@ -22,6 +22,14 @@ consequences, date, and related requirements.
 | [ADR-017](ADR-017-source-identity-and-idempotency.md) | Source identity and idempotency — *implemented by Task 0.7* |
 | [ADR-018](ADR-018-inventory-valuation-and-the-stock-ledger.md) | Inventory valuation and the stock ledger — *ledger delivered by Task 1.2* |
 | [ADR-019](ADR-019-account-roles-and-domain-owned-posting-mappings.md) | Account roles and domain-owned posting mappings — *implemented by Task 1.3* |
+| [ADR-020](ADR-020-transfer-ownership-in-transit-valuation-and-cross-branch-accounting.md) | Transfer ownership, in-transit valuation and cross-branch accounting — *implemented by Task 1.5* |
+| [ADR-021](ADR-021-physical-count-cutoff-warehouse-freeze-and-count-valuation.md) | Physical count cutoff, warehouse freeze and count valuation — *implemented by Task 1.6* |
+| [ADR-022](ADR-022-supplier-return-valuation-and-purchase-variance.md) | Supplier return valuation and purchase variance treatment — *implemented by Tasks 2.12–2.14* |
+| [ADR-023](ADR-023-grni-clearing-and-three-way-matching.md) | GRNI clearing and three-way matching allocations — *implemented by Tasks 2.11–2.12* |
+
+Four of these were missing from this table while their files read
+**Accepted** and their behaviour shipped, which is how the index came to
+disagree with the decisions it indexes. Found at the Phase 2 gate.
 
 ## Reserved, not yet written
 
@@ -31,23 +39,30 @@ Phase 0 tasks.
 
 | ADR | Title | Blocks |
 |---|---|---|
-| ADR-003 | Service / selector architecture | — (pattern already in CLAUDE.md; formalise before Task 0.6) |
-| ADR-004 | Append-only ledgers | Task 0.6 |
-| ADR-005 | Moving weighted-average costing | Phase 1 |
-| ADR-009 | Arabic, RTL, and PDF strategy | Phase 7 reporting |
+| ADR-003 | Service / selector architecture | Nothing. Was "formalise before Task 0.6"; Task 0.6 shipped over it and the pattern is enforced by CLAUDE.md and by the import-boundary tests (`test_security.py::test_14c_the_api_layer_never_imports_the_kernel_directly`). Write it if a reader ever needs the reasoning; it blocks no work |
+| ADR-004 | Append-only ledgers | Nothing. Was "Blocks Task 0.6"; Task 0.6 shipped the behaviour instead — immutability triggers in migrations `accounting.0002`/`0005`, reversal-not-edit in `services.reverse_entry`, traced as ACC-008 and ACC-009 |
+| ADR-005 | Moving weighted-average costing | Nothing. Phase 1 shipped it; ADR-018 records the valuation decision |
+| ADR-009 | Arabic, RTL, and PDF strategy | Phase 7 reporting. Genuinely unwritten |
 
 ## Open questions that must be answered before the ADRs above can be written
 
-Sourced from `docs/plans/phase-0-claude-code-prompts.md`. None of these have
-documented answers yet:
+Sourced from `docs/plans/phase-0-claude-code-prompts.md`. Items 1–3 were
+listed here as unanswered until the Phase 2 gate; all three had been settled
+in code for many tasks, and are struck through rather than deleted so the
+question and its answer stay together.
 
-1. **Cost center scope** — organization-wide or branch-scoped? The charter
-   places cost centers beneath Branch, but Delivery and Administration
-   plausibly span branches. **Blocks Task 0.6** (ADR-015 §Open).
-2. **The full chart of accounts** beyond the seed, and whether account codes
-   are unique per organization or globally (ADR-014 §Open).
-3. **Who may reopen a closed period**, and whether a second approver is
-   required (ADR-013 §Open).
+1. ~~**Cost center scope** — organization-wide or branch-scoped?~~
+   **Settled: organization-wide.** The branch dimension already rides on the
+   journal line, so scoping the cost centre to a branch as well would record
+   one fact twice. ADR-015 §Settled; ACC-004.
+2. ~~**The full chart of accounts**, and per-organization or global codes?~~
+   **Settled: `seed_chart_of_accounts` is the list** (77 accounts as of Task
+   2.15) and codes are **unique per organization**, enforced by
+   `account_code_unique_per_organization`. ADR-014 §Settled; ACC-013, ACC-014.
+3. ~~**Who may reopen a closed period**, and is a second approver required?~~
+   **Settled: `ACCOUNTING_MANAGER` alone, with a mandatory reason**, and no
+   second approver in Release 1. `PRM-003` and `PRM-004` trace it; a
+   parametrised test proves no other role holds it.
 4. **Business day cutoff** — the actual start time for Al-Bunook; whether all
    branches share one cutoff; whether attendance and payroll use the same
    business date as sales. The *schema* is settled (ADR-008); only the values
@@ -91,7 +106,7 @@ documented answers yet:
   confirmed zero is not an omitted one; an active count blocks closing its
   period.
 - **Supplier return valuation and purchase variance treatment** — ADR-022
-  (*proposed*). A supplier return leaves stock at the standing moving average,
+  (**accepted and implemented**). A supplier return leaves stock at the standing moving average,
   never at the original receipt price, because there are no cost layers
   underneath the average to pick from; the difference against what the supplier
   credits is a purchase return variance. A price variance never restates a
@@ -99,9 +114,11 @@ documented answers yet:
   repricing would restate closed periods. Revaluation of stock still on hand is
   explicit and permissioned, never automatic.
 - **GRNI clearing and three-way matching allocations** — ADR-023
-  (*proposed*). The GRNI balance equals the value of accepted receipt lines no
+  (**accepted and implemented**). The GRNI balance equals the value of accepted receipt lines no
   invoice has matched, and that is a testable equality. Matching is allocation
   rows, not a status field, because it is genuinely many-to-many and partial;
   matching status is derived and never stored. Over-allocation is refused under
-  a row lock and re-verified by reconciliation. An invoice with no receipt
-  posts and is reported as an exception rather than refused.
+  a row lock and re-verified by reconciliation. An invoice whose goods line has
+  no match **refuses to post** (`invoice_awaiting_matching`) and is reported by
+  the invoice-without-receipt report — this line previously said the opposite,
+  which ADR-023 §5's own amendment had already overturned.

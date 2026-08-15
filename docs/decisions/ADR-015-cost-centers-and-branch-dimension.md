@@ -1,6 +1,10 @@
 # ADR-015 — Cost centers and the branch dimension
 
-- **Status:** Accepted. **Implemented by Task 0.6**, not yet built.
+- **Status:** Accepted and **built** by Task 0.6. `CostCenter` is in
+  `apps/accounting/models.py`, scoped to the organization; the
+  account-driven requirement policy is held by
+  `test_posting.py::TestCostCenterPolicy` and traced as ACC-004. (This line
+  read "not yet built" until the Phase 2 gate, long after it was.)
 - **Date:** 2026-08-08
 - **Related:** ADR-007 (organization and branch boundaries), ADR-014 (COA)
 
@@ -69,11 +73,19 @@ change.
 - Changing `requires_cost_center` on an account with history does not
   retroactively validate old lines. Any tightening needs a backfill decision.
 
-## Open
+## Settled since (was "Open")
 
-- Whether cost centers are organization-wide or scoped to a branch. The
-  charter lists "operational cost centers" beneath Branch, which suggests
-  branch-scoped, but Delivery and Administration plausibly span branches.
-  **Must be settled before Task 0.6 models it.**
-- Whether a cost center may be required on a *specific account* that its class
-  default would not require.
+- **Organization-wide or branch-scoped?** **Organization-wide**, settled
+  before Task 0.6 modelled it and recorded at
+  `docs/specs/accounting-kernel-invariants.md`. Delivery and Administration
+  span branches, and the branch dimension is already carried on the journal
+  line, so scoping the cost centre to a branch as well would record the same
+  fact twice and let the two disagree
+  (`test_chart_of_accounts.py::test_a_cost_center_belongs_to_the_organization_not_a_branch`).
+  This entry still read "**Must be settled before Task 0.6 models it**" at
+  the Phase 2 gate, years of tasks after it was.
+- **May a specific account require a cost centre its class would not?**
+  **Yes.** `requires_cost_center` is a column on `Account`, defaulted from
+  the class and overridable per account; the posting service reads the
+  account, never the class (`test_posting.py::TestCostCenterPolicy`,
+  ACC-004).

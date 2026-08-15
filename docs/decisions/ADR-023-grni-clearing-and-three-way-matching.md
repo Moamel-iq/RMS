@@ -136,11 +136,20 @@ Task 2.0 §16 defines no `UNRECEIVED_INVENTORY_CLEARING` account and Task 2.12
 did not invent one. The dispute this section wants visible is real; recording
 it needs an account somebody has approved.
 
-Refusing it would be worse. A supplier who invoices for goods never delivered
-has created a real dispute, and a system that refuses to record the invoice
-leaves the dispute invisible. The invoice posts, the GRNI line is absent, the
-debit goes to the item's or line's account, and the `invoice-without-receipt`
-report is where somebody deals with it.
+> The paragraph that stood here argued the opposite of the amendment above —
+> "the invoice posts, the GRNI line is absent, the debit goes to the item's
+> or line's account" — and was left in place when the amendment was written.
+> The section therefore asserted both that the invoice posts and that it
+> refuses to, and the shipped system refuses. It is deleted rather than kept
+> as history because a future task reading the stale half would build a path
+> that breaks the inventory-to-GL equality by the whole invoice amount, which
+> is precisely what the amendment exists to prevent. The argument it made is
+> not lost: the dispute is real and still needs recording, which is why the
+> amendment says the account has to be approved rather than invented, and why
+> the **invoice-without-receipt report** exists today and lists exactly these
+> lines. (Found at the Phase 2 gate, in the same sweep that found the same
+> superseded claim in `docs/decisions/README.md` and
+> `docs/invariants/procurement-invariants.md`.)
 
 The reverse — received and never invoiced — is the GRNI ageing report, and a
 GRNI line growing old is the single most useful signal procurement produces
