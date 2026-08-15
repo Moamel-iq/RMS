@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime
 from decimal import Decimal
+from typing import Any
 
 from apps.accounting.models import (
     PURCHASE_PRICE_VARIANCE,
@@ -719,12 +720,34 @@ def seed_demo_receipts(
     # earlier task permanently short of the ones this one adds, and would
     # never post the drafts it left behind. Idempotent means the second run
     # reaches the same state as the first, not that it does nothing.
+    #
+    # A draft with no lines is a receipt a *crashed* earlier run created and
+    # never finished — reusing it as-is would make every later run fail at
+    # posting ("an empty receipt cannot be posted"), permanently. So each
+    # block below finishes such a draft: it reuses the row and adds the
+    # lines the crash never reached.
     existing = {
         row.delivery_reference: row
         for row in GoodsReceipt.objects.filter(
             organization=organization, delivery_reference__startswith="DEMO-GRN"
         ).order_by("id")
     }
+
+    def complete(reference: str) -> GoodsReceipt | None:
+        """The finished receipt under this reference, or None to (re)build."""
+        found = existing.get(reference)
+        if found is None:
+            return None
+        if found.status == GoodsReceiptStatus.DRAFT and not found.lines.exists():
+            return None
+        return found
+
+    def draft_or_new(reference: str, **kwargs: Any) -> GoodsReceipt:
+        """The crashed run's empty draft if one stands, else a new draft."""
+        found = existing.get(reference)
+        if found is not None:
+            return found
+        return create_goods_receipt(delivery_reference=reference, **kwargs)
 
     branch = Branch.objects.filter(organization=organization, code="DEMO-BUNOOK").first()
     warehouse = Warehouse.objects.filter(branch=branch, code="DEMO-MAIN", is_system=False).first()
@@ -763,17 +786,18 @@ def seed_demo_receipts(
         order_line = order.lines.order_by("sequence").first()
         for index, quantity in enumerate((Decimal("60.000"), Decimal("40.000")), start=1):
             reference = f"DEMO-GRN-PARTIAL-{index}"
-            if reference in existing:
-                receipts.append(existing[reference])
+            done = complete(reference)
+            if done is not None:
+                receipts.append(done)
                 continue
-            receipt = create_goods_receipt(
+            receipt = draft_or_new(
+                reference,
                 supplier=order.supplier,
                 branch=branch,
                 warehouse=warehouse,
                 created_by=receiver,
                 received_at=received_on + datetime.timedelta(days=index),
                 order=order,
-                delivery_reference=f"DEMO-GRN-PARTIAL-{index}",
                 evidence_reference="إشعار تسليم المورد",
             )
             line = add_receipt_line(
@@ -786,16 +810,16 @@ def seed_demo_receipts(
             receipts.append(receipt)
 
     # 3. Partly rejected: three of twelve chicken cartons arrived warm.
-    if "DEMO-GRN-REJECT" in existing:
-        receipts.append(existing["DEMO-GRN-REJECT"])
+    if (finished_reject := complete("DEMO-GRN-REJECT")) is not None:
+        receipts.append(finished_reject)
     elif chicken_supplier is not None and chicken is not None and carton is not None:
-        spoiled = create_goods_receipt(
+        spoiled = draft_or_new(
+            "DEMO-GRN-REJECT",
             supplier=chicken_supplier,
             branch=branch,
             warehouse=warehouse,
             created_by=receiver,
             received_at=received_on,
-            delivery_reference="DEMO-GRN-REJECT",
             evidence_reference="صورة إشعار التسليم",
         )
         lot = InventoryLot.objects.filter(item=chicken).order_by("id").first()
@@ -818,16 +842,16 @@ def seed_demo_receipts(
         receipts.append(spoiled)
 
     # 4. A variable meat container: the scale decides, not the factor.
-    if "DEMO-GRN-WEIGHED" in existing:
-        receipts.append(existing["DEMO-GRN-WEIGHED"])
+    if (finished_weighed := complete("DEMO-GRN-WEIGHED")) is not None:
+        receipts.append(finished_weighed)
     elif meat_supplier is not None and meat is not None and container is not None:
-        weighed = create_goods_receipt(
+        weighed = draft_or_new(
+            "DEMO-GRN-WEIGHED",
             supplier=meat_supplier,
             branch=branch,
             warehouse=warehouse,
             created_by=receiver,
             received_at=received_on,
-            delivery_reference="DEMO-GRN-WEIGHED",
             evidence_reference="قصاصة الميزان",
         )
         meat_lot = InventoryLot.objects.filter(item=meat).order_by("id").first()
@@ -845,16 +869,16 @@ def seed_demo_receipts(
         receipts.append(weighed)
 
     # 5. A direct market purchase — no order, its own entered price (PRC-028).
-    if "DEMO-GRN-REVERSED" in existing:
-        receipts.append(existing["DEMO-GRN-REVERSED"])
+    if (finished_reversed := complete("DEMO-GRN-REVERSED")) is not None:
+        receipts.append(finished_reversed)
     else:
-        returned = create_goods_receipt(
+        returned = draft_or_new(
+            "DEMO-GRN-REVERSED",
             supplier=grocery,
             branch=branch,
             warehouse=warehouse,
             created_by=receiver,
             received_at=received_on,
-            delivery_reference="DEMO-GRN-REVERSED",
             evidence_reference="وصل السوق",
             notes="شراء مباشر من السوق",
         )
@@ -874,16 +898,16 @@ def seed_demo_receipts(
     # delivery belonged to somebody else and the evidence link quietly
     # resolved to nothing. Without this, matching has nothing to demonstrate
     # and neither does the invoice it was written for.
-    if "DEMO-GRN-MATCHED" in existing:
-        receipts.append(existing["DEMO-GRN-MATCHED"])
+    if (finished_matched := complete("DEMO-GRN-MATCHED")) is not None:
+        receipts.append(finished_matched)
     else:
-        billed = create_goods_receipt(
+        billed = draft_or_new(
+            "DEMO-GRN-MATCHED",
             supplier=grocery,
             branch=branch,
             warehouse=warehouse,
             created_by=receiver,
             received_at=received_on,
-            delivery_reference="DEMO-GRN-MATCHED",
             evidence_reference="إشعار تسليم المورد",
             notes="التسليم الذي تقابله فاتورة الرز",
         )

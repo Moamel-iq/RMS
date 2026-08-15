@@ -302,8 +302,17 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:supplier_payment_list",
                 available=True,
             ),
+            # Task 2.16 — the reports. "أرصدة الموردين" is the aging report:
+            # the balance is derived from posted documents, never stored, so
+            # the report *is* the balances screen. The other eleven reports
+            # are routes under `reports/`, following the Phase 1 pattern of
+            # one flagship entry per module rather than a twelve-item menu.
+            Section(
+                label=_("أرصدة الموردين"),
+                url_name="procurement:report_supplier_aging",
+                available=True,
+            ),
             *_sections(
-                _("أرصدة الموردين"),
                 _("شروط الائتمان"),
             ),
         ),

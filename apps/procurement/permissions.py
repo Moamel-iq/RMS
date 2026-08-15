@@ -150,6 +150,10 @@ VIEW_SUPPLIER_PAYMENT = f"{APP_LABEL}.view_supplierpayment"
 CREATE_SUPPLIER_PAYMENT = f"{APP_LABEL}.create_supplier_payment"
 POST_SUPPLIER_PAYMENT = f"{APP_LABEL}.post_supplier_payment"
 REVERSE_SUPPLIER_PAYMENT = f"{APP_LABEL}.reverse_supplier_payment"
+#: Task 2.16. One permission for the whole report family (§13), organization
+#: scoped: a report aggregates money across branches, and cost columns are
+#: separately gated by `view_supplier_cost` exactly as the screens gate them.
+VIEW_PROCUREMENT_REPORT = f"{APP_LABEL}.view_procurement_report"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_SUPPLIER,
@@ -193,6 +197,7 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     CREATE_SUPPLIER_PAYMENT,
     POST_SUPPLIER_PAYMENT,
     REVERSE_SUPPLIER_PAYMENT,
+    VIEW_PROCUREMENT_REPORT,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -257,6 +262,8 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     CREATE_SUPPLIER_PAYMENT: PermissionScope.ORGANIZATION_AUTHORITY,
     POST_SUPPLIER_PAYMENT: PermissionScope.ORGANIZATION_AUTHORITY,
     REVERSE_SUPPLIER_PAYMENT: PermissionScope.ORGANIZATION_AUTHORITY,
+    # Reports aggregate money across branches.
+    VIEW_PROCUREMENT_REPORT: PermissionScope.ORGANIZATION_AUTHORITY,
 }
 
 
@@ -291,6 +298,8 @@ _PURCHASING = frozenset(
         # Reads what was billed against the orders it raised, and agrees to
         # none of it. Whoever chose the supplier does not approve their bill.
         VIEW_SUPPLIER_INVOICE,
+        # Spend and price-variance reports are the buyer's working tools.
+        VIEW_PROCUREMENT_REPORT,
     }
 )
 
@@ -335,6 +344,7 @@ _MANAGER = frozenset(
         # Prepares a payment; letting the money go is not a branch act.
         VIEW_SUPPLIER_PAYMENT,
         CREATE_SUPPLIER_PAYMENT,
+        VIEW_PROCUREMENT_REPORT,
     }
 )
 
@@ -383,6 +393,7 @@ _ACCOUNTING_MANAGER = frozenset(
         VIEW_SUPPLIER_PAYMENT,
         POST_SUPPLIER_PAYMENT,
         REVERSE_SUPPLIER_PAYMENT,
+        VIEW_PROCUREMENT_REPORT,
     }
 )
 _ACCOUNTANT = frozenset(
@@ -411,6 +422,7 @@ _ACCOUNTANT = frozenset(
         # Prepares the payment run; the accounting manager releases it.
         VIEW_SUPPLIER_PAYMENT,
         CREATE_SUPPLIER_PAYMENT,
+        VIEW_PROCUREMENT_REPORT,
     }
 )
 

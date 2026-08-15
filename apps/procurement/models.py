@@ -126,6 +126,9 @@ class Supplier(TimeStampedModel):
         permissions = [
             ("manage_suppliers", _("Can create, edit and archive suppliers")),
             ("view_supplier_cost", _("Can view supplier prices and amounts")),
+            # Task 2.16. Declared here because the report family has no model
+            # of its own, and the supplier is the entity every report reads.
+            ("view_procurement_report", _("Can view procurement reports")),
         ]
         constraints = [
             models.UniqueConstraint(

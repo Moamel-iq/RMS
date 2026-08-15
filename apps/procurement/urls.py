@@ -8,7 +8,7 @@ stays reserved, and a row every posted document points at stays readable.
 
 from django.urls import path
 
-from apps.procurement import views
+from apps.procurement import report_views, views
 
 app_name = "procurement"
 
@@ -377,5 +377,68 @@ urlpatterns = [
         "payments/<int:pk>/reverse/",
         views.SupplierPaymentTransitionView.as_view(transition="reverse"),
         name="supplier_payment_reverse",
+    ),
+    # --- reports (Task 2.16) ----------------------------------------------
+    # GET-only screens on the Phase 1 report contract: same queryset for the
+    # screen and its CSV, cost columns omitted without view_supplier_cost.
+    path(
+        "reports/supplier-aging/",
+        report_views.SupplierAgingReportView.as_view(),
+        name="report_supplier_aging",
+    ),
+    path(
+        "reports/supplier-statement/",
+        report_views.SupplierStatementReportView.as_view(),
+        name="report_supplier_statement",
+    ),
+    path(
+        "reports/open-orders/",
+        report_views.OpenPurchaseOrdersReportView.as_view(),
+        name="report_open_purchase_orders",
+    ),
+    path(
+        "reports/outstanding-receipts/",
+        report_views.OutstandingReceiptQuantityReportView.as_view(),
+        name="report_outstanding_receipts",
+    ),
+    path(
+        "reports/grni-exceptions/",
+        report_views.GrniExceptionsReportView.as_view(),
+        name="report_grni_exceptions",
+    ),
+    path(
+        "reports/invoice-without-receipt/",
+        report_views.InvoiceWithoutReceiptReportView.as_view(),
+        name="report_invoice_without_receipt",
+    ),
+    path(
+        "reports/matching-exceptions/",
+        report_views.MatchingExceptionsReportView.as_view(),
+        name="report_matching_exceptions",
+    ),
+    path(
+        "reports/purchase-spend/",
+        report_views.PurchaseSpendReportView.as_view(),
+        name="report_purchase_spend",
+    ),
+    path(
+        "reports/price-variance/",
+        report_views.PriceVarianceReportView.as_view(),
+        name="report_price_variance",
+    ),
+    path(
+        "reports/return-credit-status/",
+        report_views.ReturnCreditStatusReportView.as_view(),
+        name="report_return_credit_status",
+    ),
+    path(
+        "reports/payment-allocations/",
+        report_views.PaymentAllocationsReportView.as_view(),
+        name="report_payment_allocations",
+    ),
+    path(
+        "reports/procurement-to-gl/",
+        report_views.ProcurementToGlReportView.as_view(),
+        name="report_procurement_to_gl",
     ),
 ]

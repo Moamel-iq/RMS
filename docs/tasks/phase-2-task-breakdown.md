@@ -345,6 +345,36 @@ repair button.
 
 Depends on: 2.15. **Run the complete project suite at this boundary.**
 
+**Status: DONE.**
+
+*What shipped.* Twelve GET-only reports on the Phase 1 machinery, inherited
+rather than imitated: `ProcurementReportView` subclasses the inventory report
+base, so the shared template, the CSV-equals-screen export, the formula
+neutralisation, the pagination and the scope-then-filter discipline are the
+same code Phase 1 certified. What changed is exactly what the module needs —
+entry through the new organization-scoped `view_procurement_report`
+(migration 0031, granted to manager, accounting manager, accountant and
+purchasing), cost redaction through `view_supplier_cost` instead of
+`view_valuation`, and a `supplier_id` filter on a `ReportFilters` subclass.
+Every figure is the verifiers' own derivation — `outstanding_amount`,
+`unallocated_credit`, `advance_remainder`, `settled_book_value_for`, the
+GRNI clearing arithmetic — never a second formula, so a report and a
+reconciliation cannot disagree. `verify_procurement_accounting` (PRC-058)
+proves equalities 1–3 directly — open balances vs the payable account, GRNI
+via the delegated `verify_grni_clearing`, and source identity across all six
+procurement source types — with equality 4 re-checked by the per-document
+verifiers `verify_procurement` composes alongside it. The Procurement-to-GL
+screen renders those same three checks as rows. Navigation promotes
+"أرصدة الموردين" to the aging report — the balance is derived, so the report
+*is* the balances screen. The matching-exceptions read excludes matches
+behind a live posting: once posted, a variance is an explanation in the
+price-variance report, not a pending decision.
+
+*Verified.* Route-swept on the dev database as a privileged reader (twelve
+200s, cost columns present) and as a storekeeper (twelve 403s); demo numbers
+reconcile to the fils against the Task 2.13–2.15 documents; the planted
+journal is reported by verifier and report alike and left standing.
+
 ---
 
 ### Task 2.17 — Imports, demo completion and hardening

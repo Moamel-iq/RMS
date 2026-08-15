@@ -72,6 +72,18 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:supplier_return_list", "مرتجعات الموردين"),
     ("procurement:supplier_credit_note_list", "إشعارات الموردين الدائنة"),
     ("procurement:supplier_payment_list", "دفعات الموردين"),
+    ("procurement:report_supplier_aging", "أعمار ذمم الموردين"),
+    ("procurement:report_supplier_statement", "كشف حساب مورد"),
+    ("procurement:report_open_purchase_orders", "أوامر الشراء المفتوحة"),
+    ("procurement:report_outstanding_receipts", "كميات مطلوبة غير مستلمة"),
+    ("procurement:report_grni_exceptions", "مستلم غير مفوتر"),
+    ("procurement:report_invoice_without_receipt", "مفوتر غير مستلم"),
+    ("procurement:report_matching_exceptions", "فروقات المطابقة القائمة"),
+    ("procurement:report_purchase_spend", "الإنفاق الشرائي"),
+    ("procurement:report_price_variance", "فروقات الأسعار المرحّلة"),
+    ("procurement:report_return_credit_status", "حالة المرتجعات والإشعارات"),
+    ("procurement:report_payment_allocations", "تخصيصات الدفعات"),
+    ("procurement:report_procurement_to_gl", "المشتريات إلى الأستاذ العام"),
 ]
 
 

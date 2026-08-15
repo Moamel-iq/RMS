@@ -91,10 +91,10 @@ traceability matrix rather than this table is where the evidence lives.
 | 44 | An unallocated payment remainder is a supplier advance, never a negative payable; the advance balance equals the sum of standing remainders | `Dr SUPPLIER_ADVANCE` line + `verify_supplier_payments`; `test_the_remainder_stands_as_an_advance_never_a_negative_payable` | 2.15 |
 | 44a | The source account arrives through the method's effective-dated role, never an id | `METHOD_ROLES` + `test_the_method_chooses_the_source_through_its_role` | 2.15 |
 | 45 | Oldest-invoice allocation is a visible default, never applied silently | The allocation form orders by due date; the service and API require explicit allocations | 2.15 |
-| 46 | Open supplier balances sum to the supplier payable account balance | `verify_procurement_accounting` | 2.16 |
-| 47 | Accepted-and-unmatched receipt value sums to the GRNI account balance | Same verifier | 2.16 |
-| 48 | Every posted procurement journal traces to exactly one source document | Same verifier | 2.16 |
-| 49 | Verification reports and refuses to repair | No repair mode exists; asserted | 2.16 |
+| 46 | Open supplier balances sum to the supplier payable account balance | `verify_procurement_accounting`; `test_a_clean_scenario_reconciles_and_says_so`, and the planted journal moves it | 2.16 |
+| 47 | Accepted-and-unmatched receipt value sums to the GRNI account balance — procurement's own contribution, since Task 1.4 shares the account | Delegates `verify_grni_clearing`, one derivation for verifier and report alike; `test_grni_exceptions_age_the_uninvoiced_delivery` proves the report side | 2.16 |
+| 48 | Every posted procurement journal traces to exactly one source document, across all six source types | Same verifier; `test_a_planted_journal_is_reported_by_verifier_and_report_alike` | 2.16 |
+| 49 | Verification reports and refuses to repair; the reports are reads over the same derivations, never a second formula | No repair path exists in `reports.py` or `reconciliation.py`; the planted-journal test asserts the row is reported and left standing | 2.16 |
 | 50 | Every report names its cutoff semantics — effective-date or posted-as-of | Report contract, inherited from Phase 1 | 2.16 |
 
 ## Rules that carry over unchanged

@@ -330,6 +330,7 @@ def verify_procurement(organization: Organization) -> list[str]:
     problems.extend(verify_supplier_returns(organization))
     problems.extend(verify_supplier_credit_notes(organization))
     problems.extend(verify_supplier_payments(organization))
+    problems.extend(verify_procurement_accounting(organization))
     return [str(problem) for problem in problems]
 
 
@@ -339,6 +340,7 @@ __all__ = [
     "verify_invoice_charges",
     "verify_order_received_quantities",
     "verify_grni_clearing",
+    "verify_procurement_accounting",
     "verify_supplier_credit_notes",
     "verify_supplier_payments",
     "verify_supplier_returns",
@@ -1247,6 +1249,115 @@ def verify_supplier_payments(organization: Organization) -> list[Discrepancy]:
                     actual=actual_advance,
                 )
             )
+    return problems
+
+
+def verify_procurement_accounting(organization: Organization) -> list[Discrepancy]:
+    """
+    The phase's proof obligation (PRC-058), mirroring
+    `verify_inventory_accounting`. Three equalities:
+
+    1. The sum of open supplier balances — posted invoices less posted credit
+       notes less posted payments' allocated share, derived entirely from
+       documents — **equals** the supplier payable account balance. The
+       payable account is procurement's own: nothing else posts to it, so the
+       whole balance must be explained, not merely this module's share.
+    2. Accepted-and-unmatched receipt value **equals** procurement's own GRNI
+       movement (invariant 47's scoped equality, deferred to
+       `verify_grni_clearing`, which also explains why the *account* is
+       shared with Task 1.4's uninvoiced opening receipts).
+    3. Every posted procurement journal traces to exactly one source
+       document, across all six source types.
+
+    Composed from the standing verifiers rather than restated, so the
+    nightly answer and the phase-exit answer cannot drift apart. There is no
+    repair mode (PRC-059).
+    """
+    problems: list[Discrepancy] = []
+
+    # 1. Open balances against the payable account, as one figure.
+    payable_account = _role_account(organization.pk, SUPPLIER_PAYABLE)
+    if payable_account is not None:
+        expected_payable = ZERO
+        for supplier in Supplier.objects.filter(organization=organization):
+            expected_payable += supplier_outstanding(supplier)
+        # A payable is a credit-balance account: credit-minus-debit.
+        actual_payable = ZERO
+        for entry_row in JournalLine.objects.filter(
+            account_id=payable_account, entry__organization=organization
+        ).values("debit", "credit"):
+            actual_payable += entry_row["credit"] - entry_row["debit"]
+        if actual_payable != expected_payable:
+            problems.append(
+                Discrepancy(
+                    scope=organization.code,
+                    field="open_balances_vs_payable_account",
+                    expected=expected_payable,
+                    actual=actual_payable,
+                )
+            )
+
+    # 2. GRNI, scoped as invariant 47 records.
+    problems.extend(verify_grni_clearing(organization))
+
+    # 3. Source identity across every procurement journal.
+    from apps.procurement.credit_notes import SOURCE_DOCUMENT_TYPE as NOTE_TYPE
+    from apps.procurement.invoices import SOURCE_DOCUMENT_TYPE as INVOICE_TYPE
+    from apps.procurement.payments import SOURCE_DOCUMENT_TYPE as PAYMENT_TYPE
+    from apps.procurement.returns import SOURCE_DOCUMENT_TYPE as RETURN_TYPE
+
+    known: dict[str, set[str]] = {
+        SOURCE_DOCUMENT_TYPE: {
+            str(pk)
+            for pk in GoodsReceipt.objects.filter(organization=organization).values_list(
+                "public_id", flat=True
+            )
+        },
+        INVOICE_TYPE: {
+            str(pk)
+            for pk in SupplierInvoice.objects.filter(organization=organization).values_list(
+                "public_id", flat=True
+            )
+        }
+        | {
+            str(pk)
+            for pk in SupplierInvoicePosting.objects.filter(organization=organization).values_list(
+                "public_id", flat=True
+            )
+        },
+        RETURN_TYPE: {
+            str(pk)
+            for pk in SupplierReturn.objects.filter(organization=organization).values_list(
+                "public_id", flat=True
+            )
+        },
+        NOTE_TYPE: {
+            str(pk)
+            for pk in SupplierCreditNote.objects.filter(organization=organization).values_list(
+                "public_id", flat=True
+            )
+        },
+        PAYMENT_TYPE: {
+            str(pk)
+            for pk in SupplierPayment.objects.filter(organization=organization).values_list(
+                "public_id", flat=True
+            )
+        },
+    }
+    for source_type, owned in known.items():
+        cited = JournalEntry.objects.filter(
+            organization=organization, source_document_type=source_type
+        ).values_list("source_document_id", flat=True)
+        for document_id in set(cited):
+            if document_id not in owned:
+                problems.append(
+                    Discrepancy(
+                        scope=source_type,
+                        field="journal_cites_unknown_document",
+                        expected="a document in this organization",
+                        actual=document_id,
+                    )
+                )
     return problems
 
 
