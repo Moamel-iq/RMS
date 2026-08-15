@@ -5,12 +5,13 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 17/20 — Supplier payments (Task 2.15) COMPLETE.
+CURRENT_PIPELINE_STEP: 18/20 — Reports and reconciliation (Task 2.16) COMPLETE.
 CURRENT_TASK: none in flight. The active /goal directs the remainder at
-**Accounting and Procurement completion**: Task 2.16 (reports and
-`verify_procurement_accounting`) is next, then 2.17 (imports, demo
-completion, hardening) and both module-exit gates on fresh databases.
-LAST_GREEN_COMMIT: 772607b (feature); the docs checkpoint follows it
+**Accounting and Procurement completion**: Task 2.17 (imports, demo
+completion, hardening) is next, then the Phase 2 exit gate (2.18) and both
+module-exit gates on fresh databases.
+LAST_GREEN_COMMIT: the Task 2.16 feature commit (definitive suite 2339/0 on
+its tree); the docs checkpoint follows it
 LAST_PUSHED_COMMIT: same
 WORKING_TREE: clean
 RUNNING_TESTS: none
@@ -38,6 +39,11 @@ ACTIVE_DATABASES (none to be dropped):
 - `khan_mandi_p2_b9` — Task 2.15 verification, migrated from zero through all
   30 procurement migrations and seeded twice with identical counts; created
   by Task 2.15, never to be dropped
+- `khan_mandi_p2_b10` — Task 2.16 verification, migrated from zero through
+  all 31 procurement migrations and seeded twice with identical counts
+  (3 suppliers, 3 orders, 6 receipts, 4 invoices, 2 matches, 3 returns,
+  1 note, 1 payment); `verify_procurement` clean, all twelve report routes
+  and CSVs 200; created by Task 2.16, never to be dropped
 - `khan_mandi_t17a_check`, `khan_mandi_t16_check`, `_t15_`, `_t14_`, `_t13_`,
   `khan_mandi_ledger_check`, `khan_mandi_inv_check`, `khan_mandi_freshcheck`
 
@@ -46,25 +52,34 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Task 2.16 — reports and reconciliation (Task 2.0 §12,
-PRC-058/059; invariants 46–49). Twelve reports under the Phase 1 contract
-(named cutoff, scope from memberships, cost columns omitted not blanked,
-exact Decimals in CSV with formula neutralisation, HTMX filters surviving
-pagination, no repair button) plus `verify_procurement_accounting` — whose
-three equalities are already live piecewise in `verify_supplier_payables`,
-`verify_grni_clearing` and the source-identity checks, and need composing
-under the §12 name with the aging/statement reads. Run the complete project
-suite at this boundary per the breakdown.
+NEXT_EXACT_ACTION: Task 2.17 — imports, demo completion and hardening
+(Task 2.0 §14/PRC-046 fields note, PRC-062/064/066; breakdown §2.17).
+Preview-first imports for **supplier master, supplier-item catalogue and
+purchase-request drafts only**, on the Task 1.7 import framework (preview →
+atomic apply, per-organization idempotency, file security: size cap,
+extension and content checks, no path from user input). Cross-tenant and
+concurrency tests, export formula protection already inherited, admin
+lockdown sweep, the complete demo command, the visible route matrix, HTMX
+verification. Then Task 2.18 — the Phase 2 exit gate on a fresh database
+(tag `phase-2-procurement-complete`, never merged into main) and the
+Accounting-side module-exit check under the active /goal.
 
 NEXT_EXACT_COMMAND:
 ```
 cd "C:/Users/muama/Desktop/Khan Mandi/System/khan-mandi-rms"
 git branch --show-current                     # expect phase/2-procurement
-.venv/Scripts/python.exe -m pytest apps/procurement -q
+.venv/Scripts/python.exe -m pytest apps/procurement/tests/test_procurement_reports.py -q
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
-organization DEMO-KHAN-MANDI. Task 2.14 adds `DEMO-SCN-CHICKEN`
+organization DEMO-KHAN-MANDI. Task 2.16 adds the twelve report routes under
+`/procurement/reports/…` (all in the seed command's inspection list, all
+route-swept 200 with CSVs; a storekeeper answers 403 on every one). The
+demo's own numbers reconcile on the screens: aging shows the grocery
+supplier 112,000 open (>90 days) with a 10,000 advance and the chicken
+supplier a −28,000 net position from the standing credit; return status
+shows the chicken claim fully settled (40,514.706 = 40,514.706); the GL
+tie-out answers مطابق three times for both organizations. Task 2.14 adds `DEMO-SCN-CHICKEN`
 (SCN-2026-000001, **POSTED**): the supplier credits the 28,000 the chicken
 was bought for against its 40,514.706 book value — the claim in `8-01-04-001`
 closes to **0** and a visible **12,514.706 loss** lands in `7-09-04-001`,
@@ -126,6 +141,56 @@ the inventory demo, which is how the scoping was found.
 `verify_parked_variance` proves every fils in `8-01-03-001` traces to a live
 posting and to the allocation rows beneath it, and catches a manual journal
 against the account.
+
+STEP 18 (Task 2.16, reports and reconciliation): **COMPLETE**. Definitive
+complete project suite on the final tree: **2339 passed, 0 failed** (47:35);
+the code was untouched between that run and the commits — only this runbook.
+Twelve GET-only reports on the Phase 1 machinery **inherited, not imitated**:
+`ProcurementReportView` subclasses `InventoryReportView`, so the shared
+data-driven template, the CSV-equals-screen export, formula neutralisation,
+provenance headers, pagination and the HTMX fragment fallback are the code
+Phase 1 certified — what changed is the entry permission (new
+organization-scoped `view_procurement_report`, migration 0031, granted to
+manager/accounting-manager/accountant/purchasing), cost redaction through
+`view_supplier_cost` (omitted, never blanked), and a `supplier_id` filter on
+a `ReportFilters` subclass. Every figure is the verifiers' own derivation —
+`outstanding_amount`, `unallocated_credit`, `advance_remainder`,
+`settled_book_value_for`, the GRNI clearing arithmetic — never a second
+formula. `verify_procurement_accounting` (PRC-058) composes equalities 1–3
+under `verify_procurement` — open balances vs the payable account
+(whole-account, procurement-exclusive), GRNI via the delegated
+`verify_grni_clearing` (scoped, shared with Task 1.4), source identity
+across all six source types — with equality 4 re-checked by the
+per-document verifiers alongside. Navigation promotes "أرصدة الموردين" to
+the aging report: the balance is derived, so the report *is* the balances
+screen. The 19-test suite covers the permission sweep (twelve routes × three
+actors), both scope arms (a branch post reaches the organization exactly as
+`visible_supplier_invoices` certifies; a hand-granted permission names no
+post and reaches nothing), row- and CSV-level redaction, per-report
+correctness on service-built scenarios, the matching-lifecycle walk (one
+3,000 variance moving through invoice-without-receipt → matching-exceptions
+→ price-variance while the GRNI exception clears), the partial credit-note
+settlement walk (قائم → جزئي), the clean and planted GL tie-outs, hostile-name
+neutralisation and the HTMX fragment.
+
+**The full suite caught what standalone runs could not.** The statement's
+same-day tie-break ordered rows from three different tables by raw pk — an
+accident of sequence allocation that standalone runs reproduced and the
+2,339-test run's drifted sequences exposed (first run 2338/1). Replaced with
+charges-before-settlements then document number: deterministic, and the
+honest answer given that documents carry a business date, not a time. The
+order-independence was then proved cheaply (payments tests then report tests
+in one session) before the suite re-ran green.
+
+**Demo tooling hardened in passing.** A crashed seed run (procurement demo
+before the inventory scenario, so no lots existed) left an empty draft
+receipt that every later run reused and failed to post — permanent
+non-idempotence. `seed_demo_receipts` now *finishes* a half-built draft
+(reuses the row, adds the lines the crash never reached) instead of
+reusing it empty; found on the b10 fresh database, fixed, and both seed
+passes then produced identical counts. The matching-exceptions read also
+excludes matches behind a live posting — once posted, a variance is an
+explanation in the price-variance report, not a pending decision.
 
 STEP 17 (Task 2.15, supplier payments): **COMPLETE**. Definitive complete
 project suite on the final tree: **2320 passed, 0 failed** (48:16); the code
@@ -511,5 +576,6 @@ the item, and it is addressed.
 | 14 Variance accounting | **COMPLETE, PUSHED** | 29b0ea0 + 61552a1 | 2203 project tests, generations, PPV parked |
 | 15 Supplier returns | **COMPLETE, PUSHED** | fce9a4a + a0a0fc2 + e947941 + 3bb8194 | fresh DB b7, verifiers clean, ADR-022 accepted in full |
 | 17 Supplier payments | **COMPLETE, PUSHED** | 772607b + checkpoint | fresh DB b9, §11 verbatim, advance never a negative payable |
+| 18 Reports + reconciliation | **COMPLETE, PUSHED** | feature + checkpoint | fresh DB b10, twelve reports on the Phase 1 base, PRC-058 composed, suite 2339/0 |
 | 16 Supplier credit notes | **COMPLETE, PUSHED** | e26a051 + checkpoint | fresh DB b8, ADR-022 fully implemented, invoice guard hole closed |
-| 17–20 | not started | — | next: Task 2.15 payments, then 2.16 reconciliation, per the active /goal |
+| 19–20 | not started | — | next: Task 2.17 imports/hardening, then the 2.18 exit gate, per the active /goal |
