@@ -19,19 +19,25 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import ListView
 
 from apps.accounting.commands import (
+    amend_account_role_mapping,
     archive_account_role_mapping,
     close_account_role_mapping,
     list_account_roles,
     map_account_role,
 )
-from apps.accounting.forms import AccountMappingForm, CloseMappingForm, manageable_organizations
+from apps.accounting.forms import (
+    AccountMappingForm,
+    AmendMappingForm,
+    CloseMappingForm,
+    manageable_organizations,
+)
 from apps.accounting.models import OrganizationAccountMapping
 from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS, VIEW_JOURNAL
 from apps.core.views import ModuleViewMixin
@@ -194,6 +200,79 @@ class AccountMappingCloseView(AccountingViewMixin, View):
                 "cancel_url": reverse("accounting:mapping_list"),
             },
         )
+
+
+class AccountMappingAmendView(AccountingViewMixin, View):
+    """
+    Correct a mapping nothing has posted through yet.
+
+    The command existed from Task 1.3 with no way to reach it, so amending a
+    mistyped effective date meant a Python shell against production while its
+    siblings — close and archive — had screens. ADR-019 lists amending
+    alongside them as a first-class mapping operation; this is that screen.
+
+    It is deliberately *not* a way to edit history: the service refuses a
+    mapping any posting has snapshotted, and the path for one of those is to
+    close it and create the next version.
+    """
+
+    template_name = "accounting/mapping_amend.html"
+    required_permission = MANAGE_ACCOUNT_MAPPINGS
+
+    def _mapping(self) -> OrganizationAccountMapping:
+        """
+        Resolved **with** the caller, never fetched and then checked: a
+        mapping outside the organizations this caller manages is not found
+        at all, so a guessed id cannot confirm that it exists.
+        """
+        return get_object_or_404(
+            OrganizationAccountMapping.objects.filter(
+                organization__in=manageable_organizations(self.actor)
+            ).select_related("organization", "account", "account_role"),
+            pk=self.kwargs["pk"],
+        )
+
+    def _render(self, request: HttpRequest, form: AmendMappingForm) -> HttpResponse:
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mapping": self._mapping(),
+                "page_title": _("تعديل الربط"),
+                "page_hint": _(
+                    "التعديل متاح ما دام لم يُرحَّل عبر هذا الربط شيء. بعد الترحيل "
+                    "يُغلق النطاق وتُنشأ نسخة جديدة."
+                ),
+                "cancel_url": reverse("accounting:mapping_list"),
+            },
+        )
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self._render(request, AmendMappingForm(mapping=self._mapping()))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        mapping = self._mapping()
+        form = AmendMappingForm(data=request.POST, mapping=mapping)
+        if form.is_valid():
+            try:
+                amend_account_role_mapping(
+                    actor=self.actor,
+                    mapping_id=mapping.pk,
+                    account_id=(
+                        form.cleaned_data["account"].pk if form.cleaned_data["account"] else None
+                    ),
+                    effective_from=form.cleaned_data["effective_from"],
+                    effective_to=form.cleaned_data["effective_to"],
+                    clear_effective_to=form.cleaned_data["clear_effective_to"],
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("عُدِّل الربط."))
+                return HttpResponseRedirect(reverse("accounting:mapping_list"))
+        return self._render(request, form)
 
 
 class AccountMappingArchiveView(AccountingViewMixin, View):

@@ -170,6 +170,107 @@ class TestClosingAMapping:
         assert mapping.effective_to is None
 
 
+class TestAmendingAMapping:
+    """
+    The command existed from Task 1.3 with no way to reach it (ACCT-5): no
+    view, no URL, no route, no test, while its siblings close and archive had
+    screens. Amending an effective date range is the documented correction
+    path for a mapping nothing has posted through, so the only way to perform
+    it was a Python shell against production.
+    """
+
+    def test_it_corrects_the_account_and_returns_to_the_list(
+        self,
+        organization: Organization,
+        mapping: OrganizationAccountMapping,
+        mapping_manager: User,
+        client_for: Callable[[User], Client],
+    ) -> None:
+        replacement = Account.objects.get(organization=organization, code="1-03-02-001")
+        response = client_for(mapping_manager).post(
+            reverse("accounting:mapping_amend", args=[mapping.pk]),
+            {"account": str(replacement.pk), "effective_from": "", "effective_to": ""},
+        )
+        assert response.status_code == 302
+        assert response.headers["Location"] == reverse("accounting:mapping_list")
+        mapping.refresh_from_db()
+        assert mapping.account_id == replacement.pk
+
+    def test_a_partial_correction_leaves_the_rest_alone(
+        self,
+        mapping: OrganizationAccountMapping,
+        mapping_manager: User,
+        client_for: Callable[[User], Client],
+    ) -> None:
+        """One mistyped date, corrected, without restating the account."""
+        original_account = mapping.account_id
+        response = client_for(mapping_manager).post(
+            reverse("accounting:mapping_amend", args=[mapping.pk]),
+            {"account": "", "effective_from": "2026-02-01", "effective_to": ""},
+        )
+        assert response.status_code == 302
+        mapping.refresh_from_db()
+        assert mapping.effective_from == datetime.date(2026, 2, 1)
+        assert mapping.account_id == original_account
+
+    def test_the_screen_renders_and_offers_only_this_organizations_accounts(
+        self,
+        organization: Organization,
+        other_organization: Organization,
+        other_chart: None,
+        mapping: OrganizationAccountMapping,
+        mapping_manager: User,
+        client_for: Callable[[User], Client],
+    ) -> None:
+        """A dropdown offering a foreign account would be a tenancy hole."""
+        response = client_for(mapping_manager).get(
+            reverse("accounting:mapping_amend", args=[mapping.pk])
+        )
+        assert response.status_code == 200
+        offered = set(response.context["form"].fields["account"].queryset)
+        assert offered
+        assert all(account.organization_id == organization.pk for account in offered)
+
+    def test_a_date_and_a_clear_flag_together_are_refused(
+        self,
+        mapping: OrganizationAccountMapping,
+        mapping_manager: User,
+        client_for: Callable[[User], Client],
+    ) -> None:
+        response = client_for(mapping_manager).post(
+            reverse("accounting:mapping_amend", args=[mapping.pk]),
+            {"account": "", "effective_to": "2026-06-30", "clear_effective_to": "on"},
+        )
+        assert response.status_code == 200
+        mapping.refresh_from_db()
+        assert mapping.effective_to is None
+
+    def test_a_cashier_cannot_amend(
+        self,
+        mapping: OrganizationAccountMapping,
+        cashier: User,
+        client_for: Callable[[User], Client],
+    ) -> None:
+        response = client_for(cashier).post(
+            reverse("accounting:mapping_amend", args=[mapping.pk]),
+            {"effective_from": "2026-02-01"},
+        )
+        assert response.status_code == 403
+        mapping.refresh_from_db()
+        assert mapping.effective_from == JAN_1
+
+    def test_the_same_authority_over_another_organization_reaches_nothing(
+        self,
+        mapping: OrganizationAccountMapping,
+        rival_manager: User,
+        client_for: Callable[[User], Client],
+    ) -> None:
+        response = client_for(rival_manager).get(
+            reverse("accounting:mapping_amend", args=[mapping.pk])
+        )
+        assert response.status_code == 404
+
+
 class TestArchivingAMapping:
     def test_an_unused_mapping_is_withdrawn(
         self,

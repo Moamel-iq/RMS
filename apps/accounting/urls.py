@@ -17,6 +17,11 @@ urlpatterns = [
     path("mappings/", views.AccountMappingListView.as_view(), name="mapping_list"),
     path("mappings/new/", views.AccountMappingCreateView.as_view(), name="mapping_create"),
     path(
+        "mappings/<int:pk>/amend/",
+        views.AccountMappingAmendView.as_view(),
+        name="mapping_amend",
+    ),
+    path(
         "mappings/<int:pk>/close/",
         views.AccountMappingCloseView.as_view(),
         name="mapping_close",
