@@ -40,6 +40,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TRACEABILITY = REPO_ROOT / "docs" / "requirements" / "traceability.md"
 
+#: Where approved tasks are declared. `CLAUDE.md` fixes the Phase 0 order in
+#: prose; every later phase declares its tasks as `### Task X.Y` headings.
+CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
+TASK_BREAKDOWNS = (
+    REPO_ROOT / "docs" / "tasks" / "phase-1-task-breakdown.md",
+    REPO_ROOT / "docs" / "tasks" / "phase-2-task-breakdown.md",
+)
+
 #: Where test modules live. Anything outside these trees is not a test, so a
 #: citation that resolves into one of them is the only kind that counts.
 TEST_ROOTS = (REPO_ROOT / "tests", REPO_ROOT / "apps")
@@ -273,6 +281,115 @@ def audit() -> list[str]:
     if not rows:
         return ["the traceability table parsed to zero rows"]
     return resolve(rows, index)
+
+
+# ---------------------------------------------------------------------------
+# Coverage: does every approved task appear here at all?
+# ---------------------------------------------------------------------------
+#
+# The check above resolves each row to a real test, which a task with **no
+# rows** passes trivially. That is not a hypothetical: Task 0.6, the
+# accounting journal kernel every other module posts through, had no section
+# and no rows while a hundred of its tests passed — and this file reported
+# clean the whole time. Citations were never the only thing worth checking;
+# they were only the thing that had been checked.
+
+
+def approved_tasks() -> dict[str, str]:
+    """
+    Every task the plan approved, as `id -> title`.
+
+    Read from the documents that declare them rather than from a list kept
+    here, so a task added to a breakdown is in scope for this check the
+    moment it is written down, without anybody remembering to update a test.
+    """
+    tasks: dict[str, str] = {}
+
+    # Phase 0 is prose in CLAUDE.md: "0.1 bootstrap · 0.2 custom User · ..."
+    text = CLAUDE_MD.read_text(encoding="utf-8")
+    phase_zero = re.search(r"Phase 0 task order:(.+?)(?:\n\n|##)", text, re.DOTALL)
+    if phase_zero:
+        for number, title in re.findall(r"(0\.\d)\s+([^·\n]+)", phase_zero.group(1)):
+            tasks[number] = title.strip(" .·")
+
+    for breakdown in TASK_BREAKDOWNS:
+        for number, title in re.findall(
+            r"^###\s+Task\s+(\d+\.\d+[A-Z]?)\s+—\s+(.+)$",
+            breakdown.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        ):
+            tasks[number] = title.strip()
+
+    return tasks
+
+
+def covered_tasks(markdown: str) -> set[str]:
+    """
+    The tasks this document actually accounts for, three ways.
+
+    A `## Task X.Y` heading, a task number in a `Task` column, or an explicit
+    row in the Coverage table for the ones whose evidence legitimately lives
+    somewhere else. The third is deliberately explicit: declaring a task
+    covered is then a visible line in a diff rather than an absence nobody
+    notices.
+    """
+    covered: set[str] = set(re.findall(r"^##\s+Task\s+(\d+\.\d+[A-Z]?)\b", markdown, re.MULTILINE))
+
+    # The column mapping deliberately survives an intervening heading, exactly
+    # as `parse_rows` lets it: the Phase 1 rows sit below "How to read the
+    # evidence column" while using the header declared above it, and a reset
+    # on every heading would silently stop reading two hundred and eighty rows.
+    task_column: int | None = None
+    in_coverage = False
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            in_coverage = stripped.lower().startswith("## coverage")
+            continue
+        if not stripped.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        lowered = [cell.lower() for cell in cells]
+
+        if in_coverage:
+            # The Coverage table's first column is the task itself.
+            if cells and re.fullmatch(r"\d+\.\d+[A-Z]?", cells[0]):
+                covered.add(cells[0])
+            continue
+
+        if "task" in lowered:
+            task_column = lowered.index("task")
+            continue
+        if task_column is not None and task_column < len(cells):
+            for number in re.findall(r"\d+\.\d+[A-Z]?", cells[task_column]):
+                covered.add(number)
+
+    return covered
+
+
+def test_every_approved_task_is_represented_in_traceability() -> None:
+    """
+    A task with no traceability at all must fail, even when every citation
+    that *is* written resolves perfectly.
+
+    The fix for a failure here is a section, rows, or — when the evidence
+    genuinely lives elsewhere — an explicit line in the Coverage table saying
+    where and why. It is never to delete the task from its breakdown.
+    """
+    markdown = TRACEABILITY.read_text(encoding="utf-8")
+    tasks = approved_tasks()
+    assert tasks, "parsed no approved tasks; the breakdown format must have changed"
+
+    covered = covered_tasks(markdown)
+    missing = sorted(
+        f"{number} ({title})" for number, title in tasks.items() if number not in covered
+    )
+    assert not missing, (
+        "approved tasks with no traceability coverage at all:\n  "
+        + "\n  ".join(missing)
+        + "\n\nAdd a `## Task X.Y` section, rows carrying the number in a Task "
+        "column, or a Coverage row saying where the evidence lives."
+    )
 
 
 def test_the_traceability_table_is_parsed_at_all() -> None:

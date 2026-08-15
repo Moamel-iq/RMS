@@ -3,6 +3,34 @@
 Maps each requirement to the code and tests that satisfy it. Updated as part of
 every task's definition of done.
 
+## Coverage — where each approved task's evidence lives
+
+`tests/test_traceability.py` checks two different things, and the second one
+exists because the first was not enough. It resolves every citation to a real
+test **and** it checks that every approved task is represented here at all.
+A task can pass the first check trivially by having no rows, which is exactly
+how Task 0.6 — the accounting kernel every other module posts through — sat
+untraced with a hundred passing tests behind it.
+
+Most tasks are found automatically: by a `## Task X.Y` heading, or by their
+number in a `Task` column. The tasks below are the ones that are not, and
+each says why. A future task cannot be silently absent — it either appears
+one of those two ways or it is declared here, deliberately, in a diff someone
+reviews.
+
+| Task | Evidence lives in | Why not its own section |
+|---|---|---|
+| 0.1 | The leading table — `ENV-`, `API-` | Bootstrap: settings, health, the API skeleton. Written before the document grew sections |
+| 0.2 | The leading table — `USR-`, `UI-` | Custom user and the sign-in surface, same table |
+| 0.3 | The leading table — `ORG-` | Organization, branch, membership, scope |
+| 0.4 | The leading table — `UOM-` | Units of measure and conversion |
+| 0.5 | The leading table — `AUD-` | The audit foundation |
+| 1.0 | — | A specification task. It *produces* the Phase 1 requirements the rows below cite; it has no separate implementation to trace |
+| 2.0 | — | The same, for Phase 2 (`PRC-001`..`PRC-067`) |
+| 1.7 | Superseded by 1.7A and 1.7B | Split during Phase 1; both halves carry their own rows |
+| 1.8 | `EXIT-` rows plus the Phase 1 gate record | An exit gate verifies other tasks' requirements rather than adding its own |
+| 2.18 | The Phase 2 gate record | The same; see `docs/runbooks/overnight-progress.md` Step 20 |
+
 | Req ID | Summary | Module | Model / service / API | Tests | Status | Notes |
 |---|---|---|---|---|---|---|
 | ENV-001 | PostgreSQL is the only database; SQLite never used | config | `config/settings/base.py` DATABASES | `tests/test_settings.py::TestDatabaseConfiguration` | Done | ADR-002 |
@@ -66,7 +94,7 @@ every task's definition of done.
 | MON-008 | A rate is applied to the total, not line by line | core | `allocation.allocate_by_rate` | `test_allocation.py::test_rate_is_applied_to_the_total_not_line_by_line` | Done | |
 | MON-009 | Credit notes mirror their invoice line for line | core | sign handling in `allocation` | `test_allocation.py::test_reversal_is_the_exact_mirror` | Done | Hypothesis property |
 | MON-010 | Nearest-250 rounding is off | core | `CASH_ROUNDING_ENABLED` | `test_money.py::TestCashRoundingIsOff` | Done | Tripwire test |
-| MON-011 | Cash rounding residual posts to an explicit account | core | `apply_cash_settlement_rounding` returns `(rounded, adjustment)` | `test_money.py::test_the_adjustment_always_reconciles` | Partial | Account seeded in Task 0.6 (ADR-014) |
+| MON-011 | Cash rounding residual posts to an explicit account | core | `apply_cash_settlement_rounding` returns `(rounded, adjustment)`; account `7-09-01-001` seeded by `seed_chart_of_accounts` | `test_money.py::test_the_adjustment_always_reconciles`, `test_chart_of_accounts.py::test_the_cash_rounding_account_exists_though_the_policy_is_off` | Done | Was `Partial` pending the account; the account has existed since Task 0.6 (ADR-014) and is tested. Rounding itself stays **off** and posts nothing until a policy enables it |
 | MON-012 | Rendered money cannot enter arithmetic | core | `money_display` / `money_audit` / `money_export` return `str` | `test_money.py::TestRendering` | Done | Structural, not conventional |
 | MON-013 | Audit and export views expose the stored third decimal | core | `money_audit`, `money_export` | `test_money.py::test_audit_views_expose_the_stored_third_decimal` | Done | |
 | MON-014 | Reconciliation compares stored values, never displayed | core | renderers return `str` | `test_money.py::test_reconciliation_must_compare_stored_values` | Done | |
@@ -82,11 +110,46 @@ every task's definition of done.
 | AUD-008 | Mutable master data keeps row history | organizations, units, users | `HistoricalRecords` | `test_audit.py::TestRowHistory` | Done | Password excluded from user history |
 | AUD-009 | Audit context never leaks between requests | core | middleware resets in `finally` | `test_audit.py::test_context_does_not_leak_between_requests` | Done | Reset even when the view raises |
 
+## Task 0.6 — the accounting journal kernel
+
+The twelve kernel invariants of `docs/specs/accounting-kernel-invariants.md`,
+mapped to the tests that hold them. **One row per requirement, not per
+test** — the four modules below carry a hundred tests between them, and a
+row for each would be an index rather than a matrix.
+
+This section was missing until the Phase 2 gate, and its absence is the
+reason `tests/test_traceability.py` now checks *coverage* as well as
+citations: the old check resolved each row to a real test and therefore
+reported clean while the kernel — the thing every other module posts
+through — had no rows at all. A hundred passing tests were invisible to the
+matrix, which is the failure mode most likely to be mistaken for its
+opposite.
+
+| ID | Requirement | App | Implementation | Test | Status | Notes |
+|---|---|---|---|---|---|---|
+| ACC-001 | Every posted entry balances, and the database refuses an unbalanced one even by raw SQL | accounting | `validators.validate_balanced` + `DEFERRABLE INITIALLY DEFERRED` trigger, migration `accounting.0001` | `test_posting.py::TestBalance`, `test_commit_boundary.py::test_an_unbalancing_line_is_refused_at_commit` | Done | The trigger fires at COMMIT, so a mid-transaction imbalance is legal and a committed one is impossible |
+| ACC-002 | A line carries exactly one side, a positive amount, and never a float | accounting | `validators.validate_line_sides`, `CheckConstraint`s on `JournalLine` | `test_posting.py::TestLineShape` | Done | ADR-012 |
+| ACC-003 | Only detail accounts accept postings; group and archived accounts are refused | accounting | `validators.validate_accounts_are_postable`, `is_postable` derived from the code | `test_posting.py::TestPostableAccounts`, `test_hardening.py::TestHierarchyExclusivity` | Done | A parent cannot acquire a child once it has history |
+| ACC-004 | Cost-centre policy comes from the account, never from the caller | accounting | `validators.validate_cost_centers`, `Account.requires_cost_center` | `test_posting.py::TestCostCenterPolicy` | Done | ADR-015 |
+| ACC-005 | One entry never mixes organizations — account, branch or cost centre | accounting | `validators.validate_organization_consistency` | `test_posting.py::TestOrganizationIsolation` | Done | The tenancy boundary at the ledger |
+| ACC-006 | Journal numbers are gapless and scoped per organization and year | accounting | `services._next_entry_number` under a row lock on `JournalNumberSequence` | `test_posting.py::TestNumbering` | Done | MAX+1 would let two postings claim one number |
+| ACC-007 | The period is resolved from the accounting date; CLOSED refuses everything and SOFT_CLOSED refuses routine postings | accounting | `validators.validate_period_accepts_postings`, `services.close_period` / `reopen_period` | `test_posting.py::TestPeriods`, `test_hardening.py::TestPeriodOrdering`, `test_hardening.py::TestSoftClosedAuthorization` | Done | ADR-013; periods close and reopen in order |
+| ACC-008 | A posted entry and its lines are immutable, including against raw SQL | accounting | `accounting_journalentry_no_change` / `accounting_journalline_no_change` triggers, migrations `accounting.0002`, `0005` | `test_posting.py::TestImmutability`, `test_commit_boundary.py::test_deleting_one_line_of_a_posted_entry_is_refused` | Done | Allowlist of permitted columns, not a blocklist — see migration 0005 |
+| ACC-009 | Correction is reversal: an exact mirror, once only, with a reason, the original preserved | accounting | `services.reverse_entry` | `test_posting.py::TestReversal`, `test_hardening.py::TestReversalErrorAccuracy` | Done | A second reversal reports already-reversed rather than posting again |
+| ACC-010 | A failed posting leaves nothing behind | accounting | `@transaction.atomic` on `post_entry` | `test_posting.py::TestAtomicity` | Done | |
+| ACC-011 | Balances are derived from posted lines, never stored | accounting | no balance column anywhere; derivation over `JournalLine` | `test_posting.py::TestTrialBalance` | Done | Trial balance debits equal credits by construction |
+| ACC-012 | The same economic event posts once, and a key reused with a different payload is a conflict | accounting | `services._idempotency_fingerprint`, `_replay`, unique key per organization | `test_posting.py::TestIdempotency`, `test_idempotency.py` | Done | ADR-017; see also IDM-001..008 |
+| ACC-013 | The chart seeds idempotently, with a code structure the database enforces | accounting | `seed_chart_of_accounts`, `account_code_matches_postable_flag` | `test_chart_of_accounts.py::TestSeed`, `test_chart_of_accounts.py::TestCodeStructure` | Done | ADR-014; 77 accounts and 6 cost centres |
+| ACC-014 | Account and cost-centre codes are unique per organization and stay reserved after archiving | accounting | `account_code_unique_per_organization`, `on_delete=PROTECT` | `test_chart_of_accounts.py::TestScoping`, `test_chart_of_accounts.py::TestArchivingNotDeleting` | Done | Two organizations may reuse one code; a used code is never freed |
+| ACC-015 | A statutory external mapping is complete or absent, and never affects posting | accounting | `account_external_mapping_is_complete_or_absent` | `test_chart_of_accounts.py::TestExternalMapping` | Done | Settles the second open question ADR-014 recorded |
+| ACC-016 | Fiscal-year closure is derived from its periods, never stored | accounting | `FiscalYear.is_closed` property; no column | `test_hardening.py::TestFiscalYearClosureIsDerived` | Done | A stored flag would be a second opinion that goes stale |
+| ACC-017 | An adjustment is a date plus a flag, valid anywhere in an open period; an entry needs both a debit and a credit and cannot be zero-valued | accounting | `is_adjustment`, `validators.validate_lines_present` | `test_hardening.py::TestAdjustmentSemantics`, `test_hardening.py::TestEntryShape` | Done | A two-line zero-value entry balances arithmetically and says nothing |
+
 ## Task 0.7 — permissions, scope, API, idempotency
 
 | ID | Requirement | App | Implementation | Test | Status | Notes |
 |---|---|---|---|---|---|---|
-| PRM-001 | Twelve named accounting permissions exist | accounting | `Meta.permissions` on `JournalEntry`, `Account`, `CostCenter`, `AccountingPeriod` | `test_permissions.py::TestThePermissionsExist` | Done | Not Django add/change/delete |
+| PRM-001 | The twelve named accounting permissions of Task 0.7 §1 exist, and a thirteenth arrived with Task 1.3 | accounting | `Meta.permissions` on `JournalEntry`, `Account`, `CostCenter`, `AccountingPeriod`, and `OrganizationAccountMapping` (`manage_account_mappings`, Task 1.3) | `test_permissions.py::TestThePermissionsExist` | Done | Not Django add/change/delete. The row said "twelve" while its own test asserted thirteen: twelve was right for 0.7, and the count moved when 1.3 added the mapping permission on a model this row did not name |
 | PRM-002 | Roles carry permissions through groups | organizations | `permissions.sync_user_role_groups`, `role:<ROLE>` groups | `test_permissions.py::TestRoleGroupsFollowMemberships` | Done | Recomputed, never incremented |
 | PRM-003 | ACCOUNTING_MANAGER holds `reopen_period` | accounting | `ROLE_PERMISSIONS` | `test_permissions.py::test_accounting_manager_may_reopen` | Done | ADR-013 amendment |
 | PRM-004 | Branch Manager, Branch Accountant, Cashier, warehouse roles do not | accounting | `ROLE_PERMISSIONS` | `test_permissions.py::test_no_other_role_may_reopen` | Done | Parametrised over every excluded role |
@@ -130,7 +193,7 @@ every task's definition of done.
 | EXIT-004 | In-scope without authority answers 403 | organizations | `PermissionMissing(PermissionDenied)` | `test_security.py::test_9_a_branch_accountant_cannot_close_a_period` | Done | Reaching is weaker than scope |
 | EXIT-005 | Idempotency keys are unique per organization | accounting | `journal_entry_idempotency_key_unique_per_organization` | `test_idempotency.py::TestKeysAreScopedToTheOrganization` | Done | **Fixes a cross-tenant leak** |
 | EXIT-006 | A replay is verified against the request | accounting | `idempotency_fingerprint`, `_replay` | `test_idempotency.py::TestSameKeyDifferentRequest` | Done | `idempotency_key_conflict` |
-| EXIT-007 | A key cannot reach another organization's journal | accounting | org-scoped lookup + selector | `test_idempotency.py::test_a_key_cannot_be_used_to_discover_another_organizations_journal` | Done | |
+| EXIT-007 | A key cannot reach another organization's journal | accounting | `services._replay` / `_entry_for_source`, both organization-scoped | `test_idempotency.py::test_a_key_cannot_be_used_to_discover_another_organizations_journal` | Done | The implementation column named a selector that no production path calls; the scoping lives in the services |
 | EXIT-008 | `source_document_id` carries any identifier type | accounting | `CharField(max_length=64)` | — | Verified | Unchanged. int, UUID, or external ref (ADR-017) |
 | EXIT-009 | Losing one of two memberships keeps the role, drops the scope | organizations | `sync_user_role_groups` | `test_permissions.py::TestMultiMembershipRecomputation` | Done | Branch and organization variants |
 | EXIT-010 | Global permissions never substitute for object scope | organizations | `authorization.py` | `test_permissions.py::test_a_global_permission_never_substitutes_for_scope` | Done | |
@@ -139,7 +202,7 @@ every task's definition of done.
 | EXIT-013 | Seeding survives a non-UTF-8 console | core, units | `apps.core.console.SeedCommand` | `tests/test_phase_0_exit.py::test_seeding_survives_a_console_that_cannot_render_arabic` | Done | **Fixes a fresh-install failure** |
 | EXIT-014 | The foundations cooperate end to end | all | — | `tests/test_phase_0_exit.py::TestTheFoundationsCooperate` | Done | Services and API, no ORM shortcuts |
 
-## Phase 1 — Inventory (specified by Task 1.0, none implemented)
+## Phase 1 — Inventory (specified by Task 1.0, delivered and tagged)
 
 Task 1.0's decisions were **approved with amendments on 2026-08-09**; the
 rows below reflect the approved design. Status is **Specified** until the
