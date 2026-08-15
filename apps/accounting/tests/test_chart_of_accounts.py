@@ -26,12 +26,12 @@ class TestSeed:
         # plus Task 1.5's transfer-shortage loss leaf with its parents (three),
         # plus Task 2.12's purchase price variance clearing leaf and its group,
         # plus Task 2.13's supplier return clearing and return variance leaves
-        # with their groups.
-        assert Account.objects.filter(organization=organization).count() == 74
+        # with their groups, plus Task 2.15's supplier advance branch (three).
+        assert Account.objects.filter(organization=organization).count() == 77
 
     def test_the_seed_is_idempotent(self, organization: Organization, chart: None) -> None:
         call_command("seed_chart_of_accounts", organization="KM", verbosity=0)
-        assert Account.objects.filter(organization=organization).count() == 74
+        assert Account.objects.filter(organization=organization).count() == 77
 
     def test_the_purchase_variance_account_is_a_clearing_account(
         self, organization: Organization, chart: None

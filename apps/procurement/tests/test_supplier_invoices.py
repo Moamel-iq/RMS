@@ -1561,11 +1561,20 @@ class TestTheMatchingBoundary:
         assert role.mapping_scope == "ORGANIZATION"
         assert role.is_system
 
-    def test_the_remaining_specified_roles_are_still_unseeded(self) -> None:
-        """The 2.15 vocabulary waits for the task that posts to it."""
-        assert not AccountRole.objects.filter(
-            code__in=["SUPPLIER_ADVANCE", "SUPPLIER_PAYMENT_CASH", "SUPPLIER_PAYMENT_BANK"]
-        ).exists()
+    def test_the_payment_roles_arrived_with_the_task_that_posts_to_them(self) -> None:
+        """
+        The positive twin of Step 12's boundary marker: the 2.15 vocabulary
+        waited for Task 2.15, and Task 2.15 seeded all three because its
+        journal posts to all three.
+        """
+        assert (
+            AccountRole.objects.filter(
+                code__in=["SUPPLIER_ADVANCE", "SUPPLIER_PAYMENT_CASH", "SUPPLIER_PAYMENT_BANK"],
+                domain="PURCHASING",
+                is_system=True,
+            ).count()
+            == 3
+        )
 
     def test_the_grni_balance_is_untouched_by_an_invoice(
         self,

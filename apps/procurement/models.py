@@ -4097,3 +4097,258 @@ class SupplierCreditReturnAllocation(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.credit_note} · {self.sequence}"
+
+
+class SupplierPaymentMethod(models.TextChoices):
+    """How the money left. The account follows from this through a role."""
+
+    CASH = "CASH", _("نقداً")
+    BANK = "BANK", _("حوالة مصرفية")
+
+
+class SupplierPaymentStatus(models.TextChoices):
+    DRAFT = "DRAFT", _("مسودة")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class SupplierPayment(TimeStampedModel):
+    """
+    Money leaving for a supplier — Task 2.15, and the phase's last posting
+    document.
+
+        Dr  Supplier payable    the allocated amount
+        Dr  Supplier advance    the unallocated remainder, where any
+            Cr  Cash or bank    the full amount
+
+    The source account is resolved by `method` through an effective-dated
+    role (PRC-056), never an id. Allocations say which invoices the money
+    settles (PRC-053); the remainder is an **asset** — a prepayment — and
+    never a negative payable (PRC-055). Consuming a standing advance against
+    a later invoice has no approved journal shape and is deferred, not
+    designed — the same discipline that scoped the credit note.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="supplier_payments",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="supplier_payments",
+        verbose_name=_("branch"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="payments",
+        verbose_name=_("supplier"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    paid_at = models.DateField(_("paid at"))
+    business_date = models.DateField(_("business date"))
+    business_date_timezone = models.CharField(
+        _("business date timezone"), max_length=64, blank=True
+    )
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+
+    method = models.CharField(_("method"), max_length=8, choices=SupplierPaymentMethod.choices)
+    amount = models.DecimalField(
+        _("amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: The cheque or transfer id, stored as written. Evidence, not identity.
+    reference = models.CharField(_("reference"), max_length=64, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=SupplierPaymentStatus.choices,
+        default=SupplierPaymentStatus.DRAFT,
+    )
+
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_payments",
+        verbose_name=_("journal entry"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_payments",
+        verbose_name=_("reversal journal entry"),
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_supplier_payments",
+        verbose_name=_("created by"),
+    )
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_supplier_payments",
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_payments",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    history = HistoricalRecords()
+
+    live_dependency = Q(status__in=("DRAFT", "POSTED"))
+
+    class Meta:
+        verbose_name = _("supplier payment")
+        verbose_name_plural = _("supplier payments")
+        ordering = ["-id"]
+        permissions = [
+            ("create_supplier_payment", _("Can record a supplier payment")),
+            ("post_supplier_payment", _("Can post a supplier payment")),
+            ("reverse_supplier_payment", _("Can reverse a posted supplier payment")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="procurement_spay_number_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="procurement_spay_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(posted_by__isnull=True, posted_at__isnull=True)
+                | Q(posted_by__isnull=False, posted_at__isnull=False),
+                name="procurement_spay_posting_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="DRAFT")
+                | Q(posted_at__isnull=True, journal_entry__isnull=True),
+                name="procurement_spay_draft_has_posted_nothing",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status__in=["POSTED", "REVERSED"])
+                | Q(
+                    posted_at__isnull=False,
+                    journal_entry__isnull=False,
+                    business_date_timezone__gt="",
+                    business_day_start__isnull=False,
+                ),
+                name="procurement_spay_posted_names_its_journal",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="REVERSED")
+                | Q(
+                    reversed_by__isnull=False,
+                    reversed_at__isnull=False,
+                    reversal_journal_entry__isnull=False,
+                )
+                & ~Q(reversal_reason=""),
+                name="procurement_spay_reversal_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="REVERSED")
+                | Q(
+                    reversed_by__isnull=True,
+                    reversed_at__isnull=True,
+                    reversal_journal_entry__isnull=True,
+                    reversal_reason="",
+                ),
+                name="procurement_spay_unreversed_carries_no_reversal",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="spay_org_status_idx"),
+            models.Index(fields=["supplier", "status"], name="spay_supplier_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"{self.supplier.code} · {self.amount}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == SupplierPaymentStatus.DRAFT
+
+
+class PaymentAllocation(TimeStampedModel):
+    """
+    This much of one payment settles this posted invoice (PRC-053).
+
+    Bounded twice: the sum on one payment may not exceed its amount, and no
+    allocation may exceed what its invoice still owes — net of credit notes
+    and other payments, which is stricter than PRC-054's "its total" and
+    deliberate: paying a debt a credit note already settled is the expensive
+    direction to be wrong in. Both re-checked at posting under the invoice
+    row locks, and again by reconciliation.
+    """
+
+    payment = models.ForeignKey(
+        SupplierPayment,
+        on_delete=models.CASCADE,
+        related_name="allocations",
+        verbose_name=_("payment"),
+    )
+    sequence = models.PositiveIntegerField(_("sequence"))
+    invoice = models.ForeignKey(
+        SupplierInvoice,
+        on_delete=models.PROTECT,
+        related_name="payment_allocations",
+        verbose_name=_("invoice"),
+    )
+    allocated_amount = models.DecimalField(
+        _("allocated amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    note = models.CharField(_("note"), max_length=200, blank=True)
+
+    history = HistoricalRecords()
+
+    #: What the invoice's header-level reversal guard reads.
+    live_dependency = Q(payment__status__in=("DRAFT", "POSTED"))
+
+    class Meta:
+        verbose_name = _("payment allocation")
+        verbose_name_plural = _("payment allocations")
+        ordering = ["payment", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["payment", "sequence"],
+                name="procurement_spay_allocation_sequence_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["payment", "invoice"],
+                name="procurement_spay_allocation_invoice_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(allocated_amount__gt=0),
+                name="procurement_spay_allocation_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["invoice"], name="spay_alloc_invoice_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.payment} · {self.sequence}"

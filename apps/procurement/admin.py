@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.http import HttpRequest
 
 from apps.procurement.models import (
+    PaymentAllocation,
     PurchaseMatch,
     PurchaseMatchAllocation,
     Supplier,
@@ -27,6 +28,7 @@ from apps.procurement.models import (
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
+    SupplierPayment,
     SupplierReturn,
     SupplierReturnLine,
 )
@@ -194,6 +196,23 @@ class SupplierCreditAllocationAdmin(ReadOnlyAdmin):
     list_display = ("credit_note", "sequence", "invoice", "allocated_amount")
     search_fields = ("credit_note__number", "invoice__number")
     ordering = ("credit_note", "sequence")
+
+
+@admin.register(SupplierPayment)
+class SupplierPaymentAdmin(ReadOnlyAdmin):
+    """Read-only. A posted payment moved money."""
+
+    list_display = ("number", "supplier", "method", "paid_at", "amount", "status")
+    list_filter = ("organization", "status", "method")
+    search_fields = ("number", "reference", "supplier__code", "supplier__name_ar")
+    ordering = ("-id",)
+
+
+@admin.register(PaymentAllocation)
+class PaymentAllocationAdmin(ReadOnlyAdmin):
+    list_display = ("payment", "sequence", "invoice", "allocated_amount")
+    search_fields = ("payment__number", "invoice__number")
+    ordering = ("payment", "sequence")
 
 
 @admin.register(SupplierCreditReturnAllocation)

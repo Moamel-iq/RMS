@@ -22,6 +22,7 @@ from apps.organizations.selectors import accessible_branches
 from apps.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
+    PaymentAllocation,
     PurchaseMatch,
     PurchaseMatchAllocation,
     PurchaseOrder,
@@ -37,6 +38,7 @@ from apps.procurement.models import (
     SupplierInvoiceLine,
     SupplierInvoiceStatus,
     SupplierItem,
+    SupplierPayment,
     SupplierQuotation,
     SupplierQuotationLine,
     SupplierReturn,
@@ -575,6 +577,40 @@ def resolve_credit_allocation(
     ).first()
     if allocation is None:
         raise OutOfScope(_("Credit allocation %(id)s does not exist.") % {"id": allocation_id})
+    return allocation
+
+
+def visible_supplier_payments(user: User) -> QuerySet[SupplierPayment]:
+    """
+    Payments in organizations the caller holds real authority over.
+
+    The invoice's narrow scope: money leaving is not something a branch
+    membership answers for (PRC-060).
+    """
+    from apps.organizations.authorization import organizations_with_permission
+    from apps.procurement.permissions import VIEW_SUPPLIER_PAYMENT
+
+    allowed = organizations_with_permission(user, VIEW_SUPPLIER_PAYMENT)
+    return SupplierPayment.objects.filter(organization__in=allowed).select_related(
+        "organization", "branch", "supplier", "created_by", "journal_entry"
+    )
+
+
+def resolve_supplier_payment(user: User, payment_id: int) -> SupplierPayment:
+    """Turn a submitted payment id into one the caller may reach, or 404."""
+    found = visible_supplier_payments(user).filter(pk=payment_id).first()
+    if found is None:
+        raise OutOfScope(_("Supplier payment %(id)s does not exist.") % {"id": payment_id})
+    return found
+
+
+def resolve_payment_allocation(
+    user: User, *, payment: SupplierPayment, allocation_id: int
+) -> PaymentAllocation:
+    """An allocation, resolved under its own payment — never by id alone."""
+    allocation = PaymentAllocation.objects.filter(pk=allocation_id, payment=payment).first()
+    if allocation is None:
+        raise OutOfScope(_("Payment allocation %(id)s does not exist.") % {"id": allocation_id})
     return allocation
 
 

@@ -22,7 +22,10 @@ from decimal import Decimal
 from apps.accounting.models import (
     PURCHASE_PRICE_VARIANCE,
     PURCHASE_RETURN_VARIANCE,
+    SUPPLIER_ADVANCE,
     SUPPLIER_PAYABLE,
+    SUPPLIER_PAYMENT_BANK,
+    SUPPLIER_PAYMENT_CASH,
     SUPPLIER_RETURN_CLEARING,
     Account,
     AccountRole,
@@ -74,10 +77,17 @@ from apps.procurement.models import (
     SupplierInvoiceLineType,
     SupplierInvoiceStatus,
     SupplierItem,
+    SupplierPayment,
+    SupplierPaymentStatus,
     SupplierQuotation,
     SupplierQuotationStatus,
     SupplierReturn,
     SupplierReturnStatus,
+)
+from apps.procurement.payments import (
+    add_payment_allocation,
+    create_supplier_payment,
+    post_supplier_payment,
 )
 from apps.procurement.posting import post_goods_receipt, reverse_goods_receipt
 from apps.procurement.returns import (
@@ -234,6 +244,11 @@ PROCUREMENT_ACCOUNT_MAPPINGS: list[tuple[str, str]] = [
     # Task 2.14's first deliberate act: the role Task 2.13 seeded and refused
     # to map is mapped now, because the credit note posts to it.
     (PURCHASE_RETURN_VARIANCE, "7-09-04-001"),
+    # Task 2.15: the payment sources by method, and the advance for the
+    # unallocated remainder — all three posted to by the payment run.
+    (SUPPLIER_PAYMENT_CASH, "1-01-01-001"),
+    (SUPPLIER_PAYMENT_BANK, "1-01-02-001"),
+    (SUPPLIER_ADVANCE, "1-04-01-001"),
 ]
 
 
@@ -1576,3 +1591,59 @@ def seed_demo_credit_notes(
         note.refresh_from_db()
     notes.append(note)
     return notes
+
+
+def seed_demo_payments(
+    *, organization: Organization, recorder: User, poster: User
+) -> list[SupplierPayment]:
+    """
+    One payment: sixty thousand to the grocer against the rice bill (Task 2.15).
+
+    `DEMO-SPAY-GOODS` allocates 50,000 of its 60,000 against the posted
+    87,000 rice invoice and leaves 10,000 unallocated — so the screen shows
+    both halves of the journal at once: the payable falling by the allocated
+    share and a real supplier advance standing as an asset (PRC-055), not a
+    negative payable. Paid by bank, so the source account arrives through
+    `SUPPLIER_PAYMENT_BANK` (PRC-056) rather than any account named here.
+
+    Everything through the real services; idempotent by reference. The
+    recorder and poster differ because letting money go is the checker's act.
+    """
+    existing = {
+        row.reference: row
+        for row in SupplierPayment.objects.filter(
+            organization=organization, reference__startswith="DEMO-SPAY"
+        ).order_by("id")
+    }
+    payments: list[SupplierPayment] = []
+
+    payment = existing.get("DEMO-SPAY-GOODS")
+    if payment is None:
+        invoice = SupplierInvoice.objects.filter(
+            organization=organization,
+            supplier_invoice_number="DEMO-SINV-GOODS",
+            status=SupplierInvoiceStatus.POSTED,
+        ).first()
+        branch = Branch.objects.filter(organization=organization, code="DEMO-BUNOOK").first()
+        if invoice is None or branch is None:
+            return []
+        payment = create_supplier_payment(
+            supplier=invoice.supplier,
+            branch=branch,
+            created_by=recorder,
+            paid_at=invoice.invoice_date + datetime.timedelta(days=10),
+            method="BANK",
+            amount=Decimal("60000.000"),
+            reference="DEMO-SPAY-GOODS",
+            notes="دفعة على فاتورة الرز مع سلفة",
+        )
+        add_payment_allocation(
+            payment=payment,
+            invoice=invoice,
+            allocated_amount=Decimal("50000.000"),
+        )
+    if payment.status == SupplierPaymentStatus.DRAFT:
+        post_supplier_payment(payment=payment, actor=poster)
+        payment.refresh_from_db()
+    payments.append(payment)
+    return payments

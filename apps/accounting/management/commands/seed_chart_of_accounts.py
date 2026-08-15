@@ -42,6 +42,12 @@ CHART: list[tuple[str, str, str]] = [
     ("1-03-01-001", "مخزون المواد والسلع", "Inventory Control"),
     ("1-03-02", "بضاعة بالطريق", "Goods in transit"),
     ("1-03-02-001", "بضاعة بالطريق", "Goods in Transit"),
+    # A payment's unallocated remainder (Task 2.15, PRC-055). An asset — cash
+    # handed over before an invoice exists to net it against — and never a
+    # negative payable, which would make the aging report lie about both.
+    ("1-04", "السلف والدفعات المقدمة", "Advances and prepayments"),
+    ("1-04-01", "سلف الموردين", "Supplier advances"),
+    ("1-04-01-001", "سلف الموردين", "Supplier Advances"),
     # 2 Liabilities
     ("2", "الالتزامات", "Liabilities"),
     ("2-01", "الذمم الدائنة", "Payables"),

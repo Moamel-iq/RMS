@@ -389,7 +389,7 @@ def add_credit_allocation(
             code="invoice_not_posted",
         )
 
-    remaining = outstanding_amount(locked_invoice) - credit_allocated_to(locked_invoice)
+    remaining = outstanding_amount(locked_invoice)
     if value > remaining:
         raise ValidationError(
             _(
@@ -623,7 +623,7 @@ def post_supplier_credit_note(
                 code="invoice_not_posted",
                 params={"number": invoice.number},
             )
-        remaining = outstanding_amount(invoice) - credit_allocated_to(invoice)
+        remaining = outstanding_amount(invoice)
         if share.allocated_amount > remaining:
             raise ValidationError(
                 _(

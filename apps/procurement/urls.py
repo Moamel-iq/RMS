@@ -345,4 +345,37 @@ urlpatterns = [
         views.SupplierCreditNoteTransitionView.as_view(transition="reverse"),
         name="supplier_credit_note_reverse",
     ),
+    # --- supplier payments -------------------------------------------------
+    path(
+        "payments/",
+        views.SupplierPaymentListView.as_view(),
+        name="supplier_payment_list",
+    ),
+    path(
+        "payments/new/",
+        views.SupplierPaymentCreateView.as_view(),
+        name="supplier_payment_create",
+    ),
+    path(
+        "payments/<int:pk>/",
+        views.SupplierPaymentDetailView.as_view(),
+        name="supplier_payment_detail",
+    ),
+    path(
+        "payments/<int:pk>/allocations/<int:allocation_id>/delete/",
+        views.PaymentAllocationDeleteView.as_view(),
+        name="payment_allocation_delete",
+    ),
+    # Command routes, POST-only. Money leaves here; there is no writable
+    # generic endpoint over a posted payment and deliberately none.
+    path(
+        "payments/<int:pk>/post/",
+        views.SupplierPaymentTransitionView.as_view(transition="post"),
+        name="supplier_payment_post",
+    ),
+    path(
+        "payments/<int:pk>/reverse/",
+        views.SupplierPaymentTransitionView.as_view(transition="reverse"),
+        name="supplier_payment_reverse",
+    ),
 ]

@@ -1640,19 +1640,22 @@ def outstanding_amount(invoice: SupplierInvoice) -> Decimal:
     """
     What is still owed on one invoice.
 
-    The posted amount less what posted credit notes have netted against it
-    (Task 2.14). Task 2.15 subtracts payment allocations from this same
-    expression. Derived every time from the documents — there is no stored
-    balance to find and correct.
+    The posted amount less what posted credit notes (Task 2.14) and posted
+    payments (Task 2.15) have settled against it — the one expression every
+    bound and every report reads. Derived every time from the documents;
+    there is no stored balance to find and correct.
     """
-    from apps.procurement.models import SupplierCreditAllocation
+    from apps.procurement.models import PaymentAllocation, SupplierCreditAllocation
 
     if invoice.status != SupplierInvoiceStatus.POSTED:
         return ZERO
     credited: Decimal | None = SupplierCreditAllocation.objects.filter(
         invoice=invoice, credit_note__status="POSTED"
     ).aggregate(total=Sum("allocated_amount"))["total"]
-    return (invoice.posted_amount or ZERO) - (credited or ZERO)
+    paid: Decimal | None = PaymentAllocation.objects.filter(
+        invoice=invoice, payment__status="POSTED"
+    ).aggregate(total=Sum("allocated_amount"))["total"]
+    return (invoice.posted_amount or ZERO) - (credited or ZERO) - (paid or ZERO)
 
 
 def supplier_outstanding(supplier: Supplier) -> Decimal:
@@ -1663,7 +1666,7 @@ def supplier_outstanding(supplier: Supplier) -> Decimal:
     or standing. An unallocated credit is still money the supplier owes back,
     and a figure that ignored it would tell the buyer to pay it again.
     """
-    from apps.procurement.models import SupplierCreditNote
+    from apps.procurement.models import PaymentAllocation, SupplierCreditNote
 
     invoiced: Decimal | None = SupplierInvoice.objects.filter(
         supplier=supplier, status=SupplierInvoiceStatus.POSTED
@@ -1671,7 +1674,12 @@ def supplier_outstanding(supplier: Supplier) -> Decimal:
     credited: Decimal | None = SupplierCreditNote.objects.filter(
         supplier=supplier, status="POSTED"
     ).aggregate(total=Sum("amount"))["total"]
-    return (invoiced or ZERO) - (credited or ZERO)
+    # Only the allocated share of a payment reduces the payable; the advance
+    # remainder is an asset the payable never saw (PRC-055).
+    paid: Decimal | None = PaymentAllocation.objects.filter(
+        invoice__supplier=supplier, payment__status="POSTED"
+    ).aggregate(total=Sum("allocated_amount"))["total"]
+    return (invoiced or ZERO) - (credited or ZERO) - (paid or ZERO)
 
 
 def invoice_timeline(invoice: SupplierInvoice) -> list[dict[str, Any]]:

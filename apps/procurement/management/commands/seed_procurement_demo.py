@@ -40,6 +40,7 @@ from apps.procurement.demo import (
     seed_demo_matches,
     seed_demo_order_revision,
     seed_demo_orders,
+    seed_demo_payments,
     seed_demo_quotations,
     seed_demo_receipts,
     seed_demo_requests,
@@ -70,6 +71,7 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:purchase_match_list", "مطابقة المشتريات"),
     ("procurement:supplier_return_list", "مرتجعات الموردين"),
     ("procurement:supplier_credit_note_list", "إشعارات الموردين الدائنة"),
+    ("procurement:supplier_payment_list", "دفعات الموردين"),
 ]
 
 
@@ -154,6 +156,11 @@ class Command(SeedCommand):
                 if approver is not None and approver.pk != user.pk
                 else []
             )
+            payments = (
+                seed_demo_payments(organization=organization, recorder=approver, poster=user)
+                if approver is not None and approver.pk != user.pk
+                else []
+            )
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -193,7 +200,8 @@ class Command(SeedCommand):
             f"{len(requests)} requests, {len(quotations)} quotations and "
             f"{len(orders)} orders, {len(receipts)} receipts and "
             f"{len(invoices)} supplier invoices, {len(matches)} matches, "
-            f"{len(returns)} supplier returns and {len(credit_notes)} credit notes present."
+            f"{len(returns)} supplier returns, {len(credit_notes)} credit notes and "
+            f"{len(payments)} payments present."
         )
         if matches:
             self.write("")
@@ -227,6 +235,12 @@ class Command(SeedCommand):
                 self.write(
                     f"  {note.supplier_document_number:<22} {label:<18} {note.get_status_display()}"
                 )
+        if payments:
+            self.write("")
+            self.write("supplier payments:")
+            for payment in payments:
+                label = payment.number or "draft"
+                self.write(f"  {payment.reference:<22} {label:<18} {payment.get_status_display()}")
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")
         for route, label in INSPECTION_ROUTES:

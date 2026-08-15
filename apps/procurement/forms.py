@@ -41,6 +41,7 @@ from apps.procurement.models import (
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
+    SupplierPaymentMethod,
     SupplierQuotation,
     SupplierQuotationStatus,
     SupplierReturn,
@@ -49,6 +50,7 @@ from apps.procurement.models import (
 from apps.procurement.permissions import (
     CREATE_SUPPLIER_CREDIT_NOTE,
     CREATE_SUPPLIER_INVOICE,
+    CREATE_SUPPLIER_PAYMENT,
     MANAGE_SUPPLIERS,
 )
 from apps.procurement.selectors import visible_suppliers
@@ -916,6 +918,72 @@ class CreditAllocationForm(forms.Form):
             SupplierInvoice.objects.filter(supplier_id=credit_note.supplier_id, status="POSTED")
             .select_related("supplier")
             .order_by("-id")
+        )
+
+
+class SupplierPaymentForm(forms.Form):
+    """
+    The header of a draft payment. Allocation is explicit and lives on the
+    detail screen (PRC-057: oldest-first is a visible default, never silent).
+    """
+
+    supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
+    branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع"))
+    paid_at = forms.DateField(
+        label=_("تاريخ الدفع"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    method = forms.ChoiceField(label=_("طريقة الدفع"), choices=SupplierPaymentMethod.choices)
+    amount = forms.DecimalField(
+        label=_("المبلغ"),
+        min_value=Decimal("0.001"),
+        help_text=_("ما يُخصص منه على الفواتير يخفض الذمة؛ الباقي يقف سلفة للمورد."),
+    )
+    reference = forms.CharField(label=_("رقم الصك أو الحوالة"), max_length=64, required=False)
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+        allowed = organizations_with_permission(actor, CREATE_SUPPLIER_PAYMENT)
+        self.fields["supplier"].queryset = (  # type: ignore[attr-defined]
+            Supplier.objects.filter(organization__in=allowed, is_active=True).order_by("code")
+        )
+        self.fields["branch"].queryset = (  # type: ignore[attr-defined]
+            Branch.objects.filter(organization__in=allowed, is_active=True).order_by("code")
+        )
+
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean() or {}
+        supplier, branch = data.get("supplier"), data.get("branch")
+        if supplier and branch and supplier.organization_id != branch.organization_id:
+            raise forms.ValidationError(
+                _("المورد لا يتبع مؤسسة هذا الفرع."), code="supplier_organization_mismatch"
+            )
+        return data
+
+
+class PaymentAllocationForm(forms.Form):
+    """This much of the payment settles that posted invoice."""
+
+    invoice = forms.ModelChoiceField(queryset=SupplierInvoice.objects.none(), label=_("الفاتورة"))
+    allocated_amount = forms.DecimalField(
+        label=_("المبلغ المخصص"),
+        min_value=Decimal("0.001"),
+        help_text=_("لا يتجاوز رصيد الفاتورة ولا مبلغ الدفعة."),
+    )
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, payment: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.payment = payment
+        # This supplier's posted invoices, oldest due first — PRC-057's
+        # visible default, offered by ordering and never applied silently.
+        self.fields["invoice"].queryset = (  # type: ignore[attr-defined]
+            SupplierInvoice.objects.filter(supplier_id=payment.supplier_id, status="POSTED")
+            .select_related("supplier")
+            .order_by("due_date", "id")
         )
 
 

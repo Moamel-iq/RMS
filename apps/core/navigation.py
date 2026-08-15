@@ -295,9 +295,14 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:supplier_credit_note_list",
                 available=True,
             ),
+            # Task 2.15 — money out. Allocation lives on the payment's own
+            # detail screen, so "تخصيص الدفعات" needs no separate route.
+            Section(
+                label=_("دفعات الموردين"),
+                url_name="procurement:supplier_payment_list",
+                available=True,
+            ),
             *_sections(
-                _("دفعات الموردين"),
-                _("تخصيص الدفعات"),
                 _("أرصدة الموردين"),
                 _("شروط الائتمان"),
             ),

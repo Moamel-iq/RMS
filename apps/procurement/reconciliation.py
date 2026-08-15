@@ -36,6 +36,7 @@ from apps.accounting.models import (
     GOODS_RECEIVED_NOT_INVOICED,
     PURCHASE_PRICE_VARIANCE,
     PURCHASE_RETURN_VARIANCE,
+    SUPPLIER_ADVANCE,
     SUPPLIER_PAYABLE,
     SUPPLIER_RETURN_CLEARING,
     JournalEntry,
@@ -53,6 +54,7 @@ from apps.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
     GoodsReceiptStatus,
+    PaymentAllocation,
     PurchaseMatchAllocation,
     PurchaseMatchStatus,
     PurchaseOrderLine,
@@ -65,6 +67,8 @@ from apps.procurement.models import (
     SupplierInvoicePosting,
     SupplierInvoicePostingStatus,
     SupplierInvoiceStatus,
+    SupplierPayment,
+    SupplierPaymentStatus,
     SupplierReturn,
     SupplierReturnLine,
     SupplierReturnStatus,
@@ -325,6 +329,7 @@ def verify_procurement(organization: Organization) -> list[str]:
     problems.extend(verify_parked_variance(organization))
     problems.extend(verify_supplier_returns(organization))
     problems.extend(verify_supplier_credit_notes(organization))
+    problems.extend(verify_supplier_payments(organization))
     return [str(problem) for problem in problems]
 
 
@@ -335,6 +340,7 @@ __all__ = [
     "verify_order_received_quantities",
     "verify_grni_clearing",
     "verify_supplier_credit_notes",
+    "verify_supplier_payments",
     "verify_supplier_returns",
     "verify_parked_variance",
     "verify_procurement",
@@ -560,11 +566,16 @@ def verify_supplier_payables(organization: Organization) -> list[Discrepancy]:
         ).aggregate(total=Sum("posted_amount"))["total"]
         # Task 2.14: posted credit notes reduce what is owed — the whole
         # note, allocated or standing, because an unallocated credit is
-        # still money the supplier owes back.
+        # still money the supplier owes back. Task 2.15: posted payments
+        # reduce it by their **allocated** share only; the advance remainder
+        # is an asset the payable never saw (PRC-055).
         credited: Decimal | None = SupplierCreditNote.objects.filter(
             supplier=supplier, status=SupplierCreditNoteStatus.POSTED
         ).aggregate(total=Sum("amount"))["total"]
-        expected = (posted or ZERO) - (credited or ZERO)
+        paid: Decimal | None = PaymentAllocation.objects.filter(
+            invoice__supplier=supplier, payment__status=SupplierPaymentStatus.POSTED
+        ).aggregate(total=Sum("allocated_amount"))["total"]
+        expected = (posted or ZERO) - (credited or ZERO) - (paid or ZERO)
         actual = supplier_outstanding(supplier)
         if actual != expected:
             problems.append(
@@ -1107,6 +1118,133 @@ def verify_supplier_credit_notes(organization: Organization) -> list[Discrepancy
                     field="return_variance_balance",
                     expected=expected_variance,
                     actual=actual_variance,
+                )
+            )
+    return problems
+
+
+def verify_supplier_payments(organization: Organization) -> list[Discrepancy]:
+    """
+    Every posted payment's journal says what its allocations say.
+
+    Per posted payment:
+
+        payable debit   == the sum of its allocation rows
+        advance debit   == amount − that sum (absent when fully allocated)
+        source credit   == the full amount, on the account the method's role
+                           resolved the day it posted
+
+    And across the organization: the supplier-advance balance equals the sum
+    of standing remainders (PRC-055 — an asset, never a negative payable),
+    the allocations on one payment never exceed its amount, and no invoice is
+    paid below zero outstanding (PRC-054).
+    """
+    from apps.procurement.payments import allocated_total as payment_allocated_total
+
+    problems: list[Discrepancy] = []
+    payable_account = _role_account(organization.pk, SUPPLIER_PAYABLE)
+    advance_account = _role_account(organization.pk, SUPPLIER_ADVANCE)
+
+    expected_advance = ZERO
+    for payment in SupplierPayment.objects.filter(
+        organization=organization, status=SupplierPaymentStatus.POSTED
+    ).select_related("journal_entry"):
+        label = payment.number or str(payment.public_id)
+        allocated = payment_allocated_total(payment)
+        remainder = (payment.amount or ZERO) - allocated
+        expected_advance += remainder
+
+        if allocated > (payment.amount or ZERO):
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="allocations_exceed_payment",
+                    expected=payment.amount,
+                    actual=allocated,
+                )
+            )
+        if payment.journal_entry is None:  # pragma: no cover - a constraint refuses it
+            problems.append(
+                Discrepancy(
+                    scope=label, field="journal_entry", expected="present", actual="missing"
+                )
+            )
+            continue
+        rows = list(payment.journal_entry.lines.select_related("account"))
+        payable_debit = sum(
+            (row.debit - row.credit for row in rows if row.account_id == payable_account), ZERO
+        )
+        if payable_debit != allocated:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="payment_payable_debit",
+                    expected=allocated,
+                    actual=payable_debit,
+                )
+            )
+        advance_debit = sum(
+            (row.debit - row.credit for row in rows if row.account_id == advance_account), ZERO
+        )
+        if advance_debit != remainder:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="payment_advance_debit",
+                    expected=remainder,
+                    actual=advance_debit,
+                )
+            )
+        # The source credit: everything that is neither the payable nor the
+        # advance. Stated against the stored journal rather than re-resolving
+        # today's mapping, because "which account did the money leave" was
+        # settled the day it posted.
+        source_credit = sum(
+            (
+                row.credit - row.debit
+                for row in rows
+                if row.account_id not in (payable_account, advance_account)
+            ),
+            ZERO,
+        )
+        if source_credit != payment.amount:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="payment_source_credit",
+                    expected=payment.amount,
+                    actual=source_credit,
+                )
+            )
+
+    for invoice in SupplierInvoice.objects.filter(
+        organization=organization, status=SupplierInvoiceStatus.POSTED
+    ):
+        from apps.procurement.invoices import outstanding_amount as invoice_outstanding
+
+        if invoice_outstanding(invoice) < ZERO:
+            problems.append(
+                Discrepancy(
+                    scope=invoice.number,
+                    field="invoice_paid_below_zero",
+                    expected=ZERO,
+                    actual=invoice_outstanding(invoice),
+                )
+            )
+
+    if advance_account is not None:
+        actual_advance = ZERO
+        for entry_row in JournalLine.objects.filter(
+            account_id=advance_account, entry__organization=organization
+        ).values("debit", "credit"):
+            actual_advance += entry_row["debit"] - entry_row["credit"]
+        if actual_advance != expected_advance:
+            problems.append(
+                Discrepancy(
+                    scope=organization.code,
+                    field="supplier_advance_balance",
+                    expected=expected_advance,
+                    actual=actual_advance,
                 )
             )
     return problems

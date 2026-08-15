@@ -142,6 +142,14 @@ VIEW_SUPPLIER_CREDIT_NOTE = f"{APP_LABEL}.view_suppliercreditnote"
 CREATE_SUPPLIER_CREDIT_NOTE = f"{APP_LABEL}.create_supplier_credit_note"
 POST_SUPPLIER_CREDIT_NOTE = f"{APP_LABEL}.post_supplier_credit_note"
 REVERSE_SUPPLIER_CREDIT_NOTE = f"{APP_LABEL}.reverse_supplier_credit_note"
+#: Task 2.15. Organization-scoped, all four — money leaves (PRC-060) — with
+#: the invoice's maker-checker split: whoever lets the money go should not be
+#: the person who typed the payment in. §13 named `post_supplier_payment`
+#: alone; the three companions follow the standing amendment precedent.
+VIEW_SUPPLIER_PAYMENT = f"{APP_LABEL}.view_supplierpayment"
+CREATE_SUPPLIER_PAYMENT = f"{APP_LABEL}.create_supplier_payment"
+POST_SUPPLIER_PAYMENT = f"{APP_LABEL}.post_supplier_payment"
+REVERSE_SUPPLIER_PAYMENT = f"{APP_LABEL}.reverse_supplier_payment"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_SUPPLIER,
@@ -181,6 +189,10 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     CREATE_SUPPLIER_CREDIT_NOTE,
     POST_SUPPLIER_CREDIT_NOTE,
     REVERSE_SUPPLIER_CREDIT_NOTE,
+    VIEW_SUPPLIER_PAYMENT,
+    CREATE_SUPPLIER_PAYMENT,
+    POST_SUPPLIER_PAYMENT,
+    REVERSE_SUPPLIER_PAYMENT,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -240,6 +252,11 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     CREATE_SUPPLIER_CREDIT_NOTE: PermissionScope.ORGANIZATION_AUTHORITY,
     POST_SUPPLIER_CREDIT_NOTE: PermissionScope.ORGANIZATION_AUTHORITY,
     REVERSE_SUPPLIER_CREDIT_NOTE: PermissionScope.ORGANIZATION_AUTHORITY,
+    # A payment moves cash out. Money leaves (PRC-060).
+    VIEW_SUPPLIER_PAYMENT: PermissionScope.ORGANIZATION_AUTHORITY,
+    CREATE_SUPPLIER_PAYMENT: PermissionScope.ORGANIZATION_AUTHORITY,
+    POST_SUPPLIER_PAYMENT: PermissionScope.ORGANIZATION_AUTHORITY,
+    REVERSE_SUPPLIER_PAYMENT: PermissionScope.ORGANIZATION_AUTHORITY,
 }
 
 
@@ -315,6 +332,9 @@ _MANAGER = frozenset(
         # accounting side's act, the same split the invoice draws.
         VIEW_SUPPLIER_CREDIT_NOTE,
         CREATE_SUPPLIER_CREDIT_NOTE,
+        # Prepares a payment; letting the money go is not a branch act.
+        VIEW_SUPPLIER_PAYMENT,
+        CREATE_SUPPLIER_PAYMENT,
     }
 )
 
@@ -359,6 +379,10 @@ _ACCOUNTING_MANAGER = frozenset(
         VIEW_SUPPLIER_CREDIT_NOTE,
         POST_SUPPLIER_CREDIT_NOTE,
         REVERSE_SUPPLIER_CREDIT_NOTE,
+        # Lets the money go, and cannot type the payment in.
+        VIEW_SUPPLIER_PAYMENT,
+        POST_SUPPLIER_PAYMENT,
+        REVERSE_SUPPLIER_PAYMENT,
     }
 )
 _ACCOUNTANT = frozenset(
@@ -384,6 +408,9 @@ _ACCOUNTANT = frozenset(
         # it — the same separation the invoice draws.
         VIEW_SUPPLIER_CREDIT_NOTE,
         CREATE_SUPPLIER_CREDIT_NOTE,
+        # Prepares the payment run; the accounting manager releases it.
+        VIEW_SUPPLIER_PAYMENT,
+        CREATE_SUPPLIER_PAYMENT,
     }
 )
 

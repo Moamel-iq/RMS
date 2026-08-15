@@ -69,6 +69,7 @@ from apps.procurement.forms import (
     InvoiceAccountLineForm,
     InvoiceInventoryLineForm,
     MatchAllocationForm,
+    PaymentAllocationForm,
     PurchaseOrderForm,
     PurchaseOrderLineForm,
     PurchaseRequestForm,
@@ -77,6 +78,7 @@ from apps.procurement.forms import (
     SupplierForm,
     SupplierInvoiceForm,
     SupplierItemForm,
+    SupplierPaymentForm,
     SupplierQuotationForm,
     SupplierQuotationLineForm,
     SupplierReturnForm,
@@ -110,9 +112,20 @@ from apps.procurement.models import (
     PurchaseRequestStatus,
     SupplierCreditNoteStatus,
     SupplierInvoiceStatus,
+    SupplierPaymentStatus,
     SupplierQuotationStatus,
     SupplierReturnStatus,
 )
+from apps.procurement.payments import (
+    add_payment_allocation,
+    advance_remainder,
+    create_supplier_payment,
+    payment_timeline,
+    post_supplier_payment,
+    remove_payment_allocation,
+    reverse_supplier_payment,
+)
+from apps.procurement.payments import allocated_total as payment_allocated_total
 from apps.procurement.permissions import (
     APPROVE_PURCHASE_ORDER,
     APPROVE_PURCHASE_REQUEST,
@@ -125,6 +138,7 @@ from apps.procurement.permissions import (
     CREATE_PURCHASE_REQUEST,
     CREATE_SUPPLIER_CREDIT_NOTE,
     CREATE_SUPPLIER_INVOICE,
+    CREATE_SUPPLIER_PAYMENT,
     CREATE_SUPPLIER_RETURN,
     INSPECT_GOODS_RECEIPT,
     ISSUE_PURCHASE_ORDER,
@@ -135,10 +149,12 @@ from apps.procurement.permissions import (
     POST_GOODS_RECEIPT,
     POST_SUPPLIER_CREDIT_NOTE,
     POST_SUPPLIER_INVOICE,
+    POST_SUPPLIER_PAYMENT,
     POST_SUPPLIER_RETURN,
     REVERSE_GOODS_RECEIPT,
     REVERSE_SUPPLIER_CREDIT_NOTE,
     REVERSE_SUPPLIER_INVOICE,
+    REVERSE_SUPPLIER_PAYMENT,
     REVERSE_SUPPLIER_RETURN,
     VIEW_GOODS_RECEIPT,
     VIEW_PURCHASE_MATCH,
@@ -150,6 +166,7 @@ from apps.procurement.permissions import (
     VIEW_SUPPLIER_CREDIT_NOTE,
     VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
+    VIEW_SUPPLIER_PAYMENT,
     VIEW_SUPPLIER_RETURN,
 )
 from apps.procurement.posting import (
@@ -175,6 +192,7 @@ from apps.procurement.selectors import (
     resolve_invoice_line,
     resolve_match_allocation,
     resolve_order_line,
+    resolve_payment_allocation,
     resolve_purchase_match,
     resolve_purchase_order,
     resolve_purchase_request,
@@ -187,6 +205,7 @@ from apps.procurement.selectors import (
     resolve_supplier_credit_note,
     resolve_supplier_invoice,
     resolve_supplier_item,
+    resolve_supplier_payment,
     resolve_supplier_return,
     returnable_receipt_lines,
     visible_goods_receipts,
@@ -197,6 +216,7 @@ from apps.procurement.selectors import (
     visible_supplier_credit_notes,
     visible_supplier_invoices,
     visible_supplier_items,
+    visible_supplier_payments,
     visible_supplier_returns,
     visible_suppliers,
 )
@@ -2378,6 +2398,197 @@ class SupplierCreditNoteDetailView(InventoryViewMixin, View):
                     reverse("procurement:supplier_credit_note_detail", args=[credit_note.pk])
                 )
         return render(request, self.template_name, self.context(credit_note, form=form))
+
+
+class SupplierPaymentListView(InventoryListView):
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_PAYMENT
+    template_name = "procurement/supplier_payment_list.html"
+    context_object_name = "payments"
+    page_title = _("دفعات الموردين")
+    page_hint = _(
+        "المال الخارج للموردين. المخصص على الفواتير يخفض الذمة، والباقي يقف "
+        "سلفة للمورد — أصلاً لا ذمة سالبة — حتى يُستهلك لاحقاً."
+    )
+    search_fields = ("number", "reference", "supplier__code", "supplier__name_ar")
+    manage_permission = CREATE_SUPPLIER_PAYMENT
+    manage_scope = "organization"
+    create_url_name = "procurement:supplier_payment_create"
+    create_label = _("دفعة جديدة")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_supplier_payments(self.actor)
+        status = self.request.GET.get("status", "").strip().upper()
+        if status in SupplierPaymentStatus.values:
+            queryset = queryset.filter(status=status)
+        return queryset.order_by("-id")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["statuses"] = SupplierPaymentStatus.choices
+        context["selected_status"] = self.request.GET.get("status", "")
+        context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        return context
+
+
+class SupplierPaymentCreateView(InventoryWriteView):
+    module_key = "procurement"
+    template_name = "procurement/supplier_payment_form.html"
+    form_class = SupplierPaymentForm
+    required_permission = CREATE_SUPPLIER_PAYMENT
+    success_url_name = "procurement:supplier_payment_list"
+    page_title = _("دفعة مورد جديدة")
+    page_hint = _("تُفتح كمسودة. لا يخرج مال حتى الترحيل.")
+    success_message = _("تم إنشاء المسودة. خصّصها على الفواتير ثم رحّلها.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_organization_permission(
+            self.actor, CREATE_SUPPLIER_PAYMENT, form.cleaned_data["branch"].organization
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        data = form.cleaned_data
+        self.created = create_supplier_payment(
+            supplier=data["supplier"],
+            branch=data["branch"],
+            created_by=self.actor,
+            paid_at=data["paid_at"],
+            method=data["method"],
+            amount=data["amount"],
+            reference=data.get("reference", ""),
+            notes=data.get("notes", ""),
+        )
+
+    def get_success_url(self) -> str:
+        created = getattr(self, "created", None)
+        if created is None:
+            return reverse(self.success_url_name)
+        return reverse("procurement:supplier_payment_detail", args=[created.pk])
+
+
+class SupplierPaymentDetailView(InventoryViewMixin, View):
+    """Header, allocations, and what stands as an advance."""
+
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_PAYMENT
+    template_name = "procurement/supplier_payment_detail.html"
+
+    def load(self) -> Any:
+        return resolve_supplier_payment(self.actor, self.kwargs["pk"])
+
+    def context(self, payment: Any, form: Any = None) -> dict[str, Any]:
+        may_edit = has_organization_permission(
+            self.actor, CREATE_SUPPLIER_PAYMENT, payment.organization
+        )
+        return {
+            "payment": payment,
+            "allocations": payment.allocations.select_related("invoice").order_by("sequence"),
+            "form": form or PaymentAllocationForm(actor=self.actor, payment=payment),
+            "page_title": payment.number or _("مسودة دفعة"),
+            "allocated": payment_allocated_total(payment),
+            "advance": advance_remainder(payment),
+            "may_edit": may_edit and payment.is_editable,
+            "may_post": has_organization_permission(
+                self.actor, POST_SUPPLIER_PAYMENT, payment.organization
+            )
+            and payment.status == SupplierPaymentStatus.DRAFT,
+            "may_reverse": has_organization_permission(
+                self.actor, REVERSE_SUPPLIER_PAYMENT, payment.organization
+            )
+            and payment.status == SupplierPaymentStatus.POSTED,
+            "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+            "timeline": payment_timeline(payment),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return render(request, self.template_name, self.context(self.load()))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        payment = self.load()
+        require_organization_permission(self.actor, CREATE_SUPPLIER_PAYMENT, payment.organization)
+        form = PaymentAllocationForm(actor=self.actor, payment=payment, data=request.POST)
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                add_payment_allocation(
+                    payment=payment,
+                    invoice=data["invoice"],
+                    allocated_amount=data["allocated_amount"],
+                    note=data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة التخصيص."))
+                return HttpResponseRedirect(
+                    reverse("procurement:supplier_payment_detail", args=[payment.pk])
+                )
+        return render(request, self.template_name, self.context(payment, form))
+
+
+class PaymentAllocationDeleteView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = CREATE_SUPPLIER_PAYMENT
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        payment = resolve_supplier_payment(self.actor, self.kwargs["pk"])
+        require_organization_permission(self.actor, CREATE_SUPPLIER_PAYMENT, payment.organization)
+        allocation = resolve_payment_allocation(
+            self.actor, payment=payment, allocation_id=self.kwargs["allocation_id"]
+        )
+        try:
+            remove_payment_allocation(allocation=allocation)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم حذف التخصيص."))
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_payment_detail", args=[payment.pk])
+        )
+
+
+class SupplierPaymentTransitionView(InventoryViewMixin, View):
+    """POST-only: post, or reverse. Money leaves; a GET must not send it."""
+
+    module_key = "procurement"
+    transition = "post"
+
+    PERMISSIONS = {
+        "post": POST_SUPPLIER_PAYMENT,
+        "reverse": REVERSE_SUPPLIER_PAYMENT,
+    }
+
+    @property
+    def required_permission(self) -> str:  # type: ignore[override]
+        permission: str = self.PERMISSIONS[self.transition]
+        return permission
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        payment = resolve_supplier_payment(self.actor, self.kwargs["pk"])
+        require_organization_permission(
+            self.actor, self.PERMISSIONS[self.transition], payment.organization
+        )
+        try:
+            if self.transition == "post":
+                posted = post_supplier_payment(payment=payment, actor=self.actor)
+                messages.success(
+                    request,
+                    _("تم ترحيل الدفعة %(number)s. خرج المال وخُفّضت الذمة بالمخصص.")
+                    % {"number": posted.number},
+                )
+            else:
+                reverse_supplier_payment(
+                    payment=payment,
+                    actor=self.actor,
+                    reason=request.POST.get("reason", ""),
+                )
+                messages.success(request, _("تم عكس الدفعة. عادت الذمة والسلفة كما كانتا."))
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_payment_detail", args=[payment.pk])
+        )
 
 
 class CreditReturnAllocationDeleteView(InventoryViewMixin, View):

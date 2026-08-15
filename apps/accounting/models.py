@@ -820,6 +820,22 @@ SUPPLIER_RETURN_CLEARING = "SUPPLIER_RETURN_CLEARING"
 #: reusing the price-variance account.
 PURCHASE_RETURN_VARIANCE = "PURCHASE_RETURN_VARIANCE"
 
+#: Added by Task 2.15 — money leaving for a supplier. The cash and bank
+#: sources are resolved by the payment's `method` through these roles, never
+#: a hard-coded account id (PRC-056); when Phase 5 makes cashboxes and bank
+#: accounts first-class, the payment names one and the role becomes its
+#: default — the model widens, nothing already posted moves.
+SUPPLIER_PAYMENT_CASH = "SUPPLIER_PAYMENT_CASH"
+SUPPLIER_PAYMENT_BANK = "SUPPLIER_PAYMENT_BANK"
+
+#: Added by Task 2.15 — a payment's unallocated remainder. An **asset**: cash
+#: handed over before an invoice exists to net it against, which is a
+#: different economic event from a credit note's standing credit (that one is
+#: the supplier owing money back, and lives in the payable as a debit).
+#: Netting a prepayment against a payable that does not exist yet would make
+#: the aging report lie about both (PRC-055).
+SUPPLIER_ADVANCE = "SUPPLIER_ADVANCE"
+
 #: The purchasing vocabulary, same shape as `SYSTEM_INVENTORY_ROLES`.
 #:
 #: Organization-only, and necessarily so. Which item was bought says nothing
@@ -853,6 +869,14 @@ SYSTEM_PURCHASING_ROLES: tuple[tuple[str, str, str, str], ...] = (
         "Purchase return variance",
         "ORGANIZATION",
     ),
+    (SUPPLIER_PAYMENT_CASH, "دفعات الموردين نقداً", "Supplier payments — cash", "ORGANIZATION"),
+    (
+        SUPPLIER_PAYMENT_BANK,
+        "دفعات الموردين عبر المصرف",
+        "Supplier payments — bank",
+        "ORGANIZATION",
+    ),
+    (SUPPLIER_ADVANCE, "سلف الموردين", "Supplier advances", "ORGANIZATION"),
 )
 
 

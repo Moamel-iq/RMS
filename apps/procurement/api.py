@@ -77,23 +77,35 @@ from apps.procurement.models import (
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
+    SupplierPayment,
     SupplierReturn,
     SupplierReturnLine,
+)
+from apps.procurement.payments import (
+    add_payment_allocation,
+    create_supplier_payment,
+    delete_supplier_payment,
+    post_supplier_payment,
+    remove_payment_allocation,
+    reverse_supplier_payment,
 )
 from apps.procurement.permissions import (
     APPROVE_SUPPLIER_INVOICE,
     CANCEL_PURCHASE_MATCH,
     CREATE_SUPPLIER_CREDIT_NOTE,
     CREATE_SUPPLIER_INVOICE,
+    CREATE_SUPPLIER_PAYMENT,
     CREATE_SUPPLIER_RETURN,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
     MATCH_SUPPLIER_INVOICE,
     POST_SUPPLIER_CREDIT_NOTE,
     POST_SUPPLIER_INVOICE,
+    POST_SUPPLIER_PAYMENT,
     POST_SUPPLIER_RETURN,
     REVERSE_SUPPLIER_CREDIT_NOTE,
     REVERSE_SUPPLIER_INVOICE,
+    REVERSE_SUPPLIER_PAYMENT,
     REVERSE_SUPPLIER_RETURN,
     VIEW_PURCHASE_MATCH,
     VIEW_SUPPLIER,
@@ -101,6 +113,7 @@ from apps.procurement.permissions import (
     VIEW_SUPPLIER_CREDIT_NOTE,
     VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
+    VIEW_SUPPLIER_PAYMENT,
     VIEW_SUPPLIER_RETURN,
 )
 from apps.procurement.returns import (
@@ -115,12 +128,14 @@ from apps.procurement.selectors import (
     resolve_credit_allocation,
     resolve_credit_return_allocation,
     resolve_match_allocation,
+    resolve_payment_allocation,
     resolve_purchase_match,
     resolve_return_line,
     resolve_supplier,
     resolve_supplier_credit_note,
     resolve_supplier_invoice,
     resolve_supplier_item,
+    resolve_supplier_payment,
     resolve_supplier_return,
     visible_goods_receipts,
     visible_purchase_matches,
@@ -128,6 +143,7 @@ from apps.procurement.selectors import (
     visible_supplier_credit_notes,
     visible_supplier_invoices,
     visible_supplier_items,
+    visible_supplier_payments,
     visible_supplier_returns,
     visible_suppliers,
 )
@@ -1779,3 +1795,234 @@ def _reload_note(note: SupplierCreditNote) -> SupplierCreditNote:
     return SupplierCreditNote.objects.select_related(
         "supplier", "supplier_return", "journal_entry"
     ).get(pk=note.pk)
+
+
+# ---------------------------------------------------------------------------
+# Supplier payments (Task 2.15)
+# ---------------------------------------------------------------------------
+
+
+class PaymentAllocationOut(Schema):
+    id: int
+    sequence: int
+    invoice_id: int
+    invoice_number: str
+    allocated_amount: str
+    note: str
+
+
+class SupplierPaymentOut(Schema):
+    id: int
+    public_id: str
+    organization_id: int
+    branch_id: int
+    supplier_id: int
+    supplier_code: str
+    number: str
+    status: str
+    method: str
+    paid_at: str
+    business_date: str
+    reference: str
+    journal_entry: str | None = None
+    reversal_journal_entry: str | None = None
+    #: Omitted entirely without `view_supplier_cost`, never blanked.
+    amount: str | None = None
+    allocated: str | None = None
+    advance: str | None = None
+    allocations: list[PaymentAllocationOut] = []
+
+
+class SupplierPaymentIn(Schema):
+    branch_id: int
+    supplier_id: int
+    paid_at: str
+    method: str
+    amount: str
+    business_date: str | None = None
+    reference: str = ""
+    notes: str = ""
+
+
+class PaymentAllocationIn(Schema):
+    invoice_id: int
+    allocated_amount: str
+    note: str = ""
+
+
+def _require_payment_view(request: HttpRequest) -> User:
+    actor = _actor(request)
+    if not actor.has_perm(VIEW_SUPPLIER_PAYMENT):
+        raise PermissionMissing(f"{VIEW_SUPPLIER_PAYMENT} is not held.")
+    return actor
+
+
+def _serialize_payment(payment: SupplierPayment, *, include_cost: bool) -> dict[str, Any]:
+    from apps.procurement.payments import advance_remainder
+    from apps.procurement.payments import allocated_total as payment_allocated_total
+
+    allocations = list(payment.allocations.select_related("invoice").order_by("sequence"))
+    payload: dict[str, Any] = {
+        "id": payment.pk,
+        "public_id": str(payment.public_id),
+        "organization_id": payment.organization_id,
+        "branch_id": payment.branch_id,
+        "supplier_id": payment.supplier_id,
+        "supplier_code": payment.supplier.code,
+        "number": payment.number,
+        "status": payment.status,
+        "method": payment.method,
+        "paid_at": payment.paid_at.isoformat(),
+        "business_date": payment.business_date.isoformat(),
+        "reference": payment.reference,
+        "journal_entry": (payment.journal_entry.entry_number if payment.journal_entry else None),
+        "reversal_journal_entry": (
+            payment.reversal_journal_entry.entry_number if payment.reversal_journal_entry else None
+        ),
+        "allocations": [
+            {
+                "id": row.pk,
+                "sequence": row.sequence,
+                "invoice_id": row.invoice_id,
+                "invoice_number": row.invoice.number,
+                "allocated_amount": format(row.allocated_amount, "f") if include_cost else "",
+                "note": row.note,
+            }
+            for row in allocations
+        ],
+    }
+    if include_cost:
+        payload.update(
+            {
+                "amount": format(payment.amount, "f"),
+                "allocated": format(payment_allocated_total(payment), "f"),
+                "advance": format(advance_remainder(payment), "f"),
+            }
+        )
+    return payload
+
+
+@router.get(
+    "/supplier-payments/", response=list[SupplierPaymentOut], summary="List supplier payments"
+)
+def list_supplier_payments(request: HttpRequest, status: str | None = None) -> Any:
+    actor = _require_payment_view(request)
+    queryset = visible_supplier_payments(actor)
+    if status:
+        queryset = queryset.filter(status=status.strip().upper())
+    include_cost = actor.has_perm(VIEW_SUPPLIER_COST)
+    return [_serialize_payment(row, include_cost=include_cost) for row in queryset.order_by("-id")]
+
+
+@router.get(
+    "/supplier-payments/{payment_id}/",
+    response=SupplierPaymentOut,
+    summary="Read one supplier payment",
+)
+def read_supplier_payment(request: HttpRequest, payment_id: int) -> Any:
+    actor = _require_payment_view(request)
+    payment = resolve_supplier_payment(actor, payment_id)
+    return _serialize_payment(payment, include_cost=actor.has_perm(VIEW_SUPPLIER_COST))
+
+
+@router.post(
+    "/supplier-payments/",
+    response={201: SupplierPaymentOut},
+    summary="Open a draft payment",
+)
+def create_payment(request: HttpRequest, payload: SupplierPaymentIn) -> Status[Any]:
+    actor = _actor(request)
+    branch = resolve_branch(actor, payload.branch_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_PAYMENT, branch.organization)
+    supplier = resolve_supplier(actor, payload.supplier_id)
+    payment = create_supplier_payment(
+        supplier=supplier,
+        branch=branch,
+        created_by=actor,
+        paid_at=_required_date(payload.paid_at, field="paid_at"),
+        method=payload.method,
+        amount=_required_money(payload.amount, field="amount"),
+        business_date=_date(payload.business_date, field="business_date"),
+        reference=payload.reference,
+        notes=payload.notes,
+    )
+    return Status(201, _serialize_payment(payment, include_cost=True))
+
+
+@router.delete(
+    "/supplier-payments/{payment_id}/", response={204: None}, summary="Discard a draft payment"
+)
+def delete_payment(request: HttpRequest, payment_id: int) -> Status[Any]:
+    actor = _actor(request)
+    payment = resolve_supplier_payment(actor, payment_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_PAYMENT, payment.organization)
+    delete_supplier_payment(payment=payment)
+    return Status(204, None)
+
+
+@router.post(
+    "/supplier-payments/{payment_id}/allocations/",
+    response={201: SupplierPaymentOut},
+    summary="Point part of the payment at a posted invoice",
+)
+def add_payment_allocation_endpoint(
+    request: HttpRequest, payment_id: int, payload: PaymentAllocationIn
+) -> Status[Any]:
+    actor = _actor(request)
+    payment = resolve_supplier_payment(actor, payment_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_PAYMENT, payment.organization)
+    invoice = resolve_supplier_invoice(actor, payload.invoice_id)
+    add_payment_allocation(
+        payment=payment,
+        invoice=invoice,
+        allocated_amount=_required_money(payload.allocated_amount, field="allocated_amount"),
+        note=payload.note,
+    )
+    return Status(201, _serialize_payment(_reload_payment(payment), include_cost=True))
+
+
+@router.delete(
+    "/supplier-payments/{payment_id}/allocations/{allocation_id}/",
+    response={204: None},
+    summary="Remove a draft allocation",
+)
+def delete_payment_allocation(
+    request: HttpRequest, payment_id: int, allocation_id: int
+) -> Status[Any]:
+    actor = _actor(request)
+    payment = resolve_supplier_payment(actor, payment_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_PAYMENT, payment.organization)
+    allocation = resolve_payment_allocation(actor, payment=payment, allocation_id=allocation_id)
+    remove_payment_allocation(allocation=allocation)
+    return Status(204, None)
+
+
+@router.post(
+    "/supplier-payments/{payment_id}/post/",
+    response=SupplierPaymentOut,
+    summary="Post a supplier payment",
+)
+def post_payment(request: HttpRequest, payment_id: int) -> Any:
+    actor = _actor(request)
+    payment = resolve_supplier_payment(actor, payment_id)
+    require_organization_permission(actor, POST_SUPPLIER_PAYMENT, payment.organization)
+    posted = post_supplier_payment(payment=payment, actor=actor)
+    return _serialize_payment(posted, include_cost=True)
+
+
+@router.post(
+    "/supplier-payments/{payment_id}/reverse/",
+    response=SupplierPaymentOut,
+    summary="Reverse a posted supplier payment",
+)
+def reverse_payment(request: HttpRequest, payment_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    payment = resolve_supplier_payment(actor, payment_id)
+    require_organization_permission(actor, REVERSE_SUPPLIER_PAYMENT, payment.organization)
+    reversed_payment = reverse_supplier_payment(payment=payment, actor=actor, reason=payload.reason)
+    return _serialize_payment(reversed_payment, include_cost=True)
+
+
+def _reload_payment(payment: SupplierPayment) -> SupplierPayment:
+    """Re-read after an allocation change, so the response carries stored rows."""
+    return SupplierPayment.objects.select_related("supplier", "journal_entry").get(pk=payment.pk)
