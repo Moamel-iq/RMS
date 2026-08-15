@@ -5,13 +5,13 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 15/20 — Supplier returns (Task 2.13) COMPLETE.
+CURRENT_PIPELINE_STEP: 16/20 — Supplier credit notes (Task 2.14) COMPLETE.
 CURRENT_TASK: none in flight. The active /goal directs the remainder at
-**Accounting and Procurement completion**: continue sequentially through
-every remaining approved Procurement and Accounting task — Task 2.14 (credit
-notes) is next — and both module-exit gates on fresh databases.
-LAST_GREEN_COMMIT: 3bb8194 (feature); the docs checkpoint follows it
-LAST_PUSHED_COMMIT: 3bb8194 and its checkpoint
+**Accounting and Procurement completion**: Task 2.15 (supplier payments) is
+next, then 2.16 (procurement-to-GL reconciliation) and both module-exit
+gates on fresh databases.
+LAST_GREEN_COMMIT: e26a051 (feature); the docs checkpoint follows it
+LAST_PUSHED_COMMIT: same
 WORKING_TREE: clean
 RUNNING_TESTS: none
 CURRENT_BRANCH: phase/2-procurement (tracking origin)
@@ -32,6 +32,9 @@ ACTIVE_DATABASES (none to be dropped):
 - `khan_mandi_p2_b7` — Step 15 verification, migrated from zero through all
   24 procurement migrations and seeded twice with identical counts; created
   by Step 15, never to be dropped
+- `khan_mandi_p2_b8` — Task 2.14 verification, migrated from zero through all
+  26 procurement migrations and seeded twice with identical counts; created
+  by Task 2.14, never to be dropped
 - `khan_mandi_t17a_check`, `khan_mandi_t16_check`, `_t15_`, `_t14_`, `_t13_`,
   `khan_mandi_ledger_check`, `khan_mandi_inv_check`, `khan_mandi_freshcheck`
 
@@ -40,17 +43,18 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Task 2.14 — supplier credit notes (Task 2.0 §10, PRC-051,
-PRC-052; invariants 41–42). The agreed figure arrives on paper: the note
-clears the supplier-return clearing balance (`8-01-04-001`, currently
-40,514.706 on the demo) against the payable or a standing credit, and
-recognises the average-versus-credit difference in `PURCHASE_RETURN_VARIANCE`
-(`7-09-04-001` — seeded, deliberately unmapped; mapping it is Task 2.14's
-first deliberate act). `TestTheCreditNoteBoundary` in
-`test_supplier_returns.py` is the negative contract whose positive twins Task
-2.14 must write. `supplier_document_number` unique per supplier over
-non-reversed notes. A note referencing no invoice stands as unallocated
-supplier credit. It never moves stock.
+NEXT_EXACT_ACTION: Task 2.15 — supplier payments and allocations (Task 2.0
+§11, PRC-053..057; invariants 43–45). Cash and bank come from the
+effective-dated `SUPPLIER_PAYMENT_CASH` / `SUPPLIER_PAYMENT_BANK` roles
+(§15, unseeded — a role with no posting rule behind it stays unmapped until
+its task, the rule Tasks 2.13 and 2.14 both kept). Partial payment across
+several invoices is normal; over-allocation impossible on both sides; an
+unallocated remainder is a supplier advance (`SUPPLIER_ADVANCE`,
+`1-04-01-001`, also unseeded), never a negative payable; oldest-invoice
+allocation is a visible default, never applied silently. `outstanding_amount`
+already subtracts credit allocations — payments subtract from the same
+expression. A payment consuming standing credit must respect the credit
+note's dependency guard.
 
 NEXT_EXACT_COMMAND:
 ```
@@ -60,8 +64,18 @@ git branch --show-current                     # expect phase/2-procurement
 ```
 
 DEMO_STATE: `khan_mandi_dev` seeded and visible; sign in as `moamel`,
-organization DEMO-KHAN-MANDI. Step 15 adds three supplier returns, one per
-lifecycle state, everything through the real services:
+organization DEMO-KHAN-MANDI. Task 2.14 adds `DEMO-SCN-CHICKEN`
+(SCN-2026-000001, **POSTED**): the supplier credits the 28,000 the chicken
+was bought for against its 40,514.706 book value — the claim in `8-01-04-001`
+closes to **0** and a visible **12,514.706 loss** lands in `7-09-04-001`,
+the ADR-022 §2 gap on paper. Unallocated on purpose (the chicken delivery has
+no posted invoice), so PRC-051's standing-credit state is on the screen.
+Journals **38 → 39**; movements stay 48 — a note moves no stock. The Step 15
+demo's chicken `expected_credit_value` was corrected 280,000 → 28,000 for
+fresh seeds (the 14,000 was per ten-kilo carton, not per kilo); existing
+databases keep the historical metadata, which posts nothing.
+
+Step 15's returns, unchanged beneath it:
 
 - `DEMO-SRET-CHICKEN` — SRET-2026-000001, **POSTED**. Twenty kilograms of the
   warm-chicken delivery (`DEMO-GRN-REJECT`) that passed inspection and
@@ -112,6 +126,59 @@ the inventory demo, which is how the scoping was found.
 `verify_parked_variance` proves every fils in `8-01-03-001` traces to a live
 posting and to the allocation rows beneath it, and catches a manual journal
 against the account.
+
+STEP 16 (Task 2.14, supplier credit notes): **COMPLETE**. Definitive complete
+project suite on the final tree: **2300 passed, 0 failed** (46:44); the code
+was untouched between that run and the commits — only this runbook. 39
+credit-note tests, 3 real-COMMIT races, 231 across the affected return,
+invoice and variance suites. The recognising
+entry ADR-022 §2 (as amended) deferred — **partial, per line, across notes**,
+per the human's design correction issued before the commit: the first cut's
+one-standing-note-per-return rule was removed, and a note settles its return
+through explicit `SupplierCreditReturnAllocation` rows against the return's
+lines. A note may cover several lines; a line may be settled by several
+notes; the bound is the line's returned quantity and posted book value; a
+partial slice settles the quantized proportional share of the line's
+*remaining* claim and the final slice takes the exact remainder, so active
+settlements plus the open claim equal the line's book value to the fils and
+no rounding residual can strand in the clearing account. The journal: `Dr
+SUPPLIER_PAYABLE amount / Cr SUPPLIER_RETURN_CLEARING settled book value /
+Cr-or-Dr PURCHASE_RETURN_VARIANCE difference`, the variance line absent when
+they agree. Migration 0027 backfills every note posted under the old rule
+with the allocations its journal implies.
+`SupplierCreditAllocation` nets the note against posted invoices;
+`outstanding_amount` and `supplier_outstanding` subtract posted notes; the
+unallocated remainder is PRC-051's standing credit — an allocation state
+against the payable, never a separate account (and never `SUPPLIER_ADVANCE`,
+which is cash paid before an invoice — a different economic event), or
+invariant 46 dies.
+`PURCHASE_RETURN_VARIANCE` is mapped now, the act Task 2.13 refused because
+nothing posted to it. **Scope recorded rather than implied:** a Release 1
+note must cite a posted return; invoice-only and reference-free notes have no
+approved contra account anywhere and are refused by the model's shape — the
+invoice-before-receipt precedent, applied again.
+
+**The Task 2.13 lesson generalized before it bit.** The invoice reversal
+guard walked only line relations, and a credit allocation cites the invoice
+at the **header** — `test_a_posted_notes_allocation_blocks_the_invoice_reversal`
+failed against the unmodified guard, proving a posted note's netting could be
+reversed out from under it. The guard now walks the header too, which
+required `PurchaseMatch` to declare `live_dependency = Q(status__in=("DRAFT",
+"READY"))` — a cancelled match is history, not a dependent — so the
+documented reverse-and-rematch correction kept working (all 264 affected
+invoice/matching/return tests pass).
+
+32 credit-note tests, 3 real-COMMIT races (two posts of one note; two notes
+racing one return; two notes' allocations racing one invoice remainder),
+maker-checker exercised through the routes (manager records and gets 403 on
+post; accounting manager posts). Fresh `khan_mandi_p2_b8` from zero through
+all 26 procurement migrations, seeded twice, identical counts, 30 routes
+rendered, all verifiers clean — including the new
+`verify_supplier_credit_notes` (per-note journal equalities plus clearing ==
+unsettled standing returns and variance == Σ agreed-versus-book).
+`verify_supplier_returns`' "variance is empty" boundary check moved into it.
+Gates: ruff, format, mypy (235 files), check, makemigrations --check all
+pass.
 
 STEP 15 (Task 2.13, supplier returns): **COMPLETE**. Definitive complete
 project suite on the final tree: **2258 passed, 0 failed** (52:07); the code
@@ -413,4 +480,5 @@ the item, and it is addressed.
 | 13 Three-way matching | **COMPLETE, PUSHED** | 0c2ee51 | 2143 project tests; see the Step 13 note above |
 | 14 Variance accounting | **COMPLETE, PUSHED** | 29b0ea0 + 61552a1 | 2203 project tests, generations, PPV parked |
 | 15 Supplier returns | **COMPLETE, PUSHED** | fce9a4a + a0a0fc2 + e947941 + 3bb8194 | fresh DB b7, verifiers clean, ADR-022 accepted in full |
-| 16–20 | not started | — | next: Task 2.14 credit notes, then 2.15 payments, per the active /goal |
+| 16 Supplier credit notes | **COMPLETE, PUSHED** | e26a051 + checkpoint | fresh DB b8, ADR-022 fully implemented, invoice guard hole closed |
+| 17–20 | not started | — | next: Task 2.15 payments, then 2.16 reconciliation, per the active /goal |

@@ -1,10 +1,11 @@
 # ADR-022 — Supplier return valuation and purchase variance treatment
 
-- **Status:** **Accepted** (Task 2.12, 2026-08-14; Task 2.13, 2026-08-14).
-  Every decision is now implemented: 3, 4 and the price half of 5 by Task 2.12;
-  1 and the return half of 5 by Task 2.13; 2 by Task 2.13 **as amended** — the
-  valuation rule stands exactly as written, the recognition point moved from
-  the return event to the credit note. See the amendment inside decision 2.
+- **Status:** **Accepted and fully implemented** (Task 2.12, 2026-08-14;
+  Task 2.13, 2026-08-14; Task 2.14, 2026-08-15). Decisions 3, 4 and the price
+  half of 5 shipped with Task 2.12; 1 and the return half of 5 with Task 2.13;
+  2 **as amended** completed by Task 2.14 — the valuation rule stands exactly
+  as written, the recognition point moved to the credit note, and the credit
+  note now posts the recognising entry. See the amendment inside decision 2.
 - **Date:** 2026-08-11
 - **Related:** ADR-006 (rounding), ADR-012 (money and allocation), ADR-013
   (periods), ADR-017 (source identity), ADR-018 (moving weighted average, the
@@ -106,6 +107,35 @@ arrives with an agreed figure, it clears this balance and recognises the
 difference in `PURCHASE_RETURN_VARIANCE` — which is where the original entry's
 third line went, one document later, backed by paper. The expected credit may
 be recorded on the return line as metadata for the claim; it posts nothing.
+
+**Task 2.14 implemented the recognising entry — partially, per line, and
+across notes where the supplier answers in instalments.** A
+`SupplierCreditNote` cites one posted return and settles it through explicit
+allocations to its **lines** (`SupplierCreditReturnAllocation`): a note may
+cover several lines, a line may be settled by several notes, and the bound is
+the line's returned quantity and posted book value. Each slice settles the
+quantized proportional share of the line's *remaining* clearing value, and
+the slice that takes the last of the quantity takes the exact remainder — so
+active settled values plus the remaining clearing always equal the line's
+book value to the fils, and no rounding residual can strand in the clearing
+account. The journal:
+
+```
+Dr  Supplier payable                 the note's whole agreed credit
+    Cr  Supplier return clearing     the settled book value — that much claim closed
+    Cr/Dr Purchase return variance   the difference, either direction
+```
+
+with the variance line absent when the figures agree. A Release 1 note
+**must** cite a return: a note referencing only an invoice, or nothing, has
+no approved contra account in any document — no role in Task 2.0 §15, no
+journal shape here — and inventing one would be the exact failure decision 4
+exists to prevent. That scope is recorded, not implied, and relaxing it is a
+future task with its own approval. PRC-051's "reduces the payable or stands
+as unallocated credit" is an **allocation state, not an account**: the debit
+is the payable either way, and allocation rows decide which invoice's
+outstanding it nets against — anything else would break the invariant that
+open supplier balances sum to the payable account.
 
 ### 3. A price variance never restates a posted movement
 

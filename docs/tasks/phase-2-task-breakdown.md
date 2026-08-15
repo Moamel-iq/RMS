@@ -265,6 +265,41 @@ reduction or standing credit, reversal, duplicate-document protection.
 
 Depends on: 2.13.
 
+**Status: DONE.**
+
+*What shipped.* `SupplierCreditNote` citing one posted return and settling it
+**partially, per line, across notes** through explicit
+`SupplierCreditReturnAllocation` rows — each slice takes the quantized
+proportional share of the line's remaining claim, the final slice the exact
+remainder, so no rounding residual strands in the clearing account — with
+`SupplierCreditAllocation` rows netting the note against posted invoices.
+Posting writes ADR-022 §2's deferred entry: `Dr SUPPLIER_PAYABLE amount /
+Cr SUPPLIER_RETURN_CLEARING settled book value / Cr-or-Dr
+PURCHASE_RETURN_VARIANCE difference`, the variance line absent when the
+figures agree. The variance role is mapped now — Task 2.13 seeded it and
+refused to, because nothing posted to it. `outstanding_amount` and
+`supplier_outstanding` subtract posted notes; the unallocated remainder is
+PRC-051's standing credit, an allocation state rather than an account.
+Whole-row triggers, exact-mirror reversal, `verify_supplier_credit_notes`
+(per-note journal equalities plus the organization-wide clearing and variance
+balances), four organization-scoped permissions with the invoice's
+maker-checker split, Arabic RTL screens, API commands, read-only admin, a
+demo note settling the chicken return as a visible 12,514.706 loss, and three
+real-COMMIT races.
+
+*Scope, recorded.* A Release 1 note **must cite a posted return**. An
+invoice-only or reference-free note has no approved contra account in §15 or
+any accepted ADR, and inventing one was refused — the same reasoning that
+excluded invoice-before-receipt at Task 2.10. Relaxing it is its own task.
+
+*Found and fixed here.* The invoice's reversal guard had the receipt guard's
+Task 2.13 blind spot: it walked only line relations, and a credit allocation
+cites the invoice at the header — so a reversal would have unmade a debt a
+posted note had netted against. The guard now walks the header too, which
+required `PurchaseMatch` to declare `live_dependency` (a cancelled match is
+history, not a dependent) so the documented reverse-and-rematch correction
+kept working.
+
 ---
 
 ### Task 2.15 — Supplier payments and allocations

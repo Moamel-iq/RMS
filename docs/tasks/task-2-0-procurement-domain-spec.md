@@ -2,6 +2,18 @@
 
 - **Status:** Specification only. Task 2.0 creates no models, migrations,
   services, API or UI. Implementation begins at Task 2.1.
+- **Implemented through Task 2.14** (supplier credit notes). §10's credit-note
+  half is live for **return-referenced notes**: PRC-051's payable reduction
+  and standing-credit outcome (both as allocation states against the payable),
+  PRC-052's per-supplier duplicate protection over non-reversed notes, and
+  PRC-049's variance recognised at the note per ADR-022 §2 as amended. Scope
+  recorded rather than implied: a note citing only an invoice or nothing has
+  no approved contra account in §15 or any ADR and is **not supported** —
+  the same reasoning that excluded invoice-before-receipt at Task 2.10.
+  `PURCHASE_RETURN_VARIANCE` is now mapped and posted to. §13 gains
+  `view_suppliercreditnote`, `create_supplier_credit_note` and
+  `reverse_supplier_credit_note` beside `post_supplier_credit_note`, all
+  organization-scoped, with the invoice's maker-checker split.
 - **Implemented through Task 2.13** (supplier returns). §10's return half is
   live: a distinct `RETURN_OUT` movement (PRC-047), average-cost valuation with
   full depletion (PRC-048), the kernel's negative-stock refusal (PRC-050).

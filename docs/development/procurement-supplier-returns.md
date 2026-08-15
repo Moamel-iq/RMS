@@ -1,4 +1,4 @@
-# Supplier returns (Task 2.13)
+# Supplier returns and credit notes (Tasks 2.13, 2.14)
 
 Goods going back out to the supplier they came from — the first procurement
 event that sends stock *out*. This is the operator- and developer-facing
@@ -81,6 +81,41 @@ omitted, never blanked, without `view_supplier_cost` (PRC-061).
   line total = clearing debit = inventory credit per return; the bound holds;
   the variance account is empty; every movement is `RETURN_OUT`.
 
+## The credit note (Task 2.14)
+
+The supplier's answer to the claim — possibly a partial one. A
+`SupplierCreditNote` cites **one posted return** and settles it through
+explicit allocations to its lines (`SupplierCreditReturnAllocation`): a note
+may cover several lines, a line may be settled by several notes across time,
+bounded by the line's returned quantity and posted book value. Each slice
+settles the quantized proportional share of the line's *remaining* claim and
+the final slice takes the exact remainder, so no rounding residual strands in
+the clearing account. Posting:
+
+```
+Dr  2-01-01-001  SUPPLIER_PAYABLE           the note's whole agreed credit
+    Cr  8-01-04-001  SUPPLIER_RETURN_CLEARING   the settled book value
+    Cr/Dr 7-09-04-001 PURCHASE_RETURN_VARIANCE  the difference, absent if equal
+```
+
+Release 1 scope, recorded: a note citing only an invoice or nothing has no
+approved contra account and is refused by the model's own shape. PRC-051's
+two outcomes are allocation states — `SupplierCreditAllocation` rows net the
+note against posted invoices (reducing `outstanding_amount`), and the
+remainder stands as unallocated supplier credit in the payable account.
+`supplier_document_number` is unique per supplier over non-reversed notes,
+with the invoice's case-and-whitespace folding (PRC-052). A standing note
+pins its return and its allocated invoices against reversal, through the same
+`live_dependency` convention; reversing the note reopens the claim exactly.
+
+Permissions, organization-scoped with the invoice's split: the manager or
+accountant records; the accounting manager posts and reverses and cannot
+record. Screens at `/procurement/credit-notes/`, API at
+`/api/v1/procurement/supplier-credit-notes/`, read-only admin.
+`verify_supplier_credit_notes` proves each note's journal and the two
+organization-wide balances: clearing == unsettled standing returns, variance
+== Σ agreed-versus-book over posted notes.
+
 ## Demo
 
 `seed_procurement_demo` seeds three returns, one per state:
@@ -89,3 +124,9 @@ omitted, never blanked, without `view_supplier_cost` (PRC-061).
 block a return), `DEMO-SRET-REVERSED` (meat, posted then reversed by the
 manager). Idempotent by evidence reference; everything goes through the real
 services.
+
+Task 2.14 adds `DEMO-SCN-CHICKEN`: the supplier credits the 28,000 the
+chicken was bought for against its 40,514.706 book value, closing the claim
+and recognising a visible 12,514.706 loss — the ADR-022 §2 gap landing on
+paper. Unallocated on purpose: the chicken delivery has no posted invoice, so
+the note demonstrates the standing-credit state.
