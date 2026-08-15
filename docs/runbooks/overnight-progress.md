@@ -5,10 +5,10 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 20/20 — Phase 2 exit gate (Task 2.18) in progress:
-two human-directed reviews applied, gates green, fresh gate database
-verified, one new definitive suite running to certify the changed tree.
-The tag is created only after that suite exits 0.
+CURRENT_PIPELINE_STEP: 20/20 — Phase 2 exit gate (Task 2.18) **COMPLETE**.
+Procurement module exit: **PASS**. Tagged `phase-2-procurement-complete`.
+Now working the Accounting completion queue ACCT-1..ACCT-6; the goal is not
+achieved until the Accounting exit is independently certified too.
 CURRENT_TASK: Task 2.17 executed to plan; commit pending only the
 affected-domain run (`apps/procurement` + both inventory import test
 files) recorded in STEP 19 below. The active /goal directs the remainder
@@ -71,7 +71,36 @@ FAILED_TESTS: none
 FIX_BRANCHES: none
 ERRORS_REMAINING: 0
 
-NEXT_EXACT_ACTION: Task 2.18 — the Phase 2 exit gate (breakdown §2.18).
+NEXT_EXACT_ACTION: the Accounting completion queue, ACCT-1 → ACCT-6,
+sequentially, one coherent commit each; then the Accounting module exit gate
+on a fresh PostgreSQL database and one definitive complete project suite,
+then the Accounting completion tag. Determinations already drafted (outside
+the repository, while the Procurement suite held the test database):
+
+- **ACCT-5 is a specification correction, not new API scope.** Task 0.7 §3
+  ("API — commands, not CRUD") is the section that *enumerates* deliverable
+  endpoints — four journal-entry routes and three period routes, seven in
+  total, and `api.py` ships exactly those plus the GET/DELETE §4's first row
+  authorises. §4 is a *policy* table whose bold line is a prohibition ("No
+  generic writable CRUD for posted accounting records anywhere"); its
+  "Accounts, cost centres | Command endpoints" row constrains the form any
+  future exposure must take rather than ordering one built, and §7's own
+  Notes column against that row records what it verified: "Accounting admin
+  is read-only for everyone, superusers included". So: correct §4's row and
+  §7's mark to state what exists and what does not, fix `admin.py:177` whose
+  `AccountAdmin` docstring sends the reader to endpoints that do not exist,
+  and record the position in traceability. Separately and genuinely in
+  scope: `amend_account_role_mapping` has no view, URL, route or test while
+  its two siblings are wired at `urls.py:19–28`.
+- **ACCT-1 maps requirements to tests, not one row per test.** Seventeen
+  `ACC-` rows over the twelve kernel invariants, citing the real classes in
+  `test_posting.py`, `test_chart_of_accounts.py`, `test_hardening.py` and
+  `test_commit_boundary.py` (100 tests, zero rows today). Plus a validator
+  that fails when an approved task has **no traceability section at all** —
+  the check that would have caught this, since the existing one resolves
+  row→test forward only and therefore reports clean.
+
+SUPERSEDED — Task 2.18 (the Phase 2 exit gate, breakdown §2.18) is DONE:
 All fifty procurement invariants verified against their cited tests;
 supplier subledger equals the payable account and GRNI reconciles (both
 already proven by `verify_procurement_accounting` — re-run on the fresh
@@ -162,7 +191,28 @@ the inventory demo, which is how the scoping was found.
 posting and to the allocation rows beneath it, and catches a manual journal
 against the account.
 
-STEP 20 (Task 2.18, Phase 2 exit gate): **IN PROGRESS**. A first definitive
+STEP 20 (Task 2.18, Phase 2 exit gate): **COMPLETE — PROCUREMENT EXIT PASS.**
+Certifying definitive suite on the final tree: **2362 passed, 0 failed**
+(52:19), run on an uncontended machine, and the tree was verified
+**byte-identical** to the baseline the run started against (HEAD 812ffcc,
+same `git status --porcelain`, same `git diff` hash 9b0926f8) before
+anything was committed. Feature commit `b865e7d`, tag
+`phase-2-procurement-complete`, pushed; `main` untouched.
+
+**Two runs before it were void, both from the same self-inflicted cause and
+worth recording so it does not recur.** A definitive suite and a second
+pytest cannot share one PostgreSQL test database: the loser errors at the
+session fixture, every test "ERRORs", and the output looks catastrophic
+while proving nothing (2362 errors in one case, 40 in another — including
+pure-function phone tests that touch none of the changed code, which is the
+tell). The first collision was a second suite I launched myself; the second
+was the Accounting audit's critic agent independently re-running
+`apps/accounting/tests/` to verify the ledger's claims — correct of it to
+do, but it had to be serialised against the gate. **Rule: one pytest owner
+at a time, and no workflow or subagent that may run tests while a gate suite
+is in flight.**
+
+A first definitive
 suite passed **2351/0** (5:35:23) on the tree as it stood, and the fresh
 `khan_mandi_p2_gate` database migrated from zero, seeded, reconciled clean
 on both `verify_procurement` and `verify_inventory_against_gl`, and rendered
@@ -732,4 +782,5 @@ the item, and it is addressed.
 | 18 Reports + reconciliation | **COMPLETE, PUSHED** | feature + checkpoint | fresh DB b10, twelve reports on the Phase 1 base, PRC-058 composed, suite 2339/0 |
 | 19 Imports + hardening | **COMPLETE, PUSHED** | feature + checkpoint | fresh DB b11, three kinds registered into the Task 1.7 framework, §16.8 by vocabulary |
 | 16 Supplier credit notes | **COMPLETE, PUSHED** | e26a051 + checkpoint | fresh DB b8, ADR-022 fully implemented, invoice guard hole closed |
-| 20 | not started | — | next: the 2.18 exit gate (tag, fresh DB, complete suite) and the module-exit gates, per the active /goal |
+| 20 Phase 2 exit gate | **COMPLETE, TAGGED** | b865e7d + checkpoint, tag `phase-2-procurement-complete` | suite 2362/0 on a verified-identical tree; fresh DB gate2; two reviews applied; one real import defect closed |
+| ACCT-1..6 | in progress | — | Accounting completion queue; the goal needs an independent Accounting exit PASS |
