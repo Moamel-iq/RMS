@@ -129,6 +129,11 @@ class Supplier(TimeStampedModel):
             # Task 2.16. Declared here because the report family has no model
             # of its own, and the supplier is the entity every report reads.
             ("view_procurement_report", _("Can view procurement reports")),
+            # Task 2.17. Spec §13. Declared on the supplier for the same
+            # reason: the batches live on inventory's ImportBatch, and what
+            # these authorize reshaping is this module's masters.
+            ("import_supplier", _("Can import suppliers")),
+            ("import_supplier_item", _("Can import the supplier catalogue")),
         ]
         constraints = [
             models.UniqueConstraint(

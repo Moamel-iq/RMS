@@ -84,6 +84,9 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:report_return_credit_status", "حالة المرتجعات والإشعارات"),
     ("procurement:report_payment_allocations", "تخصيصات الدفعات"),
     ("procurement:report_procurement_to_gl", "المشتريات إلى الأستاذ العام"),
+    # Task 2.17 — the batches live on the shared framework, so the screen
+    # is inventory's; what it now lists includes procurement's kinds.
+    ("inventory:import_list", "سجل الاستيراد"),
 ]
 
 
@@ -173,6 +176,11 @@ class Command(SeedCommand):
                 if approver is not None and approver.pk != user.pk
                 else []
             )
+            # Task 2.17: one applied supplier batch, so the import history
+            # at /inventory/imports/ shows procurement's kinds in use.
+            from apps.procurement.demo import seed_demo_import_batch
+
+            import_batch = seed_demo_import_batch(organization=organization)
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -253,6 +261,13 @@ class Command(SeedCommand):
             for payment in payments:
                 label = payment.number or "draft"
                 self.write(f"  {payment.reference:<22} {label:<18} {payment.get_status_display()}")
+        if import_batch is not None:
+            self.write("")
+            self.write("import batches:")
+            self.write(
+                f"  {import_batch.original_filename:<22} "
+                f"{import_batch.kind:<18} {import_batch.get_status_display()}"
+            )
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")
         for route, label in INSPECTION_ROUTES:

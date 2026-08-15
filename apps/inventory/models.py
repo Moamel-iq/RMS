@@ -4815,10 +4815,21 @@ class ImportKind(models.TextChoices):
     ITEM_CATEGORY = "ITEM_CATEGORY", _("مجموعات الأصناف")
     PACKAGE_UNIT = "PACKAGE_UNIT", _("وحدات التعبئة")
     BRANCH_ITEM_SETTING = "BRANCH_ITEM_SETTING", _("إعدادات الصنف في الفرع")
+    # Task 2.17. The framework is one; the kinds name which module's master
+    # data a batch carries. Procurement's validators and writers live in
+    # `apps/procurement/imports.py` and register themselves — this module
+    # never imports procurement. The draft kind produces purchase-request
+    # DRAFTS for review, never a submitted or posted document (§16.8).
+    SUPPLIER = "SUPPLIER", _("الموردون")
+    SUPPLIER_ITEM = "SUPPLIER_ITEM", _("كتالوج الموردين")
+    PURCHASE_REQUEST_DRAFT = "PURCHASE_REQUEST_DRAFT", _("مسودات طلبات الشراء")
 
 
 #: The kinds that write branch-scoped rows and therefore name a branch.
-BRANCH_SCOPED_IMPORT_KINDS = frozenset({ImportKind.BRANCH_ITEM_SETTING})
+#: A purchase request is a branch document, so its draft import names one.
+BRANCH_SCOPED_IMPORT_KINDS = frozenset(
+    {ImportKind.BRANCH_ITEM_SETTING, ImportKind.PURCHASE_REQUEST_DRAFT}
+)
 
 #: Kinds needing `import_opening_draft` rather than `import_master_data`.
 #:

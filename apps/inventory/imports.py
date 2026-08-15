@@ -451,7 +451,17 @@ def create_batch(
     return batch
 
 
+#: kind -> a function deriving the row's natural identity, for kinds whose
+#: identity is compound (a catalogue row is supplier *and* item; either alone
+#: would flag two different rows as in-file duplicates). Registered by the
+#: owning module, exactly like `VALIDATORS`; absent means the default columns.
+EXTERNAL_KEYS: dict[str, Callable[[dict[str, str]], str]] = {}
+
+
 def _external_key(kind: str, row: dict[str, str]) -> str:
+    derive = EXTERNAL_KEYS.get(kind)
+    if derive is not None:
+        return derive(row)[:200]
     for column in ("code", "item_code", "warehouse_code"):
         if row.get(column):
             return row[column][:200]

@@ -154,6 +154,14 @@ REVERSE_SUPPLIER_PAYMENT = f"{APP_LABEL}.reverse_supplier_payment"
 #: scoped: a report aggregates money across branches, and cost columns are
 #: separately gated by `view_supplier_cost` exactly as the screens gate them.
 VIEW_PROCUREMENT_REPORT = f"{APP_LABEL}.view_procurement_report"
+#: Task 2.17. Spec §13 names both, organization-scoped: reshaping the
+#: supplier master or the catalogue by spreadsheet is exactly the authority
+#: to reshape it by screen, held separately from the inventory module's
+#: `import_master_data` because they are different masters. The
+#: purchase-request draft kind carries no import permission of its own — it
+#: rides `create_purchase_request`, because importing a draft is creating one.
+IMPORT_SUPPLIER = f"{APP_LABEL}.import_supplier"
+IMPORT_SUPPLIER_ITEM = f"{APP_LABEL}.import_supplier_item"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_SUPPLIER,
@@ -198,6 +206,8 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     POST_SUPPLIER_PAYMENT,
     REVERSE_SUPPLIER_PAYMENT,
     VIEW_PROCUREMENT_REPORT,
+    IMPORT_SUPPLIER,
+    IMPORT_SUPPLIER_ITEM,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -264,6 +274,10 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     REVERSE_SUPPLIER_PAYMENT: PermissionScope.ORGANIZATION_AUTHORITY,
     # Reports aggregate money across branches.
     VIEW_PROCUREMENT_REPORT: PermissionScope.ORGANIZATION_AUTHORITY,
+    # Imports reshape the same masters the manage permissions reshape, so
+    # they sit at the same boundary.
+    IMPORT_SUPPLIER: PermissionScope.ORGANIZATION_MASTER_DATA,
+    IMPORT_SUPPLIER_ITEM: PermissionScope.ORGANIZATION_MASTER_DATA,
 }
 
 
@@ -300,6 +314,9 @@ _PURCHASING = frozenset(
         VIEW_SUPPLIER_INVOICE,
         # Spend and price-variance reports are the buyer's working tools.
         VIEW_PROCUREMENT_REPORT,
+        # Whoever maintains the master by screen maintains it by spreadsheet.
+        IMPORT_SUPPLIER,
+        IMPORT_SUPPLIER_ITEM,
     }
 )
 
@@ -345,6 +362,9 @@ _MANAGER = frozenset(
         VIEW_SUPPLIER_PAYMENT,
         CREATE_SUPPLIER_PAYMENT,
         VIEW_PROCUREMENT_REPORT,
+        # Whoever maintains the master by screen maintains it by spreadsheet.
+        IMPORT_SUPPLIER,
+        IMPORT_SUPPLIER_ITEM,
     }
 )
 

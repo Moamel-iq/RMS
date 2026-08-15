@@ -43,9 +43,18 @@ from apps.organizations.authorization import (
 )
 from apps.organizations.selectors import accessible_organizations
 
+#: kind -> the permission it needs, for kinds another module registered.
+#: Filled the same way `VALIDATORS` is — from the owning module at app
+#: ready — so an unregistered kind still falls back to this module's own
+#: master-data permission and can never arrive permissionless.
+KIND_PERMISSIONS: dict[str, str] = {}
+
 
 def permission_for_kind(kind: str) -> str:
     """Which right this kind needs. Data, so the two cannot drift apart."""
+    registered = KIND_PERMISSIONS.get(kind)
+    if registered is not None:
+        return registered
     return IMPORT_OPENING_DRAFT if kind in OPENING_IMPORT_KINDS else IMPORT_MASTER_DATA
 
 

@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from apps.inventory.models import ImportBatch as ImportBatchRecord
 
 from apps.accounting.models import (
     PURCHASE_PRICE_VARIANCE,
@@ -1671,3 +1674,52 @@ def seed_demo_payments(
         payment.refresh_from_db()
     payments.append(payment)
     return payments
+
+
+DEMO_IMPORT_FILENAME = "demo-suppliers.csv"
+
+
+def seed_demo_import_batch(*, organization: Organization) -> ImportBatchRecord | None:
+    """
+    One applied supplier batch, so the import history shows Task 2.17 working.
+
+    The rows restate the three demo suppliers exactly as they stand, so the
+    apply runs the whole preview-then-write pipeline and changes nothing:
+    every action is `unchanged`, PRC-066 keeps its three suppliers, and a
+    re-run finds the applied batch by content hash and leaves it be.
+    """
+    from apps.inventory.imports import (
+        apply_batch,
+        create_batch,
+        fingerprint,
+        parse_rows,
+        validate_batch,
+    )
+    from apps.inventory.models import ImportBatch, ImportBatchStatus, ImportKind
+
+    header = "code,name_ar,name_en,contact_name,phone,payment_terms_days"
+    lines = [header] + [
+        f"{code},{name_ar},{name_en},{contact},{phone},{terms}"
+        for code, name_ar, name_en, contact, phone, terms in DEMO_SUPPLIERS
+    ]
+    raw = ("\n".join(lines) + "\n").encode("utf-8")
+
+    rows = parse_rows(raw, filename=DEMO_IMPORT_FILENAME, kind=ImportKind.SUPPLIER)
+    existing = ImportBatch.objects.filter(
+        organization=organization,
+        kind=ImportKind.SUPPLIER,
+        content_hash=fingerprint(ImportKind.SUPPLIER, rows),
+        status=ImportBatchStatus.APPLIED,
+    ).first()
+    if existing is not None:
+        return existing
+
+    batch = create_batch(
+        organization=organization,
+        kind=ImportKind.SUPPLIER,
+        raw=raw,
+        filename=DEMO_IMPORT_FILENAME,
+        notes="DEMO",
+    )
+    validate_batch(batch=batch)
+    return apply_batch(batch=batch)

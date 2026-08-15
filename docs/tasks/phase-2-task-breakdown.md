@@ -387,6 +387,38 @@ verification.
 
 Depends on: 2.16.
 
+**Status: DONE.**
+
+*What shipped.* The Task 1.7 framework extended, never forked: three kinds
+join `ImportKind` (`SUPPLIER`, `SUPPLIER_ITEM`, `PURCHASE_REQUEST_DRAFT`,
+the last branch-scoped — inventory migration 0020 regenerates both kind
+constraints), and `apps/procurement/imports.py` registers its validators,
+writers, compound row identities and per-kind permissions into the
+framework's registries from `AppConfig.ready` — inventory never imports
+procurement. Two registry hooks were added to the framework for this
+(`EXTERNAL_KEYS`, so a catalogue row's identity is supplier *and* item and
+never item alone; `KIND_PERMISSIONS`, so a kind another module owns demands
+that module's permission), both falling back to the unchanged Task 1.7
+behaviour. Writers call only the real services — `create_supplier`/
+`update_supplier`, the catalogue services, `create_purchase_request` +
+`add_request_line` — so an import can never do what a person could not, and
+rows sharing (warehouse, required date, purpose) become lines of **one**
+reviewable draft that draws no number and submits nothing (§16.8 kept by
+vocabulary: no kind for any posted document exists, asserted). New
+organization-scoped `import_supplier` / `import_supplier_item` (spec §13,
+migration 0032) granted to manager and purchasing; the draft kind rides
+`create_purchase_request`. File security, preview-then-apply, all-or-nothing
+and the content-hash retry guard are inherited, not reimplemented — the
+framework's own tests still pass with the six-kind positive twin replacing
+the three-kind boundary. The demo seeds one applied supplier batch whose
+rows restate the three demo suppliers exactly (every action `unchanged`, so
+PRC-066 keeps its three suppliers), idempotent by content hash across
+re-runs; the inspection list gains the import history route.
+
+*Verified.* Fresh `khan_mandi_p2_b11` migrated from zero, seeded twice with
+identical counts (3 suppliers, 3 batches), `verify_procurement` clean, the
+upload screen offering all six kinds, HTMX fragments answering as fragments.
+
 ---
 
 ### Task 2.18 — Phase 2 exit gate

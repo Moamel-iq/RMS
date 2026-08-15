@@ -422,7 +422,17 @@ class TestScopeInjection:
         assert declared == set(imports.WRITERS)
         assert declared == set(imports.REQUIRED_COLUMNS)
         assert declared == set(imports.supported_kinds())
-        assert declared == {"ITEM_CATEGORY", "PACKAGE_UNIT", "BRANCH_ITEM_SETTING"}
+        # Task 2.17 registered procurement's three kinds into this module's
+        # registries from `apps.procurement.imports` — the positive twin of
+        # the three-kind boundary this assertion used to hold.
+        assert declared == {
+            "ITEM_CATEGORY",
+            "PACKAGE_UNIT",
+            "BRANCH_ITEM_SETTING",
+            "SUPPLIER",
+            "SUPPLIER_ITEM",
+            "PURCHASE_REQUEST_DRAFT",
+        }
 
     def test_the_opening_draft_kind_is_gone_not_merely_unimplemented(self) -> None:
         """

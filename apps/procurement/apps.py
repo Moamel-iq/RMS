@@ -27,3 +27,9 @@ class ProcurementConfig(AppConfig):
 
     def ready(self) -> None:
         post_migrate.connect(_sync_role_groups, sender=self)
+        # Task 2.17: sign this module's import kinds into the Task 1.7
+        # framework. Idempotent, and this direction only — inventory never
+        # imports procurement.
+        from apps.procurement.imports import register
+
+        register()

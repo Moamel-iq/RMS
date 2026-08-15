@@ -244,3 +244,25 @@ one item below, one exactly at and one above its point; three dated chicken
 lots covering expired, expiring-soon and later; one APPLIED import batch that
 set those reorder points through the real import service; and one
 FAILED_VALIDATION batch holding a valid row that was correctly never applied.
+
+## Procurement's kinds (Task 2.17)
+
+The framework is one and the kinds name which module's master data a batch
+carries. `apps/procurement/imports.py` registers `SUPPLIER`,
+`SUPPLIER_ITEM` and `PURCHASE_REQUEST_DRAFT` — validators, writers,
+required columns, compound row identities (`EXTERNAL_KEYS`: a catalogue
+row is supplier *and* item *and* start date, never item alone) and per-kind
+permissions (`KIND_PERMISSIONS`: `procurement.import_supplier`,
+`procurement.import_supplier_item`, and the draft kind rides
+`procurement.create_purchase_request`) — from its `AppConfig.ready`.
+Inventory never imports procurement.
+
+Every writer calls the real procurement service, so an import can never do
+what a person could not. The draft kind groups rows sharing (warehouse,
+required date, purpose) into **one** purchase-request draft that draws no
+number and submits nothing; there is no kind for any posted document
+(§16.8), and a test asserts the vocabulary stays that way. The upload,
+preview, all-or-nothing apply, content-hash retry guard and file security
+above apply to these kinds unchanged.
+
+Tests: `apps/procurement/tests/test_procurement_imports.py`.
