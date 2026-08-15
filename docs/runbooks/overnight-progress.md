@@ -10,8 +10,8 @@ CURRENT_TASK: none in flight. The active /goal directs the remainder at
 **Accounting and Procurement completion**: Task 2.17 (imports, demo
 completion, hardening) is next, then the Phase 2 exit gate (2.18) and both
 module-exit gates on fresh databases.
-LAST_GREEN_COMMIT: the Task 2.16 feature commit (definitive suite 2339/0 on
-its tree); the docs checkpoint follows it
+LAST_GREEN_COMMIT: bb009e7 (feature, definitive suite 2339/0 on its tree);
+the docs checkpoint follows it
 LAST_PUSHED_COMMIT: same
 WORKING_TREE: clean
 RUNNING_TESTS: none
