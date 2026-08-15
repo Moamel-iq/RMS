@@ -38,12 +38,19 @@ from apps.procurement.models import (
     PurchaseRequest,
     PurchaseRequestStatus,
     Supplier,
+    SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
     SupplierQuotation,
     SupplierQuotationStatus,
+    SupplierReturn,
+    SupplierReturnLine,
 )
-from apps.procurement.permissions import CREATE_SUPPLIER_INVOICE, MANAGE_SUPPLIERS
+from apps.procurement.permissions import (
+    CREATE_SUPPLIER_CREDIT_NOTE,
+    CREATE_SUPPLIER_INVOICE,
+    MANAGE_SUPPLIERS,
+)
 from apps.procurement.selectors import visible_suppliers
 from apps.procurement.services import canonical_code
 from apps.users.models import User
@@ -840,6 +847,105 @@ class SupplierReturnForm(forms.Form):
                 _("رمز السبب لا يتبع مؤسسة هذا التسليم."), code="reason_code_organization_mismatch"
             )
         return data
+
+
+class SupplierCreditNoteForm(forms.Form):
+    """
+    The header of a draft credit note. Allocations are entered on the detail
+    screen.
+
+    The return is the field, not the supplier: a Release 1 note is always the
+    answer to a claim, and the claim is a posted return's clearing balance.
+    Everything else follows from it.
+    """
+
+    supplier_return = forms.ModelChoiceField(
+        queryset=SupplierReturn.objects.none(),
+        label=_("المرتجع المُسوّى"),
+        help_text=_("مرتجع مرحّل لم يُسوَّ بعد — لكل مرتجع إشعار دائن قائم واحد."),
+    )
+    supplier_document_number = forms.CharField(
+        label=_("رقم مستند المورد"),
+        max_length=64,
+        help_text=_("رقم الإشعار كما كتبه المورد. لا يتكرر لنفس المورد."),
+    )
+    credit_date = forms.DateField(
+        label=_("تاريخ الإشعار"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    amount = forms.DecimalField(
+        label=_("المبلغ المعتمد"),
+        min_value=Decimal("0.001"),
+        help_text=_("ما اعتمده المورد على ورقته — لا القيمة الدفترية ولا التوقع."),
+    )
+    reason = forms.CharField(label=_("السبب"), required=False, widget=forms.Textarea)
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+        allowed = organizations_with_permission(actor, CREATE_SUPPLIER_CREDIT_NOTE)
+        # Posted returns with no standing note: the one-note-per-return rule
+        # offered rather than discovered on submit.
+        self.fields["supplier_return"].queryset = (  # type: ignore[attr-defined]
+            SupplierReturn.objects.filter(organization__in=allowed, status="POSTED")
+            .exclude(credit_notes__status__in=("DRAFT", "POSTED"))
+            .select_related("supplier", "receipt")
+            .order_by("-id")
+        )
+
+
+class CreditAllocationForm(forms.Form):
+    """This much of the note nets against that posted invoice."""
+
+    invoice = forms.ModelChoiceField(queryset=SupplierInvoice.objects.none(), label=_("الفاتورة"))
+    allocated_amount = forms.DecimalField(
+        label=_("المبلغ المخصص"),
+        min_value=Decimal("0.001"),
+        help_text=_("لا يتجاوز رصيد الفاتورة ولا مبلغ الإشعار."),
+    )
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, credit_note: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.credit_note = credit_note
+        # This supplier's posted invoices only. The service re-checks; the
+        # form simply does not offer somebody else's debt.
+        self.fields["invoice"].queryset = (  # type: ignore[attr-defined]
+            SupplierInvoice.objects.filter(supplier_id=credit_note.supplier_id, status="POSTED")
+            .select_related("supplier")
+            .order_by("-id")
+        )
+
+
+class CreditReturnAllocationForm(forms.Form):
+    """This much of the note settles that much of one return line."""
+
+    return_line = forms.ModelChoiceField(
+        queryset=SupplierReturnLine.objects.none(), label=_("سطر المرتجع")
+    )
+    credited_base_quantity = forms.DecimalField(
+        label=_("الكمية المعتمدة بالوحدة الأساسية"),
+        min_value=Decimal("0.001"),
+        help_text=_("لا تتجاوز المتبقي من كمية السطر المرتجعة."),
+    )
+    allocated_credit_amount = forms.DecimalField(
+        label=_("المبلغ المعتمد لهذا السطر"),
+        min_value=Decimal("0.001"),
+        help_text=_("مجموع ما يُنسب للأسطر يجب أن يساوي مبلغ الإشعار عند الترحيل."),
+    )
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, credit_note: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.credit_note = credit_note
+        self.fields["return_line"].queryset = (  # type: ignore[attr-defined]
+            SupplierReturnLine.objects.filter(supplier_return_id=credit_note.supplier_return_id)
+            .select_related("item")
+            .order_by("sequence")
+        )
 
 
 class SupplierReturnLineForm(forms.Form):

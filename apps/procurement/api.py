@@ -36,6 +36,17 @@ from apps.organizations.authorization import (
     resolve_branch,
     resolve_organization,
 )
+from apps.procurement.credit_notes import (
+    add_credit_allocation,
+    add_return_allocation,
+    create_supplier_credit_note,
+    delete_supplier_credit_note,
+    post_supplier_credit_note,
+    remove_credit_allocation,
+    remove_return_allocation,
+    reverse_supplier_credit_note,
+    unallocated_credit,
+)
 from apps.procurement.invoices import (
     add_account_line,
     add_inventory_line,
@@ -62,6 +73,7 @@ from apps.procurement.models import (
     PurchaseMatchAllocation,
     PurchaseOrderLine,
     Supplier,
+    SupplierCreditNote,
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
@@ -71,18 +83,22 @@ from apps.procurement.models import (
 from apps.procurement.permissions import (
     APPROVE_SUPPLIER_INVOICE,
     CANCEL_PURCHASE_MATCH,
+    CREATE_SUPPLIER_CREDIT_NOTE,
     CREATE_SUPPLIER_INVOICE,
     CREATE_SUPPLIER_RETURN,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
     MATCH_SUPPLIER_INVOICE,
+    POST_SUPPLIER_CREDIT_NOTE,
     POST_SUPPLIER_INVOICE,
     POST_SUPPLIER_RETURN,
+    REVERSE_SUPPLIER_CREDIT_NOTE,
     REVERSE_SUPPLIER_INVOICE,
     REVERSE_SUPPLIER_RETURN,
     VIEW_PURCHASE_MATCH,
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
+    VIEW_SUPPLIER_CREDIT_NOTE,
     VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
     VIEW_SUPPLIER_RETURN,
@@ -96,16 +112,20 @@ from apps.procurement.returns import (
     reverse_supplier_return,
 )
 from apps.procurement.selectors import (
+    resolve_credit_allocation,
+    resolve_credit_return_allocation,
     resolve_match_allocation,
     resolve_purchase_match,
     resolve_return_line,
     resolve_supplier,
+    resolve_supplier_credit_note,
     resolve_supplier_invoice,
     resolve_supplier_item,
     resolve_supplier_return,
     visible_goods_receipts,
     visible_purchase_matches,
     visible_purchase_orders,
+    visible_supplier_credit_notes,
     visible_supplier_invoices,
     visible_supplier_items,
     visible_supplier_returns,
@@ -1425,3 +1445,337 @@ def _reload_return(supplier_return: SupplierReturn) -> SupplierReturn:
     return SupplierReturn.objects.select_related(
         "supplier", "receipt", "warehouse", "reason_code", "journal_entry"
     ).get(pk=supplier_return.pk)
+
+
+# ---------------------------------------------------------------------------
+# Supplier credit notes (Task 2.14)
+# ---------------------------------------------------------------------------
+
+
+class CreditAllocationOut(Schema):
+    id: int
+    sequence: int
+    invoice_id: int
+    invoice_number: str
+    allocated_amount: str
+    note: str
+
+
+class CreditReturnAllocationOut(Schema):
+    id: int
+    sequence: int
+    supplier_return_line_id: int
+    item_code: str
+    credited_base_quantity: str
+    note: str
+    #: Omitted entirely without `view_supplier_cost`, never blanked.
+    allocated_credit_amount: str | None = None
+    settled_book_value: str | None = None
+
+
+class SupplierCreditNoteOut(Schema):
+    id: int
+    public_id: str
+    organization_id: int
+    branch_id: int
+    supplier_id: int
+    supplier_code: str
+    supplier_return_id: int
+    supplier_return_number: str
+    number: str
+    status: str
+    supplier_document_number: str
+    credit_date: str
+    business_date: str
+    reason: str
+    journal_entry: str | None = None
+    reversal_journal_entry: str | None = None
+    #: Omitted entirely without `view_supplier_cost`, never blanked.
+    amount: str | None = None
+    book_value: str | None = None
+    unallocated: str | None = None
+    allocations: list[CreditAllocationOut] = []
+    return_allocations: list[CreditReturnAllocationOut] = []
+
+
+class SupplierCreditNoteIn(Schema):
+    supplier_return_id: int
+    supplier_document_number: str
+    credit_date: str
+    amount: str
+    business_date: str | None = None
+    reason: str = ""
+    notes: str = ""
+
+
+class CreditAllocationIn(Schema):
+    invoice_id: int
+    allocated_amount: str
+    note: str = ""
+
+
+class CreditReturnAllocationIn(Schema):
+    return_line_id: int
+    credited_base_quantity: str
+    allocated_credit_amount: str
+    note: str = ""
+
+
+def _require_note_view(request: HttpRequest) -> User:
+    actor = _actor(request)
+    if not actor.has_perm(VIEW_SUPPLIER_CREDIT_NOTE):
+        raise PermissionMissing(f"{VIEW_SUPPLIER_CREDIT_NOTE} is not held.")
+    return actor
+
+
+def _serialize_note(note: SupplierCreditNote, *, include_cost: bool) -> dict[str, Any]:
+    allocations = list(note.allocations.select_related("invoice").order_by("sequence"))
+    payload: dict[str, Any] = {
+        "id": note.pk,
+        "public_id": str(note.public_id),
+        "organization_id": note.organization_id,
+        "branch_id": note.branch_id,
+        "supplier_id": note.supplier_id,
+        "supplier_code": note.supplier.code,
+        "supplier_return_id": note.supplier_return_id,
+        "supplier_return_number": note.supplier_return.number,
+        "number": note.number,
+        "status": note.status,
+        "supplier_document_number": note.supplier_document_number,
+        "credit_date": note.credit_date.isoformat(),
+        "business_date": note.business_date.isoformat(),
+        "reason": note.reason,
+        "journal_entry": note.journal_entry.entry_number if note.journal_entry else None,
+        "reversal_journal_entry": (
+            note.reversal_journal_entry.entry_number if note.reversal_journal_entry else None
+        ),
+        "allocations": [
+            {
+                "id": row.pk,
+                "sequence": row.sequence,
+                "invoice_id": row.invoice_id,
+                "invoice_number": row.invoice.number,
+                "allocated_amount": format(row.allocated_amount, "f") if include_cost else "",
+                "note": row.note,
+            }
+            for row in allocations
+        ],
+        "return_allocations": [
+            {
+                "id": row.pk,
+                "sequence": row.sequence,
+                "supplier_return_line_id": row.supplier_return_line_id,
+                "item_code": row.supplier_return_line.item.code,
+                "credited_base_quantity": format(row.credited_base_quantity, "f"),
+                "note": row.note,
+                **(
+                    {
+                        "allocated_credit_amount": format(row.allocated_credit_amount, "f"),
+                        "settled_book_value": (
+                            format(row.settled_book_value, "f")
+                            if row.settled_book_value is not None
+                            else None
+                        ),
+                    }
+                    if include_cost
+                    else {}
+                ),
+            }
+            for row in note.return_allocations.select_related(
+                "supplier_return_line", "supplier_return_line__item"
+            ).order_by("sequence")
+        ],
+    }
+    if include_cost:
+        payload.update(
+            {
+                "amount": format(note.amount, "f"),
+                "book_value": (
+                    format(note.supplier_return.posted_value, "f")
+                    if note.supplier_return.posted_value is not None
+                    else None
+                ),
+                "unallocated": format(unallocated_credit(note), "f"),
+            }
+        )
+    return payload
+
+
+@router.get(
+    "/supplier-credit-notes/",
+    response=list[SupplierCreditNoteOut],
+    summary="List supplier credit notes",
+)
+def list_supplier_credit_notes(request: HttpRequest, status: str | None = None) -> Any:
+    actor = _require_note_view(request)
+    queryset = visible_supplier_credit_notes(actor)
+    if status:
+        queryset = queryset.filter(status=status.strip().upper())
+    include_cost = actor.has_perm(VIEW_SUPPLIER_COST)
+    return [_serialize_note(row, include_cost=include_cost) for row in queryset.order_by("-id")]
+
+
+@router.get(
+    "/supplier-credit-notes/{note_id}/",
+    response=SupplierCreditNoteOut,
+    summary="Read one supplier credit note",
+)
+def read_supplier_credit_note(request: HttpRequest, note_id: int) -> Any:
+    actor = _require_note_view(request)
+    note = resolve_supplier_credit_note(actor, note_id)
+    return _serialize_note(note, include_cost=actor.has_perm(VIEW_SUPPLIER_COST))
+
+
+@router.post(
+    "/supplier-credit-notes/",
+    response={201: SupplierCreditNoteOut},
+    summary="Open a draft note against a posted return",
+)
+def create_credit_note(request: HttpRequest, payload: SupplierCreditNoteIn) -> Status[Any]:
+    actor = _actor(request)
+    supplier_return = visible_supplier_returns(actor).filter(pk=payload.supplier_return_id).first()
+    if supplier_return is None:
+        raise OutOfScope(f"Supplier return {payload.supplier_return_id} does not exist.")
+    require_organization_permission(
+        actor, CREATE_SUPPLIER_CREDIT_NOTE, supplier_return.organization
+    )
+    note = create_supplier_credit_note(
+        supplier_return=supplier_return,
+        created_by=actor,
+        supplier_document_number=payload.supplier_document_number,
+        credit_date=_required_date(payload.credit_date, field="credit_date"),
+        amount=_required_money(payload.amount, field="amount"),
+        business_date=_date(payload.business_date, field="business_date"),
+        reason=payload.reason,
+        notes=payload.notes,
+    )
+    return Status(201, _serialize_note(note, include_cost=True))
+
+
+@router.delete(
+    "/supplier-credit-notes/{note_id}/", response={204: None}, summary="Discard a draft note"
+)
+def delete_credit_note(request: HttpRequest, note_id: int) -> Status[Any]:
+    actor = _actor(request)
+    note = resolve_supplier_credit_note(actor, note_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_CREDIT_NOTE, note.organization)
+    delete_supplier_credit_note(credit_note=note)
+    return Status(204, None)
+
+
+@router.post(
+    "/supplier-credit-notes/{note_id}/return-allocations/",
+    response={201: SupplierCreditNoteOut},
+    summary="Settle part of a return line with this note",
+)
+def add_credit_return_allocation_endpoint(
+    request: HttpRequest, note_id: int, payload: CreditReturnAllocationIn
+) -> Status[Any]:
+    actor = _actor(request)
+    note = resolve_supplier_credit_note(actor, note_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_CREDIT_NOTE, note.organization)
+    return_line = SupplierReturnLine.objects.filter(
+        pk=payload.return_line_id, supplier_return_id=note.supplier_return_id
+    ).first()
+    if return_line is None:
+        raise OutOfScope(f"Return line {payload.return_line_id} does not exist.")
+    add_return_allocation(
+        credit_note=note,
+        return_line=return_line,
+        credited_base_quantity=_required_money(
+            payload.credited_base_quantity, field="credited_base_quantity"
+        ),
+        allocated_credit_amount=_required_money(
+            payload.allocated_credit_amount, field="allocated_credit_amount"
+        ),
+        note=payload.note,
+    )
+    return Status(201, _serialize_note(_reload_note(note), include_cost=True))
+
+
+@router.delete(
+    "/supplier-credit-notes/{note_id}/return-allocations/{allocation_id}/",
+    response={204: None},
+    summary="Remove a draft settlement slice",
+)
+def delete_credit_return_allocation(
+    request: HttpRequest, note_id: int, allocation_id: int
+) -> Status[Any]:
+    actor = _actor(request)
+    note = resolve_supplier_credit_note(actor, note_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_CREDIT_NOTE, note.organization)
+    allocation = resolve_credit_return_allocation(
+        actor, credit_note=note, allocation_id=allocation_id
+    )
+    remove_return_allocation(allocation=allocation)
+    return Status(204, None)
+
+
+@router.post(
+    "/supplier-credit-notes/{note_id}/allocations/",
+    response={201: SupplierCreditNoteOut},
+    summary="Net part of the note against a posted invoice",
+)
+def add_credit_allocation_endpoint(
+    request: HttpRequest, note_id: int, payload: CreditAllocationIn
+) -> Status[Any]:
+    actor = _actor(request)
+    note = resolve_supplier_credit_note(actor, note_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_CREDIT_NOTE, note.organization)
+    invoice = resolve_supplier_invoice(actor, payload.invoice_id)
+    add_credit_allocation(
+        credit_note=note,
+        invoice=invoice,
+        allocated_amount=_required_money(payload.allocated_amount, field="allocated_amount"),
+        note=payload.note,
+    )
+    return Status(201, _serialize_note(_reload_note(note), include_cost=True))
+
+
+@router.delete(
+    "/supplier-credit-notes/{note_id}/allocations/{allocation_id}/",
+    response={204: None},
+    summary="Remove a draft allocation",
+)
+def delete_credit_allocation(request: HttpRequest, note_id: int, allocation_id: int) -> Status[Any]:
+    actor = _actor(request)
+    note = resolve_supplier_credit_note(actor, note_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_CREDIT_NOTE, note.organization)
+    allocation = resolve_credit_allocation(actor, credit_note=note, allocation_id=allocation_id)
+    remove_credit_allocation(allocation=allocation)
+    return Status(204, None)
+
+
+@router.post(
+    "/supplier-credit-notes/{note_id}/post/",
+    response=SupplierCreditNoteOut,
+    summary="Post a supplier credit note",
+)
+def post_credit_note(request: HttpRequest, note_id: int) -> Any:
+    actor = _actor(request)
+    note = resolve_supplier_credit_note(actor, note_id)
+    require_organization_permission(actor, POST_SUPPLIER_CREDIT_NOTE, note.organization)
+    posted = post_supplier_credit_note(credit_note=note, actor=actor)
+    return _serialize_note(posted, include_cost=True)
+
+
+@router.post(
+    "/supplier-credit-notes/{note_id}/reverse/",
+    response=SupplierCreditNoteOut,
+    summary="Reverse a posted supplier credit note",
+)
+def reverse_credit_note(request: HttpRequest, note_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    note = resolve_supplier_credit_note(actor, note_id)
+    require_organization_permission(actor, REVERSE_SUPPLIER_CREDIT_NOTE, note.organization)
+    reversed_note = reverse_supplier_credit_note(
+        credit_note=note, actor=actor, reason=payload.reason
+    )
+    return _serialize_note(reversed_note, include_cost=True)
+
+
+def _reload_note(note: SupplierCreditNote) -> SupplierCreditNote:
+    """Re-read after an allocation change, so the response carries stored rows."""
+    return SupplierCreditNote.objects.select_related(
+        "supplier", "supplier_return", "journal_entry"
+    ).get(pk=note.pk)

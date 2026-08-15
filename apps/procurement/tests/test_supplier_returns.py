@@ -827,18 +827,22 @@ class TestTheCreditNoteBoundary:
         assert _balance(organization, CLEARING_CODE) == Decimal("14000.000")
         assert verify_procurement(organization) == []
 
-    def test_no_credit_note_model_exists_yet(self) -> None:
+    def test_the_credit_note_model_now_exists(self) -> None:
+        """The positive twin of Step 15's boundary marker: Task 2.14 arrived."""
         from django.apps import apps as django_apps
 
         names = {model.__name__ for model in django_apps.get_app_config("procurement").get_models()}
-        assert "SupplierCreditNote" not in names
+        assert "SupplierCreditNote" in names
 
-    def test_the_return_variance_role_is_seeded_and_unmapped(
+    def test_the_return_itself_still_never_touches_the_variance_role(
         self, organization: Organization, mapped: None
     ) -> None:
         """
-        Named now so Task 2.14 cannot quietly reach for the *price* variance
-        account, and mapped by nothing because Task 2.13 posts nothing to it.
+        Task 2.14 maps and posts to `PURCHASE_RETURN_VARIANCE` — from the
+        credit note. The *return* still refuses to guess: this fixture maps
+        nothing to the role, and every return in this file posts anyway,
+        which is the unmapped half of Step 15's boundary held where it still
+        applies.
         """
         from apps.accounting.models import OrganizationAccountMapping
 

@@ -307,4 +307,42 @@ urlpatterns = [
         views.SupplierReturnTransitionView.as_view(transition="reverse"),
         name="supplier_return_reverse",
     ),
+    # --- supplier credit notes ---------------------------------------------
+    path(
+        "credit-notes/",
+        views.SupplierCreditNoteListView.as_view(),
+        name="supplier_credit_note_list",
+    ),
+    path(
+        "credit-notes/new/",
+        views.SupplierCreditNoteCreateView.as_view(),
+        name="supplier_credit_note_create",
+    ),
+    path(
+        "credit-notes/<int:pk>/",
+        views.SupplierCreditNoteDetailView.as_view(),
+        name="supplier_credit_note_detail",
+    ),
+    path(
+        "credit-notes/<int:pk>/allocations/<int:allocation_id>/delete/",
+        views.CreditAllocationDeleteView.as_view(),
+        name="credit_allocation_delete",
+    ),
+    path(
+        "credit-notes/<int:pk>/settlements/<int:allocation_id>/delete/",
+        views.CreditReturnAllocationDeleteView.as_view(),
+        name="credit_return_allocation_delete",
+    ),
+    # Command routes, POST-only. Posting a note moves the payable; there is
+    # no writable generic endpoint over a posted note and deliberately none.
+    path(
+        "credit-notes/<int:pk>/post/",
+        views.SupplierCreditNoteTransitionView.as_view(transition="post"),
+        name="supplier_credit_note_post",
+    ),
+    path(
+        "credit-notes/<int:pk>/reverse/",
+        views.SupplierCreditNoteTransitionView.as_view(transition="reverse"),
+        name="supplier_credit_note_reverse",
+    ),
 ]

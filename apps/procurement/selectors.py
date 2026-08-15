@@ -30,6 +30,9 @@ from apps.procurement.models import (
     PurchaseRequest,
     PurchaseRequestLine,
     Supplier,
+    SupplierCreditAllocation,
+    SupplierCreditNote,
+    SupplierCreditReturnAllocation,
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierInvoiceStatus,
@@ -525,6 +528,68 @@ def returnable_receipt_lines(supplier_return: SupplierReturn) -> list[dict[str, 
             "item", "item__base_unit", "lot"
         ).order_by("sequence")
     ]
+
+
+# ---------------------------------------------------------------------------
+# Supplier credit notes (Task 2.14)
+# ---------------------------------------------------------------------------
+
+
+def visible_supplier_credit_notes(user: User) -> QuerySet[SupplierCreditNote]:
+    """
+    Credit notes in organizations the caller holds real authority over.
+
+    The invoice's narrow scope, and for the invoice's reason: a note moves the
+    payable, and a branch membership is custody of a store rather than
+    authority over a debt (PRC-060).
+    """
+    from apps.organizations.authorization import organizations_with_permission
+    from apps.procurement.permissions import VIEW_SUPPLIER_CREDIT_NOTE
+
+    allowed = organizations_with_permission(user, VIEW_SUPPLIER_CREDIT_NOTE)
+    return SupplierCreditNote.objects.filter(organization__in=allowed).select_related(
+        "organization",
+        "branch",
+        "supplier",
+        "supplier_return",
+        "supplier_return__receipt",
+        "created_by",
+        "journal_entry",
+    )
+
+
+def resolve_supplier_credit_note(user: User, note_id: int) -> SupplierCreditNote:
+    """Turn a submitted note id into one the caller may reach, or 404."""
+    found = visible_supplier_credit_notes(user).filter(pk=note_id).first()
+    if found is None:
+        raise OutOfScope(_("Supplier credit note %(id)s does not exist.") % {"id": note_id})
+    return found
+
+
+def resolve_credit_allocation(
+    user: User, *, credit_note: SupplierCreditNote, allocation_id: int
+) -> SupplierCreditAllocation:
+    """An allocation, resolved under its own note — never by id alone."""
+    allocation = SupplierCreditAllocation.objects.filter(
+        pk=allocation_id, credit_note=credit_note
+    ).first()
+    if allocation is None:
+        raise OutOfScope(_("Credit allocation %(id)s does not exist.") % {"id": allocation_id})
+    return allocation
+
+
+def resolve_credit_return_allocation(
+    user: User, *, credit_note: SupplierCreditNote, allocation_id: int
+) -> SupplierCreditReturnAllocation:
+    """A settlement slice, resolved under its own note — never by id alone."""
+    allocation = SupplierCreditReturnAllocation.objects.filter(
+        pk=allocation_id, credit_note=credit_note
+    ).first()
+    if allocation is None:
+        raise OutOfScope(
+            _("Credit return allocation %(id)s does not exist.") % {"id": allocation_id}
+        )
+    return allocation
 
 
 # ---------------------------------------------------------------------------

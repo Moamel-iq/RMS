@@ -132,6 +132,16 @@ CREATE_SUPPLIER_INVOICE = f"{APP_LABEL}.create_supplier_invoice"
 APPROVE_SUPPLIER_INVOICE = f"{APP_LABEL}.approve_supplier_invoice"
 POST_SUPPLIER_INVOICE = f"{APP_LABEL}.post_supplier_invoice"
 REVERSE_SUPPLIER_INVOICE = f"{APP_LABEL}.reverse_supplier_invoice"
+#: Task 2.14. Organization-scoped, all four, because a credit note is money —
+#: it moves the payable and settles a claim — and money is not stored in a
+#: warehouse (PRC-060). §13 named `post_supplier_credit_note` alone; the three
+#: companions follow the invoice's amendment precedent, and the maker-checker
+#: split follows it too: whoever agrees a credit is real should not be the
+#: person who typed it in.
+VIEW_SUPPLIER_CREDIT_NOTE = f"{APP_LABEL}.view_suppliercreditnote"
+CREATE_SUPPLIER_CREDIT_NOTE = f"{APP_LABEL}.create_supplier_credit_note"
+POST_SUPPLIER_CREDIT_NOTE = f"{APP_LABEL}.post_supplier_credit_note"
+REVERSE_SUPPLIER_CREDIT_NOTE = f"{APP_LABEL}.reverse_supplier_credit_note"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_SUPPLIER,
@@ -167,6 +177,10 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_PURCHASE_MATCH,
     MATCH_SUPPLIER_INVOICE,
     CANCEL_PURCHASE_MATCH,
+    VIEW_SUPPLIER_CREDIT_NOTE,
+    CREATE_SUPPLIER_CREDIT_NOTE,
+    POST_SUPPLIER_CREDIT_NOTE,
+    REVERSE_SUPPLIER_CREDIT_NOTE,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -221,6 +235,11 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     VIEW_PURCHASE_MATCH: PermissionScope.ORGANIZATION_AUTHORITY,
     MATCH_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
     CANCEL_PURCHASE_MATCH: PermissionScope.ORGANIZATION_AUTHORITY,
+    # A credit note moves the payable. Money, so the invoice's scope.
+    VIEW_SUPPLIER_CREDIT_NOTE: PermissionScope.ORGANIZATION_AUTHORITY,
+    CREATE_SUPPLIER_CREDIT_NOTE: PermissionScope.ORGANIZATION_AUTHORITY,
+    POST_SUPPLIER_CREDIT_NOTE: PermissionScope.ORGANIZATION_AUTHORITY,
+    REVERSE_SUPPLIER_CREDIT_NOTE: PermissionScope.ORGANIZATION_AUTHORITY,
 }
 
 
@@ -292,6 +311,10 @@ _MANAGER = frozenset(
         VIEW_SUPPLIER_INVOICE,
         CREATE_SUPPLIER_INVOICE,
         VIEW_PURCHASE_MATCH,
+        # Records the supplier's answer to a return; posting it is the
+        # accounting side's act, the same split the invoice draws.
+        VIEW_SUPPLIER_CREDIT_NOTE,
+        CREATE_SUPPLIER_CREDIT_NOTE,
     }
 )
 
@@ -331,6 +354,11 @@ _ACCOUNTING_MANAGER = frozenset(
         VIEW_PURCHASE_MATCH,
         MATCH_SUPPLIER_INVOICE,
         CANCEL_PURCHASE_MATCH,
+        # Recognises the supplier's credit and can take it back — and
+        # deliberately cannot record one, the invoice's maker-checker split.
+        VIEW_SUPPLIER_CREDIT_NOTE,
+        POST_SUPPLIER_CREDIT_NOTE,
+        REVERSE_SUPPLIER_CREDIT_NOTE,
     }
 )
 _ACCOUNTANT = frozenset(
@@ -352,6 +380,10 @@ _ACCOUNTANT = frozenset(
         # and withdrawing an agreed match deliberately does not.
         VIEW_PURCHASE_MATCH,
         MATCH_SUPPLIER_INVOICE,
+        # Enters the supplier's credit note from the post, and posts none of
+        # it — the same separation the invoice draws.
+        VIEW_SUPPLIER_CREDIT_NOTE,
+        CREATE_SUPPLIER_CREDIT_NOTE,
     }
 )
 

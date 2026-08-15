@@ -21,6 +21,7 @@ from decimal import Decimal
 
 from apps.accounting.models import (
     PURCHASE_PRICE_VARIANCE,
+    PURCHASE_RETURN_VARIANCE,
     SUPPLIER_PAYABLE,
     SUPPLIER_RETURN_CLEARING,
     Account,
@@ -38,6 +39,11 @@ from apps.inventory.models import (
 )
 from apps.organizations.models import Branch, Organization
 from apps.procurement.comparison import award_quotation
+from apps.procurement.credit_notes import (
+    add_return_allocation,
+    create_supplier_credit_note,
+    post_supplier_credit_note,
+)
 from apps.procurement.invoices import (
     add_account_line,
     add_inventory_line,
@@ -62,6 +68,8 @@ from apps.procurement.models import (
     PurchaseRequest,
     PurchaseRequestStatus,
     Supplier,
+    SupplierCreditNote,
+    SupplierCreditNoteStatus,
     SupplierInvoice,
     SupplierInvoiceLineType,
     SupplierInvoiceStatus,
@@ -222,10 +230,10 @@ CATALOGUE_EFFECTIVE_FROM = datetime.date(2026, 1, 1)
 PROCUREMENT_ACCOUNT_MAPPINGS: list[tuple[str, str]] = [
     (SUPPLIER_PAYABLE, "2-01-01-001"),
     (PURCHASE_PRICE_VARIANCE, "8-01-03-001"),
-    # Task 2.13. The return's clearing account only — `PURCHASE_RETURN_VARIANCE`
-    # is deliberately absent: nothing posts to it until Task 2.14's credit
-    # note, and a role with no posting rule behind it must not be mapped.
     (SUPPLIER_RETURN_CLEARING, "8-01-04-001"),
+    # Task 2.14's first deliberate act: the role Task 2.13 seeded and refused
+    # to map is mapped now, because the credit note posts to it.
+    (PURCHASE_RETURN_VARIANCE, "7-09-04-001"),
 ]
 
 
@@ -1428,8 +1436,10 @@ def seed_demo_returns(
                 supplier_return=posted,
                 receipt_line=line,
                 returned_base_quantity=Decimal("20.000"),
-                expected_credit_value=Decimal("280000.000"),
-                note="بسعر الاستلام ١٤٬٠٠٠ للمطالبة",
+                # 20 kg at the receipt's 1,400/kg (the 14,000 was per ten-kilo
+                # carton). Metadata for the claim; it posts nothing.
+                expected_credit_value=Decimal("28000.000"),
+                note="بسعر الاستلام ١٬٤٠٠ للكيلوغرام للمطالبة",
             )
     if posted is not None:
         if posted.status == SupplierReturnStatus.DRAFT:
@@ -1496,3 +1506,73 @@ def seed_demo_returns(
         returns.append(undone)
 
     return returns
+
+
+def seed_demo_credit_notes(
+    *, organization: Organization, recorder: User, poster: User
+) -> list[SupplierCreditNote]:
+    """
+    One credit note: the supplier's answer to the chicken return (Task 2.14).
+
+    `DEMO-SCN-CHICKEN` credits the 28,000 the goods were bought for — twenty
+    kilograms at the receipt's 1,400 — against a book value of 40,514.706,
+    because the standing average had blended dearer earlier stock. Posting it
+    closes the chicken claim in `8-01-04-001`, debits the payable 28,000, and
+    recognises the 12,514.706 difference in `7-09-04-001` — the ADR-022 §2 gap
+    landing on paper, as a loss the buyer can see.
+
+    No allocation, deliberately: the chicken delivery has no posted invoice in
+    this dataset, so the note stands as **unallocated supplier credit** —
+    PRC-051's second outcome, visible rather than merely specified. The other
+    two demo returns cannot take a note (one is a draft, one is reversed),
+    which the screens explain by omission.
+
+    Everything through the real services; idempotent by the supplier document
+    number. `recorder` and `poster` differ because the maker-checker split is
+    real: whoever agrees a credit is real should not have typed it in.
+    """
+    existing = {
+        row.supplier_document_number: row
+        for row in SupplierCreditNote.objects.filter(
+            organization=organization, supplier_document_number__startswith="DEMO-SCN"
+        ).order_by("id")
+    }
+    notes: list[SupplierCreditNote] = []
+
+    note = existing.get("DEMO-SCN-CHICKEN")
+    if note is None:
+        settled_return = SupplierReturn.objects.filter(
+            organization=organization,
+            evidence_reference="DEMO-SRET-CHICKEN",
+            status=SupplierReturnStatus.POSTED,
+        ).first()
+        if settled_return is None:
+            return []
+        note = create_supplier_credit_note(
+            supplier_return=settled_return,
+            created_by=recorder,
+            supplier_document_number="DEMO-SCN-CHICKEN",
+            credit_date=settled_return.returned_at + datetime.timedelta(days=7),
+            amount=Decimal("28000.000"),
+            reason="اعتماد المورد لمرتجع الدجاج بسعر الشراء",
+        )
+        # The settlement is explicit and per line: the whole twenty kilograms,
+        # so this note takes the line's exact remaining book value.
+        add_return_allocation(
+            credit_note=note,
+            return_line=settled_return.lines.get(),
+            credited_base_quantity=Decimal("20.000"),
+            allocated_credit_amount=Decimal("28000.000"),
+        )
+    if note.status == SupplierCreditNoteStatus.DRAFT:
+        if not note.return_allocations.exists():
+            add_return_allocation(
+                credit_note=note,
+                return_line=note.supplier_return.lines.get(),
+                credited_base_quantity=Decimal("20.000"),
+                allocated_credit_amount=Decimal("28000.000"),
+            )
+        post_supplier_credit_note(credit_note=note, actor=poster)
+        note.refresh_from_db()
+    notes.append(note)
+    return notes

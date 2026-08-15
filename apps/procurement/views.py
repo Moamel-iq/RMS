@@ -47,7 +47,22 @@ from apps.organizations.authorization import (
     require_warehouse_permission,
 )
 from apps.procurement.comparison import award_quotation, comparison_for_request
+from apps.procurement.credit_notes import (
+    add_credit_allocation,
+    add_return_allocation,
+    create_supplier_credit_note,
+    note_timeline,
+    post_supplier_credit_note,
+    remaining_book_value,
+    remaining_credit_quantity,
+    remove_credit_allocation,
+    remove_return_allocation,
+    reverse_supplier_credit_note,
+    unallocated_credit,
+)
 from apps.procurement.forms import (
+    CreditAllocationForm,
+    CreditReturnAllocationForm,
     GoodsReceiptForm,
     GoodsReceiptLineForm,
     InspectLineForm,
@@ -58,6 +73,7 @@ from apps.procurement.forms import (
     PurchaseOrderLineForm,
     PurchaseRequestForm,
     PurchaseRequestLineForm,
+    SupplierCreditNoteForm,
     SupplierForm,
     SupplierInvoiceForm,
     SupplierItemForm,
@@ -92,6 +108,7 @@ from apps.procurement.models import (
     PurchaseMatchStatus,
     PurchaseOrderStatus,
     PurchaseRequestStatus,
+    SupplierCreditNoteStatus,
     SupplierInvoiceStatus,
     SupplierQuotationStatus,
     SupplierReturnStatus,
@@ -106,6 +123,7 @@ from apps.procurement.permissions import (
     CREATE_GOODS_RECEIPT,
     CREATE_PURCHASE_ORDER,
     CREATE_PURCHASE_REQUEST,
+    CREATE_SUPPLIER_CREDIT_NOTE,
     CREATE_SUPPLIER_INVOICE,
     CREATE_SUPPLIER_RETURN,
     INSPECT_GOODS_RECEIPT,
@@ -115,9 +133,11 @@ from apps.procurement.permissions import (
     MANAGE_SUPPLIERS,
     MATCH_SUPPLIER_INVOICE,
     POST_GOODS_RECEIPT,
+    POST_SUPPLIER_CREDIT_NOTE,
     POST_SUPPLIER_INVOICE,
     POST_SUPPLIER_RETURN,
     REVERSE_GOODS_RECEIPT,
+    REVERSE_SUPPLIER_CREDIT_NOTE,
     REVERSE_SUPPLIER_INVOICE,
     REVERSE_SUPPLIER_RETURN,
     VIEW_GOODS_RECEIPT,
@@ -127,6 +147,7 @@ from apps.procurement.permissions import (
     VIEW_QUOTATION,
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
+    VIEW_SUPPLIER_CREDIT_NOTE,
     VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
     VIEW_SUPPLIER_RETURN,
@@ -148,6 +169,8 @@ from apps.procurement.selectors import (
     matching_queue,
     order_version_history,
     outstanding_order_lines,
+    resolve_credit_allocation,
+    resolve_credit_return_allocation,
     resolve_goods_receipt,
     resolve_invoice_line,
     resolve_match_allocation,
@@ -161,6 +184,7 @@ from apps.procurement.selectors import (
     resolve_request_line,
     resolve_return_line,
     resolve_supplier,
+    resolve_supplier_credit_note,
     resolve_supplier_invoice,
     resolve_supplier_item,
     resolve_supplier_return,
@@ -170,6 +194,7 @@ from apps.procurement.selectors import (
     visible_purchase_orders,
     visible_purchase_requests,
     visible_quotations,
+    visible_supplier_credit_notes,
     visible_supplier_invoices,
     visible_supplier_items,
     visible_supplier_returns,
@@ -2165,4 +2190,280 @@ class SupplierReturnTransitionView(InventoryViewMixin, View):
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
         return HttpResponseRedirect(
             reverse("procurement:supplier_return_detail", args=[supplier_return.pk])
+        )
+
+
+# ---------------------------------------------------------------------------
+# Supplier credit notes (Task 2.14)
+# ---------------------------------------------------------------------------
+
+
+class SupplierCreditNoteListView(InventoryListView):
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_CREDIT_NOTE
+    template_name = "procurement/supplier_credit_note_list.html"
+    context_object_name = "credit_notes"
+    page_title = _("إشعارات الموردين الدائنة")
+    page_hint = _(
+        "جواب المورد على المرتجع. الترحيل يقفل مطالبة المرتجع بقيمتها الدفترية، "
+        "يخفّض ذمة المورد بالمبلغ المعتمد، ويعترف بالفرق في حساب فروقات "
+        "المرتجعات — لا يتحرك مخزون إطلاقاً."
+    )
+    search_fields = (
+        "number",
+        "supplier_document_number",
+        "supplier__code",
+        "supplier__name_ar",
+        "supplier_return__number",
+    )
+    manage_permission = CREATE_SUPPLIER_CREDIT_NOTE
+    manage_scope = "organization"
+    create_url_name = "procurement:supplier_credit_note_create"
+    create_label = _("إشعار جديد")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_supplier_credit_notes(self.actor)
+        status = self.request.GET.get("status", "").strip().upper()
+        if status in SupplierCreditNoteStatus.values:
+            queryset = queryset.filter(status=status)
+        return queryset.order_by("-id")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["statuses"] = SupplierCreditNoteStatus.choices
+        context["selected_status"] = self.request.GET.get("status", "")
+        context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        return context
+
+
+class SupplierCreditNoteCreateView(InventoryWriteView):
+    module_key = "procurement"
+    template_name = "procurement/supplier_credit_note_form.html"
+    form_class = SupplierCreditNoteForm
+    required_permission = CREATE_SUPPLIER_CREDIT_NOTE
+    success_url_name = "procurement:supplier_credit_note_list"
+    page_title = _("إشعار دائن جديد")
+    page_hint = _("يُفتح كمسودة على مرتجع مرحّل. لا قيد حتى الترحيل.")
+    success_message = _("تم إنشاء المسودة. خصّصها على الفواتير إن شئت ثم رحّلها.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_organization_permission(
+            self.actor,
+            CREATE_SUPPLIER_CREDIT_NOTE,
+            form.cleaned_data["supplier_return"].organization,
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        data = form.cleaned_data
+        self.created = create_supplier_credit_note(
+            supplier_return=data["supplier_return"],
+            created_by=self.actor,
+            supplier_document_number=data["supplier_document_number"],
+            credit_date=data["credit_date"],
+            amount=data["amount"],
+            reason=data.get("reason", ""),
+            notes=data.get("notes", ""),
+        )
+
+    def get_success_url(self) -> str:
+        created = getattr(self, "created", None)
+        if created is None:
+            return reverse(self.success_url_name)
+        return reverse("procurement:supplier_credit_note_detail", args=[created.pk])
+
+
+class SupplierCreditNoteDetailView(InventoryViewMixin, View):
+    """Header, the claim it settles, allocations, and the figures side by side."""
+
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_CREDIT_NOTE
+    template_name = "procurement/supplier_credit_note_detail.html"
+
+    def load(self) -> Any:
+        return resolve_supplier_credit_note(self.actor, self.kwargs["pk"])
+
+    def context(
+        self, credit_note: Any, form: Any = None, return_form: Any = None
+    ) -> dict[str, Any]:
+        may_edit = has_organization_permission(
+            self.actor, CREATE_SUPPLIER_CREDIT_NOTE, credit_note.organization
+        )
+        settlement_rows = [
+            {
+                "allocation": row,
+                "line": row.supplier_return_line,
+                "remaining_quantity": remaining_credit_quantity(row.supplier_return_line),
+                "remaining_value": remaining_book_value(row.supplier_return_line),
+            }
+            for row in credit_note.return_allocations.select_related(
+                "supplier_return_line", "supplier_return_line__item"
+            ).order_by("sequence")
+        ]
+        return {
+            "credit_note": credit_note,
+            "settlements": settlement_rows,
+            "allocations": credit_note.allocations.select_related("invoice").order_by("sequence"),
+            "form": form or CreditAllocationForm(actor=self.actor, credit_note=credit_note),
+            "return_form": return_form
+            or CreditReturnAllocationForm(actor=self.actor, credit_note=credit_note),
+            "page_title": credit_note.number or _("مسودة إشعار"),
+            "book_value": credit_note.supplier_return.posted_value,
+            "unallocated": unallocated_credit(credit_note),
+            "may_edit": may_edit and credit_note.is_editable,
+            "may_post": has_organization_permission(
+                self.actor, POST_SUPPLIER_CREDIT_NOTE, credit_note.organization
+            )
+            and credit_note.status == SupplierCreditNoteStatus.DRAFT,
+            "may_reverse": has_organization_permission(
+                self.actor, REVERSE_SUPPLIER_CREDIT_NOTE, credit_note.organization
+            )
+            and credit_note.status == SupplierCreditNoteStatus.POSTED,
+            "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+            "timeline": note_timeline(credit_note),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return render(request, self.template_name, self.context(self.load()))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        credit_note = self.load()
+        require_organization_permission(
+            self.actor, CREATE_SUPPLIER_CREDIT_NOTE, credit_note.organization
+        )
+        if request.POST.get("allocation_type", "") == "RETURN":
+            return self._add_return_allocation(request, credit_note)
+        return self._add_invoice_allocation(request, credit_note)
+
+    def _add_return_allocation(self, request: HttpRequest, credit_note: Any) -> HttpResponse:
+        form = CreditReturnAllocationForm(
+            actor=self.actor, credit_note=credit_note, data=request.POST
+        )
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                add_return_allocation(
+                    credit_note=credit_note,
+                    return_line=data["return_line"],
+                    credited_base_quantity=data["credited_base_quantity"],
+                    allocated_credit_amount=data["allocated_credit_amount"],
+                    note=data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة التسوية."))
+                return HttpResponseRedirect(
+                    reverse("procurement:supplier_credit_note_detail", args=[credit_note.pk])
+                )
+        return render(request, self.template_name, self.context(credit_note, return_form=form))
+
+    def _add_invoice_allocation(self, request: HttpRequest, credit_note: Any) -> HttpResponse:
+        form = CreditAllocationForm(actor=self.actor, credit_note=credit_note, data=request.POST)
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                add_credit_allocation(
+                    credit_note=credit_note,
+                    invoice=data["invoice"],
+                    allocated_amount=data["allocated_amount"],
+                    note=data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة التخصيص."))
+                return HttpResponseRedirect(
+                    reverse("procurement:supplier_credit_note_detail", args=[credit_note.pk])
+                )
+        return render(request, self.template_name, self.context(credit_note, form=form))
+
+
+class CreditReturnAllocationDeleteView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = CREATE_SUPPLIER_CREDIT_NOTE
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        credit_note = resolve_supplier_credit_note(self.actor, self.kwargs["pk"])
+        require_organization_permission(
+            self.actor, CREATE_SUPPLIER_CREDIT_NOTE, credit_note.organization
+        )
+        allocation = resolve_credit_return_allocation(
+            self.actor, credit_note=credit_note, allocation_id=self.kwargs["allocation_id"]
+        )
+        try:
+            remove_return_allocation(allocation=allocation)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم حذف التسوية."))
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_credit_note_detail", args=[credit_note.pk])
+        )
+
+
+class CreditAllocationDeleteView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = CREATE_SUPPLIER_CREDIT_NOTE
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        credit_note = resolve_supplier_credit_note(self.actor, self.kwargs["pk"])
+        require_organization_permission(
+            self.actor, CREATE_SUPPLIER_CREDIT_NOTE, credit_note.organization
+        )
+        allocation = resolve_credit_allocation(
+            self.actor, credit_note=credit_note, allocation_id=self.kwargs["allocation_id"]
+        )
+        try:
+            remove_credit_allocation(allocation=allocation)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم حذف التخصيص."))
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_credit_note_detail", args=[credit_note.pk])
+        )
+
+
+class SupplierCreditNoteTransitionView(InventoryViewMixin, View):
+    """POST-only: post, or reverse. Money moves; a GET must not."""
+
+    module_key = "procurement"
+    transition = "post"
+
+    PERMISSIONS = {
+        "post": POST_SUPPLIER_CREDIT_NOTE,
+        "reverse": REVERSE_SUPPLIER_CREDIT_NOTE,
+    }
+
+    @property
+    def required_permission(self) -> str:  # type: ignore[override]
+        permission: str = self.PERMISSIONS[self.transition]
+        return permission
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        credit_note = resolve_supplier_credit_note(self.actor, self.kwargs["pk"])
+        require_organization_permission(
+            self.actor, self.PERMISSIONS[self.transition], credit_note.organization
+        )
+        try:
+            if self.transition == "post":
+                posted = post_supplier_credit_note(credit_note=credit_note, actor=self.actor)
+                messages.success(
+                    request,
+                    _("تم ترحيل الإشعار %(number)s. أُقفلت المطالبة وخُفّضت الذمة معاً.")
+                    % {"number": posted.number},
+                )
+            else:
+                reverse_supplier_credit_note(
+                    credit_note=credit_note,
+                    actor=self.actor,
+                    reason=request.POST.get("reason", ""),
+                )
+                messages.success(request, _("تم عكس الإشعار. عادت المطالبة قائمة كما كانت."))
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_credit_note_detail", args=[credit_note.pk])
         )

@@ -1580,7 +1580,45 @@ def _require_no_downstream_dependency(invoice: SupplierInvoice) -> None:
     `live_dependency`: allocations answer "those whose match is not
     cancelled", and postings answer "those still live". Which is also why the
     reversal releases the match *before* it reaches here.
+
+    The **header's** relations are walked as well as each line's — the Task
+    2.13 lesson, applied before it could bite: a credit-note allocation cites
+    the invoice at the header, and a walk over line relations alone would
+    reverse a debt a posted note had already netted against. The reversal
+    flow cancels the match and retires the generation before this runs, and
+    both declare themselves dead through `live_dependency`, so the header
+    walk changes nothing for the documented correction path.
     """
+
+    def refuse_if_standing(name: str, related: object, model: type) -> None:
+        # A dependent that has been withdrawn depends on nothing. The same
+        # `live_dependency` convention Task 2.9 uses on the receipt side: a
+        # model declares which of its rows still stand, and without one
+        # every row counts, which is the safe default for a relation
+        # nobody has considered yet.
+        live = getattr(model, "live_dependency", None)
+        if live is not None:
+            related = related.filter(live)  # type: ignore[attr-defined]
+        if related.exists():  # type: ignore[attr-defined]
+            raise ValidationError(
+                _(
+                    "Another document (%(relation)s) already depends on this invoice. "
+                    "Reverse it first."
+                ),
+                code="invoice_has_dependents",
+                params={"relation": name},
+            )
+
+    ignored_on_header = {"history", "lines"}
+    for relation in invoice._meta.related_objects:
+        name = relation.get_accessor_name()
+        if not name or name in ignored_on_header:
+            continue
+        related = getattr(invoice, name, None)
+        if related is None or not hasattr(related, "exists"):
+            continue
+        refuse_if_standing(name, related, relation.related_model)
+
     ignored = {"history"}
     for line in invoice.lines.all():
         for relation in line._meta.related_objects:
@@ -1590,23 +1628,7 @@ def _require_no_downstream_dependency(invoice: SupplierInvoice) -> None:
             related = getattr(line, name, None)
             if related is None or not hasattr(related, "exists"):
                 continue
-            # A dependent that has been withdrawn depends on nothing. The same
-            # `live_dependency` convention Task 2.9 uses on the receipt side: a
-            # model declares which of its rows still stand, and without one
-            # every row counts, which is the safe default for a relation
-            # nobody has considered yet.
-            live = getattr(relation.related_model, "live_dependency", None)
-            if live is not None:
-                related = related.filter(live)
-            if related.exists():
-                raise ValidationError(
-                    _(
-                        "Another document (%(relation)s) already depends on this invoice. "
-                        "Reverse it first."
-                    ),
-                    code="invoice_has_dependents",
-                    params={"relation": name},
-                )
+            refuse_if_standing(name, related, relation.related_model)
 
 
 # ---------------------------------------------------------------------------
@@ -1618,22 +1640,38 @@ def outstanding_amount(invoice: SupplierInvoice) -> Decimal:
     """
     What is still owed on one invoice.
 
-    Today it is the posted amount, because nothing yet reduces it. The shape is
-    what matters: Task 2.14 subtracts active credit allocations and Task 2.15
-    subtracts payment allocations from this one expression, and neither has to
-    find and correct a stored balance to do it.
+    The posted amount less what posted credit notes have netted against it
+    (Task 2.14). Task 2.15 subtracts payment allocations from this same
+    expression. Derived every time from the documents — there is no stored
+    balance to find and correct.
     """
+    from apps.procurement.models import SupplierCreditAllocation
+
     if invoice.status != SupplierInvoiceStatus.POSTED:
         return ZERO
-    return invoice.posted_amount or ZERO
+    credited: Decimal | None = SupplierCreditAllocation.objects.filter(
+        invoice=invoice, credit_note__status="POSTED"
+    ).aggregate(total=Sum("allocated_amount"))["total"]
+    return (invoice.posted_amount or ZERO) - (credited or ZERO)
 
 
 def supplier_outstanding(supplier: Supplier) -> Decimal:
-    """Everything still owed to one supplier, derived from posted documents."""
-    total: Decimal | None = SupplierInvoice.objects.filter(
+    """
+    Everything still owed to one supplier, derived from posted documents.
+
+    Posted invoices less posted credit notes — the **whole** note, allocated
+    or standing. An unallocated credit is still money the supplier owes back,
+    and a figure that ignored it would tell the buyer to pay it again.
+    """
+    from apps.procurement.models import SupplierCreditNote
+
+    invoiced: Decimal | None = SupplierInvoice.objects.filter(
         supplier=supplier, status=SupplierInvoiceStatus.POSTED
     ).aggregate(total=Sum("posted_amount"))["total"]
-    return total or ZERO
+    credited: Decimal | None = SupplierCreditNote.objects.filter(
+        supplier=supplier, status="POSTED"
+    ).aggregate(total=Sum("amount"))["total"]
+    return (invoiced or ZERO) - (credited or ZERO)
 
 
 def invoice_timeline(invoice: SupplierInvoice) -> list[dict[str, Any]]:

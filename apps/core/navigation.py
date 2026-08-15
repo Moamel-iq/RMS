@@ -289,6 +289,12 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:supplier_return_list",
                 available=True,
             ),
+            # Task 2.14 — the credit note that settles a return's claim.
+            Section(
+                label=_("إشعارات الموردين الدائنة"),
+                url_name="procurement:supplier_credit_note_list",
+                available=True,
+            ),
             *_sections(
                 _("دفعات الموردين"),
                 _("تخصيص الدفعات"),

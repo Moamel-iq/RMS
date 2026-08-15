@@ -21,6 +21,9 @@ from apps.procurement.models import (
     PurchaseMatch,
     PurchaseMatchAllocation,
     Supplier,
+    SupplierCreditAllocation,
+    SupplierCreditNote,
+    SupplierCreditReturnAllocation,
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
@@ -166,3 +169,42 @@ class SupplierReturnLineAdmin(ReadOnlyAdmin):
     )
     search_fields = ("supplier_return__number", "item__code")
     ordering = ("supplier_return", "sequence")
+
+
+@admin.register(SupplierCreditNote)
+class SupplierCreditNoteAdmin(ReadOnlyAdmin):
+    """Read-only. A posted note moved the payable and closed a claim."""
+
+    list_display = (
+        "number",
+        "supplier",
+        "supplier_document_number",
+        "supplier_return",
+        "credit_date",
+        "amount",
+        "status",
+    )
+    list_filter = ("organization", "status")
+    search_fields = ("number", "supplier_document_number", "supplier__code", "supplier__name_ar")
+    ordering = ("-id",)
+
+
+@admin.register(SupplierCreditAllocation)
+class SupplierCreditAllocationAdmin(ReadOnlyAdmin):
+    list_display = ("credit_note", "sequence", "invoice", "allocated_amount")
+    search_fields = ("credit_note__number", "invoice__number")
+    ordering = ("credit_note", "sequence")
+
+
+@admin.register(SupplierCreditReturnAllocation)
+class SupplierCreditReturnAllocationAdmin(ReadOnlyAdmin):
+    list_display = (
+        "credit_note",
+        "sequence",
+        "supplier_return_line",
+        "credited_base_quantity",
+        "allocated_credit_amount",
+        "settled_book_value",
+    )
+    search_fields = ("credit_note__number", "supplier_return_line__supplier_return__number")
+    ordering = ("credit_note", "sequence")

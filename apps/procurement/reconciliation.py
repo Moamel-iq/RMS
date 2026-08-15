@@ -57,6 +57,8 @@ from apps.procurement.models import (
     PurchaseMatchStatus,
     PurchaseOrderLine,
     Supplier,
+    SupplierCreditNote,
+    SupplierCreditNoteStatus,
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierInvoiceLineType,
@@ -322,6 +324,7 @@ def verify_procurement(organization: Organization) -> list[str]:
     problems.extend(verify_grni_clearing(organization))
     problems.extend(verify_parked_variance(organization))
     problems.extend(verify_supplier_returns(organization))
+    problems.extend(verify_supplier_credit_notes(organization))
     return [str(problem) for problem in problems]
 
 
@@ -331,6 +334,7 @@ __all__ = [
     "verify_invoice_charges",
     "verify_order_received_quantities",
     "verify_grni_clearing",
+    "verify_supplier_credit_notes",
     "verify_supplier_returns",
     "verify_parked_variance",
     "verify_procurement",
@@ -554,7 +558,13 @@ def verify_supplier_payables(organization: Organization) -> list[Discrepancy]:
         posted: Decimal | None = SupplierInvoice.objects.filter(
             supplier=supplier, status=SupplierInvoiceStatus.POSTED
         ).aggregate(total=Sum("posted_amount"))["total"]
-        expected = posted or ZERO
+        # Task 2.14: posted credit notes reduce what is owed — the whole
+        # note, allocated or standing, because an unallocated credit is
+        # still money the supplier owes back.
+        credited: Decimal | None = SupplierCreditNote.objects.filter(
+            supplier=supplier, status=SupplierCreditNoteStatus.POSTED
+        ).aggregate(total=Sum("amount"))["total"]
+        expected = (posted or ZERO) - (credited or ZERO)
         actual = supplier_outstanding(supplier)
         if actual != expected:
             problems.append(
@@ -773,13 +783,10 @@ def verify_supplier_returns(organization: Organization) -> list[Discrepancy]:
                               == the debit on SUPPLIER_RETURN_CLEARING
                               == the credit on the inventory control accounts
         returned quantity     <= the delivery line's accepted quantity
-        return variance       == nothing at all, until Task 2.14
 
-    The last is the Task 2.14 boundary asserted as reconciliation rather than
-    only as a unit test: a figure in the return variance account before the
-    credit note exists would mean somebody recognised a gain or a loss against
-    an expectation, and a nightly report finds it whether or not anybody
-    remembered to run the suite.
+    The return variance account is `verify_supplier_credit_notes`' to explain
+    now: Task 2.14 is what posts to it, and every fils in it must trace to a
+    posted credit note's agreed-versus-book difference.
     """
     from apps.procurement.returns import SOURCE_DOCUMENT_TYPE as RETURN_SOURCE_TYPE
 
@@ -862,24 +869,6 @@ def verify_supplier_returns(organization: Organization) -> list[Discrepancy]:
                 )
             )
 
-    # Task 2.14's boundary: nothing recognises a return variance yet.
-    variance_account = _role_account(organization.pk, PURCHASE_RETURN_VARIANCE)
-    if variance_account is not None:
-        balance = ZERO
-        for entry_row in JournalLine.objects.filter(
-            account_id=variance_account, entry__organization=organization
-        ).values("debit", "credit"):
-            balance += entry_row["debit"] - entry_row["credit"]
-        if balance != ZERO:
-            problems.append(
-                Discrepancy(
-                    scope=organization.code,
-                    field="return_variance_before_a_credit_note",
-                    expected=ZERO,
-                    actual=balance,
-                )
-            )
-
     # And a return moves stock, which an invoice never does — so the shape of
     # this check is the opposite of `_verify_matching_moved_nothing`: every
     # posted return must have movements, and they must be RETURN_OUT.
@@ -899,6 +888,227 @@ def verify_supplier_returns(organization: Organization) -> list[Discrepancy]:
                 actual=wrong_type,
             )
         )
+    return problems
+
+
+def verify_supplier_credit_notes(organization: Organization) -> list[Discrepancy]:
+    """
+    Every posted credit note settles its claim exactly, and the two accounts
+    it may touch hold precisely what the notes put there.
+
+    Per posted note, against its own journal:
+
+        payable debit    == the note's amount
+        clearing credit  == the settled return's book value
+        variance line    == amount − book value, in the right direction,
+                            absent when they agree
+
+    And across the organization:
+
+        return clearing balance == standing posted returns' book value
+                                   less what posted notes have cleared
+        return variance balance == Σ (book value − amount) over posted notes,
+                                   as a debit-minus-credit figure
+
+    The second pair is the ADR-022 §2 amendment holding as reconciliation: the
+    clearing account carries exactly the claims still waiting for paper, and
+    every fils of variance traces to an agreed figure — never to an
+    expectation.
+    """
+    from apps.procurement.credit_notes import allocated_total
+    from apps.procurement.invoices import outstanding_amount as invoice_outstanding
+    from apps.procurement.models import SupplierCreditReturnAllocation
+
+    problems: list[Discrepancy] = []
+    payable_account = _role_account(organization.pk, SUPPLIER_PAYABLE)
+    clearing_account = _role_account(organization.pk, SUPPLIER_RETURN_CLEARING)
+    variance_account = _role_account(organization.pk, PURCHASE_RETURN_VARIANCE)
+
+    expected_variance = ZERO  # debit-minus-credit
+    cleared_by_notes = ZERO
+
+    for note in SupplierCreditNote.objects.filter(
+        organization=organization, status=SupplierCreditNoteStatus.POSTED
+    ).select_related("journal_entry", "supplier_return"):
+        label = note.number or str(note.public_id)
+        settlements = list(note.return_allocations.all())
+        settled_total = sum((row.settled_book_value or ZERO for row in settlements), ZERO)
+        attributed = sum((row.allocated_credit_amount for row in settlements), ZERO)
+        difference = (note.amount or ZERO) - settled_total
+        expected_variance -= difference
+        cleared_by_notes += settled_total
+
+        if not settlements:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="note_settles_nothing",
+                    expected="return allocations",
+                    actual="none",
+                )
+            )
+        if attributed != note.amount:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="credit_not_fully_attributed",
+                    expected=note.amount,
+                    actual=attributed,
+                )
+            )
+        if note.journal_entry is None:  # pragma: no cover - a constraint refuses it
+            problems.append(
+                Discrepancy(
+                    scope=label, field="journal_entry", expected="present", actual="missing"
+                )
+            )
+            continue
+        rows = list(note.journal_entry.lines.select_related("account"))
+        payable_debit = sum(
+            (row.debit - row.credit for row in rows if row.account_id == payable_account), ZERO
+        )
+        if payable_debit != note.amount:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="note_payable_debit",
+                    expected=note.amount,
+                    actual=payable_debit,
+                )
+            )
+        clearing_credit = sum(
+            (row.credit - row.debit for row in rows if row.account_id == clearing_account), ZERO
+        )
+        if clearing_credit != settled_total:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="note_clearing_credit",
+                    expected=settled_total,
+                    actual=clearing_credit,
+                )
+            )
+        variance_amount = sum(
+            (row.credit - row.debit for row in rows if row.account_id == variance_account), ZERO
+        )
+        if variance_amount != difference:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="note_variance",
+                    expected=difference,
+                    actual=variance_amount,
+                )
+            )
+        # An allocation may not outrun the note, and no invoice may be
+        # credited below zero.
+        if allocated_total(note) > (note.amount or ZERO):
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="allocations_exceed_note",
+                    expected=note.amount,
+                    actual=allocated_total(note),
+                )
+            )
+
+    # The per-line settlement bound, recomputed from the rows — active
+    # settlements never exceed what the line posted, and a line whose
+    # quantity is fully credited holds no residual book value.
+    for line in SupplierReturnLine.objects.filter(
+        supplier_return__organization=organization,
+        supplier_return__status=SupplierReturnStatus.POSTED,
+    ).select_related("supplier_return"):
+        active = SupplierCreditReturnAllocation.objects.filter(
+            supplier_return_line=line,
+            credit_note__status=SupplierCreditNoteStatus.POSTED,
+        ).aggregate(quantity=Sum("credited_base_quantity"), value=Sum("settled_book_value"))
+        credited_quantity = active["quantity"] or ZERO
+        settled_value = active["value"] or ZERO
+        scope = f"{line.supplier_return.number}#{line.sequence}"
+        if credited_quantity > line.returned_base_quantity:
+            problems.append(
+                Discrepancy(
+                    scope=scope,
+                    field="credited_beyond_returned",
+                    expected=line.returned_base_quantity,
+                    actual=credited_quantity,
+                )
+            )
+        if settled_value > (line.posted_value or ZERO):
+            problems.append(
+                Discrepancy(
+                    scope=scope,
+                    field="settled_beyond_book_value",
+                    expected=line.posted_value or ZERO,
+                    actual=settled_value,
+                )
+            )
+        if credited_quantity == line.returned_base_quantity and settled_value != (
+            line.posted_value or ZERO
+        ):
+            problems.append(
+                Discrepancy(
+                    scope=scope,
+                    field="clearing_residual_after_full_settlement",
+                    expected=line.posted_value or ZERO,
+                    actual=settled_value,
+                )
+            )
+
+    for invoice in SupplierInvoice.objects.filter(
+        organization=organization, status=SupplierInvoiceStatus.POSTED
+    ):
+        if invoice_outstanding(invoice) < ZERO:
+            problems.append(
+                Discrepancy(
+                    scope=invoice.number,
+                    field="invoice_credited_below_zero",
+                    expected=ZERO,
+                    actual=invoice_outstanding(invoice),
+                )
+            )
+
+    # The organization-wide equalities. Both accounts are procurement's own —
+    # nothing else posts to either role — so the whole balance must be
+    # explained, not merely this module's share of it.
+    if clearing_account is not None:
+        returned_value = (
+            SupplierReturn.objects.filter(
+                organization=organization, status=SupplierReturnStatus.POSTED
+            ).aggregate(total=Sum("posted_value"))["total"]
+            or ZERO
+        )
+        expected_clearing = returned_value - cleared_by_notes
+        actual_clearing = ZERO
+        for entry_row in JournalLine.objects.filter(
+            account_id=clearing_account, entry__organization=organization
+        ).values("debit", "credit"):
+            actual_clearing += entry_row["debit"] - entry_row["credit"]
+        if actual_clearing != expected_clearing:
+            problems.append(
+                Discrepancy(
+                    scope=organization.code,
+                    field="return_clearing_balance",
+                    expected=expected_clearing,
+                    actual=actual_clearing,
+                )
+            )
+    if variance_account is not None:
+        actual_variance = ZERO
+        for entry_row in JournalLine.objects.filter(
+            account_id=variance_account, entry__organization=organization
+        ).values("debit", "credit"):
+            actual_variance += entry_row["debit"] - entry_row["credit"]
+        if actual_variance != expected_variance:
+            problems.append(
+                Discrepancy(
+                    scope=organization.code,
+                    field="return_variance_balance",
+                    expected=expected_variance,
+                    actual=actual_variance,
+                )
+            )
     return problems
 
 

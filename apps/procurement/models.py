@@ -2764,6 +2764,12 @@ class PurchaseMatch(TimeStampedModel):
             models.Index(fields=["supplier_invoice"], name="match_invoice_idx"),
         ]
 
+    #: What the invoice's header-level reversal guard reads (Task 2.14 made
+    #: the header walk real): a cancelled match is history and holds nothing.
+    #: The reversal flow cancels the invoice's own match *before* the guard
+    #: runs, so this filter is what lets the documented correction proceed.
+    live_dependency = Q(status__in=("DRAFT", "READY"))
+
     def __str__(self) -> str:
         return self.number or f"match {self.public_id}"
 
@@ -3665,3 +3671,429 @@ class SupplierReturnLine(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.supplier_return} · {self.sequence}"
+
+
+class SupplierCreditNoteStatus(models.TextChoices):
+    """Three states, the same shape as the return it settles."""
+
+    DRAFT = "DRAFT", _("مسودة")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class SupplierCreditNote(TimeStampedModel):
+    """
+    The supplier's agreed figure for a return — the paper the claim waited for.
+
+    Task 2.13 sent goods back and parked their book value in
+    `SUPPLIER_RETURN_CLEARING`; the balance *is* the claim outstanding. This
+    document is the supplier's answer, and posting it is what ADR-022 §2 (as
+    amended) deferred to here:
+
+        Dr  Supplier payable            the agreed credit
+            Cr  Supplier return clearing  the return's book value, the claim closed
+            Cr/Dr Purchase return variance  the difference, either direction
+
+    with the variance line **absent** when the figures agree — the kernel
+    refuses a zero line and it would be noise anyway.
+
+    ## Settlement is partial, per line, and may take several notes
+
+    The approved rule: a note settles a return **through explicit allocations
+    to its lines** (`SupplierCreditReturnAllocation`), a note may cover
+    several lines, and a line may be settled by several notes across time —
+    bounded so the credited quantity and the settled book value never exceed
+    what the line posted. The journal's clearing credit is the sum of the
+    settled book values, so the clearing balance always equals exactly the
+    claims still open, with no rounding residual: a partial settlement takes
+    its quantized proportional share and the final one takes the exact
+    remainder.
+
+    ## Scope, recorded rather than implied
+
+    A Release 1 credit note **must cite a posted supplier return**. A note
+    citing only an invoice (a price adjustment with no goods back) or nothing
+    at all has no approved contra account anywhere — no role in Task 2.0 §15,
+    no journal shape in any accepted ADR — and inventing one would put a
+    figure in the ledger no approved document supports. The same reasoning
+    recorded "invoice-before-receipt is not supported" at Task 2.10. Both
+    cases are deferred, not designed.
+
+    PRC-051's two outcomes are **allocation states, not accounts**: the debit
+    is the payable either way. Allocated against posted invoices, the note
+    reduces what those invoices still owe; unallocated, it stands as supplier
+    credit — a debit the payable account carries until an invoice or Task
+    2.15's payment run consumes it. Booking the unallocated remainder to a
+    different asset account would break invariant 46 (open balances sum to
+    the payable account) the day the first one posted.
+
+    It never moves stock. The goods left with the return.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="supplier_credit_notes",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="supplier_credit_notes",
+        verbose_name=_("branch"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="credit_notes",
+        verbose_name=_("supplier"),
+    )
+    #: The return this note answers. Required in Release 1 — see the class
+    #: docstring. What it *settles* is stated line by line in the allocations
+    #: below, and may be part of the claim: the rest waits for the next note.
+    supplier_return = models.ForeignKey(
+        SupplierReturn,
+        on_delete=models.PROTECT,
+        related_name="credit_notes",
+        verbose_name=_("supplier return"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    #: The supplier's own reference, stored exactly as they wrote it, and the
+    #: folded key beside it — the same duplicate protection invoices get
+    #: (PRC-052), in reverse: crediting the same note twice is the expensive
+    #: direction here.
+    supplier_document_number = models.CharField(_("supplier document number"), max_length=64)
+    supplier_document_number_key = models.CharField(
+        _("supplier document number (key)"), max_length=64, editable=False
+    )
+
+    #: The date on the supplier's paper. Theirs.
+    credit_date = models.DateField(_("credit date"))
+    #: The branch business date this posts on. Ours (ADR-008).
+    business_date = models.DateField(_("business date"))
+    business_date_timezone = models.CharField(
+        _("business date timezone"), max_length=64, blank=True
+    )
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+
+    #: The agreed credit, stated by the supplier's document — never derived
+    #: from the return's book value or the operator's expectation.
+    amount = models.DecimalField(
+        _("amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    reason = models.TextField(_("reason"), blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=SupplierCreditNoteStatus.choices,
+        default=SupplierCreditNoteStatus.DRAFT,
+    )
+
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_credit_notes",
+        verbose_name=_("journal entry"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_credit_notes",
+        verbose_name=_("reversal journal entry"),
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_supplier_credit_notes",
+        verbose_name=_("created by"),
+    )
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_supplier_credit_notes",
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_credit_notes",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    history = HistoricalRecords()
+
+    #: What the return's reversal guard reads: a standing note pins its
+    #: return, a reversed one releases it.
+    live_dependency = Q(status__in=("DRAFT", "POSTED"))
+
+    class Meta:
+        verbose_name = _("supplier credit note")
+        verbose_name_plural = _("supplier credit notes")
+        ordering = ["-id"]
+        permissions = [
+            ("create_supplier_credit_note", _("Can record a supplier credit note")),
+            ("post_supplier_credit_note", _("Can post a supplier credit note")),
+            ("reverse_supplier_credit_note", _("Can reverse a posted supplier credit note")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="procurement_scn_number_unique_per_organization",
+            ),
+            # PRC-052: unique per supplier over non-reversed notes.
+            models.UniqueConstraint(
+                fields=["organization", "supplier", "supplier_document_number_key"],
+                condition=~Q(status="REVERSED"),
+                name="procurement_scn_document_unique_per_supplier",
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="procurement_scn_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=~Q(supplier_document_number="") & ~Q(supplier_document_number_key=""),
+                name="procurement_scn_states_the_supplier_reference",
+            ),
+            models.CheckConstraint(
+                condition=Q(posted_by__isnull=True, posted_at__isnull=True)
+                | Q(posted_by__isnull=False, posted_at__isnull=False),
+                name="procurement_scn_posting_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="DRAFT")
+                | Q(posted_at__isnull=True, journal_entry__isnull=True),
+                name="procurement_scn_draft_has_posted_nothing",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status__in=["POSTED", "REVERSED"])
+                | Q(
+                    posted_at__isnull=False,
+                    journal_entry__isnull=False,
+                    business_date_timezone__gt="",
+                    business_day_start__isnull=False,
+                ),
+                name="procurement_scn_posted_names_its_journal",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="REVERSED")
+                | Q(
+                    reversed_by__isnull=False,
+                    reversed_at__isnull=False,
+                    reversal_journal_entry__isnull=False,
+                )
+                & ~Q(reversal_reason=""),
+                name="procurement_scn_reversal_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="REVERSED")
+                | Q(
+                    reversed_by__isnull=True,
+                    reversed_at__isnull=True,
+                    reversal_journal_entry__isnull=True,
+                    reversal_reason="",
+                ),
+                name="procurement_scn_unreversed_carries_no_reversal",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="scn_org_status_idx"),
+            models.Index(fields=["supplier", "status"], name="scn_supplier_status_idx"),
+            models.Index(fields=["supplier_return"], name="scn_return_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"{self.supplier.code} · {self.supplier_document_number}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == SupplierCreditNoteStatus.DRAFT
+
+
+class SupplierCreditAllocation(TimeStampedModel):
+    """
+    This much of one credit note nets against this posted invoice.
+
+    The journal already reduced the payable by the note's whole amount; an
+    allocation decides **which invoice's outstanding** that reduction settles,
+    exactly the role Task 2.15's payment allocation will play. The sum of a
+    note's allocations may not exceed its amount, and no allocation may exceed
+    what its invoice still owes — both re-checked under locks at posting.
+    The remainder stands as unallocated supplier credit (PRC-051).
+    """
+
+    credit_note = models.ForeignKey(
+        SupplierCreditNote,
+        on_delete=models.CASCADE,
+        related_name="allocations",
+        verbose_name=_("credit note"),
+    )
+    sequence = models.PositiveIntegerField(_("sequence"))
+    invoice = models.ForeignKey(
+        SupplierInvoice,
+        on_delete=models.PROTECT,
+        related_name="credit_allocations",
+        verbose_name=_("invoice"),
+    )
+    allocated_amount = models.DecimalField(
+        _("allocated amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    note = models.CharField(_("note"), max_length=200, blank=True)
+
+    history = HistoricalRecords()
+
+    #: What the invoice's reversal guard reads, through the header where the
+    #: status lives — the Task 2.12 lesson, kept.
+    live_dependency = Q(credit_note__status__in=("DRAFT", "POSTED"))
+
+    class Meta:
+        verbose_name = _("supplier credit allocation")
+        verbose_name_plural = _("supplier credit allocations")
+        ordering = ["credit_note", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["credit_note", "sequence"],
+                name="procurement_scn_allocation_sequence_unique",
+            ),
+            # One row per (note, invoice): a second share against the same
+            # invoice is an edit of the first, not a new fact.
+            models.UniqueConstraint(
+                fields=["credit_note", "invoice"],
+                name="procurement_scn_allocation_invoice_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(allocated_amount__gt=0),
+                name="procurement_scn_allocation_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["invoice"], name="scn_alloc_invoice_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.credit_note} · {self.sequence}"
+
+
+class SupplierCreditReturnAllocation(TimeStampedModel):
+    """
+    This much of one credit note settles this much of one return line.
+
+    The settlement is **explicit and partial**: a note may cover several of
+    its return's lines, a line may be settled by several notes across time,
+    and the bound is per line — the active credited quantity may not exceed
+    what the line returned, and the active settled book value may not exceed
+    what it posted.
+
+    `settled_book_value` is written by posting and never by a caller: it is
+    the quantized proportional share of the line's **remaining** clearing
+    value, and the allocation that takes the last of the quantity takes the
+    exact remaining value — so the invariant
+
+        active settled book values + remaining clearing
+            == the line's posted book value
+
+    holds to the fils and no rounding residual can strand in
+    `SUPPLIER_RETURN_CLEARING`. The variance each allocation recognises is
+    its credited amount less this settled value.
+    """
+
+    credit_note = models.ForeignKey(
+        SupplierCreditNote,
+        on_delete=models.CASCADE,
+        related_name="return_allocations",
+        verbose_name=_("credit note"),
+    )
+    allocation_uid = models.UUIDField(
+        _("allocation uid"), default=uuid.uuid4, editable=False, unique=True
+    )
+    sequence = models.PositiveIntegerField(_("sequence"))
+    supplier_return_line = models.ForeignKey(
+        SupplierReturnLine,
+        on_delete=models.PROTECT,
+        related_name="credit_allocations",
+        verbose_name=_("return line"),
+    )
+
+    #: How much of the line's returned quantity this note credits. Base
+    #: units, 3 dp, and the handle the proportional settlement is computed
+    #: from.
+    credited_base_quantity = models.DecimalField(
+        _("credited quantity (base)"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+    #: The supplier's money for this slice — the share of the note's amount
+    #: attributed to this line. The variance side of the journal.
+    allocated_credit_amount = models.DecimalField(
+        _("allocated credit"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+    )
+    #: The book value this slice closes out of the clearing account. Written
+    #: by posting under locks; NULL on a draft.
+    settled_book_value = models.DecimalField(
+        _("settled book value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    note = models.CharField(_("note"), max_length=200, blank=True)
+
+    history = HistoricalRecords()
+
+    #: What the return side's guards read, through the header where the
+    #: status lives: a reversed note's settlement releases everything.
+    live_dependency = Q(credit_note__status__in=("DRAFT", "POSTED"))
+
+    class Meta:
+        verbose_name = _("supplier credit return allocation")
+        verbose_name_plural = _("supplier credit return allocations")
+        ordering = ["credit_note", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["credit_note", "sequence"],
+                name="procurement_scn_ralloc_sequence_unique",
+            ),
+            # One row per (note, line): a second slice against the same line
+            # is an edit of the first, not a new fact.
+            models.UniqueConstraint(
+                fields=["credit_note", "supplier_return_line"],
+                name="procurement_scn_ralloc_line_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(credited_base_quantity__gt=0),
+                name="procurement_scn_ralloc_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(allocated_credit_amount__gt=0),
+                name="procurement_scn_ralloc_credit_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(settled_book_value__isnull=True) | Q(settled_book_value__gte=0),
+                name="procurement_scn_ralloc_settled_not_negative",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["supplier_return_line"], name="scn_ralloc_line_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.credit_note} · {self.sequence}"

@@ -35,6 +35,7 @@ from apps.procurement.demo import (
     seed_demo_account_mappings,
     seed_demo_award,
     seed_demo_catalogue,
+    seed_demo_credit_notes,
     seed_demo_invoices,
     seed_demo_matches,
     seed_demo_order_revision,
@@ -68,6 +69,7 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:matching_queue", "قائمة المطابقة"),
     ("procurement:purchase_match_list", "مطابقة المشتريات"),
     ("procurement:supplier_return_list", "مرتجعات الموردين"),
+    ("procurement:supplier_credit_note_list", "إشعارات الموردين الدائنة"),
 ]
 
 
@@ -147,6 +149,11 @@ class Command(SeedCommand):
                 if approver is not None and approver.pk != user.pk
                 else []
             )
+            credit_notes = (
+                seed_demo_credit_notes(organization=organization, recorder=approver, poster=user)
+                if approver is not None and approver.pk != user.pk
+                else []
+            )
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -185,8 +192,8 @@ class Command(SeedCommand):
             f"{len(suppliers)} suppliers, {len(catalogue)} catalogue rows, "
             f"{len(requests)} requests, {len(quotations)} quotations and "
             f"{len(orders)} orders, {len(receipts)} receipts and "
-            f"{len(invoices)} supplier invoices, {len(matches)} matches and "
-            f"{len(returns)} supplier returns present."
+            f"{len(invoices)} supplier invoices, {len(matches)} matches, "
+            f"{len(returns)} supplier returns and {len(credit_notes)} credit notes present."
         )
         if matches:
             self.write("")
@@ -211,6 +218,14 @@ class Command(SeedCommand):
                 self.write(
                     f"  {supplier_return.evidence_reference:<22} {label:<18} "
                     f"{supplier_return.get_status_display()}"
+                )
+        if credit_notes:
+            self.write("")
+            self.write("supplier credit notes:")
+            for note in credit_notes:
+                label = note.number or "draft"
+                self.write(
+                    f"  {note.supplier_document_number:<22} {label:<18} {note.get_status_display()}"
                 )
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")
