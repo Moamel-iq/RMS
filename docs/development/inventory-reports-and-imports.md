@@ -266,3 +266,21 @@ preview, all-or-nothing apply, content-hash retry guard and file security
 above apply to these kinds unchanged.
 
 Tests: `apps/procurement/tests/test_procurement_imports.py`.
+
+### Cleaned values are what the service will store
+
+A validator normalises each cell to exactly what the write service would
+persist — `strip()` on text, the shared Iraqi-mobile canonicaliser on a
+supplier phone. Two consequences, both deliberate:
+
+- The **preview shows the value that will land**, not the one that was
+  typed. `07701234567` previews as `+9647701234567` because that is what
+  the supplier master will hold.
+- A row restating what a record already holds compares **equal** and counts
+  as `unchanged`. Comparing raw text against stored text would report a
+  change on every re-import and make `applied_row_count` meaningless — the
+  defect this rule was written to close.
+
+A value the service would refuse (an unusable phone) is therefore a **row
+error in the preview**, with a row number attached, rather than an
+exception thrown halfway through an otherwise atomic apply.

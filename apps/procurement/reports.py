@@ -192,13 +192,74 @@ def supplier_aging(
 # ---------------------------------------------------------------------------
 
 
-#: Same-day ordering on the statement: charges before settlements. The
-#: documents carry a business *date*, not a time, so there is no true
-#: intraday chronology to recover — and a pk would order rows from three
-#: different tables by an accident of sequence allocation. Charges first
-#: means a same-day invoice-and-payment pair shows the debt arising and then
-#: being settled, never a balance dipping spuriously negative in between.
+#: A statement is a chronology, and the authoritative chronology of a posted
+#: document is its **journal**: `posted_at` is the moment the ledger accepted
+#: it, and `entry_number` is the gapless order in which it did so. The
+#: documents carry a business *date* rather than a time, so within one
+#: business date the journal is the only record of what actually happened
+#: first — and it is the same order the general ledger itself would show.
+#:
+#: An earlier cut ordered same-day rows by document *kind* (charges before
+#: settlements). That was deterministic and wrong: it would show a payment
+#: made on Monday and an invoice posted on Tuesday-for-Monday as though the
+#: invoice came first, and a reader reconciling against the ledger would find
+#: two different stories. Task 2.0 §12 requires a running balance and states
+#: no kind precedence, so nothing was owed to that ordering.
+#:
+#: Kind survives only as a **tie-break** beneath the journal keys, for the
+#: case two documents share a posting instant and a number cannot separate
+#: them — which the gapless sequence makes impossible in practice, but a sort
+#: key with no total order is a sort key that reorders itself between runs.
 _STATEMENT_KIND_ORDER = {"فاتورة": 0, "إشعار دائن": 1, "دفعة": 2}
+
+#: Sorts before every real posting instant. Only reachable for a document
+#: whose journal is missing or unposted, which the posting services and the
+#: `journal_entry_posted_records_when` constraint both forbid; it exists so a
+#: defect upstream produces a stable order rather than a TypeError.
+_BEFORE_ANY_POSTING = datetime.datetime.min.replace(tzinfo=datetime.UTC)
+
+
+@dataclass(frozen=True)
+class _StatementEvent:
+    """One posted money document, with everything the statement orders by."""
+
+    business_date: datetime.date
+    posted_at: datetime.datetime
+    entry_number: str
+    kind: str
+    number: str
+    debit: Decimal
+    credit: Decimal
+    advance: Decimal
+
+
+def _event(
+    document: Any, *, kind: str, debit: Decimal, credit: Decimal, advance: Decimal
+) -> _StatementEvent:
+    """One document's statement event, reading its journal for the chronology."""
+    journal = document.journal_entry
+    return _StatementEvent(
+        business_date=document.business_date,
+        posted_at=(journal.posted_at if journal is not None else None) or _BEFORE_ANY_POSTING,
+        entry_number=(journal.entry_number if journal is not None else "") or "",
+        kind=kind,
+        number=document.number or "",
+        debit=debit,
+        credit=credit,
+        advance=advance,
+    )
+
+
+def _statement_sort_key(
+    event: _StatementEvent,
+) -> tuple[datetime.date, datetime.datetime, str, int, str]:
+    return (
+        event.business_date,
+        event.posted_at,
+        event.entry_number,
+        _STATEMENT_KIND_ORDER[event.kind],
+        event.number,
+    )
 
 
 def supplier_statement(
@@ -211,54 +272,60 @@ def supplier_statement(
     payments lower it by their **allocated** share, with the advance shown on
     the row rather than folded into the balance — an advance is an asset, not
     a smaller debt.
+
+    Ordered by the ledger's own chronology; see `_STATEMENT_KIND_ORDER`.
     """
     rows: list[dict[str, Any]] = []
     for supplier in _suppliers(user, filters):
-        events: list[tuple[datetime.date, str, str, Decimal, Decimal, Decimal]] = []
-        for invoice in SupplierInvoice.objects.filter(
-            supplier=supplier, status=SupplierInvoiceStatus.POSTED
-        ).filter(_in_window(filters, "business_date")):
+        events: list[_StatementEvent] = []
+        for invoice in (
+            SupplierInvoice.objects.filter(supplier=supplier, status=SupplierInvoiceStatus.POSTED)
+            .filter(_in_window(filters, "business_date"))
+            .select_related("journal_entry")
+        ):
             events.append(
-                (
-                    invoice.business_date,
-                    "فاتورة",
-                    invoice.number,
-                    invoice.posted_amount or ZERO,
-                    ZERO,
-                    ZERO,
+                _event(
+                    invoice,
+                    kind="فاتورة",
+                    debit=invoice.posted_amount or ZERO,
+                    credit=ZERO,
+                    advance=ZERO,
                 )
             )
-        for note in SupplierCreditNote.objects.filter(
-            supplier=supplier, status=SupplierCreditNoteStatus.POSTED
-        ).filter(_in_window(filters, "business_date")):
+        for note in (
+            SupplierCreditNote.objects.filter(
+                supplier=supplier, status=SupplierCreditNoteStatus.POSTED
+            )
+            .filter(_in_window(filters, "business_date"))
+            .select_related("journal_entry")
+        ):
             events.append(
-                (
-                    note.business_date,
-                    "إشعار دائن",
-                    note.number,
-                    ZERO,
-                    note.amount or ZERO,
-                    ZERO,
+                _event(
+                    note,
+                    kind="إشعار دائن",
+                    debit=ZERO,
+                    credit=note.amount or ZERO,
+                    advance=ZERO,
                 )
             )
-        for payment in SupplierPayment.objects.filter(
-            supplier=supplier, status=SupplierPaymentStatus.POSTED
-        ).filter(_in_window(filters, "business_date")):
+        for payment in (
+            SupplierPayment.objects.filter(supplier=supplier, status=SupplierPaymentStatus.POSTED)
+            .filter(_in_window(filters, "business_date"))
+            .select_related("journal_entry")
+        ):
             events.append(
-                (
-                    payment.business_date,
-                    "دفعة",
-                    payment.number,
-                    ZERO,
-                    payment_allocated_total(payment),
-                    advance_remainder(payment),
+                _event(
+                    payment,
+                    kind="دفعة",
+                    debit=ZERO,
+                    credit=payment_allocated_total(payment),
+                    advance=advance_remainder(payment),
                 )
             )
         balance = ZERO
-        for date, kind, number, debit, credit, advance in sorted(
-            events,
-            key=lambda event: (event[0], _STATEMENT_KIND_ORDER[event[1]], event[2]),
-        ):
+        for event in sorted(events, key=_statement_sort_key):
+            date, kind, number = event.business_date, event.kind, event.number
+            debit, credit, advance = event.debit, event.credit, event.advance
             balance += debit - credit
             row: dict[str, Any] = {
                 "supplier_code": supplier.code,

@@ -176,11 +176,23 @@ class Command(SeedCommand):
                 if approver is not None and approver.pk != user.pk
                 else []
             )
-            # Task 2.17: one applied supplier batch, so the import history
-            # at /inventory/imports/ shows procurement's kinds in use.
-            from apps.procurement.demo import seed_demo_import_batch
+            # Task 2.17: two supplier batches, so the import history at
+            # /inventory/imports/ shows both halves of the contract — one
+            # applied with a visible change, one refused with a good row in
+            # it that was not quietly applied anyway.
+            from apps.procurement.demo import (
+                seed_demo_import_batch,
+                seed_demo_rejected_import_batch,
+            )
 
-            import_batch = seed_demo_import_batch(organization=organization)
+            import_batches = [
+                batch
+                for batch in (
+                    seed_demo_import_batch(organization=organization),
+                    seed_demo_rejected_import_batch(organization=organization),
+                )
+                if batch is not None
+            ]
 
         self.write("")
         self.write(f"Organization  {organization.code} — {organization.name_ar}")
@@ -261,13 +273,16 @@ class Command(SeedCommand):
             for payment in payments:
                 label = payment.number or "draft"
                 self.write(f"  {payment.reference:<22} {label:<18} {payment.get_status_display()}")
-        if import_batch is not None:
+        if import_batches:
             self.write("")
             self.write("import batches:")
-            self.write(
-                f"  {import_batch.original_filename:<22} "
-                f"{import_batch.kind:<18} {import_batch.get_status_display()}"
-            )
+            for batch in import_batches:
+                counts = f"{batch.valid_row_count} صالح / {batch.error_row_count} مرفوض"
+                applied = f", طُبِّق {batch.applied_row_count}" if batch.applied_at else ""
+                self.write(
+                    f"  {batch.original_filename:<30} "
+                    f"{batch.get_status_display():<12} {counts}{applied}"
+                )
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")
         for route, label in INSPECTION_ROUTES:

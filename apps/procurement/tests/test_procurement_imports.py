@@ -135,6 +135,59 @@ class TestSupplierImport:
         actions = {row.external_key: row.applied_action for row in applied_revision.rows.all()}
         assert actions == {"GROC-01": "updated", "MEAT-01": "unchanged"}
 
+    def test_a_row_restating_stored_values_is_unchanged_however_it_was_typed(
+        self, organization: Organization, manager: User
+    ) -> None:
+        """
+        The writer compares against what the service *stores*, not what the
+        file said. `create_supplier` canonicalises the phone and strips every
+        text field, so a row carrying the same supplier written the way a
+        person types it — local phone format, stray spaces — must come back
+        `unchanged`. Comparing raw text against stored text would report a
+        change on every re-import and make the applied count meaningless.
+        """
+        create_supplier(
+            organization=organization,
+            code="GROC-01",
+            name_ar="مورد المواد",
+            phone="07701234567",
+        )
+        stored = Supplier.objects.get(organization=organization, code="GROC-01")
+        assert stored.phone == "+9647701234567"  # canonicalised on the way in
+
+        batch = _run(
+            organization=organization,
+            kind=ImportKind.SUPPLIER,
+            raw=_csv(
+                "code,name_ar,phone",
+                # Local format and padded whitespace: the same supplier.
+                "GROC-01,  مورد المواد  ,0770 123 4567",
+            ),
+            actor=manager,
+        )
+        assert batch.status == ImportBatchStatus.VALIDATED
+        with audit_context(actor=manager):
+            applied = apply_batch(batch=batch)
+        assert applied.applied_row_count == 0
+        assert [row.applied_action for row in applied.rows.all()] == ["unchanged"]
+        stored.refresh_from_db()
+        assert stored.phone == "+9647701234567"
+        assert stored.name_ar == "مورد المواد"
+
+    def test_an_unusable_phone_fails_its_row_instead_of_the_apply(
+        self, organization: Organization, manager: User
+    ) -> None:
+        """Caught in the preview, where it has a row number to belong to."""
+        batch = _run(
+            organization=organization,
+            kind=ImportKind.SUPPLIER,
+            raw=_csv("code,name_ar,phone", "GROC-01,مورد,not-a-number"),
+            actor=manager,
+        )
+        assert batch.status == ImportBatchStatus.FAILED_VALIDATION
+        assert "phone" in batch.rows.get().errors
+        assert Supplier.objects.count() == 0
+
     def test_a_missing_arabic_name_fails_the_row_and_blocks_the_apply(
         self, organization: Organization, manager: User
     ) -> None:
@@ -306,6 +359,102 @@ class TestPurchaseRequestDraftImport:
                 filename="upload.csv",
             )
         assert refusal.value.code == "import_branch_required"
+
+
+class TestDemoImportBatches:
+    """
+    The demo has to show both halves of the contract, and prove neither
+    drifts on a second seed — the Task 1.7 `_applied_import`/`_failed_import`
+    pair, matched here for procurement's own kind.
+    """
+
+    def _seed(self, organization: Organization, actor: User) -> None:
+        from apps.procurement.demo import (
+            seed_demo_import_batch,
+            seed_demo_rejected_import_batch,
+            seed_demo_suppliers,
+        )
+
+        with audit_context(actor=actor):
+            seed_demo_suppliers(organization=organization)
+            seed_demo_import_batch(organization=organization)
+            seed_demo_rejected_import_batch(organization=organization)
+
+    def test_the_applied_batch_makes_one_visible_change_and_leaves_two_alone(
+        self, organization: Organization, manager: User
+    ) -> None:
+        from apps.procurement.demo import DEMO_IMPORT_NOTE, DEMO_IMPORT_TARGET
+
+        self._seed(organization, manager)
+        applied = ImportBatch.objects.get(
+            organization=organization, original_filename="demo-suppliers-applied.csv"
+        )
+        assert applied.status == ImportBatchStatus.APPLIED
+        assert applied.valid_row_count == 3
+        # One row changed something; the other two were already right. An
+        # applied count below the valid count is the framework working.
+        assert applied.applied_row_count == 1
+        assert sorted(row.applied_action for row in applied.rows.all()) == [
+            "unchanged",
+            "unchanged",
+            "updated",
+        ]
+        changed = Supplier.objects.get(organization=organization, code=DEMO_IMPORT_TARGET)
+        assert changed.notes == DEMO_IMPORT_NOTE
+        # PRC-066: three suppliers before, three after.
+        assert Supplier.objects.filter(organization=organization).count() == 3
+
+    def test_the_rejected_batch_holds_a_good_row_and_applies_nothing(
+        self, organization: Organization, manager: User
+    ) -> None:
+        self._seed(organization, manager)
+        rejected = ImportBatch.objects.get(
+            organization=organization, original_filename="demo-suppliers-rejected.csv"
+        )
+        assert rejected.status == ImportBatchStatus.FAILED_VALIDATION
+        assert rejected.valid_row_count == 1  # the good row, deliberately unapplied
+        assert rejected.error_row_count == 2
+        assert rejected.applied_row_count == 0
+        assert rejected.applied_at is None
+        assert all(row.applied_action == "" for row in rejected.rows.all())
+        # Neither invalid row's supplier was created, and applying is refused
+        # outright rather than applying the one good row.
+        assert not Supplier.objects.filter(
+            code__in=("DEMO-BROKEN-SUPPLIER", "DEMO-TERMS-SUPPLIER")
+        ).exists()
+        # Refused at the status gate — a batch that failed validation never
+        # reaches the row-count check beneath it, which is the stricter
+        # ordering: "not validated" is true of it before "has invalid rows" is
+        # even asked.
+        with audit_context(actor=manager), pytest.raises(ValidationError) as refusal:
+            apply_batch(batch=rejected)
+        assert refusal.value.code == "import_not_validated"
+        assert Supplier.objects.filter(organization=organization).count() == 3
+        rejected.refresh_from_db()
+        assert rejected.status == ImportBatchStatus.FAILED_VALIDATION
+        assert rejected.applied_row_count == 0
+
+    def test_a_second_seed_adds_no_batch_and_changes_nothing(
+        self, organization: Organization, manager: User
+    ) -> None:
+        from apps.procurement.demo import DEMO_IMPORT_NOTE, DEMO_IMPORT_TARGET
+
+        self._seed(organization, manager)
+        before = {
+            "batches": ImportBatch.objects.count(),
+            "suppliers": Supplier.objects.count(),
+            "note": Supplier.objects.get(organization=organization, code=DEMO_IMPORT_TARGET).notes,
+        }
+        self._seed(organization, manager)
+        self._seed(organization, manager)
+
+        assert ImportBatch.objects.count() == before["batches"] == 2
+        assert Supplier.objects.count() == before["suppliers"] == 3
+        assert (
+            Supplier.objects.get(organization=organization, code=DEMO_IMPORT_TARGET).notes
+            == before["note"]
+            == DEMO_IMPORT_NOTE
+        )
 
 
 class TestBoundaryAndAccess:

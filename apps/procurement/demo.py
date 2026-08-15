@@ -1676,43 +1676,71 @@ def seed_demo_payments(
     return payments
 
 
-DEMO_IMPORT_FILENAME = "demo-suppliers.csv"
+DEMO_IMPORT_FILENAME = "demo-suppliers-applied.csv"
+DEMO_REJECTED_IMPORT_FILENAME = "demo-suppliers-rejected.csv"
+
+#: The one visible change the applied demo batch makes. `notes` is free text
+#: no posting path, report or verifier reads — the safest field in the
+#: supplier master to demonstrate a real mutation with.
+DEMO_IMPORT_NOTE = "حُدِّث عبر استيراد تجريبي"
+#: Which supplier it lands on. Exactly one, so the batch shows an applied
+#: count (1) *lower* than its valid-row count (3) — the framework's
+#: documented "unchanged is not a failure" behaviour, on screen.
+DEMO_IMPORT_TARGET = "DEMO-GROCERY-SUPPLIER"
+
+
+def _supplier_import_row(
+    code: str, name_ar: str, name_en: str, contact: str, phone: str, terms: int, note: str
+) -> str:
+    return f"{code},{name_ar},{name_en},{contact},{phone},{terms},{note}"
+
+
+def _find_demo_batch(*, organization: Organization, filename: str) -> ImportBatchRecord | None:
+    from apps.inventory.models import ImportBatch
+
+    found: ImportBatchRecord | None = ImportBatch.objects.filter(
+        organization=organization, original_filename=filename
+    ).first()
+    return found
 
 
 def seed_demo_import_batch(*, organization: Organization) -> ImportBatchRecord | None:
     """
-    One applied supplier batch, so the import history shows Task 2.17 working.
+    One applied supplier batch that actually changes something.
 
-    The rows restate the three demo suppliers exactly as they stand, so the
-    apply runs the whole preview-then-write pipeline and changes nothing:
-    every action is `unchanged`, PRC-066 keeps its three suppliers, and a
-    re-run finds the applied batch by content hash and leaves it be.
+    The rows restate the three demo suppliers, and exactly one of them
+    carries a note the seeded supplier does not have — so the apply runs the
+    whole preview-then-write pipeline through `update_supplier` and leaves a
+    visible, deterministic difference on one screen. The other two rows come
+    back `unchanged`, which is the point: `applied_row_count` is 1 against a
+    `valid_row_count` of 3, and neither is wrong.
+
+    PRC-066 is untouched — three suppliers before, three after; the batch
+    corrects one, it does not invent any. Idempotent by filename, and by the
+    framework's content hash beneath that: a second seed finds this batch and
+    a third would be refused as a retry even if it did not.
     """
-    from apps.inventory.imports import (
-        apply_batch,
-        create_batch,
-        fingerprint,
-        parse_rows,
-        validate_batch,
-    )
-    from apps.inventory.models import ImportBatch, ImportBatchStatus, ImportKind
+    from apps.inventory.imports import apply_batch, create_batch, validate_batch
+    from apps.inventory.models import ImportKind
 
-    header = "code,name_ar,name_en,contact_name,phone,payment_terms_days"
+    existing = _find_demo_batch(organization=organization, filename=DEMO_IMPORT_FILENAME)
+    if existing is not None:
+        return existing
+
+    header = "code,name_ar,name_en,contact_name,phone,payment_terms_days,notes"
     lines = [header] + [
-        f"{code},{name_ar},{name_en},{contact},{phone},{terms}"
+        _supplier_import_row(
+            code,
+            name_ar,
+            name_en,
+            contact,
+            phone,
+            terms,
+            DEMO_IMPORT_NOTE if code == DEMO_IMPORT_TARGET else "",
+        )
         for code, name_ar, name_en, contact, phone, terms in DEMO_SUPPLIERS
     ]
     raw = ("\n".join(lines) + "\n").encode("utf-8")
-
-    rows = parse_rows(raw, filename=DEMO_IMPORT_FILENAME, kind=ImportKind.SUPPLIER)
-    existing = ImportBatch.objects.filter(
-        organization=organization,
-        kind=ImportKind.SUPPLIER,
-        content_hash=fingerprint(ImportKind.SUPPLIER, rows),
-        status=ImportBatchStatus.APPLIED,
-    ).first()
-    if existing is not None:
-        return existing
 
     batch = create_batch(
         organization=organization,
@@ -1723,3 +1751,45 @@ def seed_demo_import_batch(*, organization: Organization) -> ImportBatchRecord |
     )
     validate_batch(batch=batch)
     return apply_batch(batch=batch)
+
+
+def seed_demo_rejected_import_batch(*, organization: Organization) -> ImportBatchRecord | None:
+    """
+    One refused supplier batch, with a good row in it.
+
+    The good row matters more than the bad ones — the same reasoning Task
+    1.7's `_failed_import` records. A batch of nothing but rubbish shows that
+    validation rejects rubbish; a batch that is *mostly* right shows the
+    harder rule: one bad row stops all of it, and the valid row was not
+    quietly applied anyway.
+
+    The valid row restates a supplier that already exists, so even if this
+    batch could somehow be applied — it cannot; `apply_batch` refuses a
+    `FAILED_VALIDATION` batch — it would create nothing. Left validated and
+    refused, permanently, as the history screen's example of a bad upload.
+    """
+    from apps.inventory.imports import create_batch, validate_batch
+    from apps.inventory.models import ImportKind
+
+    existing = _find_demo_batch(organization=organization, filename=DEMO_REJECTED_IMPORT_FILENAME)
+    if existing is not None:
+        return existing
+
+    raw = (
+        "code,name_ar,name_en,contact_name,phone,payment_terms_days\n"
+        # Valid, and deliberately never applied.
+        "DEMO-MEAT-SUPPLIER,مورد اللحوم — تجريبي,Meat Supplier (demo),أبو علي,07701111111,30\n"
+        # No Arabic name: the one field a supplier cannot be without.
+        "DEMO-BROKEN-SUPPLIER,,Broken Supplier,أبو نور,07704444444,30\n"
+        # Terms that are not a number of days.
+        "DEMO-TERMS-SUPPLIER,مورد الشروط — تجريبي,Terms Supplier,أم علي,07705555555,شهر\n"
+    ).encode()
+
+    batch = create_batch(
+        organization=organization,
+        kind=ImportKind.SUPPLIER,
+        raw=raw,
+        filename=DEMO_REJECTED_IMPORT_FILENAME,
+        notes="DEMO",
+    )
+    return validate_batch(batch=batch)

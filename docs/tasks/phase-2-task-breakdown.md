@@ -410,14 +410,35 @@ migration 0032) granted to manager and purchasing; the draft kind rides
 `create_purchase_request`. File security, preview-then-apply, all-or-nothing
 and the content-hash retry guard are inherited, not reimplemented — the
 framework's own tests still pass with the six-kind positive twin replacing
-the three-kind boundary. The demo seeds one applied supplier batch whose
-rows restate the three demo suppliers exactly (every action `unchanged`, so
-PRC-066 keeps its three suppliers), idempotent by content hash across
-re-runs; the inspection list gains the import history route.
+the three-kind boundary. The demo seeds **both halves of the contract**, matching
+Task 1.7's own `_applied_import`/`_failed_import` precedent: one APPLIED
+batch restating the three demo suppliers with exactly one carrying a note
+they lack — so it makes a real, visible, harmless change through
+`update_supplier` and shows an applied count (1) below its valid-row count
+(3), the framework's documented "unchanged is not a failure" behaviour on
+screen — and one FAILED_VALIDATION batch holding one good row (a restated
+existing supplier) beside a nameless supplier and unparseable terms, proving
+one bad row stops all of it and the good row is not quietly applied anyway.
+Three suppliers before and after, either way (PRC-066). Idempotent by
+filename and by content hash beneath it; the inspection list gains the
+import history route.
 
 *Verified.* Fresh `khan_mandi_p2_b11` migrated from zero, seeded twice with
-identical counts (3 suppliers, 3 batches), `verify_procurement` clean, the
-upload screen offering all six kinds, HTMX fragments answering as fragments.
+identical counts, `verify_procurement` clean, the upload screen offering all
+six kinds, HTMX fragments answering as fragments; re-verified end to end on
+`khan_mandi_p2_gate2` after the review below.
+
+*Defect found and closed at the 2.18 review.* The writers compared raw CSV
+text against **service-normalised** stored values — `create_supplier`
+canonicalises the phone and strips every text field — so a row restating a
+supplier exactly as it already existed reported `updated`, inflating
+`applied_row_count` on every re-import and breaking the framework's
+"unchanged is not a failure" contract for procurement; worse, an unusable
+phone passed validation and would have raised inside `apply_batch`, halfway
+through an atomic write. Fixed in the **validator**, not the writer: cleaned
+rows now hold exactly what the service will store, so the preview shows the
+landing value and a bad phone is a row error with a row number. Two
+regression tests hold it.
 
 ---
 

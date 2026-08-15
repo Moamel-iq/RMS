@@ -60,11 +60,29 @@ by the **allocated** share and shows the advance on the row, because an
 advance is an asset, not a smaller debt (PRC-055); aging shows the advance
 in its own column beside the buckets.
 
-Same-day statement rows order **charges before settlements** (invoice,
-credit note, payment), then by document number. The documents carry a
-business date, not a time, so there is no intraday chronology to recover —
-and this ordering shows a same-day debt arising and then being settled,
-never a balance dipping spuriously negative in between.
+### The statement is ordered by the ledger, not by preference
+
+Rows sort by business date, then by the **journal**: `posted_at`, then
+`entry_number`. The documents carry a business date rather than a time, so
+within one business date the journal is the only record of what actually
+happened first — and it is the order the general ledger itself would show,
+which is what makes the statement reconcilable against it.
+
+Document kind survives only as a tie-break beneath the journal keys, so the
+sort has a total order even in the impossible case of two documents sharing
+a posting instant and an entry number.
+
+An earlier cut ordered same-day rows by kind — charges before settlements.
+It was deterministic and wrong: a payment made Monday and an invoice posted
+Tuesday-for-Monday would print with the invoice first, telling a reader the
+payment settled a debt that did not yet exist. Task 2.0 §12 requires a
+running balance and states no kind precedence, so nothing was owed to that
+ordering. `TestStatementOrdering` holds the rule, and each of its cases
+names the answer kind-precedence would have given.
+
+Ordering decides how the balance travels, never where it ends: the closing
+figure equals `supplier_outstanding`, the same derivation
+`verify_procurement_accounting` proves against the payable account.
 
 The matching lifecycle moves one variance through three reports: unmatched,
 the invoice sits in "invoice without receipt"; matched but unposted, it is a

@@ -93,7 +93,20 @@ def _integer(raw: str, field: str, errors: dict[str, list[str]]) -> int | None:
 def validate_supplier(
     row: dict[str, str], *, organization: Organization, branch: Branch | None
 ) -> tuple[dict[str, list[str]], dict[str, Any]]:
-    """One supplier row. The code is the identity; everything else corrects."""
+    """
+    One supplier row. The code is the identity; everything else corrects.
+
+    Text is cleaned to **exactly what `create_supplier` would store** — the
+    same `strip()`, the same phone canonicalisation. Two things follow, and
+    both matter. The preview shows the value that will actually land, rather
+    than the one that was typed; and a row asking for what the record already
+    holds compares equal at apply time and counts as `unchanged`, instead of
+    reporting a change because "07701234567" is stored as "+9647701234567".
+    A phone that cannot be canonicalised is a row error here rather than an
+    exception thrown halfway through the apply.
+    """
+    from apps.users.phone import try_normalize_iraqi_mobile
+
     framework = _framework()
     errors: dict[str, list[str]] = {}
     cleaned: dict[str, Any] = {}
@@ -103,13 +116,24 @@ def validate_supplier(
         errors["code"] = [_("الرمز مطلوب.")]
     else:
         cleaned["code"] = code
-    if not row.get("name_ar", ""):
+    if not row.get("name_ar", "").strip():
         errors["name_ar"] = [_("الاسم العربي مطلوب.")]
     else:
-        cleaned["name_ar"] = row["name_ar"]
+        cleaned["name_ar"] = row["name_ar"].strip()
 
-    for field in ("name_en", "contact_name", "phone", "email", "address", "notes"):
-        cleaned[field] = row.get(field, "")
+    for field in ("name_en", "contact_name", "email", "address", "notes"):
+        cleaned[field] = row.get(field, "").strip()
+
+    raw_phone = row.get("phone", "").strip()
+    if not raw_phone:
+        # A supplier with no number on file is ordinary, not malformed.
+        cleaned["phone"] = ""
+    else:
+        canonical = try_normalize_iraqi_mobile(raw_phone)
+        if canonical is None:
+            errors["phone"] = [_("ليس رقم هاتف عراقي صحيح.")]
+        else:
+            cleaned["phone"] = canonical
 
     terms = _integer(row.get("payment_terms_days", ""), "payment_terms_days", errors)
     cleaned["payment_terms_days"] = terms if terms is not None else 0
@@ -200,8 +224,11 @@ def validate_supplier_item(
     cleaned["lead_time_days"] = _integer(row.get("lead_time_days", ""), "lead_time_days", errors)
     preferred = framework._boolean(row.get("is_preferred", "لا"), "is_preferred", errors)
     cleaned["is_preferred"] = bool(preferred)
-    cleaned["supplier_sku"] = row.get("supplier_sku", "")
-    cleaned["notes"] = row.get("notes", "")
+    # Stripped for the same reason the supplier's fields are: the service
+    # strips before storing, so an unstripped comparison would call every
+    # re-import a change.
+    cleaned["supplier_sku"] = row.get("supplier_sku", "").strip()
+    cleaned["notes"] = row.get("notes", "").strip()
     return errors, cleaned
 
 
@@ -237,10 +264,10 @@ def validate_purchase_request_draft(
     if required is not None:
         cleaned["required_date"] = required
 
-    if not row.get("purpose", ""):
+    if not row.get("purpose", "").strip():
         errors["purpose"] = [_("الغرض مطلوب.")]
     else:
-        cleaned["purpose"] = row["purpose"]
+        cleaned["purpose"] = row["purpose"].strip()
 
     item_code = row.get("item_code", "").strip().upper()
     if not item_code:
@@ -283,7 +310,7 @@ def validate_purchase_request_draft(
     else:
         cleaned["preferred_supplier_id"] = None
 
-    cleaned["note"] = row.get("note", "")
+    cleaned["note"] = row.get("note", "").strip()
     return errors, cleaned
 
 

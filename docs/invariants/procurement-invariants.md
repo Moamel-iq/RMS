@@ -8,16 +8,24 @@ These **extend** `docs/invariants/inventory-invariants.md` and
 procurement posting that breaks an inventory invariant is broken twice, and a
 receipt is an inventory posting before it is anything else.
 
-**Status: proposed by Task 2.0, 2026-08-11.** The "Delivered by" column names
-the task that makes each one true. Invariants 1–3 landed with Task 2.1,
-5–8 with Task 2.2, 9–12 with Task 2.3, 13 with Task 2.4, 14–15 with
-Task 2.5 16 with Task 2.6, 17–19 with Task 2.7
-(18–19 activated by Task 2.8), 20–24 with Task 2.8, 25–31 with Task 2.9,
-32–34 with Task 2.10, 35–36 with Task 2.11, and 37 with Task 2.12.
-The rest are still statements of intent, and the
-traceability matrix rather than this table is where the evidence lives.
+**Status: ENFORCED. Proposed by Task 2.0 on 2026-08-11; every row below is
+delivered and tested as of the Task 2.18 Phase 2 exit gate.** The "Delivered
+by" column names the task that made each one true: 1–3 with Task 2.1, 5–8
+with 2.2, 9–12 with 2.3, 13 with 2.4, 14–15 with 2.5, 16 with 2.6, 17–19
+with 2.7 (18–19 activated by 2.8), 20–24 with 2.8, 25–31 with 2.9, 32–34
+with 2.10, 35–36 with 2.11, 37 with 2.12, 38–40e with 2.13, 41–42 with
+2.14, 43–45 with 2.15, and 46–49 with 2.16.
 
-## The forty
+An earlier version of this header said the rows past 37 were "still
+statements of intent". That was true when it was written and stopped being
+true four tasks ago: rows 38–49 cite concrete migrations, named tests and
+live verifiers, and they cover the whole supplier-return, credit-note,
+payment and reconciliation set — including 46 (open supplier balances equal
+the payable account) and 47 (GRNI equality), which are the phase's proof
+obligation. The "Enforced where" column is the evidence; the traceability
+matrix carries the same citations against requirement IDs.
+
+## The fifty
 
 | # | Invariant | Enforced where | Delivered by |
 |---|---|---|---|

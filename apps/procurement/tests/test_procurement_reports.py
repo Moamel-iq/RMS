@@ -55,6 +55,7 @@ from apps.procurement.invoices import (
     approve_supplier_invoice,
     create_supplier_invoice,
     post_supplier_invoice,
+    supplier_outstanding,
 )
 from apps.procurement.matching import add_allocation, create_purchase_match, mark_match_ready
 from apps.procurement.models import (
@@ -62,6 +63,7 @@ from apps.procurement.models import (
     PurchaseOrder,
     Supplier,
     SupplierInvoice,
+    SupplierPayment,
     SupplierReturn,
 )
 from apps.procurement.payments import (
@@ -532,6 +534,11 @@ class TestMoneyReports:
         money_docs: dict[str, object],
         org_manager: User,
     ) -> None:
+        """
+        All four documents share one business date, so this is the journal's
+        chronology doing the ordering: the three invoices in the order they
+        posted, then the payment that settled one of them.
+        """
         rows = reports.supplier_statement(org_manager, _filters(), include_cost=True)
         assert [row["balance"] for row in rows] == [
             Decimal("20000.000"),
@@ -570,6 +577,344 @@ class TestMoneyReports:
         assert sum((row["spend"] for row in rows), start=ZERO) == Decimal("100000.000")
         assert sum(int(row["invoice_count"]) for row in rows) == 3
         assert all(row["supplier_code"] == "GROC-01" for row in rows)
+
+
+# ---------------------------------------------------------------------------
+# Statement chronology
+# ---------------------------------------------------------------------------
+
+
+class TestStatementOrdering:
+    """
+    A statement is a chronology, and within one business date the journal is
+    the only record of what happened first.
+
+    These all post on ONE business date, so nothing but the ordering rule can
+    separate the rows. Each names the answer an ordering by document *kind*
+    (charges before settlements) would have given, because that was the first
+    cut and it was wrong: the ledger is the authority, not a preference about
+    how a statement reads.
+    """
+
+    ONE_DAY = datetime.date(TEST_YEAR, 5, 4)
+
+    def _invoice(
+        self,
+        *,
+        organization: Organization,
+        supplier: Supplier,
+        branch: Branch,
+        actor: User,
+        amount: str,
+        reference: str,
+    ) -> SupplierInvoice:
+        invoice = create_supplier_invoice(
+            supplier=supplier,
+            branch=branch,
+            created_by=actor,
+            supplier_invoice_number=reference,
+            invoice_date=self.ONE_DAY,
+            business_date=self.ONE_DAY,
+        )
+        add_account_line(
+            invoice=invoice,
+            account=Account.objects.get(organization=organization, code=EXPENSE_CODE),
+            cost_center=CostCenter.objects.filter(organization=organization).first(),
+            description="أجور نقل",
+            quantity=Decimal("1.000"),
+            unit_price=Decimal(amount),
+        )
+        approve_supplier_invoice(invoice=invoice, actor=actor)
+        return invoice
+
+    def _pay(
+        self,
+        *,
+        supplier: Supplier,
+        branch: Branch,
+        actor: User,
+        amount: str,
+        reference: str,
+        invoice: SupplierInvoice | None = None,
+        allocated: str | None = None,
+    ) -> SupplierPayment:
+        payment = create_supplier_payment(
+            supplier=supplier,
+            branch=branch,
+            created_by=actor,
+            paid_at=self.ONE_DAY,
+            business_date=self.ONE_DAY,
+            method="BANK",
+            amount=Decimal(amount),
+            reference=reference,
+        )
+        if invoice is not None and allocated is not None:
+            add_payment_allocation(
+                payment=payment, invoice=invoice, allocated_amount=Decimal(allocated)
+            )
+        return post_supplier_payment(payment=payment, actor=actor)
+
+    def test_an_invoice_then_a_payment_reads_in_that_order(
+        self,
+        organization: Organization,
+        grocery: Supplier,
+        branch: Branch,
+        keeper: User,
+        org_manager: User,
+    ) -> None:
+        invoice = self._invoice(
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="20000.000000",
+            reference="INV-A",
+        )
+        post_supplier_invoice(invoice=invoice, actor=keeper)
+        self._pay(
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="20000.000",
+            reference="TRF-A",
+            invoice=invoice,
+            allocated="20000.000",
+        )
+        rows = reports.supplier_statement(org_manager, _filters(), include_cost=True)
+        assert [row["document_kind"] for row in rows] == ["فاتورة", "دفعة"]
+        assert [row["balance"] for row in rows] == [Decimal("20000.000"), ZERO]
+
+    def test_a_payment_before_an_invoice_reads_before_it(
+        self,
+        organization: Organization,
+        grocery: Supplier,
+        branch: Branch,
+        keeper: User,
+        org_manager: User,
+    ) -> None:
+        """
+        The case kind-precedence got wrong. Money left on the same day the
+        bill arrived, and it left *first* — so the statement shows the
+        advance standing before the charge that would later absorb it.
+        Ordering by kind would have printed the invoice first and told a
+        reader the payment settled a debt that did not yet exist.
+        """
+        self._pay(
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="15000.000",
+            reference="TRF-EARLY",
+        )
+        invoice = self._invoice(
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="15000.000000",
+            reference="INV-LATE",
+        )
+        post_supplier_invoice(invoice=invoice, actor=keeper)
+
+        rows = reports.supplier_statement(org_manager, _filters(), include_cost=True)
+        assert [row["document_kind"] for row in rows] == ["دفعة", "فاتورة"]
+        # Wholly unallocated, so it settles nothing and stands as an advance.
+        assert rows[0]["settled"] == ZERO
+        assert rows[0]["advance"] == Decimal("15000.000")
+        assert [row["balance"] for row in rows] == [ZERO, Decimal("15000.000")]
+
+    def test_a_payment_between_two_invoices_stays_between_them(
+        self,
+        organization: Organization,
+        grocery: Supplier,
+        branch: Branch,
+        keeper: User,
+        org_manager: User,
+    ) -> None:
+        """
+        Three same-day documents whose two orderings disagree at every row.
+        Chronology: 20,000 charged, settled, then 30,000 charged — balances
+        20,000 / 0 / 30,000. Kind precedence would print both invoices first
+        and give 20,000 / 50,000 / 0, which is a debt the supplier never
+        held.
+        """
+        first = self._invoice(
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="20000.000000",
+            reference="INV-FIRST",
+        )
+        post_supplier_invoice(invoice=first, actor=keeper)
+        self._pay(
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="20000.000",
+            reference="TRF-MID",
+            invoice=first,
+            allocated="20000.000",
+        )
+        second = self._invoice(
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="30000.000000",
+            reference="INV-SECOND",
+        )
+        post_supplier_invoice(invoice=second, actor=keeper)
+
+        rows = reports.supplier_statement(org_manager, _filters(), include_cost=True)
+        assert [row["document_kind"] for row in rows] == ["فاتورة", "دفعة", "فاتورة"]
+        assert [row["balance"] for row in rows] == [
+            Decimal("20000.000"),
+            ZERO,
+            Decimal("30000.000"),
+        ]
+
+    def test_a_credit_note_reads_where_it_posted_between_two_events(
+        self,
+        organization: Organization,
+        posted_return: SupplierReturn,
+        grocery: Supplier,
+        branch: Branch,
+        keeper: User,
+        controller: User,
+        org_manager: User,
+    ) -> None:
+        """A note posted second reads second, not sorted to the credit block."""
+        first = self._invoice(
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="40000.000000",
+            reference="INV-BEFORE-NOTE",
+        )
+        post_supplier_invoice(invoice=first, actor=keeper)
+
+        note = create_supplier_credit_note(
+            supplier_return=posted_return,
+            created_by=keeper,
+            supplier_document_number="SCN-MID",
+            credit_date=self.ONE_DAY,
+            business_date=self.ONE_DAY,
+            amount=Decimal("14000.000"),
+        )
+        add_return_allocation(
+            credit_note=note,
+            return_line=posted_return.lines.get(),
+            credited_base_quantity=Decimal("10.000"),
+            allocated_credit_amount=Decimal("14000.000"),
+        )
+        post_supplier_credit_note(credit_note=note, actor=controller)
+
+        second = self._invoice(
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="5000.000000",
+            reference="INV-AFTER-NOTE",
+        )
+        post_supplier_invoice(invoice=second, actor=keeper)
+
+        rows = reports.supplier_statement(org_manager, _filters(), include_cost=True)
+        assert [row["document_kind"] for row in rows] == ["فاتورة", "إشعار دائن", "فاتورة"]
+        assert [row["balance"] for row in rows] == [
+            Decimal("40000.000"),
+            Decimal("26000.000"),
+            Decimal("31000.000"),
+        ]
+
+    def test_the_journal_orders_the_rows_even_when_the_primary_keys_disagree(
+        self,
+        organization: Organization,
+        grocery: Supplier,
+        branch: Branch,
+        keeper: User,
+        org_manager: User,
+    ) -> None:
+        """
+        Two drafts created in one order and posted in the other. The row with
+        the *lower* primary key posted second and must read second — a sort
+        key reading `pk` (or a per-document number sequence, which is drawn
+        at posting) would put them the other way round.
+        """
+        earlier_pk = self._invoice(
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="11000.000000",
+            reference="INV-LOW-PK",
+        )
+        later_pk = self._invoice(
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="22000.000000",
+            reference="INV-HIGH-PK",
+        )
+        assert earlier_pk.pk < later_pk.pk
+
+        post_supplier_invoice(invoice=later_pk, actor=keeper)
+        post_supplier_invoice(invoice=earlier_pk, actor=keeper)
+
+        rows = reports.supplier_statement(org_manager, _filters(), include_cost=True)
+        assert [row["charged"] for row in rows] == [Decimal("22000.000"), Decimal("11000.000")]
+        assert [row["balance"] for row in rows] == [Decimal("22000.000"), Decimal("33000.000")]
+
+    def test_the_closing_balance_is_the_supplier_position_however_rows_are_read(
+        self,
+        organization: Organization,
+        grocery: Supplier,
+        branch: Branch,
+        keeper: User,
+        org_manager: User,
+    ) -> None:
+        """
+        Ordering decides how the balance *travels*, never where it ends. The
+        closing figure equals `supplier_outstanding` — the same derivation
+        `verify_procurement_accounting` proves against the payable account —
+        and equals the sum of the row movements in any order.
+        """
+        invoice = self._invoice(
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="80000.000000",
+            reference="INV-CLOSE",
+        )
+        post_supplier_invoice(invoice=invoice, actor=keeper)
+        self._pay(
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="30000.000",
+            reference="TRF-CLOSE",
+            invoice=invoice,
+            allocated="30000.000",
+        )
+        rows = reports.supplier_statement(org_manager, _filters(), include_cost=True)
+        movements = sum((row["charged"] - row["settled"] for row in rows), start=ZERO)
+
+        assert rows[-1]["balance"] == Decimal("50000.000")
+        assert rows[-1]["balance"] == movements
+        assert rows[-1]["balance"] == supplier_outstanding(grocery)
+        assert verify_procurement_accounting(organization) == []
+
+        # Reading the same movements in any other order reaches the same
+        # place: a running balance is a presentation of a sum, not the sum.
+        for permutation in (list(reversed(rows)), sorted(rows, key=lambda row: row["number"])):
+            assert (
+                sum((row["charged"] - row["settled"] for row in permutation), start=ZERO)
+                == movements
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -5,8 +5,10 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: 19/20 — Imports and hardening (Task 2.17) COMPLETE
-pending the affected-domain run recorded below.
+CURRENT_PIPELINE_STEP: 20/20 — Phase 2 exit gate (Task 2.18) in progress:
+two human-directed reviews applied, gates green, fresh gate database
+verified, one new definitive suite running to certify the changed tree.
+The tag is created only after that suite exits 0.
 CURRENT_TASK: Task 2.17 executed to plan; commit pending only the
 affected-domain run (`apps/procurement` + both inventory import test
 files) recorded in STEP 19 below. The active /goal directs the remainder
@@ -50,6 +52,12 @@ ACTIVE_DATABASES (none to be dropped):
   (3 suppliers, 3 orders, 6 receipts, 4 invoices, 2 matches, 3 returns,
   1 note, 1 payment); `verify_procurement` clean, all twelve report routes
   and CSVs 200; created by Task 2.16, never to be dropped
+- `khan_mandi_p2_gate` — Phase 2 exit gate, migrated from zero and seeded;
+  both verifiers clean, 25 inspection routes rendered; created by Task 2.18
+- `khan_mandi_p2_gate2` — Phase 2 exit gate **after** the two 2.18 reviews,
+  migrated from zero, seeded twice (3 suppliers, 4 import batches, the demo
+  note applied), both verifiers 0 discrepancies, 25 routes 200; the database
+  that certifies the tagged tree. Never to be dropped
 - `khan_mandi_p2_b11` — Task 2.17 verification, migrated from zero
   (inventory 0020 + procurement 0032 included), seeded twice with identical
   counts (3 suppliers, 3 import batches — two inventory, one procurement,
@@ -153,6 +161,114 @@ the inventory demo, which is how the scoping was found.
 `verify_parked_variance` proves every fils in `8-01-03-001` traces to a live
 posting and to the allocation rows beneath it, and catches a manual journal
 against the account.
+
+STEP 20 (Task 2.18, Phase 2 exit gate): **IN PROGRESS**. A first definitive
+suite passed **2351/0** (5:35:23) on the tree as it stood, and the fresh
+`khan_mandi_p2_gate` database migrated from zero, seeded, reconciled clean
+on both `verify_procurement` and `verify_inventory_against_gl`, and rendered
+all 25 inspection routes. Two human-directed reviews then **changed
+executable code**, so that suite is retained as diagnostic evidence only and
+does not certify the final tree — one new definitive suite runs on the tree
+below before any tag.
+
+**Review 1 — the supplier statement's same-day order.** Task 2.0 §12 defines
+the statement as "every document and allocation for one supplier, running
+balance" and states *no* ordering rule, so the first cut's document-kind
+precedence (charges before settlements) had no approved requirement behind
+it. Replaced with the ledger's own chronology: business date → journal
+`posted_at` → journal `entry_number` → kind → document number, kind
+surviving only as a tie-break so the key keeps a total order. The old rule
+was not merely arbitrary but wrong: a payment made Monday and an invoice
+posted Tuesday-for-Monday printed with the invoice first, telling a reader
+the payment settled a debt that did not yet exist. Six tests in
+`TestStatementOrdering` — invoice-then-payment, payment-then-invoice, a
+payment between two invoices, a credit note between two events, primary-key
+drift (two drafts created in one order and posted in the other), and the
+closing balance equalling `supplier_outstanding` under any permutation —
+each naming the answer kind-precedence would have given.
+
+**Review 2 — the demo's import evidence.** The first cut seeded one APPLIED
+batch whose rows restated the suppliers exactly, so it changed nothing. Task
+1.7's own `_applied_import`/`_failed_import` pair is the approved standard
+and it is stricter: procurement now seeds an APPLIED batch that makes one
+visible, harmless change (a note on one demo supplier through
+`update_supplier` — 3 valid rows, 1 applied, the framework's documented
+"unchanged is not a failure" on screen) and a FAILED_VALIDATION batch
+holding one good row beside a nameless supplier and unparseable terms.
+Three tests prove the mutation, that the failed batch applies zero rows and
+is refused (`import_not_validated` — the status gate is reached before the
+row-count gate), and that a second and third seed add no batch and change
+nothing.
+
+**A real defect the review surfaced.** The import writers compared raw CSV
+text against **service-normalised** stored values: `create_supplier`
+canonicalises the phone (`07701234567` → `+9647701234567`) and strips every
+text field. A row restating a supplier exactly as stored therefore reported
+`updated` — inflating `applied_row_count` on every re-import and breaking the
+framework's "a row asking for what the record already holds counts as
+unchanged" contract — and an unusable phone passed validation only to raise
+inside `apply_batch`, halfway through an atomic write. Fixed in the
+**validator** rather than the writer: cleaned rows now hold exactly what the
+service will store, so the preview shows the landing value and a bad phone is
+a row error with a row number (`try_normalize_iraqi_mobile`). The same
+`strip()` discipline was applied to the catalogue and draft validators. Two
+regression tests hold it. It surfaced only because the demo test asserted
+1 changed and 2 unchanged; without that assertion every row simply said
+"updated" and nothing looked broken.
+
+Focused runs after the changes: report suite **25/25**, import suite
+**17/17**, all 13 pre-commit hooks green, `makemigrations --check` clean.
+Fresh `khan_mandi_p2_gate2` migrated from zero and seeded twice: 3 suppliers
+(PRC-066 intact), 4 import batches (2 inventory, 2 procurement — one applied
+showing "3 صالح / 0 مرفوض, طُبِّق 1", one "فشل التدقيق 1 صالح / 2 مرفوض"),
+the demo note applied, both verifiers reporting 0 discrepancies, all 25
+routes 200.
+
+**Recorded at the 2.18 gate, not changed.** Invariant 50 asks every report to
+name its cutoff semantics. The twelve procurement reports inherit the Phase 1
+chrome, which prints `mode.label` ("حسب تاريخ الترحيل") even where
+`supports_modes` is false — the same thing inventory's expiry, reorder and
+waste reports have always done, because they too read current state. The
+procurement reports offer no historical mode: they read live documents, and
+their Arabic hints say so ("يُحتسب من المستندات المرحّلة ولا يُخزَّن").
+Changing the shared label is a Phase 1 chrome decision affecting nine
+existing inventory reports as well, so it is recorded here rather than
+altered inside a procurement gate.
+
+**Accounting audit completed** (7-agent workflow, independently re-verified by
+a critic that re-ran the suite itself: 290 passed, exit 0). The Accounting
+module is exactly three approved task IDs — 0.6 kernel, 0.7
+permissions/admin/API, 0.8 completion — and all three are DONE on code and
+test evidence. Five items are DEFERRED with a document and a stated reason
+(PRC-044, ADR-022 §5, ADR-023 §5, four SourceEvent values, the Phase 5
+screens). Everything the charter scopes to Phase 5 — trial balance, general
+ledger, P&L, balance sheet, cashboxes, bank accounts and the 13 inert
+navigation sections — is future-phase work, not open Accounting work; no
+Phase 5 task ID exists in the repository. Six OPEN items remain, none of them
+new features — they are completion obligations on already-approved tasks, and
+they are queued as ACCT-1..ACCT-6:
+1. **ACCT-1** Task 0.6 has *no traceability section at all*; 100 kernel tests
+   are cited by zero rows, and `tests/test_traceability.py` resolves
+   row→test forward only so it reports clean and structurally cannot see it.
+   Also: PRM-001 says "Twelve" permissions where thirteen exist and its own
+   cited test asserts thirteen; EXIT-007 cites a dead selector; MON-011 is
+   still Partial though the account is seeded and tested.
+2. **ACCT-2** `accounting:mapping_close` and `accounting:mapping_archive` are
+   shipped, linked mutation surfaces with zero tests anywhere.
+3. **ACCT-3** ADR-013/014/015 all still say "not yet built" for built work;
+   `decisions/README.md` and the root `README.md` are stale in both
+   directions; ADR-023's superseded prose survives in three places against a
+   shipped system that refuses to post.
+4. **ACCT-4** The *entire* `apps/accounting/selectors.py` is production-dead
+   (imported only by tests), and `accounting-kernel-invariants.md:18` cites
+   the dead `entry_total` as invariant 8's enforcement site — while inventory
+   and procurement reconciliations hand-roll seven JournalLine aggregations
+   the module already provides.
+5. **ACCT-5** Task 0.7 §4 promises account/cost-centre command endpoints and
+   §7 marks them "Built"; `api.py` has none, and `admin.py` tells the reader
+   to use them. `amend_account_role_mapping` has no surface at all.
+6. **ACCT-6** The "Accounting-side module-exit check" the runbook demands
+   three times is defined nowhere.
 
 STEP 19 (Task 2.17, imports and hardening): **COMPLETE** (commit follows the
 affected-domain run: `apps/procurement` plus both inventory import test
