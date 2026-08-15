@@ -15,11 +15,20 @@ make a suite pass.
 | 5 | Every journal line belongs to exactly one branch | Non-null FK on `JournalLine.branch` | `TestOrganizationIsolation` |
 | 6 | Cost centers required per `Account.requires_cost_center` | `validate_cost_centers` | `TestCostCenterPolicy` |
 | 7 | All allocation is deterministic | `apps/core/allocation.py` | `test_allocation.py` |
-| 8 | Document total equals the sum of its stored posted lines | `entry_total`, trial balance | `TestTrialBalance` |
+| 8 | Document total equals the sum of its stored posted lines | The deferred balance trigger `accounting_journalline_balance`, which compares the **stored** column values at COMMIT — there is no separately stored total to disagree with them. `selectors.trial_balance` derives totals the same way | `TestBalance`, `TestTrialBalance`, `test_commit_boundary.py::test_an_unbalancing_line_is_refused_at_commit` |
 | 9 | UI rounding never affects ledger values | Renderers return `str` | `TestRendering` |
 | 10 | Accounts, cost centers, branches used by posted journals cannot be deleted | `on_delete=PROTECT` | `TestArchivingNotDeleting` |
 | 11 | Posted journals are immutable; corrections are reversals | Triggers `accounting_journalentry_no_change`, `accounting_journalline_no_change` | `TestImmutability`, `TestReversal` |
 | 12 | Posting, reversal, and period reopening are audit logged | `record_audit_event` in every service | `test_reopening_is_audited_with_its_reason`, `test_reversal_is_audited` |
+
+> **Invariant 8's citation was wrong until the Phase 2 gate**, and wrong in
+> the direction that matters at a gate: it named `services.entry_total`,
+> a function with no callers anywhere, so the checklist claimed an
+> enforcement site that could not enforce anything. The invariant itself
+> always held — a document has no stored total to drift, and the deferred
+> trigger compares the stored line values at COMMIT — but the row overstated
+> its own evidence at exactly the place a reviewer looks for assurance.
+> `entry_total` has been deleted rather than left to be cited again.
 
 ### Hardening pass (approved after the first Task 0.6 review)
 

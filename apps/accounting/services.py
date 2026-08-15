@@ -16,7 +16,6 @@ import json
 import re
 import uuid
 from collections.abc import Callable, Sequence
-from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -1257,11 +1256,6 @@ def reverse_entry(
         },
     )
     return reversal
-
-
-def entry_total(entry: JournalEntry) -> Decimal:
-    """The entry's debit total, which by construction equals its credit total."""
-    return sum((line.debit for line in entry.lines.all()), Decimal("0")).quantize(Decimal("0.001"))
 
 
 # ---------------------------------------------------------------------------

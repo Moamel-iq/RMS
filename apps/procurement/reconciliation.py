@@ -39,10 +39,12 @@ from apps.accounting.models import (
     SUPPLIER_ADVANCE,
     SUPPLIER_PAYABLE,
     SUPPLIER_RETURN_CLEARING,
+    Account,
     JournalEntry,
     JournalLine,
     OrganizationAccountMapping,
 )
+from apps.accounting.selectors import account_balance
 from apps.inventory.models import StockLocationMovement, StockMovement
 from apps.inventory.reconciliation import Discrepancy
 from apps.organizations.models import Organization
@@ -1276,17 +1278,25 @@ def verify_procurement_accounting(organization: Organization) -> list[Discrepanc
     problems: list[Discrepancy] = []
 
     # 1. Open balances against the payable account, as one figure.
+    #
+    # The balance comes from `apps.accounting.selectors.account_balance`
+    # rather than from a JournalLine aggregation written here. Two reasons,
+    # and the second is the one that matters: the accounting module owns what
+    # "the balance of an account" means, and its answer counts **only posted
+    # and reversed entries**. The loop this replaced counted drafts too, so a
+    # draft entry touching the payable — which the API can create — would
+    # have been reported as a procurement discrepancy it had no part in.
     payable_account = _role_account(organization.pk, SUPPLIER_PAYABLE)
     if payable_account is not None:
         expected_payable = ZERO
         for supplier in Supplier.objects.filter(organization=organization):
             expected_payable += supplier_outstanding(supplier)
-        # A payable is a credit-balance account: credit-minus-debit.
-        actual_payable = ZERO
-        for entry_row in JournalLine.objects.filter(
-            account_id=payable_account, entry__organization=organization
-        ).values("debit", "credit"):
-            actual_payable += entry_row["credit"] - entry_row["debit"]
+        # A payable is a credit-balance account, and `account_balance` is
+        # debits minus credits, so the sign is inverted here rather than a
+        # second derivation being invented.
+        actual_payable = -account_balance(
+            account=Account.objects.get(pk=payable_account),
+        )
         if actual_payable != expected_payable:
             problems.append(
                 Discrepancy(
