@@ -6,9 +6,40 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 ---
 
 CURRENT_PIPELINE_STEP: 18/20 — Reports and reconciliation (Task 2.16) COMPLETE.
-CURRENT_TASK: none in flight. The active /goal directs the remainder at
-**Accounting and Procurement completion**: Task 2.17 (imports, demo
-completion, hardening) is next, then the Phase 2 exit gate (2.18) and both
+CURRENT_TASK: Task 2.17 (imports, demo completion, hardening) — preflight
+design recorded, implementation starting. The plan, from the read of the
+Task 1.7 framework (`apps/inventory/imports.py` 729 lines,
+`import_views.py` 252, `ImportBatch`/`ImportKind`/`ImportRowResult` in
+inventory models ~4802–5001):
+
+1. **Extend the framework, never fork it.** Three kinds join
+   `ImportKind` — `SUPPLIER`, `SUPPLIER_ITEM`, `PURCHASE_REQUEST_DRAFT` —
+   with `PURCHASE_REQUEST_DRAFT` added to `BRANCH_SCOPED_IMPORT_KINDS`
+   (a request is a branch document). Inventory migration regenerates the
+   `inventory_import_branch_matches_kind` constraint (it enumerates kinds
+   in SQL) — apps/inventory is in the /goal's approved-modification list.
+2. **Procurement registers; inventory never imports procurement.**
+   `apps/procurement/imports.py` defines the three validators, writers
+   and REQUIRED_COLUMNS entries and registers them into the inventory
+   dicts; `permission_for_kind` gains a registry procurement extends the
+   same way. Registration runs from procurement's `AppConfig.ready()`.
+3. **Writers call the real services** — `create_supplier`/
+   `update_supplier`, the catalogue services, `create_purchase_request` +
+   `add_request_line` (draft only, never submitted; §16.8 forbids
+   importing anything posted).
+4. **Permissions**: spec §13 names `import_supplier` and
+   `import_supplier_item` (organization). The request-draft kind rides
+   `create_purchase_request` (branch) — the spec is silent and the safest
+   dependency-correct reading is that importing a draft requires exactly
+   the authority to create one; recorded as an assumption.
+5. Then: cross-tenant and concurrency tests, admin lockdown sweep, the
+   complete demo command, the visible route matrix, HTMX verification,
+   fresh DB b11, complete suite only if the 2.18 gate follows separately
+   (the 2.16 boundary suite ran; 2.17 has no mandated full-suite of its
+   own — the 2.18 exit gate runs it), commit, push, Step 19.
+
+The active /goal directs the remainder at **Accounting and Procurement
+completion**: after 2.17 comes the Phase 2 exit gate (2.18) and both
 module-exit gates on fresh databases.
 LAST_GREEN_COMMIT: bb009e7 (feature, definitive suite 2339/0 on its tree);
 the docs checkpoint follows it
