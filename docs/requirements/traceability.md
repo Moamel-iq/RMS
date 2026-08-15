@@ -144,6 +144,7 @@ opposite.
 | ACC-015 | A statutory external mapping is complete or absent, and never affects posting | accounting | `account_external_mapping_is_complete_or_absent` | `test_chart_of_accounts.py::TestExternalMapping` | Done | Settles the second open question ADR-014 recorded |
 | ACC-016 | Fiscal-year closure is derived from its periods, never stored | accounting | `FiscalYear.is_closed` property; no column | `test_hardening.py::TestFiscalYearClosureIsDerived` | Done | A stored flag would be a second opinion that goes stale |
 | ACC-017 | An adjustment is a date plus a flag, valid anywhere in an open period; an entry needs both a debit and a credit and cannot be zero-valued | accounting | `is_adjustment`, `validators.validate_lines_present` | `test_hardening.py::TestAdjustmentSemantics`, `test_hardening.py::TestEntryShape` | Done | A two-line zero-value entry balances arithmetically and says nothing |
+| ACC-018 | Closing a mapping's range and archiving an unused one are guarded by permission **and** organization scope | accounting | `AccountMappingCloseView`, `AccountMappingArchiveView` → `commands.close_account_role_mapping` / `archive_account_role_mapping` | `test_mapping_views.py::TestClosingAMapping`, `test_mapping_views.py::TestArchivingAMapping` | Done | Task 1.3 shipped both screens untested (ACCT-2). A mapping decides which GL account every module's postings land in; archiving is POST-only and template-less, so a regression would have been silent |
 
 ## Task 0.7 — permissions, scope, API, idempotency
 
