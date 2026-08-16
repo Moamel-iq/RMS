@@ -138,11 +138,46 @@ demo recipes visible on the route and clearly fictional (RCP-126).
 
 ### Task 3.2 — Recipe versions and approval
 
+**Split into 3.2A and 3.2B during implementation.** This is an implementation
+checkpoint split only: the dependency order is unchanged, Task 3.3 still depends
+on the whole of 3.2, and no scope was removed. The split exists because the two
+halves have different shapes — the approval boundary is a set of rules that must
+arrive together, and the component graph is a recursive structure that can be
+built on top of a finished boundary but not beside a half-built one.
+
 Effective dating with the exclusion constraint, maker-checker approval
 (`approve_recipe_version`, never the author), supersession closing the prior
 range in the same transaction, immutability of approved versions (whole-row
 allowlist triggers), branch applicability, version resolution by date and
 branch.
+
+#### Task 3.2A — lifecycle, approval, effective dating and immutability
+
+**Delivered.** A six-state lifecycle (`DRAFT`, `SUBMITTED`, `APPROVED`,
+`ACTIVE`, `REJECTED`, `SUPERSEDED`) with no `EXPIRED` — expiry is derived from
+the range, never stored; `RecipeVersionReview` carrying `KM-RCP-004`'s four
+signatures, append-only; `RecipeVersionBranchScope` with organization-wide
+activation **materialised** per branch so `EXCLUDE USING gist` can enforce it;
+`resolve_recipe_version(recipe, branch, on_date)` with a required business date
+and two stable error codes; supersession closing the predecessor at the day
+before the replacement begins, in one transaction; whole-row allowlist triggers
+across all eight owned tables; five new permissions; command API; twelve Arabic
+RTL screens; deterministic version comparison on business keys;
+`verify_recipe_versions`; nine demo recipes covering every lifecycle state.
+**Zero stock movements and zero journal entries**, proved by counting.
+`ADR-024` written and accepted.
+
+**Exit criteria:** every range boundary resolves correctly, including the final
+included day; two overlapping activations cannot both commit at real COMMIT; a
+raw `UPDATE` and a raw `DELETE` are refused on the version and on every owned
+child row; the author, the submitter and every reviewer are each refused the
+final approval; a real recipe cannot be approved on demo evidence and a demo
+recipe cannot claim a signed form; a superseded version still resolves for its
+own dates.
+
+#### Task 3.2B — the nested recipe graph
+
+**Not started.** Everything below in this section.
 
 Added by Task 3.0A:
 
@@ -158,13 +193,14 @@ Added by Task 3.0A:
 - **Freezing extended**: approval freezes lines, steps, servings **and**
   components together, one allowlist trigger family (RCP-064).
 
-**Visible route required.** Depends on: 3.1, and KD-08 for the depth constant
+**Visible route required.** Depends on: 3.2A, and KD-08 for the depth constant
 (default 3).
 
 **Exit criteria:** `A → B → C → A` and `A → A` both refused; depth beyond the
 limit refused; a stocked recipe refused as a component and a non-stocked recipe
 refused as a line item, at both the service and the importer's validation stage;
-all four child objects immutable after approval.
+all four child objects immutable after approval — the fourth joins the trigger
+family Task 3.2A already built, rather than needing its own.
 
 ---
 

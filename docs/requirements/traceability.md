@@ -662,6 +662,15 @@ to; see Task 3.0 §0 — which also records that the `KhanMandiRecipe.xlsx`
 workbook (form `KM-RCP-004`) **does** exist outside the repository, was read in
 full by Task 3.0A, and is authoritative about structure while carrying no data.
 
+**Extended by Task 3.2A (2026-08-16) to RCP-131.** RCP-127 – RCP-131 record what
+the approval boundary settled that the specification had not: the six-state
+lifecycle and the two states it deliberately does not have, the four-signature
+evidence model without a global `CHEF` role, the separations that are actually
+enforced, materialised organization-wide scope, and the inclusive range
+convention. RCP-011 – RCP-014 move from **Specified** to **Done**; RCP-015 is
+**Partial**, because "only approved versions are produced from" cannot finish
+until production exists at Task 3.5.
+
 | ID | Requirement | Implementation | Test | Task | AT | Status |
 |---|---|---|---|---|---|---|
 | RCP-001 | Phase 3 adds exactly one stock-moving document, the production batch; kitchen flows stay Phase 1 documents | reuse, not copies | — | 3.5 | | Specified |
@@ -674,11 +683,11 @@ full by Task 3.0A, and is authoritative about structure while carrying no data.
 | RCP-008 | A batch recipe's output is `SEMI_FINISHED` or `FINISHED_GOOD`, same organization | `recipe_output_item_matches_type` | `apps/kitchen/tests/test_recipe_master.py::TestTheOutputItemRule` | 3.1 |  | Done |
 | RCP-009 | A recipe carries no cost field | no cost field on Recipe | `apps/kitchen/tests/test_recipe_master.py::TestNoMoneyAnywhere` | 3.1 |  | Done |
 | RCP-010 | Menu-item mapping is the recipe's identity; Phase 4 holds the FK | Recipe.public_id | `apps/kitchen/tests/test_recipe_master.py::TestCodeIsIdentity` | 3.1 |  | Done |
-| RCP-011 | Versions are effective-dated; resolution by date and branch is the only resolution | one resolver | — | 3.2 | | Specified |
-| RCP-012 | Approved versions never overlap per branch | `EXCLUDE USING gist` | — | 3.2 | | Specified |
-| RCP-013 | Version approval is maker-checker | `CheckConstraint` + service | — | 3.2 | | Specified |
-| RCP-014 | Approved versions are immutable except range-close and supersession | whole-row triggers | — | 3.2 | | Specified |
-| RCP-015 | Only approved versions are produced from, costed, or counted | service guards | — | 3.2 | | Specified |
+| RCP-011 | Versions are effective-dated; resolution by date and branch is the only resolution | `apps/kitchen/lifecycle.resolve_recipe_version` | `apps/kitchen/tests/test_effective_dating.py::TestRangeBoundaries` | 3.2A |  | Done |
+| RCP-012 | Approved versions never overlap per branch | `recipe_scope_no_overlapping_ranges` | `apps/kitchen/tests/test_version_concurrency.py::TestTwoActivationsCannotOverlap` | 3.2A |  | Done |
+| RCP-013 | Version approval is maker-checker | `recipe_version_approver_is_not_the_author` + `approve_recipe_version` | `apps/kitchen/tests/test_version_lifecycle.py::TestApproval` | 3.2A |  | Done |
+| RCP-014 | Approved versions are immutable except range-close and supersession | `kitchen_recipe_version_is_immutable` + five child-table triggers | `apps/kitchen/tests/test_version_immutability.py::TestTheDatabaseRefusesRawWrites` | 3.2A |  | Done |
+| RCP-015 | Only approved versions are produced from, costed, or counted | `RESOLVABLE_VERSION_STATUSES` excludes `APPROVED` | `apps/kitchen/tests/test_effective_dating.py::TestStatusIsNotResolution` | 3.2A – 3.8 |  | Partial |
 | RCP-016 | Version numbers per-recipe sequential; supersession closes the prior range atomically | service | — | 3.2 | | Specified |
 | RCP-017 | Branch applicability restricts; no per-branch line overrides | RecipeBranch through model | `apps/kitchen/tests/test_recipe_master.py::TestBranchApplicability` | 3.2 |  | Done |
 | RCP-018 | Line quantities are gross; loss/yield rates are informational | model semantics | — | 3.1 | | Specified |
@@ -790,3 +799,8 @@ full by Task 3.0A, and is authoritative about structure while carrying no data.
 | RCP-124 | No code derives one plate's quantity, cost or price by doubling or halving another's | convention test and costing services | — | 3.3 | | Specified |
 | RCP-125 | Task 3.10 is accepted only when all ten data-gate conditions hold | task exit criteria | — | 3.10 | | Specified |
 | RCP-126 | Demo recipes stay fiction and carry no real dish name or sourced gram figure | DEMO banner on every row | `apps/kitchen/tests/test_demo_and_concurrency.py::TestDemoDataset` | 3.1–3.10 |  | Done |
+| RCP-127 | The lifecycle is six states with one terminal state; no status depends on the current date and none is unreachable | `RecipeVersionStatus` + `is_expired_on` | `apps/kitchen/tests/test_draft_structure.py::TestTheLifecycleBoundary` | 3.2A |  | Done |
+| RCP-128 | No global `CHEF` role; the four signatures are review types on one document | `RecipeReviewType` + `review_recipe_version` | `apps/kitchen/tests/test_boundary_and_security.py::TestPermissionMap` | 3.2A |  | Done |
+| RCP-129 | The approver is never the author, the submitter or a reviewer; kitchen and costing reviews are two people | `approve_recipe_version` + `_require_distinct_parties` | `apps/kitchen/tests/test_version_lifecycle.py::TestApproval` | 3.2A |  | Done |
+| RCP-130 | Organization-wide effective scope is materialised per branch, so overlap is enforceable | `RecipeVersionBranchScope` + `kitchen_scope_follows_its_version` | `apps/kitchen/tests/test_effective_dating.py::TestOverlapEnforcement` | 3.2A |  | Done |
+| RCP-131 | The effective range is inclusive at both ends and expressed once; the supersession seam has no gap and no overlap | `covers_on_date` + `daterange(..., '[]')` | `apps/kitchen/tests/test_effective_dating.py::TestRangeBoundaries` | 3.2A |  | Done |

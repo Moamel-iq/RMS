@@ -37,6 +37,7 @@ from apps.organizations.models import Organization
 INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("kitchen:recipe_list", "الوصفات"),
     ("kitchen:category_list", "مجموعات الوصفات"),
+    ("kitchen:version_list", "نسخ الوصفات"),
 ]
 
 
@@ -89,17 +90,23 @@ class Command(SeedCommand):
         self.write("")
         self.write("recipes:")
         for recipe in recipes:
-            draft = recipe.versions.first()
             state = "archived" if not recipe.is_active else "active"
-            version = f"v{draft.version_number} DRAFT" if draft else "no draft"
+            versions = ", ".join(
+                f"v{version.version_number} {version.status}"
+                for version in recipe.versions.order_by("version_number")
+            )
             self.write(
-                f"  {recipe.code:<20} {recipe.recipe_type:<8} {state:<9} {version:<12} "
-                f"{recipe.name_ar}"
+                f"  {recipe.code:<22} {recipe.recipe_type:<8} {state:<9} "
+                f"{versions or 'no version':<34} {recipe.name_ar}"
             )
         self.write("")
         self.write(
             f"{len(recipes)} recipes present. No stock movement, no journal entry, "
-            "no approved version."
+            "no production batch."
+        )
+        self.write(
+            "Every approval above is evidenced as DEMO_FICTIONAL, which the database "
+            "permits only inside the DEMO- namespace."
         )
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")

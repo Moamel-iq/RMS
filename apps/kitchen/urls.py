@@ -1,16 +1,18 @@
 """
 Kitchen routes.
 
-Every path that changes something is POST-only, and every one of them resolves
-its target through a scoped selector before it acts. There is deliberately no
-`submit`, `approve`, `activate` or `supersede` route: Task 3.2 owns the
-lifecycle, and a route to a service that does not exist would be a promise the
-system cannot keep.
+Every path that changes something resolves its target through a scoped selector
+before it acts, and checks the same permission the API checks. A route that is
+not rendered as a button is still a route, and it is still refused.
+
+There is deliberately **no cost route and no component route**: Task 3.3 owns
+costing and Task 3.2B owns nested recipes, and a route to a service that does
+not exist would be a promise the system cannot keep.
 """
 
 from django.urls import path
 
-from apps.kitchen import views
+from apps.kitchen import version_views, views
 
 app_name = "kitchen"
 
@@ -75,4 +77,57 @@ urlpatterns = [
     ),
     path("servings/<int:pk>/edit/", views.ServingUpdateView.as_view(), name="serving_update"),
     path("servings/<int:pk>/delete/", views.ServingDeleteView.as_view(), name="serving_delete"),
+    # The version lifecycle
+    path("versions/", version_views.VersionListView.as_view(), name="version_list"),
+    path("versions/<int:pk>/", version_views.VersionDetailView.as_view(), name="version_detail"),
+    path(
+        "versions/<int:pk>/timeline/",
+        version_views.VersionTimelineView.as_view(),
+        name="version_timeline",
+    ),
+    path(
+        "versions/<int:pk>/compare/",
+        version_views.VersionCompareView.as_view(),
+        name="version_compare",
+    ),
+    path(
+        "versions/<int:pk>/submit/",
+        version_views.VersionSubmitView.as_view(),
+        name="version_submit",
+    ),
+    path(
+        "versions/<int:pk>/review/",
+        version_views.VersionReviewView.as_view(),
+        name="version_review",
+    ),
+    path(
+        "versions/<int:pk>/approve/",
+        version_views.VersionApproveView.as_view(),
+        name="version_approve",
+    ),
+    path(
+        "versions/<int:pk>/reject/",
+        version_views.VersionRejectView.as_view(),
+        name="version_reject",
+    ),
+    path(
+        "versions/<int:pk>/activate/",
+        version_views.VersionActivateView.as_view(),
+        name="version_activate",
+    ),
+    path(
+        "versions/<int:pk>/supersede/",
+        version_views.VersionSupersedeView.as_view(),
+        name="version_supersede",
+    ),
+    path(
+        "recipes/<int:pk>/versions/",
+        version_views.RecipeVersionHistoryView.as_view(),
+        name="recipe_versions",
+    ),
+    path(
+        "recipes/<int:pk>/effective/",
+        version_views.ResolverPreviewView.as_view(),
+        name="version_resolve",
+    ),
 ]

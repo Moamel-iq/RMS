@@ -12,6 +12,7 @@ tested without that proves only that one thread can count.
 
 from __future__ import annotations
 
+import datetime
 import threading
 from collections.abc import Callable
 from decimal import Decimal
@@ -22,21 +23,26 @@ from django.db import connections, transaction
 from apps.accounting.models import JournalEntry
 from apps.inventory.models import InventoryItem, ItemCategory, StockMovement
 from apps.kitchen.demo import DEMO_BANNER, seed_demo_recipes
+from apps.kitchen.lifecycle import resolve_recipe_version
 from apps.kitchen.models import (
+    ApprovalEvidenceKind,
     Recipe,
     RecipeLine,
     RecipeServing,
     RecipeStep,
     RecipeStepIngredient,
     RecipeVersion,
+    RecipeVersionBranchScope,
+    RecipeVersionReview,
     RecipeVersionStatus,
 )
+from apps.kitchen.reconciliation import verify_organization
 from apps.kitchen.services import (
     add_recipe_line,
     add_recipe_serving,
     create_recipe,
 )
-from apps.organizations.models import Organization
+from apps.organizations.models import Branch, Organization
 from apps.units.models import UnitOfMeasure
 from apps.users.models import User
 
@@ -44,6 +50,13 @@ pytestmark = pytest.mark.django_db
 
 
 def _counts() -> tuple[int, ...]:
+    """
+    Every table the seed writes to.
+
+    The lifecycle tables are here deliberately: a second seed that added one
+    more review row, one more scope row or one more transition would be exactly
+    as wrong as one that doubled the recipes, and much harder to notice.
+    """
     return (
         Recipe.objects.count(),
         RecipeVersion.objects.count(),
@@ -51,6 +64,8 @@ def _counts() -> tuple[int, ...]:
         RecipeStep.objects.count(),
         RecipeStepIngredient.objects.count(),
         RecipeServing.objects.count(),
+        RecipeVersionReview.objects.count(),
+        RecipeVersionBranchScope.objects.count(),
     )
 
 
@@ -99,8 +114,9 @@ class TestDemoDataset:
     ) -> list[Recipe]:
         return seed_demo_recipes(organization=organization, created_by=manager)
 
-    def test_five_recipes_are_created(self, seeded: list[Recipe]) -> None:
-        assert len(seeded) == 5
+    def test_nine_recipes_are_created(self, seeded: list[Recipe]) -> None:
+        """Five that stay drafts, and four that walk the approval boundary."""
+        assert len(seeded) == 9
 
     def test_every_screen_has_something_on_it(self, seeded: list[Recipe]) -> None:
         assert RecipeLine.objects.exists()
@@ -143,8 +159,63 @@ class TestDemoDataset:
     def test_at_least_one_editable_draft_exists(self, seeded: list[Recipe]) -> None:
         assert RecipeVersion.objects.filter(status=RecipeVersionStatus.DRAFT).exists()
 
-    def test_no_version_is_approved(self, seeded: list[Recipe]) -> None:
-        assert RecipeVersion.objects.exclude(status=RecipeVersionStatus.DRAFT).count() == 0
+    def test_every_lifecycle_state_worth_looking_at_is_present(self, seeded: list[Recipe]) -> None:
+        """
+        A screen that has never had a `SUPERSEDED` row on it has never been
+        reviewed, so the demo puts one there.
+        """
+        present = set(RecipeVersion.objects.values_list("status", flat=True))
+        assert present == {
+            RecipeVersionStatus.DRAFT,
+            RecipeVersionStatus.SUBMITTED,
+            RecipeVersionStatus.APPROVED,
+            RecipeVersionStatus.ACTIVE,
+            RecipeVersionStatus.REJECTED,
+            RecipeVersionStatus.SUPERSEDED,
+        }
+
+    def test_every_demo_approval_is_evidenced_as_fiction(self, seeded: list[Recipe]) -> None:
+        """
+        RCP-126, at the approval boundary. A demo signoff that looked like a
+        signed `KM-RCP-004` is exactly how unapproved figures acquire
+        authority, so every demo approval names its evidence as fictional —
+        and the database refuses `DEMO_FICTIONAL` outside this namespace.
+        """
+        approved = RecipeVersion.objects.exclude(approval_evidence_kind="")
+        assert approved.exists()
+        assert not approved.exclude(
+            approval_evidence_kind=ApprovalEvidenceKind.DEMO_FICTIONAL
+        ).exists()
+        assert not approved.exclude(recipe__code__startswith="DEMO-").exists()
+
+    def test_a_rejected_version_keeps_its_reason(self, seeded: list[Recipe]) -> None:
+        rejected = RecipeVersion.objects.filter(status=RecipeVersionStatus.REJECTED)
+        assert rejected.exists()
+        assert not rejected.filter(rejection_reason="").exists()
+
+    def test_the_superseded_version_still_resolves_for_its_own_dates(
+        self, seeded: list[Recipe], organization: Organization
+    ) -> None:
+        """The demo's whole reason for having two dated versions."""
+        recipe = Recipe.objects.get(organization=organization, code="DEMO-RCP-DATED")
+        branch = Branch.objects.filter(organization=organization).first()
+        assert branch is not None
+
+        early = resolve_recipe_version(
+            recipe=recipe, branch=branch, on_date=datetime.date(2026, 3, 1)
+        )
+        late = resolve_recipe_version(
+            recipe=recipe, branch=branch, on_date=datetime.date(2026, 9, 1)
+        )
+
+        assert early.status == RecipeVersionStatus.SUPERSEDED
+        assert late.status == RecipeVersionStatus.ACTIVE
+        assert early.pk != late.pk
+
+    def test_the_verifier_is_clean_on_the_demo_dataset(
+        self, seeded: list[Recipe], organization: Organization
+    ) -> None:
+        assert verify_organization(organization) == []
 
     def test_provenance_is_present_on_the_sourced_rows(self, seeded: list[Recipe]) -> None:
         assert Recipe.objects.filter(source_document__gt="").exists()

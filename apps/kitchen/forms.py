@@ -28,16 +28,30 @@ from django.utils.translation import gettext_lazy as _
 
 from apps.inventory.models import InventoryItem, PackageUnit
 from apps.inventory.selectors import visible_items, visible_package_units
+from apps.kitchen.lifecycle import applicable_branches
 from apps.kitchen.models import (
+    REQUIRED_REVIEW_TYPES,
+    ApprovalEvidenceKind,
     MeasurementBasis,
     PreparationStage,
     Recipe,
     RecipeCategory,
     RecipeLineCostClass,
+    RecipeReviewDecision,
+    RecipeReviewType,
     RecipeType,
+    RecipeVersion,
+    RecipeVersionStatus,
     ServingRoundingPolicy,
 )
-from apps.kitchen.permissions import MANAGE_RECIPE
+from apps.kitchen.permissions import (
+    ACTIVATE_RECIPE_VERSION,
+    APPROVE_RECIPE_VERSION,
+    MANAGE_RECIPE,
+    REJECT_RECIPE_VERSION,
+    REVIEW_RECIPE_VERSION,
+    VIEW_RECIPE,
+)
 from apps.kitchen.selectors import visible_categories, visible_lines
 from apps.organizations.authorization import branches_with_permission, organizations_with_permission
 from apps.organizations.models import Branch, Organization
@@ -464,3 +478,183 @@ class RecipeServingForm(ScopedForm, SourceProvenanceMixin):
     def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
         super().__init__(*args, actor=actor, **kwargs)
         self.fields["serving_unit"].queryset = UnitOfMeasure.objects.filter(is_active=True)  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# The lifecycle
+# ---------------------------------------------------------------------------
+#
+# These four collect a decision, not a record. Each one is scoped by a
+# different permission, because the whole point of the control is that four
+# different people can hold four different halves of it.
+
+
+class ReviewSignoffForm(ScopedForm):
+    """
+    One party's signature.
+
+    The evidence fields are optional on the form and required by the service
+    for the costing review, so the screen can offer one shape to three
+    reviewers and the rule still lives in exactly one place.
+    """
+
+    scope_permission = REVIEW_RECIPE_VERSION
+
+    review_type = forms.ChoiceField(
+        label=_("نوع المراجعة"),
+        choices=[(value, RecipeReviewType(value).label) for value in REQUIRED_REVIEW_TYPES],
+    )
+    decision = forms.ChoiceField(label=_("القرار"), choices=RecipeReviewDecision.choices)
+    reason = forms.CharField(
+        label=_("السبب"),
+        widget=forms.Textarea(attrs={"rows": 2}),
+        required=False,
+        help_text=_("مطلوب عند الرفض."),
+    )
+    evidence_reference = forms.CharField(
+        label=_("مرجع الدليل"),
+        max_length=120,
+        required=False,
+        help_text=_("مطلوب لمراجعة الكلفة: أي نموذج اعتماد اطّلع عليه المحاسب."),
+    )
+    evidence_kind = forms.ChoiceField(
+        label=_("نوع الدليل"),
+        choices=[("", "—"), *ApprovalEvidenceKind.choices],
+        required=False,
+    )
+    note = forms.CharField(
+        label=_("ملاحظة"), widget=forms.Textarea(attrs={"rows": 2}), required=False
+    )
+
+
+class ApproveVersionForm(ScopedForm):
+    """
+    The final signature, and the evidence it stands on.
+
+    `approval_reference` is required here as well as at the service: an
+    approval that cannot name what it approved against is a status column, and
+    the screen should say so before the round trip.
+    """
+
+    scope_permission = APPROVE_RECIPE_VERSION
+
+    approval_reference = forms.CharField(
+        label=_("مرجع الاعتماد"),
+        max_length=120,
+        help_text=_("رقم نموذج اعتماد مكونات وكلفة الأصناف الموقّع."),
+    )
+    approval_evidence_kind = forms.ChoiceField(
+        label=_("نوع الدليل"),
+        choices=ApprovalEvidenceKind.choices,
+        initial=ApprovalEvidenceKind.SIGNED_FORM,
+    )
+    note = forms.CharField(
+        label=_("ملاحظة"), widget=forms.Textarea(attrs={"rows": 2}), required=False
+    )
+
+
+class RejectVersionForm(ScopedForm):
+    """A refusal, which is only a record if it carries its reason."""
+
+    scope_permission = REJECT_RECIPE_VERSION
+
+    reason = forms.CharField(
+        label=_("سبب الرفض"),
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text=_("يبقى مع النسخة. التصحيح يكون بنسخة جديدة، لا بتعديل هذه."),
+    )
+
+
+class ActivateVersionForm(ScopedForm):
+    """
+    The claim on a date range and a set of branches.
+
+    Leaving `branches` empty means organization-wide, which activation
+    materialises into one scope row per applicable branch — the screen says so
+    in the help text, because "empty means everywhere" is exactly the
+    convention the *data model* refuses and the *form* still needs.
+    """
+
+    scope_permission = ACTIVATE_RECIPE_VERSION
+
+    effective_from = forms.DateField(
+        label=_("يسري من تاريخ"),
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text=_("اليوم الأول الذي تحكم فيه هذه النسخة، ضمناً."),
+    )
+    effective_to = forms.DateField(
+        label=_("حتى تاريخ"),
+        widget=forms.DateInput(attrs={"type": "date"}),
+        required=False,
+        help_text=_("اليوم الأخير، ضمناً. اتركه فارغاً لنطاق مفتوح."),
+    )
+    branches = forms.ModelMultipleChoiceField(
+        queryset=Branch.objects.none(),
+        label=_("الفروع"),
+        required=False,
+        help_text=_("اتركه فارغاً لتفعيلها على كل فرع تنطبق عليه الوصفة."),
+    )
+    supersedes = forms.ModelChoiceField(
+        queryset=RecipeVersion.objects.none(),
+        label=_("تستبدل النسخة"),
+        required=False,
+        help_text=_("تُغلق النسخة السابقة في اليوم السابق لتاريخ السريان، في المعاملة نفسها."),
+    )
+    reason = forms.CharField(
+        label=_("ملاحظة"), widget=forms.Textarea(attrs={"rows": 2}), required=False
+    )
+
+    def __init__(self, *args: Any, actor: User, recipe: Recipe, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.fields["branches"].queryset = applicable_branches(recipe)  # type: ignore[attr-defined]
+        self.fields["supersedes"].queryset = recipe.versions.filter(  # type: ignore[attr-defined]
+            status=RecipeVersionStatus.ACTIVE
+        ).order_by("-version_number")
+
+
+class SupersedeVersionForm(ScopedForm):
+    """Close an active version because a named later one takes over."""
+
+    scope_permission = ACTIVATE_RECIPE_VERSION
+
+    replacement = forms.ModelChoiceField(
+        queryset=RecipeVersion.objects.none(), label=_("النسخة البديلة")
+    )
+    reason = forms.CharField(
+        label=_("ملاحظة"), widget=forms.Textarea(attrs={"rows": 2}), required=False
+    )
+
+    def __init__(self, *args: Any, actor: User, version: RecipeVersion, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.fields["replacement"].queryset = (  # type: ignore[attr-defined]
+            version.recipe.versions.filter(
+                status__in=[RecipeVersionStatus.APPROVED, RecipeVersionStatus.ACTIVE]
+            )
+            .exclude(pk=version.pk)
+            .order_by("-version_number")
+        )
+
+
+class ResolverPreviewForm(ScopedForm):
+    """
+    "Which version governs this branch on this date?", asked from a screen.
+
+    Read-only, and the date has no default for the same reason the resolver's
+    argument has none: a preview that quietly meant *today* would teach the
+    operator that the question does not need a date.
+    """
+
+    scope_permission = VIEW_RECIPE
+
+    branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع"))
+    on_date = forms.DateField(
+        label=_("بتاريخ"),
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text=_("تاريخ العمل المطلوب، لا تاريخ اليوم."),
+    )
+
+    def __init__(self, *args: Any, actor: User, recipe: Recipe, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.fields["branch"].queryset = Branch.objects.filter(  # type: ignore[attr-defined]
+            organization_id=recipe.organization_id, is_active=True
+        ).order_by("code")

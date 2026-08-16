@@ -6,12 +6,34 @@ Identical machinery to `apps/inventory/permissions.py`,
 deliberately: a permission says *what*, a membership says *where*, and neither
 alone is authorization (ADR-016).
 
-Task 3.1 declares **three**, and no more. The production, meal, report and
-import permissions arrive with the documents they guard, one task at a time,
-because a permission for a workflow that does not exist is a grant nobody can
-audit. In particular there is no `approve_recipe_version` here: Task 3.2 owns
-approval, and registering its permission early would hand out authority over a
-lifecycle that cannot yet be reached.
+Task 3.1 declared **three**; Task 3.2A adds the **five** the lifecycle needs,
+and no more. The production, meal, report and import permissions still arrive
+with the documents they guard, one task at a time, because a permission for a
+workflow that does not exist is a grant nobody can audit.
+
+The five are separate because the acts are separate, and the control only works
+if four different people can hold them:
+
+* `submit_recipe_version` — the preparer says the draft is ready to be read.
+* `review_recipe_version` — one party signs one column. The storekeeper checks
+  units and quantities, the accountant checks the costing evidence, the kitchen
+  checks the method. None of them gains the right to *change* the recipe by
+  reviewing it, which is why this is not folded into `manage_recipe`.
+* `approve_recipe_version` — the manager's signature, the third of the
+  workbook's three parties.
+* `reject_recipe_version` — refusing is its own authority. Recording a doubt
+  and ending a version are different acts, and the first should not require the
+  second.
+* `activate_recipe_version` — deciding that an agreed recipe takes effect on a
+  date. Separate from approval because agreeing a recipe is correct and
+  deciding it governs Sunday's costing are two decisions, and the second one
+  moves money.
+
+**Maker-checker is enforced on the actor, never on the permission.** A branch
+manager legitimately holds both `submit_recipe_version` and
+`approve_recipe_version`; what they may not do is use both on the same version.
+Encoding that as "only some role may approve" would be a different and weaker
+control, and it would break the moment a branch had one manager.
 
 The split that matters is between the **card** and the **cost**. A cook reads
 the recipe card, the quantities and the method — that is the job. What the dish
@@ -57,7 +79,7 @@ class PermissionScope(Enum):
     WAREHOUSE = "WAREHOUSE"
 
 
-# --- The three --------------------------------------------------------------
+# --- The eight --------------------------------------------------------------
 
 #: Arrives from Django's default set for the `Recipe` model rather than from
 #: `Meta.permissions`, because declaring `view_recipe` again would be an
@@ -67,19 +89,37 @@ class PermissionScope(Enum):
 VIEW_RECIPE = f"{APP_LABEL}.view_recipe"
 MANAGE_RECIPE = f"{APP_LABEL}.manage_recipe"
 VIEW_RECIPE_COST = f"{APP_LABEL}.view_recipe_cost"
+SUBMIT_RECIPE_VERSION = f"{APP_LABEL}.submit_recipe_version"
+REVIEW_RECIPE_VERSION = f"{APP_LABEL}.review_recipe_version"
+APPROVE_RECIPE_VERSION = f"{APP_LABEL}.approve_recipe_version"
+REJECT_RECIPE_VERSION = f"{APP_LABEL}.reject_recipe_version"
+ACTIVATE_RECIPE_VERSION = f"{APP_LABEL}.activate_recipe_version"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_RECIPE,
     MANAGE_RECIPE,
     VIEW_RECIPE_COST,
+    SUBMIT_RECIPE_VERSION,
+    REVIEW_RECIPE_VERSION,
+    APPROVE_RECIPE_VERSION,
+    REJECT_RECIPE_VERSION,
+    ACTIVATE_RECIPE_VERSION,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # A recipe is organization property. The dish is one dish; one branch must
-    # not invent its own version of the group's menu (RCP-006).
+    # not invent its own version of the group's menu (RCP-006). The lifecycle
+    # permissions scope the same way for the same reason: approving a version
+    # is a statement about the organization's menu, even when the version is
+    # then activated for one branch.
     VIEW_RECIPE: PermissionScope.ORGANIZATION_MASTER_DATA,
     MANAGE_RECIPE: PermissionScope.ORGANIZATION_MASTER_DATA,
     VIEW_RECIPE_COST: PermissionScope.ORGANIZATION_MASTER_DATA,
+    SUBMIT_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
+    REVIEW_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
+    APPROVE_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
+    REJECT_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
+    ACTIVATE_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
 }
 
 
@@ -92,23 +132,44 @@ _FULL = frozenset(ALL_PERMISSIONS)
 #: is invented here: `KM-RCP-004` assigns the approved quantity to chef **plus**
 #: accountant **plus** manager, and inventing a role to hold one third of a
 #: three-party control would misrepresent the control.
-_MANAGER = frozenset({VIEW_RECIPE, MANAGE_RECIPE, VIEW_RECIPE_COST})
+#:
+#: Holds every lifecycle authority, and is still refused the moment it tries to
+#: approve its own submission: the separation is between *people*, and the
+#: service and the database both check the actor.
+_MANAGER = frozenset(
+    {
+        VIEW_RECIPE,
+        MANAGE_RECIPE,
+        VIEW_RECIPE_COST,
+        SUBMIT_RECIPE_VERSION,
+        REVIEW_RECIPE_VERSION,
+        APPROVE_RECIPE_VERSION,
+        REJECT_RECIPE_VERSION,
+        ACTIVATE_RECIPE_VERSION,
+    }
+)
 
-#: Answers for the figures. Reads recipes and their costs; writes neither —
-#: inventing a dish is a kitchen act, not an accounting one.
-_ACCOUNTING_MANAGER = frozenset({VIEW_RECIPE, VIEW_RECIPE_COST})
+#: Answers for the figures. Reads recipes and their costs and signs the costing
+#: review; writes neither — inventing a dish is a kitchen act, not an
+#: accounting one, and reviewing a recipe must not become a way to edit it.
+_ACCOUNTING_MANAGER = frozenset({VIEW_RECIPE, VIEW_RECIPE_COST, REVIEW_RECIPE_VERSION})
 
 #: The workbook assigns `كلفة الوحدة` and `كلفة المكون` to المحاسب, so the
-#: accountant reads recipe cost by the kitchen's own arrangement.
-_ACCOUNTANT = frozenset({VIEW_RECIPE, VIEW_RECIPE_COST})
+#: accountant reads recipe cost by the kitchen's own arrangement — and signs
+#: the costing-evidence review, which is the second of its three parties. No
+#: `manage_recipe`: the accountant attests the evidence, never the quantities.
+_ACCOUNTANT = frozenset({VIEW_RECIPE, VIEW_RECIPE_COST, REVIEW_RECIPE_VERSION})
 
 #: Issues ingredients against a recipe card, and has no business seeing what
 #: they cost — the same boundary that keeps stock valuation away from the
-#: person counting the shelves.
-_STOREKEEPER = frozenset({VIEW_RECIPE})
+#: person counting the shelves. Signs the quantity-and-unit review, which is
+#: the one signature on `KM-RCP-004`'s page that is genuinely theirs, and gains
+#: no approval authority by holding it.
+_STOREKEEPER = frozenset({VIEW_RECIPE, REVIEW_RECIPE_VERSION})
 
 #: Buys the ingredients a recipe names, so needs to read the card. Recipe cost
-#: is a kitchen and accounting figure, not a purchasing one.
+#: is a kitchen and accounting figure, not a purchasing one — and reading a
+#: recipe confers no say in whether it is approved.
 _PURCHASING = frozenset({VIEW_RECIPE})
 
 #: Reads what exists, never what it cost.

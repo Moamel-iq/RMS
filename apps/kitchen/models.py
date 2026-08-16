@@ -1,22 +1,32 @@
 """
-Recipes, their draft versions, and the structure hanging off a version.
+Recipes, their versions, the structure hanging off a version, and the approval
+lifecycle that freezes it.
 
-Task 3.1 delivers **master data and draft structure only**. Every version this
-module can create is `DRAFT`, and that is enforced at the database
-(`recipe_version_task_3_1_draft_only`) rather than merely intended: Task 3.2
-owns submission, approval, effective dating, activation and supersession, and
-alters that constraint when it arrives.
+Task 3.1 delivered **master data and draft structure only**, and pinned every
+version to `DRAFT` at the database so a half-built lifecycle could not appear
+by accident. **Task 3.2A removes that pin and supplies the whole boundary at
+once**: submission, four-party review evidence, maker-checker approval,
+explicit activation, effective-dated branch scope, database overlap
+enforcement, an authoritative resolver, supersession, and whole-row
+immutability. They arrive together because any one of them alone is a
+false promise — an approval screen over mutable rows is worse than no approval
+screen.
 
-Nothing here moves stock, touches a ledger, or knows a price. A recipe is an
-intention; the production batch of Task 3.5 is the event (RCP-002).
+**`RecipeComponent` is still absent.** Nested recipes are Task 3.2B, costing is
+Task 3.3, and production is Task 3.4/3.5. Nothing here moves stock, touches a
+ledger, or knows a price. A recipe is an intention; the production batch is the
+event (RCP-002).
 
 See `docs/tasks/task-3-0-recipes-production-domain-spec.md` for the approved
-design — §3 the recipe, §4 versions, §5 lines, §5A steps, §5C servings — and
+design — §3 the recipe, §4 versions, §5 lines, §5A steps, §5C servings — plus
+`docs/decisions/ADR-024-recipe-versioning-and-the-effective-dated-cost-basis.md`
+for why the lifecycle is shaped this way, and
 `docs/invariants/kitchen-invariants.md` for the rules these must satisfy.
 """
 
 from __future__ import annotations
 
+import datetime
 import uuid
 from decimal import Decimal
 
@@ -61,15 +71,144 @@ class RecipeType(models.TextChoices):
 
 class RecipeVersionStatus(models.TextChoices):
     """
-    Release 1, Task 3.1 offers one status; the field marks the boundary.
+    The approved lifecycle of one version (spec §4, ADR-024).
 
-    `CostingMethod` in `apps.inventory` uses the same shape for the same
-    reason. Task 3.2 adds `APPROVED`, `SUPERSEDED` and `DISCARDED` together
-    with the lifecycle services that reach them, and alters the check
-    constraint that currently pins every row to `DRAFT`.
+    Six states, and each one exists because something different is true of the
+    version while it sits there:
+
+    * `DRAFT` — somebody is typing. Freely editable, freely discarded, and the
+      only state in which any owned child row may be written at all.
+    * `SUBMITTED` — the structure is frozen so reviewers all read the same
+      thing. Reviews are recorded here and nowhere else.
+    * `APPROVED` — the four-party control is satisfied and the version is
+      immutable, but it is **not yet effective**: nothing may resolve it for a
+      business date until somebody activates it.
+    * `ACTIVE` — approved *and* claimed for at least one branch over an
+      explicit date range.
+    * `REJECTED` — refused, with an actor, a timestamp and a reason. Kept, not
+      deleted: a refusal is evidence.
+    * `SUPERSEDED` — replaced by a named later version, its range closed the
+      day before the replacement's begins. **Still resolvable for its own
+      historical dates**, which is the whole point of effective dating.
+
+    **There is no `EXPIRED`, deliberately.** Task 3.0 §4 names one terminal
+    state and this follows the specification. Expiry is not a state a version
+    is *in*; it is a fact about a date — a version whose `effective_to` has
+    passed simply does not cover today, which the resolver already answers from
+    the range. Storing it would need a clock-driven job, and on any day that
+    job did not run the stored status and the stored range would disagree about
+    the same version. `is_expired_on()` derives it instead.
+
+    **There is no `DISCARDED` either.** Discarding a draft deletes the row —
+    nothing outside a draft may reference one — and the audit event carries the
+    identity forward. A status nothing ever reaches would be a lie in an enum.
     """
 
     DRAFT = "DRAFT", _("مسودة")
+    SUBMITTED = "SUBMITTED", _("مُرسلة للمراجعة")
+    APPROVED = "APPROVED", _("معتمدة")
+    ACTIVE = "ACTIVE", _("سارية")
+    REJECTED = "REJECTED", _("مرفوضة")
+    SUPERSEDED = "SUPERSEDED", _("مستبدلة")
+
+
+#: Still being written, or still under review. At most one of these may exist
+#: per recipe at a time — two versions in flight would race for the same
+#: effective range and one of them would lose after all the review work.
+OPEN_VERSION_STATUSES: frozenset[str] = frozenset(
+    {RecipeVersionStatus.DRAFT, RecipeVersionStatus.SUBMITTED}
+)
+
+#: Left `DRAFT` and therefore frozen: no owned child row may be inserted,
+#: updated or deleted, and the header moves only along a permitted transition.
+FROZEN_VERSION_STATUSES: frozenset[str] = frozenset(
+    {
+        RecipeVersionStatus.SUBMITTED,
+        RecipeVersionStatus.APPROVED,
+        RecipeVersionStatus.ACTIVE,
+        RecipeVersionStatus.REJECTED,
+        RecipeVersionStatus.SUPERSEDED,
+    }
+)
+
+#: The only statuses `resolve_recipe_version` will ever return. `APPROVED` is
+#: absent on purpose: approval is agreement, activation is the claim on a date.
+RESOLVABLE_VERSION_STATUSES: frozenset[str] = frozenset(
+    {RecipeVersionStatus.ACTIVE, RecipeVersionStatus.SUPERSEDED}
+)
+
+#: Carrying an approval, and therefore requiring complete evidence.
+APPROVED_VERSION_STATUSES: frozenset[str] = frozenset(
+    {
+        RecipeVersionStatus.APPROVED,
+        RecipeVersionStatus.ACTIVE,
+        RecipeVersionStatus.SUPERSEDED,
+    }
+)
+
+
+class RecipeReviewType(models.TextChoices):
+    """
+    The four responsibilities `KM-RCP-004`'s signature page names.
+
+    **No global `CHEF` role is invented for this.** The workbook assigns the
+    approved quantity to *"الشيف + المحاسب + المدير"* — three parties — and its
+    signature page carries a fourth for the store. Those are *responsibilities
+    exercised on one document*, not posts in the organization chart, so they
+    live here as review types and are carried by whichever role the deployment
+    already grants `review_recipe_version` to. Adding a `CHEF` to `Role` would
+    change the global access model of the whole ERP to record one column of one
+    kitchen form.
+
+    `FINAL` is the manager's signature, written by `approve_recipe_version` (or
+    `reject_recipe_version`) rather than by the review command, because it is
+    the act that moves the version rather than an opinion about it.
+    """
+
+    KITCHEN = "KITCHEN", _("مراجعة المطبخ")
+    STOREKEEPER = "STOREKEEPER", _("مراجعة المخزن")
+    ACCOUNTING = "ACCOUNTING", _("مراجعة الكلفة")
+    FINAL = "FINAL", _("الاعتماد النهائي")
+
+
+#: The three that must be recorded, and approved, before a final approval is
+#: even offered. A conjunction: each removes a different way for an unchecked
+#: recipe to reach production.
+REQUIRED_REVIEW_TYPES: tuple[str, ...] = (
+    RecipeReviewType.KITCHEN,
+    RecipeReviewType.STOREKEEPER,
+    RecipeReviewType.ACCOUNTING,
+)
+
+
+class RecipeReviewDecision(models.TextChoices):
+    """A reviewer either agrees or refuses. There is no 'seen'."""
+
+    APPROVED = "APPROVED", _("موافقة")
+    REJECTED = "REJECTED", _("رفض")
+
+
+class ApprovalEvidenceKind(models.TextChoices):
+    """
+    What the approval is evidenced *by* (KD-02, RCP-058, RCP-126).
+
+    The owner's KD-02 answer moved the data gate to the approval boundary: a
+    real branch recipe may be captured as a draft, and may not be approved or
+    activated until its `KM-RCP-004` costing and approval data is complete. So
+    an approval must say which kind of evidence stands behind it, and
+    `DEMO_FICTIONAL` is refused for anything outside the demo namespace — by a
+    trigger as well as by the service, because a demo signoff that looked like
+    a signed Khan Mandi record is exactly how unapproved figures acquire
+    authority.
+    """
+
+    SIGNED_FORM = "SIGNED_FORM", _("نموذج اعتماد موقّع")
+    DEMO_FICTIONAL = "DEMO_FICTIONAL", _("دليل تجريبي — غير حقيقي")
+
+
+#: The prefix that marks the demo namespace. `DEMO_FICTIONAL` evidence is
+#: permitted only for recipes whose code starts with it.
+DEMO_CODE_PREFIX = "DEMO-"
 
 
 class MeasurementBasis(models.TextChoices):
@@ -309,6 +448,15 @@ class Recipe(TimeStampedModel, SourceProvenance):
         permissions = [
             ("manage_recipe", _("Can create, edit and archive recipes")),
             ("view_recipe_cost", _("Can view recipe cost columns")),
+            # The lifecycle authorities, separated because they are separated
+            # in the kitchen: preparing a version, attesting one column of it,
+            # signing it off and putting it into effect are four acts and the
+            # control only works if they can be held by four people.
+            ("submit_recipe_version", _("Can submit a draft version for review")),
+            ("review_recipe_version", _("Can record a review signoff on a submitted version")),
+            ("approve_recipe_version", _("Can give the final approval of a version")),
+            ("reject_recipe_version", _("Can refuse a submitted version")),
+            ("activate_recipe_version", _("Can put an approved version into effect")),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -384,18 +532,30 @@ class RecipeBranch(TimeStampedModel):
 
 class RecipeVersion(TimeStampedModel, SourceProvenance):
     """
-    One draft of a recipe's composition and method.
-
-    **Task 3.1 reaches `DRAFT` and nothing else.** There is no submit, approve,
-    activate or supersede service, no effective dating, and no resolver that
-    picks a version for a date — all of that is Task 3.2, and the check
-    constraint below is what stops a half-built lifecycle from appearing by
-    accident in the meantime.
+    One version of a recipe's composition and method, and its whole lifecycle.
 
     `batch_size` and `expected_output_quantity` are the recipe book's own
     scale: the مندي pit takes 40 chickens and 50 kg of rice, and that is what a
     version records. It is not a menu quantity, and dividing it into servings
     is `RecipeServing`'s job (§5C).
+
+    **The effective range is `[effective_from, effective_to]`, inclusive at
+    both ends**, with a null `effective_to` meaning open-ended. That is the
+    repository's standing convention — `ItemPackageConversion` has used
+    `daterange(effective_from, effective_to, '[]')` since Task 1.0 — and RCP-016
+    depends on it: supersession closes the predecessor at *the day before* the
+    replacement begins, which is only a seam with no gap and no overlap if the
+    upper bound is included. The database constraint, the services, the
+    resolver, the API and the screens all read it that way; nothing in this
+    module treats `effective_to` as exclusive.
+
+    **The range lives here and is materialised per branch** on
+    `RecipeVersionBranchScope`, which is what the overlap constraint can
+    actually see. The two are held equal by a trigger, so a scope row cannot
+    quietly claim a different period from the version that owns it.
+
+    **Immutable once it leaves `DRAFT`**, header and every owned child row,
+    enforced by whole-row allowlist triggers rather than by this docstring.
     """
 
     recipe = models.ForeignKey(
@@ -463,6 +623,85 @@ class RecipeVersion(TimeStampedModel, SourceProvenance):
         verbose_name=_("created by"),
     )
 
+    # --- The lifecycle -----------------------------------------------------
+    #
+    # Every actor and timestamp is recorded separately rather than inferred
+    # from the audit trail. The audit trail answers "what happened"; these
+    # columns answer "who is accountable", which a report has to be able to
+    # join on and a constraint has to be able to see.
+
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="recipe_versions_submitted",
+        null=True,
+        blank=True,
+        verbose_name=_("submitted by"),
+    )
+    submitted_at = models.DateTimeField(_("submitted at"), null=True, blank=True)
+
+    #: The checker. Never the author — a `CheckConstraint` as well as the
+    #: service, exactly as the purchase request holds it (RCP-013, PRC-010).
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="recipe_versions_approved",
+        null=True,
+        blank=True,
+        verbose_name=_("approved by"),
+    )
+    approved_at = models.DateTimeField(_("approved at"), null=True, blank=True)
+
+    #: `يعتمد من تاريخ` on the workbook's costing card: which signed approval
+    #: form stands behind this version. Required from `APPROVED` onwards.
+    approval_reference = models.CharField(_("approval reference"), max_length=120, blank=True)
+    approval_evidence_kind = models.CharField(
+        _("approval evidence"),
+        max_length=16,
+        choices=ApprovalEvidenceKind.choices,
+        blank=True,
+    )
+
+    activated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="recipe_versions_activated",
+        null=True,
+        blank=True,
+        verbose_name=_("activated by"),
+    )
+    activated_at = models.DateTimeField(_("activated at"), null=True, blank=True)
+
+    rejected_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="recipe_versions_rejected",
+        null=True,
+        blank=True,
+        verbose_name=_("rejected by"),
+    )
+    rejected_at = models.DateTimeField(_("rejected at"), null=True, blank=True)
+    rejection_reason = models.TextField(_("rejection reason"), blank=True)
+
+    #: Inclusive at both ends; null `effective_to` is open-ended. Set at
+    #: activation, never at approval: an approved version is agreed, not yet
+    #: claimed for a date.
+    effective_from = models.DateField(_("effective from"), null=True, blank=True)
+    effective_to = models.DateField(_("effective to"), null=True, blank=True)
+
+    superseded_at = models.DateTimeField(_("superseded at"), null=True, blank=True)
+    #: The named replacement. Supersession without one would leave a version
+    #: closed by nobody, which is indistinguishable on a screen from a version
+    #: whose range simply ran out.
+    superseded_by_version = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="supersedes",
+        null=True,
+        blank=True,
+        verbose_name=_("superseded by"),
+    )
+
     public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
     history = HistoricalRecords()
 
@@ -475,18 +714,16 @@ class RecipeVersion(TimeStampedModel, SourceProvenance):
                 fields=["recipe", "version_number"],
                 name="recipe_version_number_unique_per_recipe",
             ),
-            # Task 3.1's boundary, held by the database rather than by
-            # intention. Task 3.2 alters this when the lifecycle arrives.
-            models.CheckConstraint(
-                condition=Q(status=RecipeVersionStatus.DRAFT),
-                name="recipe_version_task_3_1_draft_only",
-            ),
-            # One open draft per recipe while there is no approval lifecycle to
-            # tell two of them apart.
+            # One version in flight per recipe. Task 3.1 held this for drafts
+            # alone; the lifecycle widens it to `SUBMITTED` as well, because
+            # two versions under review would race for one effective range and
+            # the loser would discover it only after every reviewer had signed.
+            # An `ACTIVE` version and a new `DRAFT` still coexist happily, which
+            # is the relaxation Task 3.1 promised.
             models.UniqueConstraint(
                 fields=["recipe"],
-                condition=Q(status=RecipeVersionStatus.DRAFT),
-                name="recipe_version_one_draft_per_recipe",
+                condition=Q(status__in=sorted(OPEN_VERSION_STATUSES)),
+                name="recipe_version_one_open_per_recipe",
             ),
             models.CheckConstraint(
                 condition=Q(batch_size__gt=Decimal("0")),
@@ -496,7 +733,108 @@ class RecipeVersion(TimeStampedModel, SourceProvenance):
                 condition=Q(expected_output_quantity__gt=Decimal("0")),
                 name="recipe_version_output_is_positive",
             ),
+            # Maker-checker, in the database. The service refuses first and
+            # says why; this is what holds when something bypasses it.
+            models.CheckConstraint(
+                condition=(
+                    Q(approved_by__isnull=True)
+                    | Q(created_by__isnull=True)
+                    | ~Q(approved_by=models.F("created_by"))
+                ),
+                name="recipe_version_approver_is_not_the_author",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(approved_by__isnull=True)
+                    | Q(submitted_by__isnull=True)
+                    | ~Q(approved_by=models.F("submitted_by"))
+                ),
+                name="recipe_version_approver_is_not_the_submitter",
+            ),
+            # An approval that cannot name its actor, its moment or its
+            # evidence is not an approval; it is a status column.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status__in=sorted(APPROVED_VERSION_STATUSES))
+                    | (
+                        Q(approved_by__isnull=False)
+                        & Q(approved_at__isnull=False)
+                        & ~Q(approval_reference="")
+                        & ~Q(approval_evidence_kind="")
+                    )
+                ),
+                name="recipe_version_approval_carries_its_evidence",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status=RecipeVersionStatus.SUBMITTED)
+                    | (Q(submitted_by__isnull=False) & Q(submitted_at__isnull=False))
+                ),
+                name="recipe_version_submission_names_its_actor",
+            ),
+            # A refusal with no reason teaches nobody anything.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status=RecipeVersionStatus.REJECTED)
+                    | (
+                        Q(rejected_by__isnull=False)
+                        & Q(rejected_at__isnull=False)
+                        & ~Q(rejection_reason="")
+                    )
+                ),
+                name="recipe_version_rejection_carries_its_reason",
+            ),
+            # Effective only from activation, and only with a range.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(
+                        status__in=[
+                            RecipeVersionStatus.ACTIVE,
+                            RecipeVersionStatus.SUPERSEDED,
+                        ]
+                    )
+                    | (
+                        Q(effective_from__isnull=False)
+                        & Q(activated_by__isnull=False)
+                        & Q(activated_at__isnull=False)
+                    )
+                ),
+                name="recipe_version_effective_range_starts_at_activation",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(effective_to__isnull=True)
+                    | (
+                        Q(effective_from__isnull=False)
+                        & Q(effective_to__gte=models.F("effective_from"))
+                    )
+                ),
+                name="recipe_version_effective_range_is_ordered",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status=RecipeVersionStatus.SUPERSEDED)
+                    | (
+                        Q(superseded_at__isnull=False)
+                        & Q(superseded_by_version__isnull=False)
+                        & Q(effective_to__isnull=False)
+                    )
+                ),
+                name="recipe_version_supersession_names_its_replacement",
+            ),
+            # A version cannot replace itself. Without this a supersession loop
+            # of length one would satisfy every other rule here.
+            models.CheckConstraint(
+                condition=(
+                    Q(superseded_by_version__isnull=True) | ~Q(superseded_by_version=models.F("id"))
+                ),
+                name="recipe_version_is_not_its_own_replacement",
+            ),
             _provenance_constraint("recipe_version_provenance_is_complete"),
+        ]
+        indexes = [
+            models.Index(fields=["recipe", "status"], name="recipe_version_status_idx"),
+            models.Index(fields=["status", "effective_from"], name="recipe_version_effective_idx"),
         ]
 
     def __str__(self) -> str:
@@ -505,6 +843,32 @@ class RecipeVersion(TimeStampedModel, SourceProvenance):
     @property
     def is_draft(self) -> bool:
         return self.status == RecipeVersionStatus.DRAFT
+
+    @property
+    def is_frozen(self) -> bool:
+        """Left `DRAFT`, and therefore immutable in every owned table."""
+        return self.status in FROZEN_VERSION_STATUSES
+
+    def covers(self, on_date: datetime.date) -> bool:
+        """
+        Whether this version's own range includes `on_date`, inclusive.
+
+        The range alone — it says nothing about branch scope or status, and is
+        never a substitute for `resolve_recipe_version`.
+        """
+        if self.effective_from is None or on_date < self.effective_from:
+            return False
+        return self.effective_to is None or on_date <= self.effective_to
+
+    def is_expired_on(self, on_date: datetime.date) -> bool:
+        """
+        Whether the range has run out by `on_date`.
+
+        Derived, never stored (see `RecipeVersionStatus`): a status column
+        saying `EXPIRED` would need something to write it on the right morning,
+        and would be wrong on every morning that something did not run.
+        """
+        return self.effective_to is not None and on_date > self.effective_to
 
 
 class RecipeLine(TimeStampedModel, SourceProvenance):
@@ -1031,3 +1395,183 @@ class RecipeServing(TimeStampedModel, SourceProvenance):
         """
         quantum = Decimal(1).scaleb(-FACTOR_PLACES)
         return f"{self.factor_of_batch.quantize(quantum):f}"
+
+
+# ---------------------------------------------------------------------------
+# The approval lifecycle
+# ---------------------------------------------------------------------------
+
+
+class RecipeVersionReview(TimeStampedModel):
+    """
+    One party's signature on a submitted version.
+
+    `KM-RCP-004`'s field guide assigns the approved quantity to *"الشيف +
+    المحاسب + المدير"* and its signature page carries a fourth line for the
+    store. This table is that page, as rows: who reviewed what, when, whether
+    they agreed, and — for the costing review — which evidence they attested.
+
+    **Append-only.** There is exactly one row per `(version, review_type)`, it
+    is never updated and never deleted, and a trigger holds that. A reviewer
+    who changes their mind does not edit a signature; the version is rejected
+    and a new one is prepared, which is the correction mechanism §C names.
+
+    A `REJECTED` review does not by itself move the version — it makes final
+    approval refuse, and somebody with `reject_recipe_version` still has to
+    close it. Recording a refusal and ending the version are two different
+    acts, and one person may hold only the first.
+    """
+
+    version = models.ForeignKey(
+        RecipeVersion,
+        on_delete=models.PROTECT,
+        related_name="reviews",
+        verbose_name=_("version"),
+    )
+    review_type = models.CharField(_("review"), max_length=12, choices=RecipeReviewType.choices)
+    reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="recipe_version_reviews",
+        verbose_name=_("reviewer"),
+    )
+    decision = models.CharField(_("decision"), max_length=8, choices=RecipeReviewDecision.choices)
+    reviewed_at = models.DateTimeField(_("reviewed at"))
+    reason = models.TextField(_("reason"), blank=True)
+
+    #: What the reviewer looked at: a `KM-RCP-004` form reference, a costing
+    #: sheet, a dated note. Required of the costing review, because that is the
+    #: review KD-02 is actually about.
+    evidence_reference = models.CharField(_("evidence reference"), max_length=120, blank=True)
+    evidence_kind = models.CharField(
+        _("evidence kind"),
+        max_length=16,
+        choices=ApprovalEvidenceKind.choices,
+        blank=True,
+    )
+    note = models.TextField(_("note"), blank=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("recipe version review")
+        verbose_name_plural = _("recipe version reviews")
+        ordering = ["version", "review_type"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["version", "review_type"],
+                name="recipe_review_one_per_type_per_version",
+            ),
+            models.CheckConstraint(
+                condition=(~Q(decision=RecipeReviewDecision.REJECTED) | ~Q(reason="")),
+                name="recipe_review_refusal_carries_its_reason",
+            ),
+            # The costing review is where the approval evidence enters the
+            # system. An accountant who agrees without naming what they read
+            # has recorded an opinion, not a control.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(
+                        review_type=RecipeReviewType.ACCOUNTING,
+                        decision=RecipeReviewDecision.APPROVED,
+                    )
+                    | (~Q(evidence_reference="") & ~Q(evidence_kind=""))
+                ),
+                name="recipe_review_costing_names_its_evidence",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["version", "decision"], name="recipe_review_decision_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.version} · {self.review_type} · {self.decision}"
+
+
+class RecipeVersionBranchScope(TimeStampedModel):
+    """
+    One branch this version is in effect at, over one date range.
+
+    **The branch is never null**, and that is the whole design. An "empty list
+    means everywhere" convention reads well and cannot be enforced: no database
+    constraint can tell that a row claiming *all branches* collides with a row
+    claiming *branch B*, because there is nothing to compare branch B against.
+    So an organization-wide activation **materialises one row per applicable
+    branch** and records that it did so in `is_organization_wide`. After that,
+    "do these two claims overlap" is a question about two ordinary rows, and an
+    `EXCLUDE USING gist` over `(recipe, branch, daterange)` answers it — the
+    same mechanism `ItemPackageConversion` has used since Task 1.0.
+
+    Three things are denormalised onto this row because an exclusion constraint
+    can only see its own table: `recipe`, and the effective range. Triggers hold
+    each of them equal to the owning version's, so a scope row cannot drift into
+    claiming a period or a recipe its version never claimed.
+
+    Rows appear at activation and are closed — never deleted — at supersession,
+    which is why a superseded version still resolves for its own historical
+    dates.
+    """
+
+    version = models.ForeignKey(
+        RecipeVersion,
+        on_delete=models.PROTECT,
+        related_name="branch_scopes",
+        verbose_name=_("version"),
+    )
+    #: Denormalised from `version.recipe`, held equal by a trigger. The
+    #: exclusion constraint needs it on this row.
+    recipe = models.ForeignKey(
+        Recipe,
+        on_delete=models.PROTECT,
+        related_name="version_scopes",
+        verbose_name=_("recipe"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="recipe_version_scopes",
+        verbose_name=_("branch"),
+    )
+
+    effective_from = models.DateField(_("effective from"))
+    effective_to = models.DateField(_("effective to"), null=True, blank=True)
+
+    #: Provenance, not a scope modifier: this row exists because the activation
+    #: claimed every applicable branch rather than naming this one.
+    is_organization_wide = models.BooleanField(_("organization-wide"), default=False)
+    note = models.TextField(_("note"), blank=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("recipe version branch scope")
+        verbose_name_plural = _("recipe version branch scopes")
+        ordering = ["recipe", "branch", "effective_from"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["version", "branch"],
+                name="recipe_scope_one_row_per_version_and_branch",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(effective_to__isnull=True) | Q(effective_to__gte=models.F("effective_from"))
+                ),
+                name="recipe_scope_range_is_ordered",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["recipe", "branch", "effective_from"], name="recipe_scope_lookup_idx"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.version} @ {self.branch.code} من {self.effective_from}"
+
+    def covers(self, on_date: datetime.date) -> bool:
+        """Whether this claim includes `on_date`, inclusive at both ends."""
+        if on_date < self.effective_from:
+            return False
+        return self.effective_to is None or on_date <= self.effective_to

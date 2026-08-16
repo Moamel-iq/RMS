@@ -17,6 +17,7 @@ from django.db.models import Model, QuerySet
 from django.utils.translation import gettext_lazy as _
 
 from apps.kitchen.models import (
+    OPEN_VERSION_STATUSES,
     Recipe,
     RecipeCategory,
     RecipeLine,
@@ -25,6 +26,8 @@ from apps.kitchen.models import (
     RecipeStep,
     RecipeStepIngredient,
     RecipeVersion,
+    RecipeVersionBranchScope,
+    RecipeVersionReview,
     RecipeVersionStatus,
 )
 from apps.kitchen.permissions import MANAGE_RECIPE
@@ -162,12 +165,52 @@ def resolve_serving(user: User, serving_id: int) -> RecipeServing:
     return _resolve(visible_servings(user), serving_id, "RecipeServing")
 
 
+def visible_reviews(user: User) -> QuerySet[RecipeVersionReview]:
+    """Review signoffs on versions this caller reaches."""
+    return RecipeVersionReview.objects.filter(
+        version__recipe__organization_id__in=reachable_organization_ids(user)
+    ).select_related("version", "version__recipe", "reviewer")
+
+
+def visible_scopes(user: User) -> QuerySet[RecipeVersionBranchScope]:
+    """Effective branch scope rows this caller reaches."""
+    return RecipeVersionBranchScope.objects.filter(
+        recipe__organization_id__in=reachable_organization_ids(user)
+    ).select_related("version", "recipe", "branch")
+
+
+def resolve_scope(user: User, scope_id: int) -> RecipeVersionBranchScope:
+    """Turn a submitted scope id into one the caller reaches."""
+    return _resolve(visible_scopes(user), scope_id, "RecipeVersionBranchScope")
+
+
 def draft_version_for(recipe: Recipe) -> RecipeVersion | None:
     """
     This recipe's open draft, if it has one.
 
-    Task 3.1 permits exactly one, held by a partial unique index. The plural
-    form arrives in Task 3.2, when an approved version and a new draft can
-    legitimately coexist.
+    Exactly one may exist, held by a partial unique index. An `ACTIVE` version
+    and a new `DRAFT` coexist happily — that is the relaxation Task 3.1
+    promised and Task 3.2A delivered by widening the index to cover `SUBMITTED`
+    as well rather than by loosening it.
     """
     return recipe.versions.filter(status=RecipeVersionStatus.DRAFT).first()
+
+
+def open_version_for(recipe: Recipe) -> RecipeVersion | None:
+    """
+    This recipe's version in flight — a draft, or one under review.
+
+    The screen's question. `draft_version_for` answers "what may I edit"; this
+    answers "what is happening", and they differ for exactly as long as a
+    version sits in review.
+    """
+    return recipe.versions.filter(status__in=sorted(OPEN_VERSION_STATUSES)).first()
+
+
+def versions_of(recipe: Recipe) -> QuerySet[RecipeVersion]:
+    """Every version of one recipe, newest first — the history panel's read."""
+    return (
+        recipe.versions.select_related("output_unit", "approved_by", "superseded_by_version")
+        .prefetch_related("reviews__reviewer", "branch_scopes__branch")
+        .order_by("-version_number")
+    )

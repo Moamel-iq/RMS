@@ -5,9 +5,10 @@
 {# see the whole draft at once: what it is made of, how it is made, and how   #}
 {# it divides into something sellable.                                        #}
 {#                                                                            #}
-{# There is deliberately no "submit" or "approve" button. Task 3.2 owns the   #}
-{# lifecycle, and offering a control that leads nowhere would be worse than   #}
-{# saying plainly that the version is a draft.                                #}
+{# The lifecycle lives on the version workspace, not here: this screen is     #}
+{# where a draft is written, and the version screen is where it is decided.   #}
+{# The links below lead there rather than duplicating the actions, so there   #}
+{# is exactly one place that approval happens and one place that shows it.    #}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
@@ -24,6 +25,8 @@
     {% if can_manage %}
       <div class="rowactions">
         <a class="btn btn--ghost" href="{% url 'kitchen:recipe_update' recipe.pk %}">{% translate "تعديل الوصفة" %}</a>
+        <a class="btn btn--ghost" href="{% url 'kitchen:recipe_versions' recipe.pk %}">{% translate "سجل النسخ" %}</a>
+        <a class="btn btn--ghost" href="{% url 'kitchen:version_resolve' recipe.pk %}">{% translate "أي نسخة تسري؟" %}</a>
         {% if not draft %}
           <a class="btn btn--primary" href="{% url 'kitchen:version_create' recipe.pk %}">{% translate "فتح مسودة" %}</a>
         {% endif %}
@@ -57,11 +60,12 @@
           <h2>{% translate "المسودة" %} — {% translate "نسخة" %} {{ draft.version_number }}</h2>
           <p class="pagehead__hint">
             <span class="chip chip--off">{% translate "مسودة" %}</span>
-            {% translate "الاعتماد والتفعيل والتأريخ الفعّال تأتي في مهمة 3.2. لا وصفة معتمدة للإنتاج بعد." %}
+            {% translate "المكوّنات والطريقة والحصص تُحرَّر هنا. الإرسال للمراجعة والاعتماد والتفعيل على شاشة النسخة." %}
           </p>
         </div>
         {% if can_manage %}
           <div class="rowactions">
+            <a class="btn btn--ghost btn--sm" href="{% url 'kitchen:version_detail' draft.pk %}">{% translate "شاشة النسخة" %}</a>
             <a class="btn btn--ghost btn--sm" href="{% url 'kitchen:version_update' draft.pk %}">{% translate "تعديل المسودة" %}</a>
             <form method="post" action="{% url 'kitchen:version_discard' draft.pk %}">
               {% csrf_token %}

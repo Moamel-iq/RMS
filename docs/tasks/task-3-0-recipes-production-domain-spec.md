@@ -2797,3 +2797,107 @@ its first encounter with evidence. What changed is the **grounding**:
 | Assembly layer entirely unknown | 45 plate cards read; portion recipes now have a real shape (§24.5) |
 | No provenance on imported data | RCP-119 — `source_document` and `source_page` on every imported row |
 | Quantities compared freely | RCP-120 — `measurement_basis`, because 350 g cooked and 500 g raw are the same meat |
+
+---
+
+## 25. Task 3.2A — what the lifecycle settled, and where it departed
+
+Task 3.2A implemented the approval boundary: submission, four-party review
+evidence, maker-checker approval, explicit activation, effective-dated branch
+scope, database overlap enforcement, the resolver, supersession and whole-row
+immutability. `ADR-024` is now **written and accepted** and carries the
+reasoning; this section records only what the specification itself has to be
+corrected or extended to say.
+
+### 25.1 The lifecycle vocabulary, extended
+
+§4 named `DRAFT → APPROVED → SUPERSEDED`, with `DISCARDED` for drafts. That is
+the *shape* of the lifecycle and it survived. Two states were added and one was
+dropped, and both changes are recorded here rather than made silently.
+
+| State | Status | Why |
+|---|---|---|
+| `DRAFT` | as specified | — |
+| `SUBMITTED` | **added** | §4 assumed approval happened to a draft. It cannot: reviews recorded against a document the author is still editing prove nothing about the document that eventually gets approved, and the workbook's three signatures are three people reading *the same page*. Submission is what freezes the page |
+| `APPROVED` | as specified | — |
+| `ACTIVE` | **added** | §4 folded "agreed" and "in force" into one state. The owner's KD-02 amendment separated them — a real recipe may be captured, and may not be *approved or activated* — and RCP-011's date resolution needs a state that carries a range. Approval is agreement; activation is the claim on a date |
+| `REJECTED` | **added** | §4 had no way to record a refusal. A version somebody would not sign is evidence, and deleting it leaves the next reader wondering why version 3 exists |
+| `SUPERSEDED` | as specified | — |
+| `EXPIRED` | **not created** | §4 names one terminal state and this follows it. Expiry is a fact about a date, not a state a row sits in: a stored `EXPIRED` needs a clock-driven job, and on every morning that job did not run the status and the range would disagree about the same version. `RecipeVersion.is_expired_on()` derives it |
+| `DISCARDED` | **not created** | Discarding a draft deletes the row — nothing outside a draft may reference one — and the audit event carries the identity forward. A status nothing ever reaches would be a lie in an enum |
+
+**RCP-127.** The lifecycle is six states and one terminal state. No status is
+stored that depends on the current date, and no status exists that no command
+reaches.
+
+### 25.2 The four signatures, and which separations are real
+
+§0.1 read `الكمية المعتمدة` as *"الشيف + المحاسب + المدير"* and §14A's
+conditions 6 – 8 turned that into three reviews. The signature page carries a
+fourth line for the store, so `RecipeVersionReview` has four types:
+`KITCHEN`, `STOREKEEPER`, `ACCOUNTING` and `FINAL`.
+
+**RCP-128.** **No global `CHEF` role is created.** The four are responsibilities
+exercised on one document, not posts in the organization chart. They are review
+types carried by whichever role holds `review_recipe_version`, and adding a role
+to the whole ERP's access model to record one column of one kitchen form would
+misrepresent both.
+
+**RCP-129.** The separations enforced are exactly those the source describes:
+the approver is never the author, never the submitter and never any reviewer;
+and the kitchen and costing reviews are given by two different people. The
+store's review is deliberately **not** forced apart from the kitchen's — in a
+small branch the person who knows the cut is the person who knows the sack, and
+inventing a separation the source does not claim would be as wrong as dropping
+one it does.
+
+### 25.3 Organization-wide effective scope is materialised
+
+§4's `branches M2M, empty = every branch` stays true of `Recipe` — that is a
+statement about where a *dish* is cooked, and no constraint depends on it.
+
+It cannot be true of a **version's effective scope**. A row claiming *all
+branches* and a row claiming *branch B* overlap, and RCP-012's exclusion
+constraint cannot see that, because there is nothing to compare branch B
+against.
+
+**RCP-130.** An organization-wide activation writes one
+`RecipeVersionBranchScope` row per applicable branch and records that it did so
+in `is_organization_wide` — provenance, not a scope modifier. Overlap then
+becomes a question about two ordinary rows, and
+`EXCLUDE USING gist (recipe, branch, daterange)` makes ambiguity
+unrepresentable rather than merely unlikely.
+
+**Consequence, stated because it is the one an operator will meet.** A branch
+created after a version was activated has no scope row, and the recipe does not
+apply there until somebody activates a version for it. That is deliberate: a new
+branch silently inheriting an approved costing basis nobody chose for it would
+be worse than an explicit act. The old convention would have hidden this.
+
+### 25.4 The range convention, written down once
+
+**RCP-131.** The effective range is `[effective_from, effective_to]`, **inclusive
+at both ends**, with a null upper bound meaning open-ended — the convention
+`ItemPackageConversion` has used since Task 1.0. RCP-016 depends on it:
+supersession closes the predecessor *the day before* the replacement begins,
+which is a seam with no gap and no overlap only if the upper bound is included.
+The convention is expressed once, in `lifecycle.covers_on_date()`, so no caller
+can quietly write `>` and open a one-day hole that stays invisible until a
+report for a version's final day comes back empty.
+
+### 25.5 What Task 3.2A deliberately did not do
+
+- **`RecipeComponent`** and the nested-recipe graph — Task 3.2B. Invariants 35,
+  36 and 37 remain proposals, and §5B is unimplemented.
+- **Any costing** — Task 3.3. `view_recipe_cost` is still reserved and still
+  guards nothing.
+- **Production, meals, reports and imports** — Tasks 3.4 – 3.10, unchanged.
+
+### 25.6 The register after Task 3.2A
+
+No row changes classification. **KD-02's answer now binds executable code**: the
+approval command refuses `DEMO_FICTIONAL` evidence outside the `DEMO-` namespace
+and refuses `SIGNED_FORM` inside it, so §14A condition 9 is enforced at the
+boundary the owner moved it to rather than merely written down. KD-19 and KD-20
+are untouched — the unit layer still refuses the sauce conversion rather than
+guessing it, and the appetizer blends still may not be approved as sub-recipes.

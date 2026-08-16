@@ -1,9 +1,12 @@
 """
 Draft versions, and everything hanging off one.
 
-Two claims run through this file. The first is that **only a draft exists** in
-Task 3.1: no service reaches another status, and the database says so with a
-check constraint rather than trusting that nobody wrote one.
+Two claims run through this file. The first is that **the boundary is held by
+the database**: a version reaches a new status only along one of the five
+permitted transitions, and a raw `UPDATE` that skips a step is refused whatever
+the caller believed. Task 3.1 asserted the narrower form of the same claim — one
+status, pinned by a check constraint — and Task 3.2A widened it rather than
+loosening it.
 
 The second is that **structure carries no arithmetic**. A step says *when* an
 ingredient enters and never *how much exists*; a serving divides an output and
@@ -49,56 +52,77 @@ from apps.users.models import User
 pytestmark = pytest.mark.django_db
 
 
-class TestOnlyDraftsExist:
+class TestTheLifecycleBoundary:
     def test_a_new_version_is_a_draft(self, draft: RecipeVersion) -> None:
         assert draft.status == RecipeVersionStatus.DRAFT
         assert draft.is_draft is True
 
-    def test_the_status_enum_offers_one_value_in_task_3_1(self) -> None:
+    def test_the_status_enum_matches_the_approved_lifecycle(self) -> None:
         """
-        `APPROVED`, `SUPERSEDED` and `DISCARDED` arrive in Task 3.2 with the
-        services that reach them. An enum value with no service behind it is a
-        state the system can be put into and cannot get out of.
-        """
-        assert list(RecipeVersionStatus.values) == ["DRAFT"]
+        Six states, and no seventh. Task 3.1 asserted one here for the same
+        reason: an enum value with no service behind it is a state the system
+        can be put into and cannot get out of.
 
-    def test_the_database_refuses_a_non_draft_status(self, draft: RecipeVersion) -> None:
-        """The Task 3.1 boundary is a constraint, not an intention."""
+        `EXPIRED` is absent because Task 3.0 §4 names one terminal state and
+        expiry is a fact about a date, not a state a row sits in. `DISCARDED`
+        is absent because discarding a draft deletes the row.
+        """
+        assert list(RecipeVersionStatus.values) == [
+            "DRAFT",
+            "SUBMITTED",
+            "APPROVED",
+            "ACTIVE",
+            "REJECTED",
+            "SUPERSEDED",
+        ]
+
+    def test_the_database_refuses_a_status_jump(self, draft: RecipeVersion) -> None:
+        """
+        A raw `UPDATE` cannot skip the lifecycle. `DRAFT -> APPROVED` is not one
+        of the five permitted transitions, so the trigger refuses it whatever
+        the caller believed.
+        """
         with pytest.raises(IntegrityError), transaction.atomic():
             RecipeVersion.objects.filter(pk=draft.pk).update(status="APPROVED")
 
-    def test_there_is_no_lifecycle_service(self) -> None:
+    def test_the_lifecycle_lives_outside_the_master_data_services(self) -> None:
         """
-        Task 3.2 owns submission, approval, activation and supersession. A
-        placeholder that flipped a status would be a lifecycle without its
-        rules — the maker-checker constraint, the effective-date exclusion and
-        the immutability triggers arrive together or not at all.
+        `services.py` maintains a draft; `lifecycle.py` decides what may be
+        done with it. Keeping the status transitions out of the module that
+        edits rows is what makes "the only place a status moves" a checkable
+        claim rather than a convention.
 
         `reactivate_recipe` is deliberately not caught here: un-archiving a
         recipe is master-data maintenance, not a version lifecycle.
         """
-        from apps.kitchen import services
+        from apps.kitchen import lifecycle, services
 
-        public = {name for name in dir(services) if not name.startswith("_")}
-        forbidden = {
+        in_services = {name for name in dir(services) if not name.startswith("_")}
+        lifecycle_commands = {
             "submit_recipe_version",
             "approve_recipe_version",
+            "reject_recipe_version",
             "activate_recipe_version",
             "supersede_recipe_version",
-            "resolve_effective_version",
+            "resolve_recipe_version",
         }
-        assert not (public & forbidden)
-        assert not {name for name in public if "approve" in name or "supersede" in name}
+        assert not (in_services & lifecycle_commands)
+        assert not {name for name in in_services if "approve" in name or "supersede" in name}
+        assert lifecycle_commands <= set(dir(lifecycle))
 
-    def test_there_is_no_lifecycle_or_cost_route(self) -> None:
-        """`recipe_reactivate` is master data, and stays; the rest must not exist."""
+    def test_there_is_no_cost_or_component_route(self) -> None:
+        """
+        The lifecycle routes exist now; Task 3.2B's and Task 3.3's must not.
+        `recipe_reactivate` is master data and stays.
+        """
         from apps.kitchen import urls
 
         names = {pattern.name for pattern in urls.urlpatterns if pattern.name}
         assert "recipe_reactivate" in names
-        for forbidden in ("submit", "approve", "supersede", "cost"):
+        assert "version_submit" in names
+        assert "version_approve" in names
+        for forbidden in ("cost", "component", "batch", "production"):
             assert not {name for name in names if forbidden in name}
-        assert not {name for name in names if "activate" in name and name != "recipe_reactivate"}
 
     def test_version_numbers_are_sequential_and_never_reused(
         self, recipe: Recipe, kilogram: UnitOfMeasure, manager: User

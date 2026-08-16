@@ -335,8 +335,14 @@ MODULES: tuple[Module, ...] = (
                 url_name="kitchen:category_list",
                 available=True,
             ),
+            # Task 3.2A — the version lifecycle. Reachable now that approval,
+            # effective dating and immutability all exist behind it.
+            Section(
+                label=_("نسخ الوصفات"),
+                url_name="kitchen:version_list",
+                available=True,
+            ),
             *_sections(
-                _("نسخ الوصفات"),
                 _("أوامر الإنتاج"),
                 _("الإنتاجية والفاقد"),
                 _("الصرف للمطبخ"),

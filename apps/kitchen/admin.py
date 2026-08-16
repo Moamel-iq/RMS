@@ -28,6 +28,8 @@ from apps.kitchen.models import (
     RecipeStep,
     RecipeStepIngredient,
     RecipeVersion,
+    RecipeVersionBranchScope,
+    RecipeVersionReview,
 )
 
 if TYPE_CHECKING:
@@ -66,9 +68,49 @@ class RecipeAdmin(ReadOnlyAdmin):
 
 @admin.register(RecipeVersion)
 class RecipeVersionAdmin(ReadOnlyAdmin):
-    list_display = ("recipe", "version_number", "status", "expected_output_quantity", "output_unit")
+    list_display = (
+        "recipe",
+        "version_number",
+        "status",
+        "effective_from",
+        "effective_to",
+        "approved_by",
+    )
     list_filter = ("status",)
-    search_fields = ("recipe__code", "recipe__name_ar")
+    search_fields = ("recipe__code", "recipe__name_ar", "approval_reference")
+    readonly_fields = ("public_id",)
+
+
+@admin.register(RecipeVersionReview)
+class RecipeVersionReviewAdmin(ReadOnlyAdmin):
+    """
+    The signature page, as rows.
+
+    Read-only like everything else here, and doubly so: these rows are
+    append-only at the database, so a writable admin would offer an action the
+    trigger would refuse anyway.
+    """
+
+    list_display = ("version", "review_type", "reviewer", "decision", "reviewed_at")
+    list_filter = ("review_type", "decision")
+    search_fields = ("version__recipe__code", "evidence_reference")
+    readonly_fields = ("public_id",)
+
+
+@admin.register(RecipeVersionBranchScope)
+class RecipeVersionBranchScopeAdmin(ReadOnlyAdmin):
+    """Which branch, over which dates — the rows the resolver actually reads."""
+
+    list_display = (
+        "recipe",
+        "branch",
+        "version",
+        "effective_from",
+        "effective_to",
+        "is_organization_wide",
+    )
+    list_filter = ("is_organization_wide",)
+    search_fields = ("recipe__code", "branch__code")
     readonly_fields = ("public_id",)
 
 

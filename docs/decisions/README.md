@@ -26,6 +26,7 @@ consequences, date, and related requirements.
 | [ADR-021](ADR-021-physical-count-cutoff-warehouse-freeze-and-count-valuation.md) | Physical count cutoff, warehouse freeze and count valuation — *implemented by Task 1.6* |
 | [ADR-022](ADR-022-supplier-return-valuation-and-purchase-variance.md) | Supplier return valuation and purchase variance treatment — *implemented by Tasks 2.12–2.14* |
 | [ADR-023](ADR-023-grni-clearing-and-three-way-matching.md) | GRNI clearing and three-way matching allocations — *implemented by Tasks 2.11–2.12* |
+| [ADR-024](ADR-024-recipe-versioning-and-the-effective-dated-cost-basis.md) | Recipe structure, versioning and the effective-dated cost basis — *lifecycle, evidence, dating and immutability implemented by Task 3.2A; nested components remain Task 3.2B and costing Task 3.3* |
 
 Four of these were missing from this table while their files read
 **Accepted** and their behaviour shipped, which is how the index came to
@@ -35,11 +36,17 @@ disagree with the decisions it indexes. Found at the Phase 2 gate.
 
 Registered here the day they were proposed, so the index cannot fall behind the
 specification again. Each is written by the task that first implements its
-subject, and none exists as a file yet.
+subject.
+
+**ADR-024 has left this table.** Task 3.2A implemented the lifecycle, the
+evidence model, effective dating and whole-row immutability, so the decision was
+written and accepted above. Its remaining halves are named inside it and belong
+to Task 3.2B (nested components) and Task 3.3 (costing and snapshots) — recorded
+in the ADR's own "Still open" section rather than by leaving the whole decision
+listed as unwritten.
 
 | ADR | Title | Proposed by | Written by | Scope |
 |---|---|---|---|---|
-| ADR-024 | Recipe structure, versioning and the effective-dated cost basis | Task 3.0, **scope extended by Tasks 3.0A and 3.0B** | Task 3.2 | Why versions are effective-dated and immutable once approved; how a date resolves a version and then a cost; what a snapshot is for; why no cost is stored on a recipe. Extended to the structure hanging off a version: structured steps as the method of record; the stocked / non-stocked sub-recipe split enforced **by construction**; exact child-version references with no silent re-pointing; servings as a division of one output with exact-remainder allocation. **Task 3.0B adds the two-layer serving rule** — a serving converts the *output* (one chicken is exactly two halves) while a sellable *plate* is its own approved composition that does not scale, proven from the plate cards' 700 g against 1,300 g of rice — together with row-level provenance and the measurement basis that keeps a raw 500 g piece from being compared with a cooked 350 g portion |
 | ADR-025 | Production batch valuation and the Release 1 boundary | Task 3.0, **scope extended by Task 3.0A** | Task 3.5 | Value conservation through the batch; yield absorbed into unit cost rather than journalled against a standard nobody set; the per-account net journal and the **legitimate no-journal case**; one output per batch and what multi-output would require; why there is no WIP account — **and the seven conditions under which that is true**, plus what must be specified if multi-day production is ever needed |
 | ADR-026 | Consumption is a partition, not a sum | **Task 3.0A** | Task 3.8 | Why the architecture charter's actual-consumption formula is **not implemented as written**: its "issues to kitchen" and "transfers into the kitchen" terms are one event under two incompatible physical models, and adding custody transfers to production usage double-counts. Records the partition that replaces it, in which every posted movement contributes to exactly one bucket and the classification is proved against the stock identity. **The only deliberate departure from an approved charter formula in three phases** |
 

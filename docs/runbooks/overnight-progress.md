@@ -1133,3 +1133,104 @@ were already correct and unchanged.
 evidence, components, resolver, verifier and screens are a larger body of work
 than Task 3.1 was. It begins in its own session, from this certified tree, with
 the §B findings already banked.
+
+---
+
+## Task 3.2A — the recipe version lifecycle
+
+The approval boundary, delivered whole: submission, four-party review evidence,
+maker-checker approval, explicit activation, effective-dated branch scope,
+database overlap enforcement, the resolver, supersession and whole-row
+immutability. Task 3.2 is **split** into 3.2A and 3.2B as an implementation
+checkpoint; the dependency order is unchanged and no scope was dropped.
+
+### What arrived together, and why it had to
+
+The previous session's report said the rules "arrive together or none of them
+do", and building it confirmed why. Every one of these is load-bearing for the
+others:
+
+- an approval workflow over mutable rows is theatre, so the triggers had to land
+  with the commands;
+- effective dating without an overlap constraint gives the resolver two answers
+  and no way to choose;
+- an overlap constraint cannot see an "empty list means everywhere" convention,
+  so organization-wide scope had to become real rows in the same design;
+- and a resolver that defaults `on_date` to today is correct through the whole
+  of development and wrong the first time a July report is re-run in September.
+
+### Three decisions worth naming
+
+**No `EXPIRED` state.** Task 3.0 §4 names one terminal state, and expiry is a
+fact about a date rather than a state a row sits in. A stored `EXPIRED` needs a
+clock-driven job, and on every morning that job did not run, the status and the
+range would disagree about the same version. `is_expired_on()` derives it.
+
+**Organization-wide scope is materialised.** `Recipe.branches` keeps Task 3.1's
+"no rows means everywhere" — that is a statement about where a *dish* is cooked
+and no constraint depends on it. A *version's* effective scope cannot work that
+way: a row claiming all branches and a row claiming branch B overlap, and no
+constraint can see it. An organization-wide activation now writes one scope row
+per applicable branch and records that it did so. The consequence is real and
+recorded in ADR-024: a branch created after an activation has no scope row until
+somebody activates a version for it. That is the right answer — a new branch
+silently inheriting a costing basis nobody chose for it would be worse — and the
+old convention would have hidden the question.
+
+**No global `CHEF` role.** `KM-RCP-004` names four signatories, and it would
+have been easy to add a role to the whole ERP's access model to hold one of
+them. They are responsibilities exercised on one document, so they are review
+types carried by whichever role holds `review_recipe_version`.
+
+### Two things the build itself turned up
+
+**`bigint`, not `integer`.** The first trigger family failed on every insert:
+`kitchen_require_draft_version(bigint, unknown) does not exist`. Django's
+`BigAutoField` means every foreign key is `bigint`, and a plpgsql helper
+declared `integer` does not match. Caught by the first test run rather than by
+review, which is the argument for running the focused tests before writing the
+surface on top.
+
+**Deferred constraints and Django's teardown.** The ambiguity tests defer
+`recipe_scope_no_overlapping_ranges` inside a transaction, activate a genuinely
+colliding version through the real service, and assert the resolver refuses.
+They passed and then failed at *teardown*: Django's `TestCase` runs
+`SET CONSTRAINTS ALL IMMEDIATE` to check integrity, and re-asserted the very
+constraint the test suspends. The fixture now calls `transaction.set_rollback(True)`
+on the way out, which is the literal meaning of "planted only inside a
+rolled-back test".
+
+### The one place a Task 3.1 test was rewritten rather than kept
+
+`TestOnlyDraftsExist` asserted `RecipeVersionStatus.values == ["DRAFT"]` and
+that no lifecycle service existed. Both statements were true of Task 3.1 and are
+false now, so the class became `TestTheLifecycleBoundary` and asserts the
+stronger form: six states and no seventh, and the lifecycle living in
+`lifecycle.py` rather than in `services.py`. Three other Task 3.1 tests
+(`test_the_database_refuses_a_non_draft_status`, the permission count, the
+"no approval permission registered early" rule) were rewritten the same way —
+each still asserts a boundary, and each now asserts the one that is true.
+
+`test_no_version_is_approved` in the demo suite was replaced rather than
+loosened: the demo dataset now has to show **every** lifecycle state, because a
+screen that has never had a `SUPERSEDED` row on it has never actually been
+reviewed.
+
+### Verification
+
+- **291 kitchen tests**, including 45 lifecycle, 31 effective-dating, 31
+  immutability, 35 surface and 12 real-COMMIT concurrency tests.
+- **Fresh PostgreSQL database `km_verify_3_2a_final`**, migrated from zero:
+  permissions synced, both seeds run, `seed_kitchen_demo` run twice with
+  identical row counts across all ten tables, `verify_recipe_versions` clean,
+  every route answering 200 on both the full-page and HTMX paths, and March
+  resolving to the superseded v1 while September resolves to the active v2.
+- **Zero stock movements and zero journal entries** across the whole lifecycle,
+  proved by counting before and after — in the unit tests, in the concurrency
+  tests, and on the fresh database.
+
+### What Task 3.2A did not do
+
+`RecipeComponent` does not exist and a test asserts its absence. Costing does
+not exist and `view_recipe_cost` still guards nothing. Task 3.2 remains **in
+progress** until 3.2B lands the nested-recipe graph.

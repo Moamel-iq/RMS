@@ -112,13 +112,45 @@ that holds it, so a later reader can tell an enforced rule from an intended one.
 | 42 | `::TestServings::test_no_dish_or_gram_figure_is_hard_coded_in_the_app` |
 | 47 | `recipe_*_provenance_is_complete` on all six tables + `::TestProvenance` |
 | 48 | `MeasurementBasis` non-null + `::TestLines` |
-| 50 | `recipe_version_task_3_1_draft_only` + `::TestOnlyDraftsExist` |
+| 50 | `recipe_version_task_3_1_draft_only` + `::TestTheLifecycleBoundary` — **the constraint was replaced by Task 3.2A**: an import still cannot produce an approved version, because approval is now four signatures and an explicit command rather than a status assignment, and `::TestTheLifecycleBoundary::test_the_database_refuses_a_status_jump` holds it |
 | 52 | `::TestNoImportsFromTheProprietarySources` |
 
 Invariants 5 – 9 and 12 (approval, effective dating, supersession, immutability)
 are **not** enforced here and cannot be: Task 3.1 has no approval lifecycle to
 enforce them against. They belong to Task 3.2, and saying so is more useful than
 a partial trigger that would look like protection.
+
+### Enforced by Task 3.2A
+
+The five Task 3.1 could not reach, plus the four the lifecycle itself created.
+Each names the mechanism *and* the test, so a later reader can tell an enforced
+rule from an intended one.
+
+| # | Enforced by |
+|---|---|
+| 5 | `recipe_scope_no_overlapping_ranges` (`EXCLUDE USING gist`, migration `0005`) + `test_effective_dating.py::TestOverlapEnforcement` and `test_version_concurrency.py::TestTwoActivationsCannotOverlap` at real COMMIT |
+| 6 | `recipe_version_approver_is_not_the_author`, `..._is_not_the_submitter` + `approve_recipe_version`'s three actor checks + `test_version_lifecycle.py::TestApproval` |
+| 7 | `kitchen_recipe_version_is_immutable` (whole-row allowlist, five permitted transitions) and the five child-table triggers + `test_version_immutability.py::TestTheDatabaseRefusesRawWrites` |
+| 8 | `resolve_recipe_version` with a **required** `on_date` + `test_effective_dating.py::TestRangeBoundaries` covering the day before, `effective_from`, the final included day, the day after, and the open-ended case |
+| 9 | `_supersede_locked` inside `activate_recipe_version`'s transaction + `test_version_lifecycle.py::TestSupersession::test_supersession_closes_the_predecessor_at_the_seam` |
+| 12 | `RESOLVABLE_VERSION_STATUSES` excludes `APPROVED` + `test_effective_dating.py::TestStatusIsNotResolution` |
+
+### Added by Task 3.2A
+
+Four rules the lifecycle created, each because building it turned up a way to
+get the boundary wrong that nothing before had needed to forbid.
+
+| # | Invariant | Enforced where | Delivered by |
+|---|---|---|---|
+| 53 | Approval and effect are **two** decisions: an `APPROVED` version resolves for no date, and activation is a separate command behind a separate permission | `RESOLVABLE_VERSION_STATUSES` + `activate_recipe_version` + `::TestApproval::test_approval_does_not_make_a_version_effective` | 3.2A |
+| 54 | Organization-wide effective scope is **materialised** per branch; no row means "everywhere" anywhere the overlap constraint has to see it | `RecipeVersionBranchScope` + `kitchen_scope_follows_its_version` + `::TestOverlapEnforcement::test_an_organization_wide_claim_collides_with_a_branch_claim` | 3.2A |
+| 55 | The effective range is inclusive at both ends, expressed once, and the supersession seam has no gap and no overlap | `daterange(..., '[]')` + `lifecycle.covers_on_date` + `::TestRangeBoundaries::test_the_final_included_day_resolves` | 3.2A |
+| 56 | `DEMO_FICTIONAL` approval evidence exists only inside the `DEMO-` namespace, **and a demo recipe cannot claim a signed form** | `kitchen_version_evidence_matches_namespace` + `kitchen_review_is_append_only` + `::TestDemoDataset::test_every_demo_approval_is_evidenced_as_fiction` | 3.2A |
+
+Invariants 35 – 37 (the component mutual exclusion, cycle and depth limits, and
+child-range compatibility) remain **proposals**. They are Task 3.2B's, and
+`RecipeComponent` does not exist — a test asserts its absence rather than a
+comment claiming it.
 
 ## Rules that carry over unchanged
 

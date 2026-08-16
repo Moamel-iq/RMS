@@ -14,9 +14,14 @@ the command shape a posting API needs. The standing rules are unchanged:
   arrived as 0.5000000000000001 would be nobody's fault and everybody's
   problem.
 
-**There is no submit, approve, activate, supersede or cost endpoint.** Task 3.2
-owns the lifecycle and Task 3.3 owns costing; publishing a route to a service
-that does not exist would be a promise the system cannot keep.
+The lifecycle half of this file is **commands**, not CRUD. A version that has
+left `DRAFT` has no `PATCH` and no `DELETE`, because correcting an approved
+recipe is a new version — and a verb that implied otherwise would be the API
+contradicting the database.
+
+**There is still no cost endpoint and no component endpoint.** Task 3.3 owns
+costing and Task 3.2B owns nested recipes; publishing a route to a service that
+does not exist would be a promise the system cannot keep.
 """
 
 from __future__ import annotations
@@ -29,8 +34,26 @@ from django.http import HttpRequest
 from ninja import Router, Schema
 
 from apps.inventory.selectors import resolve_item, resolve_package_unit
+from apps.kitchen.lifecycle import (
+    activate_recipe_version,
+    approve_recipe_version,
+    covers_on_date,
+    record_recipe_version_review,
+    reject_recipe_version,
+    resolve_recipe_version,
+    submit_recipe_version,
+    supersede_recipe_version,
+)
 from apps.kitchen.models import MeasurementBasis, RecipeLineCostClass, ServingRoundingPolicy
-from apps.kitchen.permissions import MANAGE_RECIPE, VIEW_RECIPE
+from apps.kitchen.permissions import (
+    ACTIVATE_RECIPE_VERSION,
+    APPROVE_RECIPE_VERSION,
+    MANAGE_RECIPE,
+    REJECT_RECIPE_VERSION,
+    REVIEW_RECIPE_VERSION,
+    SUBMIT_RECIPE_VERSION,
+    VIEW_RECIPE,
+)
 from apps.kitchen.selectors import (
     resolve_category,
     resolve_line,
@@ -41,6 +64,7 @@ from apps.kitchen.selectors import (
     resolve_version,
     visible_recipes,
     visible_step_ingredients,
+    visible_versions,
 )
 from apps.kitchen.services import (
     add_recipe_line,
@@ -67,6 +91,7 @@ from apps.kitchen.services import (
 from apps.organizations.authorization import (
     PermissionMissing,
     require_reachable_organization_permission,
+    resolve_branch,
     resolve_organization,
 )
 from apps.units.selectors import unit_by_code
@@ -795,3 +820,318 @@ def delete_serving(request: HttpRequest, serving_id: int, reason: str = "") -> t
     )
     remove_recipe_serving(serving=serving, reason=reason)
     return 204, None
+
+
+# --- The version lifecycle ---------------------------------------------------
+#
+# Command endpoints, not writable CRUD. A version that has left `DRAFT` has no
+# `PATCH` and no `DELETE`: correcting an approved recipe is a new version, and
+# offering a verb that implied otherwise would be the API contradicting the
+# database.
+
+
+class LifecycleVersionOut(Schema):
+    """The version with everything the lifecycle added to it."""
+
+    id: int
+    public_id: str
+    recipe_id: int
+    recipe_code: str
+    version_number: int
+    status: str
+    batch_size: str
+    expected_output_quantity: str
+    output_unit: str
+    effective_from: str | None
+    effective_to: str | None
+    submitted_by: str | None
+    submitted_at: str | None
+    approved_by: str | None
+    approved_at: str | None
+    approval_reference: str
+    approval_evidence_kind: str
+    activated_by: str | None
+    activated_at: str | None
+    rejected_by: str | None
+    rejected_at: str | None
+    rejection_reason: str
+    superseded_at: str | None
+    superseded_by_version_id: int | None
+    branch_scopes: list[dict[str, Any]]
+    reviews: list[dict[str, Any]]
+
+
+class ReviewIn(Schema):
+    review_type: str
+    decision: str
+    reason: str = ""
+    evidence_reference: str = ""
+    evidence_kind: str = ""
+    note: str = ""
+
+
+class ApproveIn(Schema):
+    approval_reference: str
+    approval_evidence_kind: str
+    note: str = ""
+
+
+class RejectIn(Schema):
+    reason: str
+
+
+class ActivateIn(Schema):
+    #: ISO dates, exactly as decimals cross as strings. A date is a string in
+    #: both directions here and never a timestamp somebody has to interpret in
+    #: a timezone the API never stated.
+    effective_from: str
+    effective_to: str | None = None
+    #: `None` means organization-wide, which activation materialises into one
+    #: scope row per applicable branch.
+    branch_ids: list[int] | None = None
+    supersedes_version_id: int | None = None
+    reason: str = ""
+
+
+class SupersedeIn(Schema):
+    replacement_version_id: int
+    reason: str = ""
+
+
+def _moment(value: Any) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _actor_label(user: Any) -> str | None:
+    return str(user) if user else None
+
+
+def _review_out(review: Any) -> dict[str, Any]:
+    return {
+        "id": review.pk,
+        "review_type": review.review_type,
+        "decision": review.decision,
+        "reviewer": str(review.reviewer),
+        "reviewed_at": _moment(review.reviewed_at),
+        "reason": review.reason,
+        "evidence_reference": review.evidence_reference,
+        "evidence_kind": review.evidence_kind,
+    }
+
+
+def _scope_out(scope: Any) -> dict[str, Any]:
+    return {
+        "id": scope.pk,
+        "branch_id": scope.branch_id,
+        "branch_code": scope.branch.code,
+        "effective_from": scope.effective_from.isoformat(),
+        "effective_to": _moment(scope.effective_to),
+        "is_organization_wide": scope.is_organization_wide,
+    }
+
+
+def _lifecycle_out(version: Any) -> dict[str, Any]:
+    return {
+        **_version_out(version),
+        "recipe_code": version.recipe.code,
+        "effective_from": _moment(version.effective_from),
+        "effective_to": _moment(version.effective_to),
+        "submitted_by": _actor_label(version.submitted_by),
+        "submitted_at": _moment(version.submitted_at),
+        "approved_by": _actor_label(version.approved_by),
+        "approved_at": _moment(version.approved_at),
+        "approval_reference": version.approval_reference,
+        "approval_evidence_kind": version.approval_evidence_kind,
+        "activated_by": _actor_label(version.activated_by),
+        "activated_at": _moment(version.activated_at),
+        "rejected_by": _actor_label(version.rejected_by),
+        "rejected_at": _moment(version.rejected_at),
+        "rejection_reason": version.rejection_reason,
+        "superseded_at": _moment(version.superseded_at),
+        "superseded_by_version_id": version.superseded_by_version_id,
+        "branch_scopes": [
+            _scope_out(scope)
+            for scope in version.branch_scopes.select_related("branch").order_by("branch__code")
+        ],
+        "reviews": [
+            _review_out(review)
+            for review in version.reviews.select_related("reviewer").order_by("review_type")
+        ],
+    }
+
+
+def _lifecycle_version(request: HttpRequest, version_id: int, permission: str) -> Any:
+    """Resolve with the caller, then check the authority. Never the other way."""
+    version = resolve_version(_actor(request), version_id)
+    require_reachable_organization_permission(
+        _actor(request), permission, version.recipe.organization
+    )
+    return version
+
+
+@router.get("/recipe-versions", response=list[LifecycleVersionOut], summary="List recipe versions")
+def list_recipe_versions(
+    request: HttpRequest,
+    recipe_id: int | None = None,
+    status: str = "",
+    branch_id: int | None = None,
+    on_date: str = "",
+) -> list[dict[str, Any]]:
+    actor = _require_view(request)
+    versions = visible_versions(actor).select_related("recipe")
+    if recipe_id is not None:
+        versions = versions.filter(recipe_id=recipe_id)
+    if status:
+        versions = versions.filter(status=status)
+    if branch_id is not None:
+        versions = versions.filter(branch_scopes__branch_id=branch_id)
+    if on_date:
+        asked = datetime.date.fromisoformat(on_date)
+        versions = versions.filter(branch_scopes__effective_from__lte=asked).filter(
+            covers_on_date(asked)
+        )
+    return [_lifecycle_out(version) for version in versions.distinct().order_by("-pk")[:200]]
+
+
+@router.get(
+    "/recipe-versions/{version_id}", response=LifecycleVersionOut, summary="One recipe version"
+)
+def get_recipe_version(request: HttpRequest, version_id: int) -> dict[str, Any]:
+    _require_view(request)
+    return _lifecycle_out(resolve_version(_actor(request), version_id))
+
+
+@router.post(
+    "/recipe-versions/{version_id}/submit",
+    response=LifecycleVersionOut,
+    summary="Submit a draft for review",
+)
+def post_submit(request: HttpRequest, version_id: int) -> dict[str, Any]:
+    version = _lifecycle_version(request, version_id, SUBMIT_RECIPE_VERSION)
+    return _lifecycle_out(submit_recipe_version(version=version, actor=_actor(request)))
+
+
+@router.post(
+    "/recipe-versions/{version_id}/review",
+    response={201: LifecycleVersionOut},
+    summary="Record a review signoff",
+)
+def post_review(
+    request: HttpRequest, version_id: int, payload: ReviewIn
+) -> tuple[int, dict[str, Any]]:
+    version = _lifecycle_version(request, version_id, REVIEW_RECIPE_VERSION)
+    record_recipe_version_review(
+        version=version,
+        review_type=payload.review_type,
+        reviewer=_actor(request),
+        decision=payload.decision,
+        reason=payload.reason,
+        evidence_reference=payload.evidence_reference,
+        evidence_kind=payload.evidence_kind,
+        note=payload.note,
+    )
+    version.refresh_from_db()
+    return 201, _lifecycle_out(version)
+
+
+@router.post(
+    "/recipe-versions/{version_id}/approve",
+    response=LifecycleVersionOut,
+    summary="Give the final approval",
+)
+def post_approve(request: HttpRequest, version_id: int, payload: ApproveIn) -> dict[str, Any]:
+    version = _lifecycle_version(request, version_id, APPROVE_RECIPE_VERSION)
+    return _lifecycle_out(
+        approve_recipe_version(
+            version=version,
+            actor=_actor(request),
+            approval_reference=payload.approval_reference,
+            approval_evidence_kind=payload.approval_evidence_kind,
+            note=payload.note,
+        )
+    )
+
+
+@router.post(
+    "/recipe-versions/{version_id}/reject",
+    response=LifecycleVersionOut,
+    summary="Refuse a submitted version",
+)
+def post_reject(request: HttpRequest, version_id: int, payload: RejectIn) -> dict[str, Any]:
+    version = _lifecycle_version(request, version_id, REJECT_RECIPE_VERSION)
+    return _lifecycle_out(
+        reject_recipe_version(version=version, actor=_actor(request), reason=payload.reason)
+    )
+
+
+@router.post(
+    "/recipe-versions/{version_id}/activate",
+    response=LifecycleVersionOut,
+    summary="Put an approved version into effect",
+)
+def post_activate(request: HttpRequest, version_id: int, payload: ActivateIn) -> dict[str, Any]:
+    version = _lifecycle_version(request, version_id, ACTIVATE_RECIPE_VERSION)
+    branches = None
+    if payload.branch_ids is not None:
+        # Resolved with the caller, so a submitted id can never widen scope.
+        branches = [resolve_branch(_actor(request), pk) for pk in payload.branch_ids]
+    supersedes = (
+        resolve_version(_actor(request), payload.supersedes_version_id)
+        if payload.supersedes_version_id is not None
+        else None
+    )
+    return _lifecycle_out(
+        activate_recipe_version(
+            version=version,
+            actor=_actor(request),
+            effective_from=datetime.date.fromisoformat(payload.effective_from),
+            effective_to=(
+                datetime.date.fromisoformat(payload.effective_to) if payload.effective_to else None
+            ),
+            branches=branches,
+            supersedes=supersedes,
+            reason=payload.reason,
+        )
+    )
+
+
+@router.post(
+    "/recipe-versions/{version_id}/supersede",
+    response=LifecycleVersionOut,
+    summary="Close an active version in favour of a named replacement",
+)
+def post_supersede(request: HttpRequest, version_id: int, payload: SupersedeIn) -> dict[str, Any]:
+    version = _lifecycle_version(request, version_id, ACTIVATE_RECIPE_VERSION)
+    replacement = resolve_version(_actor(request), payload.replacement_version_id)
+    return _lifecycle_out(
+        supersede_recipe_version(
+            version=version,
+            replacement=replacement,
+            actor=_actor(request),
+            reason=payload.reason,
+        )
+    )
+
+
+@router.get(
+    "/recipes/{recipe_id}/effective-version",
+    response=LifecycleVersionOut,
+    summary="The version in effect for a branch on a business date",
+)
+def get_effective_version(
+    request: HttpRequest, recipe_id: int, branch_id: int, on_date: str
+) -> dict[str, Any]:
+    """
+    The resolver, exposed.
+
+    `on_date` is required and has no default. A posting-facing read that
+    quietly meant *today* would give the right answer during development and
+    the wrong one the first time somebody re-ran a July report in September.
+    """
+    actor = _require_view(request)
+    recipe = resolve_recipe(actor, recipe_id)
+    branch = resolve_branch(actor, branch_id)
+    version = resolve_recipe_version(
+        recipe=recipe, branch=branch, on_date=datetime.date.fromisoformat(on_date)
+    )
+    return _lifecycle_out(version)

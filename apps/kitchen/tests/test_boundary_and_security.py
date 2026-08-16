@@ -26,8 +26,13 @@ from apps.accounting.models import JournalEntry
 from apps.inventory.models import InventoryItem, StockBalance, StockLedgerEntry, StockMovement
 from apps.kitchen.models import Recipe, RecipeType, RecipeVersion
 from apps.kitchen.permissions import (
+    ACTIVATE_RECIPE_VERSION,
     ALL_PERMISSIONS,
+    APPROVE_RECIPE_VERSION,
     MANAGE_RECIPE,
+    REJECT_RECIPE_VERSION,
+    REVIEW_RECIPE_VERSION,
+    SUBMIT_RECIPE_VERSION,
     VIEW_RECIPE,
     VIEW_RECIPE_COST,
     permissions_for_role,
@@ -179,12 +184,57 @@ class TestDependencyDirection:
 
 
 class TestPermissionMap:
-    def test_task_3_1_declares_exactly_three_permissions(self) -> None:
-        assert set(ALL_PERMISSIONS) == {VIEW_RECIPE, MANAGE_RECIPE, VIEW_RECIPE_COST}
+    def test_the_module_declares_exactly_eight_permissions(self) -> None:
+        """
+        Three from Task 3.1 and five from the lifecycle. Task 3.1 asserted
+        three here for the same reason: a permission that arrives before the
+        workflow it guards is a grant nobody can audit.
+        """
+        assert set(ALL_PERMISSIONS) == {
+            VIEW_RECIPE,
+            MANAGE_RECIPE,
+            VIEW_RECIPE_COST,
+            SUBMIT_RECIPE_VERSION,
+            REVIEW_RECIPE_VERSION,
+            APPROVE_RECIPE_VERSION,
+            REJECT_RECIPE_VERSION,
+            ACTIVATE_RECIPE_VERSION,
+        }
 
-    def test_no_approval_permission_is_registered_early(self) -> None:
-        """Task 3.2's permission arrives with Task 3.2's workflow."""
-        assert not [name for name in ALL_PERMISSIONS if "approve" in name]
+    def test_no_production_or_report_permission_is_registered_early(self) -> None:
+        """Task 3.4 – 3.9's permissions arrive with Task 3.4 – 3.9's workflows."""
+        forbidden = ("production", "batch", "meal", "report", "import")
+        assert not [name for name in ALL_PERMISSIONS if any(word in name for word in forbidden)]
+
+    def test_the_four_lifecycle_authorities_are_separable(self) -> None:
+        """
+        Four different roles can between them hold the whole control, and no
+        single non-owner role below manager holds two of the three that
+        `KM-RCP-004` keeps apart.
+        """
+        assert REVIEW_RECIPE_VERSION in permissions_for_role(Role.STOREKEEPER)
+        assert REVIEW_RECIPE_VERSION in permissions_for_role(Role.ACCOUNTANT)
+        assert APPROVE_RECIPE_VERSION in permissions_for_role(Role.MANAGER)
+        assert APPROVE_RECIPE_VERSION not in permissions_for_role(Role.ACCOUNTANT)
+        assert APPROVE_RECIPE_VERSION not in permissions_for_role(Role.STOREKEEPER)
+        assert ACTIVATE_RECIPE_VERSION not in permissions_for_role(Role.PURCHASING)
+
+    def test_reviewing_never_confers_the_right_to_edit(self) -> None:
+        """An accountant attests the evidence; they do not touch the quantities."""
+        for role in (Role.ACCOUNTANT, Role.ACCOUNTING_MANAGER, Role.STOREKEEPER):
+            held = permissions_for_role(role)
+            assert REVIEW_RECIPE_VERSION in held
+            assert MANAGE_RECIPE not in held
+
+    def test_purchasing_reads_a_recipe_and_decides_nothing(self) -> None:
+        held = permissions_for_role(Role.PURCHASING)
+        assert VIEW_RECIPE in held
+        assert not held & {
+            REVIEW_RECIPE_VERSION,
+            APPROVE_RECIPE_VERSION,
+            REJECT_RECIPE_VERSION,
+            ACTIVATE_RECIPE_VERSION,
+        }
 
     def test_a_storekeeper_reads_the_card_and_never_the_cost(self) -> None:
         held = permissions_for_role(Role.STOREKEEPER)

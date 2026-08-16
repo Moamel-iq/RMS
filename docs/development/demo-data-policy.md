@@ -85,6 +85,27 @@ not the constraint.
 investor information, ever, including in a name field that "will not be
 committed".
 
+**Not an approval that looks real.** Where a module records *evidence* behind an
+approval, the demo dataset must name its evidence as fictional and the database
+must refuse the alternative. `apps.kitchen` is the first module with this shape:
+`ApprovalEvidenceKind` is `SIGNED_FORM` or `DEMO_FICTIONAL`, and a trigger
+permits `DEMO_FICTIONAL` only inside the `DEMO-` namespace **and refuses
+`SIGNED_FORM` inside it**.
+
+The second direction is the one that matters and the one a policy written from
+first principles would miss. A demo recipe carrying what looks like a signed
+`KM-RCP-004` reference is exactly how unapproved figures acquire authority
+(RCP-126): somebody screenshots the costing screen, the signature is there, and
+by the time anybody checks, the number has been quoted in three meetings.
+
+**A demo dataset that exercises an approval workflow needs real separate
+actors.** `seed_kitchen_demo` creates four namespaced data actors —
+`demo-kitchen-reviewer`, `demo-store-reviewer`, `demo-cost-reviewer`,
+`demo-recipe-approver` — each with an unusable password, exactly as
+`seed_inventory_demo`'s count conductor has since Task 1.6. Reusing one user
+would produce an approval the real system refuses, which is the opposite of what
+a demo is for.
+
 **Not a licence to delete.** `--reset-demo` may remove only records carrying the
 command's own namespace, and only where removal is legitimate. It never runs a
 general flush, never resets migrations, never touches a record it did not
