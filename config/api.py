@@ -24,6 +24,7 @@ from ninja.security import django_auth
 
 from apps.accounting.api import router as accounting_router
 from apps.inventory.api import router as inventory_router
+from apps.kitchen.api import router as kitchen_router
 from apps.procurement.api import router as procurement_router
 from config import __version__
 
@@ -45,6 +46,7 @@ api = NinjaAPI(
 api.add_router("", accounting_router)
 api.add_router("/inventory", inventory_router)
 api.add_router("/procurement", procurement_router)
+api.add_router("/kitchen", kitchen_router)
 
 
 #: Domain errors that describe a state conflict rather than a bad request.

@@ -1,0 +1,48 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <select name="recipe_type" aria-label="{% translate 'نوع الوصفة' %}">
+    <option value="">{% translate "كل الأنواع" %}</option>
+    {% for value, label in recipe_types %}
+      <option value="{{ value }}"{% if value == selected_recipe_type %} selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select name="state" aria-label="{% translate 'الحالة' %}">
+    <option value="">{% translate "الكل" %}</option>
+    <option value="active"{% if selected_state == "active" %} selected{% endif %}>{% translate "فعّالة" %}</option>
+    <option value="archived"{% if selected_state == "archived" %} selected{% endif %}>{% translate "مؤرشفة" %}</option>
+  </select>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "النوع" %}</th>
+  <th>{% translate "المجموعة" %}</th>
+  <th>{% translate "الصنف الناتج" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for recipe in recipes %}
+    <tr>
+      <td><a href="{% url 'kitchen:recipe_detail' recipe.pk %}"><code>{{ recipe.code }}</code></a></td>
+      <td>{{ recipe.name_ar }}</td>
+      <td>{{ recipe.get_recipe_type_display }}</td>
+      <td>{% if recipe.category %}{{ recipe.category.name_ar }}{% else %}—{% endif %}</td>
+      <td>{% if recipe.output_item %}<code>{{ recipe.output_item.code }}</code>{% else %}—{% endif %}</td>
+      <td>
+        {% if recipe.is_active %}
+          <span class="chip chip--on">{% translate "فعّالة" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "مؤرشفة" %}</span>
+        {% endif %}
+      </td>
+      {% include "inventory/_rowactions.html" with row=recipe owner_id=recipe.organization_id edit_url="kitchen:recipe_update" archive_url="kitchen:recipe_archive" reactivate_url="kitchen:recipe_reactivate" %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="7">{% translate "لا توجد وصفات بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

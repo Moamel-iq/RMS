@@ -322,20 +322,33 @@ MODULES: tuple[Module, ...] = (
         label=_("المطبخ والوصفات"),
         icon_name="chef",
         phase=_("المرحلة ٣"),
-        sections=_sections(
-            _("الوصفات"),
-            _("نسخ الوصفات"),
-            _("أوامر الإنتاج"),
-            _("الإنتاجية والفاقد"),
-            _("الصرف للمطبخ"),
-            _("المرتجع من المطبخ"),
-            _("الهالك"),
-            _("وجبات الموظفين"),
-            _("الوجبات المجانية"),
-            _("الاستهلاك النظري"),
-            _("الاستهلاك الفعلي"),
-            _("انحراف الاستهلاك"),
-            _("كلفة الطبق"),
+        url_name="kitchen:recipe_list",
+        available=True,
+        sections=(
+            # Task 3.1 — the recipe master and its draft structure. Built and
+            # reachable. Everything below stays inert until its own task
+            # lands: showing the shape of the finished module is deliberate,
+            # linking to a screen that does not exist is not.
+            Section(label=_("الوصفات"), url_name="kitchen:recipe_list", available=True),
+            Section(
+                label=_("مجموعات الوصفات"),
+                url_name="kitchen:category_list",
+                available=True,
+            ),
+            *_sections(
+                _("نسخ الوصفات"),
+                _("أوامر الإنتاج"),
+                _("الإنتاجية والفاقد"),
+                _("الصرف للمطبخ"),
+                _("المرتجع من المطبخ"),
+                _("الهالك"),
+                _("وجبات الموظفين"),
+                _("الوجبات المجانية"),
+                _("الاستهلاك النظري"),
+                _("الاستهلاك الفعلي"),
+                _("انحراف الاستهلاك"),
+                _("كلفة الطبق"),
+            ),
         ),
     ),
     Module(

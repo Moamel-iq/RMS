@@ -96,6 +96,30 @@ fact that nothing enforces decays back into a guess.
 | 51 | **No code derives one sellable plate's quantity, cost or price from another's** — no doubling a half, no halving a whole | Convention test over `apps/kitchen`; the plate's own version is the only source; the physical serving factor applies to the output, never to the plate | 3.1 / 3.3 |
 | 52 | **No PDF is a runtime dependency**: nothing in `apps/kitchen` opens, parses, stores or links a PDF at request time, and none is tracked in Git | Convention test for PDF handling in the app; repository check that no `*.pdf` is tracked | 3.1 – 3.11 |
 
+### Enforced by Task 3.1
+
+The first invariants in this file to stop being proposals. Each names the test
+that holds it, so a later reader can tell an enforced rule from an intended one.
+
+| # | Enforced by |
+|---|---|
+| 1 | `recipe_code_unique_per_organization` + `apps/kitchen/tests/test_recipe_master.py::TestCodeIsIdentity` |
+| 2 | Absence of any cost field + `::TestNoMoneyAnywhere` |
+| 3 | `recipe_output_item_matches_type` + `::TestTheOutputItemRule` |
+| 4 | `CALCULATION_PLACES` on every quantity + `test_draft_structure.py::TestLines` |
+| 30 | Cost columns do not exist yet — Task 3.3 adds them, and `::TestScreens` asserts none is rendered now |
+| 40 | `recipe_serving_one_primary_per_version` + `::TestServings` |
+| 42 | `::TestServings::test_no_dish_or_gram_figure_is_hard_coded_in_the_app` |
+| 47 | `recipe_*_provenance_is_complete` on all six tables + `::TestProvenance` |
+| 48 | `MeasurementBasis` non-null + `::TestLines` |
+| 50 | `recipe_version_task_3_1_draft_only` + `::TestOnlyDraftsExist` |
+| 52 | `::TestNoImportsFromTheProprietarySources` |
+
+Invariants 5 – 9 and 12 (approval, effective dating, supersession, immutability)
+are **not** enforced here and cannot be: Task 3.1 has no approval lifecycle to
+enforce them against. They belong to Task 3.2, and saying so is more useful than
+a partial trigger that would look like protection.
+
 ## Rules that carry over unchanged
 
 Not restated as kitchen invariants, because they already hold and the kitchen

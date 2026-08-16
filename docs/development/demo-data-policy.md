@@ -251,7 +251,7 @@ because swapping a page into a table would nest the shell inside itself.
 |---|---|---|
 | `seed_inventory_demo` | `DEMO-INVENTORY-V1` | Inventory master data, opening stock, receipts, issues, returns, reversal, transfers, in-transit, shortage, waste, stock counts, manual adjustments, reorder points, dated lots, import batches |
 | `seed_procurement_demo` | `DEMO-*` procurement codes | Suppliers, catalogue, requests, quotations, award, orders, revision, receipts, invoices, matching, returns, credit notes, payments, report routes, applied and rejected import batches. (This row was missing while the command shipped through Phase 2 — the table lagged the code by a phase, found at Task 3.0.) |
-| `seed_kitchen_demo` (planned, Phase 3) | `DEMO-KITCHEN-V1` | Per `task-3-0` §14: two named recipes, one permitted new produced item, posted and draft batches, meal records |
+| `seed_kitchen_demo` (Task 3.1) | `DEMO-KITCHEN-V1` | Five recipes: one batch recipe with FOOD and PACKAGING lines, a substitute, numbered steps (one with a sourced duration, one with a qualitative heat instruction and a **null** temperature) and three servings; one portion recipe drawing on the batch's output; one draft with no structure; one recipe with no draft; one archived. Creates the single permitted new item `DEMO-RICE-COOKED`. **No approved version, no cost, no price, no stock movement and no journal entry.** Every row carries `تجريبي — غير معتمد للإنتاج` |
 
 Reference data seeds — `seed_units`, `seed_chart_of_accounts`,
 `sync_accounting_roles` — are **not** demo commands. They create deterministic

@@ -1011,3 +1011,89 @@ output expiry from `InventoryItem.shelf_life_days` measured from the batch
 business date.
 
 Task 3.1 is released. Task 3.2 inherits KD-02 as an approval-time gate.
+
+## Task 3.1 — Recipe master and draft structure — COMPLETE
+
+The first Phase 3 code. `apps.kitchen` exists, and it moves no stock.
+
+**Approval first.** Commit `5015ffa` recorded the owner's approval of the Task
+3.0 specification and answered all six open decisions (spec §22.1). The
+register now shows **zero** rows requiring an owner decision. Implementation
+began only after that commit was clean and pushed.
+
+### What shipped
+
+Nine models in two migrations: `RecipeCategory`, `Recipe`, `RecipeBranch`,
+`RecipeVersion` (DRAFT only), `RecipeLine`, `RecipeLineSubstitute`,
+`RecipeStep`, `RecipeStepIngredient`, `RecipeServing`. Twenty-five services,
+three permissions with their role map, a command API, Arabic RTL screens,
+read-only admin, and `seed_kitchen_demo`.
+
+### The Task 3.1 / 3.2 boundary, held at the database
+
+`recipe_version_task_3_1_draft_only` pins every row to `DRAFT`, and
+`RecipeVersionStatus` offers exactly one value — the shape `CostingMethod`
+uses. There is no submit, approve, activate or supersede service, no such
+route, and no effective-date resolver. Task 3.2 alters that constraint when it
+brings the lifecycle **and its rules** together: maker-checker, the
+effective-range exclusion, and the immutability triggers arrive as one thing or
+not at all.
+
+### Two decisions worth recording
+
+**`RecipeStep` has no `station` field.** The task brief listed one. KD-07 says
+no `KitchenStation` master in Task 3.1, and spec §5A.2 explicitly rejected a
+nullable free-text station string — "free text that is meant to group things
+ends up with four spellings of one station." With no table and free text ruled
+out, the column is omitted rather than invented. It arrives only if KD-07 is
+revisited.
+
+**The version allocator was wrong and the code was fixed, not the test.**
+`max(existing) + 1` silently reused a number after a draft was discarded, which
+contradicted the service's own docstring. `Recipe.last_version_number` is now a
+monotonic allocator: `v2` never means two different things.
+
+### Zero-effect proof
+
+| Counter | Before the kitchen seed | After two seeds |
+|---|---|---|
+| `StockMovement` | 39 | **39** |
+| `StockLedgerEntry` | 29 | **29** |
+| `StockBalance` | 15 | **15** |
+| `JournalEntry` | 25 | **25** |
+
+Asserted in `test_boundary_and_security.py::TestZeroLedgerEffect` over the whole
+lifecycle, and again on the fresh database. Approved versions after two seeds:
+**0**.
+
+### Fresh database
+
+`km_verify_3_1`, newly created — **no existing database was dropped**. Migrated
+from zero, roles verified (`MANAGER` all three, `STOREKEEPER` `view_recipe`
+only, `CASHIER` none), `seed_inventory_demo` then `seed_kitchen_demo` **twice**
+with identical row counts: 5 recipes, 3 versions, 5 lines, 1 substitute,
+2 steps, 1 link, 4 servings.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| `pytest` (definitive, whole project) | **2506 passed, 0 failed** in 48:15 |
+| `apps/kitchen` focused | 126 passed |
+| `ruff check .` · `ruff format --check .` | passed |
+| `mypy apps config tests` | passed |
+| `manage.py check` · `makemigrations --check` | passed |
+| `pre-commit run --all-files` | 13 hooks passed |
+| Traceability | 4 passed; 36 Phase 3 rows moved to `Done` with real test citations |
+
+The only edits after the definitive suite began were to this runbook and the
+documentation beside it. **No executable file changed**, so the suite certifies
+the committed tree.
+
+### What is deliberately absent
+
+No approval, no effective dating, no costing, no `RecipeComponent`, no
+production batch, no import, no report, no price. Task 3.2 is the next
+dependency, and it inherits KD-02: a real branch recipe may be captured as a
+draft and may not be **approved** until its `KM-RCP-004` costing data is
+complete.

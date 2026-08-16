@@ -665,27 +665,27 @@ full by Task 3.0A, and is authoritative about structure while carrying no data.
 | ID | Requirement | Implementation | Test | Task | AT | Status |
 |---|---|---|---|---|---|---|
 | RCP-001 | Phase 3 adds exactly one stock-moving document, the production batch; kitchen flows stay Phase 1 documents | reuse, not copies | — | 3.5 | | Specified |
-| RCP-002 | Recipe and version edits touch no stock and no journal | model boundary | — | 3.1 | | Specified |
+| RCP-002 | Recipe and version edits touch no stock and no journal | apps/kitchen/models.py | `apps/kitchen/tests/test_boundary_and_security.py::TestZeroLedgerEffect` | 3.1 |  | Done |
 | RCP-003 | No model combines two events in one row | separate aggregates | — | 3.1–3.7 | | Specified |
-| RCP-004 | One new app `apps.kitchen`; nothing imports it until Phase 4 | app boundary | — | 3.1 | | Specified |
-| RCP-005 | The module owns no role overrides, no second posting path, no menu item | boundary tests | — | 3.1–3.9 | | Specified |
-| RCP-006 | Recipes are organization master data | organization FK + scoping | — | 3.1 | | Specified |
-| RCP-007 | Two recipe kinds, one model: batch (stored output item) and portion (no output item) | `recipe_type` + nullable `output_item` | — | 3.1 | | Specified |
-| RCP-008 | A batch recipe's output is `SEMI_FINISHED` or `FINISHED_GOOD`, same organization | `CheckConstraint` + service | — | 3.1 | | Specified |
-| RCP-009 | A recipe carries no cost field | model shape | — | 3.1 | | Specified |
-| RCP-010 | Menu-item mapping is the recipe's identity; Phase 4 holds the FK | nothing speculative built | — | 3.1 | | Specified |
+| RCP-004 | One new app `apps.kitchen`; nothing imports it until Phase 4 | apps/kitchen app boundary | `apps/kitchen/tests/test_boundary_and_security.py::TestDependencyDirection` | 3.1 |  | Done |
+| RCP-005 | The module owns no role overrides, no second posting path, no menu item | apps/kitchen/models.py | `apps/kitchen/tests/test_boundary_and_security.py::TestDependencyDirection` | 3.1–3.9 |  | Done |
+| RCP-006 | Recipes are organization master data | Recipe.organization | `apps/kitchen/tests/test_recipe_master.py::TestCodeIsIdentity` | 3.1 |  | Done |
+| RCP-007 | Two recipe kinds, one model: batch (stored output item) and portion (no output item) | `recipe_type` + nullable `output_item` | `apps/kitchen/tests/test_recipe_master.py::TestTheOutputItemRule` | 3.1 |  | Done |
+| RCP-008 | A batch recipe's output is `SEMI_FINISHED` or `FINISHED_GOOD`, same organization | `recipe_output_item_matches_type` | `apps/kitchen/tests/test_recipe_master.py::TestTheOutputItemRule` | 3.1 |  | Done |
+| RCP-009 | A recipe carries no cost field | no cost field on Recipe | `apps/kitchen/tests/test_recipe_master.py::TestNoMoneyAnywhere` | 3.1 |  | Done |
+| RCP-010 | Menu-item mapping is the recipe's identity; Phase 4 holds the FK | Recipe.public_id | `apps/kitchen/tests/test_recipe_master.py::TestCodeIsIdentity` | 3.1 |  | Done |
 | RCP-011 | Versions are effective-dated; resolution by date and branch is the only resolution | one resolver | — | 3.2 | | Specified |
 | RCP-012 | Approved versions never overlap per branch | `EXCLUDE USING gist` | — | 3.2 | | Specified |
 | RCP-013 | Version approval is maker-checker | `CheckConstraint` + service | — | 3.2 | | Specified |
 | RCP-014 | Approved versions are immutable except range-close and supersession | whole-row triggers | — | 3.2 | | Specified |
 | RCP-015 | Only approved versions are produced from, costed, or counted | service guards | — | 3.2 | | Specified |
 | RCP-016 | Version numbers per-recipe sequential; supersession closes the prior range atomically | service | — | 3.2 | | Specified |
-| RCP-017 | Branch applicability restricts; no per-branch line overrides | M2M restriction | — | 3.2 | | Specified |
+| RCP-017 | Branch applicability restricts; no per-branch line overrides | RecipeBranch through model | `apps/kitchen/tests/test_recipe_master.py::TestBranchApplicability` | 3.2 |  | Done |
 | RCP-018 | Line quantities are gross; loss/yield rates are informational | model semantics | — | 3.1 | | Specified |
-| RCP-019 | Line quantities persist at 6 dp, converted once at entry, quantized once | ADR-006 discipline | — | 3.1 | | Specified |
-| RCP-020 | Lines name items, never lots | model shape | — | 3.1 | | Specified |
-| RCP-021 | Optional lines are costed and omittable per batch | flags + costing | — | 3.1 / 3.3 | | Specified |
-| RCP-022 | Substitutes are informational; costing uses actual consumption | substitute table semantics | — | 3.1 / 3.4 | | Specified |
+| RCP-019 | Line quantities persist at 6 dp, converted once at entry, quantized once | CALCULATION_PLACES on every quantity | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 |  | Done |
+| RCP-020 | Lines name items, never lots | RecipeLine.item, organization-checked | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 |  | Done |
+| RCP-021 | Optional lines are costed and omittable per batch | RecipeLine.is_optional | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 / 3.3 |  | Done |
+| RCP-022 | Substitutes are informational; costing uses actual consumption | RecipeLineSubstitute | `apps/kitchen/tests/test_draft_structure.py::TestSubstitutes` | 3.1 / 3.4 |  | Done |
 | RCP-023 | Version cost and plate cost are derived as-of reads | derivation only | — | 3.3 | | Specified |
 | RCP-024 | A recipe cost equals the sum of its effective component costs | golden case | — | 3.3 | | Specified |
 | RCP-025 | Cost snapshots are explicit, dated, append-only | insert-only trigger | — | 3.3 | | Specified |
@@ -716,23 +716,23 @@ full by Task 3.0A, and is authoritative about structure while carrying no data.
 | RCP-050 | Verification reports and refuses to repair | no repair path | — | 3.9 | | Specified |
 | RCP-051 | Production permissions are warehouse-scoped; recipes organization-scoped | `PERMISSION_SCOPE` | — | 3.1–3.5 | | Specified |
 | RCP-052 | Cost columns omitted, not blanked, without `view_recipe_cost` | view layer | — | 3.3 / 3.9 | | Specified |
-| RCP-053 | No writable CRUD or admin for posted records | command API + read-only admin | — | 3.10 | | Specified |
+| RCP-053 | No writable CRUD or admin for posted records | read-only admin | `apps/kitchen/tests/test_boundary_and_security.py::TestAdminIsReadOnly` | 3.10 |  | Done |
 | RCP-054 | API is commands; money and quantities as exact strings; ADR-017 keys | schema layer | — | 3.1–3.9 | | Specified |
-| RCP-055 | Arabic RTL screens in the shell; sections go live task by task | templates + navigation | — | 3.1–3.10 | | Specified |
-| RCP-056 | Demo: two named recipes, one permitted new item, posted and draft batches, meals, every screen showing something | demo tooling | — | 3.1–3.10 | | Specified |
+| RCP-055 | Arabic RTL screens in the shell; sections go live task by task | templates/kitchen/ | `apps/kitchen/tests/test_boundary_and_security.py::TestScreens` | 3.1–3.10 |  | Done |
+| RCP-056 | Demo: two named recipes, one permitted new item, posted and draft batches, meals, every screen showing something | apps/kitchen/demo.py | `apps/kitchen/tests/test_demo_and_concurrency.py::TestDemoDataset` | 3.1–3.10 |  | Done |
 | RCP-057 | Recipe imports are preview-first master data; nothing that posts imports | Task 1.7 framework registration | — | 3.10 | | Specified |
 | RCP-058 | The workbook's structure is source; its data is not. No import or demo counts as real recipes until a filled `KM-RCP-004` exists | data gate + `DEMO` namespace | — | 3.10 | | Specified |
 | RCP-059 | No quantity, loss, yield, cost or price is presented as a Khan Mandi figure without a traceable source | symbols and labelled illustrations | — | 3.1–3.10 | | Specified |
-| RCP-060 | Loss is recorded per ingredient line as well as per version; both informational | `RecipeLine.loss_rate` | — | 3.1 | | Specified |
-| RCP-061 | Every line carries a cost class FOOD / PACKAGING / ACCOMPANIMENT; a reporting dimension only | `RecipeLine.cost_class` | — | 3.1 | | Specified |
-| RCP-062 | Measured and approved quantities are separate facts; costing reads only the approved one | two fields | — | 3.1 | | Specified |
-| RCP-063 | The method is a sequence of structured steps; free-text instructions is an overview only | `RecipeStep` | — | 3.1 | | Specified |
+| RCP-060 | Loss is recorded per ingredient line as well as per version; both informational | RecipeLine.loss_rate | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 |  | Done |
+| RCP-061 | Every line carries a cost class FOOD / PACKAGING / ACCOMPANIMENT; a reporting dimension only | RecipeLine.cost_class | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 |  | Done |
+| RCP-062 | Measured and approved quantities are separate facts; costing reads only the approved one | measured_quantity beside base_quantity | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 |  | Done |
+| RCP-063 | The method is a sequence of structured steps; free-text instructions is an overview only | RecipeStep | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1 |  | Done |
 | RCP-064 | Steps are frozen with the approved version, like lines | allowlist trigger | — | 3.2 | | Specified |
-| RCP-065 | Step sequence is explicit, positive and unique per version; gaps are legal | `UniqueConstraint` | — | 3.1 | | Specified |
-| RCP-066 | Steps carry no arithmetic; no costing or consumption read touches them | service boundary | — | 3.1–3.9 | | Specified |
-| RCP-067 | Step ingredient share is in (0, 1] and sums to at most 1 per line | `CheckConstraint` + service | — | 3.1 | | Specified |
-| RCP-068 | Duration and temperature stay null unless a source supplies them | no defaults, no inference | — | 3.1 | | Specified |
-| RCP-069 | Arabic is the source language for instructions and checkpoints | message ids | — | 3.1 | | Specified |
+| RCP-065 | Step sequence is explicit, positive and unique per version; gaps are legal | `recipe_step_sequence_unique_per_version` | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1 |  | Done |
+| RCP-066 | Steps carry no arithmetic; no costing or consumption read touches them | RecipeStepIngredient | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1–3.9 |  | Done |
+| RCP-067 | Step ingredient share is in (0, 1] and sums to at most 1 per line | share bound + per-line sum | `apps/kitchen/tests/test_draft_structure.py::TestStepIngredientLinks` | 3.1 |  | Done |
+| RCP-068 | Duration and temperature stay null unless a source supplies them | nullable duration and temperature | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1 |  | Done |
+| RCP-069 | Arabic is the source language for instructions and checkpoints | instruction_ar required | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1 |  | Done |
 | RCP-070 | Stocked and non-stocked sub-recipes are mutually exclusive **by construction** | `CheckConstraint` + service + importer | — | 3.2 | | Specified |
 | RCP-071 | A stocked sub-recipe is consumed at book value; its tree is never re-expanded | costing + posting | — | 3.3 | | Specified |
 | RCP-072 | A component references one exact approved child version; no silent re-pointing | FK + version immutability | — | 3.2 | | Specified |
@@ -745,16 +745,16 @@ full by Task 3.0A, and is authoritative about structure while carrying no data.
 | RCP-079 | A non-stocked component moves no stock and creates no item; drafting flattens the tree | flattening at draft | — | 3.4 | | Specified |
 | RCP-080 | Flattened lines record their source component version and tree path | batch line fields | — | 3.4 | | Specified |
 | RCP-081 | Correcting a child is a new child version; existing parents are unaffected | versioning rule | — | 3.2 | | Specified |
-| RCP-082 | No dish, cut, serving code or gram figure appears in `apps/kitchen` source | convention test | — | 3.1 | | Specified |
-| RCP-083 | A serving's unit converts to the output basis, once at entry | `apps/units` dimension check | — | 3.1 | | Specified |
-| RCP-084 | Exactly one primary serving per version | partial unique index | — | 3.1 | | Specified |
-| RCP-085 | Rounding governs planning counts only and never moves money | serving service | — | 3.3 | | Specified |
+| RCP-082 | No dish, cut, serving code or gram figure appears in `apps/kitchen` source | no dish or gram figure in code | `apps/kitchen/tests/test_draft_structure.py::TestServings` | 3.1 |  | Done |
+| RCP-083 | A serving's unit converts to the output basis, once at entry | unit dimension check at entry | `apps/kitchen/tests/test_draft_structure.py::TestServings` | 3.1 |  | Done |
+| RCP-084 | Exactly one primary serving per version | `recipe_serving_one_primary_per_version` | `apps/kitchen/tests/test_draft_structure.py::TestServings` | 3.1 |  | Done |
+| RCP-085 | Rounding governs planning counts only and never moves money | rounding governs counts only | `apps/kitchen/tests/test_draft_structure.py::TestServings` | 3.3 |  | Done |
 | RCP-086 | Cost per serving is a 6 dp rate over the serving's share of the output basis | costing service | — | 3.3 | | Specified |
 | RCP-087 | A batch cost splits across produced servings by exact allocation, summing to the fils | `apps/core/allocation.allocate` | — | 3.3 | | Specified |
-| RCP-088 | Servings never post: no stock, no journal, no source identity | model shape | — | 3.1 | | Specified |
-| RCP-089 | Servings imply a cost basis, never a price | no price field anywhere | — | 3.1 | | Specified |
+| RCP-088 | Servings never post: no stock, no journal, no source identity | servings post nothing | `apps/kitchen/tests/test_boundary_and_security.py::TestZeroLedgerEffect` | 3.1 |  | Done |
+| RCP-089 | Servings imply a cost basis, never a price | no price field anywhere | `apps/kitchen/tests/test_recipe_master.py::TestNoMoneyAnywhere` | 3.1 |  | Done |
 | RCP-090 | Both serving shapes are supported and neither is forced; the owner chooses per item | model neutrality | — | 3.1 | | Specified |
-| RCP-091 | Phase 4's `MenuItem` binds to (Recipe, RecipeServing) from its own side | stable `public_id` | — | 3.1 | | Specified |
+| RCP-091 | Phase 4's `MenuItem` binds to (Recipe, RecipeServing) from its own side | RecipeServing.public_id | `apps/kitchen/tests/test_draft_structure.py::TestServings` | 3.1 |  | Done |
 | RCP-092 | The cost report splits by cost class, reproducing `KM-RCP-004`'s own summary | report query | — | 3.3 | | Specified |
 | RCP-093 | Cost ratio is a Phase 4 read, rendered "—" with its reason, never zero | view layer | — | 3.3 | | Specified |
 | RCP-094 | A Release 1 batch satisfies seven enumerated conditions, each a test | posting service | — | 3.5 | | Specified |
@@ -782,11 +782,11 @@ full by Task 3.0A, and is authoritative about structure while carrying no data.
 | RCP-116 | Price minus material cost is not net profit, and the system says so where it would be assumed | report headings | — | 3.9 | | Specified |
 | RCP-117 | The three sources map onto batch recipe, portion recipe and the approval instrument | documented mapping | — | 3.1 | | Specified |
 | RCP-118 | Source documents populate `DRAFT` versions and steps; they approve nothing | importer status guard | — | 3.10 | | Specified |
-| RCP-119 | Every imported row records `source_document` and `source_page` | model fields and constraint | — | 3.1, 3.10 | | Specified |
-| RCP-120 | Every quantity carries a `measurement_basis`; no report compares across bases | model field and query guard | — | 3.1, 3.8 | | Specified |
+| RCP-119 | Every imported row records `source_document` and `source_page` | SourceProvenance + constraint | `apps/kitchen/tests/test_recipe_master.py::TestProvenance` | 3.1, 3.10 |  | Done |
+| RCP-120 | Every quantity carries a `measurement_basis`; no report compares across bases | MeasurementBasis on every quantity | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1, 3.8 |  | Done |
 | RCP-121 | Conflicting source claims are both stored and surfaced, never silently reconciled | importer and conflict report | — | 3.10 | | Specified |
-| RCP-122 | No PDF is a runtime dependency; none is tracked in Git | convention test | — | 3.1–3.11 | | Specified |
+| RCP-122 | No PDF is a runtime dependency; none is tracked in Git | no PDF at runtime | `apps/kitchen/tests/test_boundary_and_security.py::TestNoImportsFromTheProprietarySources` | 3.1–3.11 |  | Done |
 | RCP-123 | Servings convert the output; plates are separate approved compositions | serving model and portion recipes | — | 3.1, 3.3 | | Specified |
 | RCP-124 | No code derives one plate's quantity, cost or price by doubling or halving another's | convention test and costing services | — | 3.3 | | Specified |
 | RCP-125 | Task 3.10 is accepted only when all ten data-gate conditions hold | task exit criteria | — | 3.10 | | Specified |
-| RCP-126 | Demo recipes stay fiction and carry no real dish name or sourced gram figure | demo seed and its tests | — | 3.1–3.10 | | Specified |
+| RCP-126 | Demo recipes stay fiction and carry no real dish name or sourced gram figure | DEMO banner on every row | `apps/kitchen/tests/test_demo_and_concurrency.py::TestDemoDataset` | 3.1–3.10 |  | Done |

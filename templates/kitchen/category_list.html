@@ -1,0 +1,44 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "عدد الوصفات" %}</th>
+  <th>{% translate "المصدر" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for category in categories %}
+    <tr>
+      <td><code>{{ category.code }}</code></td>
+      <td>{{ category.name_ar }}</td>
+      <td>{{ category.recipes.count }}</td>
+      <td>
+        {% if category.has_source %}
+          <span class="muted">{{ category.source_document }} · {% translate "ص" %}{{ category.source_page }}</span>
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        {% if category.is_active %}
+          <span class="chip chip--on">{% translate "فعّالة" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "مؤرشفة" %}</span>
+        {% endif %}
+      </td>
+      <td>
+        <div class="rowactions">
+          {% if category.organization_id in manageable_ids %}
+            <a class="btn btn--ghost btn--sm" href="{% url 'kitchen:category_update' category.pk %}">{% translate "تعديل" %}</a>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6">{% translate "لا توجد مجموعات بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

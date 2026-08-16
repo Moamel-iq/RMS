@@ -75,7 +75,7 @@ unapproved drafts (KD-20, binding **3.10**). Depth 3, one primary output and
 
 ---
 
-### Task 3.1 — Recipe master
+### Task 3.1 — Recipe master — **COMPLETE**
 
 `Recipe`, `RecipeLine`, `RecipeLineSubstitute` (draft versions only at this
 point — the version model arrives complete in 3.2, so 3.1 may ship the
@@ -114,8 +114,18 @@ possible:
   0.500 KG — each citing its page. They are still **data**, never constants in
   code.
 
-**Visible route required.** Depends on: 3.0 approval. No open `KD-*` blocks
-this task.
+**Visible route required.** Depends on: 3.0 approval (given 2026-08-16). No
+open `KD-*` blocked this task.
+
+**Delivered.** `apps.kitchen` with nine models and two migrations; `Recipe`,
+`RecipeCategory`, `RecipeBranch`, a DRAFT-only `RecipeVersion`, `RecipeLine`,
+`RecipeLineSubstitute`, `RecipeStep`, `RecipeStepIngredient` and
+`RecipeServing`; twenty-five services; the three permissions and their role
+map; the command API; Arabic RTL screens; read-only admin; `seed_kitchen_demo`
+with five recipes; 126 tests. **Zero stock movements and zero journal entries**,
+proved by counting rather than asserted. `station` is **not** a field —
+`KitchenStation` is not created (KD-07) and §5A.2 rejected a free-text station
+string, so the column arrives only if the owner revisits KD-07.
 
 **Exit criteria:** the recipe card renders lines, steps and servings in Arabic
 RTL with cost columns omitted (not blanked) without `view_recipe_cost`; share

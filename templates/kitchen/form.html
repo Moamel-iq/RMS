@@ -1,0 +1,50 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# Create and edit for every kitchen record.                                 #}
+{# Errors render inline in Arabic; the POST goes to a service, never to      #}
+{# form.save(). `novalidate` hands validation to the server, so what the     #}
+{# operator sees is the rule that will actually be enforced.                 #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+    </div>
+  </div>
+
+  <form class="formcard" method="post" novalidate>
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="alert" role="alert">
+        {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="formgrid">
+      {% for field in form %}
+        {% if field.field.widget.input_type == "checkbox" %}
+          <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}">
+            {{ field }}
+            <label class="formrow__label" style="margin:0" for="{{ field.id_for_label }}">
+              {{ field.label }}
+            </label>
+            {% if field.help_text %}<p class="formrow__help">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+          </div>
+        {% else %}
+          {% include "settings/_field.html" with field=field %}
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <div class="formactions">
+      <button class="btn btn--primary" type="submit">{% translate "حفظ" %}</button>
+      <a class="btn btn--ghost" href="{% url 'kitchen:recipe_list' %}">{% translate "إلغاء" %}</a>
+    </div>
+  </form>
+{% endblock %}
