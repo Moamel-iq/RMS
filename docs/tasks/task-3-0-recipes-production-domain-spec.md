@@ -5,8 +5,10 @@
   3.1, and only after this document is approved and every decision marked
   *REQUIRES OWNER DECISION* against Task 3.1 in §22 is answered — with
   amendments recorded here, the way Task 1.0's were.
-- **Date:** 2026-08-16. **Amended by Task 3.0A, 2026-08-16** — see §23 for the
-  compliance matrix and the full amendment log.
+- **Date:** 2026-08-16. **Amended by Task 3.0A** — see §23 for the compliance
+  matrix and amendment log. **Amended again by Task 3.0B, 2026-08-16**, after
+  the owner supplied the Arabic recipe book and two plate-card decks — see §24
+  for the page-by-page source audit and §23.6 for what it changed.
 - **Branch:** `phase/3-kitchen`, from the `phase/2-procurement` head
   (`55361ff`), after tags `phase-2-procurement-complete` and
   `accounting-module-complete`. Task 3.0's first commit is `8ef3685`.
@@ -16,10 +18,10 @@
   `docs/invariants/kitchen-invariants.md` (proposed),
   `docs/tasks/phase-3-task-breakdown.md`, proposed ADR-024, ADR-025 and
   ADR-026.
-- **Requirements:** RCP-001 – RCP-116. RCP-001 – RCP-057 were written by Task
-  3.0; RCP-058 onwards by Task 3.0A. No identifier was reused or renumbered:
-  `8ef3685` is already merged to `main`, and a published identifier that
-  changes meaning is worse than a gap.
+- **Requirements:** RCP-001 – RCP-126. RCP-001 – RCP-057 were written by Task
+  3.0; RCP-058 – RCP-116 by Task 3.0A; RCP-117 – RCP-126 by Task 3.0B. No
+  identifier has ever been reused or renumbered: `8ef3685` is already merged to
+  `main`, and a published identifier that changes meaning is worse than a gap.
 
 Recipes are where stock becomes menu. Everything Phase 4 will claim about a
 sale's cost and margin rests on what a recipe says a dish consumes and what
@@ -46,17 +48,34 @@ answer the question; `NO` searched for and absent.
 |---|---|---|---|---|---|---|---|---|
 | S-1 | Authoritative SRS | `docs/requirements/SRS.md` | **NO** | Would rank #1 (`CLAUDE.md`) | — | — | None observable — an absent document cannot conflict | Owner supplies it; every `RCP-*` is then mapped or corrected. KD-01 |
 | S-2 | KhanMandiRecipe workbook | `Khan Mandi/files/KhanMandiRecipe.xlsx` — **outside the repository** | **YES** — opened and read in full, 2026-08-16 | Owner-issued operational form `KM-RCP-004`, branch البنوك, signed off by chef + accountant + storekeeper + branch manager | 19 current items with class, serving size and price; the per-item card layout; the meaning and owner of each field; the cost-summary shape (food + packaging → total → cost % → margin); serving-size vocabulary; meat-cut vocabulary; per-ingredient loss % | **Every quantity, unit cost, component cost, item code, effective date, version number and approval date — all blank.** No method or cooking steps. No batch size. No yield | Prices disagree with the 23,000 IQD figure used illustratively in §20 — see S-6 | Structure adopted as source (§0.1). Data gated by RCP-058. KD-02 |
-| S-3 | Arabic kitchen recipe book | Not specified; searched `Khan Mandi/**` | **NO** as a distinct artifact | Would be the method authority | — | — | None | Confirm whether a separate method book exists; §5A's step *content* stays unwritten until it does. KD-03 |
-| S-4 | Menu and serving rules | SRS or a menu document | **PARTIAL** — only the workbook's `حجم الحصة` column | Owner form | The serving vocabulary actually in use: `حبة كاملة`, `نصف حبة`, `حصة`, `طبق`, `فخذ`, `كتف`, `ضلوع`, `رقبة` | Factors, portions per batch, rounding increments, the output basis each serving divides | None | Modelled generically in §5C; the per-item mapping is data. KD-04 |
-| S-5 | Chicken whole / half rules | SRS or menu document | **PARTIAL — and it contradicts the assumed rule** | Owner form | That whole and half are **separate approved cards with separate ingredient lists and separate prices** (25,000 vs 13,000; مدفون 25,000 vs 14,000) | Any factor relating one to the other | **Direct conflict** with the "whole = 1.000, half = 0.500" reading: 13,000 is not half of 25,000, and the two cards' accompaniment lines do not halve | §5C models both shapes and forces neither. Owner decides per item. KD-05 |
-| S-6 | Meat 350 g / 500 g rules | SRS or menu document | **NO** — searched every sheet | — | — | — | The workbook sells meat by `حصة` / `فخذ` / `كتف` / `ضلوع` / `رقبة`, never by gram weight. No 350 or 500 appears anywhere in it | Weight-based servings are supported generically (§5C) but **no Khan Mandi item is claimed to use them**. KD-06 |
-| S-7 | Spice quantities | Workbook cards | **PARTIAL** | Owner form | That spices are named, per-item ingredient lines — `خلطة حنيذ`, `خلطة مدفون`, `خلطة زربيان`, `خلطة مندي`, `بهارات تمن مندي حب`, `بهارات مزموم`, `ملح المنصور` — with a unit and a loss % each | **Not one quantity.** Every `كمية القياس` and `الكمية المعتمدة` cell is empty | None | Never invent one (RCP-059). Load by import when the form is filled |
+| S-3 | Arabic kitchen recipe book | `Khan Mandi/files/كتاب وصفات المطبخ خان مندي.pdf` — **outside the repository** | **YES** — all 44 pages read, 2026-08-16 | Owner-issued method authority | 23 recipes (§24): batch input quantities with units, numbered preparation steps, cooking durations, equipment, heat instructions, quality checkpoints, carving weights, and an explicit stated yield for three sub-recipes | Costs, prices, packaging, item codes, effective dates, approval signatures, per-line loss %, plate assembly | Its مندي carving weight (350 g, p1) is taken **after** cooking; the plate cards state 500 g **before** cooking. A measurement-point difference, not a contradiction — §0.3 | Adopted as the method source. **KD-03 resolved.** Step content imports at Task 3.10 |
+| S-4 | Menu and serving rules | Workbook register + `كارت الاطباق الرئيسية.pdf` (S-14) | **YES** | Owner forms | The serving vocabulary in use — `حبة كاملة`, `نصف حبة`, `حصة`, `طبق`, `فخذ`, `كتف`, `ضلوع`, `رقبة` — **and**, from S-14, the exact component grams behind each one | Rounding increments; which items are cooked once and divided versus cooked separately | None | Modelled generically in §5C; the per-item mapping is data. KD-04 |
+| S-5 | Chicken whole / half rules | Recipe book (S-3) + plate cards (S-14) + workbook (S-2) | **YES — and the answer is two-layered** | Owner forms | **Physical:** one whole chicken → two halves (book p1, p10, p12, p23); whole = 1,400 g before cooking, half = 700 g (S-14 chef note, and card 24 explicitly). **Commercial:** the half and whole plates are separate cards whose non-chicken lines do **not** halve | A single factor that relates the two *plates* — because none exists | The chicken line divides by exactly 2; the rice does not (700 g on the half against **1,300 g** on the whole, not 1,400); sides double on most whole cards but **not** on كبسة دجاج كاملة (card 6); prices are 25,000 against 13,000 | Both layers modelled in §5C.4. **KD-05 resolved by source plus the approved serving/assembly model** |
+| S-6 | Meat 350 g / 500 g rules | Recipe book (S-3) + plate cards (S-14) | **YES** | Owner forms | **350 g** — the مندي carving portion, *"نفرات (350 غرام) للنفر الواحد"* (book p1); also the two rice halves on cards 13 and 24. **500 g** — the piece weight for مدفون (p10), حنيذ (p12), مزموم (p23) and **رقبة** (p14), and the "قبل الطبخ" piece on ten plate cards. Further weights in §24.3 | A general rule covering *every* meat recipe — there is none | The 350 g figure is a carved portion; the 500 g figure is a raw piece. Both are real; neither generalises | Supported by `RecipeServing` as source-backed data. **KD-06 resolved by source.** §24.3 lists every weight found |
+| S-7 | Spice quantities | Workbook cards (S-2) **and** recipe book (S-3) | **YES for batch level; NO for per-serving** | Owner forms | The book gives spice quantities **per batch** — e.g. مندي: 400 g بهارات المندي + 1,800 g بهارات خاصة + 750 g ملح طعام + 2 kg ماجي + 450 g ملح صيني against 40 chickens and 50 kg meat (p1) | The **per-serving** spice quantity, which is what the workbook's blank `الكمية المعتمدة` column is for | The book names blends by function (`خلطة حنيذ`, `خلطة مدفون`); the workbook names them as purchasable items. Same substance, two naming systems — an item-mapping task, not a conflict | Batch quantities import at Task 3.10; per-serving figures stay blank until the workbook is filled (RCP-059) |
 | S-8 | Packaging definitions | Workbook cards + summary | **YES** | Owner form | That packaging is carried as ordinary ingredient lines (`قاعدة علبة ريزو`, `غطاء`, `كيس ورق اسمر لوغو`, `كاسات صلصة`) **and** totalled separately as `كلفة التغليف`, distinct from `كلفة الغذاء` | Quantities; which items are packaging by master-data flag | None | Requires a line-level cost classification the first draft lacked — RCP-061 |
 | S-9 | Architecture charter | `docs/architecture/architecture-charter.md` | **YES** | Authority #2, in force | Phase 3 scope (15 bullets, lines 575–595); yield ≠ conversion (§3); recipe attributes and both consumption formulas (§6); the Decimal mandate | Serving models, nested recipes, structured steps, any Khan Mandi quantity | Its actual-consumption formula double-counts once transfers and production usage are both documents — §11 | Followed, with the arithmetic corrected and the correction argued (§11) |
 | S-10 | Accepted ADRs | `docs/decisions/` | **YES** — ADR-001 … ADR-023 | Authority #3 | Precision, allocation, valuation kernel, role resolution, source identity, scope | **None concerns recipes, production, yield or backflush** | None | ADR-024, ADR-025, ADR-026 proposed here (§18) |
 | S-11 | Certified Inventory / Accounting / Procurement code | `apps/inventory`, `apps/accounting`, `apps/procurement`, `apps/units`, `apps/core` | **YES** | Certified by tags `phase-1-inventory-complete`, `phase-2-procurement-complete`, `accounting-module-complete` | The real kernel — movement types, valuation channels, allocation, precision, scope, report contract — including what it reserved for this phase | Anything kitchen-specific; nothing kitchen-shaped is built | None | Spent, not re-minted (§0.2) |
 | S-12 | `article-1.txt` | `Khan Mandi/files/article-1.txt` | **YES** | **None — a public industry article** | Vocabulary only: CoGS, prime cost, ideal vs actual food cost | Nothing binding on Khan Mandi | None | Cited nowhere. Recorded so a future reader knows it was seen and rejected as authority |
 | S-13 | Other owner files | `Khan Mandi/*.pdf`, `Bill-1.xlsx`, `Bill-2.xlsx`, `HR/`, `ميم/` | **YES**, listed not mined | Operational records | Sales and purchase summaries, payroll and claim documents | Nothing about recipes | None | Out of scope for Phase 3; relevant to Phases 4 and 6 |
+| S-14 | Main-dish plate cards | `Khan Mandi/files/كارت الاطباق الرئيسية.pdf` — **outside the repository** | **YES** — all 35 pages read, 2026-08-16 | Owner-issued assembly authority | **35 sellable plates**, each with its exact component grams (protein piece, rice, sides, garnishes), the chef's note on raw chicken weight, and a plate preparation time | Ingredient-level composition of the *cooked* components, costs, prices, packaging | Its item set is neither the workbook's 19 nor the book's 23 — three overlapping universes (§0.3) | The **missing layer** the first two drafts lacked. Governs §5C.4, RCP-123 and RCP-124 |
+| S-15 | Appetizer plate cards | `Khan Mandi/files/كارت المقبلات.pdf` — **outside the repository** | **YES** — all 10 pages read, 2026-08-16 | Owner-issued assembly authority | 10 appetizers; five of them are assembled from a **pre-made 250 g `خلطة`** (حمص, باذنجان متبل, جاجيك, باذنجانية, كشكة) plus garnishes | The blend's own composition — no recipe for any `خلطة` appears in S-3 | The blends are consumed by name and produced by nothing documented | **Direct evidence for the nested-recipe model** (§5B): a plate consumes a component that is itself produced. Recorded as a gap in §24.5 |
+
+**File identity.** Recorded so a later reader can prove which revision was
+audited. The three PDFs live outside the repository and are **not tracked by
+Git** — `Khan Mandi/files/` is a sibling of `System/khan-mandi-rms/`, not a path
+inside it, so no `.gitignore` rule is load-bearing here.
+
+| Source | File | Pages | Bytes | SHA-256 |
+|---|---|---|---|---|
+| S-3 | `كتاب وصفات المطبخ خان مندي.pdf` | 44 | 1,286,770 | `8534D2D8D5DFE9E3D10F11AD35A2C837BBEE376DE362F358CF33EDB8CDB045AB` |
+| S-14 | `كارت الاطباق الرئيسية.pdf` | 35 | 58,240,731 | `7C3FC20F6EC01C88350678BDFAE67CBFC8C944422724F0B12C51B75977395385` |
+| S-15 | `كارت المقبلات.pdf` | 10 | 11,956,920 | `E6AA0BC168D5914CCB054298EA3AF405DF384747634C402217E691E87B60CE19` |
+
+Page counts are the PDFs' own page-tree `/Count`, verified against the inflated
+object streams. All three carry a text layer in Type0/CID fonts with ToUnicode
+maps; the audit in §24 was taken from that text layer, not from a summary.
 
 ### 0.1 What the workbook actually is, and what that buys
 
@@ -117,10 +136,17 @@ this task repeats the statement Task 1.0 established:
 > authoritative SRS has not been completed because the SRS is absent from the
 > repository.
 
-To that, Task 3.0A adds the honest half the first draft could not state: the
+To that, Task 3.0A added the honest half the first draft could not state: the
 recipe workbook was **not** reviewed when RCP-001 – RCP-057 were written. It has
-now been read in full, and §0.1 records what changed as a result. The Arabic
-method book (S-3) has still not been reviewed, because no such file was found.
+now been read in full, and §0.1 records what changed as a result.
+
+**Task 3.0B closes the second half of that admission.** Task 3.0A recorded the
+Arabic method book as absent (`S-3: NO`) after searching for it. The owner has
+since supplied it, together with **two card decks nobody had asked for and which
+turned out to matter more than either** — the plate cards of S-14 and S-15, which
+are the only document in the business that says what a *sold plate* is made of.
+All three have now been read page by page (§24). The SRS remains the one
+authority still missing.
 
 Every `RCP-*` requirement traces to the architecture charter, to an ADR, to the
 Phase 1–2 implementation, or to `KM-RCP-004`. They are **repository-local
@@ -138,6 +164,72 @@ written by nothing yet; ADR-006 reserved 6-decimal intermediate precision for
 recipe lines; and `apps/units` records that production yield "is not a
 conversion at all; it is a production outcome with loss and variance." This
 document's job is to spend that vocabulary, not to re-mint it.
+
+### 0.3 Three sources, three layers, one boundary
+
+The single most important result of the Task 3.0B audit is that Khan Mandi's
+recipe knowledge is **not one document with gaps**. It is three documents that
+describe three different layers of the same business, each authoritative for its
+own layer and silent about the other two. Reading any one of them as "the recipe"
+produces a wrong system.
+
+| Layer | Source | Question it answers | Unit of work | Authoritative for |
+|---|---|---|---|---|
+| **Production** | Recipe book (S-3) | *How do we cook a batch?* | One pit, pot or oven load — 40 chickens, 50 kg meat | Batch input quantities, method steps, durations, equipment, yields |
+| **Assembly** | Plate cards (S-14, S-15) | *What goes on one sold plate?* | One plate | Component grams per sellable item, garnishes, plate prep time, raw-weight notes |
+| **Costing** | Workbook `KM-RCP-004` (S-2) | *What does it cost and who approved that?* | One approved item | Measured vs approved quantity, loss %, unit cost, food-vs-packaging split, effective date, four signatures |
+
+**RCP-117.** These three layers map onto the model already specified, and the
+mapping is the point:
+
+- a **batch recipe** (RCP-007) is a *recipe-book* recipe — its `batch_size` and
+  lines are the book's batch quantities, its steps (§5A) are the book's numbered
+  method;
+- a **portion recipe** (RCP-007) is a *plate card* — its lines are the card's
+  components, and the cooked protein and rice it names are the **outputs of batch
+  recipes**, which is exactly the nested-recipe relationship of §5B;
+- the **workbook** is neither a recipe nor a version. It is the **approval and
+  costing instrument** over a version: `الكمية المعتمدة` is the approved
+  quantity, `فاقد %` the line loss, `يعتمد من تاريخ` the effective date, and the
+  signature page the maker–checker event of RCP-013.
+
+**RCP-118.** **The recipe book and the plate cards may populate `DRAFT`
+versions and `DRAFT` steps. They may not approve anything.** A version imported
+from a PDF enters `DRAFT` and leaves it only through the ordinary maker–checker
+workflow (RCP-013) — chef, then accountant, then manager, exactly as the
+workbook's own field guide assigns those roles. The PDFs carry no signature,
+no effective date, no cost and no item code, so they *cannot* satisfy an
+approval even in principle.
+
+**RCP-119.** **Every quantity, step and serving imported from a source document
+records that document and its page**, on the row, permanently: a
+`source_document` code and a `source_page` integer, both null for
+hand-entered data. A recipe line asserting 1,800 g of spice must be able to
+answer "who says so" with `كتاب وصفات · p1` five years from now, when the PDF has
+been superseded twice. This is the mechanism that makes RCP-059 checkable rather
+than merely stated.
+
+**RCP-120.** **A quantity is meaningless without its measurement point.** The
+book's 350 g is meat *after* cooking and carving; the plate cards' 500 g is a
+piece *before* cooking (`قبل الطبخ`, printed on ten cards); the chef's note
+1,400 g is a whole raw chicken. A recipe line therefore carries a
+`measurement_basis` — `RAW` | `PREPARED` | `COOKED` | `PLATED` — and no report
+may sum or compare quantities across different bases. Two of the three sources
+would otherwise appear to contradict each other on every meat dish, and the
+"contradiction" would be resolved by whoever imported last.
+
+**RCP-121.** **Where two sources disagree, both are stored and the conflict is
+surfaced, never silently reconciled.** §24.5 lists the eight conflicts found.
+The importer records each claim against its source and page; a conflict report
+lists them side by side for the chef and accountant to settle in the ordinary
+approval workflow. An importer that picks a winner is an importer that quietly
+overwrites a business decision.
+
+**RCP-122.** **No PDF is a runtime dependency.** The books are transcribed
+once, through the Task 1.7 preview-first import framework, into ordinary rows.
+Nothing in `apps.kitchen` opens, parses, stores or links to a PDF at request
+time; no migration embeds one; the files stay outside the repository and out of
+Git. They are evidence for an import, not a data source the application reads.
 
 ---
 
@@ -476,10 +568,43 @@ service holds the per-line sum.
 **RCP-068.** **`expected_duration` and `temperature_c` are null until a source
 supplies them.** No cooking temperature, resting time or oven setting may be
 written into this system from inference, from a general article, or from what a
-model believes is usual for the dish. `KM-RCP-004` records neither, and no
-method book was found (S-3). A blank temperature asks a question; an invented
-one becomes food-safety guidance nobody approved. This is RCP-059 applied where
-it matters most.
+model believes is usual for the dish. A blank temperature asks a question; an
+invented one becomes food-safety guidance nobody approved. This is RCP-059
+applied where it matters most.
+
+**Amended by Task 3.0B — the source now exists, for duration but not for
+temperature.** The recipe book supplies durations throughout, and they import
+with their page:
+
+| Duration | Step | Source |
+|---|---|---|
+| 90 minutes | حنيذ **chicken** in the pressure cooker | Book p13 |
+| 120 minutes | حنيذ **meat** in the pressure cooker | Book p13 |
+| 80 minutes | التبسي in the oven | Book p39 |
+| 4 – 5 hours | رقبة in the pressure cooker | Book p15 |
+| 3 – 4 hours | مندي and المدفون in the pit; مزموم in the oven | Book p1, p11, p23 |
+| 1 – 1.5 hours | Firing the pit until the wood becomes embers | Book p1 |
+| 5 – 6 hours | Marinating ضلوع, refrigerated | Book p24 |
+| 30 minutes | Soaking زربيان rice; steaming the layered pot | Book p17, p18 |
+| 15 minutes | Toasting المضغوط spices; finishing الفحسة | Book p5, p7, p35 |
+| 10 minutes | دجاج الرمان on low heat; both مرق الفاصولياء stages | Book p33, p37 |
+| 4 minutes | Searing كبسة meat | Book p3 |
+| 5 minutes | Resting bread dough; الفحسة sauce stage | Book p42, p35 |
+| 1 minute | Stirring كبسة spices into the meat | Book p3 |
+
+Two consequences for the model, neither of which changes a field:
+
+- **Durations are ranges as often as they are numbers.** "3 – 4 hours" is the
+  book's own precision and must not be flattened to 3.5. `expected_duration`
+  holds the planned figure; where the source gives a band, the band belongs in
+  `note` and the midpoint is **not** invented. A range recorded as a point is a
+  fabricated tolerance.
+- **`temperature_c` stays null.** The book gives *heat instructions* — نار
+  هادئة (low heat), جمر (embers), قدر الضغط (pressure), التنور (tandoor) — and
+  **not one numeric temperature**. Those are equipment-and-setting facts, so
+  they belong in `station_code` and `instruction_ar`, not in a Celsius column
+  invented to hold them. The prompt's instruction was "temperature only when
+  sourced"; it is not sourced, so the column stays empty and honest.
 
 **RCP-069.** Arabic is the source language for `instruction_ar` and
 `checkpoint_ar`, per the project's standing rule; English is a translation
@@ -711,14 +836,23 @@ portions_per_batch(s) = B ÷ q(s)          then the rounding policy, for plannin
 relative_factor(s)   = q(s) ÷ q(primary)  display only
 ```
 
-The prompt's cases fall out with nothing dish-specific anywhere:
+The cases fall out with nothing dish-specific anywhere. Every serving quantity
+below is now **source-backed** — Task 3.0B replaced the illustrative figures the
+Task 3.0A draft carried here with the ones the recipe book and plate cards
+actually state, and each cites its page:
 
-| Output basis | Serving | `serving_quantity` | `factor_of_batch` | `relative_factor` |
-|---|---|---|---|---|
-| `WHOLE_CHICKEN`, B = 20 | whole | 1 حبة | 0.05 | **1.000** |
-| `WHOLE_CHICKEN`, B = 20 | half | 0.5 حبة | 0.025 | **0.500** |
-| `KG`, B = 12 kg | 350 g | 0.350 KG | 0.029166… | 0.700 |
-| `KG`, B = 12 kg | 500 g | 0.500 KG | 0.041666… | 1.000 |
+| Output basis | Serving | `serving_quantity` | `factor_of_batch` | `relative_factor` | Source |
+|---|---|---|---|---|---|
+| `WHOLE_CHICKEN`, B = 40 | whole | 1 حبة | 0.025 | **1.000** | book p1 — 40 حبة دجاج per pit |
+| `WHOLE_CHICKEN`, B = 40 | half | 0.5 حبة | 0.0125 | **0.500** | book p1 — *"والدجاج الى نصفين"* |
+| `KG`, B = 50 kg | مندي portion | 0.350 KG | 0.007 | 0.700 | book p1 — *"نفرات (350 غرام) للنفر الواحد"* |
+| `KG`, B = 40 kg | مدفون piece | 0.500 KG | 0.0125 | 1.000 | book p10 — *"بوزن (500 غرام) للقطعة الواحدة"* |
+| `KG`, B = 7 kg | رقبة piece | 0.500 KG | 0.071428… | 1.000 | book p14 — neck cut to 500 g pieces |
+
+The whole/half rows are the physical conversion and they are exact. The gram
+rows are **not** interchangeable: 350 g is carved cooked meat and 500 g is a raw
+piece, which is why RCP-120 makes `measurement_basis` part of the quantity
+rather than a note beside it.
 
 `relative_factor` is what a menu discussion means by "a half is 0.5";
 `factor_of_batch` is what the arithmetic uses. Keeping both named stops the two
@@ -800,11 +934,10 @@ validate a price from a factor.
 **RCP-090.** **Two legitimate shapes exist, and the owner chooses per item.**
 Either one recipe with several servings (one cooked output, divided), or
 separate recipes per serving size (separately cooked, separately approved).
-`KM-RCP-004` uses the **second** shape today: whole and half are separate cards
-with separate ingredient lists, and their accompaniment rows do not halve. The
-model supports both and forces neither; §22 KD-05 records the decision, and the
-recommendation is to mirror the approved form — nineteen cards, nineteen
-recipes — with servings used where one cooked output is genuinely subdivided.
+The model supports both and forces neither. §5C.4, added by Task 3.0B, settles
+which applies to Khan Mandi's chicken — the answer turned out to be **both, at
+different layers**, which is why the earlier binary framing could not be made to
+work.
 
 **RCP-091.** Phase 4's `MenuItem` will bind to `(Recipe, RecipeServing)` from
 its own side. Phase 3 builds **no** menu model, no price field and no binding
@@ -821,7 +954,64 @@ binding will use.
 | Import columns | `recipe_code`, `version`, `serving_code`, `name_ar`, `name_en`, `serving_quantity`, `serving_unit`, `is_primary`, `rounding_increment`, `rounding_policy`, `display_order` |
 | Reports | Recipe cost and cost-snapshot reports gain a per-serving section; the production log shows the produced-serving split. Cost columns omitted, not blanked, without the permission |
 | Demo | The demo batch recipe carries two servings — a primary and a half — so the factor arithmetic, the allocation remainder and the gated cost column are all exercised |
-| Tests | Factor and portions arithmetic against the four rows above; a serving unit outside the output dimension refused; two primaries refused; **allocation sum equals batch cost exactly for a deliberately awkward split** (three servings, a cost that does not divide by three); rounding policy changes counts and never money; the no-hard-coding convention test |
+| Tests | Factor and portions arithmetic against the five source-backed rows above; a serving unit outside the output dimension refused; two primaries refused; **allocation sum equals batch cost exactly for a deliberately awkward split** (three servings, a cost that does not divide by three); rounding policy changes counts and never money; the no-hard-coding convention test |
+
+### 5C.4 The two layers: physical conversion and commercial assembly
+
+Task 3.0A recorded KD-05 as an open owner decision — *is a half a serving of the
+whole recipe, or its own recipe?* — because the workbook showed whole and half
+as separate priced cards and that looked like a contradiction of the factor
+model. The plate cards (S-14) resolve it, and the answer is that **the question
+had a false premise**: a half is a serving of the whole *bird* and its own
+*plate*, and those are two different objects.
+
+Set the two mandi chicken cards side by side. Both are printed, approved
+operational documents; the only difference is the serving size.
+
+| Plate line | نصف حبة (card 2) | حبة كاملة (card 3) | Whole ÷ half |
+|---|---|---|---|
+| Chicken | نصف دجاجة | دجاجة كاملة | **exactly 2.000** |
+| رز مندي | 700 g | **1,300 g** | **1.857** |
+| طرشي | 125 g × 1 | 125 g × 2 | 2.000 |
+| صلصة دقوس | 125 g × 1 | 125 g × 2 | 2.000 |
+| روبة | 125 g × 1 | 125 g × 2 | 2.000 |
+| Selling price (S-2) | 13,000 | 25,000 | **1.923** |
+
+**RCP-123.** **Servings convert the output; they do not scale the plate.** The
+model is two layers, and each is authoritative for its own question:
+
+1. **Physical conversion — a `RecipeServing` over the batch output.** One whole
+   chicken is two halves. `factor_of_batch` is exact, the arithmetic of §5C.1
+   applies unchanged, and the conversion is a property of the *bird*, not of any
+   menu. Source: book p1, p10, p12, p23 — *"ويقسم الدجاج الى انصاف"*.
+2. **Commercial assembly — a portion recipe per sellable plate.** What
+   accompanies that half or whole is a separate approved composition. Rice does
+   **not** scale (1,300 g against 700 g), sides usually double but not always
+   (كبسة دجاج كاملة, card 6, does not double its sides at all), garnishes scale
+   independently (زربيان: 10 g fried onion on the half, 20 g on the whole), and
+   the price is set by the business.
+
+**RCP-124.** It follows, and must be stated because it is the error the model
+exists to prevent: **no Phase 3 code may derive a whole plate's cost, quantity or
+price by doubling a half's, or a half's by halving a whole's.** The chicken line
+alone divides by two. Everything else on the plate is looked up from its own
+approved version. A costing screen that offers "×2" as a shortcut is offering a
+1.857 error on the largest non-protein line of the dish.
+
+This is also why RCP-089 was right for a reason stronger than it knew: 13,000 is
+not half of 25,000, and now we can see that it *should not* be — the whole plate
+carries 1,300 g of rice and doubled sides, not 1,400 g and doubled sides. The
+price asymmetry is a business decision sitting on top of an assembly asymmetry,
+not an arithmetic slip.
+
+**Where the model already fits.** No new structure is needed for any of this.
+The physical conversion is `RecipeServing` (§5C). The plate is a portion recipe
+(RCP-007). The plate's dependence on cooked components is the **stocked
+sub-recipe** relationship of §5B.1 — the cooked chicken and the cooked rice are
+outputs of batch recipes, consumed by the plate at their inventory book value,
+their ingredient trees **not** re-expanded (RCP-070). Task 3.0B adds no model to
+§5B or §5C; it supplies the evidence that the shapes already specified are the
+right ones, and RCP-123/RCP-124 to stop them being short-circuited.
 
 ---
 
@@ -1484,6 +1674,45 @@ meal, one complimentary meal, every kitchen screen showing something.
 framework) belong to the hardening task and follow §16.8's boundary: master
 data and drafts import; nothing that posts imports.
 
+## 14A. The real-data gate for Task 3.10
+
+Task 3.0A stated the gate as one requirement (RCP-058) when no real source
+existed. Now three do, and the gate has to say precisely what "accepted" means
+for data transcribed out of a PDF that carries no signature.
+
+**RCP-125.** **Task 3.10 is accepted only when all ten conditions hold.** Not
+nine; the list is a conjunction because each condition removes a different way
+for unapproved figures to reach a costing screen.
+
+| # | Condition | Why it is on the list |
+|---|---|---|
+| 1 | A parser, or an approved structured transcription, converts the source to rows — reviewable and re-runnable, never hand-typed into the database | A hand-typed load cannot be diffed against the source when the source is revised |
+| 2 | The import is **preview-first** on the Task 1.7 framework: validate, show, then apply atomically | The framework already refuses partial application; recipes get no private path (RCP-057) |
+| 3 | **Every** row carries `source_document` and `source_page` (RCP-119) | Provenance is the only thing that makes RCP-059 checkable |
+| 4 | Quantities land on **`DRAFT` versions only** (RCP-118) | A PDF cannot approve anything; it has no signature and no effective date |
+| 5 | **No automatic activation** — nothing transitions to `APPROVED` as an import side effect | Approval is a human act with a named actor (RCP-013) |
+| 6 | **Chef review** of ingredients, steps and quantities | The book is the chef's own document; a transcription is not |
+| 7 | **Accountant review** of costing: units, item mapping, the food/packaging split (RCP-061) | The book has no costs at all; every cost is the accountant's to attach |
+| 8 | **Manager approval** as the third signatory | The workbook's own field guide assigns `الكمية المعتمدة` to chef **plus** accountant **plus** manager |
+| 9 | A **filled and signed `KM-RCP-004`** exists for every item put to production use | KD-02, unchanged. The method layer being sourced does not make the costing layer sourced |
+| 10 | Demo recipes remain **clearly fictional** until 1 – 9 pass for real items | RCP-126 |
+
+Conditions 6 – 8 are the workbook's own three-role control (§0.1), applied to
+imported data rather than invented for it. Condition 9 is why Task 3.0B does not
+close KD-02: the recipe book answers *how it is cooked*, and says nothing about
+*what it costs or who approved it*.
+
+**RCP-126.** **Demo data stays fiction, and says so.** The `DEMO-KITCHEN-V1`
+seed (RCP-056) uses invented recipes with invented quantities and must never
+carry a real dish name, a real gram figure from §24, or any implication of being
+Khan Mandi's recipe. A demo screenshot that looks like the real menu is how
+unapproved numbers acquire authority. Once conditions 1 – 9 pass, real recipes
+live beside the demo namespace, never inside it.
+
+**RCP-122 restated where it bites:** none of this makes the PDFs a runtime
+dependency. They are read once, by an import, into rows. The application never
+opens a PDF.
+
 ---
 
 ## 15. Source identity and account roles
@@ -1683,47 +1912,57 @@ Throughout: `Qᵢ` is line *i*'s approved `base_quantity` per one `batch_size`;
 `avgᵢ` is that item's moving average at the costing date and warehouse; `B` is
 the version's `expected_output`; `m` is the batch multiplier.
 
-### 19.1 Scenario 1 — a recipe book batch of 20 whole chickens
+### 19.1 Scenario 1 — a recipe book batch of whole chickens
 
-The card defines one batch producing **B = 20** `حبة كاملة`. Servings: `whole`
-(q = 1 حبة, primary) and `half` (q = 0.5 حبة).
+**Corrected by Task 3.0B.** This scenario was written against a hypothetical
+20-chicken batch. The recipe book states the real figure: the مندي pit takes
+**40 حبة دجاج كاملة طازجة** together with 50 kg of meat and 50 kg of rice (book
+p1). The symbolic derivation below is unchanged — that was the point of writing
+it symbolically — but **B is now sourced rather than assumed**, and the two
+figures are kept distinct: `B = 40` is what the pit holds, and it is not a menu
+quantity.
+
+The version defines one batch producing **B = 40** `حبة كاملة`. Servings:
+`whole` (q = 1 حبة, primary) and `half` (q = 0.5 حبة, book p1 — *"والدجاج الى
+نصفين"*).
 
 | Question | Derivation | Result |
 |---|---|---|
 | Ingredient *i* per **batch** | the approved line itself | `Qᵢ` |
-| Ingredient *i* per **whole chicken** | `Qᵢ × factor_of_batch(whole)` = `Qᵢ × (1 ÷ 20)` | `Qᵢ ÷ 20` |
-| Ingredient *i* per **half chicken** | `Qᵢ × factor_of_batch(half)` = `Qᵢ × (0.5 ÷ 20)` | `Qᵢ ÷ 40` |
+| Ingredient *i* per **whole chicken** | `Qᵢ × factor_of_batch(whole)` = `Qᵢ × (1 ÷ 40)` | `Qᵢ ÷ 40` |
+| Ingredient *i* per **half chicken** | `Qᵢ × factor_of_batch(half)` = `Qᵢ × (0.5 ÷ 40)` | `Qᵢ ÷ 80` |
 | **Spice** per batch | the spice line, unchanged — a batch-level quantity is the natural way to record a blend | `Q_spice` |
-| Spice per whole chicken | same factor, no special case | `Q_spice ÷ 20` |
-| Spice per half chicken | same factor, no special case | `Q_spice ÷ 40` |
+| Spice per whole chicken | same factor, no special case | `Q_spice ÷ 40` |
+| Spice per half chicken | same factor, no special case | `Q_spice ÷ 80` |
 | **Version cost** | `Σᵢ (Qᵢ × avgᵢ)` + `Σ components (multiplier × child cost)` | `C_v` |
-| **Standard cost per whole** | `C_v × (1 ÷ 20)` | `C_v ÷ 20` |
-| **Standard cost per half** | `C_v × (0.5 ÷ 20)` | `C_v ÷ 40` |
+| **Standard cost per whole** | `C_v × (1 ÷ 40)` | `C_v ÷ 40` |
+| **Standard cost per half** | `C_v × (0.5 ÷ 40)` | `C_v ÷ 80` |
 
 Nothing in that table names a chicken. Replace `حبة كاملة` with `KG` and the
 same six lines produce weight-based servings (§19.2), which is RCP-082's point.
 
-**The exact-remainder check.** A posted batch of exact cost `C` sold as 12
-wholes and 16 halves — note `12 × 1 + 16 × 0.5 = 20`, the whole output:
+**The exact-remainder check.** A posted batch of exact cost `C` carved as 24
+wholes and 32 halves — note `24 × 1 + 32 × 0.5 = 40`, the whole output:
 
 ```
-allocate(C, [ AllocationItem(sequence=1, weight=12 × 1.0),      # wholes
-              AllocationItem(sequence=2, weight=16 × 0.5) ])    # halves
+allocate(C, [ AllocationItem(sequence=1, weight=24 × 1.0),      # wholes
+              AllocationItem(sequence=2, weight=32 × 0.5) ])    # halves
 ```
 
 The residual goes to remainder DESC then sequence ASC, and the two results sum
-to exactly `C`. Rating each serving at `C ÷ 20` and multiplying would lose or
+to exactly `C`. Rating each serving at `C ÷ 40` and multiplying would lose or
 gain fils on almost every batch (RCP-087).
 
-> **The honest caveat, and it matters.** The arithmetic above is what the
-> serving model gives when a half is *a division of one cooked output*.
-> `KM-RCP-004` does **not** currently work that way: `حنيذ دجاج حبة كاملة` and
-> `حنيذ دجاج نصف حبة` are **separate cards with separate ingredient lists**, and
-> the prices — 25,000 and 13,000 — are not in a 2:1 ratio. Under the workbook's
-> actual shape, the half is its own recipe with its own `C_v`, and
-> `cost(half) ≠ cost(whole) ÷ 2`. **Both shapes are supported and the owner
-> chooses per item (RCP-090, KD-05).** Assuming the elegant one because it is
-> elegant would misprice sixteen of the nineteen items.
+> **The caveat, now resolved — and it still matters.** The arithmetic above is
+> the cost of the **bird**, and at that layer it is exactly right: the book
+> halves chickens, and half a chicken costs half a chicken. What it is *not* is
+> the cost of a **plate**. The plate cards (S-14) show the whole مندي plate
+> carrying 1,300 g of rice against the half's 700 g and doubled sides, so
+> `cost(whole plate) ≠ 2 × cost(half plate)` — and the prices, 25,000 against
+> 13,000, reflect that asymmetry rather than contradicting it. §5C.4 is the
+> two-layer rule; RCP-124 forbids deriving one plate from the other. Task 3.0A
+> recorded this as an open owner decision (KD-05); Task 3.0B closes it against
+> the source, and the closing answer is that **both readings were half right**.
 
 ### 19.2 Scenario 2 — a meat recipe with 350 g and 500 g servings
 
@@ -1749,10 +1988,24 @@ hide it entirely. When `W_act < B_exp × m`, the actual serving cost rises — t
 is yield loss being absorbed into unit cost exactly as RCP-035 says, visible
 where a kitchen manager can act on it.
 
-> **Source note.** No Khan Mandi item is known to use gram-weight servings
-> (S-6): the workbook sells meat as `حصة`, `فخذ`, `كتف`, `ضلوع` and `رقبة`. This
-> scenario demonstrates that the model *supports* weight servings. It does not
-> claim any dish uses them.
+> **Source note, corrected by Task 3.0B.** Task 3.0A recorded that no Khan
+> Mandi item used gram-weight servings. **That was wrong, and the recipe book
+> says so on its first page**: مندي meat is carved into *"نفرات (350 غرام)
+> للنفر الواحد"*, and مدفون, حنيذ, مزموم and رقبة are all cut to 500 g pieces
+> (book p10, p12, p23, p14). Ten plate cards print "500 غرام قبل الطبخ" on the
+> protein line. So this scenario is **not** hypothetical: 350 g and 500 g are
+> the two commonest servings in the business.
+>
+> The one thing still not claimed is a *general rule*. There is no
+> "all meat is 500 g" statement anywhere; ضلوع is 1 kg, كتف is 1,500 g and فخذ
+> is 2 kg. §24.3 lists every weight the sources state, and nothing beyond it is
+> asserted (RCP-059).
+>
+> Note also which divisor each figure belongs to. The 350 g is **cooked** meat
+> and the 500 g is a **raw** piece (RCP-120), so a 500 g raw piece does not
+> yield a 500 g portion — the difference is the cooking yield this scenario
+> measures. Dividing a raw weight by a cooked serving size is the exact error
+> `measurement_basis` exists to make impossible.
 
 ### 19.3 Scenario 3 — a batch with every input kind at once
 
@@ -2098,10 +2351,10 @@ ARCHITECTURE**, **RECOMMENDED DECISION**, **REQUIRES OWNER DECISION**,
 |---|---|---|---|---|---|---|---|
 | KD-01 | Where is the authoritative SRS? | **DEFERRED** | Supply it; every `RCP-*` is then mapped or corrected | ☐ | Nothing in Phase 3 | Proceed on charter + ADRs + certified code, as Phases 1 and 2 did | S-1; Task 1.0 §0; Task 2.0 §0 |
 | KD-02 | When will a **filled and signed** `KM-RCP-004` exist? | **REQUIRES OWNER DECISION** | Fill and sign it for the 19 items before Task 3.10 | ☐ | **Task 3.10 acceptance** (not its code) | Phase 3 ships with `DEMO`-namespaced recipes only, described as fiction | S-2: every quantity, cost, code, date and signature blank |
-| KD-03 | Does a separate Arabic **method** book exist? | **REQUIRES OWNER DECISION** | Supply it, or capture steps from the chef during Task 3.1 | ☐ | Nothing | No book; steps captured directly; duration and temperature stay **null** | S-3: no method document found |
-| KD-04 | What serving vocabulary is in use? | **RESOLVED BY SOURCE** | Use the register's own terms | — | — | — | S-4: `حبة كاملة`, `نصف حبة`, `حصة`, `طبق`, `فخذ`, `كتف`, `ضلوع`, `رقبة` |
-| KD-05 | Is a half **a serving of the whole recipe**, or **its own recipe**? | **REQUIRES OWNER DECISION** | Mirror the approved form: separate recipes, servings where one output is genuinely subdivided | ☐ | **Task 3.10 data** | Separate recipes — nineteen cards, nineteen recipes | S-5: separate cards; 13,000 vs 25,000 is not a 2:1 ratio |
-| KD-06 | Do any items sell as **350 g / 500 g**? | **REQUIRES OWNER DECISION** | Confirm before any gram-based serving is created | ☐ | **Task 3.10 data** | **No** — no gram servings are created | S-6: no 350 or 500 anywhere in the workbook |
+| KD-03 | Does a separate Arabic **method** book exist? | **RESOLVED BY SOURCE** | — | — | — | — | S-3: `كتاب وصفات المطبخ خان مندي.pdf`, 44 pages, 23 recipes with numbered steps, durations and equipment (§24.2). Steps import at Task 3.10 with page provenance (RCP-119) |
+| KD-04 | What serving vocabulary is in use? | **RESOLVED BY SOURCE** | Use the register's own terms | — | — | — | S-4: `حبة كاملة`, `نصف حبة`, `حصة`, `طبق`, `فخذ`, `كتف`, `ضلوع`, `رقبة`, plus the plate cards' component grams |
+| KD-05 | Is a half **a serving of the whole recipe**, or **its own recipe**? | **RESOLVED BY SOURCE** + certified model | — | — | — | — | **Both, at different layers** (§5C.4). Physical: 1 whole = 2 halves, exact (book p1, p10, p12, p23). Commercial: the plates are separate recipes and do not scale — 1,300 g rice against 700 g (cards 2, 3). RCP-123, RCP-124 |
+| KD-06 | Do any items sell as **350 g / 500 g**? | **RESOLVED BY SOURCE** | — | — | — | — | **Yes.** 350 g مندي portion (book p1); 500 g pieces for مدفون, حنيذ, مزموم and رقبة (book p10, p12, p23, p14) and on ten plate cards. §24.3 lists every weight found — including 1 kg, 1.5 kg and 2 kg cuts. **No general "all meat is X" rule exists and none is asserted** |
 | KD-07 | Does the branch work in named **kitchen stations**? | **REQUIRES OWNER DECISION** | Confirm before creating a station table | ☐ | Nothing — additive either way | **No** — `station` stays null and `KitchenStation` is not created | §5A.2; no source mentions stations |
 | KD-08 | Maximum **sub-recipe nesting depth**? | **RECOMMENDED DECISION** | 3 | ☐ | Nothing | **3**, enforced as a named constant with a named error | RCP-077; four levels is almost always a modelling error |
 | KD-09 | Do batches ever remain **physically in progress across business dates or periods**? | **REQUIRES OWNER DECISION** | No — atomic same-day production | ☐ | **Task 3.5, if the answer is YES** (RCP-097) | **NO** — atomic, same-day, one warehouse is the approved Release 1 constraint | §8A; RCP-094's seven conditions |
@@ -2114,19 +2367,38 @@ ARCHITECTURE**, **RECOMMENDED DECISION**, **REQUIRES OWNER DECISION**,
 | KD-16 | **Output expiry / shelf life** policy? | **RECOMMENDED DECISION** | The output item's `shelf_life_days` from the batch's business date | ☐ | Nothing | As recommended | RCP-038; Phase 1's lot model already carries it |
 | KD-17 | Loss per **ingredient line** as well as per version? | **RESOLVED BY SOURCE** | Both, with the line rate informational | — | — | — | S-2: `فاقد %` is a column on every ingredient row |
 | KD-18 | Is **packaging** separated from food cost? | **RESOLVED BY SOURCE** | Yes, by a line-level cost class | — | — | — | S-8: `كلفة الغذاء` and `كلفة التغليف` are separate totals |
+| KD-19 | What converts a sauce **كاسة** to the plate's **grams**? | **REQUIRES OWNER DECISION** | Agree a cup-to-gram figure per sauce, or standardise the cup | ☐ | **Task 3.10 data** for the two sauces only | Sauces import in their recipe unit; the plate line stays in grams and the two are **not** reconciled — the sub-recipe link is left unset rather than set wrongly | §24.4, §24.6 C-1/C-2: دقوس yields 80 ml cups, plates consume 125 g |
+| KD-20 | Who documents the appetizer **`خلطة`** recipes? | **REQUIRES OWNER DECISION** | Capture the five blends from the chef, as recipes | ☐ | **Task 3.10 data** for five appetizers | The five blends are master-data items with no recipe; their appetizer plates cost only what the blend costs as bought | §24.5: cards consume `250 غ خلطة`, no source documents any blend |
 
-**Counts.** 7 rows are **REQUIRES OWNER DECISION** (KD-02, KD-03, KD-05, KD-06,
-KD-07, KD-09, KD-13). 2 are **RECOMMENDED DECISION** awaiting confirmation
-(KD-08, KD-16). 5 are **DEFERRED**. 4 are **RESOLVED BY SOURCE**.
+**Counts, recalculated by Task 3.0B.** Twenty rows.
+
+| Classification | Count | Rows |
+|---|---|---|
+| **REQUIRES OWNER DECISION** | **6** | KD-02, KD-07, KD-09, KD-13, KD-19, KD-20 |
+| **RECOMMENDED DECISION** | 3 | KD-08 (depth 3), KD-10 (one primary output), KD-16 (shelf life from the batch business date) |
+| **DEFERRED** | 5 | KD-01, KD-11, KD-12, KD-14, KD-15 |
+| **RESOLVED BY SOURCE** | 6 | KD-03, KD-04, KD-05, KD-06, KD-17, KD-18 — KD-05 jointly with the certified model |
+| | **20** | |
+
+Task 3.0A left seven open. Task 3.0B closed **KD-03, KD-05 and KD-06** against
+the recipe book and plate cards, and opened **KD-19 and KD-20**, which are gaps
+the new sources revealed rather than questions they failed to answer — the sauce
+unit mismatch and the undocumented appetizer blends. Net six.
+
+The prompt's expectation was that KD-02, KD-07, KD-09 and KD-13 would remain.
+They do, unchanged and for unchanged reasons. The two additions are recorded
+rather than folded in, because a source that answers three questions and raises
+two has done exactly what a good source does.
 
 **What is actually blocked.** **No decision blocks Task 3.1.** Every model shape
 above is deliberately agnostic to the open questions — servings support both
 whole/half shapes, the station field is nullable, the depth limit is a
 constant — so recipe master data can be built the moment this specification is
-approved. **KD-09 blocks Task 3.5 only if the answer is YES.** KD-02, KD-05 and
-KD-06 block the **acceptance of Task 3.10's real data**, never its code. That
-distribution is intentional: an open question should stop the work it actually
-governs and nothing else.
+approved. **KD-09 blocks Task 3.5 only if the answer is YES.** KD-02, KD-19 and
+KD-20 block the **acceptance of Task 3.10's real data**, never its code, and
+KD-19 and KD-20 block only the two sauces and five appetizers they name. KD-13
+blocks Phase 4 margin reporting. That distribution is intentional: an open
+question should stop the work it actually governs and nothing else.
 
 ---
 
@@ -2223,9 +2495,11 @@ reason.
 
 ### 23.5 Requirement index
 
-**RCP-001 – RCP-116**, contiguous, no gaps and no reuse. RCP-001 – RCP-057 are
+**RCP-001 – RCP-126**, contiguous, no gaps and no reuse. RCP-001 – RCP-057 are
 Task 3.0's and are unchanged except RCP-046, which is amended in place with its
-original text quoted. RCP-058 – RCP-116 are Task 3.0A's.
+original text quoted. RCP-058 – RCP-116 are Task 3.0A's, unchanged by Task 3.0B
+except RCP-090, whose "owner chooses" clause now points at the answer §5C.4
+gives. RCP-117 – RCP-126 are Task 3.0B's.
 
 | Range | Subject |
 |---|---|
@@ -2249,3 +2523,232 @@ original text quoted. RCP-058 – RCP-116 are Task 3.0A's.
 | RCP-094 – RCP-097 | The Release 1 production boundary |
 | RCP-109 – RCP-111 | Servings versus co-products |
 | RCP-114 – RCP-116 | Worked examples and the profitability boundary |
+| RCP-117 – RCP-126 | The three sources, provenance, the two layers, the data gate |
+
+### 23.6 Task 3.0B — compliance against its own sections
+
+| § | Requested | Where it now lives | Status | Correction made |
+|---|---|---|---|---|
+| **A** | Recover state | Runbook; §23.6 | **Complete** | Branch `phase/3-kitchen`, tree clean, `dd02d98` pushed, no stashes, no `apps/kitchen`, local `main` untouched at `7073f95` |
+| **B** | Locate and read the recipe book | §0 S-3, §24.1 | **Complete** | Found at the stated path. Recorded path, **44 pages** and SHA-256. Also found **two decks nobody named** — S-14 and S-15 — and read them too. Page count verified independently: the harness reported 13/569/117, the files' own page trees say **44/35/10**, and 44/35/10 is correct |
+| **C** | Full page-by-page audit | §24.2 – §24.6 | **Complete** | 23 recipes, 35 main plates, 10 appetizers, every serving weight, all three yields, eight conflicts, three unresolved fields. Both claims retained wherever the sources disagree (RCP-121) |
+| **D** | Correct KD-03 | §22 KD-03; RCP-068 | **Complete** | **RESOLVED BY SOURCE.** Thirteen sourced durations tabulated. `temperature_c` stays null — the book gives heat *instructions*, never a number, and inventing Celsius to fill the column would be the exact failure RCP-068 exists to prevent |
+| **E** | Correct KD-06 | §22 KD-06; §24.3 | **Complete** | **RESOLVED BY SOURCE.** 350 g مندي portion and 500 g neck confirmed on their pages, plus every other weight in the three documents. **No general "all meat is 500 g" rule asserted** — ضلوع is 1 kg, كتف 1,500 g, فخذ 2 kg |
+| **F** | Correct KD-05 | §5C.4; §22 KD-05 | **Complete** | Two-layer rule. Physical conversion exact; commercial assembly **not** proportional — proven from cards 2 and 3, where rice runs 700 g against 1,300 g. RCP-123, RCP-124 |
+| **G** | Recipe book versus approval workbook | §0.3; RCP-117, RCP-118 | **Complete** | Three sources, three layers, one boundary. Imports land `DRAFT`; the PDFs cannot approve anything because they carry no signature, date, cost or code. **KD-02 deliberately left open** |
+| **H** | Task 3.10 data gate | §14A; RCP-125, RCP-126 | **Complete** | All ten conditions, each with the failure it prevents. RCP-122 keeps the PDFs out of the runtime |
+| **I** | Update the decision register | §22 | **Complete** | Recalculated, not assumed: **6** open, and the four the prompt predicted (KD-02, KD-07, KD-09, KD-13) are among them. KD-19 and KD-20 added — gaps the new sources revealed. Recommended defaults for KD-08, KD-10 and KD-16 unchanged |
+| **J** | Update companion documents | §23.7 | **Complete** | Seven files. No RCP renumbered; RCP-117 – RCP-126 added |
+| **K** | Validation | Runbook | **Complete** | Traceability tests, ruff, format, `manage.py check`, `makemigrations --check`, pre-commit |
+| **L** | Commit and stop | `docs(recipes): reconcile Task 3.0 with recipe book` | **Complete** | Pushed to `phase/3-kitchen`. `main` not merged. Task 3.1 not started. No PDF tracked |
+
+### 23.7 Task 3.0B amendment log
+
+| File | Change |
+|---|---|
+| `docs/tasks/task-3-0-recipes-production-domain-spec.md` | §0 audit rows S-3 – S-7 rewritten and S-14, S-15 added with file identities; §0.2 corrected; §0.3 added (RCP-117 – RCP-122); §5A RCP-068 amended with thirteen sourced durations; §5C.1 table made source-backed; §5C.4 added (RCP-123, RCP-124); §14A added (RCP-125, RCP-126); §19.1 rescaled to the sourced batch of 40 and its caveat resolved; §19.2 source note corrected; §22 KD-03/05/06 reclassified, KD-19/20 added, counts recalculated; §23.6, §23.7 and §24 added |
+| `docs/invariants/kitchen-invariants.md` | Invariants 47 – 52 added: provenance, measurement basis, conflict retention, draft-only import, no cross-plate derivation, PDFs out of the runtime |
+| `docs/tasks/phase-3-task-breakdown.md` | Task 3.1, 3.2 and 3.10 ownership updated for provenance, measurement basis and the ten-step gate; KD dependencies corrected |
+| `docs/requirements/traceability.md` | Phase 3 section extended to RCP-126, all `Specified` |
+| `docs/decisions/README.md` | ADR-024 and ADR-025 scope notes updated for the sourced two-layer rule |
+| `docs/runbooks/overnight-progress.md` | Task 3.0B checkpoint with the audit findings and validation results |
+
+---
+
+## 24. Task 3.0B — the source audit of the recipe book and plate cards
+
+Added 2026-08-16 by Task 3.0B, after the owner supplied the three PDFs of S-3,
+S-14 and S-15. This section is the **evidence base**: every source-derived claim
+elsewhere in this document cites a page here, and everything here cites a page in
+the PDFs.
+
+### 24.1 How the audit was taken
+
+The three files are digitally generated PDFs carrying a text layer in
+Type0/CID fonts with ToUnicode CMaps. The audit was taken from that text layer,
+decoded through each font's own CMap — **not** from a search snippet, a summary,
+or an image. All 89 pages were read: 44 + 35 + 10, matching each file's page-tree
+`/Count`. Glyph runs are stored in visual order and were reversed to logical
+order, with digit runs preserved.
+
+Two things this method cannot do, stated so nobody assumes otherwise: it does
+not read text baked into images, and it does not preserve table geometry. Where
+a quantity appeared without an ingredient, or an ingredient without a quantity,
+it is recorded in §24.6 as unresolved rather than guessed.
+
+### 24.2 The recipe book — 23 recipes across 44 pages
+
+`كتاب وصفات المطبخ خان مندي.pdf`. "Batch scale" is the recipe's own stated
+input quantity; **these are pit- and pot-scale figures, not per-plate figures.**
+
+| # | Recipe | Pages | Batch scale as stated | Method | Notable |
+|---|---|---|---|---|---|
+| 1 | مندي (لحم – دجاج) | 1 | 40 حبة دجاج كاملة + 50 كغ لحم عراقي + 50 كغ تمن + 63 لتر ماء حار | Pit (حفرة), narrative | Carving rule: 350 g نفرات; chicken halved. Note: *"لحم الخروف لا يزيد عن 18 كيلو"* |
+| 2 | كبسة اللحم أو الدجاج | 2 – 3 | 10 كغ لحم **أو** 10 حبة دجاج + 20 كغ تمن + 35 لتر ماء | 8 numbered steps | Blender sub-step; 4 min sear, 1 min stir |
+| 3 | المضغوط لحم | 4 – 5 | 15 كغ لحم + 15 كغ تمن | 11 numbered steps | 15 min spice toasting; foil seal |
+| 4 | المضغوط الدجاج | 6 – 8 | 8 حبات دجاج كاملة + 15 كغ تمن | 11 numbered steps | Same shape as #3, chicken maji instead of meat |
+| 5 | المدفون (لحم أو دجاج) | 9 – 11 | 30 حبة دجاج **مع** 40 كغ لحم + 50 كغ تمن + 63 لتر | 13 numbered steps | 500 g pieces; chicken halved; 70 لتر to the rice pot; 3 – 4 h |
+| 6 | حنيذ (لحم أو دجاج) | 12 – 13 | 40 كغ لحم + 50 حبة دجاج + 2,000 غ بهارات حنيذ | 9 numbered steps | Pressure cooker: **chicken 90 min, meat 120 min** |
+| 7 | رقبة لحم | 14 – 15 | 7 كغ لحم عراقي | 10 numbered steps | **500 g neck pieces**; 4 – 5 h; finished in the oven |
+| 8 | زربيان لحم | 16 – 18 | 10 كغ لحم + 8 كغ تمن | 12 numbered steps | Rice soaked 30 min, boiled to **¾ (75%)**, steamed 30 min over charcoal |
+| 9 | زربيان دجاج | 19 – 21 | 5 حبة دجاج طازج + 8 كغ تمن | 12 numbered steps | Identical method to #8 |
+| 10 | مزموم (اللحم والدجاج) | 22 – 23 | 2.5 كغ لحم + 7 حبة دجاج كاملة | 8 numbered steps | **500 g pieces**; chicken halved; oven 3 – 4 h |
+| 11 | ضلوع لحم بدبس الرمان | 24 | 10 كغ ضلع منغ | 6 numbered steps | **Note: وزن الضلع 1 كغ**; marinated 5 – 6 h refrigerated |
+| 12 | برم لحم | 25 – 27 | 3 كغ لحم منغ | 8 steps + serving method | Clay jar (فخارة) on charcoal; served with **700 g white rice** |
+| 13 | بخاري اللحم | 28 – 29 | 6 كغ لحم منغ + 10 كغ تمن | 13 numbered steps | 17 ingredient lines |
+| 14 | بخاري الدجاج | 30 – 31 | 5 حبة دجاج كاملة + 10 كغ تمن | 13 numbered steps | 16 ingredient lines |
+| 15 | دجاج الرمان | 32 – 33 | 10 حبة دجاج | Narrative | Separate sauce sub-method; **10 min** on low heat |
+| 16 | السمك المشوي | 34 | 10 حبة سمك **بوزن 1,500 – 1,800 غ** | Narrative + serving method | Variable-weight input; charcoal to ¾ الاستواء |
+| 17 | الفحسة | 35 | 3 كغ لحم عجل + 1 كغ لحم منغ مع اللية | Narrative | Pressure cooker; 5 min; 15 min |
+| 18 | مرق الفاصولياء | 36 – 37 | 15 كغ حب فاصوليا + 1 كغ لحم | Narrative | Soaked overnight; 10 min + 10 min |
+| 19 | التبسي | 38 – 39 | 35 كغ بطاطا + 30 كغ باذنجان | Narrative | **Oven 80 min** |
+| 20 | السوب | 40 – 41 | 1.5 كغ ضلوع + 1 كغ عظم + 16 لتر مياه | Narrative | Thickened with 2 كغ طحين |
+| 21 | الخبز الملوح اليمني | 42 | جونية طحين 50 كغ + 31 لتر مياه | Narrative | **Yield stated** — see §24.4 |
+| 22 | السحاوق (الدقوس) | 43 | 100 كغ طماطم + 20 كغ فلفل حار | Narrative | **Yield stated**; a sauce sub-recipe |
+| 23 | صلصة لبن الروبة | 44 | 1 لتر لبن : 1 لتر ماء | Narrative | **Yield stated**; a sauce sub-recipe |
+
+**Units observed across the book:** كغ / كيلو, غرام / غ, حبة, لتر, مل, بطل
+(1,000 مل), علبة, ملعقة, جونية (50 كغ), كاسة. Every one is a unit
+`apps/units` must carry or map before import — the packaging conversions of
+ADR-006's "B. Packaging conversion" case, exactly as the charter framed them.
+
+### 24.3 Every source-backed serving and piece weight
+
+This table is the complete answer to KD-06 and the reason it is now closed. It
+is exhaustive over the three PDFs — no other weight-per-serving figure appears
+in any of them.
+
+| Weight | What it measures | Basis (RCP-120) | Source |
+|---|---|---|---|
+| **350 g** | مندي meat portion (نفر) | `COOKED` — carved after the pit | Book p1 |
+| **350 g + 350 g** | The two rices on رقبة لحم and نصف مضبي plates | `PLATED` | Cards 13, 24 |
+| **500 g** | مدفون meat piece before cooking | `RAW` | Book p10 |
+| **500 g** | حنيذ meat piece before cooking | `RAW` | Book p12 |
+| **500 g** | مزموم meat piece before cooking | `RAW` | Book p23 |
+| **500 g** | **رقبة** neck piece | `RAW` | Book p14 |
+| **500 g** | The "قطعة لحم … قبل الطبخ" line on ten plate cards | `RAW` | Cards 1, 4, 7, 10, 13, 14, 17, 20, 27, 29 |
+| **650 g + 650 g** | The two rices on the whole مضبي plate | `PLATED` | Card 23 |
+| **700 g** | Standard single-plate rice | `PLATED` | Cards 1, 4, 7, 10, 12, 14, 16, 17, 19, 20, 22, 24, 26, 27, 29, 30, 32 |
+| **700 g** | Half chicken, مضبي, grilled weight | `PREPARED` | Card 24 |
+| **700 g** | White rice served beside برم | `PLATED` | Book p26; card 29 |
+| **1,000 g (1 كغ)** | One ضلع (rib) | `RAW` | Book p24 note; cards 28, 33 |
+| **1,300 g** | Whole-chicken plate rice | `PLATED` | Cards 3, 6, 9, 11, 15, 18, 21, 25, 28, 31, 33 |
+| **1,400 g** | **Whole raw chicken** — the chef's note | `RAW` | Cards 2, 3, 5, 6, 8, 9, 11, 12, 15, 16, 18, 21, 22, 25, 26, 31, 32 |
+| **1,400 g** | Whole مضبي chicken, charcoal-grilled | `PREPARED` | Card 23 |
+| **1,500 g** | كتف piece; and its plate's rice | `RAW`; `PLATED` | Card 35 |
+| **1,500 – 1,800 g** | One fish, as purchased | `RAW`, a **range** | Book p34 |
+| **2,000 g (2 كغ)** | فخذ piece | `RAW` | Card 34 |
+| **2,100 g** | فخذ plate rice | `PLATED` | Card 34 |
+| **125 g** | One كاسة of طرشي, دقوس or روبة | `PLATED` | 33 of 35 main cards |
+| **150 g** | One كاسة of دقوس and طرشي — **on one card only** | `PLATED` | Card 9 (§24.6) |
+| **250 g** | One appetizer خلطة portion | `PLATED` | Appetizer cards 5 – 9 |
+| **300 g** | One bread dough piece | `PREPARED` | Book p42 |
+| **80 ml** | One كاسة of دقوس, as the sauce recipe measures it | `COOKED` | Book p43 |
+| **100 ml** | One كاسة of روبة, as the sauce recipe measures it | `COOKED` | Book p44 |
+
+The 1,400 g raw chicken and the two-halves rule together give the physical
+conversion of RCP-123 its numbers: half = 700 g of a 1,400 g bird, and card 24
+states that 700 g independently, which is a genuine cross-check rather than an
+inference.
+
+### 24.4 The three stated yields — and why they matter more than their size
+
+Three recipes state an explicit output. They are the only yield figures in any
+Khan Mandi source, and each is a **sub-recipe consumed by other plates** —
+precisely the nested-recipe shape of §5B.
+
+| Recipe | Input | Stated output | Serving | Source |
+|---|---|---|---|---|
+| الخبز الملوح اليمني | 1 جونية طحين (50 كغ) + 31 لتر ماء | **250 – 270 خبزة** | One bread, ≥ 40 cm diameter, from a 300 g dough piece | Book p42 |
+| السحاوق (الدقوس) | 100 كغ طماطم + 20 كغ فلفل حار + كزبرة + 1,800 غ ملح | **180 كاسة** | 80 ml per كاسة | Book p43 |
+| صلصة لبن الروبة | 1 لتر لبن + 1 لتر ماء + 7 غ ملح per 2 لتر | **20 كاسة** per 2 لتر | 100 ml per كاسة | Book p44 |
+
+Three observations the design has to answer, and does:
+
+- **The bread yield is a range, not a number.** 250 – 270 from one sack is a
+  ±4% band. `expected_output` is a single figure (RCP-031's expected side), so a
+  range is recorded as its own field or as the midpoint with the band in the
+  note — and the *actual* is measured per batch, which is RCP-031 working
+  exactly as intended. A system that stored 260 as a fact would be inventing
+  precision the kitchen never claimed.
+- **These are batch recipes with `output_item`s** (RCP-007): bread, dقوس and
+  روبة are produced in bulk, stocked, and drawn on by plates for days. That
+  makes them **stocked sub-recipes** (§5B.1) — a plate consumes them at
+  inventory book value and does **not** re-expand their tomato and chilli.
+  RCP-070's mutual exclusivity is what keeps the tomatoes from being counted
+  twice.
+- **The units disagree between layers, and that is the first real import
+  problem.** The sauce recipe yields كاسات of **80 ml**; the plate cards consume
+  دقوس in grams — **125 g**. The روبة recipe yields 100 ml cups; the plates
+  consume 125 g. Neither is wrong: one measures what the kitchen produces, the
+  other what lands on a plate. Reconciling them needs a density or an agreed
+  cup-to-gram conversion, which is an `apps/units` conversion **and a decision
+  nobody has made** — KD-19.
+
+### 24.5 The plate cards — the assembly layer
+
+`كارت الاطباق الرئيسية.pdf`: 35 sellable main plates, one per page. Every card
+has the same skeleton — a protein line, a rice line, three side كاسات, optional
+garnish lines, an optional chef's note, and a plate preparation time.
+
+| Pattern | Detail |
+|---|---|
+| Protein | Either "قطعة … 500 غرام قبل الطبخ", or a whole/half chicken, or a named cut (ضلوع 1 كغ, فخذ 2 كغ, كتف 1,500 غ) |
+| Rice | 700 g on single plates, 1,300 g on whole-chicken plates, 1,500 g on كتف, 2,100 g on فخذ; split 350+350 or 650+650 where two rices are served |
+| Sides | طرشي, صلصة دقوس, روبة — 125 g each, doubled ("عدد 2") on most whole-bird plates |
+| Garnishes | Named separately with their own grams: بصل مقلي 10/20 g, جزر مقلي 10 g, زبيب 10 g, دبس الرمان 30 g, شرائح ليمون 50 g, حبوب رمان 5 g, مكسرات 20 g, ثومية 90 g |
+| Plate prep time | **10 minutes** on 33 cards; **30 minutes** on the two مضبي cards (23, 24) |
+| Chef's note | "وزن الدجاجة الكاملة قبل الطبخ 1,400 غرام" on every chicken card |
+
+`كارت المقبلات.pdf`: 10 appetizers. Five (حمص, باذنجان متبل, جاجيك,
+باذنجانية, كشكة) are assembled from a **pre-made 250 g `خلطة`** plus garnishes;
+the other five (تبولة, فتوش, جرجير, كينوا, عنب ورق) list raw components
+individually, in grams.
+
+**The gap this exposes.** No recipe for any `خلطة` exists in the recipe book.
+Five appetizers therefore consume a component that nothing documents how to
+produce — the sub-recipe tree has a missing level. This is not a modelling
+problem (§5B handles it the moment the blend recipe exists) but it **is** a data
+problem, and it is KD-20.
+
+### 24.6 Conflicts and unresolved fields
+
+Per RCP-121 both claims are retained. None of these is resolved here; each is
+listed for the chef and accountant to settle in the ordinary approval workflow.
+
+| # | Conflict or gap | Claim A | Claim B | Assessment |
+|---|---|---|---|---|
+| C-1 | Sauce serving unit | دقوس yields كاسات of **80 ml** (book p43) | Plates consume **125 g** دقوس (33 cards) | Different layers; needs a cup-to-gram conversion. **KD-19** |
+| C-2 | Yoghurt serving unit | روبة yields كاسات of **100 ml** (book p44) | Plates consume **125 g** روبة | Same as C-1 |
+| C-3 | Side size on one plate | 125 g on 33 cards | **150 g** دقوس and طرشي on مضغوط دجاج كاملة (card 9) | Likely a typo, possibly deliberate. Import both; chef decides |
+| C-4 | Sides not doubled | Whole-bird plates double their sides | **كبسة دجاج كاملة (card 6) does not** — 125 g × 1 of each | Isolated exception; must not be "corrected" by an importer (RCP-121) |
+| C-5 | Half card names a whole bird | Card 22 is titled حنيذ دجاج **نصف** حبة | Its line 1 reads **"دجاجة كاملة حنيذ"** | Almost certainly a copy error in the source. Flag, do not silently fix |
+| C-6 | Item universes differ | Workbook: **19** items | Cards: **35** main + 10 appetizers; book: **23** recipes | Three different scopes. The workbook's 19 are the costed subset; مضبي, برم, فحسة, كبسة and دجاج بدبس الرمان appear on cards but not in the workbook |
+| C-7 | طبق خان مندي | Workbook item 8, 35,000 IQD, class طبق مشترك | **No plate card and no recipe** | A sold item with no documented composition |
+| C-8 | Whole-chicken price | Workbook: **25,000** | The 23,000 used illustratively in §20 | §20's figure was always labelled illustrative; it is **not** a Khan Mandi price. KD-13 unchanged |
+
+Unresolved fields inside the sources themselves:
+
+- **Coriander quantity** in السحاوق (book p43) — the unit `كغ` is present, the
+  number is not. Import must leave it blank, not guess.
+- **بهارات صحيحة** in بخاري اللحم (book p28, line 3) — named with no quantity.
+- **Every** `كمية القياس`, `الكمية المعتمدة`, `فاقد %`, `كلفة الوحدة`,
+  `كلفة المكون`, `رمز الصنف`, `يعتمد من تاريخ` and signature in the workbook
+  (S-2) — still blank. **KD-02 is unchanged by Task 3.0B**: the method and
+  assembly layers are now sourced, and the costing layer still is not.
+
+### 24.7 What Task 3.0B changed in the model
+
+Nothing structural. Every shape specified by Task 3.0 and Task 3.0A survived
+contact with the real documents, which is the outcome a specification wants from
+its first encounter with evidence. What changed is the **grounding**:
+
+| Before Task 3.0B | After |
+|---|---|
+| KD-03 open — no method book found | **Resolved by source**: 44 pages, 23 recipes, numbered steps, durations, equipment |
+| KD-05 open — whole vs half a binary choice | **Resolved by source** as two layers: exact physical conversion, non-proportional commercial assembly (RCP-123, RCP-124) |
+| KD-06 open — no gram servings believed to exist | **Resolved by source**: 350 g, 500 g, 1 kg, 1.5 kg, 2 kg and more, all listed in §24.3 |
+| Servings table carried illustrative figures | Every row source-backed and page-cited (§5C.1) |
+| Assembly layer entirely unknown | 45 plate cards read; portion recipes now have a real shape (§24.5) |
+| No provenance on imported data | RCP-119 — `source_document` and `source_page` on every imported row |
+| Quantities compared freely | RCP-120 — `measurement_basis`, because 350 g cooked and 500 g raw are the same meat |

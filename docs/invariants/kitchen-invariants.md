@@ -9,17 +9,21 @@ These **extend** `docs/invariants/inventory-invariants.md`,
 production posting that breaks an inventory invariant is broken twice,
 because a batch is an inventory posting before it is anything else.
 
-**Status: proposed by Task 3.0 on 2026-08-16, extended by Task 3.0A on
-2026-08-16.** The "Delivered by" column names the task that will make each one
-true; every row is a statement of intent until that task lands and cites its
-tests. (Phase 2's file said the same on its proposal day, and its header records
-what happened when it was left saying so too long — this one flips to ENFORCED
-at the Task 3.11 exit gate or says why not.)
+**Status: proposed by Task 3.0 on 2026-08-16, extended by Task 3.0A and again by
+Task 3.0B, both on 2026-08-16.** The "Delivered by" column names the task that
+will make each one true; every row is a statement of intent until that task
+lands and cites its tests. (Phase 2's file said the same on its proposal day,
+and its header records what happened when it was left saying so too long — this
+one flips to ENFORCED at the Task 3.11 exit gate or says why not.)
 
 Invariants 1 – 30 come from Task 3.0. **Invariants 31 – 46 were added by Task
 3.0A**, and every one of them exists because reading `KM-RCP-004` or checking
 the charter's consumption formula against the actual document set turned up
-something the first pass had missed.
+something the first pass had missed. **Invariants 47 – 52 were added by Task
+3.0B**, after the owner supplied the Arabic recipe book and the two plate-card
+decks: each one guards a fact those documents established, because the risk
+changes once real figures exist. Before, the danger was inventing a number.
+Now it is losing track of where a real one came from.
 
 ## The proposed set
 
@@ -77,6 +81,21 @@ something the first pass had missed.
 | 45 | A batch spans one business date and one warehouse; no partial or multi-day production is representable, and an attempt is **refused**, never approximated | No `IN_PROGRESS` state exists; named service refusals with tests | 3.5 |
 | 46 | A posted batch with no journal has **provably** zero per-account nets | `verify_kitchen` recomputes the nets for every journal-less batch | 3.5 / 3.9 |
 
+### Added by Task 3.0B
+
+The recipe book and plate cards (§0 S-3, S-14, S-15) turned three open questions
+into sourced facts, and every one of them needs an invariant, because a sourced
+fact that nothing enforces decays back into a guess.
+
+| # | Invariant | Enforced where | Delivered by |
+|---|---|---|---|
+| 47 | Every row imported from a source document carries `source_document` **and** `source_page`; both are null only for hand-entered rows, never partially set | `CheckConstraint` (`both null or both set`) + importer validation | 3.1 / 3.10 |
+| 48 | Every quantity carries a `measurement_basis`, and **no report sums or compares quantities across different bases** | Non-null field + a query-service guard with a named error; golden test that a raw and a cooked quantity refuse to aggregate | 3.1 / 3.8 |
+| 49 | Where sources disagree, **both claims persist**; the importer never picks a winner | Conflict rows survive validation and surface on a report; a test plants two conflicting source rows and asserts both land | 3.10 |
+| 50 | Imported versions and steps land **`DRAFT`**; no import path can set `APPROVED`, and approval remains a distinct human act | Importer writes the draft status only; a test asserts no import can produce an approved version | 3.10 |
+| 51 | **No code derives one sellable plate's quantity, cost or price from another's** — no doubling a half, no halving a whole | Convention test over `apps/kitchen`; the plate's own version is the only source; the physical serving factor applies to the output, never to the plate | 3.1 / 3.3 |
+| 52 | **No PDF is a runtime dependency**: nothing in `apps/kitchen` opens, parses, stores or links a PDF at request time, and none is tracked in Git | Convention test for PDF handling in the app; repository check that no `*.pdf` is tracked | 3.1 – 3.11 |
+
 ## Rules that carry over unchanged
 
 Not restated as kitchen invariants, because they already hold and the kitchen
@@ -104,12 +123,14 @@ posting; audit `previous_state` re-read from the database.
   not a second consumption (RCP-043).
 - **"Recipes are hidden from cooks."** The card and quantities are the job;
   only cost columns are gated, omitted not blanked.
-- **"A half costs half."** It must not be assumed. `KM-RCP-004` prices
-  `حنيذ دجاج حبة كاملة` at 25,000 and `حنيذ دجاج نصف حبة` at 13,000, on
-  separate cards with separate ingredient lists whose accompaniments do not
-  halve. The serving model *supports* proportional division; it never imposes
-  it, and no code may derive a half's cost from a whole's without a recipe
-  saying so (RCP-090).
+- **"A half costs half."** True of the **bird**, false of the **plate**, and
+  Task 3.0B has the source for both halves of that sentence. The recipe book
+  halves chickens exactly (*"والدجاج الى نصفين"*, p1), so the physical serving
+  factor is 0.500 and the meat cost really does divide by two. The plate cards
+  then show the whole مندي plate carrying **1,300 g** of rice against the
+  half's 700 g with doubled sides, and the workbook prices the two at 25,000
+  and 13,000. So `cost(whole plate) ≠ 2 × cost(half plate)`, and invariant 51
+  forbids any code from pretending otherwise (RCP-123, RCP-124).
 - **"Every movement in a kitchen warehouse is consumption."** A transfer that
   brings rice into the kitchen changed custody, not state. Counting it
   alongside the production issue that later consumes the same rice is the

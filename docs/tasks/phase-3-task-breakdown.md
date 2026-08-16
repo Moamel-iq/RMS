@@ -6,6 +6,12 @@ and Release 1 production boundary that Task 3.0A added to the specification. The
 governing principle is the same one both earlier phases proved: **nothing
 depends on a figure until the figure is reconcilable.**
 
+**Amended again by Task 3.0B**, after the owner supplied the Arabic recipe book
+and two plate-card decks. Task 3.1 gains provenance and measurement basis, Task
+3.10 gains the ten-condition data gate and the conflict report, and the data
+gate's open decisions change: KD-05 and KD-06 are **closed by source**, while
+KD-19 and KD-20 are new.
+
 Task numbering and dependency order are unchanged; what each task owns has
 grown. Where a task depends on an owner decision from the specification's
 register (§22), the decision id is named in its **Depends on** line — an open
@@ -82,13 +88,30 @@ Added by Task 3.0A:
 `KitchenStation` is created **only if KD-07 is answered yes**; the default
 leaves `station` null and the table unbuilt.
 
+Added by Task 3.0B, once the recipe book and plate cards made real figures
+possible:
+
+- **Provenance on every row** — `source_document` and `source_page`, both set
+  or both null, on lines, steps and servings (RCP-119, invariant 47).
+- **`measurement_basis`** on every quantity — `RAW` / `PREPARED` / `COOKED` /
+  `PLATED` — because the book's 350 g is carved cooked meat and the cards'
+  500 g is a raw piece, and nothing may aggregate across the two (RCP-120,
+  invariant 48).
+- **The no-cross-plate-derivation convention test** (RCP-124, invariant 51),
+  written here beside the RCP-082 test so both guard every later task.
+- **Serving rows may now carry sourced quantities** — 0.500 حبة, 0.350 KG,
+  0.500 KG — each citing its page. They are still **data**, never constants in
+  code.
+
 **Visible route required.** Depends on: 3.0 approval. No open `KD-*` blocks
 this task.
 
 **Exit criteria:** the recipe card renders lines, steps and servings in Arabic
 RTL with cost columns omitted (not blanked) without `view_recipe_cost`; share
-and serving constraints refuse at the database; the convention test passes; demo
-recipes visible on the route.
+and serving constraints refuse at the database; both convention tests pass; a
+row with one of `source_document` / `source_page` set is refused at the
+database; two quantities of different `measurement_basis` refuse to aggregate;
+demo recipes visible on the route and clearly fictional (RCP-126).
 
 ---
 
@@ -317,18 +340,34 @@ servings** as well as recipe masters, with each kind's columns listed in spec
 storage would mean the Task 1.7 file-upload security rules, and is deferred with
 those rules cited (§5A.2).
 
+Added by Task 3.0B: the import surface must also carry **provenance**
+(`source_document`, `source_page`) on every row, retain **both sides of every
+conflict** rather than reconciling them (RCP-121, invariant 49), and write
+**`DRAFT` only** — no import path may produce an `APPROVED` version (RCP-118,
+invariant 50). A **conflict report** lists the eight known disagreements of spec
+§24.6 side by side for the chef and accountant.
+
 Depends on: 3.9.
 
 **Data gate — this is the one to watch.** Task 3.10's **code** depends on 3.9
-only. Its **acceptance as real recipe data** depends on **KD-02** (a filled and
-signed `KM-RCP-004`), **KD-05** (whole/half shape per item) and **KD-06** (are
-gram servings used at all). Until those are answered, everything this task loads
-is `DEMO`-namespaced fiction and must be described as such — never as Khan
-Mandi's recipes (RCP-058).
+only. Its **acceptance as real recipe data** depends on the ten conditions of
+RCP-125, of which the still-open owner decisions are **KD-02** (a filled and
+signed `KM-RCP-004`), **KD-19** (what converts a sauce كاسة to the plate's
+grams) and **KD-20** (who documents the five appetizer `خلطة` recipes). KD-05
+and KD-06 were **closed by Task 3.0B** against the recipe book and plate cards
+and no longer gate anything. Until the ten conditions hold, everything this task
+loads is `DEMO`-namespaced fiction and must be described as such — never as Khan
+Mandi's recipes (RCP-058, RCP-126).
+
+Note what the gate does **not** say: the recipe book being sourced does not make
+the *costing* layer sourced. The book has no costs, no signatures and no
+effective dates, so KD-02 survives Task 3.0B untouched.
 
 **Exit criteria:** a failed import applies zero rows; a second run creates no
-duplicate; every import kind previews before it applies; the demo command is
-idempotent and DEBUG-only.
+duplicate; every import kind previews before it applies; no import can produce
+an approved version; a planted pair of conflicting source rows both land and
+appear on the conflict report; every imported row carries its document and page;
+the demo command is idempotent, DEBUG-only and fictional.
 
 ---
 

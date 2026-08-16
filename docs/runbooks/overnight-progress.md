@@ -908,3 +908,85 @@ the item, and it is addressed.
 | ACCT-1..6 | **COMPLETE, TAGGED** | 1b6e943, tag `accounting-module-complete` | suite 2380/0 on a verified-identical tree; independent Accounting exit PASS |
 | Task 3.0 spec | **COMPLETE, PUSHED** | 8ef3685 | RCP-001..057, 30 invariants, breakdown 3.0–3.11 — awaiting owner approval |
 | Task 3.0A completion | **COMPLETE, PUSHED** | this commit | RCP-001..116, 46 invariants, 10 diagrams, 18-row decision register; `KM-RCP-004` read; RCP-046 corrected; docs only, 13 hooks green |
+| Task 3.0B reconciliation | **COMPLETE, PUSHED** | this commit | RCP-001..126, 52 invariants, 20-row register (6 open); recipe book + 2 card decks read page by page; KD-03/05/06 closed by source, KD-19/20 opened; docs only, 13 hooks green |
+
+## Task 3.0B — reconciling the specification with the real kitchen documents
+
+The owner supplied three PDFs that had been recorded as absent or unknown:
+
+| File | Pages | SHA-256 (first 16) |
+|---|---|---|
+| `كتاب وصفات المطبخ خان مندي.pdf` | 44 | `8534D2D8D5DFE9E3` |
+| `كارت الاطباق الرئيسية.pdf` | 35 | `7C3FC20F6EC01C88` |
+| `كارت المقبلات.pdf` | 10 | `E6AA0BC168D5914C` |
+
+All three live in `Khan Mandi/files/`, a **sibling of the repository**, so no
+proprietary content is tracked by Git — `git ls-files '*.pdf' '*.xlsx'` returns
+nothing.
+
+**Reading them took a detour worth recording.** `pdftoppm` is not installed, so
+the Read tool cannot render these files, and `openpyxl` is absent from the venv —
+installing either would have breached the no-new-dependency rule for a read-only
+audit. Both documents were instead parsed with the standard library alone: the
+`.xlsx` as a zip of XML, and the PDFs through their Type0/CID font ToUnicode
+CMaps, reversing each visual-order glyph run back to logical Arabic while
+preserving digit runs. All 89 pages were read this way.
+
+**The harness reported 13, 569 and 117 pages. The real counts are 44, 35 and
+10** — each file's own page-tree `/Count`, internally consistent with its node
+sums. The audit covers the real pages.
+
+### What the sources settled
+
+- **KD-03 → RESOLVED.** The method book exists: 23 recipes, numbered steps,
+  thirteen sourced durations (حنيذ chicken 90 min and meat 120 min; التبسي
+  80 min; رقبة 4–5 h). **No numeric temperature anywhere** — the book gives
+  نار هادئة, جمر, قدر الضغط, التنور — so `temperature_c` stays null rather than
+  acquiring an invented Celsius value.
+- **KD-06 → RESOLVED.** Task 3.0A had recorded that no gram servings existed.
+  Wrong, and the book says so on page 1: *"نفرات (350 غرام) للنفر الواحد"*.
+  500 g pieces for مدفون, حنيذ, مزموم and رقبة. Spec §24.3 lists every weight
+  in all three documents — including 1 kg ضلوع, 1.5 kg كتف and 2 kg فخذ — and
+  states no general rule, because none exists.
+- **KD-05 → RESOLVED, as two layers.** The plate cards decide it arithmetically:
+  the half-chicken مندي plate carries 700 g of rice, the whole carries
+  **1,300 g** — not 1,400 — with sides doubled. So the chicken divides by
+  exactly two and the plate does not. RCP-123 separates the layers; RCP-124
+  forbids deriving one plate from another. Prices agree: 13,000 and 25,000.
+
+### What they opened
+
+- **KD-19** — the دقوس recipe yields cups of **80 ml**; every plate card
+  consumes **125 g**. Same for روبة at 100 ml. Reconciling needs a density the
+  business has never stated.
+- **KD-20** — five appetizers are assembled from a pre-made **250 g خلطة**, and
+  no source documents how any blend is made. The sub-recipe tree has a missing
+  level.
+
+Eight source conflicts in total are recorded in spec §24.6 with both claims
+retained (RCP-121), including one that looks like a plain copy error: card 22 is
+titled حنيذ دجاج **نصف** حبة and its first line reads *دجاجة كاملة*. The
+importer flags it; nobody silently fixes it.
+
+**KD-02 is deliberately unchanged.** The method and assembly layers are now
+sourced; the costing layer is not. `KM-RCP-004` still has every quantity, cost,
+code, date and signature blank.
+
+### Validation
+
+| Gate | Result |
+|---|---|
+| `pytest tests/test_traceability.py -q` | **4 passed** |
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 294 files already formatted |
+| `manage.py check` | no issues |
+| `makemigrations --check --dry-run` | No changes detected |
+| `pre-commit run --all-files` | **13 hooks passed** |
+| RCP integrity | 126 unique, RCP-001..126, **no gaps, no duplicates**, all 126 traced |
+| Decision register | 20 rows, no duplicates, **6 REQUIRES OWNER DECISION** |
+| Scope | 5 documentation files; no model, migration, service, endpoint, template or seed; `apps/kitchen` still does not exist |
+
+One self-check caught a real error: the recalculated counts table initially read
+2 RECOMMENDED and 7 RESOLVED, against the register's actual 3 and 6. The prompt's
+instruction to *confirm rather than hard-code that count* is the reason it was
+checked, and the reason it was wrong for about four minutes.

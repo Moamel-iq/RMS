@@ -30,7 +30,7 @@ reviews.
 | 1.7 | Superseded by 1.7A and 1.7B | Split during Phase 1; both halves carry their own rows |
 | 1.8 | `EXIT-` rows plus the Phase 1 gate record | An exit gate verifies other tasks' requirements rather than adding its own |
 | 2.18 | The Phase 2 gate record | The same; see `docs/runbooks/overnight-progress.md` Step 20 |
-| 3.0 | — | A specification task, for Phase 3 (`RCP-001`..`RCP-116`, extended by Task 3.0A); awaiting approval |
+| 3.0 | — | A specification task, for Phase 3 (`RCP-001`..`RCP-126`, extended by Tasks 3.0A and 3.0B); awaiting approval |
 | 3.11 | The Phase 3 gate record, when it runs | An exit gate verifies other tasks' requirements rather than adding its own |
 
 | Req ID | Summary | Module | Model / service / API | Tests | Status | Notes |
@@ -649,6 +649,13 @@ original text described the architecture charter's actual-consumption formula,
 which double-counts against this system's documents; it now points at its
 correction.
 
+**Extended again by Task 3.0B (2026-08-16) from 116 rows to 126.** The owner
+supplied the Arabic recipe book and two plate-card decks; all 89 pages were
+audited (spec §24). RCP-117 – RCP-126 cover the three-source boundary, row-level
+provenance, measurement basis, conflict retention, the two-layer serving rule
+and the ten-condition Task 3.10 data gate. Three owner decisions closed against
+the source — KD-03, KD-05 and KD-06 — and two opened, KD-19 and KD-20.
+
 Requirement identifiers are **repository-local**. No SRS exists to map them
 to; see Task 3.0 §0 — which also records that the `KhanMandiRecipe.xlsx`
 workbook (form `KM-RCP-004`) **does** exist outside the repository, was read in
@@ -772,3 +779,13 @@ full by Task 3.0A, and is authoritative about structure while carrying no data.
 | RCP-114 | Worked examples use symbols or values labelled illustrative | documentation and fixtures | — | 3.1–3.10 | | Specified |
 | RCP-115 | No Phase 3 surface calls any figure it can compute "profit"; margins are named | view layer and copy | — | 3.9 | | Specified |
 | RCP-116 | Price minus material cost is not net profit, and the system says so where it would be assumed | report headings | — | 3.9 | | Specified |
+| RCP-117 | The three sources map onto batch recipe, portion recipe and the approval instrument | documented mapping | — | 3.1 | | Specified |
+| RCP-118 | Source documents populate `DRAFT` versions and steps; they approve nothing | importer status guard | — | 3.10 | | Specified |
+| RCP-119 | Every imported row records `source_document` and `source_page` | model fields and constraint | — | 3.1, 3.10 | | Specified |
+| RCP-120 | Every quantity carries a `measurement_basis`; no report compares across bases | model field and query guard | — | 3.1, 3.8 | | Specified |
+| RCP-121 | Conflicting source claims are both stored and surfaced, never silently reconciled | importer and conflict report | — | 3.10 | | Specified |
+| RCP-122 | No PDF is a runtime dependency; none is tracked in Git | convention test | — | 3.1–3.11 | | Specified |
+| RCP-123 | Servings convert the output; plates are separate approved compositions | serving model and portion recipes | — | 3.1, 3.3 | | Specified |
+| RCP-124 | No code derives one plate's quantity, cost or price by doubling or halving another's | convention test and costing services | — | 3.3 | | Specified |
+| RCP-125 | Task 3.10 is accepted only when all ten data-gate conditions hold | task exit criteria | — | 3.10 | | Specified |
+| RCP-126 | Demo recipes stay fiction and carry no real dish name or sourced gram figure | demo seed and its tests | — | 3.1–3.10 | | Specified |
