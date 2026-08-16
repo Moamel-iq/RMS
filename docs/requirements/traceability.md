@@ -30,6 +30,8 @@ reviews.
 | 1.7 | Superseded by 1.7A and 1.7B | Split during Phase 1; both halves carry their own rows |
 | 1.8 | `EXIT-` rows plus the Phase 1 gate record | An exit gate verifies other tasks' requirements rather than adding its own |
 | 2.18 | The Phase 2 gate record | The same; see `docs/runbooks/overnight-progress.md` Step 20 |
+| 3.0 | — | A specification task, for Phase 3 (`RCP-001`..`RCP-057`); awaiting approval |
+| 3.11 | The Phase 3 gate record, when it runs | An exit gate verifies other tasks' requirements rather than adding its own |
 
 | Req ID | Summary | Module | Model / service / API | Tests | Status | Notes |
 |---|---|---|---|---|---|---|
@@ -630,3 +632,74 @@ see Task 2.0 §0.
 | PRC-065 | Arabic RTL screens, logical properties, HTMX filters surviving pagination | templates + `_filter_query`; reports reuse the Phase 1 `_base_report.html` chrome | `apps/procurement/tests/test_procurement_reports.py::TestExports::test_the_htmx_request_gets_the_fragment_not_the_shell` | 2.1–2.16 | | Done |
 | PRC-066 | Demo data: three suppliers, the five existing items, idempotent, DEBUG-only | demo tooling | `apps/procurement/tests/test_supplier.py::TestDemoSuppliers` | 2.1–2.17 | | Done |
 | PRC-067 | `source_document_id` is the immutable `public_id`, never a number or pk | posting services | — | 2.9 | | Specified |
+
+## Phase 3 — Recipes, Kitchen and Production
+
+Established by `docs/tasks/task-3-0-recipes-production-domain-spec.md`
+(2026-08-16), **awaiting approval**. Every row is `Specified` until its task
+lands: Task 3.0 wrote no code, and a row that claimed evidence today would be
+claiming a test that does not exist — which is the failure
+`tests/test_traceability.py` was written to stop.
+
+Requirement identifiers are **repository-local**. No SRS exists to map them
+to; see Task 3.0 §0.
+
+| ID | Requirement | Implementation | Test | Task | AT | Status |
+|---|---|---|---|---|---|---|
+| RCP-001 | Phase 3 adds exactly one stock-moving document, the production batch; kitchen flows stay Phase 1 documents | reuse, not copies | — | 3.5 | | Specified |
+| RCP-002 | Recipe and version edits touch no stock and no journal | model boundary | — | 3.1 | | Specified |
+| RCP-003 | No model combines two events in one row | separate aggregates | — | 3.1–3.7 | | Specified |
+| RCP-004 | One new app `apps.kitchen`; nothing imports it until Phase 4 | app boundary | — | 3.1 | | Specified |
+| RCP-005 | The module owns no role overrides, no second posting path, no menu item | boundary tests | — | 3.1–3.9 | | Specified |
+| RCP-006 | Recipes are organization master data | organization FK + scoping | — | 3.1 | | Specified |
+| RCP-007 | Two recipe kinds, one model: batch (stored output item) and portion (no output item) | `recipe_type` + nullable `output_item` | — | 3.1 | | Specified |
+| RCP-008 | A batch recipe's output is `SEMI_FINISHED` or `FINISHED_GOOD`, same organization | `CheckConstraint` + service | — | 3.1 | | Specified |
+| RCP-009 | A recipe carries no cost field | model shape | — | 3.1 | | Specified |
+| RCP-010 | Menu-item mapping is the recipe's identity; Phase 4 holds the FK | nothing speculative built | — | 3.1 | | Specified |
+| RCP-011 | Versions are effective-dated; resolution by date and branch is the only resolution | one resolver | — | 3.2 | | Specified |
+| RCP-012 | Approved versions never overlap per branch | `EXCLUDE USING gist` | — | 3.2 | | Specified |
+| RCP-013 | Version approval is maker-checker | `CheckConstraint` + service | — | 3.2 | | Specified |
+| RCP-014 | Approved versions are immutable except range-close and supersession | whole-row triggers | — | 3.2 | | Specified |
+| RCP-015 | Only approved versions are produced from, costed, or counted | service guards | — | 3.2 | | Specified |
+| RCP-016 | Version numbers per-recipe sequential; supersession closes the prior range atomically | service | — | 3.2 | | Specified |
+| RCP-017 | Branch applicability restricts; no per-branch line overrides | M2M restriction | — | 3.2 | | Specified |
+| RCP-018 | Line quantities are gross; loss/yield rates are informational | model semantics | — | 3.1 | | Specified |
+| RCP-019 | Line quantities persist at 6 dp, converted once at entry, quantized once | ADR-006 discipline | — | 3.1 | | Specified |
+| RCP-020 | Lines name items, never lots | model shape | — | 3.1 | | Specified |
+| RCP-021 | Optional lines are costed and omittable per batch | flags + costing | — | 3.1 / 3.3 | | Specified |
+| RCP-022 | Substitutes are informational; costing uses actual consumption | substitute table semantics | — | 3.1 / 3.4 | | Specified |
+| RCP-023 | Version cost and plate cost are derived as-of reads | derivation only | — | 3.3 | | Specified |
+| RCP-024 | A recipe cost equals the sum of its effective component costs | golden case | — | 3.3 | | Specified |
+| RCP-025 | Cost snapshots are explicit, dated, append-only | insert-only trigger | — | 3.3 | | Specified |
+| RCP-026 | Historical cost resolves version first, then as-of cost; never silently today | resolver reuse | — | 3.3 | | Specified |
+| RCP-027 | Recipe cost visibility is a separate permission | `view_recipe_cost` | — | 3.1 / 3.3 | | Specified |
+| RCP-028 | Batches draft from an approved version, scaled; no ad-hoc production | service | — | 3.4 | | Specified |
+| RCP-029 | One warehouse per batch | model + service | — | 3.4 | | Specified |
+| RCP-030 | Consumed quantities record reality; mismatch is variance, never refusal | batch editing | — | 3.4 | | Specified |
+| RCP-031 | Output quantity is entered, positive, beside the expected figure | service validation | — | 3.4 | | Specified |
+| RCP-032 | Only batch recipes are producible | service refusal | — | 3.4 | | Specified |
+| RCP-033 | Draft batches editable and deletable; posted immutable except reversal | whole-row triggers | — | 3.4 / 3.5 | | Specified |
+| RCP-034 | Value is conserved: output enters at Σ consumed values via `inbound_value` | kernel exact-value channel | — | 3.5 | | Specified |
+| RCP-035 | Yield loss is absorbed into unit cost, never posted | no variance journal exists | — | 3.5 | | Specified |
+| RCP-036 | The journal is the per-account net; zero-net batches post no journal | posting service | — | 3.5 | | Specified |
+| RCP-037 | Non-zero nets debit/credit exactly the movements' accounts, branches, values | `verify_inventory_against_gl` by construction | — | 3.5 | | Specified |
+| RCP-038 | Produced lots record `produced_by_*` and expire by shelf life | posting writes reserved fields | — | 3.5 | | Specified |
+| RCP-039 | Expired ingredients cannot enter a batch | kernel expired-lot rule, kept | — | 3.5 | | Specified |
+| RCP-040 | Reversal mirrors exactly, checks availability, once, with reason; ADR-017 identity unchanged | kernel reversal | — | 3.5 | | Specified |
+| RCP-041 | Yield, loss and batch variance are reads | report queries | — | 3.6 | | Specified |
+| RCP-042 | Version rates display beside measured yield | yield report | — | 3.6 | | Specified |
+| RCP-043 | Meal records move no stock and post no journal; they explain, not consume | model shape | — | 3.7 | | Specified |
+| RCP-044 | Staff-meal expense reclassification is deferred, recorded, data accumulating | deferral note | — | 3.7 | | Specified |
+| RCP-045 | Meal corrections are cancellation, never edits | status machine | — | 3.7 | | Specified |
+| RCP-046 | Actual consumption is the charter's formula over a selected warehouse | report derivation | — | 3.8 | | Specified |
+| RCP-047 | Theoretical consumption uses effective versions over recordable sources; Phase 4 plugs sales in | quantity-source socket | — | 3.8 | | Specified |
+| RCP-048 | The backflush election is not made here; Phase 4 records it if elected | documented boundary | — | 3.8 | | Specified |
+| RCP-049 | `verify_kitchen` proves batch agreement, value conservation, identity | the verifier | — | 3.9 | | Specified |
+| RCP-050 | Verification reports and refuses to repair | no repair path | — | 3.9 | | Specified |
+| RCP-051 | Production permissions are warehouse-scoped; recipes organization-scoped | `PERMISSION_SCOPE` | — | 3.1–3.5 | | Specified |
+| RCP-052 | Cost columns omitted, not blanked, without `view_recipe_cost` | view layer | — | 3.3 / 3.9 | | Specified |
+| RCP-053 | No writable CRUD or admin for posted records | command API + read-only admin | — | 3.10 | | Specified |
+| RCP-054 | API is commands; money and quantities as exact strings; ADR-017 keys | schema layer | — | 3.1–3.9 | | Specified |
+| RCP-055 | Arabic RTL screens in the shell; sections go live task by task | templates + navigation | — | 3.1–3.10 | | Specified |
+| RCP-056 | Demo: two named recipes, one permitted new item, posted and draft batches, meals, every screen showing something | demo tooling | — | 3.1–3.10 | | Specified |
+| RCP-057 | Recipe imports are preview-first master data; nothing that posts imports | Task 1.7 framework registration | — | 3.10 | | Specified |

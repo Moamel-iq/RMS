@@ -5,7 +5,29 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: COMPLETE. **Procurement module exit: PASS**
+CURRENT_PIPELINE_STEP: **Phase 3 opened — Task 3.0 specification authored,
+awaiting human approval.** Branch `phase/3-kitchen` from the Phase 2 head.
+No implementation begins until the spec is approved; Task 3.1 is gated on
+that approval, not on any technical prerequisite.
+
+Deliverables on the branch: `docs/tasks/task-3-0-recipes-production-domain-spec.md`
+(RCP-001..RCP-057), `docs/tasks/phase-3-task-breakdown.md` (3.0–3.11, exit
+tag `phase-3-kitchen-complete`), `docs/invariants/kitchen-invariants.md`
+(30 proposed invariants), the Phase 3 traceability section (57 Specified
+rows), and the coverage validator extended to the Phase 3 breakdown — all
+twelve new task numbers verified covered.
+
+The design decisions a reviewer should look at hardest, each argued in the
+spec: Phase 3 adds exactly ONE stock-moving document (the batch) and reuses
+every Phase 1 kitchen flow; value is conserved through a batch with yield
+absorbed into unit cost (no standard cost, no variance journal); the batch
+journal is a per-account net and is legitimately ABSENT when accounts net to
+zero; NO new account roles, no WIP account, no new AccountRoleDomain; staff
+and complimentary meals are memo documents feeding the theoretical side,
+with the expense reclassification deferred-and-recorded; sold quantities and
+the backflush election stay in Phase 4.
+
+Previous milestone: **Procurement module exit: PASS**
 (`phase-2-procurement-complete`, commit b865e7d, suite 2362/0).
 **Accounting module exit: PASS** (`accounting-module-complete`, commit
 1b6e943, suite 2380/0). Both tags pushed; `main` untouched at fd08e4c.

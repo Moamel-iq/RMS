@@ -46,6 +46,7 @@ CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
 TASK_BREAKDOWNS = (
     REPO_ROOT / "docs" / "tasks" / "phase-1-task-breakdown.md",
     REPO_ROOT / "docs" / "tasks" / "phase-2-task-breakdown.md",
+    REPO_ROOT / "docs" / "tasks" / "phase-3-task-breakdown.md",
 )
 
 #: Where test modules live. Anything outside these trees is not a test, so a
