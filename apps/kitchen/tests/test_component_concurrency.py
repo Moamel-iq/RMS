@@ -16,12 +16,18 @@ worse than claiming less.
   child, and a draft is never anybody's child. `TestTwoEdgesCannotCloseACycle`
   pins that property, so the day the draft-only rule is relaxed the race
   reopens and these tests fail.
-* **Coverage genuinely races.** A parent activation validates that its child
-  covers the range it is claiming; a child supersession shortens that range.
-  Different rows, opposite ends, and the result without a lock is an `ACTIVE`
-  parent whose child stopped existing partway through it. That is the race the
-  lock is for, and `test_parent_activation_racing_child_supersession` is its
-  test.
+* **Certification needs a consistent graph.** Cycle and depth are properties of
+  the whole edge set, and every check re-reads it; a walk that observed the graph
+  half-way through somebody else's multi-edge edit could certify a version
+  against a picture that never existed. That is what the lock buys, and
+  `test_opposite_traversal_order_does_not_deadlock` shows the ordering property
+  that comes with taking it above every row lock.
+
+  It is worth saying what the lock does **not** buy, because an earlier version
+  of this file claimed more. An activation racing a child supersession leaves a
+  parent `ACTIVE` from 1 July beside a child closed on 30 June — reachable by an
+  ordinary sequential order too, and legitimate. Coverage is a point-in-time
+  gate; the frozen reference is what carries the parent afterwards.
 
 `transaction=True` throughout: a graph rule tested inside a rolled-back test
 transaction proves only that one thread can count. Every assertion is about the
@@ -587,15 +593,28 @@ class TestOrderAndLifecycleRaces:
                     supersedes=RecipeVersion.objects.get(pk=child_v1.pk),
                 )
 
+        before = list(RecipeComponent.objects.order_by("pk").values("pk", "component_version_id"))
         race(work)
 
         refreshed_parent = RecipeVersion.objects.get(pk=parent_draft.pk)
         refreshed_child = RecipeVersion.objects.get(pk=child_v1.pk)
-        if refreshed_parent.status == RecipeVersionStatus.ACTIVE:
-            # The parent is in force, so its child must still cover it.
-            start = refreshed_parent.effective_from
-            assert start is not None
-            assert refreshed_child.effective_to is None or refreshed_child.effective_to >= start
+
+        # Whatever order they land in, the committed state is coherent: neither
+        # version is left half-moved, and the component still names the **exact**
+        # child it always named. That last one is the invariant that matters and
+        # the one no ordering may break.
+        assert refreshed_parent.status in {
+            RecipeVersionStatus.APPROVED,
+            RecipeVersionStatus.ACTIVE,
+        }
+        assert refreshed_child.status in {
+            RecipeVersionStatus.ACTIVE,
+            RecipeVersionStatus.SUPERSEDED,
+        }
+        assert (
+            list(RecipeComponent.objects.order_by("pk").values("pk", "component_version_id"))
+            == before
+        )
 
     def test_the_same_component_command_retried_concurrently(self, world: World) -> None:
         """

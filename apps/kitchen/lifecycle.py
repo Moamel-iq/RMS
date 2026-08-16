@@ -68,7 +68,6 @@ from apps.inventory.selectors import effective_conversion
 from apps.kitchen.graph import (
     lock_component_graph,
     require_effective_coverage,
-    supersession_blockers,
     validate_version_graph,
 )
 from apps.kitchen.models import (
@@ -1009,37 +1008,21 @@ def _supersede_locked(
         # period the branch already worked through.
         close_at = predecessor.effective_to
 
-    # §L. Closing this version must not strand an ACTIVE parent that named it
-    # as a component. The parent keeps naming this exact version forever, so
-    # shortening the range underneath it would leave the parent claiming to
-    # contain something that stops existing partway through its own effective
-    # period — and nothing would say so until a costing gap appeared.
-    blockers = supersession_blockers(child_version=predecessor, close_at=close_at)
-    if blockers:
-        raise ValidationError(
-            [
-                ValidationError(
-                    _(
-                        "النسخة مستعملة كمكوّن في %(parent)s @ %(branch)s حتى "
-                        "%(until)s؛ استبدلها هناك أولاً."
-                    )
-                    % {
-                        "parent": (
-                            f"{blocker.parent_version.recipe.code} "
-                            f"v{blocker.parent_version.version_number}"
-                        ),
-                        "branch": blocker.branch_code,
-                        "until": (
-                            blocker.parent_effective_to.isoformat()
-                            if blocker.parent_effective_to
-                            else str(_("أجل مفتوح"))
-                        ),
-                    },
-                    code="recipe_component_dependency_blocks_supersession",
-                )
-                for blocker in blockers
-            ]
-        )
+    # A child that other versions name as a component is superseded **without
+    # obstruction**, and that is the corrected policy rather than an oversight.
+    #
+    # `RecipeComponent.component_version` is an immutable foreign key to a
+    # frozen row. Superseding that row ends its availability for *new,
+    # independent selection*; it does not reach backwards into a parent that
+    # already named it. The parent stays valid, its component tree is unchanged,
+    # and its expansion stays deterministic — which is exactly what adopting an
+    # exact version buys.
+    #
+    # An earlier implementation refused here, which pinned an open-ended child
+    # forever and made ordinary corrections impossible. What replaced it is the
+    # advisory `graph.parents_outliving_child`, surfaced by the verifier and the
+    # dependency screen: information for a person, never a refusal. Nothing is
+    # re-pointed and nothing cascades (RCP-081).
 
     previous = snapshot(predecessor)
     predecessor.status = RecipeVersionStatus.SUPERSEDED

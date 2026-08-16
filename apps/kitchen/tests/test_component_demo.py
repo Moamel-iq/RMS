@@ -268,7 +268,7 @@ class TestZeroEffect:
         )
         assert self._counts() == before
 
-    def test_a_refused_supersession_moves_nothing_either(
+    def test_superseding_a_referenced_child_moves_nothing_either(
         self,
         recipe: Recipe,
         blend: Recipe,
@@ -282,8 +282,6 @@ class TestZeroEffect:
         accountant: User,
         approver: User,
     ) -> None:
-        from django.core.exceptions import ValidationError
-
         from apps.kitchen.lifecycle import activate_recipe_version
         from apps.kitchen.services import create_recipe_component
 
@@ -310,13 +308,17 @@ class TestZeroEffect:
             approver=approver,
         )
         before = self._counts()
-        with pytest.raises(ValidationError):
-            activate_recipe_version(
-                version=replacement,
-                actor=approver,
-                effective_from=datetime.date(2026, 9, 1),
-                supersedes=RecipeVersion.objects.get(pk=blend_active.pk),
-            )
+        # Permitted now. The earlier implementation refused this outright; the
+        # count assertion is the part that was always the point.
+        activate_recipe_version(
+            version=replacement,
+            actor=approver,
+            effective_from=datetime.date(2026, 9, 1),
+            supersedes=RecipeVersion.objects.get(pk=blend_active.pk),
+        )
+        assert (
+            RecipeVersion.objects.get(pk=blend_active.pk).status == RecipeVersionStatus.SUPERSEDED
+        )
         assert self._counts() == before
 
     def test_no_flattening_service_exists(self) -> None:

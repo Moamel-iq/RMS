@@ -663,8 +663,9 @@ workbook (form `KM-RCP-004`) **does** exist outside the repository, was read in
 full by Task 3.0A, and is authoritative about structure while carrying no data.
 
 **Extended by Task 3.2B (2026-08-16) to RCP-134.** RCP-132 - RCP-134 record what
-the nested-recipe graph settled: the dependency guard and the open-ended pin it
-implies, why a race cannot close a cycle here, and the multiplier's precision.
+the nested-recipe graph settled: that a frozen exact reference outlives the
+child's supersession, why a race cannot close a cycle here, and the
+multiplier's precision.
 RCP-070, RCP-072, RCP-074, RCP-076 and RCP-077 move from **Specified** to
 **Done**.
 
@@ -810,6 +811,6 @@ until production exists at Task 3.5.
 | RCP-129 | The approver is never the author, the submitter or a reviewer; kitchen and costing reviews are two people | `approve_recipe_version` + `_require_distinct_parties` | `apps/kitchen/tests/test_version_lifecycle.py::TestApproval` | 3.2A |  | Done |
 | RCP-130 | Organization-wide effective scope is materialised per branch, so overlap is enforceable | `RecipeVersionBranchScope` + `kitchen_scope_follows_its_version` | `apps/kitchen/tests/test_effective_dating.py::TestOverlapEnforcement` | 3.2A |  | Done |
 | RCP-131 | The effective range is inclusive at both ends and expressed once; the supersession seam has no gap and no overlap | `covers_on_date` + `daterange(..., '[]')` | `apps/kitchen/tests/test_effective_dating.py::TestRangeBoundaries` | 3.2A |  | Done |
-| RCP-132 | Closing a child version's range under an ACTIVE parent that names it is refused per branch; nothing is re-pointed and nothing cascades | `supersession_blockers` + `_supersede_locked` | `apps/kitchen/tests/test_component_coverage.py::TestTheDependencyGuard` | 3.2B |  | Done |
+| RCP-132 | A child is validated as effective at the parent's **start date** on initial activation only; the frozen exact reference survives the child's later supersession, and nothing is re-pointed or cascaded | `require_effective_coverage` + `component_advisories` | `apps/kitchen/tests/test_component_coverage.py::TestSupersessionAfterActivation` | 3.2B |  | Done |
 | RCP-133 | Two concurrent component additions cannot jointly close a cycle, because a draft is never a child | `create_recipe_component` draft-only rule + `lock_component_graph` | `apps/kitchen/tests/test_component_concurrency.py::TestTwoEdgesCannotCloseACycle` | 3.2B |  | Done |
 | RCP-134 | The component multiplier is a technical identity at the repository's factor precision, rendered with a period | `RecipeComponent.multiplier_display` | `apps/kitchen/tests/test_components.py::TestTheMultiplier` | 3.2B |  | Done |

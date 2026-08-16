@@ -286,21 +286,33 @@ claimed to contain. Adopting a newer child is a **new parent version**, and the
 diff shows it as a change on the component's version-number row precisely so the
 manager signing it can see which decision they are making.
 
-**An active parent's child must stay effective for as long as the parent
-claims.** Checked at activation (RCP-074) and again from the other end: closing
-a child's range under an `ACTIVE` parent that names it is refused, per branch,
-whenever the parent is still effective past the proposed close date.
+**The child must be effective when the parent starts, and only then.** At
+activation, for every applicable branch, the child must belong to the same
+organization, hold an eligible frozen status, have an effective scope at that
+branch, and be effective on the parent's `effective_from`. From that moment the
+exact child-version reference is frozen permanently.
 
-The consequence is stated rather than discovered: **an open-ended parent pins its
-child open-ended.** A dish in force indefinitely that says it contains blend v1
-requires blend v1 in force indefinitely, and there is no ordering that escapes
-it. To change the blend, the dish is given an end date first. This is the same
-shape as the decision above it — an effective claim is a claim about dates, and
-you cannot quietly withdraw the dates something else is standing on.
+**The child's range is not required to cover the parent's future.** A first
+implementation of Task 3.2B required that, which made an open-ended parent
+demand an open-ended child and so blocked ordinary supersession forever. It was
+withdrawn, and the reasoning behind it withdrawn with it.
+
+The mistake was conflating two questions this ADR has otherwise been careful to
+separate. *Selecting* a version for a new transaction is a date question, and
+`resolve_recipe_version` answers it. The *validity of an already-frozen exact
+reference* is not a date question at all — `component_version` is an immutable
+foreign key to a specific frozen row, and superseding that row ends its
+availability for new selection without reaching backwards into a parent that
+already named it.
+
+So costing and production expansion must follow `component_version` **directly**
+and must never re-resolve the currently effective child by date. Re-resolving
+would be the silent re-pointing RCP-072 forbids, arriving through the back door.
 
 Nothing cascades. A dependent parent is never re-pointed and never
 auto-superseded: correcting a child is versioning, exactly as correcting a
-parent is (RCP-081).
+parent is (RCP-081). An `ACTIVE` parent naming a superseded child is a
+**non-blocking advisory**, never a defect.
 
 **The graph lock is about coverage, not about cycles.** The textbook
 `A → B` / `B → A` race cannot corrupt this graph, because an edge may only be

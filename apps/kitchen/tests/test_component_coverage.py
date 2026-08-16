@@ -1,22 +1,29 @@
 """
-Effective branch and date coverage, and the dependency guard that keeps it true
+Effective coverage at activation, and what happens to an exact reference
 afterwards.
 
-Two rules, and they are the same rule at two moments.
+Two questions that look alike and are not, which is the whole subject of this
+file.
 
-**RCP-074, at activation.** A parent may not take effect over a range or a
-branch its child does not cover. A parent effective in March whose blend expired
-in February is a recipe that claims to contain something that did not exist —
-and nothing downstream would notice until a costing gap appeared months later,
-by which time nobody remembers what changed.
+**Selecting a version** is a date question. `resolve_recipe_version` answers it
+for a new, independent transaction: *which version governs this branch on this
+day?*
 
-**§L, afterwards.** The parent named one *exact* child version and keeps naming
-it forever, so closing that child's range under a live parent would create the
-same gap from the other direction. Superseding a child something depends on is
-refused, and the refusal names the dependent parent. The correction is
-versioning, never repointing (RCP-081): approve a replacement child, create a
-new **parent** version that adopts it, put that parent into effect, and only
-then close the old child.
+**The validity of an already-frozen reference** is not a date question at all.
+`RecipeComponent.component_version` is an immutable foreign key to a specific
+frozen row. Once a parent is activated against it, that reference stays valid —
+including after the child is superseded for new selection. A blend replaced in
+September does not retroactively empty the July dish that named it.
+
+So the gate is at **initial activation only**: for every applicable branch the
+child must be effective on the parent's `effective_from`. The child's range is
+**not** required to cover the parent's future, and an open-ended parent does
+**not** require an open-ended child.
+
+An earlier implementation required exactly that, and blocked child supersession
+while any active parent still referenced the child. Both rules are gone. The
+tests that asserted them were rewritten rather than deleted, and several now
+assert the opposite — deliberately, because that is what changed.
 """
 
 from __future__ import annotations
@@ -26,11 +33,12 @@ from decimal import Decimal
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.db import transaction
 
 from apps.inventory.models import InventoryItem
-from apps.kitchen.graph import coverage_gaps, dependents_of, supersession_blockers
-from apps.kitchen.lifecycle import activate_recipe_version
-from apps.kitchen.models import Recipe, RecipeVersion, RecipeVersionStatus
+from apps.kitchen.graph import component_tree, coverage_gaps, dependents_of, flatten_tree
+from apps.kitchen.lifecycle import activate_recipe_version, resolve_recipe_version
+from apps.kitchen.models import Recipe, RecipeComponent, RecipeVersion, RecipeVersionStatus
 from apps.kitchen.services import create_recipe_component
 from apps.organizations.models import Branch, Organization
 from apps.units.models import UnitOfMeasure
@@ -45,6 +53,7 @@ JANUARY = datetime.date(2026, 1, 1)
 MARCH = datetime.date(2026, 3, 1)
 JUNE_END = datetime.date(2026, 6, 30)
 JULY = datetime.date(2026, 7, 1)
+SEPTEMBER = datetime.date(2026, 9, 1)
 DECEMBER_END = datetime.date(2026, 12, 31)
 
 
@@ -64,7 +73,13 @@ def _parent_with_child(
 
 
 class TestCoverageAtActivation:
-    """RCP-074: the child must cover the whole of what the parent claims."""
+    """
+    The gate at initial activation: the child must be effective **on the
+    parent's start date**, at every applicable branch.
+
+    Not across the parent's whole range — that rule existed, pinned children
+    forever, and was removed.
+    """
 
     def test_a_child_effective_earlier_and_open_ended_covers_the_parent(
         self,
@@ -173,7 +188,7 @@ class TestCoverageAtActivation:
             activate_recipe_version(version=parent, actor=approver, effective_from=MARCH)
         assert "recipe_component_not_effective" in codes_of(caught.value)
 
-    def test_a_child_that_ends_before_the_parent_is_refused(
+    def test_a_child_whose_range_ended_before_the_parent_starts_is_refused(
         self,
         recipe: Recipe,
         blend: Recipe,
@@ -185,6 +200,13 @@ class TestCoverageAtActivation:
         accountant: User,
         approver: User,
     ) -> None:
+        """
+        The child ran January-June; the parent wants to start in July. The child
+        is not effective on the parent's start date, so activation is refused.
+
+        Contrast with the next test: a child that ends *after* the parent starts
+        is fine, however far the parent then runs.
+        """
         child_draft = build_complete_draft(recipe=blend, unit=kilogram, item=rice, author=manager)
         child = carry_to_active(
             child_draft,
@@ -208,15 +230,10 @@ class TestCoverageAtActivation:
             approver=approver,
         )
         with pytest.raises(ValidationError) as caught:
-            activate_recipe_version(
-                version=parent,
-                actor=approver,
-                effective_from=JANUARY,
-                effective_to=DECEMBER_END,
-            )
+            activate_recipe_version(version=parent, actor=approver, effective_from=JULY)
         assert "recipe_component_not_effective" in codes_of(caught.value)
 
-    def test_an_open_ended_parent_needs_an_open_ended_child(
+    def test_a_bounded_child_does_not_limit_how_long_the_parent_runs(
         self,
         recipe: Recipe,
         blend: Recipe,
@@ -229,9 +246,59 @@ class TestCoverageAtActivation:
         approver: User,
     ) -> None:
         """
-        A child that ends at all leaves a tail the parent claims and nothing
-        covers — and the tail has no last day to name, which is exactly why an
-        open-ended range cannot be checked by comparing two dates.
+        Child `[1 Jan, 30 Jun]`, parent `[1 Jan, 31 Dec]`. **Accepted.**
+
+        This is the rule that was removed. The parent is not claiming that the
+        child is selectable in December — it is claiming that it contains one
+        exact frozen version, which it does, permanently.
+        """
+        child_draft = build_complete_draft(recipe=blend, unit=kilogram, item=rice, author=manager)
+        child = carry_to_active(
+            child_draft,
+            submitter=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=JANUARY,
+            effective_to=JUNE_END,
+        )
+        parent = _parent_with_child(
+            recipe=recipe, child=child, unit=kilogram, item=rice, author=manager
+        )
+        activated = carry_to_active(
+            parent,
+            submitter=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=JANUARY,
+            effective_to=DECEMBER_END,
+        )
+        assert activated.status == RecipeVersionStatus.ACTIVE
+        assert activated.effective_to == DECEMBER_END
+
+    def test_an_open_ended_parent_does_not_need_an_open_ended_child(
+        self,
+        recipe: Recipe,
+        blend: Recipe,
+        kilogram: UnitOfMeasure,
+        rice: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+    ) -> None:
+        """
+        **The rule this test used to assert has been removed**, and this asserts
+        its removal rather than being deleted.
+
+        Requiring an open-ended child pinned that child forever: any close date
+        would leave the open-ended parent "uncovered", so the blend could never
+        be replaced. That confused *selecting* a version by date with the
+        *validity of a frozen reference*, which no date can invalidate.
         """
         child_draft = build_complete_draft(recipe=blend, unit=kilogram, item=rice, author=manager)
         child = carry_to_active(
@@ -247,17 +314,17 @@ class TestCoverageAtActivation:
         parent = _parent_with_child(
             recipe=recipe, child=child, unit=kilogram, item=rice, author=manager
         )
-        carry_to_approved(
+        activated = carry_to_active(
             parent,
             submitter=manager,
             cook=cook,
             keeper=keeper,
             accountant=accountant,
             approver=approver,
+            effective_from=JANUARY,
         )
-        with pytest.raises(ValidationError) as caught:
-            activate_recipe_version(version=parent, actor=approver, effective_from=JANUARY)
-        assert "recipe_component_not_effective" in codes_of(caught.value)
+        assert activated.status == RecipeVersionStatus.ACTIVE
+        assert activated.effective_to is None
 
     def test_a_child_covering_one_branch_but_not_the_other_is_refused(
         self,
@@ -391,8 +458,16 @@ class TestCoverageAtActivation:
         )
 
 
-class TestTheDependencyGuard:
-    """§L: an exact child link stays valid after the parent activates."""
+class TestSupersessionAfterActivation:
+    """
+    A child may be superseded freely once parents reference it.
+
+    This class replaces one that asserted the opposite. The old rule refused the
+    supersession outright while any `ACTIVE` parent named the child, which made
+    an open-ended parent pin its child permanently and made ordinary corrections
+    impossible. Nothing about the exact reference needed that protection: it is
+    a frozen foreign key, not a lookup.
+    """
 
     def _live_pair(
         self,
@@ -406,6 +481,7 @@ class TestTheDependencyGuard:
         keeper: User,
         accountant: User,
         approver: User,
+        parent_effective_to: datetime.date | None = None,
     ) -> tuple[RecipeVersion, RecipeVersion]:
         """An ACTIVE child and an ACTIVE parent that names it."""
         child = carry_to_active(
@@ -425,8 +501,39 @@ class TestTheDependencyGuard:
             accountant=accountant,
             approver=approver,
             effective_from=JULY,
+            effective_to=parent_effective_to,
         )
         return child, parent
+
+    def _replace_child(
+        self,
+        *,
+        blend: Recipe,
+        old_child: RecipeVersion,
+        unit: UnitOfMeasure,
+        item: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+        effective_from: datetime.date,
+    ) -> RecipeVersion:
+        replacement = carry_to_approved(
+            build_complete_draft(recipe=blend, unit=unit, item=item, author=manager),
+            submitter=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+        )
+        activate_recipe_version(
+            version=replacement,
+            actor=approver,
+            effective_from=effective_from,
+            supersedes=RecipeVersion.objects.get(pk=old_child.pk),
+        )
+        return RecipeVersion.objects.get(pk=replacement.pk)
 
     def test_dependents_are_listed_per_branch(
         self,
@@ -456,7 +563,7 @@ class TestTheDependencyGuard:
         assert [dependency.parent_version.pk for dependency in dependencies] == [parent.pk]
         assert dependencies[0].branch_code == branch.code
 
-    def test_superseding_a_depended_on_child_is_refused(
+    def test_an_open_ended_parent_does_not_block_child_supersession(
         self,
         recipe: Recipe,
         blend: Recipe,
@@ -468,98 +575,7 @@ class TestTheDependencyGuard:
         accountant: User,
         approver: User,
     ) -> None:
-        child, parent = self._live_pair(
-            recipe=recipe,
-            blend=blend,
-            unit=kilogram,
-            item=rice,
-            manager=manager,
-            cook=cook,
-            keeper=keeper,
-            accountant=accountant,
-            approver=approver,
-        )
-        replacement = carry_to_approved(
-            build_complete_draft(recipe=blend, unit=kilogram, item=rice, author=manager),
-            submitter=manager,
-            cook=cook,
-            keeper=keeper,
-            accountant=accountant,
-            approver=approver,
-        )
-        with pytest.raises(ValidationError) as caught:
-            activate_recipe_version(
-                version=replacement,
-                actor=approver,
-                effective_from=datetime.date(2026, 9, 1),
-                supersedes=RecipeVersion.objects.get(pk=child.pk),
-            )
-        assert "recipe_component_dependency_blocks_supersession" in codes_of(caught.value)
-        assert recipe.code in str(caught.value)
-
-    def test_the_refusal_leaves_both_versions_untouched(
-        self,
-        recipe: Recipe,
-        blend: Recipe,
-        kilogram: UnitOfMeasure,
-        rice: InventoryItem,
-        manager: User,
-        cook: User,
-        keeper: User,
-        accountant: User,
-        approver: User,
-    ) -> None:
-        child, parent = self._live_pair(
-            recipe=recipe,
-            blend=blend,
-            unit=kilogram,
-            item=rice,
-            manager=manager,
-            cook=cook,
-            keeper=keeper,
-            accountant=accountant,
-            approver=approver,
-        )
-        replacement = carry_to_approved(
-            build_complete_draft(recipe=blend, unit=kilogram, item=rice, author=manager),
-            submitter=manager,
-            cook=cook,
-            keeper=keeper,
-            accountant=accountant,
-            approver=approver,
-        )
-        with pytest.raises(ValidationError):
-            activate_recipe_version(
-                version=replacement,
-                actor=approver,
-                effective_from=datetime.date(2026, 9, 1),
-                supersedes=RecipeVersion.objects.get(pk=child.pk),
-            )
-        assert RecipeVersion.objects.get(pk=child.pk).status == RecipeVersionStatus.ACTIVE
-        assert RecipeVersion.objects.get(pk=child.pk).effective_to is None
-        assert RecipeVersion.objects.get(pk=replacement.pk).status == RecipeVersionStatus.APPROVED
-
-    def test_an_open_ended_parent_pins_its_child_open_ended(
-        self,
-        recipe: Recipe,
-        blend: Recipe,
-        kilogram: UnitOfMeasure,
-        rice: InventoryItem,
-        manager: User,
-        cook: User,
-        keeper: User,
-        accountant: User,
-        approver: User,
-    ) -> None:
-        """
-        A structural consequence, asserted rather than discovered later.
-
-        A dish in force **indefinitely** that says it contains blend v1 pins
-        blend v1 in force indefinitely: any close date leaves the dish claiming
-        an ingredient that stopped existing. There is no ordering that escapes
-        it, and that is the honest answer rather than a defect — to change the
-        blend, the dish has to be given an end date, which is the next test.
-        """
+        """The case the removed rule made impossible. It now simply works."""
         child, parent = self._live_pair(
             recipe=recipe,
             blend=blend,
@@ -572,16 +588,23 @@ class TestTheDependencyGuard:
             approver=approver,
         )
         assert RecipeVersion.objects.get(pk=parent.pk).effective_to is None
-        for close_at in (
-            datetime.date(2026, 8, 31),
-            datetime.date(2027, 12, 31),
-            datetime.date(2099, 1, 1),
-        ):
-            assert supersession_blockers(
-                child_version=RecipeVersion.objects.get(pk=child.pk), close_at=close_at
-            )
 
-    def test_the_child_may_be_closed_once_no_active_parent_needs_it(
+        replacement = self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+        assert RecipeVersion.objects.get(pk=child.pk).status == RecipeVersionStatus.SUPERSEDED
+        assert replacement.status == RecipeVersionStatus.ACTIVE
+
+    def test_the_parent_still_references_the_exact_old_child(
         self,
         recipe: Recipe,
         blend: Recipe,
@@ -593,108 +616,488 @@ class TestTheDependencyGuard:
         accountant: User,
         approver: User,
     ) -> None:
-        """
-        RCP-081's correction order, end to end, with a **bounded** parent.
-
-        The dish runs July–August and says so. Once its own range ends on 31
-        August, closing the blend on the same day strands nothing: every day the
-        dish claims is a day the blend covers. Then the replacement blend takes
-        effect on 1 September, and a new dish version adopts it explicitly.
-
-        Nothing is repointed and nothing cascades: the historical dish still
-        names the historical blend afterwards, which is the assertion at the end.
-        """
-        august_end = datetime.date(2026, 8, 31)
-        september = datetime.date(2026, 9, 1)
-
-        child = carry_to_active(
-            build_complete_draft(recipe=blend, unit=kilogram, item=rice, author=manager),
-            submitter=manager,
-            cook=cook,
-            keeper=keeper,
-            accountant=accountant,
-            approver=approver,
-            effective_from=JANUARY,
-        )
-        parent = carry_to_active(
-            _parent_with_child(
-                recipe=recipe, child=child, unit=kilogram, item=rice, author=manager
-            ),
-            submitter=manager,
-            cook=cook,
-            keeper=keeper,
-            accountant=accountant,
-            approver=approver,
-            effective_from=JULY,
-            effective_to=august_end,
-        )
-
-        # Nothing active needs the blend past 31 August any more.
-        assert (
-            supersession_blockers(
-                child_version=RecipeVersion.objects.get(pk=child.pk), close_at=august_end
-            )
-            == []
-        )
-
-        new_child = carry_to_approved(
-            build_complete_draft(recipe=blend, unit=kilogram, item=rice, author=manager),
-            submitter=manager,
-            cook=cook,
-            keeper=keeper,
-            accountant=accountant,
-            approver=approver,
-        )
-        activate_recipe_version(
-            version=new_child,
-            actor=approver,
-            effective_from=september,
-            supersedes=RecipeVersion.objects.get(pk=child.pk),
-        )
-        assert RecipeVersion.objects.get(pk=child.pk).status == RecipeVersionStatus.SUPERSEDED
-        assert RecipeVersion.objects.get(pk=child.pk).effective_to == august_end
-
-        # A new dish version adopts the new blend explicitly.
-        new_parent = _parent_with_child(
+        child, parent = self._live_pair(
             recipe=recipe,
-            child=RecipeVersion.objects.get(pk=new_child.pk),
+            blend=blend,
             unit=kilogram,
             item=rice,
-            author=manager,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
         )
-        activated = carry_to_active(
+        self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+        assert parent.components.get().component_version_id == child.pk
+
+    def test_the_parents_component_tree_is_unchanged_by_the_supersession(
+        self,
+        recipe: Recipe,
+        blend: Recipe,
+        kilogram: UnitOfMeasure,
+        rice: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+    ) -> None:
+        """Identical node for node, not merely "still has one row"."""
+        child, parent = self._live_pair(
+            recipe=recipe,
+            blend=blend,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+        )
+
+        def shape() -> list[tuple[int, int, int, Decimal, Decimal]]:
+            return [
+                (
+                    node.depth,
+                    node.version.pk,
+                    node.line_order,
+                    node.multiplier,
+                    node.cumulative_multiplier,
+                )
+                for node in flatten_tree(component_tree(RecipeVersion.objects.get(pk=parent.pk)))
+            ]
+
+        before = shape()
+        self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+        assert shape() == before
+
+    def test_the_parent_remains_active_and_resolvable(
+        self,
+        recipe: Recipe,
+        blend: Recipe,
+        branch: Branch,
+        kilogram: UnitOfMeasure,
+        rice: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+    ) -> None:
+        """Operationally valid, not merely present: the resolver still finds it."""
+        child, parent = self._live_pair(
+            recipe=recipe,
+            blend=blend,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+        )
+        self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+        refreshed = RecipeVersion.objects.get(pk=parent.pk)
+        assert refreshed.status == RecipeVersionStatus.ACTIVE
+        resolved = resolve_recipe_version(
+            recipe=recipe, branch=branch, on_date=datetime.date(2026, 10, 1)
+        )
+        assert resolved.pk == parent.pk
+
+    def test_the_supersession_writes_nothing_to_any_component(
+        self,
+        recipe: Recipe,
+        blend: Recipe,
+        kilogram: UnitOfMeasure,
+        rice: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+    ) -> None:
+        """No re-pointing, and no touch at all: `updated_at` does not move."""
+        child, parent = self._live_pair(
+            recipe=recipe,
+            blend=blend,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+        )
+        before = list(
+            RecipeComponent.objects.order_by("pk").values(
+                "pk", "component_version_id", "multiplier", "line_order", "updated_at"
+            )
+        )
+        self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+        after = list(
+            RecipeComponent.objects.order_by("pk").values(
+                "pk", "component_version_id", "multiplier", "line_order", "updated_at"
+            )
+        )
+        assert after == before
+
+    def test_a_new_parent_version_explicitly_adopts_the_new_child(
+        self,
+        recipe: Recipe,
+        blend: Recipe,
+        kilogram: UnitOfMeasure,
+        rice: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+    ) -> None:
+        child, parent = self._live_pair(
+            recipe=recipe,
+            blend=blend,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+        )
+        replacement = self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+        new_parent = _parent_with_child(
+            recipe=recipe, child=replacement, unit=kilogram, item=rice, author=manager
+        )
+        carry_to_approved(
             new_parent,
             submitter=manager,
             cook=cook,
             keeper=keeper,
             accountant=accountant,
             approver=approver,
-            effective_from=september,
         )
-        assert activated.components.get().component_version_id == new_child.pk
-        # The historical dish still names the historical blend. Nothing moved.
+        # The old parent is still open-ended, so the replacement supersedes it -
+        # a parent correction, entirely separate from the child correction above.
+        activated = activate_recipe_version(
+            version=new_parent,
+            actor=approver,
+            effective_from=datetime.date(2026, 10, 1),
+            supersedes=RecipeVersion.objects.get(pk=parent.pk),
+        )
+        assert activated.components.get().component_version_id == replacement.pk
+        # And the historical one is untouched.
         assert parent.components.get().component_version_id == child.pk
 
-    def test_both_supersession_paths_share_one_guard(self) -> None:
-        """
-        `activate_recipe_version(..., supersedes=...)` and
-        `supersede_recipe_version` both close a predecessor through
-        `_supersede_locked`, so the dependency guard is written once and cannot
-        be true of one path and false of the other.
+    def test_the_comparison_reports_the_child_version_change(
+        self,
+        recipe: Recipe,
+        blend: Recipe,
+        kilogram: UnitOfMeasure,
+        rice: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+    ) -> None:
+        from apps.kitchen.comparison import CHANGED, compare_recipe_versions
 
-        The standalone command's blocker branch is not separately reachable
-        through legitimate state, and that is worth saying rather than faking:
-        a blocker needs an open-ended child, and a replacement cannot be
-        activated over an open-ended predecessor without superseding it — which
-        is the activation path the tests above exercise.
+        child, parent = self._live_pair(
+            recipe=recipe,
+            blend=blend,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+        )
+        replacement = self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+        new_parent = _parent_with_child(
+            recipe=recipe, child=replacement, unit=kilogram, item=rice, author=manager
+        )
+        comparison = compare_recipe_versions(
+            left=RecipeVersion.objects.get(pk=parent.pk), right=new_parent
+        )
+        section = next(part for part in comparison.sections if part.key == "components")
+        row = next(entry for entry in section.rows if entry.key == blend.code)
+        assert row.classification == CHANGED
+
+    def test_the_superseded_child_cannot_be_deleted(
+        self,
+        recipe: Recipe,
+        blend: Recipe,
+        kilogram: UnitOfMeasure,
+        rice: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+    ) -> None:
+        """`PROTECT` still holds. Superseding is not deleting."""
+        from django.db.models import ProtectedError
+
+        child, _parent = self._live_pair(
+            recipe=recipe,
+            blend=blend,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+        )
+        self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+        with pytest.raises((ProtectedError, Exception)), transaction.atomic():
+            RecipeVersion.objects.filter(pk=child.pk).delete()
+
+    def test_the_superseded_childs_structure_is_still_frozen(
+        self,
+        recipe: Recipe,
+        blend: Recipe,
+        kilogram: UnitOfMeasure,
+        rice: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+    ) -> None:
+        """Its lines cannot be edited, so a parent's expansion stays deterministic."""
+        from apps.kitchen.models import RecipeLine
+
+        child, _parent = self._live_pair(
+            recipe=recipe,
+            blend=blend,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+        )
+        self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+        line = RecipeLine.objects.filter(version=child).first()
+        assert line is not None
+        with pytest.raises(Exception) as caught, transaction.atomic():
+            RecipeLine.objects.filter(pk=line.pk).update(base_quantity=Decimal("99"))
+        assert "frozen" in str(caught.value)
+
+    def test_the_verifier_reports_it_as_an_advisory_and_stays_clean(
+        self,
+        organization: Organization,
+        recipe: Recipe,
+        blend: Recipe,
+        kilogram: UnitOfMeasure,
+        rice: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+    ) -> None:
+        """
+        An advisory, not a finding. The exit code must not move for a state that
+        is entirely correct.
+        """
+        from apps.kitchen.reconciliation import component_advisories, verify_organization
+
+        child, parent = self._live_pair(
+            recipe=recipe,
+            blend=blend,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+        )
+        replacement = self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+
+        assert verify_organization(organization) == []
+
+        advisories = component_advisories(organization)
+        assert [advisory.code for advisory in advisories] == ["active_parent_uses_superseded_child"]
+        note = advisories[0]
+        assert note.recipe_code == recipe.code
+        assert note.version == f"v{parent.version_number}"
+        assert blend.code in note.message
+        assert f"v{child.version_number}" in note.message
+        assert f"v{replacement.version_number}" in note.message
+
+    def test_no_supersession_of_a_referenced_child_touches_stock_or_the_ledger(
+        self,
+        recipe: Recipe,
+        blend: Recipe,
+        kilogram: UnitOfMeasure,
+        rice: InventoryItem,
+        manager: User,
+        cook: User,
+        keeper: User,
+        accountant: User,
+        approver: User,
+    ) -> None:
+        from apps.accounting.models import JournalEntry, JournalLine
+        from apps.inventory.models import StockBalance, StockMovement
+
+        child, _parent = self._live_pair(
+            recipe=recipe,
+            blend=blend,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+        )
+        before = (
+            StockMovement.objects.count(),
+            StockBalance.objects.count(),
+            JournalEntry.objects.count(),
+            JournalLine.objects.count(),
+        )
+        self._replace_child(
+            blend=blend,
+            old_child=child,
+            unit=kilogram,
+            item=rice,
+            manager=manager,
+            cook=cook,
+            keeper=keeper,
+            accountant=accountant,
+            approver=approver,
+            effective_from=SEPTEMBER,
+        )
+        assert (
+            StockMovement.objects.count(),
+            StockBalance.objects.count(),
+            JournalEntry.objects.count(),
+            JournalLine.objects.count(),
+        ) == before
+
+    def test_no_service_re_points_a_component(self) -> None:
+        """
+        The lifecycle never assigns `component_version`, and the removed refusal
+        is gone from the source rather than merely unreachable.
+
+        Assignments are what re-pointing would look like, so that is what is
+        searched for — prose mentioning the field is exactly what this module's
+        comments are *supposed* to contain.
         """
         import inspect
 
         from apps.kitchen import lifecycle
 
-        for command in (lifecycle.activate_recipe_version, lifecycle.supersede_recipe_version):
-            assert "_supersede_locked" in inspect.getsource(command)
-        assert "supersession_blockers" in inspect.getsource(lifecycle._supersede_locked)
+        source = inspect.getsource(lifecycle)
+        assert "component_version =" not in source
+        assert "component_version_id =" not in source
+        assert "recipe_component_dependency_blocks_supersession" not in source
+        assert "supersession_blockers" not in source
 
 
 class TestNoCascade:

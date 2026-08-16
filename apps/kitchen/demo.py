@@ -739,9 +739,11 @@ DEMO_SPICE_CODE = "DEMO-BLEND-SPICE"
 DEMO_MARINADE_CODE = "DEMO-BLEND-MARINADE"
 DEMO_DISH_CODE = "DEMO-RCP-DISH"
 
-#: The dish v1 runs a closed range so the blend underneath it can be replaced
-#: later without stranding it. An open-ended parent pins its child open-ended,
-#: which is correct and is exactly why the demo does not do it here.
+#: The dish's first version runs a closed range so the demo shows a **parent**
+#: supersession as well as a child one - two different corrections on one
+#: screen. It is not a workaround: a child may be superseded under an open-ended
+#: parent freely, because the parent's reference to it is a frozen foreign key
+#: and stays valid afterwards.
 DEMO_DISH_FIRST_TO = datetime.date(2026, 5, 31)
 
 

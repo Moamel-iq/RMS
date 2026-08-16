@@ -720,12 +720,22 @@ computed at full precision and quantized **once**, at the batch line's storage
 boundary (ADR-006). Quantizing at each level would round a gram of saffron four
 times on the way down.
 
-**RCP-074.** **Effective-date compatibility.** At parent approval, each child
-version's `[effective_from, effective_to]` range must cover the parent's entire
-range, for every branch the parent applies to. A parent effective in March
-whose blend version expires in February is a recipe that claims to contain
-something that did not exist, and the failure would only surface as a costing
-gap months later.
+**RCP-074 (corrected by owner policy, 2026-08-16).** **Effective-date
+compatibility, at initial activation.** For every branch the parent applies to,
+the child version must be effective **on the parent's `effective_from`** — its
+scope must exist at that branch and include that day. A parent starting in March
+whose blend version expired in February is a recipe that claims to contain
+something that did not exist when it started.
+
+**The child's range is *not* required to cover the parent's entire range**, and
+an open-ended parent does **not** require an open-ended child. This clause
+originally said otherwise; Task 3.2B implemented it that way, and it was
+withdrawn. Requiring full containment pinned a child forever under any
+open-ended parent and blocked ordinary supersession, because it conflated
+*selecting* a version by date with the *validity of an already-frozen exact
+reference*. Once the parent is activated, `component_version` is an immutable
+foreign key to a frozen row and stays valid after that row is superseded for new
+selection. See §26.4.
 
 **RCP-075.** **Organization and branch consistency.** Parent and child belong to
 the same organization. The child's branch applicability must be a superset of
@@ -796,7 +806,7 @@ that was snapshotted. Nothing about a correction reaches backwards.
 | UI | The recipe card renders the tree indented, with each component's own lines collapsible; the cost column shows the rolled-up figure and the contribution of each component, gated by `view_recipe_cost` |
 | Import columns | `recipe_code`, `version`, `component_sequence`, `component_recipe_code`, `component_version`, `multiplier`, `note`. The importer refuses a component row naming a recipe that has an `output_item` (RCP-070) at **validation** time, so the preview shows the refusal |
 | Demo | The demo batch recipe gains one non-stocked component (a demo spice blend with no output item) two levels deep, plus one stocked sub-recipe line, so both shapes and the mutual exclusion are visible on one screen |
-| Tests | `A → B → C → A` refused; `A → A` refused; depth 4 refused at the configured limit; a stocked recipe refused as a component; a non-stocked recipe refused as a line item; roll-up cost equals the hand-computed tree to the fils; a child version's expiry inside the parent's range refused at approval; flattening produces exactly the leaf lines with correct paths; a superseded child leaves posted batches unchanged |
+| Tests | `A → B → C → A` refused; `A → A` refused; depth 4 refused at the configured limit; a stocked recipe refused as a component; a non-stocked recipe refused as a line item; roll-up cost equals the hand-computed tree to the fils; a child not effective on the parent's start date refused at activation; a child whose range ends inside the parent's range **accepted**, and superseding it afterwards accepted (RCP-074, corrected); flattening produces exactly the leaf lines with correct paths; a superseded child leaves posted batches unchanged |
 
 ---
 
@@ -2971,22 +2981,53 @@ actually for: an activation validates that a child covers everything the parent
 claims, while a supersession shortens that child. Different rows, opposite ends,
 nothing for a row lock to serialise on.
 
-### 26.4 An open-ended parent pins its child open-ended
+### 26.4 Selection is a date question; a frozen reference is not
 
-**RCP-132.** Closing a child version's range under an `ACTIVE` parent that names
-it is refused, per branch, whenever the parent is still effective past the
-proposed close date. An open-ended parent is therefore effective past *every*
-close date, and pins its child open-ended for as long as it runs.
+**RCP-132 (corrected).** Two questions look alike here and are not, and
+conflating them produced a rule that had to be withdrawn.
 
-This is a real constraint on the workflow and not a defect: a dish in force
-indefinitely that says it contains blend v1 **does** require blend v1 to be in
-force indefinitely. To change the blend, the dish is given an end date, the
-replacement blend takes effect the next day, and a new dish version adopts it.
-The demo scenario does exactly that, and a test asserts both halves — that the
-open-ended case is pinned, and that the bounded case releases cleanly.
+**Selecting** a version is a date question. `resolve_recipe_version` answers it
+for a new, independent transaction: *which version governs this branch on this
+day?*
 
-Nothing cascades. A parent is never re-pointed and never auto-superseded
-(RCP-081): a historical dish keeps naming the exact historical blend forever.
+**The validity of an already-frozen reference** is not a date question at all.
+`RecipeComponent.component_version` is an immutable foreign key to one specific
+frozen row. Once a parent is activated against it, the reference stays valid —
+including after that child is superseded for new selection. A blend replaced in
+September does not retroactively empty the July dish that named it.
+
+So the gate sits at **initial activation only**. For every applicable branch:
+
+- the child belongs to the same organization;
+- the child has an eligible frozen status;
+- the child has an effective branch scope at that branch;
+- the child is effective **on the parent version's `effective_from`**;
+- and from that moment the exact child-version FK is frozen permanently.
+
+**The child's range is not required to cover the parent's future**, and an
+**open-ended parent does not require an open-ended child**.
+
+An earlier implementation of this task required exactly that, and additionally
+refused to supersede any child an `ACTIVE` parent still referenced. Both rules
+are withdrawn. They pinned an open-ended child forever and made ordinary
+correction impossible, and the reasoning behind them — that a parent would
+otherwise "contain something that stopped existing" — was simply wrong: the
+child still exists, frozen, and the parent still points at it.
+
+Consequently, later costing (Task 3.3) and production expansion (Task 3.4) must
+follow `RecipeComponent.component_version` **directly**. They must never
+re-resolve "the currently effective child" by date; doing so would be the silent
+re-pointing RCP-072 forbids, arriving through the back door.
+
+Nothing cascades and nothing is automatic. A parent is never re-pointed and
+never auto-superseded (RCP-081): a historical dish keeps naming the exact
+historical blend forever, and adopting a newer child is always a new **parent**
+version. No coordinated multi-version activation workflow is needed, because
+exact-version adoption already makes each correction independent.
+
+An `ACTIVE` parent naming a superseded child is reported as a **non-blocking
+advisory**, `active_parent_uses_superseded_child`, never as a defect — see
+§26.8.
 
 ### 26.5 The component API, and a departure from §5B.2
 
@@ -3025,3 +3066,25 @@ walks the registered paths.
 No row changes classification. **KD-08's answer now binds executable code**:
 `MAX_COMPONENT_DEPTH = 3` is a named constant with a named error and a reported
 path, which is what RCP-077 asked for.
+
+
+### 26.8 The verifier's advisory
+
+`verify_recipe_versions` reports two kinds of thing, kept apart deliberately.
+
+A **finding** is a contradiction — two versions governing one Tuesday at one
+branch, an approval with nobody behind it, a cycle. Findings make the command
+exit 1, because a person has to decide what the kitchen actually did.
+
+An **advisory** is a fact that is entirely legitimate and might still be news.
+There is one: `active_parent_uses_superseded_child`, naming the parent recipe
+and version, the child recipe and its exact version, and the replacement child
+version where known. It is printed under its own heading, counted separately,
+and **changes no exit code**. It repairs nothing, re-points nothing and
+invalidates nothing.
+
+The distinction is load-bearing. This state was briefly reported as the finding
+`component_child_not_covering_parent`; once a normal, correct state appears in a
+red list, the list stops being read. The check was removed rather than
+downgraded, because re-running the activation gate against *current* data would
+have quietly reimposed the withdrawn rule.

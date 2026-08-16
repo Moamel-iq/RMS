@@ -1243,14 +1243,18 @@ complete**.
 - Migrations `0006` (model) and `0007` (guards), both additive; `0001`–`0005`
   untouched.
 - `apps/kitchen/graph.py` — the organization-scoped advisory graph lock, the
-  cycle walk at recipe identity, the depth bound, effective-coverage validation
-  and the child-supersession dependency guard.
+  cycle walk at recipe identity, the depth bound and activation-time
+  effective-coverage validation.
 - Four draft-only commands in `services.py`, all taking the graph lock above
   every row lock.
 - Component section in the version diff, six API routes, ten Arabic RTL screens.
 - The verifier gained the component checks; `verify_recipe_versions` is still
   the only kitchen verifier and still has no repair mode.
 
-Known limitation carried forward: an **open-ended parent pins its child
-open-ended**. Bound the parent's range when the child is expected to change.
-See specification §26.4.
+Corrected by owner policy the same day: a first implementation required a child
+to cover the parent's whole future range and blocked child supersession while an
+`ACTIVE` parent referenced it. Both rules are withdrawn. The gate is at initial
+activation only — the child must be effective on the parent's start date — and
+the exact child-version FK is frozen and stays valid afterwards. An `ACTIVE`
+parent naming a superseded child is a non-blocking verifier advisory. See
+specification §26.4 and §26.8.

@@ -70,7 +70,7 @@ Now it is losing track of where a real one came from.
 | 34 | `expected_duration` and `temperature_c` are null unless a source supplied them | No default, no inference; a test asserts the demo seed leaves them null | 3.1 |
 | 35 | A recipe **with** an output item is referenceable only as a `RecipeLine`; a recipe **without** one, only as a `RecipeComponent` | `kitchen_recipe_component_follows_its_version` + `validate_component_edge` | `apps/kitchen/tests/test_components.py::TestTheTwoShapes` | 3.2B |
 | 36 | No component cycle exists at any depth, and nesting never exceeds the approved limit | `recipe_component_recipe_is_not_its_own_parent` + `cycle_path` under the graph lock | `apps/kitchen/tests/test_components.py::TestCycles` | 3.2B |
-| 37 | A component's child version covers the parent's whole effective range, for every branch the parent applies to | `require_effective_coverage` at activation | `apps/kitchen/tests/test_component_coverage.py::TestCoverageAtActivation` | 3.2B |
+| 37 | A component's child version is effective on the parent's start date, for every branch the parent applies to | `require_effective_coverage` at activation | `apps/kitchen/tests/test_component_coverage.py::TestCoverageAtActivation` | 3.2B |
 | 38 | Component cost rolls up recursively and is quantized **once**, at the top | One derivation used by every read; golden-case test against a hand-computed three-level tree | 3.3 |
 | 39 | A non-stocked component creates no item, no stock and no movement; flattened batch lines carry `source_component_version` and `component_path` | Flattening service + posting tests | 3.4 |
 | 40 | Exactly one primary serving per version; a serving's unit is convertible to the output basis | Partial unique index + `apps/units` dimension check at entry | 3.1 |
@@ -147,7 +147,7 @@ get the boundary wrong that nothing before had needed to forbid.
 | 55 | The effective range is inclusive at both ends, expressed once, and the supersession seam has no gap and no overlap | `daterange(..., '[]')` + `lifecycle.covers_on_date` + `::TestRangeBoundaries::test_the_final_included_day_resolves` | 3.2A |
 | 56 | `DEMO_FICTIONAL` approval evidence exists only inside the `DEMO-` namespace, **and a demo recipe cannot claim a signed form** | `kitchen_version_evidence_matches_namespace` + `kitchen_review_is_append_only` + `::TestDemoDataset::test_every_demo_approval_is_evidenced_as_fiction` | 3.2A |
 | 57 | A component names one **exact** child version and no command re-points it; adopting a newer child is a new parent version | `RecipeComponent.component_version` PROTECT + no re-point path anywhere | `apps/kitchen/tests/test_components.py::TestExactVersionAdoption` | 3.2B |
-| 58 | An `ACTIVE` parent's child is effective across every branch and date the parent claims, and stays so | `require_effective_coverage` + `supersession_blockers` | `apps/kitchen/tests/test_component_coverage.py` | 3.2B |
+| 58 | At **initial activation** a parent's child is effective on the parent's start date at every applicable branch; afterwards the exact reference is frozen and survives the child's supersession | `require_effective_coverage` | `apps/kitchen/tests/test_component_coverage.py` | 3.2B |
 | 59 | A component may be inserted, changed or deleted only while its parent is `DRAFT`, as a **whole row** with an empty allowlist | `kitchen_recipe_component_follows_its_version` | `apps/kitchen/tests/test_components.py::TestTheDatabaseRefusesRawWrites` | 3.2B |
 
 Invariants 35 – 37 (the component mutual exclusion, cycle and depth limits, and

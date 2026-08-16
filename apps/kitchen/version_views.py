@@ -601,9 +601,11 @@ class ComponentDependencyView(KitchenViewMixin, View):
     """
     Which parent versions use this version as a component.
 
-    The panel that answers "may I supersede this blend" before somebody tries it
-    and is refused. Same order as the refusal message and the verifier, so the
-    three never disagree about what depends on what.
+    Informational, and deliberately not a gate. Superseding a child is never
+    refused because parents name it: the component reference is a frozen foreign
+    key and stays valid afterwards. What this panel answers is the useful
+    question next to it — *"who would I probably want to issue new versions
+    of?"* — which is a decision for a person.
     """
 
     template_name = "kitchen/component_dependencies.html"
@@ -617,7 +619,7 @@ class ComponentDependencyView(KitchenViewMixin, View):
                 "version": version,
                 "recipe": version.recipe,
                 "dependencies": list(component_dependencies(self.actor, version)),
-                "blockers": dependents_of(version),
+                "still_running": dependents_of(version),
                 "page_title": _("من يستعمل هذه النسخة"),
                 "fragment_base_template": (
                     "kitchen/_bare.html" if self.is_htmx() else "shell.html"

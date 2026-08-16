@@ -15,7 +15,7 @@
           {{ recipe.code }} v{{ version.version_number }} — {% translate "من يستعمل هذه النسخة" %}
         </h1>
         <p class="pagehead__hint">
-          {% translate "الوصفة الأم تشير إلى هذه النسخة بعينها ولا تتغير تلقائياً. تقصير سريان هذه النسخة تحت وصفة أم سارية مرفوض." %}
+          {% translate "الوصفة الأم تشير إلى هذه النسخة بعينها ولا تتغير تلقائياً. استبدال هذه النسخة مسموح ولا يُبطل الوصفات الأم: المرجع مجمّد ويبقى صالحاً." %}
         </p>
       </div>
       <div class="rowactions">
@@ -55,21 +55,24 @@
       <p class="muted">{% translate "لا تستعمل أي وصفة هذه النسخة كوصفة فرعية." %}</p>
     {% endif %}
 
-    {% if blockers %}
+    {% if still_running %}
       <section class="formcard">
-        <div class="alert" role="alert">
-          <h2>{% translate "يمنع الاستبدال" %}</h2>
+        {# Informational, never a refusal: the exact reference is frozen and     #}
+        {# stays valid after this version is superseded. What the reader may     #}
+        {# want is a new version of each parent, which is their decision.        #}
+        <div class="alert" role="status">
+          <h2>{% translate "ما زال قيد الاستعمال" %}</h2>
           <p>
-            {% translate "النسخ السارية التالية تعتمد على هذه النسخة. أصدر خلطة بديلة، ثم نسخة أم جديدة تتبناها، ثم أغلق هذه." %}
+            {% translate "النسخ السارية التالية تحتوي هذه النسخة بعينها. استبدالها هنا لا يغيّرها هناك ولا يبطلها؛ إن أردت تحديثها فأصدر نسخة أم جديدة تتبنى البديلة." %}
           </p>
           <ul>
-            {% for blocker in blockers %}
+            {% for user in still_running %}
               <li>
-                {{ blocker.parent_version.recipe.code }}
-                v{{ blocker.parent_version.version_number }}
-                @ {{ blocker.branch_code }}
+                {{ user.parent_version.recipe.code }}
+                v{{ user.parent_version.version_number }}
+                @ {{ user.branch_code }}
                 — {% translate "حتى" %}
-                {% if blocker.parent_effective_to %}{{ blocker.parent_effective_to }}{% else %}{% translate "أجل مفتوح" %}{% endif %}
+                {% if user.parent_effective_to %}{{ user.parent_effective_to }}{% else %}{% translate "أجل مفتوح" %}{% endif %}
               </li>
             {% endfor %}
           </ul>

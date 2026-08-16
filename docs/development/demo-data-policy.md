@@ -317,9 +317,10 @@ from its exact child version. Adding the stocked item as a component instead is
 refused by the service and by a trigger — the two shapes are mutually exclusive
 by construction, not by rule.
 
-The dish's first version runs a **closed** range on purpose. An open-ended parent
-pins its child open-ended, so a demo that left it open could never demonstrate
-the replacement without being stuck.
+The dish's first version runs a **closed** range on purpose, so the scenario shows
+a **parent** supersession as well as a child one — two different corrections on
+one screen. It is not a workaround: a child may be superseded under an open-ended
+parent freely, because the parent's reference to it is a frozen foreign key.
 
 Nothing invalid is ever seeded. A cycle or an over-deep chain appears only inside
 a test that rolls back.

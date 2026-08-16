@@ -18,14 +18,20 @@ anybody's child. Two concurrent additions therefore cannot lie on one path.
 `TestTwoEdgesCannotCloseACycle` pins that property so it fails the day the
 draft-only rule is relaxed.
 
-The race that **does** exist is about effective coverage, and it is the reason
-this module owns a lock. `T1` activates a parent, having checked that its child
-covers every date the parent claims. `T2` supersedes that child, shortening its
-range. Different rows, opposite ends, nothing in common for `select_for_update`
-to serialise on — and the committed result is an `ACTIVE` parent whose
-ingredient stopped existing partway through it, which is precisely what RCP-074
-exists to prevent. Certification is as much a graph-wide question as mutation
-is, so both take the lock.
+What the lock **is** for is reading a consistent graph. Cycle and depth are
+properties of the whole edge set, and every check here re-reads that set: a walk
+that observed the graph half-way through somebody else's multi-edge edit could
+certify a version against a picture that never existed. Mutation and
+certification therefore both take it, and taking it above every row lock is also
+what stops opposite-order callers deadlocking.
+
+What the lock is **not** for is keeping a child effective for a parent's whole
+life. Coverage is a point-in-time gate at activation, and a supersession racing
+it produces a state an ordinary sequential order produces too — activate the
+parent on 1 July, then supersede the child so it closes on 30 June. That is
+legitimate: once a parent is `ACTIVE` its `component_version` is a frozen
+reference, and the child may be superseded freely afterwards. See
+`parents_outliving_child`, which is advisory rather than a refusal.
 
 Every operation that can change the graph, or that certifies it, takes one
 **organization-scoped advisory lock** first:
@@ -112,9 +118,10 @@ def lock_component_graph(organization_id: int) -> None:
     Taken by every command that may change the graph — create, update, remove,
     reorder — and by every command that *certifies* it: submission, approval,
     activation, and the supersession of a version something else may depend on.
-    Certification needs it as much as mutation does, because the contradiction
-    this closes is between an activation that checked coverage and a
-    supersession that then removed it.
+    Certification needs it as much as mutation does: cycle and depth are
+    properties of the whole edge set, and a walk that read that set while
+    somebody else was half-way through a multi-edge edit would certify a version
+    against a graph that never existed.
 
     Exclusive rather than shared. Graph edits are rare — a recipe is written
     once and read forever — so there is nothing to gain from letting two of them
@@ -582,33 +589,40 @@ def coverage_gaps(
     parent_version: RecipeVersion,
     branches: list[int],
     effective_from: datetime.date,
-    effective_to: datetime.date | None,
+    effective_to: datetime.date | None = None,
 ) -> list[CoverageGap]:
     """
-    Every branch and span a parent would claim that one of its children does not
-    cover.
+    Every branch on which a child is not effective at the parent's **start date**.
 
-    RCP-074 in code: *"at parent approval, each child version's range must cover
-    the parent's entire range, for every branch the parent applies to"*. A
-    parent effective in March whose blend expired in February is a recipe that
-    claims to contain something that did not exist, and the failure would
-    otherwise surface as a costing gap months later.
+    This is the gate at *initial activation*, and it is deliberately narrow.
+    For each applicable branch the child must:
 
-    Two halves, and both matter:
+    * belong to the same organization (checked when the edge is written);
+    * have an eligible frozen status;
+    * have an effective branch scope at that branch;
+    * be effective **on the parent's `effective_from`**.
 
-    * **Start.** The child's coverage at that branch must begin on or before the
-      parent's `effective_from`. Beginning later leaves an uncovered head.
-    * **End.** The child's coverage must be open-ended, or end on or after the
-      parent's `effective_to`. An open-ended parent therefore requires an
-      open-ended child — anything else leaves an uncovered tail that simply has
-      no last day.
+    **The child's range is not required to cover the parent's future.** That
+    rule was tried and removed: it made an open-ended parent demand an
+    open-ended child, which pinned the child forever and blocked ordinary
+    supersession — and it confused two different questions.
 
-    Partial overlap is never enough, and "the latest child version" is never a
-    substitute: the parent named *one exact version* and that is the one that
-    has to be effective.
+    *Selecting* a version for a new, independent transaction is a date question,
+    answered by `resolve_recipe_version`. The *validity of an already-frozen
+    exact reference* is not a date question at all: `component_version` is an
+    immutable foreign key to a specific frozen row, and it stays valid after
+    that row is superseded for new selection. A blend superseded in September
+    does not retroactively empty the July dish that named it — it is still
+    there, still frozen, still expandable.
 
-    Read-only. Returns the gaps rather than raising, so the activation screen
-    can list all of them at once instead of revealing them one refusal at a time.
+    So costing (Task 3.3) and production expansion (Task 3.4) must follow
+    `RecipeComponent.component_version` **directly**, and must never re-resolve
+    "the currently effective child" by date. Re-resolving would be exactly the
+    silent re-pointing RCP-072 forbids, arriving through the back door.
+
+    `effective_to` is accepted and ignored, kept in the signature so callers and
+    the activation screen read the same way. Read-only: returns the gaps rather
+    than raising, so the screen can list all of them at once.
     """
     gaps: list[CoverageGap] = []
     components = list(
@@ -665,6 +679,9 @@ def coverage_gaps(
                     )
                 )
                 continue
+            # Effective *on the parent's start date* — both ends of the child's
+            # own range are tested against that one day, and against nothing
+            # else. The parent's end date is not consulted.
             if scope.effective_from > effective_from:
                 gaps.append(
                     CoverageGap(
@@ -680,23 +697,16 @@ def coverage_gaps(
                         code="recipe_component_not_effective",
                     )
                 )
-            # An open-ended parent needs an open-ended child. A child that ends
-            # at all leaves a tail the parent claims and nothing covers, and the
-            # tail has no last day to name.
-            if scope.effective_to is not None and (
-                effective_to is None or scope.effective_to < effective_to
-            ):
+            if scope.effective_to is not None and scope.effective_to < effective_from:
                 gaps.append(
                     CoverageGap(
                         child_label=label,
                         branch_code=branch_code,
                         reason=str(
-                            _("سريان الفرعية ينتهي %(child)s قبل نهاية الأصل %(parent)s.")
+                            _("سريان الفرعية انتهى %(child)s قبل بداية الأصل %(parent)s.")
                             % {
                                 "child": scope.effective_to.isoformat(),
-                                "parent": (
-                                    effective_to.isoformat() if effective_to else str(_("مفتوحة"))
-                                ),
+                                "parent": effective_from.isoformat(),
                             }
                         ),
                         code="recipe_component_not_effective",
@@ -716,7 +726,7 @@ def require_effective_coverage(
     parent_version: RecipeVersion,
     branches: list[int],
     effective_from: datetime.date,
-    effective_to: datetime.date | None,
+    effective_to: datetime.date | None = None,
 ) -> None:
     """`coverage_gaps`, as a refusal. Every gap is named, not just the first."""
     gaps = coverage_gaps(
@@ -746,7 +756,7 @@ def require_effective_coverage(
 
 
 # ---------------------------------------------------------------------------
-# Downstream dependencies (§L)
+# Downstream dependencies — advisory, never a refusal
 # ---------------------------------------------------------------------------
 
 
@@ -789,33 +799,36 @@ def dependents_of(child_version: RecipeVersion) -> list[Dependency]:
     return dependencies
 
 
-def supersession_blockers(
+def parents_outliving_child(
     *, child_version: RecipeVersion, close_at: datetime.date
 ) -> list[Dependency]:
     """
-    The active parents that closing this child on `close_at` would strand.
+    The `ACTIVE` parents still effective after this child's range closes.
 
-    A parent that named an exact child version keeps naming it forever, so
-    shortening the child's range under a live parent would leave the parent
-    claiming to contain something that stops existing partway through its own
-    effective period — silently, and only visible later as a costing gap.
+    **Advisory only. Nothing refuses on this.** An earlier version of this
+    module blocked the supersession outright, which was wrong twice over: it
+    pinned an open-ended child forever, and it treated an immutable exact
+    reference as though it were a date-based lookup that could go stale.
 
-    The correction order is versioning, never repointing (RCP-081):
+    A parent's `component_version` is a frozen foreign key. Superseding the
+    child ends that child's availability for *new, independent selection*; it
+    does not reach backwards into a parent that already named it. The parent
+    stays valid, its tree stays identical, and its expansion stays
+    deterministic — which is the whole point of adopting an exact version.
 
-        approve a replacement child
-        → create a new **parent** version that adopts it
-        → activate or supersede that parent
-        → then close the old child, which no active parent needs any more
+    What this list is genuinely useful for is telling somebody, without
+    stopping them: *"the marinade you just replaced is still what three active
+    dishes contain — you may want new versions of those too."* That is a
+    decision for a person, and the correction remains versioning rather than
+    repointing (RCP-081): a new **parent** version adopts the new child.
 
-    Cascade-repointing the parents would rewrite what past batches claimed to
-    contain, and cascade-superseding them would end recipes nobody decided to
-    end. Neither happens here.
+    Nothing cascades. No parent is re-pointed and no parent is auto-superseded.
     """
-    blockers: list[Dependency] = []
+    outliving: list[Dependency] = []
     for dependency in dependents_of(child_version):
         if dependency.parent_effective_to is None or dependency.parent_effective_to > close_at:
-            blockers.append(dependency)
-    return blockers
+            outliving.append(dependency)
+    return outliving
 
 
 # ---------------------------------------------------------------------------

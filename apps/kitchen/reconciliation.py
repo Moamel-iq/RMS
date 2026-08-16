@@ -31,7 +31,6 @@ from dataclasses import dataclass
 from django.db.models import Count, Q
 
 from apps.kitchen.graph import (
-    coverage_gaps,
     cycle_path,
     depth_above,
     depth_below,
@@ -100,7 +99,6 @@ def verify_organization(organization: Organization) -> list[Finding]:
     findings.extend(_check_overlaps(organization))
     findings.extend(_check_ambiguous_resolution(organization))
     findings.extend(_check_component_graph(organization))
-    findings.extend(_check_component_coverage(organization))
     return findings
 
 
@@ -550,45 +548,90 @@ def _check_component_graph(organization: Organization) -> list[Finding]:
     return findings
 
 
-def _check_component_coverage(organization: Organization) -> list[Finding]:
+@dataclass(frozen=True)
+class Advisory:
     """
-    An ACTIVE parent whose child is not effective across everything it claims.
+    Something worth telling a person, that is **not** wrong.
 
-    The state RCP-074 refuses at activation, checked again from the other end:
-    a child whose range was shortened afterwards, or a branch scope that arrived
-    later, would both land here.
+    Kept apart from `Finding` on purpose. A finding is a contradiction — two
+    versions governing one Tuesday, an approval with nobody behind it — and it
+    makes the command exit non-zero because somebody has to decide what the
+    kitchen actually did. An advisory is a fact that is entirely legitimate and
+    might still be news.
+
+    Mixing the two would be worse than not reporting at all: once a normal,
+    correct state shows up in a red list, the list stops being read.
     """
-    findings: list[Finding] = []
-    parents = list(
-        RecipeVersion.objects.filter(
+
+    code: str
+    organization_code: str
+    recipe_code: str
+    version: str
+    message: str
+
+    def __str__(self) -> str:
+        return f"({self.code}) {self.organization_code}/{self.recipe_code} {self.version}: {self.message}"
+
+
+def component_advisories(organization: Organization) -> list[Advisory]:
+    """
+    `ACTIVE` parents whose exact child version has since been superseded.
+
+    **This is not an error, and the command's exit code does not move for it.**
+    A parent's `component_version` is an immutable foreign key to a frozen row.
+    Superseding that row ends its availability for new, independent selection;
+    it does not reach backwards into a parent that already named it. The parent
+    is still valid, its tree is unchanged, and its expansion is still
+    deterministic.
+
+    An earlier version of this module reported exactly this state as
+    `component_child_not_covering_parent` and refused the supersession that
+    produced it. Both were wrong, and for the same reason: they treated a frozen
+    reference as though it were a date-based lookup that could go stale. The
+    check is not merely downgraded here — re-running the activation gate against
+    *current* data would quietly reimpose the removed rule, so it is gone, and
+    this advisory stands in its place.
+
+    What it is good for is a sentence a person can act on: *"the marinade you
+    replaced is still what three active dishes contain."* Whether those dishes
+    should get new versions is their decision, and the correction stays
+    versioning rather than repointing (RCP-081).
+    """
+    advisories: list[Advisory] = []
+    components = (
+        RecipeComponent.objects.filter(
             recipe__organization=organization,
-            status=RecipeVersionStatus.ACTIVE,
-            components__isnull=False,
+            version__status=RecipeVersionStatus.ACTIVE,
+            component_version__status=RecipeVersionStatus.SUPERSEDED,
         )
-        .select_related("recipe", "recipe__organization")
-        .distinct()
-        .order_by("recipe__code", "version_number")
+        .select_related(
+            "version",
+            "version__recipe",
+            "version__recipe__organization",
+            "component_recipe",
+            "component_version",
+            "component_version__superseded_by_version",
+        )
+        .order_by("version__recipe__code", "version__version_number", "line_order")
     )
-    for parent in parents:
-        scopes = list(parent.branch_scopes.select_related("branch"))
-        if not scopes:
-            continue
-        gaps = coverage_gaps(
-            parent_version=parent,
-            branches=[scope.branch_id for scope in scopes],
-            effective_from=min(scope.effective_from for scope in scopes),
-            effective_to=(
-                None
-                if any(scope.effective_to is None for scope in scopes)
-                else max(scope.effective_to for scope in scopes if scope.effective_to)
-            ),
+    for component in components:
+        parent = component.version
+        child = component.component_version
+        replacement = child.superseded_by_version
+        replacement_label = (
+            f"v{replacement.version_number}" if replacement is not None else "unknown"
         )
-        for gap in gaps:
-            findings.append(
-                _finding(
-                    "component_child_not_covering_parent",
-                    parent,
-                    f"{gap.child_label} @ {gap.branch_code}: {gap.reason}",
-                )
+        advisories.append(
+            Advisory(
+                code="active_parent_uses_superseded_child",
+                organization_code=parent.recipe.organization.code,
+                recipe_code=parent.recipe.code,
+                version=f"v{parent.version_number}",
+                message=(
+                    f"still uses {component.component_recipe.code} "
+                    f"v{child.version_number}, which was superseded by "
+                    f"{replacement_label}; the reference is frozen and remains valid"
+                ),
             )
-    return findings
+        )
+    return advisories

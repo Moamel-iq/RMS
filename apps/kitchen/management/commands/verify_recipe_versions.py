@@ -21,6 +21,15 @@ question ever existed.
 Exit code 1 when anything disagrees, so CI and cron notice without a person
 reading the output. Exit code 2 for a selector that names nothing, because
 "checked an organization that does not exist" must not look like "clean".
+
+## Advisories are printed separately and change no exit code
+
+An `ACTIVE` parent recipe that still names a child version somebody has since
+superseded is **correct**, not broken: the component reference is a frozen
+foreign key and stays valid after the child stops being selectable for new
+work. It is still worth telling somebody, so it is printed under its own
+heading and counted separately. Putting a legitimate state into the findings
+list would make the findings list stop being read.
 """
 
 from __future__ import annotations
@@ -30,7 +39,11 @@ from typing import Any
 from django.core.management.base import CommandParser
 
 from apps.core.console import SeedCommand
-from apps.kitchen.reconciliation import recipes_checked, verify_organization
+from apps.kitchen.reconciliation import (
+    component_advisories,
+    recipes_checked,
+    verify_organization,
+)
 from apps.organizations.models import Organization
 
 
@@ -59,23 +72,32 @@ class Command(SeedCommand):
                 raise SystemExit(2)
 
         total_findings = 0
+        total_advisories = 0
         total_recipes = 0
         for organization in organizations:
             findings = verify_organization(organization)
+            advisories = component_advisories(organization)
             checked = recipes_checked(organization)
             total_recipes += checked
             total_findings += len(findings)
+            total_advisories += len(advisories)
 
             self.write("")
             self.write(f"{organization.code} - {organization.name_ar}")
             self.write(f"  recipes checked: {checked}")
-            if not findings:
+            if findings:
+                for finding in findings:
+                    self.write(f"  {finding}")
+            else:
                 self.write("  clean")
-                continue
-            for finding in findings:
-                self.write(f"  {finding}")
+            if advisories:
+                self.write("  advisory (not a defect, exit code unaffected):")
+                for advisory in advisories:
+                    self.write(f"    {advisory}")
 
         self.write("")
+        if total_advisories:
+            self.write(f"{total_advisories} advisory note(s). Advisories are not defects.")
         if total_findings:
             self.write(f"{total_findings} finding(s) across {total_recipes} recipe(s).")
             raise SystemExit(1)
