@@ -34,6 +34,7 @@ from django.http import HttpRequest
 from ninja import Router, Schema
 
 from apps.inventory.selectors import resolve_item, resolve_package_unit
+from apps.kitchen.graph import component_tree, flatten_tree
 from apps.kitchen.lifecycle import (
     activate_recipe_version,
     approve_recipe_version,
@@ -55,7 +56,9 @@ from apps.kitchen.permissions import (
     VIEW_RECIPE,
 )
 from apps.kitchen.selectors import (
+    components_for_version,
     resolve_category,
+    resolve_component,
     resolve_line,
     resolve_recipe,
     resolve_serving,
@@ -74,16 +77,20 @@ from apps.kitchen.services import (
     archive_recipe,
     create_draft_recipe_version,
     create_recipe,
+    create_recipe_component,
     delete_draft_recipe_version,
     link_step_ingredient,
     reactivate_recipe,
+    remove_recipe_component,
     remove_recipe_line,
     remove_recipe_line_substitute,
     remove_recipe_serving,
     remove_recipe_step,
+    reorder_recipe_component,
     unlink_step_ingredient,
     update_draft_recipe_version,
     update_recipe,
+    update_recipe_component,
     update_recipe_line,
     update_recipe_serving,
     update_recipe_step,
@@ -1135,3 +1142,204 @@ def get_effective_version(
         recipe=recipe, branch=branch, on_date=datetime.date.fromisoformat(on_date)
     )
     return _lifecycle_out(version)
+
+
+# --- Nested components -------------------------------------------------------
+#
+# Draft-only, and named that way in every summary. There is deliberately **no**
+# writable route for a component under a frozen parent: adopting a different
+# child version is a new parent version, not a PATCH, and an endpoint that
+# offered otherwise would be the one place the whole exact-version rule leaked.
+#
+# No cost route, no flatten route, no production route. Task 3.3 owns roll-up
+# and Task 3.4 owns flattening.
+
+
+class ComponentOut(Schema):
+    id: int
+    version_id: int
+    line_order: int
+    component_version_id: int
+    component_recipe_code: str
+    component_recipe_name: str
+    component_version_number: int
+    component_version_status: str
+    #: An exact string, never a JSON number. A JSON number is a binary float
+    #: before any Python code sees it, and this is a conversion factor.
+    multiplier: str
+    note: str
+
+
+class ComponentIn(Schema):
+    component_version_id: int
+    multiplier: str
+    line_order: int | None = None
+    note: str = ""
+    source_document: str = ""
+    source_page: int | None = None
+    source_reference: str = ""
+    source_note: str = ""
+
+
+class ComponentPatchIn(Schema):
+    multiplier: str
+    component_version_id: int | None = None
+    note: str = ""
+
+
+class ComponentReorderIn(Schema):
+    line_order: int
+
+
+def _component_out(component: Any) -> dict[str, Any]:
+    return {
+        "id": component.pk,
+        "version_id": component.version_id,
+        "line_order": component.line_order,
+        "component_version_id": component.component_version_id,
+        "component_recipe_code": component.component_recipe.code,
+        "component_recipe_name": component.component_recipe.name_ar,
+        "component_version_number": component.component_version.version_number,
+        "component_version_status": component.component_version.status,
+        "multiplier": component.multiplier_display,
+        "note": component.note,
+    }
+
+
+@router.get(
+    "/recipe-versions/{version_id}/components",
+    response=list[ComponentOut],
+    summary="The nested sub-recipes of one version",
+)
+def list_components(request: HttpRequest, version_id: int) -> list[dict[str, Any]]:
+    actor = _require_view(request)
+    version = resolve_version(actor, version_id)
+    return [_component_out(component) for component in components_for_version(version)]
+
+
+@router.post(
+    "/recipe-versions/{version_id}/components",
+    response={201: ComponentOut},
+    summary="Add a nested sub-recipe to a DRAFT version",
+)
+def post_component(
+    request: HttpRequest, version_id: int, payload: ComponentIn
+) -> tuple[int, dict[str, Any]]:
+    actor = _actor(request)
+    version = resolve_version(actor, version_id)
+    require_reachable_organization_permission(actor, MANAGE_RECIPE, version.recipe.organization)
+    # The child is resolved **through the caller** as well. A submitted id may
+    # only ever select from what the caller already reaches; it can never widen
+    # the scope it is submitted into (ADR-016).
+    child = resolve_version(actor, payload.component_version_id)
+    component = create_recipe_component(
+        version=version,
+        component_version=child,
+        multiplier=Decimal(payload.multiplier),
+        line_order=payload.line_order,
+        note=payload.note,
+        actor=actor,
+        source_document=payload.source_document,
+        source_page=payload.source_page,
+        source_reference=payload.source_reference,
+        source_note=payload.source_note,
+    )
+    return 201, _component_out(component)
+
+
+@router.patch(
+    "/recipe-components/{component_id}",
+    response=ComponentOut,
+    summary="Correct a nested sub-recipe on a DRAFT version",
+)
+def patch_component(
+    request: HttpRequest, component_id: int, payload: ComponentPatchIn
+) -> dict[str, Any]:
+    actor = _actor(request)
+    component = resolve_component(actor, component_id)
+    require_reachable_organization_permission(actor, MANAGE_RECIPE, component.recipe.organization)
+    child = (
+        resolve_version(actor, payload.component_version_id)
+        if payload.component_version_id is not None
+        else None
+    )
+    return _component_out(
+        update_recipe_component(
+            component=component,
+            multiplier=Decimal(payload.multiplier),
+            component_version=child,
+            note=payload.note,
+        )
+    )
+
+
+@router.post(
+    "/recipe-components/{component_id}/reorder",
+    response=list[ComponentOut],
+    summary="Move a nested sub-recipe within a DRAFT version",
+)
+def post_component_reorder(
+    request: HttpRequest, component_id: int, payload: ComponentReorderIn
+) -> list[dict[str, Any]]:
+    actor = _actor(request)
+    component = resolve_component(actor, component_id)
+    require_reachable_organization_permission(actor, MANAGE_RECIPE, component.recipe.organization)
+    ordered = reorder_recipe_component(component=component, line_order=payload.line_order)
+    return [_component_out(row) for row in ordered]
+
+
+@router.delete(
+    "/recipe-components/{component_id}",
+    response={204: None},
+    summary="Remove a nested sub-recipe from a DRAFT version",
+)
+def delete_component(request: HttpRequest, component_id: int, reason: str = "") -> tuple[int, None]:
+    actor = _actor(request)
+    component = resolve_component(actor, component_id)
+    require_reachable_organization_permission(actor, MANAGE_RECIPE, component.recipe.organization)
+    remove_recipe_component(component=component, reason=reason)
+    return 204, None
+
+
+class ComponentTreeNodeOut(Schema):
+    depth: int
+    line_order: int
+    recipe_code: str
+    recipe_name: str
+    version_number: int
+    version_status: str
+    multiplier: str
+    cumulative_multiplier: str
+    note: str
+
+
+@router.get(
+    "/recipe-versions/{version_id}/component-tree",
+    response=list[ComponentTreeNodeOut],
+    summary="The whole nested tree under one version, parents before children",
+)
+def get_component_tree(request: HttpRequest, version_id: int) -> list[dict[str, Any]]:
+    """
+    Read-only, and carries no cost column.
+
+    `cumulative_multiplier` is the product of every multiplier from the root
+    down, at full precision (RCP-073). It is a scaling identity for display; the
+    quantity it will eventually scale is quantized once, at a production batch
+    line, which is Task 3.4's.
+    """
+    actor = _require_view(request)
+    version = resolve_version(actor, version_id)
+    return [
+        {
+            "depth": node.depth,
+            "line_order": node.line_order,
+            "recipe_code": node.recipe.code,
+            "recipe_name": node.recipe.name_ar,
+            "version_number": node.version.version_number,
+            "version_status": node.version.status,
+            "multiplier": node.multiplier_display,
+            "cumulative_multiplier": node.cumulative_display,
+            "note": node.note,
+        }
+        for node in flatten_tree(component_tree(version))
+    ]

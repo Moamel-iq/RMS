@@ -1234,3 +1234,23 @@ reviewed.
 `RecipeComponent` does not exist and a test asserts its absence. Costing does
 not exist and `view_recipe_cost` still guards nothing. Task 3.2 remains **in
 progress** until 3.2B lands the nested-recipe graph.
+
+## Task 3.2B — nested recipe components (2026-08-16)
+
+`RecipeComponent` and the whole nested-recipe graph. With it **Task 3.2 is
+complete**.
+
+- Migrations `0006` (model) and `0007` (guards), both additive; `0001`–`0005`
+  untouched.
+- `apps/kitchen/graph.py` — the organization-scoped advisory graph lock, the
+  cycle walk at recipe identity, the depth bound, effective-coverage validation
+  and the child-supersession dependency guard.
+- Four draft-only commands in `services.py`, all taking the graph lock above
+  every row lock.
+- Component section in the version diff, six API routes, ten Arabic RTL screens.
+- The verifier gained the component checks; `verify_recipe_versions` is still
+  the only kitchen verifier and still has no repair mode.
+
+Known limitation carried forward: an **open-ended parent pins its child
+open-ended**. Bound the parent's range when the child is expected to change.
+See specification §26.4.

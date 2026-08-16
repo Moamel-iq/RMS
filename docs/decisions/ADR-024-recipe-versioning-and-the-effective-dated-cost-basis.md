@@ -266,10 +266,57 @@ generalising it before a second module needs it would fit neither.
 
 - **Costing itself** — Task 3.3 and the cost-snapshot half of this ADR's
   original scope. Nothing in this decision stores or derives money.
-- **Nested recipes** — Task 3.2B. The mutual-exclusion constraint (invariant 35),
-  cycle and depth validation (36), and child-range compatibility (37) are
-  specified in Task 3.0 §5B and unimplemented.
 - **KD-19 and KD-20 data** — the sauce unit gap and the undocumented appetizer
   blends remain open as *data*, exactly as the register recorded. The unit layer
   refuses the conversion rather than guessing it, and this ADR does not change
   that.
+
+
+## Extended by Task 3.2B — the nested recipe graph
+
+Task 3.2B implemented Task 3.0 §5B. Nothing above is revised; three decisions
+are added, and all three are about the same thing this ADR has been about from
+the start — *what a version is allowed to claim about a date*.
+
+**A component names one exact child version, and the reference never moves.**
+`RecipeComponent.component_version` is a `PROTECT` foreign key to a specific
+frozen row, and no service in the module re-points it. That is RCP-011 one level
+down: a blend that changed in September must not restate what the July dish
+claimed to contain. Adopting a newer child is a **new parent version**, and the
+diff shows it as a change on the component's version-number row precisely so the
+manager signing it can see which decision they are making.
+
+**An active parent's child must stay effective for as long as the parent
+claims.** Checked at activation (RCP-074) and again from the other end: closing
+a child's range under an `ACTIVE` parent that names it is refused, per branch,
+whenever the parent is still effective past the proposed close date.
+
+The consequence is stated rather than discovered: **an open-ended parent pins its
+child open-ended.** A dish in force indefinitely that says it contains blend v1
+requires blend v1 in force indefinitely, and there is no ordering that escapes
+it. To change the blend, the dish is given an end date first. This is the same
+shape as the decision above it — an effective claim is a claim about dates, and
+you cannot quietly withdraw the dates something else is standing on.
+
+Nothing cascades. A dependent parent is never re-pointed and never
+auto-superseded: correcting a child is versioning, exactly as correcting a
+parent is (RCP-081).
+
+**The graph lock is about coverage, not about cycles.** The textbook
+`A → B` / `B → A` race cannot corrupt this graph, because an edge may only be
+written on a `DRAFT` parent and a draft is never anybody's child — so two
+concurrent additions cannot lie on one path. What genuinely races is an
+activation that validated coverage against a supersession that then removed it:
+different rows, opposite ends, nothing for a row lock to see. The
+organization-scoped advisory lock closes that, and is taken by certification as
+well as by mutation.
+
+### Also settled by this extension
+
+- `line_order` rather than `sequence`, and `FACTOR_PLACES` rather than six
+  decimal places — the repository's own conventions over the specification's
+  sketch, both recorded in spec §26.1.
+- Cycles are judged at **recipe** identity, so `A v2 → A v1` is refused.
+- Depth counts component **edges**; `MAX_COMPONENT_DEPTH = 3` (KD-08).
+- Component endpoints exist, departing from §5B.2's "no component endpoint" at
+  the owner's instruction, and are draft-only for mutation. Recorded in §26.5.

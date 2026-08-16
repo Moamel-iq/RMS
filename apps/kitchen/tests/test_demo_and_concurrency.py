@@ -114,9 +114,12 @@ class TestDemoDataset:
     ) -> list[Recipe]:
         return seed_demo_recipes(organization=organization, created_by=manager)
 
-    def test_nine_recipes_are_created(self, seeded: list[Recipe]) -> None:
-        """Five that stay drafts, and four that walk the approval boundary."""
-        assert len(seeded) == 9
+    def test_twelve_recipes_are_created(self, seeded: list[Recipe]) -> None:
+        """
+        Five that stay drafts, four that walk the approval boundary, and three
+        that form the nested graph Task 3.2B added.
+        """
+        assert len(seeded) == 12
 
     def test_every_screen_has_something_on_it(self, seeded: list[Recipe]) -> None:
         assert RecipeLine.objects.exists()

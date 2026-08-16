@@ -1,0 +1,80 @@
+{# "Who uses this version?" - the panel that answers whether a blend may be  #}
+{# superseded, before somebody tries and is refused.                        #}
+{# Fragment and full page from one template, as everywhere else here.       #}
+{# `extends` must be the first tag, so this note leads.                     #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="component-dependencies">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">
+          {{ recipe.code }} v{{ version.version_number }} — {% translate "من يستعمل هذه النسخة" %}
+        </h1>
+        <p class="pagehead__hint">
+          {% translate "الوصفة الأم تشير إلى هذه النسخة بعينها ولا تتغير تلقائياً. تقصير سريان هذه النسخة تحت وصفة أم سارية مرفوض." %}
+        </p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
+          {% translate "تفاصيل النسخة" %}
+        </a>
+      </div>
+    </div>
+
+    {% if dependencies %}
+      <table class="table">
+        <caption class="visually-hidden">{% translate "الوصفات التي تستعمل هذه النسخة" %}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{% translate "الوصفة الأم" %}</th>
+            <th scope="col">{% translate "النسخة" %}</th>
+            <th scope="col">{% translate "الحالة" %}</th>
+            <th scope="col">{% translate "المعامل" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for component in dependencies %}
+            <tr>
+              <td>
+                <a href="{% url 'kitchen:version_detail' component.version_id %}">
+                  {{ component.version.recipe.code }} — {{ component.version.recipe.name_ar }}
+                </a>
+              </td>
+              <td>v{{ component.version.version_number }}</td>
+              <td>{{ component.version.get_status_display }}</td>
+              <td><code dir="ltr">{{ component.multiplier_display }}</code></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">{% translate "لا تستعمل أي وصفة هذه النسخة كوصفة فرعية." %}</p>
+    {% endif %}
+
+    {% if blockers %}
+      <section class="formcard">
+        <div class="alert" role="alert">
+          <h2>{% translate "يمنع الاستبدال" %}</h2>
+          <p>
+            {% translate "النسخ السارية التالية تعتمد على هذه النسخة. أصدر خلطة بديلة، ثم نسخة أم جديدة تتبناها، ثم أغلق هذه." %}
+          </p>
+          <ul>
+            {% for blocker in blockers %}
+              <li>
+                {{ blocker.parent_version.recipe.code }}
+                v{{ blocker.parent_version.version_number }}
+                @ {{ blocker.branch_code }}
+                — {% translate "حتى" %}
+                {% if blocker.parent_effective_to %}{{ blocker.parent_effective_to }}{% else %}{% translate "أجل مفتوح" %}{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </section>
+    {% endif %}
+  </div>
+{% endblock %}

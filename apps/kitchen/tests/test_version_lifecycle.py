@@ -967,8 +967,9 @@ class TestZeroEffect:
     The boundary, proved by counting rather than asserted.
 
     Every command in the lifecycle runs, and the ledger and the general ledger
-    are identical afterwards. `RecipeComponent` does not exist, and a test says
-    so rather than a comment.
+    are identical afterwards. Where the module stops is asserted by a test
+    rather than promised by a comment — and the assertion is updated when a task
+    legitimately moves the fence, never when it would be convenient.
     """
 
     def _counts(self) -> tuple[int, ...]:
@@ -1024,14 +1025,24 @@ class TestZeroEffect:
 
         assert self._counts() == before
 
-    def test_no_recipe_component_model_exists(self) -> None:
-        """Task 3.2B owns nested recipes; nothing here may anticipate it."""
+    def test_the_module_stops_where_production_and_costing_begin(self) -> None:
+        """
+        The boundary that is still true, asserted rather than commented.
+
+        Task 3.2A held `RecipeComponent` out; **Task 3.2B brought it in**, so
+        that half of the claim is now false and this test was rewritten rather
+        than deleted — the fence moved, it did not come down. `ProductionBatch`
+        is Task 3.5's, `ProductionBatchLine` is where flattening lands at Task
+        3.4, and neither may appear before its task.
+        """
         from django.apps import apps
 
         names = {model.__name__ for model in apps.get_app_config("kitchen").get_models()}
 
-        assert "RecipeComponent" not in names
+        assert "RecipeComponent" in names, "Task 3.2B owns the nested-recipe graph"
         assert "ProductionBatch" not in names
+        assert "ProductionBatchLine" not in names
+        assert "RecipeCostSnapshot" not in names
 
     def test_no_lifecycle_row_carries_a_cost_or_a_price(self) -> None:
         forbidden = ("cost", "price", "amount", "margin", "value")

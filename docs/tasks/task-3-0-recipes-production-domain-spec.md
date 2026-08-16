@@ -2887,8 +2887,8 @@ report for a version's final day comes back empty.
 
 ### 25.5 What Task 3.2A deliberately did not do
 
-- **`RecipeComponent`** and the nested-recipe graph — Task 3.2B. Invariants 35,
-  36 and 37 remain proposals, and §5B is unimplemented.
+- **`RecipeComponent`** and the nested-recipe graph — Task 3.2B, now **built**;
+  see §26. Invariants 35, 36 and 37 are enforced, and §5B is implemented.
 - **Any costing** — Task 3.3. `view_recipe_cost` is still reserved and still
   guards nothing.
 - **Production, meals, reports and imports** — Tasks 3.4 – 3.10, unchanged.
@@ -2901,3 +2901,127 @@ and refuses `SIGNED_FORM` inside it, so §14A condition 9 is enforced at the
 boundary the owner moved it to rather than merely written down. KD-19 and KD-20
 are untouched — the unit layer still refuses the sauce conversion rather than
 guessing it, and the appetizer blends still may not be approved as sub-recipes.
+
+
+---
+
+## 26. Task 3.2B — the nested recipe graph, and what building it settled
+
+Task 3.2A delivered the approval boundary; **Task 3.2B delivers §5B**, and with
+it Task 3.2 is complete. `RecipeComponent` exists, the two sub-recipe shapes are
+mutually exclusive by construction, cycles and depth are bounded, and an active
+parent can no longer depend on a child that is not effective where it claims to
+be.
+
+Everything below is either implemented and tested, or recorded as a departure.
+
+### 26.1 The field vocabulary, as built
+
+§5B sketched `RecipeComponent` with `version`, `sequence`, `component_version`,
+`multiplier` and `note`. Two names differ in the implementation, and both
+differences are the repository's own convention winning over the sketch:
+
+| Sketch | Built | Why |
+|---|---|---|
+| `sequence` | `line_order` | `RecipeLine` has used `line_order` since Task 3.1, with `UNIQUE(version, line_order)` and `ordering = ["version", "line_order"]`. Two names for one idea in one app is worse than a sketch that did not anticipate the first one |
+| `multiplier` Decimal **6 dp** | Decimal **12 dp** (`FACTOR_PLACES`) | A component multiplier is a conversion factor, and this repository holds conversion factors at `FACTOR_PLACES` — `RecipeServing.factor_of_batch` and `ItemPackageConversion.factor` both do. Multiplied down three levels, six places is where a gram of saffron starts disappearing. Wider, never narrower |
+
+Two columns exist that the sketch did not name — `recipe` and
+`component_recipe`, denormalised from the two versions and held equal to them by
+trigger. They exist for one reason: a `CheckConstraint` sees only its own table,
+and *"a version may not contain its own recipe"* is the one cycle case cheap
+enough to make **unrepresentable** rather than merely refused. It is what
+catches `A v2 → A v1`, which a version-identity check alone accepts.
+
+`created_by`, `public_id`, `source_*` and `history` follow every other owned row
+in the module.
+
+### 26.2 The cycle definition, and what "depth" counts
+
+**RCP-076 is enforced at recipe identity, not version identity.** The transitive
+closure of a version's components may not contain the parent's own **recipe**,
+so `A v2 → B v1 → A v1` is refused even though no version repeats: the dish
+would contain an older edition of itself, and its cost would be defined in terms
+of its own cost.
+
+**Depth counts component edges on the longest root-to-leaf path.** A parent with
+one component is at depth 1; `MAX_COMPONENT_DEPTH = 3` therefore permits a chain
+of four recipes — an ingredient inside a blend inside a marinade inside a dish,
+which is RCP-077's own example. The measurement is `above(parent) + 1 +
+below(child)`, and the refusal quotes the whole path rather than the fact.
+
+### 26.3 A structural consequence of the draft-only rule
+
+A component may be written only on a `DRAFT` parent, and may point only at a
+frozen, approved child. Two consequences follow, and both are load-bearing
+enough to write down:
+
+1. **Multi-level graphs are built strictly bottom-up.** A dish cannot be built
+   on a blend nobody has approved. Every test and the demo seed do it in that
+   order because there is no other order.
+2. **Two concurrent edge additions can never jointly close a cycle.** Traversal
+   runs parent-to-child; to walk across a newly added edge you must first arrive
+   at its parent *as somebody's child*, and a draft is never anybody's child. So
+   the textbook `A → B` / `B → A` race cannot corrupt this graph — which is
+   asserted by test rather than assumed, so relaxing the draft-only rule would
+   fail loudly.
+
+The race that **does** exist is about coverage, and it is what the graph lock is
+actually for: an activation validates that a child covers everything the parent
+claims, while a supersession shortens that child. Different rows, opposite ends,
+nothing for a row lock to serialise on.
+
+### 26.4 An open-ended parent pins its child open-ended
+
+**RCP-132.** Closing a child version's range under an `ACTIVE` parent that names
+it is refused, per branch, whenever the parent is still effective past the
+proposed close date. An open-ended parent is therefore effective past *every*
+close date, and pins its child open-ended for as long as it runs.
+
+This is a real constraint on the workflow and not a defect: a dish in force
+indefinitely that says it contains blend v1 **does** require blend v1 to be in
+force indefinitely. To change the blend, the dish is given an end date, the
+replacement blend takes effect the next day, and a new dish version adopts it.
+The demo scenario does exactly that, and a test asserts both halves — that the
+open-ended case is pinned, and that the bounded case releases cleanly.
+
+Nothing cascades. A parent is never re-pointed and never auto-superseded
+(RCP-081): a historical dish keeps naming the exact historical blend forever.
+
+### 26.5 The component API, and a departure from §5B.2
+
+§5B.2 said: *"No component endpoint. Components are part of the version
+payload."* **Task 3.2B ships component endpoints**, at the owner's instruction
+in the Task 3.2B brief, which names them explicitly.
+
+The departure is recorded rather than quietly made. The endpoints are
+**draft-only for mutation** — there is no writable route for a component under a
+frozen parent, because adopting a different child version is a new parent
+version and not a `PATCH` — so the rule §5B.2 was protecting (a component may
+not change after approval) is unaffected. What changed is only *where* a draft's
+components may be edited from.
+
+    GET    /api/v1/kitchen/recipe-versions/{id}/components
+    POST   /api/v1/kitchen/recipe-versions/{id}/components
+    PATCH  /api/v1/kitchen/recipe-components/{id}
+    POST   /api/v1/kitchen/recipe-components/{id}/reorder
+    DELETE /api/v1/kitchen/recipe-components/{id}
+    GET    /api/v1/kitchen/recipe-versions/{id}/component-tree
+
+No cost route, no flatten route, no production route — asserted by a test that
+walks the registered paths.
+
+### 26.6 What Task 3.2B deliberately did not do
+
+- **Recursive material flattening into production lines** — Task 3.4, with
+  `source_component_version` and `component_path` (RCP-079, RCP-080).
+- **Roll-up costing** — Task 3.3 (RCP-078). `cumulative_multiplier` is computed
+  for display and validation and is multiplied by nothing.
+- **Any inventory or ledger effect** — unchanged, and counted before and after
+  every component command.
+
+### 26.7 The register after Task 3.2B
+
+No row changes classification. **KD-08's answer now binds executable code**:
+`MAX_COMPONENT_DEPTH = 3` is a named constant with a named error and a reported
+path, which is what RCP-077 asked for.

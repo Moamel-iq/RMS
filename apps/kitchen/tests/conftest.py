@@ -495,3 +495,152 @@ def active_version(
         actor=approver,
         effective_from=datetime.date(2026, 7, 1),
     )
+
+
+# ---------------------------------------------------------------------------
+# The nested-recipe graph's fixtures
+# ---------------------------------------------------------------------------
+#
+# Two shapes and the difference between them, because RCP-070's whole point is
+# that they are mutually exclusive:
+#
+#   `blend`   — a PORTION recipe, so no `output_item`, so **non-stocked**. It may
+#               be a component and may never be a line.
+#   `stocked` — a BATCH recipe producing `RICE-COOKED`, so **stocked**. It may be
+#               a line and may never be a component.
+
+
+def make_child_recipe(
+    *,
+    organization: Organization,
+    code: str,
+    author: User,
+    name_ar: str = "خلطة تجريبية",
+) -> Recipe:
+    """A non-stocked sub-recipe. A helper, because the cycle tests need several."""
+    return create_recipe(
+        organization=organization,
+        code=code,
+        name_ar=name_ar,
+        recipe_type=RecipeType.PORTION,
+        created_by=author,
+    )
+
+
+def carry_to_active(
+    version: RecipeVersion,
+    *,
+    submitter: User,
+    cook: User,
+    keeper: User,
+    accountant: User,
+    approver: User,
+    effective_from: datetime.date = datetime.date(2026, 1, 1),
+    effective_to: datetime.date | None = None,
+    branches: list[Branch] | None = None,
+    reference: str = "KM-RCP-004/2026/07",
+    evidence_kind: str = ApprovalEvidenceKind.SIGNED_FORM,
+) -> RecipeVersion:
+    """Everything `carry_to_approved` does, and then put it into effect."""
+    carry_to_approved(
+        version,
+        submitter=submitter,
+        cook=cook,
+        keeper=keeper,
+        accountant=accountant,
+        approver=approver,
+        reference=reference,
+        evidence_kind=evidence_kind,
+    )
+    return activate_recipe_version(
+        version=version,
+        actor=approver,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        branches=branches,
+    )
+
+
+@pytest.fixture
+def blend(organization: Organization, manager: User) -> Recipe:
+    """A non-stocked sub-recipe: no output item, so only ever a component."""
+    return make_child_recipe(organization=organization, code="BLEND-1", author=manager)
+
+
+@pytest.fixture
+def blend_draft(
+    blend: Recipe, kilogram: UnitOfMeasure, rice: InventoryItem, manager: User
+) -> RecipeVersion:
+    return build_complete_draft(recipe=blend, unit=kilogram, item=rice, author=manager)
+
+
+@pytest.fixture
+def blend_approved(
+    blend_draft: RecipeVersion,
+    manager: User,
+    cook: User,
+    keeper: User,
+    accountant: User,
+    approver: User,
+) -> RecipeVersion:
+    """A child version that has cleared the control but is effective nowhere."""
+    return carry_to_approved(
+        blend_draft,
+        submitter=manager,
+        cook=cook,
+        keeper=keeper,
+        accountant=accountant,
+        approver=approver,
+    )
+
+
+@pytest.fixture
+def blend_active(blend_approved: RecipeVersion, approver: User, branch: Branch) -> RecipeVersion:
+    """
+    A child in effect organization-wide from 1 January 2026, open-ended.
+
+    Six months earlier than `active_version` and with no end, so a parent
+    activated on 1 July 2026 is covered at both ends and the coverage tests have
+    to *arrange* a gap rather than start with one.
+    """
+    return activate_recipe_version(
+        version=blend_approved,
+        actor=approver,
+        effective_from=datetime.date(2026, 1, 1),
+    )
+
+
+@pytest.fixture
+def stocked_recipe(organization: Organization, manager: User, cooked_rice: InventoryItem) -> Recipe:
+    """A batch recipe that produces stock — the shape a component may never take."""
+    return create_recipe(
+        organization=organization,
+        code="STOCKED-1",
+        name_ar="وصفة مخزنية تجريبية",
+        recipe_type=RecipeType.BATCH,
+        output_item=cooked_rice,
+        created_by=manager,
+    )
+
+
+@pytest.fixture
+def stocked_active(
+    stocked_recipe: Recipe,
+    kilogram: UnitOfMeasure,
+    rice: InventoryItem,
+    manager: User,
+    cook: User,
+    keeper: User,
+    accountant: User,
+    approver: User,
+) -> RecipeVersion:
+    """An ACTIVE version of the stocked recipe, eligible in every way but shape."""
+    draft = build_complete_draft(recipe=stocked_recipe, unit=kilogram, item=rice, author=manager)
+    return carry_to_active(
+        draft,
+        submitter=manager,
+        cook=cook,
+        keeper=keeper,
+        accountant=accountant,
+        approver=approver,
+    )

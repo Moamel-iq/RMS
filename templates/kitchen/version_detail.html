@@ -29,6 +29,8 @@
     <div class="rowactions">
       <a class="btn btn--ghost" href="{% url 'kitchen:recipe_versions' recipe.pk %}">{% translate "سجل النسخ" %}</a>
       <a class="btn btn--ghost" href="{% url 'kitchen:version_compare' version.pk %}">{% translate "مقارنة" %}</a>
+      <a class="btn btn--ghost" href="{% url 'kitchen:component_editor' version.pk %}">{% translate "الوصفات الفرعية" %}</a>
+      <a class="btn btn--ghost" href="{% url 'kitchen:component_dependencies' version.pk %}">{% translate "من يستعملها" %}</a>
       {% if version.status == "DRAFT" and can_submit %}
         <form method="post" action="{% url 'kitchen:version_submit' version.pk %}" style="display:inline">
           {% csrf_token %}
@@ -138,6 +140,44 @@
         </tbody>
       </table>
     </div>
+  </section>
+
+  <section class="formcard">
+    {# The nested sub-recipes this version is built on. Each names one exact  #}
+    {# child version and keeps naming it: a newer blend never re-points a     #}
+    {# dish that was already written (RCP-072).                               #}
+    <h2>{% translate "الوصفات الفرعية" %}</h2>
+    {% if components %}
+      <div class="tablewrap">
+        <table class="table">
+          <caption class="visually-hidden">{% translate "الوصفات الفرعية غير المخزنية" %}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{% translate "الترتيب" %}</th>
+              <th scope="col">{% translate "الوصفة الفرعية" %}</th>
+              <th scope="col">{% translate "النسخة" %}</th>
+              <th scope="col">{% translate "المعامل" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for component in components %}
+              <tr>
+                <td>{{ component.line_order }}</td>
+                <td>
+                  <a href="{% url 'kitchen:version_detail' component.component_version_id %}">
+                    {{ component.component_recipe.code }} — {{ component.component_recipe.name_ar }}
+                  </a>
+                </td>
+                <td>v{{ component.component_version.version_number }}</td>
+                <td><code dir="ltr">{{ component.multiplier_display }}</code></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">{% translate "لا تحتوي هذه النسخة على وصفات فرعية." %}</p>
+    {% endif %}
   </section>
 
   <section class="formcard">

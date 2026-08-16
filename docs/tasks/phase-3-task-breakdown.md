@@ -177,7 +177,12 @@ own dates.
 
 #### Task 3.2B — the nested recipe graph
 
-**Not started.** Everything below in this section.
+**Complete.** Delivered `RecipeComponent`, the mutual-exclusion rule, cycle and
+depth bounds, effective-coverage validation, the child-supersession dependency
+guard, whole-row component immutability, the component API and ten Arabic RTL
+screens. See specification §26 for what building it settled.
+
+**With 3.2B, Task 3.2 is complete.**
 
 Added by Task 3.0A:
 

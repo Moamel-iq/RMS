@@ -20,12 +20,14 @@ tenancy boundary, with the service's refusal as the only thing in the way.
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 from typing import Any
 
 from django import forms
 from django.db.models import QuerySet
 from django.utils.translation import gettext_lazy as _
 
+from apps.core.quantity import FACTOR_PLACES
 from apps.inventory.models import InventoryItem, PackageUnit
 from apps.inventory.selectors import visible_items, visible_package_units
 from apps.kitchen.lifecycle import applicable_branches
@@ -658,3 +660,75 @@ class ResolverPreviewForm(ScopedForm):
         self.fields["branch"].queryset = Branch.objects.filter(  # type: ignore[attr-defined]
             organization_id=recipe.organization_id, is_active=True
         ).order_by("code")
+
+
+# ---------------------------------------------------------------------------
+# Nested components
+# ---------------------------------------------------------------------------
+
+
+class RecipeComponentForm(ScopedForm, SourceProvenanceMixin):
+    """
+    Add or correct one non-stocked sub-recipe on a draft.
+
+    The candidate queryset is narrowed to what `component_candidates` offers —
+    same organization, not this recipe, not a stocked recipe, frozen and
+    approved, not already named. **That narrowing is a courtesy, not the
+    control**: the service re-checks every one of those rules under the graph
+    lock, and a hand-made POST naming any other version is refused there.
+
+    Cycles deeper than one hop are deliberately not filtered out of the list.
+    Deciding them needs the whole graph walked per candidate, and a recipe that
+    silently vanished from a dropdown teaches nobody anything — the refusal
+    names the path instead.
+    """
+
+    scope_permission = MANAGE_RECIPE
+
+    component_version = forms.ModelChoiceField(
+        queryset=RecipeVersion.objects.none(),
+        label=_("الوصفة الفرعية"),
+        help_text=_("نسخة معتمدة بعينها. لا تتغير تلقائياً عند صدور نسخة أحدث."),
+    )
+    multiplier = forms.DecimalField(
+        label=_("المعامل"),
+        min_value=Decimal("0.000000000001"),
+        decimal_places=FACTOR_PLACES,
+        max_digits=FACTOR_PLACES + 12,
+        help_text=_("كم دفعة من الوصفة الفرعية تدخل في دفعة واحدة من هذه الوصفة."),
+    )
+    note = forms.CharField(
+        label=_("ملاحظة"), widget=forms.Textarea(attrs={"rows": 2}), required=False
+    )
+
+    def __init__(
+        self,
+        *args: Any,
+        actor: User,
+        version: RecipeVersion,
+        component: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.kitchen.selectors import component_candidates
+
+        candidates = component_candidates(actor, version)
+        if component is not None:
+            # An edit keeps its own current child in the list, which the
+            # candidate filter excludes because the version already names it.
+            candidates = candidates | RecipeVersion.objects.filter(
+                pk=component.component_version_id
+            )
+        self.fields["component_version"].queryset = candidates.distinct()  # type: ignore[attr-defined]
+
+
+class RecipeComponentReorderForm(ScopedForm):
+    """Move one component to a position; the siblings renumber around it."""
+
+    scope_permission = MANAGE_RECIPE
+
+    line_order = forms.IntegerField(
+        label=_("الترتيب"),
+        min_value=1,
+        help_text=_("الموضع المطلوب. تُعاد ترقيم البقية بلا فجوات."),
+    )

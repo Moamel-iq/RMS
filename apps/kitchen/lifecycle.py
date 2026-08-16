@@ -24,10 +24,18 @@ order and no other:
 
 **Locks are taken in one documented order**, and every command here obeys it:
 
-    Recipe  ->  RecipeVersion  ->  RecipeVersionBranchScope (ascending id)
+    component graph  ->  Recipe  ->  RecipeVersion  ->  RecipeVersionBranchScope
+    (advisory, per organization)     (both ascending id)
+
+The **component graph lock comes first**, above every row lock, and is taken by
+every command that certifies or changes the graph: submission, approval,
+activation and supersession. Task 3.2B added it because a cycle is a
+contradiction that lives *across* rows — `A → B` and `B → A` touch no row in
+common, so no row lock can serialise them — and because certifying a graph while
+somebody completes a cycle in it certifies the cycle. `graph.py` sets it out.
 
 Any command that touches **two** versions — activation with a supersession,
-and supersession itself — takes the `Recipe` row lock first. That is what makes
+and supersession itself — takes the `Recipe` row lock next. That is what makes
 the order between two sibling versions irrelevant: every such command is
 already serialised on the recipe, so two of them cannot each hold one version
 and wait for the other. The commands that touch a single version take no recipe
@@ -57,6 +65,12 @@ from apps.core.models import AuditAction
 from apps.core.services import record_audit_event, snapshot
 from apps.inventory.models import ConversionType
 from apps.inventory.selectors import effective_conversion
+from apps.kitchen.graph import (
+    lock_component_graph,
+    require_effective_coverage,
+    supersession_blockers,
+    validate_version_graph,
+)
 from apps.kitchen.models import (
     APPROVED_VERSION_STATUSES,
     DEMO_CODE_PREFIX,
@@ -109,6 +123,24 @@ def _refuse(message: str | _StrPromise, code: str, field: str | None = None) -> 
 # ---------------------------------------------------------------------------
 # Locking
 # ---------------------------------------------------------------------------
+
+
+def _organization_of(version_id: int) -> int:
+    """
+    Which organization's component-graph lock this command needs.
+
+    An unlocked read that chooses a *lock key* and nothing else. A version's
+    organization is immutable, so it cannot pick the wrong lock; if the row is
+    gone, the authoritative re-read that follows is what refuses.
+    """
+    organization_id = (
+        RecipeVersion.objects.filter(pk=version_id)
+        .values_list("recipe__organization_id", flat=True)
+        .first()
+    )
+    if organization_id is None:
+        raise _refuse(_("النسخة لم تعد موجودة."), "recipe_version_missing")
+    return int(organization_id)
 
 
 def _lock_version(version_id: int, *, expected: frozenset[str] | set[str]) -> RecipeVersion:
@@ -168,9 +200,30 @@ def submission_problems(version: RecipeVersion) -> list[str]:
 
     problems.extend(_output_problems(version))
     problems.extend(_line_problems(version))
+    problems.extend(_component_problems(version))
     problems.extend(_method_problems(version))
     problems.extend(_serving_problems(version))
     return problems
+
+
+def _component_problems(version: RecipeVersion) -> list[str]:
+    """
+    Whatever the nested-recipe graph would refuse, as sentences for the panel.
+
+    Runs the **same** check the command runs — `validate_version_graph` — and
+    renders its refusal rather than re-implementing it. Two implementations of
+    "is this graph acceptable" would eventually disagree, and the one on the
+    screen would be the one that was wrong.
+
+    Read-only and unlocked, which is correct here: this is the live panel a chef
+    watches while typing. The authoritative check runs again under the graph
+    lock inside `submit_recipe_version`.
+    """
+    try:
+        validate_version_graph(version)
+    except ValidationError as error:
+        return [str(message) for message in error.messages]
+    return []
 
 
 def _output_problems(version: RecipeVersion) -> list[str]:
@@ -327,8 +380,15 @@ def submit_recipe_version(*, version: RecipeVersion, actor: User) -> RecipeVersi
     A submission cannot be silently taken back. Returning to editing means
     rejecting this version and preparing the next one, which is §C's rule and
     the reason a rejection keeps its reason.
+
+    Takes the component graph lock **before** the version's row lock. A
+    submission certifies the graph as much as an approval does, and certifying
+    it while somebody is completing a cycle from the far end would freeze the
+    cycle into a reviewable document.
     """
+    lock_component_graph(_organization_of(version.pk))
     current = _lock_version(version.pk, expected={RecipeVersionStatus.DRAFT})
+    validate_version_graph(current)
     problems = submission_problems(current)
     if problems:
         raise ValidationError(
@@ -546,8 +606,15 @@ def approve_recipe_version(
     a separate command with a separate permission, because agreeing that a
     recipe is correct and deciding that it takes effect on Sunday are two
     decisions and the second one is the one that changes what a meal costs.
+
+    Re-runs the component graph checks under the graph lock. Between submission
+    and this moment a child may have been rejected, a sibling recipe archived,
+    or a cycle completed from the other end — and approval is the moment the
+    graph acquires authority, so it is the moment to check it again (RCP-076).
     """
+    lock_component_graph(_organization_of(version.pk))
     current = _lock_version(version.pk, expected={RecipeVersionStatus.SUBMITTED})
+    validate_version_graph(current)
 
     if current.created_by_id == actor.pk:
         raise _refuse(
@@ -734,7 +801,11 @@ def activate_recipe_version(
             field="effective_to",
         )
 
-    # Canonical lock order: the recipe, then versions by ascending id.
+    # Canonical lock order: the component graph, then the recipe, then versions
+    # by ascending id. The graph lock is above the recipe lock because an
+    # activation both certifies the graph and may supersede a version something
+    # else depends on, and both of those are graph-wide questions.
+    lock_component_graph(_organization_of(version.pk))
     Recipe.objects.select_for_update().get(pk=version.recipe_id)
     if supersedes is not None:
         _supersede_locked(
@@ -762,6 +833,18 @@ def activate_recipe_version(
             field="branches",
         )
     _validate_branches(current, claimed)
+
+    # RCP-074/RCP-075. Draft-time eligibility was about the child being agreed;
+    # this is about it being *effective*. A parent effective in March whose
+    # blend expired in February claims to contain something that did not exist,
+    # and nothing downstream would notice until a costing gap months later.
+    validate_version_graph(current)
+    require_effective_coverage(
+        parent_version=current,
+        branches=[branch.pk for branch in claimed],
+        effective_from=effective_from,
+        effective_to=effective_to,
+    )
 
     previous = snapshot(current)
     current.status = RecipeVersionStatus.ACTIVE
@@ -864,6 +947,7 @@ def supersede_recipe_version(
             "recipe_version_supersedes_another_recipe",
             field="replacement",
         )
+    lock_component_graph(_organization_of(version.pk))
     Recipe.objects.select_for_update().get(pk=version.recipe_id)
     locked_replacement = RecipeVersion.objects.select_for_update().filter(pk=replacement.pk).first()
     if locked_replacement is None or locked_replacement.effective_from is None:
@@ -924,6 +1008,38 @@ def _supersede_locked(
         # link is the whole job; moving the date backwards would rewrite a
         # period the branch already worked through.
         close_at = predecessor.effective_to
+
+    # §L. Closing this version must not strand an ACTIVE parent that named it
+    # as a component. The parent keeps naming this exact version forever, so
+    # shortening the range underneath it would leave the parent claiming to
+    # contain something that stops existing partway through its own effective
+    # period — and nothing would say so until a costing gap appeared.
+    blockers = supersession_blockers(child_version=predecessor, close_at=close_at)
+    if blockers:
+        raise ValidationError(
+            [
+                ValidationError(
+                    _(
+                        "النسخة مستعملة كمكوّن في %(parent)s @ %(branch)s حتى "
+                        "%(until)s؛ استبدلها هناك أولاً."
+                    )
+                    % {
+                        "parent": (
+                            f"{blocker.parent_version.recipe.code} "
+                            f"v{blocker.parent_version.version_number}"
+                        ),
+                        "branch": blocker.branch_code,
+                        "until": (
+                            blocker.parent_effective_to.isoformat()
+                            if blocker.parent_effective_to
+                            else str(_("أجل مفتوح"))
+                        ),
+                    },
+                    code="recipe_component_dependency_blocks_supersession",
+                )
+                for blocker in blockers
+            ]
+        )
 
     previous = snapshot(predecessor)
     predecessor.status = RecipeVersionStatus.SUPERSEDED

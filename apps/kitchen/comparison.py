@@ -22,9 +22,13 @@ wrong:
   computed a price would be the first cost surface in the module — arriving
   through the back door.
 
-`RecipeComponent` is deliberately absent: nested recipes are Task 3.2B, and a
-comparison that silently ignored a whole class of ingredient would be worse
-than one that does not offer it yet.
+**Task 3.2B added the components section.** It is keyed on the child *recipe*
+code, and the child's **version number is one of the compared attributes** — so
+a replacement parent that adopts a newer blend reads `CHANGED` on exactly the
+line that changed, and a parent whose blend was superseded elsewhere reads
+`UNCHANGED`, because its own exact `component_version` did not move. That
+distinction is the whole point of RCP-072 and it has to be visible in the diff a
+manager signs off.
 """
 
 from __future__ import annotations
@@ -136,6 +140,7 @@ def compare_recipe_versions(*, left: RecipeVersion, right: RecipeVersion) -> Ver
             _header_section(left, right),
             _scope_section(left, right),
             _line_section(left, right),
+            _component_section(left, right),
             _substitute_section(left, right),
             _step_section(left, right),
             _step_link_section(left, right),
@@ -233,6 +238,37 @@ def _line_section(left: RecipeVersion, right: RecipeVersion) -> ComparisonSectio
             ("preparation_stage", str(_("المرحلة"))),
             ("is_optional", str(_("اختياري"))),
             ("line_order", str(_("الترتيب"))),
+            ("provenance", str(_("المصدر"))),
+        ),
+    )
+
+
+def _component_section(left: RecipeVersion, right: RecipeVersion) -> ComparisonSection:
+    """
+    Nested sub-recipes, keyed by the child **recipe** code.
+
+    Keyed by recipe rather than by child version, and the version number is a
+    compared *attribute* instead. That is what makes the two cases a manager has
+    to tell apart legible:
+
+    * a parent that adopted a newer blend reads `CHANGED`, on the version-number
+      row, which is exactly what happened;
+    * keying by child version instead would show the same edit as one `REMOVED`
+      and one `ADDED` — two lines for one decision, and neither of them saying
+      "this is the same blend, one edition later".
+
+    Never keyed by the component's primary key, like every other section here.
+    """
+    return _diff(
+        key="components",
+        label=str(_("الوصفات الفرعية")),
+        left_rows=_components_by_child_recipe(left),
+        right_rows=_components_by_child_recipe(right),
+        attributes=(
+            ("child_version", str(_("نسخة الوصفة الفرعية"))),
+            ("multiplier", str(_("المعامل"))),
+            ("line_order", str(_("الترتيب"))),
+            ("note", str(_("ملاحظة"))),
             ("provenance", str(_("المصدر"))),
         ),
     )
@@ -350,6 +386,26 @@ def _lines_by_item(version: RecipeVersion) -> dict[str, _Row]:
             is_optional=line.is_optional,
             line_order=line.line_order,
             provenance=_provenance(line),
+        )
+    return rows
+
+
+def _components_by_child_recipe(version: RecipeVersion) -> dict[str, _Row]:
+    rows: dict[str, _Row] = {}
+    query = version.components.select_related("component_recipe", "component_version")
+    for component in query.order_by("line_order"):
+        child_recipe = component.component_recipe
+        rows[child_recipe.code] = _Row(
+            label=f"{child_recipe.code} — {child_recipe.name_ar}",
+            # The exact edition, compared as a value. `v1` -> `v2` on this row is
+            # a replacement parent adopting a newer child; no row at all means
+            # the child was superseded somewhere else and this parent, correctly,
+            # did not notice.
+            child_version=f"v{component.component_version.version_number}",
+            multiplier=component.multiplier,
+            line_order=component.line_order,
+            note=component.note,
+            provenance=_provenance(component),
         )
     return rows
 

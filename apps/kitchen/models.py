@@ -12,13 +12,19 @@ immutability. They arrive together because any one of them alone is a
 false promise — an approval screen over mutable rows is worse than no approval
 screen.
 
-**`RecipeComponent` is still absent.** Nested recipes are Task 3.2B, costing is
-Task 3.3, and production is Task 3.4/3.5. Nothing here moves stock, touches a
-ledger, or knows a price. A recipe is an intention; the production batch is the
-event (RCP-002).
+**Task 3.2B adds `RecipeComponent`**, the non-stocked nested-recipe graph:
+exact parent-version to child-version links, the mutual exclusion that makes
+double counting unrepresentable, cycle and depth bounds, and effective-coverage
+validation at activation. With it Task 3.2 is complete.
+
+**Costing is still absent.** Roll-up is Task 3.3, flattening into a production
+batch is Task 3.4, and production itself is Task 3.5. Nothing here moves stock,
+touches a ledger, or knows a price. A recipe is an intention; the production
+batch is the event (RCP-002).
 
 See `docs/tasks/task-3-0-recipes-production-domain-spec.md` for the approved
-design — §3 the recipe, §4 versions, §5 lines, §5A steps, §5C servings — plus
+design — §3 the recipe, §4 versions, §5 lines, §5A steps, §5B components,
+§5C servings — plus
 `docs/decisions/ADR-024-recipe-versioning-and-the-effective-dated-cost-basis.md`
 for why the lifecycle is shaped this way, and
 `docs/invariants/kitchen-invariants.md` for the rules these must satisfy.
@@ -145,6 +151,28 @@ APPROVED_VERSION_STATUSES: frozenset[str] = frozenset(
         RecipeVersionStatus.SUPERSEDED,
     }
 )
+
+#: What a `RecipeComponent` may point at: a version that has passed the
+#: four-party control and is frozen. `DRAFT` and `SUBMITTED` are refused because
+#: a parent may not be built on something still being written or still being
+#: argued about; `REJECTED` because somebody refused to sign it.
+#:
+#: Deliberately the same set as `APPROVED_VERSION_STATUSES` rather than a
+#: narrower one. Drafting a parent against an `APPROVED` child is permitted —
+#: spec §5B says the child must be approved, and RCP-074 puts the *effective*
+#: test at the parent's **activation**, not at draft time. Requiring `ACTIVE` to
+#: draft would deadlock the ordinary case where a blend and the dish that uses
+#: it are prepared in one sitting.
+COMPONENT_ELIGIBLE_STATUSES: frozenset[str] = APPROVED_VERSION_STATUSES
+
+#: The most component edges permitted on any root-to-leaf path (KD-08,
+#: RCP-077). A parent with one component is at depth 1.
+#:
+#: "An ingredient inside a blend inside a marinade inside a dish is a real
+#: kitchen; four levels is almost always a modelling error." Enforced as a named
+#: constant with a named error and a reported path — never an assertion, and
+#: never a silent truncation of the tree below it.
+MAX_COMPONENT_DEPTH = 3
 
 
 class RecipeReviewType(models.TextChoices):
@@ -1395,6 +1423,171 @@ class RecipeServing(TimeStampedModel, SourceProvenance):
         """
         quantum = Decimal(1).scaleb(-FACTOR_PLACES)
         return f"{self.factor_of_batch.quantize(quantum):f}"
+
+
+class RecipeComponent(TimeStampedModel, SourceProvenance):
+    """
+    One **non-stocked** sub-recipe a version is built on (spec §5B, RCP-070).
+
+    A blend can be two entirely different things, and they cost differently:
+
+    * **Stocked.** Somebody produced or bought it, it has a book value, it sits
+      in a warehouse. The parent consumes it as an ordinary `RecipeLine` on its
+      `output_item`, at the ledger's moving average, and its ingredient tree is
+      never expanded again — those ingredients were already consumed, by the
+      blend's own batch, on its own day.
+    * **Non-stocked.** It is mixed into the pot during the dish's own production
+      and never exists as stock. There is nothing to value, because there is no
+      thing. That is this table.
+
+    **The two shapes are mutually exclusive by construction, not by rule**
+    (RCP-070). A recipe with an `output_item` may be referenced only as a line;
+    a recipe without one only as a component. The service refuses each half and
+    a trigger holds it. This is the design's answer to double counting: the
+    system cannot represent *"charge the blend's book value **and** expand its
+    ingredients"*, because whichever shape a sub-recipe has, the other reference
+    is refused. Forbidding double counting in a rule leaves it one careless save
+    away; making it unrepresentable does not.
+
+    **The link is to one exact child version, and it never moves** (RCP-072).
+    Not "recipe X", not "the current version of X", not "the latest approved
+    X" — a specific frozen row. A blend that changed in September must not
+    restate what the July dish claimed to contain, which is RCP-011's rule one
+    level down. Adopting a newer child is a **new parent version**; there is no
+    silent re-pointing anywhere in this module, and `on_delete=PROTECT` on
+    `component_version` means the child cannot vanish underneath a parent that
+    named it.
+
+    **Carries no cost.** Roll-up costing is Task 3.3 and flattening into a
+    production batch is Task 3.4. `multiplier` is a scaling identity — how many
+    child `batch_size`s go into one parent `batch_size` — and multiplying it by
+    a price is somebody else's task.
+
+    Both recipes are denormalised onto the row and held equal to their versions'
+    by trigger, for the same reason `RecipeVersionBranchScope` denormalises
+    `recipe`: a `CheckConstraint` sees only its own table, and *"a version may
+    not contain its own recipe"* is the one cycle case cheap enough to make
+    unrepresentable rather than merely refused. It catches `A v2 → A v1`, which
+    a version-identity check alone would let through.
+    """
+
+    version = models.ForeignKey(
+        RecipeVersion,
+        on_delete=models.CASCADE,
+        related_name="components",
+        verbose_name=_("version"),
+    )
+    #: Denormalised from `version.recipe`, held equal by trigger.
+    recipe = models.ForeignKey(
+        Recipe,
+        on_delete=models.PROTECT,
+        related_name="component_uses",
+        verbose_name=_("recipe"),
+    )
+    line_order = models.PositiveIntegerField(_("line order"))
+
+    #: The exact child. `PROTECT`, because a parent that named it must keep
+    #: naming it — a component whose child was deleted is a recipe that claims
+    #: to contain something unidentifiable.
+    component_version = models.ForeignKey(
+        RecipeVersion,
+        on_delete=models.PROTECT,
+        related_name="used_by_components",
+        verbose_name=_("component version"),
+    )
+    #: Denormalised from `component_version.recipe`, held equal by trigger.
+    component_recipe = models.ForeignKey(
+        Recipe,
+        on_delete=models.PROTECT,
+        related_name="used_as_component",
+        verbose_name=_("component recipe"),
+    )
+
+    #: How many child `batch_size`s enter one parent `batch_size`. A technical
+    #: identity at the repository's factor precision — the same precision
+    #: `RecipeServing.factor_of_batch` and `ItemPackageConversion.factor` use,
+    #: rather than the six places the specification sketched, because a factor
+    #: multiplied down three levels must not lose places on the way.
+    multiplier = models.DecimalField(
+        _("multiplier"),
+        max_digits=FACTOR_MAX_DIGITS,
+        decimal_places=FACTOR_PLACES,
+    )
+
+    note = models.TextField(_("note"), blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="recipe_components_created",
+        null=True,
+        blank=True,
+        verbose_name=_("created by"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("recipe component")
+        verbose_name_plural = _("recipe components")
+        ordering = ["version", "line_order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["version", "line_order"],
+                name="recipe_component_order_unique_per_version",
+            ),
+            # One parent version names one child **recipe** at most once, and
+            # therefore through exactly one child version. Two rows for the same
+            # blend would be a recipe that cannot say which version of it it
+            # contains — and two rows for the same *version* would just be a
+            # multiplier somebody forgot to add up.
+            models.UniqueConstraint(
+                fields=["version", "component_recipe"],
+                name="recipe_component_child_recipe_unique_per_version",
+            ),
+            models.CheckConstraint(
+                condition=Q(multiplier__gt=Decimal("0")),
+                name="recipe_component_multiplier_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(line_order__gt=0),
+                name="recipe_component_order_is_positive",
+            ),
+            # `A → A` at version identity.
+            models.CheckConstraint(
+                condition=~Q(component_version=models.F("version")),
+                name="recipe_component_is_not_its_own_parent",
+            ),
+            # `A v2 → A v1` at recipe identity. The same dish one version
+            # earlier is still the same dish, and a version-only check would
+            # accept it (RCP-076).
+            models.CheckConstraint(
+                condition=~Q(component_recipe=models.F("recipe")),
+                name="recipe_component_recipe_is_not_its_own_parent",
+            ),
+            _provenance_constraint("recipe_component_provenance_is_complete"),
+        ]
+        indexes = [
+            models.Index(fields=["component_version"], name="recipe_component_child_idx"),
+            models.Index(fields=["component_recipe"], name="recipe_component_child_rcp_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.version} #{self.line_order} → {self.component_version}"
+
+    @property
+    def multiplier_display(self) -> str:
+        """
+        The multiplier as a technical identity — always a period, never a comma.
+
+        Django localises Decimals, so under Arabic this would otherwise render
+        `0,250000000000`. `CLAUDE.md` names this exact case: a conversion factor
+        is re-enterable, and a comma there invites a mis-typed re-entry. Mirrors
+        `RecipeServing.factor_display`.
+        """
+        quantum = Decimal(1).scaleb(-FACTOR_PLACES)
+        return f"{self.multiplier.quantize(quantum):f}"
 
 
 # ---------------------------------------------------------------------------

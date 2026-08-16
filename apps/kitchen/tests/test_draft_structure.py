@@ -110,9 +110,14 @@ class TestTheLifecycleBoundary:
         assert not {name for name in in_services if "approve" in name or "supersede" in name}
         assert lifecycle_commands <= set(dir(lifecycle))
 
-    def test_there_is_no_cost_or_component_route(self) -> None:
+    def test_there_is_no_cost_or_production_route(self) -> None:
         """
-        The lifecycle routes exist now; Task 3.2B's and Task 3.3's must not.
+        Where the routes stop, asserted rather than promised.
+
+        Task 3.2A held the component routes out; **Task 3.2B brought them in**,
+        so that half of the claim is now false and this test was rewritten
+        rather than deleted — the fence moved, it did not come down. Task 3.3's
+        costing and Task 3.4/3.5's production routes must still not exist.
         `recipe_reactivate` is master data and stays.
         """
         from apps.kitchen import urls
@@ -121,7 +126,8 @@ class TestTheLifecycleBoundary:
         assert "recipe_reactivate" in names
         assert "version_submit" in names
         assert "version_approve" in names
-        for forbidden in ("cost", "component", "batch", "production"):
+        assert "component_editor" in names, "Task 3.2B owns the component workspace"
+        for forbidden in ("cost", "batch", "production", "flatten"):
             assert not {name for name in names if forbidden in name}
 
     def test_version_numbers_are_sequential_and_never_reused(

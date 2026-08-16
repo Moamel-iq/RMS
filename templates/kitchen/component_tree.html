@@ -1,0 +1,75 @@
+{# The nested-recipe tree, read-only.                                        #}
+{# `fragment_base_template` is `kitchen/_bare.html` for an HTMX swap and     #}
+{# `shell.html` otherwise, so the same tree is reachable without JavaScript. #}
+{# No cost column: Task 3.3 owns costing, and a diff or a tree that quietly  #}
+{# computed a price would be the first cost surface arriving by the back     #}
+{# door. `extends` must be the first tag, so this note leads.                #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="component-tree">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">
+          {{ recipe.code }} — {% translate "شجرة الوصفات الفرعية" %}
+        </h1>
+        <p class="pagehead__hint">
+          {% blocktranslate with limit=max_depth %}الحد الأقصى للتداخل {{ limit }} مستويات. المعامل التراكمي حاصل ضرب المعاملات من الجذر، بدقة كاملة ودون تقريب في الطريق.{% endblocktranslate %}
+        </p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
+          {% translate "تفاصيل النسخة" %}
+        </a>
+      </div>
+    </div>
+
+    {% if tree %}
+      <table class="table">
+        <caption class="visually-hidden">{% translate "الوصفات الفرعية المتداخلة" %}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{% translate "المستوى" %}</th>
+            <th scope="col">{% translate "الوصفة الفرعية" %}</th>
+            <th scope="col">{% translate "النسخة" %}</th>
+            <th scope="col">{% translate "الحالة" %}</th>
+            <th scope="col">{% translate "المعامل" %}</th>
+            <th scope="col">{% translate "المعامل التراكمي" %}</th>
+            <th scope="col">{% translate "ملاحظة" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for node in tree %}
+            <tr>
+              <td>{{ node.depth }}</td>
+              <td style="padding-inline-start: {{ node.depth }}rem;">
+                {{ node.recipe.code }} — {{ node.recipe.name_ar }}
+              </td>
+              <td>v{{ node.version.version_number }}</td>
+              <td>{{ node.version.get_status_display }}</td>
+              {# A conversion factor is a technical identity: always a period, #}
+              {# never a comma, and rendered left-to-right (CLAUDE.md).        #}
+              <td><code dir="ltr">{{ node.multiplier_display }}</code></td>
+              <td><code dir="ltr">{{ node.cumulative_display }}</code></td>
+              <td>{{ node.note|default:"—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% if paths %}
+        <section class="formcard">
+          <h2>{% translate "المسارات" %}</h2>
+          <ul>
+            {% for path in paths %}<li><code dir="ltr">{{ path }}</code></li>{% endfor %}
+          </ul>
+        </section>
+      {% endif %}
+    {% else %}
+      <p class="muted">{% translate "لا تحتوي هذه النسخة على وصفات فرعية." %}</p>
+    {% endif %}
+  </div>
+{% endblock %}

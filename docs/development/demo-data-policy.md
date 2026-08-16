@@ -300,3 +300,26 @@ was applied to the reports and the import history. `seed_inventory_demo` gained:
 
 Both batches are found by filename on re-run, so a second seed reports them as
 reused and creates no third batch.
+
+
+## The nested-recipe demo graph (Task 3.2B)
+
+`seed_kitchen_demo` adds three more recipes, and they exist to make one
+distinction visible that no amount of prose conveys:
+
+    DEMO-RCP-DISH v1  →  DEMO-BLEND-MARINADE v1  →  DEMO-BLEND-SPICE v1
+    DEMO-RCP-DISH v2  →  DEMO-BLEND-MARINADE v2  →  DEMO-BLEND-SPICE v1
+
+Both dish versions also carry `DEMO-RICE-COOKED` as an ordinary **line**. That
+is the point of the scenario: the semi-finished item has a book value and is
+consumed at it, while the marinade beside it has no book value and is expanded
+from its exact child version. Adding the stocked item as a component instead is
+refused by the service and by a trigger — the two shapes are mutually exclusive
+by construction, not by rule.
+
+The dish's first version runs a **closed** range on purpose. An open-ended parent
+pins its child open-ended, so a demo that left it open could never demonstrate
+the replacement without being stuck.
+
+Nothing invalid is ever seeded. A cycle or an over-deep chain appears only inside
+a test that rolls back.

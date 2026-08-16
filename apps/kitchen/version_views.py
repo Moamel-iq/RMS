@@ -43,10 +43,18 @@ from apps.kitchen.comparison import compare_recipe_versions
 from apps.kitchen.forms import (
     ActivateVersionForm,
     ApproveVersionForm,
+    RecipeComponentForm,
+    RecipeComponentReorderForm,
     RejectVersionForm,
     ResolverPreviewForm,
     ReviewSignoffForm,
     SupersedeVersionForm,
+)
+from apps.kitchen.graph import (
+    component_paths,
+    component_tree,
+    dependents_of,
+    flatten_tree,
 )
 from apps.kitchen.lifecycle import (
     activate_recipe_version,
@@ -61,6 +69,7 @@ from apps.kitchen.lifecycle import (
     version_timeline,
 )
 from apps.kitchen.models import (
+    MAX_COMPONENT_DEPTH,
     OPEN_VERSION_STATUSES,
     RecipeVersion,
     RecipeVersionStatus,
@@ -68,12 +77,28 @@ from apps.kitchen.models import (
 from apps.kitchen.permissions import (
     ACTIVATE_RECIPE_VERSION,
     APPROVE_RECIPE_VERSION,
+    MANAGE_RECIPE,
     REJECT_RECIPE_VERSION,
     REVIEW_RECIPE_VERSION,
     SUBMIT_RECIPE_VERSION,
     VIEW_RECIPE,
 )
-from apps.kitchen.selectors import resolve_recipe, resolve_version, versions_of, visible_versions
+from apps.kitchen.selectors import (
+    component_candidates,
+    component_dependencies,
+    components_for_version,
+    resolve_component,
+    resolve_recipe,
+    resolve_version,
+    versions_of,
+    visible_versions,
+)
+from apps.kitchen.services import (
+    create_recipe_component,
+    remove_recipe_component,
+    reorder_recipe_component,
+    update_recipe_component,
+)
 from apps.kitchen.views import KitchenListView, KitchenViewMixin, KitchenWriteView
 from apps.organizations.authorization import (
     has_organization_master_data_permission,
@@ -162,6 +187,7 @@ class VersionDetailView(KitchenViewMixin, View):
             "servings": list(
                 version.servings.select_related("serving_unit").order_by("display_order")
             ),
+            "components": list(components_for_version(version)),
             "reviews": list(version.reviews.select_related("reviewer").order_by("review_type")),
             "scopes": list(version.branch_scopes.select_related("branch").order_by("branch__code")),
             "review_gaps": review_gaps(version) if version.status else [],
@@ -482,3 +508,265 @@ class VersionSupersedeView(VersionLifecycleFormView):
             actor=self.actor,
             reason=form.cleaned_data["reason"],
         )
+
+
+# ---------------------------------------------------------------------------
+# Nested components
+# ---------------------------------------------------------------------------
+#
+# Ten screens, all under the same two rules as the rest of this module: no view
+# calls `save()`, and hiding a button is presentation rather than protection.
+# Each of the four mutations is refused on its merits when POSTed directly, and
+# a test asserts that per action.
+#
+# `view_recipe` reads the tree; `manage_recipe` mutates a DRAFT parent's
+# components. No new permission is created - a new model is not a reason to
+# invent authority nobody has audited, and reviewing a recipe still never
+# becomes a way to edit one.
+
+
+class ComponentEditorView(KitchenViewMixin, View):
+    """
+    The draft component editor: what this version contains, and what it may.
+
+    Renders the current components, the candidate list, the tree beneath them
+    and the reason each mutation is or is not offered. The candidate list is the
+    same queryset the form uses, so the screen cannot offer something the form
+    would then reject.
+    """
+
+    template_name = "kitchen/component_editor.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        version = resolve_version(self.actor, self.kwargs["pk"])
+        organization = version.recipe.organization
+        search = request.GET.get("q", "").strip()
+        candidates = component_candidates(self.actor, version)
+        if search:
+            candidates = candidates.filter(recipe__code__icontains=search) | candidates.filter(
+                recipe__name_ar__icontains=search
+            )
+        return render(
+            request,
+            self.template_name,
+            {
+                "version": version,
+                "recipe": version.recipe,
+                "components": list(components_for_version(version)),
+                "candidates": list(candidates.distinct()[:50]),
+                "search": search,
+                "tree": flatten_tree(component_tree(version)),
+                "paths": component_paths(version),
+                "max_depth": MAX_COMPONENT_DEPTH,
+                "can_manage": _held(self.actor, MANAGE_RECIPE, organization),
+                "page_title": f"{version.recipe.code} - {_('الوصفات الفرعية')}",
+                "fragment_base_template": (
+                    "kitchen/_bare.html" if self.is_htmx() else "shell.html"
+                ),
+            },
+        )
+
+
+class ComponentTreeView(KitchenViewMixin, View):
+    """
+    The read-only tree, as a fragment with a full-page fallback.
+
+    Carries the cumulative scaling factor and **no cost column**. Every factor
+    renders through `cumulative_display`, which is locale-independent: a comma
+    in a conversion factor is ambiguous and invites a mis-typed re-entry.
+    """
+
+    template_name = "kitchen/component_tree.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        version = resolve_version(self.actor, self.kwargs["pk"])
+        return render(
+            request,
+            self.template_name,
+            {
+                "version": version,
+                "recipe": version.recipe,
+                "tree": flatten_tree(component_tree(version)),
+                "paths": component_paths(version),
+                "max_depth": MAX_COMPONENT_DEPTH,
+                "page_title": _("شجرة الوصفات الفرعية"),
+                "fragment_base_template": (
+                    "kitchen/_bare.html" if self.is_htmx() else "shell.html"
+                ),
+            },
+        )
+
+
+class ComponentDependencyView(KitchenViewMixin, View):
+    """
+    Which parent versions use this version as a component.
+
+    The panel that answers "may I supersede this blend" before somebody tries it
+    and is refused. Same order as the refusal message and the verifier, so the
+    three never disagree about what depends on what.
+    """
+
+    template_name = "kitchen/component_dependencies.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        version = resolve_version(self.actor, self.kwargs["pk"])
+        return render(
+            request,
+            self.template_name,
+            {
+                "version": version,
+                "recipe": version.recipe,
+                "dependencies": list(component_dependencies(self.actor, version)),
+                "blockers": dependents_of(version),
+                "page_title": _("من يستعمل هذه النسخة"),
+                "fragment_base_template": (
+                    "kitchen/_bare.html" if self.is_htmx() else "shell.html"
+                ),
+            },
+        )
+
+
+class ComponentCreateView(VersionActionMixin, KitchenWriteView):
+    """Add one non-stocked sub-recipe to a draft."""
+
+    form_class = RecipeComponentForm
+    action_permission = MANAGE_RECIPE
+    required_permission = MANAGE_RECIPE
+    template_name = "kitchen/form.html"
+    page_title = _("إضافة وصفة فرعية")
+    page_hint = _("نسخة معتمدة بعينها. لا تتغير تلقائياً عند صدور نسخة أحدث من الخلطة.")
+    success_message = _("أضيفت الوصفة الفرعية.")
+
+    def load(self) -> Any:
+        return self.version()
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, self.action_permission, instance.recipe.organization
+        )
+
+    def form_kwargs(self, instance: Any) -> dict[str, Any]:
+        return {"version": instance}
+
+    def perform(self, instance: Any, form: Any) -> Any:
+        return create_recipe_component(
+            version=instance,
+            component_version=form.cleaned_data["component_version"],
+            multiplier=form.cleaned_data["multiplier"],
+            note=form.cleaned_data["note"],
+            actor=self.actor,
+            source_document=form.cleaned_data["source_document"],
+            source_page=form.cleaned_data["source_page"],
+            source_reference=form.cleaned_data["source_reference"],
+            source_note=form.cleaned_data["source_note"],
+        )
+
+    def success_url(self, instance: Any, result: Any) -> str:
+        return reverse("kitchen:component_editor", args=[instance.pk])
+
+
+class ComponentActionMixin(KitchenViewMixin):
+    """Resolve the component with the caller, then check the authority."""
+
+    kwargs: dict[str, Any]
+
+    def component(self) -> Any:
+        component = resolve_component(self.actor, self.kwargs["pk"])
+        require_reachable_organization_permission(
+            self.actor, MANAGE_RECIPE, component.recipe.organization
+        )
+        return component
+
+    def editor_url(self, component: Any) -> str:
+        return reverse("kitchen:component_editor", args=[component.version_id])
+
+
+class ComponentUpdateView(ComponentActionMixin, KitchenWriteView):
+    """Correct a component while its parent is still a draft."""
+
+    form_class = RecipeComponentForm
+    required_permission = MANAGE_RECIPE
+    template_name = "kitchen/form.html"
+    page_title = _("تعديل وصفة فرعية")
+    page_hint = _("يجوز تبديل نسخة الخلطة ما دامت الوصفة الأم مسودة، وبعدها بنسخة جديدة فقط.")
+    success_message = _("عدلت الوصفة الفرعية.")
+
+    def load(self) -> Any:
+        return self.component()
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_RECIPE, instance.recipe.organization
+        )
+
+    def form_kwargs(self, instance: Any) -> dict[str, Any]:
+        return {"version": instance.version, "component": instance}
+
+    def initial_data(self, instance: Any) -> dict[str, Any]:
+        return {
+            "component_version": instance.component_version_id,
+            "multiplier": instance.multiplier,
+            "note": instance.note,
+            "source_document": instance.source_document,
+            "source_page": instance.source_page,
+            "source_reference": instance.source_reference,
+            "source_note": instance.source_note,
+        }
+
+    def perform(self, instance: Any, form: Any) -> Any:
+        return update_recipe_component(
+            component=instance,
+            multiplier=form.cleaned_data["multiplier"],
+            component_version=form.cleaned_data["component_version"],
+            note=form.cleaned_data["note"],
+        )
+
+    def success_url(self, instance: Any, result: Any) -> str:
+        return self.editor_url(instance)
+
+
+class ComponentReorderView(ComponentActionMixin, KitchenWriteView):
+    """Move one component; the siblings renumber around it, 1..n."""
+
+    form_class = RecipeComponentReorderForm
+    required_permission = MANAGE_RECIPE
+    template_name = "kitchen/form.html"
+    page_title = _("ترتيب الوصفات الفرعية")
+    page_hint = _("الترتيب صريح، ولا يعتمد على ترتيب الإدخال ولا على المفتاح الأساسي.")
+    success_message = _("أعيد الترتيب.")
+
+    def load(self) -> Any:
+        return self.component()
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_RECIPE, instance.recipe.organization
+        )
+
+    def initial_data(self, instance: Any) -> dict[str, Any]:
+        return {"line_order": instance.line_order}
+
+    def perform(self, instance: Any, form: Any) -> Any:
+        return reorder_recipe_component(
+            component=instance, line_order=form.cleaned_data["line_order"]
+        )
+
+    def success_url(self, instance: Any, result: Any) -> str:
+        return self.editor_url(instance)
+
+
+class ComponentDeleteView(ComponentActionMixin, View):
+    """POST-only. Removing an edge only ever makes the graph safer."""
+
+    required_permission = MANAGE_RECIPE
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        component = self.component()
+        destination = self.editor_url(component)
+        try:
+            remove_recipe_component(component=component, reason=request.POST.get("reason", ""))
+        except ValidationError as invalid:
+            messages.error(request, " ".join(invalid.messages))
+            return HttpResponseRedirect(destination)
+        messages.success(request, _("حذفت الوصفة الفرعية من المسودة."))
+        return HttpResponseRedirect(destination)

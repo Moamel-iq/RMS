@@ -51,6 +51,7 @@ from apps.kitchen.models import (
     RecipeReviewType,
     RecipeType,
     RecipeVersion,
+    RecipeVersionStatus,
     ServingRoundingPolicy,
 )
 from apps.kitchen.services import (
@@ -62,6 +63,7 @@ from apps.kitchen.services import (
     create_draft_recipe_version,
     create_recipe,
     create_recipe_category,
+    create_recipe_component,
     link_step_ingredient,
     set_recipe_branches,
 )
@@ -447,6 +449,9 @@ def seed_demo_recipes(
     recipes.extend(
         seed_demo_lifecycle(organization=organization, created_by=created_by, branches=branches)
     )
+    recipes.extend(
+        seed_demo_components(organization=organization, created_by=created_by, branches=branches)
+    )
     return recipes
 
 
@@ -708,3 +713,212 @@ def seed_demo_lifecycle(
         )
 
     return made
+
+
+# ---------------------------------------------------------------------------
+# The nested-recipe graph (Task 3.2B)
+# ---------------------------------------------------------------------------
+#
+# A small graph that makes all five things RCP-070 - RCP-072 claim visible on
+# one screen:
+#
+#   DEMO-RCP-DISH v1  -> DEMO-BLEND-MARINADE v1  -> DEMO-BLEND-SPICE v1
+#                     (a stocked semi-finished input arrives as a RecipeLine,
+#                      never as a component)
+#
+#   DEMO-RCP-DISH v2  -> DEMO-BLEND-MARINADE v2
+#
+# v1 of the dish keeps naming v1 of the marinade after v2 of the marinade
+# exists. That is the whole of RCP-072 and it is the one thing a reader should
+# be able to see without reading any code.
+#
+# Depth 2, well inside the limit of 3. Nothing invalid is ever seeded: a cycle
+# or an over-deep graph belongs only in a test that rolls back.
+
+DEMO_SPICE_CODE = "DEMO-BLEND-SPICE"
+DEMO_MARINADE_CODE = "DEMO-BLEND-MARINADE"
+DEMO_DISH_CODE = "DEMO-RCP-DISH"
+
+#: The dish v1 runs a closed range so the blend underneath it can be replaced
+#: later without stranding it. An open-ended parent pins its child open-ended,
+#: which is correct and is exactly why the demo does not do it here.
+DEMO_DISH_FIRST_TO = datetime.date(2026, 5, 31)
+
+
+def _blend_recipe(
+    *,
+    organization: Organization,
+    code: str,
+    name_ar: str,
+    created_by: User | None,
+    branches: list[Branch],
+) -> tuple[Recipe, RecipeVersion | None]:
+    """A non-stocked demo sub-recipe: no output item, so only ever a component."""
+    return _lifecycle_recipe(
+        organization=organization,
+        code=code,
+        name_ar=name_ar,
+        created_by=created_by,
+        branches=branches,
+    )
+
+
+def seed_demo_components(
+    *,
+    organization: Organization,
+    created_by: User | None,
+    branches: list[Branch],
+) -> list[Recipe]:
+    """
+    The nested demo scenario, built bottom-up through the real services.
+
+    Idempotent the same way the rest of this module is: every step runs only if
+    the state before it is still there, so a second run adds no recipe, no
+    version, no component, no scope row and no review.
+    """
+    people = ensure_demo_reviewers()
+    submitter = created_by or people["kitchen"]
+    made: list[Recipe] = []
+
+    # 10 - the leaf: a spice blend that exists only inside other recipes.
+    spice, spice_draft = _blend_recipe(
+        organization=organization,
+        code=DEMO_SPICE_CODE,
+        name_ar="خلطة بهارات تجريبية",
+        created_by=created_by,
+        branches=branches,
+    )
+    made.append(spice)
+    if spice_draft is not None:
+        approved = _carry_to_approved(spice_draft, people, submitter)
+        activate_recipe_version(
+            version=approved,
+            actor=people["approver"],
+            effective_from=DEMO_FIRST_EFFECTIVE,
+            reason=DEMO_BANNER,
+        )
+    spice_v1 = spice.versions.filter(status=RecipeVersionStatus.ACTIVE).first()
+
+    # 11 - the middle level: a marinade that contains the spice blend.
+    marinade, marinade_draft = _blend_recipe(
+        organization=organization,
+        code=DEMO_MARINADE_CODE,
+        name_ar="تتبيلة تجريبية",
+        created_by=created_by,
+        branches=branches,
+    )
+    made.append(marinade)
+    if marinade_draft is not None and spice_v1 is not None:
+        create_recipe_component(
+            version=marinade_draft,
+            component_version=spice_v1,
+            multiplier=Decimal("0.25"),
+            note=DEMO_BANNER,
+            actor=created_by,
+        )
+        approved = _carry_to_approved(marinade_draft, people, submitter)
+        activate_recipe_version(
+            version=approved,
+            actor=people["approver"],
+            effective_from=DEMO_FIRST_EFFECTIVE,
+            reason=DEMO_BANNER,
+        )
+    marinade_v1 = marinade.versions.filter(status=RecipeVersionStatus.ACTIVE).first()
+
+    # 12 - the dish. It contains the marinade as a component, and a stocked
+    #      semi-finished item as an ordinary line: both shapes on one screen,
+    #      and the mutual exclusion visible rather than described.
+    dish, dish_draft = _lifecycle_recipe(
+        organization=organization,
+        code=DEMO_DISH_CODE,
+        name_ar="طبق تجريبي بوصفات فرعية",
+        created_by=created_by,
+        branches=branches,
+    )
+    made.append(dish)
+    if dish_draft is not None and marinade_v1 is not None:
+        create_recipe_component(
+            version=dish_draft,
+            component_version=marinade_v1,
+            multiplier=Decimal("0.5"),
+            note=DEMO_BANNER,
+            actor=created_by,
+        )
+        _add_stocked_input(version=dish_draft, organization=organization)
+        approved = _carry_to_approved(dish_draft, people, submitter)
+        activate_recipe_version(
+            version=approved,
+            actor=people["approver"],
+            effective_from=DEMO_FIRST_EFFECTIVE,
+            effective_to=DEMO_DISH_FIRST_TO,
+            reason=DEMO_BANNER,
+        )
+
+    # 13 - a newer marinade, and a **new dish version** that adopts it. The
+    #      historical dish keeps naming the historical marinade; nothing is
+    #      re-pointed, which is the point.
+    # Exactly one version means the replacement pair has not been seeded yet.
+    # Checking for "no ACTIVE version" would never fire: the dish's first
+    # version *is* active, just with a closed range.
+    dish_v1 = dish.versions.filter(effective_to=DEMO_DISH_FIRST_TO).first()
+    if dish_v1 is not None and dish.versions.count() == 1 and marinade_v1 is not None:
+        # The new marinade keeps its own spice blend, at a different
+        # multiplier - so the comparison screen shows a real change on the
+        # component row rather than an empty replacement.
+        marinade_v2_draft = _complete_draft(recipe=marinade, created_by=created_by)
+        if spice_v1 is not None:
+            create_recipe_component(
+                version=marinade_v2_draft,
+                component_version=spice_v1,
+                multiplier=Decimal("0.30"),
+                note=DEMO_BANNER,
+                actor=created_by,
+            )
+        marinade_v2 = _carry_to_approved(marinade_v2_draft, people, submitter)
+        activate_recipe_version(
+            version=marinade_v2,
+            actor=people["approver"],
+            effective_from=DEMO_SECOND_EFFECTIVE,
+            supersedes=marinade_v1,
+            reason=DEMO_BANNER,
+        )
+        dish_v2_draft = _complete_draft(recipe=dish, created_by=created_by)
+        create_recipe_component(
+            version=dish_v2_draft,
+            component_version=RecipeVersion.objects.get(pk=marinade_v2.pk),
+            multiplier=Decimal("0.5"),
+            note=DEMO_BANNER,
+            actor=created_by,
+        )
+        _add_stocked_input(version=dish_v2_draft, organization=organization)
+        approved = _carry_to_approved(dish_v2_draft, people, submitter)
+        activate_recipe_version(
+            version=approved,
+            actor=people["approver"],
+            effective_from=DEMO_SECOND_EFFECTIVE,
+            supersedes=dish_v1,
+            reason=DEMO_BANNER,
+        )
+
+    return made
+
+
+def _add_stocked_input(*, version: RecipeVersion, organization: Organization) -> None:
+    """
+    The **other** shape: a stocked semi-finished item, consumed as a line.
+
+    RCP-070 in the demo data rather than in a comment. This item has a book
+    value and its ingredient tree is never expanded again; the marinade beside
+    it has no book value and is expanded from its exact child version. Adding
+    this as a component instead is refused by the service and by a trigger.
+    """
+    cooked = InventoryItem.objects.filter(organization=organization, code=COOKED_RICE_CODE).first()
+    if cooked is None:
+        return
+    add_recipe_line(
+        version=version,
+        item=cooked,
+        entered_quantity=Decimal("1"),
+        entered_unit=unit_by_code("KG"),
+        note=f"{DEMO_BANNER} — مدخل نصف مصنّع مخزني، يُستهلك كسطر لا كوصفة فرعية.",
+    )

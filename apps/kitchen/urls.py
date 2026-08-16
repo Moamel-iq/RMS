@@ -5,9 +5,10 @@ Every path that changes something resolves its target through a scoped selector
 before it acts, and checks the same permission the API checks. A route that is
 not rendered as a button is still a route, and it is still refused.
 
-There is deliberately **no cost route and no component route**: Task 3.3 owns
-costing and Task 3.2B owns nested recipes, and a route to a service that does
-not exist would be a promise the system cannot keep.
+There is deliberately **no cost route**: Task 3.3 owns costing, and a route to
+a service that does not exist would be a promise the system cannot keep. Task
+3.2B added the component routes below, all of them draft-only for mutation and
+none of them exposing a cost column.
 """
 
 from django.urls import path
@@ -129,5 +130,41 @@ urlpatterns = [
         "recipes/<int:pk>/effective/",
         version_views.ResolverPreviewView.as_view(),
         name="version_resolve",
+    ),
+    # Nested components
+    path(
+        "versions/<int:pk>/components/",
+        version_views.ComponentEditorView.as_view(),
+        name="component_editor",
+    ),
+    path(
+        "versions/<int:pk>/components/new/",
+        version_views.ComponentCreateView.as_view(),
+        name="component_create",
+    ),
+    path(
+        "versions/<int:pk>/component-tree/",
+        version_views.ComponentTreeView.as_view(),
+        name="component_tree",
+    ),
+    path(
+        "versions/<int:pk>/used-by/",
+        version_views.ComponentDependencyView.as_view(),
+        name="component_dependencies",
+    ),
+    path(
+        "components/<int:pk>/edit/",
+        version_views.ComponentUpdateView.as_view(),
+        name="component_update",
+    ),
+    path(
+        "components/<int:pk>/reorder/",
+        version_views.ComponentReorderView.as_view(),
+        name="component_reorder",
+    ),
+    path(
+        "components/<int:pk>/delete/",
+        version_views.ComponentDeleteView.as_view(),
+        name="component_delete",
     ),
 ]

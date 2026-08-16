@@ -662,6 +662,12 @@ to; see Task 3.0 §0 — which also records that the `KhanMandiRecipe.xlsx`
 workbook (form `KM-RCP-004`) **does** exist outside the repository, was read in
 full by Task 3.0A, and is authoritative about structure while carrying no data.
 
+**Extended by Task 3.2B (2026-08-16) to RCP-134.** RCP-132 - RCP-134 record what
+the nested-recipe graph settled: the dependency guard and the open-ended pin it
+implies, why a race cannot close a cycle here, and the multiplier's precision.
+RCP-070, RCP-072, RCP-074, RCP-076 and RCP-077 move from **Specified** to
+**Done**.
+
 **Extended by Task 3.2A (2026-08-16) to RCP-131.** RCP-127 – RCP-131 record what
 the approval boundary settled that the specification had not: the six-state
 lifecycle and the two states it deliberately does not have, the four-signature
@@ -742,14 +748,14 @@ until production exists at Task 3.5.
 | RCP-067 | Step ingredient share is in (0, 1] and sums to at most 1 per line | share bound + per-line sum | `apps/kitchen/tests/test_draft_structure.py::TestStepIngredientLinks` | 3.1 |  | Done |
 | RCP-068 | Duration and temperature stay null unless a source supplies them | nullable duration and temperature | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1 |  | Done |
 | RCP-069 | Arabic is the source language for instructions and checkpoints | instruction_ar required | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1 |  | Done |
-| RCP-070 | Stocked and non-stocked sub-recipes are mutually exclusive **by construction** | `CheckConstraint` + service + importer | — | 3.2 | | Specified |
+| RCP-070 | Stocked and non-stocked sub-recipes are mutually exclusive **by construction** | `recipe_component_child_is_stocked` | `apps/kitchen/tests/test_components.py::TestTheTwoShapes` | 3.2B | Done |
 | RCP-071 | A stocked sub-recipe is consumed at book value; its tree is never re-expanded | costing + posting | — | 3.3 | | Specified |
-| RCP-072 | A component references one exact approved child version; no silent re-pointing | FK + version immutability | — | 3.2 | | Specified |
+| RCP-072 | A component references one exact approved child version; no silent re-pointing | `exact child version, never re-pointed` | `apps/kitchen/tests/test_components.py::TestExactVersionAdoption` | 3.2B | Done |
 | RCP-073 | Quantities scale multiplicatively down the tree and quantize once | flattening service | — | 3.4 | | Specified |
-| RCP-074 | A child version's effective range covers the parent's, for every applicable branch | approval validation | — | 3.2 | | Specified |
+| RCP-074 | A child version's effective range covers the parent's, for every applicable branch | `require_effective_coverage` | `apps/kitchen/tests/test_component_coverage.py::TestCoverageAtActivation` | 3.2B | Done |
 | RCP-075 | Parent and child share an organization; the child's branches are a superset | approval validation | — | 3.2 | | Specified |
-| RCP-076 | Cycles are rejected at any depth, on draft save and again at approval | `CheckConstraint` + bounded walk | — | 3.2 | | Specified |
-| RCP-077 | Nesting depth is a validated constant with a named error; default 3 | service constant | — | 3.2 | | Specified |
+| RCP-076 | Cycles are rejected at any depth, on draft save and again at approval | `cycle_path at recipe identity` | `apps/kitchen/tests/test_components.py::TestCycles` | 3.2B | Done |
+| RCP-077 | Nesting depth is a validated constant with a named error; default 3 | `MAX_COMPONENT_DEPTH = 3` | `apps/kitchen/tests/test_components.py::TestDepth` | 3.2B | Done |
 | RCP-078 | Component cost rolls up recursively and quantizes once, at the top | costing service | — | 3.3 | | Specified |
 | RCP-079 | A non-stocked component moves no stock and creates no item; drafting flattens the tree | flattening at draft | — | 3.4 | | Specified |
 | RCP-080 | Flattened lines record their source component version and tree path | batch line fields | — | 3.4 | | Specified |
@@ -804,3 +810,6 @@ until production exists at Task 3.5.
 | RCP-129 | The approver is never the author, the submitter or a reviewer; kitchen and costing reviews are two people | `approve_recipe_version` + `_require_distinct_parties` | `apps/kitchen/tests/test_version_lifecycle.py::TestApproval` | 3.2A |  | Done |
 | RCP-130 | Organization-wide effective scope is materialised per branch, so overlap is enforceable | `RecipeVersionBranchScope` + `kitchen_scope_follows_its_version` | `apps/kitchen/tests/test_effective_dating.py::TestOverlapEnforcement` | 3.2A |  | Done |
 | RCP-131 | The effective range is inclusive at both ends and expressed once; the supersession seam has no gap and no overlap | `covers_on_date` + `daterange(..., '[]')` | `apps/kitchen/tests/test_effective_dating.py::TestRangeBoundaries` | 3.2A |  | Done |
+| RCP-132 | Closing a child version's range under an ACTIVE parent that names it is refused per branch; nothing is re-pointed and nothing cascades | `supersession_blockers` + `_supersede_locked` | `apps/kitchen/tests/test_component_coverage.py::TestTheDependencyGuard` | 3.2B |  | Done |
+| RCP-133 | Two concurrent component additions cannot jointly close a cycle, because a draft is never a child | `create_recipe_component` draft-only rule + `lock_component_graph` | `apps/kitchen/tests/test_component_concurrency.py::TestTwoEdgesCannotCloseACycle` | 3.2B |  | Done |
+| RCP-134 | The component multiplier is a technical identity at the repository's factor precision, rendered with a period | `RecipeComponent.multiplier_display` | `apps/kitchen/tests/test_components.py::TestTheMultiplier` | 3.2B |  | Done |

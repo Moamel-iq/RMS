@@ -17,9 +17,11 @@ from django.db.models import Model, QuerySet
 from django.utils.translation import gettext_lazy as _
 
 from apps.kitchen.models import (
+    COMPONENT_ELIGIBLE_STATUSES,
     OPEN_VERSION_STATUSES,
     Recipe,
     RecipeCategory,
+    RecipeComponent,
     RecipeLine,
     RecipeLineSubstitute,
     RecipeServing,
@@ -213,4 +215,99 @@ def versions_of(recipe: Recipe) -> QuerySet[RecipeVersion]:
         recipe.versions.select_related("output_unit", "approved_by", "superseded_by_version")
         .prefetch_related("reviews__reviewer", "branch_scopes__branch")
         .order_by("-version_number")
+    )
+
+
+# ---------------------------------------------------------------------------
+# Nested components
+# ---------------------------------------------------------------------------
+
+
+def visible_components(user: User) -> QuerySet[RecipeComponent]:
+    """Component links on versions this caller reaches."""
+    return RecipeComponent.objects.filter(
+        recipe__organization_id__in=reachable_organization_ids(user)
+    ).select_related(
+        "version",
+        "version__recipe",
+        "recipe",
+        "component_version",
+        "component_version__recipe",
+        "component_recipe",
+    )
+
+
+def resolve_component(user: User, component_id: int) -> RecipeComponent:
+    """Turn a submitted component id into one the caller reaches."""
+    return _resolve(visible_components(user), component_id, "RecipeComponent")
+
+
+def components_for_version(version: RecipeVersion) -> QuerySet[RecipeComponent]:
+    """
+    One version's own components, in `line_order`.
+
+    Explicit order, never queryset order: the component list is read beside the
+    ingredient list, and a list whose rows moved between two loads is one nobody
+    can review against a paper card.
+    """
+    return version.components.select_related(
+        "component_version",
+        "component_version__recipe",
+        "component_recipe",
+    ).order_by("line_order")
+
+
+def component_candidates(user: User, version: RecipeVersion) -> QuerySet[RecipeVersion]:
+    """
+    The child versions a screen may offer for this parent draft.
+
+    Filters what the server would refuse anyway, so the operator is not invited
+    to make a choice that cannot work:
+
+    * the caller's own organization only;
+    * never the parent's own recipe (`A → A` at recipe identity);
+    * never a recipe with an `output_item` — that is the **stocked** shape and
+      belongs on a `RecipeLine`, which is RCP-070's whole point;
+    * never an archived recipe;
+    * only frozen, approved child versions;
+    * never a recipe this parent already names.
+
+    **This is a convenience, never an enforcement.** Every one of these rules is
+    re-checked by `validate_component_edge` under the graph lock, against the
+    persisted graph. A candidate list is a suggestion a caller may ignore by
+    posting an id directly, and the tests post directly for exactly that reason.
+
+    Cycles deeper than one hop are deliberately *not* filtered here: deciding
+    them needs the whole graph walked per candidate, and a list that quietly
+    omitted a recipe would leave the operator wondering where it went. The
+    refusal names the path instead, which is more use than an absence.
+    """
+    already_named = version.components.values_list("component_recipe_id", flat=True)
+    return (
+        RecipeVersion.objects.filter(
+            recipe__organization_id=version.recipe.organization_id,
+            recipe__output_item__isnull=True,
+            recipe__is_active=True,
+            status__in=sorted(COMPONENT_ELIGIBLE_STATUSES),
+        )
+        .exclude(recipe_id=version.recipe_id)
+        .exclude(recipe_id__in=already_named)
+        .filter(recipe__organization_id__in=reachable_organization_ids(user))
+        .select_related("recipe")
+        .order_by("recipe__code", "-version_number")
+    )
+
+
+def component_dependencies(user: User, version: RecipeVersion) -> QuerySet[RecipeComponent]:
+    """
+    Which parent versions use this version as a component.
+
+    The panel that answers *"may I supersede this blend?"* before somebody tries
+    and is refused. Ordered by parent recipe then version so the screen, the
+    refusal message and the verifier all list them identically.
+    """
+    return (
+        visible_components(user)
+        .filter(component_version=version)
+        .order_by("version__recipe__code", "version__version_number")
     )

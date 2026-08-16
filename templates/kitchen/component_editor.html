@@ -1,0 +1,154 @@
+{# The draft component editor: add, correct, reorder and remove the nested   #}
+{# sub-recipes of one DRAFT version.                                        #}
+{#                                                                          #}
+{# Every action below is also refused server-side. `can_manage` decides      #}
+{# whether a button is *drawn*; it decides nothing about whether the POST    #}
+{# succeeds, and a test posts directly to each route without the button to   #}
+{# prove it. `extends` must be the first tag, so this note leads.            #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">
+        {{ recipe.code }} v{{ version.version_number }} — {% translate "الوصفات الفرعية" %}
+      </h1>
+      <p class="pagehead__hint">
+        {% translate "وصفة فرعية غير مخزنية: تُمزج أثناء الإنتاج ولا توجد كرصيد. الوصفة التي تنتج صنفاً مخزنياً تُستهلك كسطر مكوّن على الصنف، لا هنا." %}
+      </p>
+    </div>
+    <div class="rowactions">
+      <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
+        {% translate "تفاصيل النسخة" %}
+      </a>
+      <a class="btn btn--ghost" href="{% url 'kitchen:component_tree' version.pk %}">
+        {% translate "الشجرة" %}
+      </a>
+      {% if can_manage and version.is_draft %}
+        <a class="btn" href="{% url 'kitchen:component_create' version.pk %}">
+          {% translate "إضافة وصفة فرعية" %}
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if not version.is_draft %}
+    <section class="formcard">
+      <div class="alert" role="status">
+        <p>
+          {% blocktranslate with status=version.get_status_display %}النسخة {{ status }} ومجمّدة: لا تُضاف وصفة فرعية ولا تُعدَّل ولا تُحذف. تبني خلطة أحدث يكون بنسخة أم جديدة.{% endblocktranslate %}
+        </p>
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="formcard">
+    <h2>{% translate "الوصفات الفرعية في هذه النسخة" %}</h2>
+    {% if components %}
+      <table class="table">
+        <caption class="visually-hidden">{% translate "الوصفات الفرعية" %}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{% translate "الترتيب" %}</th>
+            <th scope="col">{% translate "الوصفة الفرعية" %}</th>
+            <th scope="col">{% translate "النسخة" %}</th>
+            <th scope="col">{% translate "الحالة" %}</th>
+            <th scope="col">{% translate "المعامل" %}</th>
+            <th scope="col">{% translate "ملاحظة" %}</th>
+            <th scope="col">{% translate "إجراءات" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for component in components %}
+            <tr>
+              <td>{{ component.line_order }}</td>
+              <td>
+                <a href="{% url 'kitchen:version_detail' component.component_version_id %}">
+                  {{ component.component_recipe.code }} — {{ component.component_recipe.name_ar }}
+                </a>
+              </td>
+              <td>v{{ component.component_version.version_number }}</td>
+              <td>{{ component.component_version.get_status_display }}</td>
+              {# Technical identity: period, never comma, rendered LTR. #}
+              <td><code dir="ltr">{{ component.multiplier_display }}</code></td>
+              <td>{{ component.note|default:"—" }}</td>
+              <td class="rowactions">
+                {% if can_manage and version.is_draft %}
+                  <a class="btn btn--ghost" href="{% url 'kitchen:component_update' component.pk %}">
+                    {% translate "تعديل" %}
+                  </a>
+                  <a class="btn btn--ghost" href="{% url 'kitchen:component_reorder' component.pk %}">
+                    {% translate "ترتيب" %}
+                  </a>
+                  <form method="post" action="{% url 'kitchen:component_delete' component.pk %}">
+                    {% csrf_token %}
+                    <button class="btn btn--ghost" type="submit">{% translate "حذف" %}</button>
+                  </form>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">{% translate "لا تحتوي هذه النسخة على وصفات فرعية." %}</p>
+    {% endif %}
+  </section>
+
+  {% if version.is_draft %}
+    <section class="formcard">
+      <h2>{% translate "الوصفات الفرعية المتاحة" %}</h2>
+      <p class="pagehead__hint">
+        {% translate "قائمة تسهيل لا تحل محل التحقق: الخادم يعيد فحص كل قاعدة تحت قفل الرسم البياني، وأي إرسال مباشر لنسخة أخرى يُرفض هناك." %}
+      </p>
+      <form class="toolbar" method="get"
+            hx-get="{{ request.path }}"
+            hx-target="#component-candidates"
+            hx-select="#component-candidates"
+            hx-swap="outerHTML"
+            hx-trigger="submit, keyup changed delay:300ms from:find input[name=q]">
+        <label class="formrow__label" for="component-search">{% translate "بحث" %}</label>
+        <input id="component-search" type="search" name="q" value="{{ search }}"
+               placeholder="{% translate 'رمز أو اسم' %}">
+        <button class="btn btn--ghost" type="submit">{% translate "بحث" %}</button>
+      </form>
+
+      <div id="component-candidates">
+        {% if candidates %}
+          <ul>
+            {% for candidate in candidates %}
+              <li>
+                {{ candidate.recipe.code }} — {{ candidate.recipe.name_ar }}
+                (v{{ candidate.version_number }} · {{ candidate.get_status_display }})
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">
+            {% translate "لا توجد وصفة فرعية صالحة: غير مخزنية، ومعتمدة، وليست هذه الوصفة نفسها، ولم تُضف بعد." %}
+          </p>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="formcard">
+    <h2>{% translate "الشجرة" %}</h2>
+    <div id="component-tree-panel"
+         hx-get="{% url 'kitchen:component_tree' version.pk %}"
+         hx-trigger="load"
+         hx-target="this"
+         hx-select="#component-tree"
+         hx-swap="innerHTML">
+      {# Full-page fallback: without JavaScript this link is the whole route. #}
+      <a class="btn btn--ghost" href="{% url 'kitchen:component_tree' version.pk %}">
+        {% translate "عرض الشجرة" %}
+      </a>
+    </div>
+  </section>
+{% endblock %}

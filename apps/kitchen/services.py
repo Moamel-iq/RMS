@@ -20,10 +20,16 @@ data that never posts:
   caller has held since before a discard cannot be used to modify anything.
 
 **Task 3.1 has no submit, approve, activate or supersede service, and this is
-deliberate rather than unfinished.** Task 3.2 owns the lifecycle. A placeholder
-that flipped a status would be a lifecycle without its rules — the maker-checker
-constraint, the effective-date exclusion and the immutability triggers all
-arrive together or none of them do.
+deliberate rather than unfinished.** Task 3.2A owns the lifecycle, in
+`lifecycle.py`. A placeholder that flipped a status would be a lifecycle without
+its rules — the maker-checker constraint, the effective-date exclusion and the
+immutability triggers all arrive together or none of them do.
+
+**Task 3.2B adds the four component commands** at the end of this module. They
+are draft structure like every other command here, and they follow the same
+three disciplines — with one addition of their own: they take the organization's
+**component graph lock** before any row lock, because a cycle is a contradiction
+that lives across rows and no row lock can see it. `graph.py` explains why.
 """
 
 from __future__ import annotations
@@ -42,11 +48,13 @@ from apps.core.quantity import ensure_decimal, quantize_calculation, quantize_fa
 from apps.core.services import record_audit_event, snapshot
 from apps.inventory.models import ConversionType, InventoryItem, ItemType, PackageUnit
 from apps.inventory.selectors import effective_conversion
+from apps.kitchen.graph import lock_component_graph, read_graph, validate_component_edge
 from apps.kitchen.models import (
     MeasurementBasis,
     Recipe,
     RecipeBranch,
     RecipeCategory,
+    RecipeComponent,
     RecipeLine,
     RecipeLineCostClass,
     RecipeLineSubstitute,
@@ -1350,6 +1358,307 @@ def remove_recipe_serving(*, serving: RecipeServing, reason: str = "") -> None:
     current.delete()
 
 
+# ---------------------------------------------------------------------------
+# Nested components
+# ---------------------------------------------------------------------------
+#
+# The four draft-only commands. Every one of them takes the same locks in the
+# same order, and the order is the whole reason they are safe:
+#
+#     1. the organization's component graph lock   advisory, exclusive
+#     2. the Recipe rows, ascending id             row locks
+#     3. the RecipeVersion rows, ascending id      row locks
+#
+# The graph lock is taken first and unconditionally, so two callers naming the
+# same two versions in opposite order are already serialised before either
+# reaches a row lock. That is what makes "A → B racing B → A" impossible rather
+# than merely unlikely, and it is why opposite caller order cannot deadlock.
+
+
+def _graph_organization_of(version_id: int) -> int:
+    """
+    Which organization's graph lock a command on this version needs.
+
+    An unlocked read, and deliberately so: it chooses a *lock key*, nothing
+    more. A version's organization is immutable — the version cannot change
+    recipe and the recipe cannot change organization — so this cannot pick the
+    wrong lock, and if the row is gone the authoritative re-read that follows
+    refuses. Reading it off the caller's object instead would be trusting a
+    caller-supplied model, which this module does not do.
+    """
+    organization_id = (
+        RecipeVersion.objects.filter(pk=version_id)
+        .values_list("recipe__organization_id", flat=True)
+        .first()
+    )
+    if organization_id is None:
+        raise ValidationError(_("النسخة لم تعد موجودة."))
+    return int(organization_id)
+
+
+def _lock_component_child(component_version: RecipeVersion) -> RecipeVersion:
+    """Re-read the child under a row lock. The caller's copy is a memory."""
+    # `recipe__output_item` is deliberately absent from `select_related`: it is
+    # nullable, so joining it makes the query an outer join and Postgres refuses
+    # `FOR UPDATE` on the nullable side of one. The shape check reads
+    # `output_item_id`, which is a column on `recipe` and needs no join at all.
+    child = (
+        RecipeVersion.objects.select_for_update()
+        .filter(pk=component_version.pk)
+        .select_related("recipe", "recipe__organization")
+        .first()
+    )
+    if child is None:
+        raise ValidationError({"component_version": _("النسخة الفرعية لم تعد موجودة.")})
+    return child
+
+
+def _lock_component_recipes(*recipe_ids: int) -> None:
+    """Lock the Recipe rows involved, ascending id, before their versions."""
+    for recipe_id in sorted(set(recipe_ids)):
+        Recipe.objects.select_for_update().get(pk=recipe_id)
+
+
+@transaction.atomic
+def create_recipe_component(
+    *,
+    version: RecipeVersion,
+    component_version: RecipeVersion,
+    multiplier: object,
+    line_order: int | None = None,
+    note: str = "",
+    actor: User | None = None,
+    source_document: str = "",
+    source_page: int | None = None,
+    source_sha256: str = "",
+    source_reference: str = "",
+    source_note: str = "",
+) -> RecipeComponent:
+    """
+    Add one non-stocked sub-recipe to an open draft, at one exact child version.
+
+    The child is named by version and stays named by version forever (RCP-072).
+    Nothing in this module ever re-points it: when the blend changes, the dish
+    gets a **new version** that adopts the new blend, and the old dish keeps
+    saying what it actually contained.
+
+    `line_order` is drawn under the version's lock when the caller does not
+    supply one, for the same reason a version number is: two concurrent adds
+    that both computed `max + 1` from an unlocked read would choose the same
+    position, and the unique constraint would refuse the second after the user
+    had already filled the form.
+    """
+    organization_id = _graph_organization_of(version.pk)
+    lock_component_graph(organization_id)
+
+    _lock_component_recipes(version.recipe_id, component_version.recipe_id)
+    current = _lock_draft(version)
+    child = _lock_component_child(component_version)
+
+    validate_component_edge(parent=current, child=child, graph=read_graph(organization_id))
+
+    if RecipeComponent.objects.filter(version=current, component_recipe=child.recipe).exists():
+        raise ValidationError(
+            {
+                "component_version": ValidationError(
+                    _("الوصفة الفرعية %(code)s مضافة بالفعل إلى هذه النسخة.")
+                    % {"code": child.recipe.code},
+                    code="recipe_component_duplicate_child",
+                )
+            }
+        )
+
+    if line_order is None:
+        highest = current.components.aggregate(highest=Max("line_order"))["highest"] or 0
+        line_order = highest + 1
+
+    document, page = _validate_provenance(source_document, source_page)
+    component = RecipeComponent(
+        version=current,
+        recipe=current.recipe,
+        line_order=line_order,
+        component_version=child,
+        component_recipe=child.recipe,
+        multiplier=quantize_factor(
+            ensure_decimal(multiplier, field="multiplier"), field="multiplier"
+        ),
+        note=note.strip(),
+        created_by=actor,
+        source_document=document,
+        source_page=page,
+        source_sha256=source_sha256.strip(),
+        source_reference=source_reference.strip(),
+        source_note=source_note.strip(),
+    )
+    component.full_clean()
+    component.save()
+    record_audit_event(action=AuditAction.CREATED, target=component, new_state=snapshot(component))
+    return component
+
+
+@transaction.atomic
+def update_recipe_component(
+    *,
+    component: RecipeComponent,
+    multiplier: object,
+    component_version: RecipeVersion | None = None,
+    note: str = "",
+) -> RecipeComponent:
+    """
+    Correct a component while its parent is still a draft.
+
+    Adopting a different child **version** is permitted here and only here: a
+    draft is a document somebody is still writing, and choosing the wrong blend
+    version at 10am should be fixable at 10:05. The moment the parent leaves
+    `DRAFT` the same change becomes a new parent version, refused by the service
+    and by the trigger alike.
+
+    The graph is re-validated in full, because swapping the child can introduce
+    a cycle or a fourth level that the original edge did not have.
+    """
+    organization_id = _graph_organization_of(component.version_id)
+    lock_component_graph(organization_id)
+
+    current = (
+        RecipeComponent.objects.select_for_update()
+        .select_related("version", "component_version")
+        .get(pk=component.pk)
+    )
+    target = component_version if component_version is not None else current.component_version
+    _lock_component_recipes(current.recipe_id, target.recipe_id)
+    parent = _lock_draft(current.version)
+    child = _lock_component_child(target)
+
+    previous = snapshot(current)
+
+    if child.pk != current.component_version_id:
+        validate_component_edge(parent=parent, child=child, graph=read_graph(organization_id))
+        clash = RecipeComponent.objects.filter(
+            version=parent, component_recipe=child.recipe
+        ).exclude(pk=current.pk)
+        if clash.exists():
+            raise ValidationError(
+                {
+                    "component_version": ValidationError(
+                        _("الوصفة الفرعية %(code)s مضافة بالفعل إلى هذه النسخة.")
+                        % {"code": child.recipe.code},
+                        code="recipe_component_duplicate_child",
+                    )
+                }
+            )
+        current.component_version = child
+        current.component_recipe = child.recipe
+
+    current.multiplier = quantize_factor(
+        ensure_decimal(multiplier, field="multiplier"), field="multiplier"
+    )
+    current.note = note.strip()
+    current.full_clean()
+    current.save(
+        update_fields=["component_version", "component_recipe", "multiplier", "note", "updated_at"]
+    )
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=current,
+        previous_state=previous,
+        new_state=snapshot(current),
+    )
+    return current
+
+
+@transaction.atomic
+def remove_recipe_component(*, component: RecipeComponent, reason: str = "") -> None:
+    """
+    Take a sub-recipe off an open draft.
+
+    Removing an edge can only ever make the graph shallower and more acyclic, so
+    there is nothing to re-validate — but the graph lock is still taken, because
+    a removal racing an approval would otherwise let the approval certify a
+    graph that no longer exists.
+    """
+    organization_id = _graph_organization_of(component.version_id)
+    lock_component_graph(organization_id)
+
+    current = (
+        RecipeComponent.objects.select_for_update()
+        .select_related("version", "component_recipe")
+        .get(pk=component.pk)
+    )
+    _lock_component_recipes(current.recipe_id)
+    _lock_draft(current.version)
+
+    previous = snapshot(current)
+    record_audit_event(
+        action=AuditAction.DELETED,
+        target_type="kitchen.RecipeComponent",
+        target_id=str(current.pk),
+        previous_state=previous,
+        new_state={"removed": current.component_recipe.code},
+        reason=reason,
+    )
+    current.delete()
+
+
+@transaction.atomic
+def reorder_recipe_component(
+    *, component: RecipeComponent, line_order: int
+) -> list[RecipeComponent]:
+    """
+    Move one component to a position, and renumber its siblings `1..n`.
+
+    Renumbering rather than swapping, so the result is always a dense, ordered,
+    gap-free sequence no matter what the caller asks for — a position past the
+    end lands at the end, and a position below one lands first.
+
+    **Two passes, and the first one is not optional.** `UNIQUE(version,
+    line_order)` is checked per statement, so assigning the final numbers
+    directly would collide the moment two rows swapped places. The rows are
+    first moved above the current maximum, then brought down to their final
+    positions, which is the same trick the allocation helper uses one level up.
+    """
+    if line_order < 1:
+        raise ValidationError(
+            {
+                "line_order": ValidationError(
+                    _("الترتيب يجب أن يكون رقماً موجباً."),
+                    code="recipe_component_order_not_positive",
+                )
+            }
+        )
+
+    organization_id = _graph_organization_of(component.version_id)
+    lock_component_graph(organization_id)
+
+    current = (
+        RecipeComponent.objects.select_for_update().select_related("version").get(pk=component.pk)
+    )
+    _lock_component_recipes(current.recipe_id)
+    parent = _lock_draft(current.version)
+
+    siblings = list(
+        RecipeComponent.objects.select_for_update().filter(version=parent).order_by("line_order")
+    )
+    others = [row for row in siblings if row.pk != current.pk]
+    index = max(0, min(len(others), line_order - 1))
+    ordered = [*others[:index], current, *others[index:]]
+
+    offset = max((row.line_order for row in siblings), default=0) + 1
+    for position, row in enumerate(ordered):
+        row.line_order = offset + position
+        row.save(update_fields=["line_order", "updated_at"])
+    for position, row in enumerate(ordered, start=1):
+        row.line_order = position
+        row.save(update_fields=["line_order", "updated_at"])
+
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=parent,
+        new_state={"component_order": [row.component_recipe_id for row in ordered]},
+        reason=str(_("إعادة ترتيب المكوّنات الفرعية")),
+    )
+    return ordered
+
+
 __all__ = [
     "PRODUCIBLE_ITEM_TYPES",
     "add_recipe_line",
@@ -1358,6 +1667,7 @@ __all__ = [
     "add_recipe_step",
     "archive_recipe",
     "create_draft_recipe_version",
+    "create_recipe_component",
     "create_recipe",
     "create_recipe_category",
     "delete_draft_recipe_version",
@@ -1365,13 +1675,16 @@ __all__ = [
     "reactivate_recipe",
     "remove_recipe_line",
     "remove_recipe_line_substitute",
+    "remove_recipe_component",
     "remove_recipe_serving",
     "remove_recipe_step",
+    "reorder_recipe_component",
     "set_recipe_branches",
     "unlink_step_ingredient",
     "update_draft_recipe_version",
     "update_recipe",
     "update_recipe_category",
+    "update_recipe_component",
     "update_recipe_line",
     "update_recipe_line_substitute",
     "update_recipe_serving",
