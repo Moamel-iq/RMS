@@ -31,6 +31,18 @@ Four of these were missing from this table while their files read
 **Accepted** and their behaviour shipped, which is how the index came to
 disagree with the decisions it indexes. Found at the Phase 2 gate.
 
+## Proposed by Phase 3, not yet written
+
+Registered here the day they were proposed, so the index cannot fall behind the
+specification again. Each is written by the task that first implements its
+subject, and none exists as a file yet.
+
+| ADR | Title | Proposed by | Written by | Scope |
+|---|---|---|---|---|
+| ADR-024 | Recipe structure, versioning and the effective-dated cost basis | Task 3.0, **scope extended by Task 3.0A** | Task 3.2 | Why versions are effective-dated and immutable once approved; how a date resolves a version and then a cost; what a snapshot is for; why no cost is stored on a recipe. Extended to the structure hanging off a version: structured steps as the method of record; the stocked / non-stocked sub-recipe split enforced **by construction**; exact child-version references with no silent re-pointing; servings as a division of one output with exact-remainder allocation |
+| ADR-025 | Production batch valuation and the Release 1 boundary | Task 3.0, **scope extended by Task 3.0A** | Task 3.5 | Value conservation through the batch; yield absorbed into unit cost rather than journalled against a standard nobody set; the per-account net journal and the **legitimate no-journal case**; one output per batch and what multi-output would require; why there is no WIP account — **and the seven conditions under which that is true**, plus what must be specified if multi-day production is ever needed |
+| ADR-026 | Consumption is a partition, not a sum | **Task 3.0A** | Task 3.8 | Why the architecture charter's actual-consumption formula is **not implemented as written**: its "issues to kitchen" and "transfers into the kitchen" terms are one event under two incompatible physical models, and adding custody transfers to production usage double-counts. Records the partition that replaces it, in which every posted movement contributes to exactly one bucket and the classification is proved against the stock identity. **The only deliberate departure from an approved charter formula in three phases** |
+
 ## Reserved, not yet written
 
 These numbers are reserved by the installation plan. Each needs a business

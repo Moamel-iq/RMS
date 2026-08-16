@@ -5,32 +5,73 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: **Phase 3 opened — Task 3.0 specification authored,
-awaiting human approval.** Branch `phase/3-kitchen` from the Phase 2 head.
-No implementation begins until the spec is approved; Task 3.1 is gated on
-that approval, not on any technical prerequisite.
+CURRENT_PIPELINE_STEP: **Phase 3 opened — Task 3.0 specification authored
+(`8ef3685`) and completed by Task 3.0A, awaiting owner approval.** Branch
+`phase/3-kitchen`. No implementation begins until the spec is approved; Task
+3.1 is gated on that approval, not on any technical prerequisite. **No decision
+in the register blocks Task 3.1**, so approval alone releases it.
 
-Deliverables on the branch: `docs/tasks/task-3-0-recipes-production-domain-spec.md`
-(RCP-001..RCP-057), `docs/tasks/phase-3-task-breakdown.md` (3.0–3.11, exit
-tag `phase-3-kitchen-complete`), `docs/invariants/kitchen-invariants.md`
-(30 proposed invariants), the Phase 3 traceability section (57 Specified
-rows), and the coverage validator extended to the Phase 3 breakdown — all
-twelve new task numbers verified covered.
+Deliverables: `docs/tasks/task-3-0-recipes-production-domain-spec.md`
+(**RCP-001..RCP-116**, 2,250 lines), `docs/tasks/phase-3-task-breakdown.md`
+(3.0–3.11 with per-task exit criteria, exit tag `phase-3-kitchen-complete`),
+`docs/invariants/kitchen-invariants.md` (**46** proposed invariants), the Phase
+3 traceability section (**116** Specified rows), the ADR index carrying
+ADR-024/025/026 as proposed, and ten Mermaid diagrams — the first in the
+repository.
 
-The design decisions a reviewer should look at hardest, each argued in the
-spec: Phase 3 adds exactly ONE stock-moving document (the batch) and reuses
-every Phase 1 kitchen flow; value is conserved through a batch with yield
-absorbed into unit cost (no standard cost, no variance journal); the batch
-journal is a per-account net and is legitimately ABSENT when accounts net to
-zero; NO new account roles, no WIP account, no new AccountRoleDomain; staff
-and complimentary meals are memo documents feeding the theoretical side,
-with the expense reclassification deferred-and-recorded; sold quantities and
-the backflush election stay in Phase 4.
+**The finding that justified Task 3.0A.** The first draft never opened the
+kitchen's own recipe form. `KhanMandiRecipe.xlsx` exists at
+`Khan Mandi/files/` — **outside the repository**, which is why it was missed —
+and is form `KM-RCP-004`, *نموذج اعتماد مكونات وكلفة الأصناف*, branch البنوك, 23
+sheets, 19 items, four signatories. Task 3.0A read all of it. It is
+**authoritative about structure and empty of data**: every quantity, unit cost,
+loss percentage, item code, effective date and signature is blank, so each
+card's summary currently shows food cost 0, packaging cost 0, and a "profit
+margin" equal to the entire selling price. Four design corrections came directly
+from it — per-ingredient loss (`فاقد %` is a column, not a recipe rate), a
+food/packaging cost class on the line, measured-versus-approved quantity as two
+facts, and the confirmation that maker-checker approval is the branch's own
+existing control (`الشيف + المحاسب + المدير`).
+
+**The defect Task 3.0A corrected.** RCP-046 transcribed the architecture
+charter's actual-consumption formula faithfully — and that formula
+double-counts against this system's documents. Its "warehouse issues to kitchen"
+and "transfers into the kitchen" terms are one event under two incompatible
+physical models, and adding custody transfers to production usage charges the
+same kilogram twice. Replaced by a **partition** (RCP-098–RCP-107, proposed
+ADR-026) in which every posted movement lands in exactly one bucket and the
+classification is proved against the stock identity. This is the only deliberate
+departure from an approved charter formula in three phases, and it is written
+down as one.
+
+The decisions a reviewer should look at hardest: value conserved through a batch
+with yield absorbed into unit cost (no standard cost, no variance journal); the
+batch journal legitimately **absent** when accounts net to zero, now with a
+verifier that proves the nets really are zero; **no** new account roles, no WIP
+account — under seven now-explicit Release 1 conditions, with multi-day
+production **refused** rather than misrepresented; stocked and non-stocked
+sub-recipes made mutually exclusive **by construction** so double counting is
+unrepresentable; servings as a division of one output, with the workbook's
+evidence that a half is currently its own card at 13,000 against a whole at
+25,000 — not a 0.5 factor; and meals memo-only but explicitly **not**
+financially complete.
+
+**Seven owner decisions are open** (KD-02, KD-03, KD-05, KD-06, KD-07, KD-09,
+KD-13); every one has a stated default. KD-09 (multi-day production) blocks Task
+3.5 only if answered YES. KD-02/05/06 block acceptance of Task 3.10's real data,
+never its code.
+
+Task 3.0A validation, all green on a documentation-only diff: traceability 4
+passed; ruff check clean; 294 files formatted; `manage.py check` 0 issues;
+`makemigrations --check` no changes; **all 13 pre-commit hooks passed**. No
+executable code, model, migration or Task 3.1 implementation exists.
 
 Previous milestone: **Procurement module exit: PASS**
 (`phase-2-procurement-complete`, commit b865e7d, suite 2362/0).
 **Accounting module exit: PASS** (`accounting-module-complete`, commit
-1b6e943, suite 2380/0). Both tags pushed; `main` untouched at fd08e4c.
+1b6e943, suite 2380/0). Both tags pushed. Local `main` untouched at 7073f95;
+the owner has since merged PR #3 upstream, so `origin/main` is at aedaa6b and
+already contains `8ef3685`.
 ERRORS 0 · FAILURES 0 · BLOCKERS 0.
 CURRENT_TASK: Task 2.17 executed to plan; commit pending only the
 affected-domain run (`apps/procurement` + both inventory import test
@@ -864,4 +905,6 @@ the item, and it is addressed.
 | 19 Imports + hardening | **COMPLETE, PUSHED** | feature + checkpoint | fresh DB b11, three kinds registered into the Task 1.7 framework, §16.8 by vocabulary |
 | 16 Supplier credit notes | **COMPLETE, PUSHED** | e26a051 + checkpoint | fresh DB b8, ADR-022 fully implemented, invoice guard hole closed |
 | 20 Phase 2 exit gate | **COMPLETE, TAGGED** | b865e7d + checkpoint, tag `phase-2-procurement-complete` | suite 2362/0 on a verified-identical tree; fresh DB gate2; two reviews applied; one real import defect closed |
-| ACCT-1..6 | in progress | — | Accounting completion queue; the goal needs an independent Accounting exit PASS |
+| ACCT-1..6 | **COMPLETE, TAGGED** | 1b6e943, tag `accounting-module-complete` | suite 2380/0 on a verified-identical tree; independent Accounting exit PASS |
+| Task 3.0 spec | **COMPLETE, PUSHED** | 8ef3685 | RCP-001..057, 30 invariants, breakdown 3.0–3.11 — awaiting owner approval |
+| Task 3.0A completion | **COMPLETE, PUSHED** | this commit | RCP-001..116, 46 invariants, 10 diagrams, 18-row decision register; `KM-RCP-004` read; RCP-046 corrected; docs only, 13 hooks green |

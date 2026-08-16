@@ -30,7 +30,7 @@ reviews.
 | 1.7 | Superseded by 1.7A and 1.7B | Split during Phase 1; both halves carry their own rows |
 | 1.8 | `EXIT-` rows plus the Phase 1 gate record | An exit gate verifies other tasks' requirements rather than adding its own |
 | 2.18 | The Phase 2 gate record | The same; see `docs/runbooks/overnight-progress.md` Step 20 |
-| 3.0 | — | A specification task, for Phase 3 (`RCP-001`..`RCP-057`); awaiting approval |
+| 3.0 | — | A specification task, for Phase 3 (`RCP-001`..`RCP-116`, extended by Task 3.0A); awaiting approval |
 | 3.11 | The Phase 3 gate record, when it runs | An exit gate verifies other tasks' requirements rather than adding its own |
 
 | Req ID | Summary | Module | Model / service / API | Tests | Status | Notes |
@@ -641,8 +641,18 @@ lands: Task 3.0 wrote no code, and a row that claimed evidence today would be
 claiming a test that does not exist — which is the failure
 `tests/test_traceability.py` was written to stop.
 
+**Extended by Task 3.0A (2026-08-16) from 57 rows to 116.** RCP-058 – RCP-116
+cover the source audit's data gate, structured recipe steps, nested
+sub-recipes, servings, the corrected consumption partition, the Release 1
+production boundary and the profitability boundary. RCP-046 is **amended**: its
+original text described the architecture charter's actual-consumption formula,
+which double-counts against this system's documents; it now points at its
+correction.
+
 Requirement identifiers are **repository-local**. No SRS exists to map them
-to; see Task 3.0 §0.
+to; see Task 3.0 §0 — which also records that the `KhanMandiRecipe.xlsx`
+workbook (form `KM-RCP-004`) **does** exist outside the repository, was read in
+full by Task 3.0A, and is authoritative about structure while carrying no data.
 
 | ID | Requirement | Implementation | Test | Task | AT | Status |
 |---|---|---|---|---|---|---|
@@ -691,7 +701,7 @@ to; see Task 3.0 §0.
 | RCP-043 | Meal records move no stock and post no journal; they explain, not consume | model shape | — | 3.7 | | Specified |
 | RCP-044 | Staff-meal expense reclassification is deferred, recorded, data accumulating | deferral note | — | 3.7 | | Specified |
 | RCP-045 | Meal corrections are cancellation, never edits | status machine | — | 3.7 | | Specified |
-| RCP-046 | Actual consumption is the charter's formula over a selected warehouse | report derivation | — | 3.8 | | Specified |
+| RCP-046 | **Amended by 3.0A.** Actual consumption is not one formula; it is two reads (RCP-098 – RCP-107) | superseded derivation | — | 3.8 | | Specified |
 | RCP-047 | Theoretical consumption uses effective versions over recordable sources; Phase 4 plugs sales in | quantity-source socket | — | 3.8 | | Specified |
 | RCP-048 | The backflush election is not made here; Phase 4 records it if elected | documented boundary | — | 3.8 | | Specified |
 | RCP-049 | `verify_kitchen` proves batch agreement, value conservation, identity | the verifier | — | 3.9 | | Specified |
@@ -703,3 +713,62 @@ to; see Task 3.0 §0.
 | RCP-055 | Arabic RTL screens in the shell; sections go live task by task | templates + navigation | — | 3.1–3.10 | | Specified |
 | RCP-056 | Demo: two named recipes, one permitted new item, posted and draft batches, meals, every screen showing something | demo tooling | — | 3.1–3.10 | | Specified |
 | RCP-057 | Recipe imports are preview-first master data; nothing that posts imports | Task 1.7 framework registration | — | 3.10 | | Specified |
+| RCP-058 | The workbook's structure is source; its data is not. No import or demo counts as real recipes until a filled `KM-RCP-004` exists | data gate + `DEMO` namespace | — | 3.10 | | Specified |
+| RCP-059 | No quantity, loss, yield, cost or price is presented as a Khan Mandi figure without a traceable source | symbols and labelled illustrations | — | 3.1–3.10 | | Specified |
+| RCP-060 | Loss is recorded per ingredient line as well as per version; both informational | `RecipeLine.loss_rate` | — | 3.1 | | Specified |
+| RCP-061 | Every line carries a cost class FOOD / PACKAGING / ACCOMPANIMENT; a reporting dimension only | `RecipeLine.cost_class` | — | 3.1 | | Specified |
+| RCP-062 | Measured and approved quantities are separate facts; costing reads only the approved one | two fields | — | 3.1 | | Specified |
+| RCP-063 | The method is a sequence of structured steps; free-text instructions is an overview only | `RecipeStep` | — | 3.1 | | Specified |
+| RCP-064 | Steps are frozen with the approved version, like lines | allowlist trigger | — | 3.2 | | Specified |
+| RCP-065 | Step sequence is explicit, positive and unique per version; gaps are legal | `UniqueConstraint` | — | 3.1 | | Specified |
+| RCP-066 | Steps carry no arithmetic; no costing or consumption read touches them | service boundary | — | 3.1–3.9 | | Specified |
+| RCP-067 | Step ingredient share is in (0, 1] and sums to at most 1 per line | `CheckConstraint` + service | — | 3.1 | | Specified |
+| RCP-068 | Duration and temperature stay null unless a source supplies them | no defaults, no inference | — | 3.1 | | Specified |
+| RCP-069 | Arabic is the source language for instructions and checkpoints | message ids | — | 3.1 | | Specified |
+| RCP-070 | Stocked and non-stocked sub-recipes are mutually exclusive **by construction** | `CheckConstraint` + service + importer | — | 3.2 | | Specified |
+| RCP-071 | A stocked sub-recipe is consumed at book value; its tree is never re-expanded | costing + posting | — | 3.3 | | Specified |
+| RCP-072 | A component references one exact approved child version; no silent re-pointing | FK + version immutability | — | 3.2 | | Specified |
+| RCP-073 | Quantities scale multiplicatively down the tree and quantize once | flattening service | — | 3.4 | | Specified |
+| RCP-074 | A child version's effective range covers the parent's, for every applicable branch | approval validation | — | 3.2 | | Specified |
+| RCP-075 | Parent and child share an organization; the child's branches are a superset | approval validation | — | 3.2 | | Specified |
+| RCP-076 | Cycles are rejected at any depth, on draft save and again at approval | `CheckConstraint` + bounded walk | — | 3.2 | | Specified |
+| RCP-077 | Nesting depth is a validated constant with a named error; default 3 | service constant | — | 3.2 | | Specified |
+| RCP-078 | Component cost rolls up recursively and quantizes once, at the top | costing service | — | 3.3 | | Specified |
+| RCP-079 | A non-stocked component moves no stock and creates no item; drafting flattens the tree | flattening at draft | — | 3.4 | | Specified |
+| RCP-080 | Flattened lines record their source component version and tree path | batch line fields | — | 3.4 | | Specified |
+| RCP-081 | Correcting a child is a new child version; existing parents are unaffected | versioning rule | — | 3.2 | | Specified |
+| RCP-082 | No dish, cut, serving code or gram figure appears in `apps/kitchen` source | convention test | — | 3.1 | | Specified |
+| RCP-083 | A serving's unit converts to the output basis, once at entry | `apps/units` dimension check | — | 3.1 | | Specified |
+| RCP-084 | Exactly one primary serving per version | partial unique index | — | 3.1 | | Specified |
+| RCP-085 | Rounding governs planning counts only and never moves money | serving service | — | 3.3 | | Specified |
+| RCP-086 | Cost per serving is a 6 dp rate over the serving's share of the output basis | costing service | — | 3.3 | | Specified |
+| RCP-087 | A batch cost splits across produced servings by exact allocation, summing to the fils | `apps/core/allocation.allocate` | — | 3.3 | | Specified |
+| RCP-088 | Servings never post: no stock, no journal, no source identity | model shape | — | 3.1 | | Specified |
+| RCP-089 | Servings imply a cost basis, never a price | no price field anywhere | — | 3.1 | | Specified |
+| RCP-090 | Both serving shapes are supported and neither is forced; the owner chooses per item | model neutrality | — | 3.1 | | Specified |
+| RCP-091 | Phase 4's `MenuItem` binds to (Recipe, RecipeServing) from its own side | stable `public_id` | — | 3.1 | | Specified |
+| RCP-092 | The cost report splits by cost class, reproducing `KM-RCP-004`'s own summary | report query | — | 3.3 | | Specified |
+| RCP-093 | Cost ratio is a Phase 4 read, rendered "—" with its reason, never zero | view layer | — | 3.3 | | Specified |
+| RCP-094 | A Release 1 batch satisfies seven enumerated conditions, each a test | posting service | — | 3.5 | | Specified |
+| RCP-095 | Multi-day or partial production is refused with a named error, never approximated | service refusals | — | 3.5 | | Specified |
+| RCP-096 | A draft batch holds nothing: no stock, reservation, valuation or reorder effect | model + tests | — | 3.4 | | Specified |
+| RCP-097 | A YES to KD-09 blocks Task 3.5 until WIP custody and accounting are specified | documented gate | — | 3.5 | | Specified |
+| RCP-098 | Consumption is two distinct reads, never one | two report services | — | 3.8 | | Specified |
+| RCP-099 | `consumed_quantity` is primary evidence; post-posting returns are Phase 1 documents plus a link | link model | — | 3.8 | | Specified |
+| RCP-100 | Waste is linked to a batch, never inferred from date or item | link model | — | 3.8 | | Specified |
+| RCP-101 | The link model is kitchen-owned and annotates only; inventory never imports kitchen | app boundary test | — | 3.8 | | Specified |
+| RCP-102 | Attributed quantity never exceeds the source line | service under lock + verifier | — | 3.8 | | Specified |
+| RCP-103 | Every posted movement falls in exactly one bucket; transfers are custody, not consumption | partition query | — | 3.8 | | Specified |
+| RCP-104 | The partition's stock identity reconciles to the Phase 1 warehouse balance | verifier assertion | — | 3.9 | | Specified |
+| RCP-105 | Waste is classified by what was lost; finished-output waste never joins ingredient consumption | report classification | — | 3.8 | | Specified |
+| RCP-106 | Corrections stay corrections and are excluded from consumption | dedicated report column | — | 3.8 | | Specified |
+| RCP-107 | No `is_kitchen` flag; the reader selects the warehouse | report scoping | — | 3.8 | | Specified |
+| RCP-108 | The meal process is not financially complete, and every meal surface says so | screen, report and CSV copy | — | 3.7 | | Specified |
+| RCP-109 | A serving divides one output; it is not a second output | model shape | — | 3.1 | | Specified |
+| RCP-110 | Multi-output begins when two items receive stock from one input pool; deferred | documented boundary | — | 3.5 | | Specified |
+| RCP-111 | A by-product cannot be activated by data alone; no posting path exists | absent code path | — | 3.5 | | Specified |
+| RCP-112 | `verify_kitchen` also proves zero nets, no over-attribution, the partition, and no orphan links | the verifier | — | 3.9 | | Specified |
+| RCP-113 | The legitimate no-journal case carries three explicit test obligations | posting tests | — | 3.5 | | Specified |
+| RCP-114 | Worked examples use symbols or values labelled illustrative | documentation and fixtures | — | 3.1–3.10 | | Specified |
+| RCP-115 | No Phase 3 surface calls any figure it can compute "profit"; margins are named | view layer and copy | — | 3.9 | | Specified |
+| RCP-116 | Price minus material cost is not net profit, and the system says so where it would be assumed | report headings | — | 3.9 | | Specified |

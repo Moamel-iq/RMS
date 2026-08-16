@@ -9,12 +9,17 @@ These **extend** `docs/invariants/inventory-invariants.md`,
 production posting that breaks an inventory invariant is broken twice,
 because a batch is an inventory posting before it is anything else.
 
-**Status: proposed by Task 3.0 on 2026-08-16.** The "Delivered by" column
-names the task that will make each one true; every row is a statement of
-intent until that task lands and cites its tests. (Phase 2's file said the
-same on its proposal day, and its header records what happened when it was
-left saying so too long — this one flips to ENFORCED at the Task 3.11 exit
-gate or says why not.)
+**Status: proposed by Task 3.0 on 2026-08-16, extended by Task 3.0A on
+2026-08-16.** The "Delivered by" column names the task that will make each one
+true; every row is a statement of intent until that task lands and cites its
+tests. (Phase 2's file said the same on its proposal day, and its header records
+what happened when it was left saying so too long — this one flips to ENFORCED
+at the Task 3.11 exit gate or says why not.)
+
+Invariants 1 – 30 come from Task 3.0. **Invariants 31 – 46 were added by Task
+3.0A**, and every one of them exists because reading `KM-RCP-004` or checking
+the charter's consumption formula against the actual document set turned up
+something the first pass had missed.
 
 ## The proposed set
 
@@ -51,6 +56,27 @@ gate or says why not.)
 | 29 | `verify_kitchen` proves batch agreement, value conservation, and source identity, and reports without repairing | The verifier + planted-defect tests | 3.9 |
 | 30 | Every report obeys the Phase 1 contract; recipe cost columns are omitted, not blanked, without `view_recipe_cost` | Inherited report machinery + per-report tests | 3.1 – 3.9 |
 
+### Added by Task 3.0A
+
+| # | Invariant | Enforced where | Delivered by |
+|---|---|---|---|
+| 31 | A version's method is structured steps; `sequence` is unique per version; approved steps are immutable with the version | `UniqueConstraint` + the version's allowlist trigger | 3.1 / 3.2 |
+| 32 | A step's ingredient share is `0 < share ≤ 1`, and the shares of one line across its steps never exceed 1 | `CheckConstraint` per row + service for the per-line sum | 3.1 |
+| 33 | **No step affects any cost, consumption, theoretical quantity or posting** | The costing and consumption services never read the step tables; tests assert identical results with and without steps | 3.1 – 3.9 |
+| 34 | `expected_duration` and `temperature_c` are null unless a source supplied them | No default, no inference; a test asserts the demo seed leaves them null | 3.1 |
+| 35 | A recipe **with** an output item is referenceable only as a `RecipeLine`; a recipe **without** one, only as a `RecipeComponent` | `CheckConstraint` on each side + service guards; the importer refuses at validation | 3.2 |
+| 36 | No component cycle exists at any depth, and nesting never exceeds the approved limit | Self-reference by `CheckConstraint`; the graph by a bounded service walk on every draft save and at approval | 3.2 |
+| 37 | A component's child version covers the parent's whole effective range, for every branch the parent applies to | Service validation at approval, with a named error | 3.2 |
+| 38 | Component cost rolls up recursively and is quantized **once**, at the top | One derivation used by every read; golden-case test against a hand-computed three-level tree | 3.3 |
+| 39 | A non-stocked component creates no item, no stock and no movement; flattened batch lines carry `source_component_version` and `component_path` | Flattening service + posting tests | 3.4 |
+| 40 | Exactly one primary serving per version; a serving's unit is convertible to the output basis | Partial unique index + `apps/units` dimension check at entry | 3.1 |
+| 41 | Serving cost allocation sums **exactly** to the batch cost, and the rounding policy never moves money | `apps/core/allocation.allocate` is the only implementation; awkward-split test | 3.3 |
+| 42 | No dish, cut, serving code or gram figure appears anywhere in `apps/kitchen` source | A convention test over the app's Python files | 3.1 – 3.9 |
+| 43 | **Every posted movement at a warehouse falls in exactly one consumption bucket**, and the resulting stock identity reconciles to the Phase 1 balance | The report is a partition by construction; `verify_kitchen` asserts the identity | 3.8 / 3.9 |
+| 44 | Attributed link quantity never exceeds the source line, and a link never mutates an inventory document | Service under `select_for_update` + `verify_kitchen`; inventory has no import of kitchen | 3.8 |
+| 45 | A batch spans one business date and one warehouse; no partial or multi-day production is representable, and an attempt is **refused**, never approximated | No `IN_PROGRESS` state exists; named service refusals with tests | 3.5 |
+| 46 | A posted batch with no journal has **provably** zero per-account nets | `verify_kitchen` recomputes the nets for every journal-less batch | 3.5 / 3.9 |
+
 ## Rules that carry over unchanged
 
 Not restated as kitchen invariants, because they already hold and the kitchen
@@ -78,3 +104,18 @@ posting; audit `previous_state` re-read from the database.
   not a second consumption (RCP-043).
 - **"Recipes are hidden from cooks."** The card and quantities are the job;
   only cost columns are gated, omitted not blanked.
+- **"A half costs half."** It must not be assumed. `KM-RCP-004` prices
+  `حنيذ دجاج حبة كاملة` at 25,000 and `حنيذ دجاج نصف حبة` at 13,000, on
+  separate cards with separate ingredient lists whose accompaniments do not
+  halve. The serving model *supports* proportional division; it never imposes
+  it, and no code may derive a half's cost from a whole's without a recipe
+  saying so (RCP-090).
+- **"Every movement in a kitchen warehouse is consumption."** A transfer that
+  brings rice into the kitchen changed custody, not state. Counting it
+  alongside the production issue that later consumes the same rice is the
+  double count RCP-098 – RCP-103 exist to prevent, and it would put a
+  permanent unexplainable overage into the variance report.
+- **"Waste is waste."** Wasting raw onions and wasting cooked rice are
+  different losses: the second one's ingredients already left stock through the
+  batch that cooked them, and adding it to ingredient consumption charges them
+  twice (RCP-105).
