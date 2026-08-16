@@ -45,22 +45,33 @@ theoretical consumption (3.7's records plus 3.4's plans); `verify_kitchen`
 
 ## The tasks
 
-### Task 3.0 — Domain specification — **THIS TASK**
+### Task 3.0 — Domain specification — **APPROVED 2026-08-16**
 
-Specification (RCP-001 – RCP-116), 46 proposed invariants, this breakdown,
-**three** proposed ADRs, ten diagrams and the blocking decision register. No
-code, no models, no migrations.
+Specification (RCP-001 – RCP-126), 52 proposed invariants, this breakdown,
+**three** proposed ADRs, ten diagrams and the decision register. No code, no
+models, no migrations.
 
 Amended by **Task 3.0A**, which added the formal source audit (including the
 `KhanMandiRecipe.xlsx` workbook the first pass never opened), structured recipe
 steps, nested sub-recipes, servings, the worked scenarios, the profitability
 boundary, the corrected consumption partition, and the Release 1 production
-constraints.
+constraints. Amended again by **Task 3.0B**, which audited the Arabic recipe
+book and the two plate-card decks page by page, closed KD-03, KD-05 and KD-06
+against those sources, and added provenance, measurement basis and the two-layer
+serving rule.
 
-**Exit:** `docs/tasks/task-3-0-recipes-production-domain-spec.md` approved, with
-amendments recorded in the document, and every decision in its §22 register
-marked *blocks Task 3.1* answered. **There are currently none**, so approval
-alone releases 3.1.
+**Exit: MET.** The owner approved the specification on 2026-08-16 and answered
+all six open decisions (spec §22.1). The register now shows **zero** rows
+requiring an owner decision. Task 3.1 is released.
+
+The approved Release 1 decisions that bind later tasks: real recipes may be
+captured as **DRAFT** but not approved until `KM-RCP-004` is complete (KD-02,
+binding **3.2**); no `KitchenStation` and a nullable station (KD-07, binding
+**3.1**); atomic same-date one-warehouse production (KD-09, releasing **3.5**);
+prices and margins out of Phase 3 (KD-13); no unsourced mass-to-volume
+conversion (KD-19, binding **3.10**); undocumented prepared mixes stay
+unapproved drafts (KD-20, binding **3.10**). Depth 3, one primary output and
+`shelf_life_days` from the batch business date were approved as recommended.
 
 ---
 

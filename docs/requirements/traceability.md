@@ -30,7 +30,7 @@ reviews.
 | 1.7 | Superseded by 1.7A and 1.7B | Split during Phase 1; both halves carry their own rows |
 | 1.8 | `EXIT-` rows plus the Phase 1 gate record | An exit gate verifies other tasks' requirements rather than adding its own |
 | 2.18 | The Phase 2 gate record | The same; see `docs/runbooks/overnight-progress.md` Step 20 |
-| 3.0 | — | A specification task, for Phase 3 (`RCP-001`..`RCP-126`, extended by Tasks 3.0A and 3.0B); awaiting approval |
+| 3.0 | — | A specification task, for Phase 3 (`RCP-001`..`RCP-126`, extended by Tasks 3.0A and 3.0B); **approved by the owner 2026-08-16** |
 | 3.11 | The Phase 3 gate record, when it runs | An exit gate verifies other tasks' requirements rather than adding its own |
 
 | Req ID | Summary | Module | Model / service / API | Tests | Status | Notes |
@@ -636,7 +636,8 @@ see Task 2.0 §0.
 ## Phase 3 — Recipes, Kitchen and Production
 
 Established by `docs/tasks/task-3-0-recipes-production-domain-spec.md`
-(2026-08-16), **awaiting approval**. Every row is `Specified` until its task
+(2026-08-16), **approved by the owner on 2026-08-16** (spec §22.1). Every row is
+`Specified` until its task
 lands: Task 3.0 wrote no code, and a row that claimed evidence today would be
 claiming a test that does not exist — which is the failure
 `tests/test_traceability.py` was written to stop.

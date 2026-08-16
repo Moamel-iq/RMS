@@ -990,3 +990,24 @@ One self-check caught a real error: the recalculated counts table initially read
 2 RECOMMENDED and 7 RESOLVED, against the register's actual 3 and 6. The prompt's
 instruction to *confirm rather than hard-code that count* is the reason it was
 checked, and the reason it was wrong for about four minutes.
+
+## Phase 3 specification approved — 2026-08-16
+
+The owner approved `docs/tasks/task-3-0-recipes-production-domain-spec.md` and
+answered every open decision. Recorded in spec §22.1; the register now shows
+**zero** rows requiring an owner decision.
+
+| ID | Decision |
+|---|---|
+| KD-02 | Real recipes may be captured as **DRAFT**; none may be approved or activated until its `KM-RCP-004` costing data is complete. The gate moves from capture to **approval** — it binds Task 3.2, not Task 3.10 |
+| KD-07 | **No `KitchenStation` master** in Task 3.1; station stays nullable |
+| KD-09 | **Atomic same-business-date, one-warehouse** production. No partial or multi-day WIP in Release 1 — §8A approved as written, and Task 3.5 released |
+| KD-13 | Selling prices and sales margins are **outside Phase 3** |
+| KD-19 | **No automatic mass-to-volume conversion** without a sourced density. The 80 ml ↔ 125 g sauce gap stays open as data; the unit layer refuses rather than guesses |
+| KD-20 | An undocumented prepared mix stays **unresolved DRAFT** and cannot be approved as a sub-recipe |
+
+Recommendations confirmed: nesting depth **3**, **one** primary batch output,
+output expiry from `InventoryItem.shelf_life_days` measured from the batch
+business date.
+
+Task 3.1 is released. Task 3.2 inherits KD-02 as an approval-time gate.

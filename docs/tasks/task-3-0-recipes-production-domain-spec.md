@@ -1,10 +1,11 @@
 # Task 3.0 — Recipes, Kitchen and Production domain specification
 
-- **Status:** Specification only, **awaiting owner approval**. Task 3.0 creates
-  no models, migrations, services, API or UI. Implementation begins at Task
-  3.1, and only after this document is approved and every decision marked
-  *REQUIRES OWNER DECISION* against Task 3.1 in §22 is answered — with
-  amendments recorded here, the way Task 1.0's were.
+- **Status: APPROVED by the owner on 2026-08-16**, with the Release 1 decisions
+  recorded in §22.1. Task 3.0 itself still creates no models, migrations,
+  services, API or UI — it is a specification. What changed is that
+  implementation is now unblocked: **Task 3.1 may begin**, and every decision
+  that was marked *REQUIRES OWNER DECISION* has been answered. Later amendments
+  are recorded here, the way Task 1.0's were.
 - **Date:** 2026-08-16. **Amended by Task 3.0A** — see §23 for the compliance
   matrix and amendment log. **Amended again by Task 3.0B, 2026-08-16**, after
   the owner supplied the Arabic recipe book and two plate-card decks — see §24
@@ -2350,25 +2351,25 @@ ARCHITECTURE**, **RECOMMENDED DECISION**, **REQUIRES OWNER DECISION**,
 | ID | Question | Classification | Recommendation | Owner decision | Blocks | Default if unanswered | Evidence / source |
 |---|---|---|---|---|---|---|---|
 | KD-01 | Where is the authoritative SRS? | **DEFERRED** | Supply it; every `RCP-*` is then mapped or corrected | ☐ | Nothing in Phase 3 | Proceed on charter + ADRs + certified code, as Phases 1 and 2 did | S-1; Task 1.0 §0; Task 2.0 §0 |
-| KD-02 | When will a **filled and signed** `KM-RCP-004` exist? | **REQUIRES OWNER DECISION** | Fill and sign it for the 19 items before Task 3.10 | ☐ | **Task 3.10 acceptance** (not its code) | Phase 3 ships with `DEMO`-namespaced recipes only, described as fiction | S-2: every quantity, cost, code, date and signature blank |
+| KD-02 | When will a **filled and signed** `KM-RCP-004` exist? | **REQUIRES OWNER DECISION** | Fill and sign it for the 19 items before Task 3.10 | **✔ §22.1** | **Task 3.10 acceptance** (not its code) | Phase 3 ships with `DEMO`-namespaced recipes only, described as fiction | S-2: every quantity, cost, code, date and signature blank |
 | KD-03 | Does a separate Arabic **method** book exist? | **RESOLVED BY SOURCE** | — | — | — | — | S-3: `كتاب وصفات المطبخ خان مندي.pdf`, 44 pages, 23 recipes with numbered steps, durations and equipment (§24.2). Steps import at Task 3.10 with page provenance (RCP-119) |
 | KD-04 | What serving vocabulary is in use? | **RESOLVED BY SOURCE** | Use the register's own terms | — | — | — | S-4: `حبة كاملة`, `نصف حبة`, `حصة`, `طبق`, `فخذ`, `كتف`, `ضلوع`, `رقبة`, plus the plate cards' component grams |
 | KD-05 | Is a half **a serving of the whole recipe**, or **its own recipe**? | **RESOLVED BY SOURCE** + certified model | — | — | — | — | **Both, at different layers** (§5C.4). Physical: 1 whole = 2 halves, exact (book p1, p10, p12, p23). Commercial: the plates are separate recipes and do not scale — 1,300 g rice against 700 g (cards 2, 3). RCP-123, RCP-124 |
 | KD-06 | Do any items sell as **350 g / 500 g**? | **RESOLVED BY SOURCE** | — | — | — | — | **Yes.** 350 g مندي portion (book p1); 500 g pieces for مدفون, حنيذ, مزموم and رقبة (book p10, p12, p23, p14) and on ten plate cards. §24.3 lists every weight found — including 1 kg, 1.5 kg and 2 kg cuts. **No general "all meat is X" rule exists and none is asserted** |
-| KD-07 | Does the branch work in named **kitchen stations**? | **REQUIRES OWNER DECISION** | Confirm before creating a station table | ☐ | Nothing — additive either way | **No** — `station` stays null and `KitchenStation` is not created | §5A.2; no source mentions stations |
-| KD-08 | Maximum **sub-recipe nesting depth**? | **RECOMMENDED DECISION** | 3 | ☐ | Nothing | **3**, enforced as a named constant with a named error | RCP-077; four levels is almost always a modelling error |
-| KD-09 | Do batches ever remain **physically in progress across business dates or periods**? | **REQUIRES OWNER DECISION** | No — atomic same-day production | ☐ | **Task 3.5, if the answer is YES** (RCP-097) | **NO** — atomic, same-day, one warehouse is the approved Release 1 constraint | §8A; RCP-094's seven conditions |
-| KD-10 | Single output per batch, or **multiple**? | **RECOMMENDED DECISION** | Single for Release 1; recovered material gets its own batch | ☐ | Nothing | **Single**; multi-output deferred until an allocation basis is approved | RCP-110, RCP-111; §16.3 |
+| KD-07 | Does the branch work in named **kitchen stations**? | **REQUIRES OWNER DECISION** | Confirm before creating a station table | **✔ §22.1** | Nothing — additive either way | **No** — `station` stays null and `KitchenStation` is not created | §5A.2; no source mentions stations |
+| KD-08 | Maximum **sub-recipe nesting depth**? | **RECOMMENDED DECISION** | 3 | **✔ §22.1** | Nothing | **3**, enforced as a named constant with a named error | RCP-077; four levels is almost always a modelling error |
+| KD-09 | Do batches ever remain **physically in progress across business dates or periods**? | **REQUIRES OWNER DECISION** | No — atomic same-day production | **✔ §22.1** | **Task 3.5, if the answer is YES** (RCP-097) | **NO** — atomic, same-day, one warehouse is the approved Release 1 constraint | §8A; RCP-094's seven conditions |
+| KD-10 | Single output per batch, or **multiple**? | **RECOMMENDED DECISION** | Single for Release 1; recovered material gets its own batch | **✔ §22.1** | Nothing | **Single**; multi-output deferred until an allocation basis is approved | RCP-110, RCP-111; §16.3 |
 | KD-11 | **Staff-meal expense reclassification** — journal shape and expense role? | **DEFERRED** | A named later task; records accumulate from day one | ☐ | Nothing in Phase 3 | No reclassification; every meal surface carries RCP-108 | RCP-044, RCP-108 |
 | KD-12 | Will Phase 4 elect **backflush** consumption? | **DEFERRED** | Phase 4 decides, in writing, with its own ADR | ☐ | Nothing in Phase 3 | Manual kitchen issues remain the actual-consumption source | RCP-048; charter's "explicit simplification" clause |
-| KD-13 | Which **price list is authoritative**, and is `أسعار بلي` a delivery channel? | **REQUIRES OWNER DECISION** | Confirm before any margin is computed anywhere | ☐ | **Phase 4 margin reporting** | Phase 3 stores no price and computes no margin (RCP-089) | §20.2; cover sheet `مرجع السعر · أسعار بلي`; 23,000 vs 25,000 |
+| KD-13 | Which **price list is authoritative**, and is `أسعار بلي` a delivery channel? | **REQUIRES OWNER DECISION** | Confirm before any margin is computed anywhere | **✔ §22.1** | **Phase 4 margin reporting** | Phase 3 stores no price and computes no margin (RCP-089) | §20.2; cover sheet `مرجع السعر · أسعار بلي`; 23,000 vs 25,000 |
 | KD-14 | **Kitchen overhead** allocation basis? | **DEFERRED** | Phase 5 / 7, with an approved basis | ☐ | Nothing in Phase 3 | Not allocated; not shown | §20 component 8 |
 | KD-15 | **Labour, gas, utilities** allocation basis? | **DEFERRED** | Phases 5 and 6, each with an approved basis | ☐ | Nothing in Phase 3 | Not allocated; not shown | §20 components 5 – 7 |
-| KD-16 | **Output expiry / shelf life** policy? | **RECOMMENDED DECISION** | The output item's `shelf_life_days` from the batch's business date | ☐ | Nothing | As recommended | RCP-038; Phase 1's lot model already carries it |
+| KD-16 | **Output expiry / shelf life** policy? | **RECOMMENDED DECISION** | The output item's `shelf_life_days` from the batch's business date | **✔ §22.1** | Nothing | As recommended | RCP-038; Phase 1's lot model already carries it |
 | KD-17 | Loss per **ingredient line** as well as per version? | **RESOLVED BY SOURCE** | Both, with the line rate informational | — | — | — | S-2: `فاقد %` is a column on every ingredient row |
 | KD-18 | Is **packaging** separated from food cost? | **RESOLVED BY SOURCE** | Yes, by a line-level cost class | — | — | — | S-8: `كلفة الغذاء` and `كلفة التغليف` are separate totals |
-| KD-19 | What converts a sauce **كاسة** to the plate's **grams**? | **REQUIRES OWNER DECISION** | Agree a cup-to-gram figure per sauce, or standardise the cup | ☐ | **Task 3.10 data** for the two sauces only | Sauces import in their recipe unit; the plate line stays in grams and the two are **not** reconciled — the sub-recipe link is left unset rather than set wrongly | §24.4, §24.6 C-1/C-2: دقوس yields 80 ml cups, plates consume 125 g |
-| KD-20 | Who documents the appetizer **`خلطة`** recipes? | **REQUIRES OWNER DECISION** | Capture the five blends from the chef, as recipes | ☐ | **Task 3.10 data** for five appetizers | The five blends are master-data items with no recipe; their appetizer plates cost only what the blend costs as bought | §24.5: cards consume `250 غ خلطة`, no source documents any blend |
+| KD-19 | What converts a sauce **كاسة** to the plate's **grams**? | **REQUIRES OWNER DECISION** | Agree a cup-to-gram figure per sauce, or standardise the cup | **✔ §22.1** | **Task 3.10 data** for the two sauces only | Sauces import in their recipe unit; the plate line stays in grams and the two are **not** reconciled — the sub-recipe link is left unset rather than set wrongly | §24.4, §24.6 C-1/C-2: دقوس yields 80 ml cups, plates consume 125 g |
+| KD-20 | Who documents the appetizer **`خلطة`** recipes? | **REQUIRES OWNER DECISION** | Capture the five blends from the chef, as recipes | **✔ §22.1** | **Task 3.10 data** for five appetizers | The five blends are master-data items with no recipe; their appetizer plates cost only what the blend costs as bought | §24.5: cards consume `250 غ خلطة`, no source documents any blend |
 
 **Counts, recalculated by Task 3.0B.** Twenty rows.
 
@@ -2380,6 +2381,21 @@ ARCHITECTURE**, **RECOMMENDED DECISION**, **REQUIRES OWNER DECISION**,
 | **RESOLVED BY SOURCE** | 6 | KD-03, KD-04, KD-05, KD-06, KD-17, KD-18 — KD-05 jointly with the certified model |
 | | **20** | |
 
+**Superseded by the owner's approval of 2026-08-16.** All six rows that required
+an owner decision have been answered, and the three recommendations confirmed —
+see §22.1. The live count is now:
+
+| State | Count | Rows |
+|---|---|---|
+| **Answered by the owner** | 9 | KD-02, KD-07, KD-08, KD-09, KD-10, KD-13, KD-16, KD-19, KD-20 |
+| **Resolved by source** | 6 | KD-03, KD-04, KD-05, KD-06, KD-17, KD-18 |
+| **Deferred to a later phase** | 5 | KD-01, KD-11, KD-12, KD-14, KD-15 |
+| **Requiring an owner decision** | **0** | — |
+
+The classification column above is left as it stood when each question was
+raised, because it records what *kind* of answer the question needed. The
+`Owner decision` column records that the answer arrived.
+
 Task 3.0A left seven open. Task 3.0B closed **KD-03, KD-05 and KD-06** against
 the recipe book and plate cards, and opened **KD-19 and KD-20**, which are gaps
 the new sources revealed rather than questions they failed to answer — the sauce
@@ -2389,6 +2405,35 @@ The prompt's expectation was that KD-02, KD-07, KD-09 and KD-13 would remain.
 They do, unchanged and for unchanged reasons. The two additions are recorded
 rather than folded in, because a source that answers three questions and raises
 two has done exactly what a good source does.
+
+### 22.1 Owner decisions, recorded 2026-08-16
+
+The owner approved this specification and answered every open row. The answers
+are reproduced verbatim in substance; the **Consequence** column is this
+document's reading of what each one binds, so that a later reader can tell an
+owner's decision from a specification's inference.
+
+| ID | Owner decision | Consequence |
+|---|---|---|
+| **KD-02** | Real recipe records may be captured as **DRAFT**, but a real branch recipe **cannot be approved or activated until its `KM-RCP-004` costing/approval data is complete** | The data gate stands, moved to the approval boundary rather than the capture boundary. Task 3.1 may hold real recipes as drafts; RCP-125's condition 9 now binds **Task 3.2's approval command**, not Task 3.10's import |
+| **KD-07** | **No `KitchenStation` master in Task 3.1.** Station remains nullable | RCP-064's station stays a nullable field. No station table, no station screen, no station permission |
+| **KD-09** | **Atomic same-business-date, one-warehouse production.** No partial or multi-day WIP in Release 1 | §8A's seven conditions are approved as written. RCP-097's YES branch does not fire; Task 3.5 is unblocked. No WIP account, no `IN_PROGRESS` state |
+| **KD-13** | **Selling prices and sales margins are outside Phase 3** | RCP-089 and RCP-115 confirmed. No price field anywhere in `apps.kitchen`; `أسعار بلي` needs no resolution for Phase 3 to proceed |
+| **KD-19** | **No automatic mass-to-volume conversion** between sauce recipe yields and plate quantities without a sourced density or explicit measured conversion | The 80 ml ↔ 125 g gap (§24.6 C-1, C-2) stays open as *data*. The unit layer refuses the conversion rather than guessing it, and the sub-recipe link is left unset — exactly the default the register proposed |
+| **KD-20** | An **undocumented prepared mix remains unresolved DRAFT data** and cannot be approved as a sub-recipe | The five appetizer `خلطة` blends may exist as draft rows. They may not be approved, and nothing may treat them as costed sub-recipes until a recipe documents them |
+
+The three standing recommendations were approved as recommended:
+
+| ID | Approved value |
+|---|---|
+| **KD-08** | Maximum sub-recipe nesting depth = **3** |
+| **KD-10** | **One primary batch output** per production batch |
+| **KD-16** | Output expiry uses `InventoryItem.shelf_life_days` from the **batch business date** |
+
+**Register state after approval: zero rows require an owner decision.** KD-01
+(the absent SRS) remains DEFERRED, as it has since Task 1.0 — it blocks nothing
+and never has. KD-11, KD-12, KD-14 and KD-15 remain DEFERRED to their own later
+phases.
 
 **What is actually blocked.** **No decision blocks Task 3.1.** Every model shape
 above is deliberately agnostic to the open questions — servings support both
