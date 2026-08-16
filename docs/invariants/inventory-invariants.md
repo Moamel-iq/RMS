@@ -36,7 +36,7 @@ the ledger invariants land in Task 1.2 onward.
 | 19 | No residual is hidden by mutating a historical movement | Immutability trigger; residual absorbed at post time | 1.2 |
 | 20 | One economic event produces one stock effect | Source identity + organization-scoped idempotency key | 1.3 |
 | 21 | Inventory valuation reconciles to the inventory control account | Reconciliation report and test | 1.3 |
-| 22 | Sum of a warehouse's location quantities equals its warehouse quantity | Reconciliation test | 1.7 |
+| 22 | Sum of a warehouse's location quantities plus its unlocated remainder equals its warehouse quantity | `locations.py` services + `verify_locations` | 1.7B |
 | 23 | An item code is canonical uppercase and unique per organization; archived codes stay reserved | `strip().upper()` in the service + `UniqueConstraint` | 1.1 |
 | 24 | Categories: no cycles, depth ≤3, items on leaves only, a category with items gains no children, a category with children takes no items | Service guards + constraints | 1.1 |
 | 25 | A package unit never carries a universal conversion factor | `PackageUnit` has **no factor field** | 1.1 |
@@ -257,3 +257,136 @@ ADR-020 for the reasoning behind each.
   `StockMovement.control_account` is: a posting that never reached the general
   ledger genuinely produced no journal. The invariant is conditional on the
   link existing, which is what makes the bare kernel keep working.
+
+## Task 1.6 — waste, physical counts and manual adjustments
+
+| Invariant | Service | Database |
+|---|---|---|
+| A reason code's code and application never change | `update_reason_code` takes neither | `inventory_reason_code_identity_is_immutable` |
+| An archived code stays reserved forever | archive sets `is_active=False`, never deletes | `inventory_reason_code_unique_per_organization` + delete refused |
+| A waste line names a reason of the right application | `_validate_line_reason_code` | `inventory_document_line_reason_matches_type` |
+| A reason that demands a comment gets one, at post time too | `_require_waste_line_is_complete` | — (a code may gain the requirement after a draft is written) |
+| Waste leaves at the current average, full depletion at zero | `_plan_waste` → `apply_outbound` | `stock_movement_zero_quantity_has_zero_value` |
+| Waste needs a cost centre because its account demands one | `require_cost_center_where_the_account_demands_one` | — (class 6 ⇒ `requires_cost_center`) |
+| Expired lots leave only through waste, count loss or adjustment | `EXPIRED_LOT_REMOVAL_TYPES` | — (ordinary issue still refused for everyone) |
+| A warehouse is frozen **iff** `frozen_by_count` is set | `start_count`, `approve_count`, `cancel_count` | `inventory_warehouse_freeze_owner_is_active` |
+| A count may not finish while it still holds a freeze | release-before-status ordering | `inventory_count_releases_its_freeze` |
+| At most one active count per warehouse | `start_count` re-check under the lock | `stock_count_one_active_per_warehouse` (partial unique) |
+| One count holds at most one warehouse | — | `warehouse_freeze_owner_unique` |
+| The in-transit warehouse is never counted | `_require_warehouse_is_countable` | `warehouse_in_transit_is_never_counted` |
+| A posting cannot interleave with a freeze | `lock_warehouses_shared` / `_exclusive` | — (advisory, sorted by id) |
+| The freeze is read from the database, never from the caller's row | `_require_warehouses_are_not_frozen` | — |
+| The book snapshot never changes after the cutoff | nothing writes it | `inventory_stock_count_line_follows_count` |
+| The cutoff and its business-date snapshot are frozen at start | — | `inventory_stock_count_is_immutable` |
+| A count is numbered from the moment it starts, and only then | `next_document_number` in `start_count` | `stock_count_numbered_iff_started` |
+| Counted figures freeze at submission | `record_counts` status check | `inventory_stock_count_line_follows_count` |
+| A counted quantity is never negative; null means "not yet counted" | `record_counts` | `stock_count_line_counted_not_negative` |
+| An unexpected line has a zero book, not a missing one | `add_unexpected_line` | `stock_count_line_unexpected_has_no_book` |
+| One line per `(count, item, lot)`, NULL-safe | `add_unexpected_line` duplicate check | `stock_count_line_key_unique` (`nulls_distinct=False`) |
+| The counting sheet carries no book quantity at all | `blind_lines` returns dicts that never held one | — (nothing fetched cannot be leaked) |
+| The approver is never the conductor | `approve_count`, command layer | `stock_count_approver_is_not_the_conductor` |
+| The book position at approval equals the snapshot | `_require_snapshot_still_matches` | — (`count_snapshot_mismatch`, no silent post) |
+| A gain into standing stock uses the standing average | `_resolve_variances` | — (position average unchanged) |
+| A gain into an empty position needs an approved unit cost | `_resolve_variances` | — (`approved_unit_cost_required`) |
+| A zero unit cost is confirmed, never inferred | `_apply_approved_costs` | `stock_count_line_zero_cost_flag_matches` |
+| A count posts its variance and unfreezes atomically | one `@transaction.atomic` | — (failure leaves SUBMITTED and frozen) |
+| Count variance is grouped by direction, never netted | `_count_journal_lines` | — |
+| A count that moved no value posts no journal | `_post_count_variance` early return | `stock_count_entries_only_when_posted` |
+| A cancelled count keeps its snapshot and its history | `cancel_count` sets status | `inventory_stock_count_is_immutable` (delete refused) |
+| A cancellation releases exactly its own freeze | ownership re-check under the lock | `inventory_warehouse_freeze_owner_is_active` |
+| Reversal does not re-freeze the warehouse | `reverse_count` | — (a corrected figure needs a new count) |
+| An active count blocks closing its period | `refuse_close_while_a_count_is_active` | — (`active_inventory_count`) |
+| A close and a count start cannot both commit | period row lock in `_period_for(lock=True)` | — |
+| A signless movement type must state its direction | `_validate_direction` | — (`direction_required`) |
+| A signed movement type must not be given one | `_validate_direction` | — (`direction_not_allowed`) |
+| A quantity gain names its cost; nothing else may | `add_adjustment_line` | `inventory_adjustment_line_cost_iff_gain` |
+| A revaluation names its amount; nothing else may | `_validate_value_only` | `inventory_adjustment_line_value_iff_value_only` |
+| A revaluation moves no quantity | `apply_value_only` | `inventory_adjustment_line_quantity_matches_kind` |
+| A revaluation needs standing quantity | `_require_position_can_be_revalued` | — (`value_only_needs_quantity`) |
+| A revaluation cannot drive value below zero | `_require_revaluation_stays_positive` | `stock_balance_value_not_negative` |
+| Reversing a revaluation cannot drive value below zero | `reverse_stock_entry` value check | `stock_balance_value_not_negative` |
+| Posted adjustments and their lines are immutable | status checks | `inventory_adjustment_is_immutable`, `inventory_adjustment_line_follows_document` |
+
+## Deliberate non-invariants, added by Task 1.6
+
+- **A count freezes the whole warehouse, never part of it.** `StockCountScope`
+  has one value. A partial count would need a per-key freeze checked on every
+  posting; offering it before that exists would be offering a freeze that does
+  not hold.
+- **`StockBalance.is_frozen` is not written by counts.** It predates Task 1.6
+  and remains a separate, finer concept. A warehouse-wide freeze is not an
+  item-level one and is not pretended to be.
+- **A count with no variance posts no stock entry and no journal**, so
+  `StockCount.stock_entry` is null on a legitimately completed count. Nothing
+  moved, and an empty posting would make "did this count find anything"
+  unanswerable from the ledger.
+- **A confirmed-zero gain posts stock and no journal.** Quantity moved and
+  money did not; there is genuinely nothing for the general ledger to record.
+- **Expired stock may arrive and may sit on the shelf.** Receipt records what
+  physically happened; removal is a separate authorized act. Nothing writes it
+  off automatically.
+- **`owned_freezes` lets one caller post into a frozen warehouse** — the count
+  approval that must post the variance into the warehouse it froze. It is not
+  a permission, no UI exposes it, and `apps.inventory.counts` is its only
+  caller.
+
+## Import invariants, added by Task 1.7A
+
+| Invariant | Enforced by |
+|---|---|
+| A branch-scoped import kind names a branch; an organization-scoped one does not | `inventory_import_branch_matches_kind` |
+| Valid rows plus error rows equal the batch's row count | `inventory_import_rows_add_up` |
+| A failed batch has applied nothing | `inventory_import_failed_applied_nothing` |
+| Applied rows never exceed valid rows | `inventory_import_applied_within_valid` |
+| An applied batch records who applied it and when | `inventory_import_applied_records_who_and_when` |
+| A cancelled batch states a reason | `inventory_import_cancelled_states_a_reason` |
+| One applied batch per (organization, kind, content) | `inventory_import_one_applied_batch_per_content` (partial unique) |
+| A row number is unique within its batch | `inventory_import_row_number_unique` |
+| A row marked valid carries no errors | `inventory_import_valid_row_has_no_errors` |
+
+## Deliberate non-invariants, added by Task 1.7A
+
+- **`applied_row_count` may be below `valid_row_count`.** A row asking for a
+  value the record already holds changed nothing. Reporting it as a change
+  would be a lie, and reporting it as an error would be worse.
+- **The two historical report modes may disagree.** They slice on different
+  times and legitimately include different movement sets. Only a
+  *re-priced* movement would be corruption, and neither mode reprices.
+- **A projection mismatch is not repaired.** There is no repair mode, by
+  decision — see `docs/development/inventory-reports-and-imports.md`.
+- **A `TRANSFER_IN` arrival leg carries a reference and no source triple.**
+  ADR-017 requires a source identity to be complete or absent; absent is a
+  legitimate state, and the arrival leg is attributable through its reference.
+
+## Location invariants, added by Task 1.7B
+
+| Invariant | Enforced by |
+|---|---|
+| A location belongs to exactly one warehouse and its code is unique there | `stock_location_code_unique_per_warehouse` |
+| A system warehouse takes no locations | `create_location` |
+| A location balance is never negative | `stock_location_balance_quantity_not_negative` |
+| A location balance key is NULL-safe on lot | `stock_location_balance_key_unique` (`nulls_distinct=False`) |
+| A location movement's sign matches its type | `stock_location_movement_sign_matches_type` |
+| A put-away cannot exceed the unlocated remainder | `put_away`, under the `(warehouse, item, lot)` advisory lock |
+| An outbound movement never leaves the bins claiming more than the warehouse holds | `release_for_outbound`, called by the ledger |
+| A location holding stock cannot be archived | `update_location` |
+| A location move stays inside one warehouse | `move_between_locations` |
+
+## Deliberate non-invariants, added by Task 1.7B
+
+- **`sum(located)` is usually *less* than the warehouse quantity.** The
+  remainder is unlocated and that is a permanent, supported state — locations
+  are optional and most stores here are one room. The invariant is stated as
+  `sum(located) + unlocated == warehouse quantity` with **unlocated derived**,
+  so the equality holds by construction and only the inequality
+  `sum(located) > warehouse` can be violated. That is what `verify_locations`
+  looks for.
+- **A location carries no value.** No average cost, no control account, no
+  journal. ADR-018 §2 gives value to the warehouse; a bin that could show a
+  figure would have one.
+- **The outbound release order is not a rotation policy.** Ascending location
+  code is an arbitrary deterministic tie-break so concurrent issues cannot
+  disagree about which bin emptied. FEFO and FIFO are strategies and ADR-018
+  keeps strategies behind a boundary.
+- **A location-to-location move posts no `StockMovement`.** Nothing entered or
+  left the warehouse and nothing was revalued.

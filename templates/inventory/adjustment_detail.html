@@ -1,0 +1,164 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# One manual adjustment: header, lines of all three kinds, and the actions  #}
+{# its status allows. The value-only lines carry no quantity at all, which is #}
+{# why the quantity column reads "—" rather than zero: nothing moved.        #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      <p class="pagehead__hint">
+        {{ document.get_status_display }}
+        · {% translate "المخزن" %} <code>{{ document.warehouse.code }}</code>
+        · {% translate "يوم العمل" %} {{ document.business_date|date:"Y-m-d" }}
+        {% if document.cost_center %}
+          · {% translate "مركز الكلفة" %} <code>{{ document.cost_center.code }}</code>
+        {% endif %}
+        · {% translate "الإثبات" %} {{ document.evidence_reference }}
+      </p>
+      <p class="pagehead__hint">{{ document.reason }}</p>
+    </div>
+    <div class="rowactions">
+      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+      {% if is_draft and can_post %}
+        <form method="post" action="{% url 'inventory:adjustment_delete' document.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--ghost" type="submit">{% translate "حذف المسودة" %}</button>
+        </form>
+        <form method="post" action="{% url 'inventory:adjustment_post' document.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if is_posted and can_reverse %}
+    <form class="formcard" method="post"
+          action="{% url 'inventory:adjustment_reverse' document.pk %}">
+      {% csrf_token %}
+      <div class="formgrid">
+        <div class="formrow">
+          <label class="formrow__label" for="reverse-reason">
+            {% translate "عكس التسوية — السبب" %}
+          </label>
+          <textarea id="reverse-reason" name="reason" rows="2" required></textarea>
+        </div>
+      </div>
+      <div class="formactions">
+        <button class="btn btn--ghost" type="submit">{% translate "عكس التسوية" %}</button>
+      </div>
+    </form>
+  {% endif %}
+
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>{% translate "النوع" %}</th>
+          <th>{% translate "الصنف" %}</th>
+          <th>{% translate "الدفعة" %}</th>
+          <th>{% translate "الكمية" %}</th>
+          <th>{% translate "السبب" %}</th>
+          {% if show_cost %}
+            <th>{% translate "كلفة الوحدة" %}</th>
+            <th>{% translate "قيمة التعديل" %}</th>
+            <th>{% translate "القيمة المرحّلة" %}</th>
+            <th>{% translate "حساب المخزون" %}</th>
+          {% endif %}
+          <th>{% translate "الحركة" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in lines %}
+          <tr>
+            <td>{{ line.sequence }}</td>
+            <td>{{ line.get_kind_display }}</td>
+            <td><code>{{ line.item.code }}</code> {{ line.item.name_ar }}</td>
+            <td>{% if line.lot %}<code>{{ line.lot.code }}</code>{% else %}—{% endif %}</td>
+            <td>
+              {% if line.base_quantity %}
+                <code dir="ltr">{{ line.base_quantity|stringformat:"f" }}</code>
+                {{ line.item.base_unit.code }}
+              {% else %}
+                <span class="muted">{% translate "بلا حركة كمية" %}</span>
+              {% endif %}
+            </td>
+            <td>
+              <code>{{ line.reason_code.code }}</code>
+              {% if line.line_comment %}
+                <br><span class="muted">{{ line.line_comment }}</span>
+              {% endif %}
+            </td>
+            {% if show_cost %}
+              <td>
+                {% if line.unit_cost is not None %}
+                  <code dir="ltr">{{ line.unit_cost|stringformat:"f" }}</code>
+                  {% if line.zero_cost_confirmed %}
+                    <span class="muted">{% translate "صفر مؤكّد" %}</span>
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if line.value_adjustment is not None %}
+                  <code dir="ltr">{{ line.value_adjustment|stringformat:"f" }}</code>
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if line.total_value is not None %}
+                  <code dir="ltr">{{ line.total_value|stringformat:"f" }}</code>
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if line.control_account %}
+                  <code dir="ltr">{{ line.control_account.code }}</code>
+                {% else %}—{% endif %}
+              </td>
+            {% endif %}
+            <td>
+              {% if line.movement %}
+                <a href="{% url 'inventory:movement_detail' line.movement.pk %}">
+                  #{{ line.movement.posted_sequence }}
+                </a>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="11">{% translate "لا سطور بعد." %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_draft and can_post %}
+    <form class="formcard" method="post">
+      {% csrf_token %}
+      <h2>{% translate "إضافة سطر" %}</h2>
+      {% if line_form.non_field_errors %}
+        <ul class="formerrors">
+          {% for error in line_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      <div class="formgrid">
+        {% for field in line_form %}
+          <div class="formrow">
+            <label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<p class="formrow__hint">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="formactions">
+        <button class="btn btn--ghost" type="submit">{% translate "إضافة السطر" %}</button>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

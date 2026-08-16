@@ -270,3 +270,61 @@ class TestQuantityProperties:
     def test_negation_commutes_with_quantization(self, value: Decimal) -> None:
         """Required for reversals to cancel their originals exactly."""
         assert quantize_quantity(-value) == -quantize_quantity(value)
+
+
+class TestTheQuantityTemplateFilter:
+    """
+    The filter exists because the two obvious alternatives are both wrong.
+
+    `floatformat` converts through float, which the whole policy forbids.
+    `stringformat:"f"` is printf: it also goes through float *and* prints six
+    decimals whatever the column stores, so a stored `60.000` renders as
+    `60.000000` — a precision the system does not have.
+    """
+
+    def test_it_renders_the_stored_three_places(self) -> None:
+        from apps.core.templatetags.quantity_tags import quantity_filter
+
+        assert quantity_filter(Decimal("60.000")) == "60.000"
+        assert quantity_filter(Decimal("60")) == "60.000"
+        assert quantity_filter(Decimal("17.4")) == "17.400"
+
+    def test_it_never_prints_six_places_the_way_printf_does(self) -> None:
+        from apps.core.templatetags.quantity_tags import quantity_filter
+
+        # What `stringformat:"f"` does, spelled out. Built by concatenation
+        # because ruff rightly refuses percent formatting in new code, and the
+        # point here is to pin the behaviour rather than to use it.
+        printf = "%" + "f"
+        assert printf % Decimal("60.000") == "60.000000"  # the bug being avoided
+        assert quantity_filter(Decimal("60.000")) == "60.000"
+
+    def test_it_is_ungrouped_and_locale_independent(self) -> None:
+        """
+        A quantity sits beside conversion factors and item codes. Django would
+        localise a Decimal under Arabic to `60,000`, and that comma is
+        ambiguous enough to invite a mis-typed re-entry.
+        """
+        from apps.core.templatetags.quantity_tags import quantity_filter
+
+        assert quantity_filter(Decimal("60000.000")) == "60000.000"
+
+    def test_it_rounds_the_way_the_kernel_does(self) -> None:
+        from apps.core.templatetags.quantity_tags import quantity_filter
+
+        assert quantity_filter(Decimal("0.0005")) == "0.001"
+        assert quantity_filter(Decimal("-0.0005")) == "-0.001"
+
+    def test_nothing_renders_as_nothing(self) -> None:
+        from apps.core.templatetags.quantity_tags import quantity_filter
+
+        assert quantity_filter(None) == ""
+        assert quantity_filter("") == ""
+
+    def test_a_string_quantity_is_accepted_and_a_float_is_not(self) -> None:
+        """`ensure_decimal` is the gate; a float would already have lost digits."""
+        from apps.core.templatetags.quantity_tags import quantity_filter
+
+        assert quantity_filter("17.4") == "17.400"
+        with pytest.raises(ValidationError):
+            quantity_filter(17.4)

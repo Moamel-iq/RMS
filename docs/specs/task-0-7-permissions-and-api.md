@@ -64,16 +64,36 @@ re-implement an accounting rule or write around the kernel.
 
 ## 4. Writable versus read-only
 
+This table is a **constraint on how a resource may be exposed**, not a list
+of endpoints to build. §3 above is the list of endpoints; every row here says
+what shape an exposure must take *if* it exists, and what the admin may do.
+
 | Resource | API | Django admin |
 |---|---|---|
-| Draft journal entry | Create, amend, delete | Read-only |
-| Posted entry and lines | Command endpoints only | **Read-only** |
-| Accounts, cost centres | Command endpoints | Read-only for normal admins |
-| Periods | Command endpoints only | Read-only |
+| Draft journal entry | Create, amend, delete — **built** (§3) | Read-only |
+| Posted entry and lines | Command endpoints only — **built** (§3) | **Read-only** |
+| Accounts, cost centres | Command endpoints only, if ever exposed — **none exposed in Release 1** | Read-only for normal admins — **built** |
+| Periods | Command endpoints only — **built** (§3) | Read-only |
 | Audit events | Read-only | Read-only (already) |
 
 **No generic writable CRUD for posted accounting records anywhere.** Direct
 ORM writes to posted ledger state are not an allowed application path.
+
+> **Correction (Phase 2 gate).** The accounts-and-cost-centres row read
+> "Command endpoints" with no qualifier, and §7 marked this whole section
+> "Built". A reader — and `AccountAdmin`'s own docstring, which said "use the
+> command endpoints" — could reasonably conclude those endpoints existed.
+> They never did, and §3 never promised them: it enumerates seven routes,
+> four for journal entries and three for periods, and `apps/accounting/api.py`
+> ships exactly those plus the GET and draft DELETE this section authorises.
+> What *was* delivered here is the read-only admin. Managing the chart is
+> Phase 5 work (`docs/architecture/architecture-charter.md`), and its
+> navigation section is deliberately inert. No endpoints were invented to
+> make the old wording true; the wording is corrected to match what was
+> approved and built. `manage_accounts` and `manage_cost_centers` therefore
+> exist as permissions with no surface yet — they gate
+> `services.create_account` / `create_cost_center`, which today only the
+> chart seed command calls.
 
 ## 5. Deterministic idempotency for upstream modules
 
@@ -120,12 +140,17 @@ has already been through a float before any Python code sees it.
 
 | Section | State | Notes |
 |---|---|---|
-| 1. Twelve domain permissions | Built | Declared on the models that own them; groups synced on `post_migrate` |
+| 1. Twelve domain permissions | Built | Declared on the models that own them; groups synced on `post_migrate`. A **thirteenth**, `manage_account_mappings`, arrived later with Task 1.3 — the tests assert thirteen |
 | 2. Organization and branch scoping | Built | `OrganizationMembership` added — a period has no branch to be scoped to (ADR-016) |
-| 3. Command API | Built | Plus `GET` list and detail, and `DELETE` for drafts per §4 |
-| 4. Writable versus read-only | Built | Accounting admin is read-only for everyone, superusers included |
+| 3. Command API | Built | The seven routes listed in §3, plus `GET` list and detail, and `DELETE` for drafts per §4 |
+| 4. Writable versus read-only | **Partly built** | The admin half is delivered: accounting admin is read-only for everyone, superusers included. **No account or cost-centre command endpoints exist**, and §3 never listed any — see the correction under §4. The constraint stands for whenever Phase 5 exposes them |
 | 5. Idempotency | Built | See ADR-017 |
 | 6. Exact Decimal transport | Built | Strings inbound and outbound |
+
+Row 4 read a bare "Built" until the Phase 2 gate. A checklist that marks a
+half-delivered section complete is worse than one that never mentioned it,
+because it is the artefact a later reviewer trusts instead of reading the
+code.
 
 ### Beyond the plan
 

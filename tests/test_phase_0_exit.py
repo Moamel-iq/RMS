@@ -124,8 +124,12 @@ class TestTheFoundationsCooperate:
         # 63: the Phase 0 chart of 46, plus the Task 1.3 inventory and
         # opening-equity branches (1-03…, 3-02…), plus Task 1.4's GRNI
         # liability and consumption leaves (2-01-02…, 5-01-02…), plus
-        # Task 1.5's transfer-shortage loss branch (6-02…).
-        assert Account.objects.filter(organization=organization).count() == 63
+        # Task 1.5's transfer-shortage loss branch (6-02…), plus Task 2.12's
+        # purchase price variance clearing leaf and its group (8-01-03…),
+        # plus Task 2.13's supplier return clearing (8-01-04…) and purchase
+        # return variance (7-09-04…) leaves and their groups, plus Task
+        # 2.15's supplier advance branch (1-04…).
+        assert Account.objects.filter(organization=organization).count() == 77
         assert CostCenter.objects.filter(organization=organization).count() == 6
         assert AccountingPeriod.objects.filter(fiscal_year__organization=organization).count() == 12
 

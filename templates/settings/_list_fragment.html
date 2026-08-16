@@ -1,0 +1,12 @@
+{# The results region on its own, for an htmx swap.                          #}
+{#                                                                           #}
+{# `settings/base_list.html` extends whichever base its view asks for. On a   #}
+{# normal request that is `shell.html` and the whole page renders; on an      #}
+{# HX-Request it is this file, which emits the `results` block and nothing    #}
+{# else — no rail, no sidebar, no top bar, no second <html>.                  #}
+{#                                                                           #}
+{# Inheritance rather than a duplicated table: the columns and rows are       #}
+{# defined in each list's own template, and an include cannot see a child's   #}
+{# blocks. This way there is one copy of the markup, and a column added to a  #}
+{# list appears in the partial automatically.                                 #}
+{% block results %}{% endblock %}

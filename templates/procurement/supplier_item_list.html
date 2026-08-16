@@ -1,0 +1,55 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block columns %}
+  <th>{% translate "المورد" %}</th>
+  <th>{% translate "الصنف" %}</th>
+  <th>{% translate "رمز المورد" %}</th>
+  <th>{% translate "العبوة" %}</th>
+  {% if may_see_cost %}<th>{% translate "آخر سعر معروض" %}</th>{% endif %}
+  <th>{% translate "المهلة" %}</th>
+  <th>{% translate "السريان" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for row in supplier_items %}
+    <tr>
+      <td><code>{{ row.supplier.code }}</code></td>
+      <td>{{ row.item.code }} — {{ row.item.name_ar }}</td>
+      <td>{% if row.supplier_sku %}<span dir="ltr">{{ row.supplier_sku }}</span>{% else %}—{% endif %}</td>
+      <td>
+        {% if row.package_unit %}
+          {{ row.package_unit.name_ar }}
+        {% else %}
+          {% blocktranslate with unit=row.item.base_unit.code %}بالوحدة الأساسية ({{ unit }}){% endblocktranslate %}
+        {% endif %}
+      </td>
+      {% if may_see_cost %}
+        {# A technical, re-enterable value: never localised. #}
+        <td>{% if row.last_quoted_price %}<span dir="ltr">{{ row.last_quoted_price|stringformat:"f" }}</span>{% else %}—{% endif %}</td>
+      {% endif %}
+      <td>
+        {% if row.lead_time_days is not None %}
+          {% blocktranslate with days=row.lead_time_days %}{{ days }} يوم{% endblocktranslate %}
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        <span dir="ltr">{{ row.effective_from|date:"Y-m-d" }}</span>
+        {% if row.effective_to %} → <span dir="ltr">{{ row.effective_to|date:"Y-m-d" }}</span>{% endif %}
+      </td>
+      <td>
+        {% if row.is_preferred %}<span class="chip chip--on">{% translate "مفضل" %}</span>{% endif %}
+        {% if row.is_active %}
+          <span class="chip chip--on">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+        {% endif %}
+      </td>
+      {% include "inventory/_rowactions.html" with row=row owner_id=row.organization_id edit_url="procurement:supplier_item_update" archive_url="procurement:supplier_item_archive" reactivate_url="procurement:supplier_item_reactivate" %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="9">{% translate "لا توجد أسطر كتالوج بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

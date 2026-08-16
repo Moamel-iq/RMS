@@ -16,7 +16,6 @@ import json
 import re
 import uuid
 from collections.abc import Callable, Sequence
-from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -193,6 +192,38 @@ def resolve_period(
     return period
 
 
+#: A guard vetoes closing a period. It takes the period about to close and the
+#: state it would move to, and raises if its domain has unfinished work that
+#: the close would make impossible to finish.
+#:
+#: The same shape and the same reason as `MappingGuard`: accounting owns the
+#: period lifecycle and must not learn what a stock count is, while inventory
+#: must not reach into the period state machine. A registry inverts the
+#: dependency so neither imports the other (ADR-019).
+PeriodCloseGuard = Callable[[AccountingPeriod, str], None]
+
+_PERIOD_CLOSE_GUARDS: list[PeriodCloseGuard] = []
+
+
+def register_period_close_guard(guard: PeriodCloseGuard) -> None:
+    """Register a domain veto over closing a period."""
+    if guard not in _PERIOD_CLOSE_GUARDS:
+        _PERIOD_CLOSE_GUARDS.append(guard)
+
+
+def _run_period_close_guards(period: AccountingPeriod, new_state: str) -> None:
+    """
+    Ask every domain whether this period may close.
+
+    Run **inside the transaction and under the period's row lock**, so a domain
+    that starts blocking work concurrently either commits before the guard
+    reads it — and is seen — or waits behind this close and finds the period
+    already shut.
+    """
+    for guard in _PERIOD_CLOSE_GUARDS:
+        guard(period, new_state)
+
+
 def _change_period_state(
     *, period: AccountingPeriod, new_state: str, action: str, reason: str
 ) -> AccountingPeriod:
@@ -200,6 +231,8 @@ def _change_period_state(
         # Locked: two concurrent closes, or a close racing a posting, must not
         # interleave into a state nobody chose.
         locked = AccountingPeriod.objects.select_for_update().get(pk=period.pk)
+        if new_state in (PeriodState.SOFT_CLOSED, PeriodState.CLOSED):
+            _run_period_close_guards(locked, new_state)
         before = snapshot(locked)
         locked.state = new_state
         locked.full_clean()
@@ -448,20 +481,30 @@ def sync_system_account_roles() -> None:
     Reference data the application cannot run without has to survive that,
     exactly as the role groups do.
     """
-    from apps.accounting.models import SYSTEM_INVENTORY_ROLES, AccountRole, AccountRoleDomain
+    from apps.accounting.models import (
+        SYSTEM_INVENTORY_ROLES,
+        SYSTEM_PURCHASING_ROLES,
+        AccountRole,
+        AccountRoleDomain,
+    )
 
-    for code, name_ar, name_en, mapping_scope in SYSTEM_INVENTORY_ROLES:
-        AccountRole.objects.update_or_create(
-            code=code,
-            defaults={
-                "name_ar": name_ar,
-                "name_en": name_en,
-                "domain": AccountRoleDomain.INVENTORY,
-                "mapping_scope": mapping_scope,
-                "is_system": True,
-                "is_active": True,
-            },
-        )
+    vocabularies = (
+        (SYSTEM_INVENTORY_ROLES, AccountRoleDomain.INVENTORY),
+        (SYSTEM_PURCHASING_ROLES, AccountRoleDomain.PURCHASING),
+    )
+    for roles, domain in vocabularies:
+        for code, name_ar, name_en, mapping_scope in roles:
+            AccountRole.objects.update_or_create(
+                code=code,
+                defaults={
+                    "name_ar": name_ar,
+                    "name_en": name_en,
+                    "domain": domain,
+                    "mapping_scope": mapping_scope,
+                    "is_system": True,
+                    "is_active": True,
+                },
+            )
 
 
 #: A guard takes the organization and role about to change and returns a
@@ -1213,11 +1256,6 @@ def reverse_entry(
         },
     )
     return reversal
-
-
-def entry_total(entry: JournalEntry) -> Decimal:
-    """The entry's debit total, which by construction equals its credit total."""
-    return sum((line.debit for line in entry.lines.all()), Decimal("0")).quantize(Decimal("0.001"))
 
 
 # ---------------------------------------------------------------------------

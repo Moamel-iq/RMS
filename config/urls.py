@@ -14,6 +14,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("settings/", include("apps.units.urls")),
     path("settings/", include("apps.core.urls")),
     path("inventory/", include("apps.inventory.urls")),
+    path("procurement/", include("apps.procurement.urls")),
     path("accounting/", include("apps.accounting.urls")),
     path("", include("apps.users.urls")),
 ]

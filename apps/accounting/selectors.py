@@ -10,7 +10,6 @@ from django.db.models.functions import Coalesce
 
 from apps.accounting.models import (
     Account,
-    AccountingPeriod,
     CostCenter,
     JournalEntry,
     JournalEntryStatus,
@@ -107,10 +106,6 @@ def trial_balance_totals(
     return totals["debits"], totals["credits"]
 
 
-def entries_for_period(period: AccountingPeriod) -> QuerySet[JournalEntry]:
-    return JournalEntry.objects.filter(period=period).select_related("organization")
-
-
 def entry_by_idempotency_key(*, organization: Organization, key: str) -> JournalEntry | None:
     """
     The entry a key produced, within one organization.
@@ -121,7 +116,3 @@ def entry_by_idempotency_key(*, organization: Organization, key: str) -> Journal
     them from document numbers.
     """
     return JournalEntry.objects.filter(organization=organization, idempotency_key=key).first()
-
-
-def chart_of_accounts(*, organization: Organization) -> QuerySet[Account]:
-    return Account.objects.filter(organization=organization).select_related("parent")

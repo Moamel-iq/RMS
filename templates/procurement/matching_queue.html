@@ -1,0 +1,97 @@
+{% extends "shell.html" %}
+{% load i18n money_tags quantity_tags %}
+
+{# What still needs reconciling, in the two directions it can be missing.    #}
+{#                                                                           #}
+{# A delivery nobody has billed and an invoice nobody has covered are        #}
+{# different problems with different answers, so they stay in separate       #}
+{# columns rather than being merged into one count that answers neither.     #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{% translate "قائمة المطابقة" %}</h1>
+      <p class="pagehead__hint">
+        {% translate "المطابقة تُقرّر ما الذي يُغطّي ماذا. لا تُنشئ قيداً ولا تُسوّي ذمة ولا تُحرّك مخزوناً؛ الترحيل المالي مهمة لاحقة." %}
+      </p>
+    </div>
+    <a class="btn btn--ghost" href="{% url 'procurement:purchase_match_list' %}">
+      {% translate "المطابقات" %}
+    </a>
+  </div>
+
+  <div class="formcard">
+    <h2>{% translate "تسليمات بلا فاتورة" %}</h2>
+    <p class="muted">
+      {% translate "بضاعة وصلت وسُجّلت قيمتها المؤقتة في حساب البضاعة المستلمة غير المفوترة، ولم يطالب بها المورد بعد." %}
+    </p>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{% translate "الاستلام" %}</th>
+          <th>{% translate "المورد" %}</th>
+          <th>{% translate "الصنف" %}</th>
+          <th>{% translate "المقبول" %}</th>
+          <th>{% translate "غير المطابَق" %}</th>
+          {% if may_see_cost %}<th>{% translate "القيمة غير المطابَقة" %}</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in receipt_lines %}
+          <tr>
+            <td><span dir="ltr">{{ line.receipt.number }}</span></td>
+            <td>{{ line.receipt.supplier.code }}</td>
+            <td>{{ line.item.code }} — {{ line.item.name_ar }}</td>
+            <td><span dir="ltr">{{ line.accepted_base_quantity|quantity }}</span></td>
+            <td><span dir="ltr">{{ line.unmatched_quantity|quantity }}</span></td>
+            {% if may_see_cost %}
+              <td><span dir="ltr">{{ line.unmatched_value|money_full }}</span></td>
+            {% endif %}
+          </tr>
+        {% empty %}
+          <tr><td colspan="6">{% translate "كل التسليمات مطابَقة." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="formcard">
+    <h2>{% translate "فواتير بلا تسليم مطابَق" %}</h2>
+    <p class="muted">
+      {% translate "أسطر بضاعة معتمدة تنتظر أن يُقال أي تسليم يُغطّيها. حتى تُطابَق، تبقى الفاتورة معتمدة بلا ترحيل." %}
+    </p>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{% translate "الفاتورة" %}</th>
+          <th>{% translate "المورد" %}</th>
+          <th>{% translate "الصنف" %}</th>
+          <th>{% translate "المفوتر" %}</th>
+          <th>{% translate "الحالة" %}</th>
+          <th>{% translate "إجراءات" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in invoice_lines %}
+          <tr>
+            <td><span dir="ltr">{{ line.invoice.supplier_invoice_number }}</span></td>
+            <td>{{ line.invoice.supplier.code }}</td>
+            <td>{{ line.item.code }} — {{ line.item.name_ar }}</td>
+            <td><span dir="ltr">{{ line.base_quantity|quantity }}</span></td>
+            <td><span class="chip">{{ line.match_state }}</span></td>
+            <td>
+              <a class="btn btn--ghost btn--sm"
+                 href="{% url 'procurement:supplier_invoice_detail' line.invoice_id %}">
+                {% translate "الفاتورة" %}
+              </a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6">{% translate "كل أسطر البضاعة مطابَقة." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

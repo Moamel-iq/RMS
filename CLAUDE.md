@@ -127,6 +127,11 @@ permissions.
   and print through `self.write`. Arabic output to a Windows cp1252 console
   raises `UnicodeEncodeError`, and inside an atomic command that rolls back
   everything already seeded — a crash caused entirely by the logging.
+- Every task that ships a user-visible section or workflow must also create or
+  extend demo-data tooling so the feature can be exercised visibly. Demo data
+  is `DEMO`-namespaced, idempotent, `DEBUG`-only, never in a migration, and
+  posts through the real domain services. See
+  `docs/development/demo-data-policy.md` — read it before writing a demo seed.
 - Use `Asia/Baghdad`, and a separate branch business date. Never derive the
   business date as `date(timestamp)`.
 - Preserve Arabic text and RTL requirements.

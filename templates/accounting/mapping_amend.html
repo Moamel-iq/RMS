@@ -1,0 +1,49 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# Correct a mapping nothing has posted through yet. Every field is optional: #}
+{# amending is a partial correction, and the common case is one wrong date.   #}
+{# A used mapping is refused by the service — close it and create the next.   #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      <p class="pagehead__hint">{{ page_hint }}</p>
+    </div>
+  </div>
+
+  <dl class="detailgrid">
+    <div class="detailgrid__row">
+      <dt>{% translate "المؤسسة" %}</dt>
+      <dd>{{ mapping.organization.code }} — {{ mapping.organization.name_ar }}</dd>
+    </div>
+    <div class="detailgrid__row">
+      <dt>{% translate "الدور" %}</dt>
+      <dd>{{ mapping.account_role.code }}</dd>
+    </div>
+    <div class="detailgrid__row">
+      <dt>{% translate "الحساب الحالي" %}</dt>
+      <dd>{{ mapping.account.code }} — {{ mapping.account.name_ar }}</dd>
+    </div>
+    <div class="detailgrid__row">
+      <dt>{% translate "الإصدار" %}</dt>
+      <dd>{{ mapping.version }}</dd>
+    </div>
+  </dl>
+
+  <form class="formcard" method="post" novalidate>
+    {% csrf_token %}
+    <div class="formgrid">
+      {% for field in form %}
+        {% include "settings/_field.html" with field=field %}
+      {% endfor %}
+    </div>
+    <div class="formactions">
+      <button class="btn btn--primary" type="submit">{% translate "حفظ التعديل" %}</button>
+      <a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
+    </div>
+  </form>
+{% endblock %}

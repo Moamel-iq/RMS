@@ -1,0 +1,128 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# THE BLIND COUNTING SHEET.                                                  #}
+{#                                                                            #}
+{# There is no book quantity on this page, and there is none in the context   #}
+{# either: `blind_count_sheet` returns rows that never held one. That is why  #}
+{# the rule holds — a value that was never fetched cannot be leaked by a      #}
+{# hidden input, a data attribute, or somebody reading the page source.       #}
+{#                                                                            #}
+{# Do not add `{{ line.book_quantity }}` here. Do not switch this template    #}
+{# to the count's own line queryset. The review screen is a separate view.    #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      <p class="pagehead__hint">
+        {% translate "المخزن" %} <code>{{ count.warehouse.code }}</code>
+        · {% translate "لحظة القطع" %} {{ count.cutoff_at|date:"Y-m-d H:i" }}
+        · {% translate "يوم العمل" %} {{ count.business_date|date:"Y-m-d" }}
+        · <strong>{% translate "المخزن مجمّد" %}</strong>
+      </p>
+      <p class="pagehead__hint">
+        {% translate "عُدّ ما على الرفّ فعلاً. الكمية الدفترية غير معروضة عمداً: العدّ الذي يعرف الجواب لا يقيس شيئاً." %}
+      </p>
+    </div>
+    <div class="rowactions">
+      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+    </div>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>{% translate "الصنف" %}</th>
+            <th>{% translate "الدفعة" %}</th>
+            <th>{% translate "الوحدة" %}</th>
+            <th>{% translate "الكمية المعدودة" %}</th>
+            <th>{% translate "ملاحظة" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td>{{ row.sequence }}</td>
+              <td>
+                <code>{{ row.item__code }}</code> {{ row.item__name_ar }}
+                {% if row.is_unexpected %}
+                  <br><span class="muted">{% translate "صنف غير متوقّع" %}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if row.lot__code %}<code>{{ row.lot__code }}</code>{% else %}—{% endif %}
+              </td>
+              <td>{{ row.base_unit__code }}</td>
+              <td>
+                {# `dir=ltr` and no `dir=auto`: an empty auto field resolves    #}
+                {# to LTR and puts the padding on the wrong side of an RTL box. #}
+                <input type="text" dir="ltr" inputmode="decimal"
+                       name="counted-{{ row.id }}"
+                       value="{% if row.counted_quantity is not None %}{{ row.counted_quantity|stringformat:'f' }}{% endif %}"
+                       aria-label="{% translate 'الكمية المعدودة' %}">
+              </td>
+              <td>
+                <input type="text" name="note-{{ row.id }}" value="{{ row.line_note }}"
+                       maxlength="200" aria-label="{% translate 'ملاحظة' %}">
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6">
+                {% translate "لا أصناف في اللقطة. أضف ما تجده على الرفّ أدناه." %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if is_in_progress %}
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "حفظ الكميات" %}</button>
+      </div>
+    {% endif %}
+  </form>
+
+  {% if is_in_progress %}
+    <form class="formcard" method="post"
+          action="{% url 'inventory:count_unexpected' count.pk %}">
+      {% csrf_token %}
+      <h2>{% translate "صنف موجود على الرفّ ولا تعرفه الدفاتر" %}</h2>
+      <p class="pagehead__hint">
+        {% translate "الكمية فقط. كلفته يقرّرها المعتمِد لاحقاً، لا العادّ." %}
+      </p>
+      <div class="formgrid">
+        {% for field in unexpected_form %}
+          <div class="formrow">
+            <label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <p class="formrow__hint">{{ field.help_text }}</p>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="formactions">
+        <button class="btn btn--ghost" type="submit">{% translate "إضافة" %}</button>
+      </div>
+    </form>
+
+    <form class="formcard" method="post" action="{% url 'inventory:count_submit' count.pk %}">
+      {% csrf_token %}
+      <p class="pagehead__hint">
+        {% translate "بعد التقديم لا يمكنك تعديل الكميات، ويعتمدها شخص آخر. المخزن يبقى مجمّداً." %}
+      </p>
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "تقديم للاعتماد" %}</button>
+      </div>
+    </form>
+  {% endif %}
+{% endblock %}

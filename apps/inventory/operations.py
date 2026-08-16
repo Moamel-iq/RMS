@@ -59,6 +59,7 @@ from apps.accounting.models import (
     GOODS_RECEIVED_NOT_INVOICED,
     INVENTORY_CONSUMPTION,
     INVENTORY_CONTROL,
+    INVENTORY_WASTE_EXPENSE,
     Account,
     AccountingPeriod,
     CostCenter,
@@ -93,8 +94,10 @@ from apps.inventory.models import (
     InventoryLot,
     InventoryMovementDocument,
     InventoryMovementDocumentLine,
+    InventoryReasonCode,
     ItemPackageConversion,
     MovementType,
+    ReasonCodeApplication,
     StockBalance,
     StockMovement,
     Warehouse,
@@ -111,6 +114,7 @@ POSTING_RULE: dict[str, str] = {
     InventoryDocumentType.RECEIPT: "inventory-receipt-v1",
     InventoryDocumentType.ISSUE: "inventory-issue-v1",
     InventoryDocumentType.RETURN_IN: "inventory-return-in-v1",
+    InventoryDocumentType.WASTE: "inventory-waste-v1",
 }
 
 #: Which stock movement each document type produces.
@@ -118,9 +122,20 @@ MOVEMENT_TYPE: dict[str, str] = {
     InventoryDocumentType.RECEIPT: MovementType.RECEIPT,
     InventoryDocumentType.ISSUE: MovementType.ISSUE,
     InventoryDocumentType.RETURN_IN: MovementType.RETURN_IN,
+    InventoryDocumentType.WASTE: MovementType.WASTE,
 }
 
 OPERATIONAL_TYPES = frozenset(MOVEMENT_TYPE)
+
+#: Which document types debit inventory. Waste credits it, like an issue.
+INVENTORY_IS_DEBITED = frozenset({InventoryDocumentType.RECEIPT, InventoryDocumentType.RETURN_IN})
+
+#: Which document types carry a cost centre of their own. An issue names where
+#: the stock was consumed; a waste note names whose loss it was — and its
+#: account is a class-6 operating expense, so the centre is not merely offered
+#: but demanded. A receipt has no destination yet and a return reuses the
+#: original issue's.
+COST_CENTRE_BEARING_TYPES = frozenset({InventoryDocumentType.ISSUE, InventoryDocumentType.WASTE})
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +157,9 @@ class DocumentLineInput:
     unit_cost: Decimal | None = None
     #: Return only: the issue line being returned against.
     source_issue_line: InventoryMovementDocumentLine | None = None
+    #: Waste only, and mandatory there.
+    reason_code: InventoryReasonCode | None = None
+    line_comment: str = ""
 
 
 def _require_status(document: InventoryMovementDocument, status: str, code: str) -> None:
@@ -237,12 +255,12 @@ def create_document(
             code="cost_center_inactive",
             params={"code": cost_center.code},
         )
-    if cost_center is not None and document_type != InventoryDocumentType.ISSUE:
+    if cost_center is not None and document_type not in COST_CENTRE_BEARING_TYPES:
         # A receipt has no consumption destination, and a return reuses the
         # original issue's — offering a fresh one would let the pair land in
         # two different managerial buckets and never net out.
         raise ValidationError(
-            _("Only a consumption issue carries a cost center."),
+            _("Only a consumption issue or a waste note carries a cost center."),
             code="cost_center_not_applicable",
         )
 
@@ -384,6 +402,72 @@ def _validate_line_target(document: InventoryMovementDocument, line: DocumentLin
             _("Item %(code)s does not track lots, so the line must not name one."),
             code="lot_not_allowed",
             params={"code": line.item.code},
+        )
+
+
+def _validate_line_reason_code(
+    document: InventoryMovementDocument, line: DocumentLineInput
+) -> None:
+    """
+    A reason code belongs to a waste line, comes from this organization, and
+    was declared for this use.
+
+    The `applies_to` check is the one that matters. Without it a `COUNT_VARIANCE`
+    code could be selected on a waste note, and every waste report grouped by
+    reason would silently contain rows nobody meant to put there — the figures
+    would look complete while measuring the wrong thing.
+    """
+    if document.document_type != InventoryDocumentType.WASTE:
+        if line.reason_code is not None:
+            raise ValidationError(
+                _("A %(type)s line takes no reason code."),
+                code="reason_code_not_accepted",
+                params={"type": document.get_document_type_display()},
+            )
+        if line.line_comment.strip():
+            raise ValidationError(
+                _("A %(type)s line takes no reason comment."),
+                code="line_comment_not_accepted",
+                params={"type": document.get_document_type_display()},
+            )
+        return
+
+    reason_code = line.reason_code
+    if reason_code is None:
+        raise ValidationError(
+            _("Every waste line needs a reason code."), code="waste_reason_code_required"
+        )
+    if reason_code.organization_id != document.organization_id:
+        # 404 belongs at the command layer; by the time a resolved object
+        # reaches here, a mismatch is a programming error worth naming.
+        raise ValidationError(
+            _("Reason code %(code)s belongs to another organization."),
+            code="reason_code_organization_mismatch",
+            params={"code": reason_code.code},
+        )
+    if reason_code.applies_to != ReasonCodeApplication.WASTE:
+        raise ValidationError(
+            _("Reason code %(code)s is not a waste reason."),
+            code="reason_code_wrong_application",
+            params={"code": reason_code.code},
+        )
+    if not reason_code.is_active:
+        raise ValidationError(
+            _("Reason code %(code)s is archived."),
+            code="reason_code_archived",
+            params={"code": reason_code.code},
+        )
+    if reason_code.requires_comment and not line.line_comment.strip():
+        raise ValidationError(
+            _("Reason code %(code)s requires a comment on the line."),
+            code="reason_code_comment_required",
+            params={"code": reason_code.code},
+        )
+    if reason_code.requires_evidence and not document.evidence_reference.strip():
+        raise ValidationError(  # pragma: no cover - the document constraint demands one anyway
+            _("Reason code %(code)s requires an evidence reference on the document."),
+            code="reason_code_evidence_required",
+            params={"code": reason_code.code},
         )
 
 
@@ -580,6 +664,8 @@ def add_line(
                     params={"remaining": str(remaining_quantity)},
                 )
 
+    _validate_line_reason_code(locked, line)
+
     if locked.lines.filter(item=line.item, lot=line.lot).exists():
         raise ValidationError(
             _("This item and lot already have a line in this document."),
@@ -599,6 +685,8 @@ def add_line(
         unit_cost=unit_cost,
         total_value=total_value,
         source_issue_line=source_issue,
+        reason_code=line.reason_code,
+        line_comment=line.line_comment.strip(),
     )
     stored.full_clean()
     stored.save()
@@ -798,6 +886,8 @@ def _post_effects(
         plan = _plan_receipt(document, lines)
     elif document.document_type == InventoryDocumentType.ISSUE:
         plan = _plan_issue(document, lines)
+    elif document.document_type == InventoryDocumentType.WASTE:
+        plan = _plan_waste(document, lines)
     else:
         plan = _plan_return(document, lines)
 
@@ -979,6 +1069,87 @@ def _plan_issue(
     return _Plan(effects=effects, accounts=accounts, mappings=mappings)
 
 
+def _plan_waste(
+    document: InventoryMovementDocument, lines: list[InventoryMovementDocumentLine]
+) -> _Plan:
+    """
+    Dr INVENTORY_WASTE_EXPENSE, Cr the account the stock is standing in.
+
+    Structurally an issue — value leaves the account it entered, at the current
+    moving average, with the full-depletion rule at zero — and different from
+    one in exactly two respects.
+
+    The debit is an **expense**, not a consumption cost. Spoiled food was not
+    sold, so putting it through cost of sales would flatter the gross margin by
+    precisely the amount that was thrown away. The role is organization-scoped:
+    which item spoiled says nothing about which account absorbs the loss.
+
+    The cost centre is **mandatory**, because the seeded waste account is a
+    class-6 operating expense and `require_cost_center_where_the_account_demands_one`
+    enforces its policy. That is the control the whole document exists for:
+    waste nobody's kitchen carries is waste nobody reduces.
+    """
+    waste = resolve_inventory_account(
+        organization=document.organization,
+        role=INVENTORY_WASTE_EXPENSE,
+        item=None,
+        on_date=document.business_date,
+    )
+    require_cost_center_where_the_account_demands_one(
+        account=waste.account, cost_center=document.cost_center
+    )
+
+    effects: list[MovementInput] = []
+    accounts: dict[int, tuple[Account, Account, CostCenter | None]] = {}
+    mappings: dict[
+        int, tuple[InventoryAccountMapping | None, OrganizationAccountMapping | None]
+    ] = {}
+    for line in lines:
+        _require_waste_line_is_complete(line)
+        standing = _standing_control_account(document, line)
+        if standing is None:
+            standing = resolve_inventory_account(
+                organization=document.organization,
+                role=INVENTORY_CONTROL,
+                item=line.item,
+                on_date=document.business_date,
+            ).account
+        accounts[line.pk] = (standing, waste.account, document.cost_center)
+        mappings[line.pk] = (waste.inventory_mapping, waste.organization_mapping)
+        effects.append(_effect_of(document, line, unit_cost=None, control_account=standing))
+    return _Plan(effects=effects, accounts=accounts, mappings=mappings)
+
+
+def _require_waste_line_is_complete(line: InventoryMovementDocumentLine) -> None:
+    """
+    A waste line says why, in the vocabulary the organization chose, and adds
+    the words the chosen reason demands.
+
+    Checked here as well as at `add_line` because a reason code's
+    `requires_comment` can be switched on after a draft was written, and the
+    draft would otherwise post without the explanation the organization has
+    since decided it needs.
+    """
+    reason_code = line.reason_code
+    if reason_code is None:
+        raise ValidationError(
+            _("Every waste line needs a reason code."),
+            code="waste_reason_code_required",
+        )
+    if not reason_code.is_active:
+        raise ValidationError(
+            _("Reason code %(code)s is archived and cannot be used on a new posting."),
+            code="reason_code_archived",
+            params={"code": reason_code.code},
+        )
+    if reason_code.requires_comment and not line.line_comment.strip():
+        raise ValidationError(
+            _("Reason code %(code)s requires a comment on the line."),
+            code="reason_code_comment_required",
+            params={"code": reason_code.code},
+        )
+
+
 def _plan_return(
     document: InventoryMovementDocument, lines: list[InventoryMovementDocumentLine]
 ) -> _Plan:
@@ -1089,10 +1260,7 @@ def _journal_lines(
         contra_key = (contra_account.pk, contra_center.pk if contra_center else None)
         contra_side[contra_key] = contra_side.get(contra_key, ZERO) + value
 
-    inventory_is_debit = document.document_type in (
-        InventoryDocumentType.RECEIPT,
-        InventoryDocumentType.RETURN_IN,
-    )
+    inventory_is_debit = document.document_type in INVENTORY_IS_DEBITED
 
     posting_lines: list[PostingLine] = []
     for account_id, amount in sorted(
@@ -1130,10 +1298,7 @@ def _link_lines(
     journal: JournalEntry,
 ) -> None:
     """Write the immutable traceability, while the lines are still unfrozen."""
-    inventory_is_debit = document.document_type in (
-        InventoryDocumentType.RECEIPT,
-        InventoryDocumentType.RETURN_IN,
-    )
+    inventory_is_debit = document.document_type in INVENTORY_IS_DEBITED
     journal_lines = list(journal.lines.all())
     by_account: dict[int, JournalLine] = {}
     for journal_line in journal_lines:

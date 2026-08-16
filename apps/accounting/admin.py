@@ -175,7 +175,14 @@ class AccountAdmin(ReadOnlyAdminMixin, _ModelAdmin):
 
     `create_account` derives the class and the parent from the code and checks
     the parentage rules; a form that let someone type a class would let the
-    code, the class, and the tree disagree. Use the command endpoints.
+    code, the class, and the tree disagree.
+
+    **There is no account command endpoint to use instead — yet.** This
+    docstring used to send the reader to one, and Task 0.7 §4's table implied
+    it existed, but §3 never listed one and `api.py` has never had one. Today
+    the chart is created by `seed_chart_of_accounts`, which calls
+    `services.create_account` directly. A managed surface for the chart is
+    Phase 5 work, and `manage_accounts` is the permission waiting for it.
     """
 
     list_display = (

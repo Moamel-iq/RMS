@@ -32,7 +32,14 @@ class InventoryConfig(AppConfig):
         # service changes an organization default: an INVENTORY_CONTROL
         # mapping change that would re-home standing stock value is refused
         # (ADR-019 §G). Accounting exposes the hook; it never imports us.
-        from apps.accounting.services import register_mapping_guard
+        from apps.accounting.services import register_mapping_guard, register_period_close_guard
         from apps.inventory.accounts import organization_mapping_guard
+        from apps.inventory.counts import refuse_close_while_a_count_is_active
 
         register_mapping_guard(organization_mapping_guard)
+
+        # And for the same reason in the other direction: a period closed while
+        # a physical count is still open would strand a frozen warehouse that
+        # can neither post nor be reopened without an authorized period
+        # reopening (ADR-021 §9).
+        register_period_close_guard(refuse_close_while_a_count_is_active)

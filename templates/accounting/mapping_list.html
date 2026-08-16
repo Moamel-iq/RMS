@@ -30,6 +30,9 @@
       <td>
         {% if mapping.is_active %}
           <div class="rowactions">
+            <a class="btn btn--ghost btn--sm" href="{% url 'accounting:mapping_amend' mapping.pk %}">
+              {% translate "تعديل" %}
+            </a>
             <a class="btn btn--ghost btn--sm" href="{% url 'accounting:mapping_close' mapping.pk %}">
               {% translate "إغلاق النطاق" %}
             </a>

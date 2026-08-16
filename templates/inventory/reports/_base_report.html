@@ -1,0 +1,67 @@
+{# One template for every report. Columns are data, so the header row and the #}
+{# body are both loops — a report that adds a column changes its view class   #}
+{# and nothing here, and the htmx partial inherits the change for free.       #}
+{#                                                                            #}
+{# Redaction is structural: a caller without view_valuation gets a `columns`  #}
+{# list with no cost entries, so the cells are absent rather than blank.      #}
+{% extends "settings/base_list.html" %}
+{% load i18n report_tags %}
+
+{% block pageactions %}
+  <div class="pagehead__actions">
+    {% if export_query %}
+      <a class="btn btn--ghost" href="?{{ export_query }}">{% translate "تصدير CSV" %}</a>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block filters %}
+  {% if supports_modes %}
+    {# §D: the mode is never implied. It is a visible control and a visible #}
+    {# label, because the two answers legitimately differ.                  #}
+    <select name="mode" aria-label="{% translate 'وضع التقرير' %}"
+            style="height:42px;border:1px solid var(--line);border-radius:10px;padding-inline:12px;font:inherit">
+      {% for value, label in modes %}
+        <option value="{{ value }}" {% if value == mode.value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  {% endif %}
+  <input type="date" name="date_from" value="{{ filters.date_from|default:'' }}"
+         aria-label="{% translate 'من تاريخ' %}"
+         style="height:42px;border:1px solid var(--line);border-radius:10px;padding-inline:12px;font:inherit">
+  <input type="date" name="date_to" value="{{ filters.date_to|default:'' }}"
+         aria-label="{% translate 'إلى تاريخ' %}"
+         style="height:42px;border:1px solid var(--line);border-radius:10px;padding-inline:12px;font:inherit">
+  {% block extra_filters %}{% endblock %}
+{% endblock %}
+
+{% block columns %}
+  {% for key, header in columns %}<th>{{ header }}</th>{% endfor %}
+{% endblock %}
+
+{% block rows %}
+  {% if supports_modes %}
+    <tr class="report-mode-note">
+      <td colspan="{{ columns|length }}" class="muted">
+        {% blocktranslate with label=mode_label count=total_rows %}الوضع: {{ label }} — {{ count }} سطر{% endblocktranslate %}
+      </td>
+    </tr>
+  {% endif %}
+  {% for row in rows %}
+    <tr>
+      {% for key, header in columns %}
+        {% if row|is_numeric_cell:key %}
+          <td><code dir="ltr">{{ row|cell:key }}</code></td>
+        {% else %}
+          <td>{{ row|cell:key }}</td>
+        {% endif %}
+      {% endfor %}
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="{{ columns|length }}">
+        {% translate "لا توجد بيانات ضمن هذه المرشحات." %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endblock %}

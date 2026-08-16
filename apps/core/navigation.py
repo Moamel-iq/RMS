@@ -194,18 +194,40 @@ MODULES: tuple[Module, ...] = (
                 url_name="inventory:in_transit",
                 available=True,
             ),
-            # Task 1.6 onward — visible so the shape of the module is legible,
+            # Task 1.6 — waste, physical counts, manual adjustments, and the
+            # reason vocabulary all three draw on.
+            Section(
+                label=_("إتلاف مخزني"),
+                url_name="inventory:inventory_waste_list",
+                available=True,
+            ),
+            Section(
+                label=_("الجرد الفعلي"),
+                url_name="inventory:count_list",
+                available=True,
+            ),
+            Section(
+                label=_("التسويات المخزنية"),
+                url_name="inventory:adjustment_list",
+                available=True,
+            ),
+            Section(
+                label=_("أسباب الحركات"),
+                url_name="inventory:reason_code_list",
+                available=True,
+            ),
+            Section(
+                label=_("أرصدة المواقع"),
+                url_name="inventory:report_locations",
+                available=True,
+            ),
+            # Task 1.7 onward — visible so the shape of the module is legible,
             # inert because the documents that would fill them do not exist.
             # "المرتجعات" is gone from this list: returns from a prior issue
             # are live above, and supplier returns belong to Procurement,
             # where they reconcile against an invoice and a credit note.
             *_sections(
-                _("مواقع التخزين الداخلية"),
-                _("الهالك والتلف"),
-                _("الجرد"),
-                _("التسويات"),
                 _("تقييم المخزون"),
-                _("حدود إعادة الطلب"),
             ),
         ),
     ),
@@ -214,17 +236,85 @@ MODULES: tuple[Module, ...] = (
         label=_("المشتريات"),
         icon_name="cart",
         phase=_("المرحلة ٢"),
-        sections=_sections(
-            _("الموردون"),
-            _("أوامر الشراء"),
-            _("استلام البضاعة"),
-            _("فواتير الموردين"),
-            _("التكاليف الإضافية"),
-            _("مرتجعات الموردين"),
-            _("دفعات الموردين"),
-            _("تخصيص الدفعات"),
-            _("أرصدة الموردين"),
-            _("شروط الائتمان"),
+        url_name="procurement:supplier_list",
+        available=True,
+        sections=(
+            # Task 2.1 — the supplier master. Built and reachable.
+            Section(
+                label=_("الموردون"),
+                url_name="procurement:supplier_list",
+                available=True,
+            ),
+            # Task 2.2 — the supplier item catalogue.
+            Section(
+                label=_("كتالوج الموردين"),
+                url_name="procurement:supplier_item_list",
+                available=True,
+            ),
+            # Task 2.3 — purchase requests.
+            Section(
+                label=_("طلبات الشراء"),
+                url_name="procurement:purchase_request_list",
+                available=True,
+            ),
+            # Task 2.4 — supplier quotations.
+            Section(
+                label=_("عروض الموردين"),
+                url_name="procurement:quotation_list",
+                available=True,
+            ),
+            # Task 2.6 — purchase orders.
+            Section(
+                label=_("أوامر الشراء"),
+                url_name="procurement:purchase_order_list",
+                available=True,
+            ),
+            # Task 2.8 — goods receipt and inspection.
+            Section(
+                label=_("استلام البضاعة"),
+                url_name="procurement:goods_receipt_list",
+                available=True,
+            ),
+            # Task 2.10 onward — visible so the shape of the module is legible,
+            # inert because the documents that would fill them do not exist.
+            *_sections(
+                _("فواتير الموردين"),
+                _("التكاليف الإضافية"),
+            ),
+            # Task 2.13 — supplier returns. Built and reachable; the entry the
+            # inventory module gave up ("returns belong to Procurement, where
+            # they reconcile against an invoice and a credit note") lands here.
+            Section(
+                label=_("مرتجعات الموردين"),
+                url_name="procurement:supplier_return_list",
+                available=True,
+            ),
+            # Task 2.14 — the credit note that settles a return's claim.
+            Section(
+                label=_("إشعارات الموردين الدائنة"),
+                url_name="procurement:supplier_credit_note_list",
+                available=True,
+            ),
+            # Task 2.15 — money out. Allocation lives on the payment's own
+            # detail screen, so "تخصيص الدفعات" needs no separate route.
+            Section(
+                label=_("دفعات الموردين"),
+                url_name="procurement:supplier_payment_list",
+                available=True,
+            ),
+            # Task 2.16 — the reports. "أرصدة الموردين" is the aging report:
+            # the balance is derived from posted documents, never stored, so
+            # the report *is* the balances screen. The other eleven reports
+            # are routes under `reports/`, following the Phase 1 pattern of
+            # one flagship entry per module rather than a twelve-item menu.
+            Section(
+                label=_("أرصدة الموردين"),
+                url_name="procurement:report_supplier_aging",
+                available=True,
+            ),
+            *_sections(
+                _("شروط الائتمان"),
+            ),
         ),
     ),
     Module(

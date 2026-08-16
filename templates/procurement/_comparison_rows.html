@@ -1,0 +1,94 @@
+{% load i18n %}
+
+{# The comparison table alone. Swapped by htmx when the item filter moves,   #}
+{# and included by the full page so the two can never disagree about what a  #}
+{# row says.                                                                 #}
+{#                                                                           #}
+{# Both "cheapest" flags are shown because they routinely disagree: a        #}
+{# supplier can be cheapest per unit and dearest delivered. Showing only one #}
+{# would be choosing for the buyer, which is exactly what PRC-016 forbids.   #}
+
+<table class="table" id="comparison-results">
+  <thead>
+    <tr>
+      <th>{% translate "الصنف" %}</th>
+      <th>{% translate "المورد" %}</th>
+      <th>{% translate "العرض" %}</th>
+      <th>{% translate "العبوة" %}</th>
+      <th>{% translate "الكمية" %}</th>
+      <th>{% translate "بالوحدة الأساسية" %}</th>
+      {% if may_see_cost %}
+        <th>{% translate "سعر الوحدة المعروض" %}</th>
+        <th>{% translate "سعر الوحدة الأساسية" %}</th>
+        <th>{% translate "حصة النقل" %}</th>
+        <th>{% translate "الإجمالي بعد النقل" %}</th>
+        <th>{% translate "الكلفة النهائية للوحدة" %}</th>
+      {% endif %}
+      <th>{% translate "المهلة" %}</th>
+      <th>{% translate "الصلاحية" %}</th>
+      <th>{% translate "أقل كمية" %}</th>
+      {% if may_award and is_awardable %}<th>{% translate "الإرساء" %}</th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+      <tr>
+        <td>{{ row.item_code }} — {{ row.item_name }}</td>
+        <td>{{ row.supplier_code }}</td>
+        <td><code dir="ltr">{{ row.quotation_number }}</code></td>
+        <td>{{ row.package_code|default:row.base_unit_code }}</td>
+        {# Technical, re-enterable values: never localised. #}
+        <td><span dir="ltr">{{ row.quoted_quantity|stringformat:"f" }}</span></td>
+        <td><span dir="ltr">{{ row.base_quantity|stringformat:"f" }}</span> {{ row.base_unit_code }}</td>
+        {% if may_see_cost %}
+          <td><span dir="ltr">{{ row.quoted_unit_price|stringformat:"f" }}</span></td>
+          <td>
+            <span dir="ltr">{{ row.base_unit_price|stringformat:"f" }}</span>
+            {% if row.is_cheapest_base_unit %}
+              <span class="chip chip--on">{% translate "الأرخص للوحدة" %}</span>
+            {% endif %}
+          </td>
+          <td><span dir="ltr">{{ row.charge_share|stringformat:"f" }}</span></td>
+          <td><span dir="ltr">{{ row.landed_total|stringformat:"f" }}</span></td>
+          <td>
+            <span dir="ltr">{{ row.landed_base_unit_price|stringformat:"f" }}</span>
+            {% if row.is_cheapest_landed %}
+              <span class="chip chip--on">{% translate "الأرخص بعد النقل" %}</span>
+            {% endif %}
+          </td>
+        {% endif %}
+        <td>
+          {% if row.lead_time_days is not None %}
+            {% blocktranslate with days=row.lead_time_days %}{{ days }} يوم{% endblocktranslate %}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if row.valid_until %}
+            <span dir="ltr">{{ row.valid_until|date:"Y-m-d" }}</span>
+            {% if row.is_expired %}<span class="chip chip--off">{% translate "منتهٍ" %}</span>{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if row.minimum_order_quantity is not None %}
+            <span dir="ltr">{{ row.minimum_order_quantity|stringformat:"f" }}</span>
+            {% if not row.meets_minimum_order %}
+              <span class="chip chip--off">{% translate "دون الحد" %}</span>
+            {% endif %}
+          {% else %}—{% endif %}
+        </td>
+        {% if may_award and is_awardable %}
+          <td>
+            <form method="post" action="{% url 'procurement:quotation_award' request_document.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="quotation" value="{{ row.quotation_id }}">
+              <input type="text" name="reason" placeholder="{% translate 'سبب الاختيار' %}" required>
+              <button class="btn btn--primary btn--sm" type="submit">{% translate "إرساء" %}</button>
+            </form>
+          </td>
+        {% endif %}
+      </tr>
+    {% empty %}
+      <tr><td colspan="14">{% translate "لا توجد عروض مسجّلة على هذا الطلب." %}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

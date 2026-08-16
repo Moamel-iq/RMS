@@ -1,0 +1,88 @@
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{# The preview. Rendered from stored verdicts rather than by re-judging on   #}
+{# each render: a preview that recomputed could disagree with the apply that #}
+{# follows it, and the operator would have approved the earlier answer.      #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ batch.original_filename }}</h1>
+      <p class="pagehead__hint">
+        {{ batch.get_kind_display }} · {{ batch.get_status_display }} ·
+        {% blocktranslate with total=batch.row_count valid=batch.valid_row_count bad=batch.error_row_count %}{{ total }} سطر — {{ valid }} صالح، {{ bad }} خطأ{% endblocktranslate %}
+        {% if batch.applied_row_count %}
+          · {% blocktranslate with changed=batch.applied_row_count %}{{ changed }} سطر مُغيَّر{% endblocktranslate %}
+        {% endif %}
+      </p>
+    </div>
+    {% if may_act %}
+      <div class="pagehead__actions">
+        <form method="post" style="display:inline">
+          {% csrf_token %}
+          {% if can_validate %}
+            <button class="btn btn--ghost" name="action" value="validate">{% translate "إعادة التدقيق" %}</button>
+          {% endif %}
+          {% if can_apply %}
+            <button class="btn btn--primary" name="action" value="apply">{% translate "تطبيق" %}</button>
+          {% endif %}
+        </form>
+        {% if can_cancel %}
+          <form method="post" style="display:inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="cancel">
+            <input type="text" name="reason" placeholder="{% translate 'سبب الإلغاء' %}" required>
+            <button class="btn btn--ghost">{% translate "إلغاء الدفعة" %}</button>
+          </form>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  {# Row filtering is an htmx swap: the same page, a narrower table. #}
+  <div class="toolbar">
+    <a class="btn btn--ghost" href="?" hx-get="?" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true">{% translate "الكل" %}</a>
+    <a class="btn btn--ghost" href="?rows=errors" hx-get="?rows=errors" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true">{% translate "الأخطاء فقط" %}</a>
+    <a class="btn btn--ghost" href="?rows=valid" hx-get="?rows=valid" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true">{% translate "الصالحة فقط" %}</a>
+  </div>
+
+  {% block results %}
+    <div class="tablewrap" id="list-results">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>{% translate "السطر" %}</th>
+            <th>{% translate "المفتاح" %}</th>
+            <th>{% translate "صالح" %}</th>
+            <th>{% translate "الأخطاء" %}</th>
+            <th>{% translate "الأثر" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td><code dir="ltr">{{ row.row_number }}</code></td>
+              <td><code>{{ row.external_key|default:"—" }}</code></td>
+              <td>{% if row.is_valid %}✓{% else %}✕{% endif %}</td>
+              <td>
+                {% if row.errors %}
+                  <ul style="margin:0;padding-inline-start:18px">
+                    {% for field, messages in row.errors.items %}
+                      <li><code>{{ field }}</code>: {{ messages|join:"، " }}</li>
+                    {% endfor %}
+                  </ul>
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ row.applied_action|default:"—" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5">{% translate "لا توجد سطور ضمن هذا المرشح." %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endblock %}
+{% endblock %}

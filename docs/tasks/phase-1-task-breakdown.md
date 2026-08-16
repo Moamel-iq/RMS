@@ -255,6 +255,49 @@ Depends on: 1.4.
 - Conducting and approving a count are different permissions, tested.
 - Reason code mandatory on waste and manual adjustment.
 
+**Implementation notes (2026-08-10):**
+
+- ADR-021 records the durable architecture: one cutoff, one book snapshot,
+  `Warehouse.frozen_by_count` as the single statement that a warehouse is
+  frozen, blind entry by construction, maker-checker in four places, and the
+  gain/loss valuation split.
+- **Three shapes, chosen by what each thing is.** Waste extends
+  `InventoryMovementDocument` — same lifecycle, numbering, source identity,
+  locking, scope and screens, differing in one movement type, one journal side
+  and two per-line fields. The count and the adjustment are their own
+  aggregates: a count is six steps, not one posting, and an adjustment carries
+  lines that go in different directions, which a one-type-per-document model
+  cannot express.
+- **The freeze is one truth with a lock behind it.** Reading
+  `frozen_by_count` is not enough under READ COMMITTED, and the stock keys
+  alone do not close the hole either — a first-ever receipt of an item the
+  warehouse has never held takes a key the count never snapshotted. Every
+  posting takes a shared warehouse freeze lock, sorted by id; the three freeze
+  changes take it exclusively.
+- **Blind means never fetched.** `blind_lines` returns dictionaries that have
+  never held a book quantity, and the counting sheet is its own view with its
+  own template. `view_valuation` makes no difference to it.
+- **The period-close guard mirrors the mapping guard.** Accounting exposes
+  `register_period_close_guard`; inventory registers a veto at app-ready. Both
+  the guard and `start_count` take the period row lock, so a close and a start
+  cannot both commit.
+- **Two kernel gaps closed.** `MovementType.MANUAL_ADJUSTMENT` had no fixed
+  sign and fell through to the outbound branch — right for two of three cases,
+  silently wrong for the third; `MovementInput.direction` now makes the caller
+  say. `apply_value_only` is the third arithmetic primitive, for a revaluation
+  that moves no goods.
+- Only one new permission: `manage_reason_codes`. `post_waste`,
+  `conduct_stock_count`, `approve_stock_count`, `post_adjustment` and
+  `reverse_movement` were approved with Task 1.0 and their role map already
+  said exactly what §N and §X ask for.
+- No new `AccountRole`. `INVENTORY_WASTE_EXPENSE`, `INVENTORY_COUNT_VARIANCE`
+  and `INVENTORY_ADJUSTMENT` all existed; the chart gained their leaves —
+  waste in class 6 where a cost centre is mandatory, the two bidirectional
+  variance accounts in class 7 under "فروقات وتسويات".
+- Cycle and partial counts are deferred to Task 1.7 or later, deliberately:
+  a partial count needs a per-key freeze the ledger can enforce, and offering
+  one before that exists would be offering a freeze that does not hold.
+
 ---
 
 ### Task 1.7 — Locations, import, reports, rebuild tooling, security hardening
@@ -303,3 +346,165 @@ value, and nothing in receipts, issues, transfers, counts, or valuation
 depends on them. Building them early adds a dimension to every query and every
 test for no Release 1 benefit, and the warehouse-level ledger has to be right
 first regardless.
+
+
+---
+
+## Task 1.6a — Inventory demo data and the htmx verification pass
+
+A short pass between 1.6 and 1.7, and the origin of a convention rather than a
+feature. Nothing about the application's behaviour changed except one screen
+interaction.
+
+### Why it exists
+
+Nineteen inventory sections were built, tested, and had never rendered a row.
+Tests prove a posting service computes the right numbers; they say nothing
+about whether the Arabic column headers line up, whether a status badge reads
+sensibly, whether the RTL table overflows, or whether a screen is reachable at
+all. Those questions are answered by looking, and looking needs data — which
+before this pass meant an hour of hand-building an organization, a chart of
+accounts, ten mappings, five items and a dozen documents, repeated by every
+person who wanted to see the same screen.
+
+### What it added
+
+- `docs/development/demo-data-policy.md` — the standing convention: every task
+  that ships a user-visible section must also ship demo tooling for it.
+- `apps/inventory/demo.py` and `manage.py seed_inventory_demo` — a
+  `DEMO-INVENTORY-V1` scenario that posts thirty-seven stock movements and
+  twenty-three journals through the real domain services, covering twenty
+  distinct operations: opening stock, fixed / variable / expired-lot receipts,
+  issue, return, reversal, three transfer outcomes, two waste cases, all four
+  count states, all three adjustment kinds, and two drafts.
+- One htmx interaction: inventory list filters and paging swap the results
+  table alone, using the already-vendored htmx.
+
+### The demo scenario is real, and that is the whole point
+
+Every posted event goes through the service the API and the UI call. No
+`StockLedgerEntry.objects.create`, no hand-written `StockBalance`, no assembled
+`JournalEntry`. A directly-written balance would show the screens rendering and
+prove nothing — and it would break the reconciliation screen, which is one of
+the screens under review. `verify_inventory_accounting` returns clean on the
+seeded organization because there is genuinely nothing to reconcile away.
+
+### What the pass found
+
+- **Paging dropped every filter but `q`.** The pagination links carried only
+  the search term, so page two of a filtered list silently became page two of
+  everything while the toolbar still showed the filter. Fixed by encoding the
+  whole query string except `page`.
+- **The demo reset tried to delete reason codes**, and a database trigger
+  refused: a code stays reserved when archived. The trigger was right; the
+  reset now archives. Development tooling does not get an exemption from an
+  invariant.
+- **htmx was loaded on every page and used on one.** Vendored 2.0.4, included
+  once in `base.html`, four `hx-*` attributes in the whole repository — all on
+  the sign-in form. Classification D, partially used. The list interaction is
+  the first use outside authentication.
+
+### Where the namespace lives, and why not in `public_id`
+
+Posted documents derive their own source identity and idempotency key from
+`public_id`, which the services generate. The seed therefore does not mint
+those — it makes the documents *findable* instead, by putting
+`DEMO-INVENTORY-V1/<slug>` in every evidence reference and looking there before
+creating anything. The source identities stay real because the services still
+derive them, and a second run reports only reuse.
+
+### Definition of done
+
+- Every implemented inventory section renders seeded data, proven by a test
+  that names each screen it could not fill.
+- A second run creates no duplicate document, movement or journal.
+- Reconciliation clean on the seeded organization.
+- Demo reset never deletes posted history, and says so honestly when it stops.
+- htmx classification supported by assertions, not by prose.
+- Full suite, ruff, ruff format, mypy clean; no pending migrations.
+
+
+---
+
+## Task 1.7 is two tasks
+
+The original Task 1.7 bundled locations with reports, imports and rebuild
+tooling. They are not one piece of work: locations add a **dimension to the
+ledger**, and everything else in 1.7 reads the ledger without changing its
+shape. Mixing them would have meant reviewing a new quantity ledger and a
+reporting layer in one diff, with the reporting work blocked behind whichever
+location question took longest.
+
+Split, therefore:
+
+### Task 1.7A — Reports, exports, imports, projection verification, hardening
+
+Reads and master data only. No new ledger surface, no new posting path, no new
+movement type.
+
+- Nine reports, both historical modes, Arabic RTL inside the shell.
+- Scoped CSV export sharing the screens' query and redaction.
+- The import boundary: preview-first, atomic apply, master data only.
+- `verify_stock_projection`: shadow replay, verify-only.
+- Security hardening across scope, redaction, upload and injection.
+- Demo extension and tests.
+
+**Exit gate**
+
+- Import rollback is atomic — one failing row leaves nothing behind (AT-012).
+- Screen and export show the same rows under the same scope and redaction.
+- A planted projection drift is detected and never repaired (AT-007).
+- Inventory reconciles to the general ledger on populated demo data (AT-011).
+- Cross-organization and cross-branch sweep green (AT-008).
+- Every new user-visible screen renders seeded demo rows.
+
+### Task 1.7B — Stock locations and the location quantity ledger
+
+**Mandatory for Phase 1 exit.** Not optional, and not deferrable.
+
+Invariant 22 — *"sum of a warehouse's location quantities equals its warehouse
+quantity"* — is live in `docs/invariants/inventory-invariants.md`, is cited by
+`INV-038`, and Task 1.8's gate requires every invariant enforced and tested.
+Phase 1 cannot close without it.
+
+- `StockLocation` master data under a warehouse.
+- A per-location **quantity** ledger. Locations carry quantity only: the
+  warehouse owns value (ADR-018), and moving a box between bins inside one
+  store must revalue nothing.
+- Location-aware posting on every path that names a warehouse.
+- Warehouse ↔ location quantity reconciliation (invariant 22).
+- Location-to-location transfers within a warehouse.
+- Location permissions, demo data, tests.
+
+**Why it is its own task.** It changes what a posting *is*. Every receipt,
+issue, transfer, count, waste and adjustment gains a dimension, the stock key
+grows, the lock order has to be re-derived, and the reconciliation gains a
+third level. That is a ledger change, and it belongs in a diff a reviewer can
+read as a ledger change.
+
+### Task 1.8 — Phase 1 exit gate
+
+**Blocked until both 1.7A and 1.7B pass.**
+
+## Decisions recorded
+
+**`StockLocation`: MANDATORY for Phase 1 exit** under the current approved
+invariant set. Three documents say so independently — Task 1.7's original exit
+gate, invariant 22, and `INV-038`. It is not in any "deliberate non-invariants"
+section.
+
+**Partial, category and item stock counts: DEFERRED.** Release 1 counts a whole
+warehouse and freezes all of it:
+
+    StockCountScope.FULL_WAREHOUSE + HARD_FREEZE
+
+A partial count is not a full count with a shorter sheet. It means freezing
+*part* of a warehouse, and "part" has to be something the ledger can enforce —
+a per-key freeze checked on every posting. Offering one before that exists
+would be offering a freeze that does not hold, and the count sheet would
+silently be a claim about stock that moved while it was being counted
+(ADR-021 §1).
+
+Not implemented in 1.7A, and **not** in 1.7B either: a location freeze and a
+per-key count freeze are different mechanisms, and bundling them would repeat
+the mistake this split exists to correct.

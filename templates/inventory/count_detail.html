@@ -1,0 +1,203 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# The review screen: book, counted and variance, for whoever approves.       #}
+{# Reachable at any status, but the figures appear only from SUBMITTED — the  #}
+{# conductor uses the blind sheet, and this page must not become a way round  #}
+{# it. Buttons mirror the command layer; a POST to a hidden action is refused #}
+{# on its merits, not on its visibility.                                      #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      <p class="pagehead__hint">
+        {{ count.get_status_display }}
+        · {% translate "المخزن" %} <code>{{ count.warehouse.code }}</code>
+        {% if count.business_date %}
+          · {% translate "يوم العمل" %} {{ count.business_date|date:"Y-m-d" }}
+          · {% translate "لحظة القطع" %} {{ count.cutoff_at|date:"Y-m-d H:i" }}
+        {% endif %}
+        {% if count.cost_center %}
+          · {% translate "مركز الكلفة" %} <code>{{ count.cost_center.code }}</code>
+        {% endif %}
+      </p>
+      {% if is_active %}
+        <p class="pagehead__hint"><strong>{% translate "المخزن مجمّد ولا يقبل أي ترحيل." %}</strong></p>
+      {% endif %}
+      {% if count.conducted_by %}
+        <p class="pagehead__hint">
+          {% translate "العادّ" %} {{ count.conducted_by }}
+          {% if count.approved_by %}· {% translate "المعتمِد" %} {{ count.approved_by }}{% endif %}
+        </p>
+      {% endif %}
+    </div>
+    <div class="rowactions">
+      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+      {% if is_draft and can_conduct %}
+        <form method="post" action="{% url 'inventory:count_delete' count.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--ghost" type="submit">{% translate "حذف المسودة" %}</button>
+        </form>
+        <form method="post" action="{% url 'inventory:count_start' count.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--primary" type="submit">
+            {% translate "ابدأ الجرد وجمّد المخزن" %}
+          </button>
+        </form>
+      {% endif %}
+      {% if is_in_progress and can_conduct %}
+        <a class="btn btn--primary" href="{% url 'inventory:count_sheet' count.pk %}">
+          {% translate "كشف الجرد" %}
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if is_active and can_conduct %}
+    <form class="formcard" method="post" action="{% url 'inventory:count_cancel' count.pk %}">
+      {% csrf_token %}
+      <div class="formgrid">
+        <div class="formrow">
+          <label class="formrow__label" for="cancel-reason">
+            {% translate "إلغاء الجرد وفكّ التجميد — السبب" %}
+          </label>
+          <textarea id="cancel-reason" name="reason" rows="2" required></textarea>
+          <p class="formrow__hint">
+            {% translate "لا يُحذف الجرد: تبقى لقطته وكمياته في السجل." %}
+          </p>
+        </div>
+      </div>
+      <div class="formactions">
+        <button class="btn btn--ghost" type="submit">{% translate "إلغاء الجرد" %}</button>
+      </div>
+    </form>
+  {% endif %}
+
+  {% if is_posted and can_reverse %}
+    <form class="formcard" method="post" action="{% url 'inventory:count_reverse' count.pk %}">
+      {% csrf_token %}
+      <div class="formgrid">
+        <div class="formrow">
+          <label class="formrow__label" for="reverse-reason">
+            {% translate "عكس فروقات الجرد — السبب" %}
+          </label>
+          <textarea id="reverse-reason" name="reason" rows="2" required></textarea>
+          <p class="formrow__hint">
+            {% translate "العكس لا يعيد تجميد المخزن. التصحيح يحتاج جرداً جديداً." %}
+          </p>
+        </div>
+      </div>
+      <div class="formactions">
+        <button class="btn btn--ghost" type="submit">{% translate "عكس الفروقات" %}</button>
+      </div>
+    </form>
+  {% endif %}
+
+  {% if not reviewable %}
+    <p class="pagehead__hint">
+      {% translate "لا تُعرض الأرقام قبل التقديم: العادّ يستخدم الكشف الأعمى." %}
+    </p>
+  {% else %}
+    <form method="post" action="{% url 'inventory:count_approve' count.pk %}">
+      {% csrf_token %}
+      <div class="tablewrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>{% translate "الصنف" %}</th>
+              <th>{% translate "الدفعة" %}</th>
+              <th>{% translate "دفترياً" %}</th>
+              <th>{% translate "معدوداً" %}</th>
+              <th>{% translate "الفرق" %}</th>
+              {% if show_cost %}
+                <th>{% translate "متوسط الكلفة" %}</th>
+                <th>{% translate "كلفة معتمدة" %}</th>
+                <th>{% translate "قيمة الفرق" %}</th>
+              {% endif %}
+              <th>{% translate "الحركة" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in lines %}
+              <tr>
+                <td>{{ line.sequence }}</td>
+                <td>
+                  <code>{{ line.item.code }}</code> {{ line.item.name_ar }}
+                  {% if line.is_unexpected %}
+                    <br><span class="muted">{% translate "غير متوقّع" %}</span>
+                  {% endif %}
+                </td>
+                <td>{% if line.lot %}<code>{{ line.lot.code }}</code>{% else %}—{% endif %}</td>
+                <td><code dir="ltr">{{ line.book_quantity|stringformat:"f" }}</code></td>
+                <td>
+                  {% if line.counted_quantity is not None %}
+                    <code dir="ltr">{{ line.counted_quantity|stringformat:"f" }}</code>
+                  {% else %}—{% endif %}
+                </td>
+                <td>
+                  {% if line.variance_quantity is not None %}
+                    <code dir="ltr">{{ line.variance_quantity|stringformat:"f" }}</code>
+                  {% else %}—{% endif %}
+                </td>
+                {% if show_cost %}
+                  <td><code dir="ltr">{{ line.book_average|stringformat:"f" }}</code></td>
+                  <td>
+                    {% if is_submitted and line in needs_cost %}
+                      <input type="text" dir="ltr" inputmode="decimal"
+                             name="cost-{{ line.pk }}"
+                             aria-label="{% translate 'كلفة الوحدة المعتمدة' %}">
+                      <label>
+                        <input type="checkbox" name="zero-{{ line.pk }}">
+                        {% translate "صفر مؤكّد" %}
+                      </label>
+                    {% elif line.approved_unit_cost is not None %}
+                      <code dir="ltr">{{ line.approved_unit_cost|stringformat:"f" }}</code>
+                      {% if line.zero_cost_confirmed %}
+                        <span class="muted">{% translate "صفر مؤكّد" %}</span>
+                      {% endif %}
+                    {% else %}—{% endif %}
+                  </td>
+                  <td>
+                    {% if line.variance_value is not None %}
+                      <code dir="ltr">{{ line.variance_value|stringformat:"f" }}</code>
+                    {% else %}—{% endif %}
+                  </td>
+                {% endif %}
+                <td>
+                  {% if line.movement %}
+                    <a href="{% url 'inventory:movement_detail' line.movement.pk %}">
+                      #{{ line.movement.posted_sequence }}
+                    </a>
+                  {% else %}—{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if is_submitted %}
+        {% if needs_cost and show_cost %}
+          <p class="pagehead__hint">
+            {% translate "أصناف وُجدت بلا قيمة دفترية تُسعّر بها: أدخل كلفة الوحدة، أو أكّد الصفر صراحةً. الحقل الفارغ ليس صفراً." %}
+          </p>
+        {% endif %}
+        {% if can_approve and not is_own_count %}
+          <div class="formactions">
+            <button class="btn btn--primary" type="submit">
+              {% translate "اعتماد وترحيل الفروقات وفكّ التجميد" %}
+            </button>
+          </div>
+        {% elif is_own_count %}
+          <p class="pagehead__hint">
+            {% translate "من أجرى الجرد لا يعتمده. ينتظر شخصاً آخر." %}
+          </p>
+        {% endif %}
+      {% endif %}
+    </form>
+  {% endif %}
+{% endblock %}

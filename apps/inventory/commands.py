@@ -38,7 +38,7 @@ from django.utils.translation import gettext_lazy as _
 from apps.accounting.models import Account, AccountRole
 from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
 from apps.core.context import audit_context
-from apps.inventory import opening, operations, transfers
+from apps.inventory import adjustments, counts, opening, operations, reason_codes, transfers
 from apps.inventory.accounts import (
     archive_inventory_mapping,
     close_inventory_mapping,
@@ -49,16 +49,20 @@ from apps.inventory.models import (
     INBOUND_MOVEMENT_TYPES,
     OPEN_TRANSFER_STATUSES,
     InventoryAccountMapping,
+    InventoryAdjustmentDocument,
+    InventoryAdjustmentLine,
     InventoryDocumentStatus,
     InventoryDocumentType,
     InventoryItem,
     InventoryMovementDocument,
     InventoryMovementDocumentLine,
+    InventoryReasonCode,
     ItemCategory,
     MovementType,
     OpeningStockDocument,
     OpeningStockLine,
     StockBalance,
+    StockCount,
     StockLedgerEntry,
     StockMovement,
     StockTransfer,
@@ -68,9 +72,13 @@ from apps.inventory.models import (
     Warehouse,
 )
 from apps.inventory.permissions import (
+    APPROVE_STOCK_COUNT,
     CLOSE_TRANSFER_SHORTAGE,
+    CONDUCT_STOCK_COUNT,
     CREATE_DRAFT_MOVEMENT,
     CREATE_OPENING_STOCK,
+    MANAGE_REASON_CODES,
+    POST_ADJUSTMENT,
     POST_ISSUE,
     POST_OPENING_STOCK,
     POST_RECEIPT,
@@ -78,6 +86,7 @@ from apps.inventory.permissions import (
     POST_TRANSFER,
     POST_WASTE,
     REVERSE_MOVEMENT,
+    VIEW_ITEM,
     VIEW_STOCK,
     VIEW_VALUATION,
 )
@@ -88,6 +97,7 @@ from apps.organizations.authorization import (
     can_access_warehouse,
     require_branch_permission,
     require_organization_permission,
+    require_reachable_organization_permission,
     require_warehouse_permission,
     resolve_organization,
 )
@@ -508,6 +518,7 @@ DOCUMENT_PERMISSION: dict[str, str] = {
     InventoryDocumentType.RECEIPT: POST_RECEIPT,
     InventoryDocumentType.ISSUE: POST_ISSUE,
     InventoryDocumentType.RETURN_IN: POST_RETURN_IN,
+    InventoryDocumentType.WASTE: POST_WASTE,
 }
 
 
@@ -1085,3 +1096,434 @@ def returnable_issue_lines(actor: User) -> QuerySet[Any]:
         .select_related("document", "document__warehouse", "item", "item__base_unit", "lot")
         .order_by("-document__business_date", "-document_id", "sequence")
     )
+
+
+# ---------------------------------------------------------------------------
+# Reason codes, waste, counts and adjustments (Task 1.6)
+# ---------------------------------------------------------------------------
+#
+# Four authorities, because they are four different kinds of act.
+#
+# **Reason codes** are organization master data — a shared vocabulary — so
+# managing them needs organization reach, not custody of a shelf.
+#
+# **Waste** is a custody act at one warehouse, authorized exactly as an issue
+# is, with its own permission because destroying stock is a different decision
+# from consuming it.
+#
+# **A count** splits in two on purpose. Conducting is warehouse custody; a
+# storekeeper does it. Approving is a branch-level authority over the figures,
+# which is why an accounting manager holds it and a storekeeper does not — and
+# why the same person cannot do both to one count.
+#
+# **An adjustment** is answered at the branch, not the warehouse: it is a
+# correction to the books rather than a movement of goods, and the authority
+# that owns the books is the branch's.
+
+
+def visible_reason_codes(
+    actor: User, *, applies_to: str | None = None
+) -> QuerySet[InventoryReasonCode]:
+    """This organization's reason codes, archived ones included."""
+    if not actor.is_authenticated or not actor.is_active:
+        return InventoryReasonCode.objects.none()
+    if not actor.has_perm(VIEW_ITEM):
+        return InventoryReasonCode.objects.none()
+    codes = InventoryReasonCode.objects.filter(
+        organization__in=_reachable_organizations(actor)
+    ).select_related("organization")
+    if applies_to is not None:
+        codes = codes.filter(applies_to=applies_to)
+    return codes.order_by("applies_to", "code")
+
+
+def _reachable_organizations(actor: User) -> QuerySet[Organization]:
+    """Every organization the caller can see through any membership."""
+    return Organization.objects.filter(
+        Q(memberships__user=actor, memberships__is_active=True)
+        | Q(branches__memberships__user=actor, branches__memberships__is_active=True)
+    ).distinct()
+
+
+def resolve_reason_code(actor: User, reason_code_id: int) -> InventoryReasonCode:
+    code = visible_reason_codes(actor).filter(pk=reason_code_id).first()
+    if code is None:
+        raise OutOfScope(_("Reason code %(id)s does not exist.") % {"id": reason_code_id})
+    return code
+
+
+def create_reason_code(
+    *,
+    actor: User,
+    organization: Organization,
+    code: str,
+    name_ar: str,
+    applies_to: str,
+    name_en: str = "",
+    requires_comment: bool = False,
+    requires_evidence: bool = False,
+) -> InventoryReasonCode:
+    require_reachable_organization_permission(actor, MANAGE_REASON_CODES, organization)
+    with _acting_as(actor):
+        return reason_codes.create_reason_code(
+            organization=organization,
+            code=code,
+            name_ar=name_ar,
+            applies_to=applies_to,
+            name_en=name_en,
+            requires_comment=requires_comment,
+            requires_evidence=requires_evidence,
+        )
+
+
+def update_reason_code(
+    *,
+    actor: User,
+    reason_code: InventoryReasonCode,
+    name_ar: str,
+    name_en: str = "",
+    requires_comment: bool | None = None,
+    requires_evidence: bool | None = None,
+    is_active: bool | None = None,
+) -> InventoryReasonCode:
+    require_reachable_organization_permission(actor, MANAGE_REASON_CODES, reason_code.organization)
+    with _acting_as(actor):
+        return reason_codes.update_reason_code(
+            reason_code=reason_code,
+            name_ar=name_ar,
+            name_en=name_en,
+            requires_comment=requires_comment,
+            requires_evidence=requires_evidence,
+            is_active=is_active,
+        )
+
+
+def archive_reason_code(
+    *, actor: User, reason_code: InventoryReasonCode, reason: str = ""
+) -> InventoryReasonCode:
+    require_reachable_organization_permission(actor, MANAGE_REASON_CODES, reason_code.organization)
+    with _acting_as(actor):
+        return reason_codes.archive_reason_code(reason_code=reason_code, reason=reason)
+
+
+# --- Physical counts --------------------------------------------------------
+
+
+def visible_counts(actor: User) -> QuerySet[StockCount]:
+    """Counts at warehouses the caller has custody of, or reach to."""
+    if not actor.is_authenticated or not actor.is_active:
+        return StockCount.objects.none()
+    if not actor.has_perm(VIEW_STOCK):
+        return StockCount.objects.none()
+    return (
+        StockCount.objects.filter(warehouse__in=accessible_warehouses(actor))
+        .select_related(
+            "organization",
+            "branch",
+            "warehouse",
+            "cost_center",
+            "conducted_by",
+            "submitted_by",
+            "approved_by",
+            "cancelled_by",
+            "reversed_by",
+            "stock_entry",
+            "journal_entry",
+        )
+        .order_by("-created_at", "-id")
+    )
+
+
+def resolve_count(actor: User, count_id: int) -> StockCount:
+    count = visible_counts(actor).filter(pk=count_id).first()
+    if count is None:
+        raise OutOfScope(_("Count %(id)s does not exist.") % {"id": count_id})
+    return count
+
+
+def resolve_count_line(actor: User, line_id: int, *, count: StockCount | None = None) -> Any:
+    """
+    A count line resolved through its count's scope.
+
+    `count` narrows the lookup to one parent so a line id submitted through
+    another count's route is a 404 rather than a line somebody could write
+    through the wrong document (§AD).
+    """
+    from apps.inventory.models import StockCountLine
+
+    lines = StockCountLine.objects.filter(
+        pk=line_id, count__warehouse__in=accessible_warehouses(actor)
+    )
+    if count is not None:
+        lines = lines.filter(count=count)
+    line = lines.select_related("count", "count__warehouse", "item", "lot").first()
+    if line is None:
+        raise OutOfScope(_("Count line %(id)s does not exist.") % {"id": line_id})
+    return line
+
+
+def create_stock_count(
+    *,
+    actor: User,
+    organization: Organization,
+    branch: Branch,
+    warehouse: Warehouse,
+    reference: str = "",
+    reason: str = "",
+    cost_center: Any = None,
+) -> StockCount:
+    require_warehouse_permission(actor, CONDUCT_STOCK_COUNT, warehouse)
+    with _acting_as(actor):
+        return counts.create_count(
+            organization=organization,
+            branch=branch,
+            warehouse=warehouse,
+            reference=reference,
+            reason=reason,
+            cost_center=cost_center,
+        )
+
+
+def update_stock_count(
+    *,
+    actor: User,
+    count: StockCount,
+    reference: str = "",
+    reason: str = "",
+    cost_center: Any = None,
+) -> StockCount:
+    require_warehouse_permission(actor, CONDUCT_STOCK_COUNT, count.warehouse)
+    with _acting_as(actor):
+        return counts.update_count(
+            count=count, reference=reference, reason=reason, cost_center=cost_center
+        )
+
+
+def delete_stock_count(*, actor: User, count: StockCount, reason: str = "") -> None:
+    require_warehouse_permission(actor, CONDUCT_STOCK_COUNT, count.warehouse)
+    with _acting_as(actor):
+        counts.delete_count(count=count, reason=reason)
+
+
+def start_stock_count(
+    *, actor: User, count: StockCount, effective_at: datetime.datetime | None = None
+) -> StockCount:
+    require_warehouse_permission(actor, CONDUCT_STOCK_COUNT, count.warehouse)
+    with _acting_as(actor):
+        return counts.start_count(count=count, effective_at=effective_at)
+
+
+def record_stock_counts(
+    *, actor: User, count: StockCount, entries: list[counts.CountEntry]
+) -> list[Any]:
+    require_warehouse_permission(actor, CONDUCT_STOCK_COUNT, count.warehouse)
+    with _acting_as(actor):
+        return counts.record_counts(count=count, entries=entries)
+
+
+def add_unexpected_count_line(
+    *,
+    actor: User,
+    count: StockCount,
+    item: InventoryItem,
+    lot: Any = None,
+    base_quantity: Any = None,
+    package_conversion: Any = None,
+    entered_package_quantity: Any = None,
+    measured_base_quantity: Any = None,
+    note: str = "",
+) -> Any:
+    require_warehouse_permission(actor, CONDUCT_STOCK_COUNT, count.warehouse)
+    with _acting_as(actor):
+        return counts.add_unexpected_line(
+            count=count,
+            item=item,
+            lot=lot,
+            base_quantity=base_quantity,
+            package_conversion=package_conversion,
+            entered_package_quantity=entered_package_quantity,
+            measured_base_quantity=measured_base_quantity,
+            note=note,
+        )
+
+
+def submit_stock_count(*, actor: User, count: StockCount) -> StockCount:
+    require_warehouse_permission(actor, CONDUCT_STOCK_COUNT, count.warehouse)
+    with _acting_as(actor):
+        return counts.submit_count(count=count)
+
+
+def approve_stock_count(
+    *, actor: User, count: StockCount, costs: list[counts.ApprovedCost] | None = None
+) -> StockCount:
+    """
+    Approve and post, at the **branch**.
+
+    Branch scope rather than warehouse: approval is a judgement about the
+    figures, and the accounting manager who makes it holds no custody of any
+    shelf. Supplying an approved unit cost also needs `view_valuation` — a
+    person who cannot see what stock costs cannot meaningfully decide what
+    found stock is worth.
+    """
+    require_branch_permission(actor, APPROVE_STOCK_COUNT, count.branch)
+    if costs:
+        require_branch_permission(actor, VIEW_VALUATION, count.branch)
+    with _acting_as(actor):
+        return counts.approve_count(count=count, costs=costs)
+
+
+def cancel_stock_count(*, actor: User, count: StockCount, reason: str) -> StockCount:
+    require_warehouse_permission(actor, CONDUCT_STOCK_COUNT, count.warehouse)
+    with _acting_as(actor):
+        return counts.cancel_count(count=count, reason=reason)
+
+
+def reverse_stock_count(*, actor: User, count: StockCount, reason: str) -> StockCount:
+    require_branch_permission(actor, REVERSE_MOVEMENT, count.branch)
+    with _acting_as(actor):
+        return counts.reverse_count(count=count, reason=reason)
+
+
+def blind_count_sheet(*, actor: User, count: StockCount) -> list[dict[str, Any]]:
+    """
+    The counting sheet, carrying nothing the conductor must not see.
+
+    `view_valuation` deliberately makes **no** difference here. A manager who
+    can see cost everywhere else still gets a blind sheet, because the control
+    is over what the person doing the counting knows at the moment they count —
+    not over what they are otherwise entitled to look up (§K).
+    """
+    require_warehouse_permission(actor, CONDUCT_STOCK_COUNT, count.warehouse)
+    return counts.blind_lines(count)
+
+
+# --- Manual adjustments -----------------------------------------------------
+
+
+def visible_adjustments(actor: User) -> QuerySet[InventoryAdjustmentDocument]:
+    if not actor.is_authenticated or not actor.is_active:
+        return InventoryAdjustmentDocument.objects.none()
+    if not actor.has_perm(VIEW_STOCK):
+        return InventoryAdjustmentDocument.objects.none()
+    return (
+        InventoryAdjustmentDocument.objects.filter(warehouse__in=accessible_warehouses(actor))
+        .select_related(
+            "organization",
+            "branch",
+            "warehouse",
+            "cost_center",
+            "created_by",
+            "posted_by",
+            "reversed_by",
+            "stock_entry",
+            "journal_entry",
+            "reversal_journal_entry",
+        )
+        .order_by("-created_at", "-id")
+    )
+
+
+def resolve_adjustment(actor: User, document_id: int) -> InventoryAdjustmentDocument:
+    document = visible_adjustments(actor).filter(pk=document_id).first()
+    if document is None:
+        raise OutOfScope(_("Adjustment %(id)s does not exist.") % {"id": document_id})
+    return document
+
+
+def resolve_adjustment_line(
+    actor: User, line_id: int, *, document: InventoryAdjustmentDocument | None = None
+) -> Any:
+    lines = InventoryAdjustmentLine.objects.filter(
+        pk=line_id, document__warehouse__in=accessible_warehouses(actor)
+    )
+    if document is not None:
+        lines = lines.filter(document=document)
+    line = lines.select_related("document", "document__warehouse", "item", "lot").first()
+    if line is None:
+        raise OutOfScope(_("Adjustment line %(id)s does not exist.") % {"id": line_id})
+    return line
+
+
+def create_adjustment(
+    *,
+    actor: User,
+    organization: Organization,
+    branch: Branch,
+    warehouse: Warehouse,
+    effective_at: datetime.datetime,
+    evidence_reference: str,
+    reason: str,
+    cost_center: Any = None,
+) -> InventoryAdjustmentDocument:
+    require_branch_permission(actor, POST_ADJUSTMENT, branch)
+    with _acting_as(actor):
+        return adjustments.create_adjustment(
+            organization=organization,
+            branch=branch,
+            warehouse=warehouse,
+            effective_at=effective_at,
+            evidence_reference=evidence_reference,
+            reason=reason,
+            cost_center=cost_center,
+        )
+
+
+def update_adjustment(
+    *,
+    actor: User,
+    document: InventoryAdjustmentDocument,
+    effective_at: datetime.datetime | None = None,
+    evidence_reference: str | None = None,
+    reason: str | None = None,
+    cost_center: Any = None,
+) -> InventoryAdjustmentDocument:
+    require_branch_permission(actor, POST_ADJUSTMENT, document.branch)
+    with _acting_as(actor):
+        return adjustments.update_adjustment(
+            document=document,
+            effective_at=effective_at,
+            evidence_reference=evidence_reference,
+            reason=reason,
+            cost_center=cost_center,
+        )
+
+
+def delete_adjustment(
+    *, actor: User, document: InventoryAdjustmentDocument, reason: str = ""
+) -> None:
+    require_branch_permission(actor, POST_ADJUSTMENT, document.branch)
+    with _acting_as(actor):
+        adjustments.delete_adjustment(document=document, reason=reason)
+
+
+def add_adjustment_line(
+    *,
+    actor: User,
+    document: InventoryAdjustmentDocument,
+    line: adjustments.AdjustmentLineInput,
+) -> Any:
+    require_branch_permission(actor, POST_ADJUSTMENT, document.branch)
+    with _acting_as(actor):
+        return adjustments.add_adjustment_line(document=document, line=line)
+
+
+def delete_adjustment_line(*, actor: User, line: Any, reason: str = "") -> None:
+    require_branch_permission(actor, POST_ADJUSTMENT, line.document.branch)
+    with _acting_as(actor):
+        adjustments.delete_adjustment_line(line=line, reason=reason)
+
+
+def post_adjustment(
+    *, actor: User, document: InventoryAdjustmentDocument
+) -> InventoryAdjustmentDocument:
+    require_branch_permission(actor, POST_ADJUSTMENT, document.branch)
+    with _acting_as(actor):
+        return adjustments.post_adjustment(document=document)
+
+
+def reverse_adjustment(
+    *, actor: User, document: InventoryAdjustmentDocument, reason: str
+) -> InventoryAdjustmentDocument:
+    require_branch_permission(actor, REVERSE_MOVEMENT, document.branch)
+    with _acting_as(actor):
+        return adjustments.reverse_adjustment(document=document, reason=reason)

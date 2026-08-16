@@ -25,7 +25,7 @@ refused on its merits and not on whether the operator saw a link.
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 from django.contrib import messages
@@ -49,55 +49,83 @@ else:
 from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
 from apps.accounting.permissions import VIEW_JOURNAL as ACCOUNTING_VIEW_JOURNAL
 from apps.core.views import ModuleViewMixin
+from apps.inventory.adjustments import AdjustmentLineInput
 from apps.inventory.commands import (
     DOCUMENT_PERMISSION,
+    add_adjustment_line,
     add_document_line,
     add_opening_line,
     add_transfer_line,
+    add_unexpected_count_line,
+    approve_stock_count,
     archive_inventory_role_mapping,
+    blind_count_sheet,
+    cancel_stock_count,
     close_inventory_role_mapping,
+    create_adjustment,
     create_document,
     create_opening,
+    create_reason_code,
+    create_stock_count,
     create_transfer,
     create_transfer_receipt,
     create_transfer_shortage,
+    delete_adjustment,
     delete_document,
     delete_opening,
+    delete_stock_count,
     delete_transfer,
     delete_transfer_receipt,
     dispatch_transfer,
     map_inventory_role,
     may_see_cost,
+    post_adjustment,
     post_document,
     post_opening,
     post_transfer_receipt,
     post_transfer_shortage,
+    record_stock_counts,
     remove_document_line,
     remove_opening_line,
     remove_transfer_line,
     replace_transfer_receipt_lines,
+    resolve_adjustment,
+    resolve_count,
+    resolve_count_line,
     resolve_document,
     resolve_movement,
     resolve_opening_document,
+    resolve_reason_code,
     resolve_receipt,
     resolve_shortage,
     resolve_transfer,
     return_opening_to_draft,
+    reverse_adjustment,
     reverse_dispatch,
     reverse_document,
     reverse_opening,
+    reverse_stock_count,
     reverse_transfer_receipt,
     reverse_transfer_shortage,
+    start_stock_count,
     submit_opening,
+    submit_stock_count,
     update_opening,
+    update_reason_code,
+    visible_adjustments,
+    visible_counts,
     visible_documents,
     visible_in_transit,
     visible_movements,
     visible_opening_documents,
+    visible_reason_codes,
     visible_stock,
     visible_transfers,
 )
+from apps.inventory.counts import ApprovedCost, CountEntry
 from apps.inventory.forms import (
+    AdjustmentForm,
+    AdjustmentLineForm,
     InventoryItemForm,
     InventoryMappingForm,
     ItemCategoryForm,
@@ -107,31 +135,41 @@ from apps.inventory.forms import (
     OperationalDocumentForm,
     OperationalLineForm,
     PackageUnitForm,
+    ReasonCodeForm,
+    StockCountForm,
     SupersedeConversionForm,
     TransferForm,
     TransferLineForm,
     TransferReceiptForm,
     TransferReceiptLineForm,
     TransferShortageForm,
+    UnexpectedCountLineForm,
     WarehouseForm,
 )
 from apps.inventory.models import (
+    ACTIVE_COUNT_STATUSES,
     OPEN_TRANSFER_STATUSES,
     InventoryDocumentStatus,
+    InventoryDocumentType,
     ItemType,
+    StockCountStatus,
     StockTransferStatus,
 )
 from apps.inventory.opening import OpeningLineInput, ensure_opening_lot
 from apps.inventory.operations import DocumentLineInput
 from apps.inventory.permissions import (
+    APPROVE_STOCK_COUNT,
     CLOSE_TRANSFER_SHORTAGE,
+    CONDUCT_STOCK_COUNT,
     CREATE_DRAFT_MOVEMENT,
     CREATE_OPENING_STOCK,
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
     MANAGE_ITEMS,
     MANAGE_PACKAGE_UNITS,
+    MANAGE_REASON_CODES,
     MANAGE_WAREHOUSES,
+    POST_ADJUSTMENT,
     POST_OPENING_STOCK,
     POST_TRANSFER,
     REVERSE_MOVEMENT,
@@ -268,6 +306,10 @@ class InventoryListView(InventoryViewMixin, _ListView):
             )
         )
 
+    def is_htmx(self) -> bool:
+        """Whether htmx made this request, rather than the browser navigating."""
+        return self.request.headers.get("HX-Request") == "true"
+
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         manageable = self.manageable_ids()
@@ -276,6 +318,15 @@ class InventoryListView(InventoryViewMixin, _ListView):
         context["search"] = self.request.GET.get("q", "")
         context["create_label"] = self.create_label
         context["manageable_ids"] = manageable
+        # `filter_query` comes from `apps.core.context_processors.shell`: it is
+        # derived from the request alone, and every list template needs it.
+        # Filtering and paging swap the results table alone. The flag drives
+        # the hx-* attributes, and it is set only where this view answers an
+        # HX-Request with the partial — see `_list_fragment.html`.
+        context["htmx_list"] = True
+        context["list_base_template"] = (
+            "settings/_list_fragment.html" if self.is_htmx() else "shell.html"
+        )
         # No place to create it means no button. The create view refuses the
         # same request anyway; this only avoids offering a dead end.
         context["create_url"] = (
@@ -1597,6 +1648,7 @@ class OperationalDetailView(InventoryViewMixin, View):
                 "movement",
                 "source_issue_line",
                 "source_issue_line__document",
+                "reason_code",
             ).order_by("sequence")
         )
         show_cost = may_see_cost(self.actor)
@@ -1613,6 +1665,7 @@ class OperationalDetailView(InventoryViewMixin, View):
             "line_form": line_form,
             "is_draft": document.status == InventoryDocumentStatus.DRAFT,
             "is_posted": document.status == InventoryDocumentStatus.POSTED,
+            "is_waste": document.document_type == InventoryDocumentType.WASTE,
             "can_prepare": has_warehouse_permission(
                 self.actor, CREATE_DRAFT_MOVEMENT, document.warehouse
             ),
@@ -1669,6 +1722,8 @@ class OperationalDetailView(InventoryViewMixin, View):
                         base_quantity=form.cleaned_data["base_quantity"],
                         unit_cost=form.cleaned_data.get("unit_cost"),
                         source_issue_line=form.cleaned_data.get("source_issue_line"),
+                        reason_code=form.cleaned_data.get("reason_code"),
+                        line_comment=form.cleaned_data.get("line_comment", ""),
                     ),
                 )
             except ValidationError as error:
@@ -2322,3 +2377,575 @@ class TransferShortageActionView(InventoryViewMixin, View):
         except ValidationError as error:
             messages.error(request, "؛ ".join(str(message) for message in error.messages))
         return HttpResponseRedirect(detail)
+
+
+# ---------------------------------------------------------------------------
+# Task 1.6 — reason codes, counts and adjustments
+# ---------------------------------------------------------------------------
+#
+# The counting screen is the one that needs care. `BlindCountView` renders
+# `blind_count_sheet`, which returns dictionaries that have never held a book
+# quantity — so there is no value in the template context for a stray
+# `{{ line.book_quantity }}`, a hidden input or a data attribute to leak. The
+# review screen is a different view with a different template, reached only
+# after submission and only by somebody who may approve.
+
+
+class ReasonCodeListView(InventoryListView):
+    """The organization's vocabulary for why stock went."""
+
+    template_name = "inventory/reason_code_list.html"
+    context_object_name = "reason_codes"
+    required_permission = VIEW_ITEM
+    search_fields = ("code", "name_ar", "name_en")
+    manage_permission = MANAGE_REASON_CODES
+    manage_scope = "organization"
+    page_title = _("أسباب الحركات المخزنية")
+    page_hint = _("أسبابك أنت. الرمز ومجاله لا يتغيّران بعد الإنشاء، والمؤرشف يبقى محجوزاً.")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_reason_codes(self.actor)
+
+
+class ReasonCodeCreateView(InventoryWriteView):
+    form_class = ReasonCodeForm
+    required_permission = MANAGE_REASON_CODES
+    page_title = _("سبب جديد")
+    page_hint = _("الرمز ومجال الاستخدام يُثبّتان عند الإنشاء ولا يتغيّران بعده.")
+    success_message = _("أُضيف السبب.")
+    success_url_name = "inventory:reason_code_list"
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_REASON_CODES, form.cleaned_data["organization"]
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        create_reason_code(
+            actor=self.actor,
+            organization=form.cleaned_data["organization"],
+            code=form.cleaned_data["code"],
+            name_ar=form.cleaned_data["name_ar"],
+            applies_to=form.cleaned_data["applies_to"],
+            name_en=form.cleaned_data["name_en"],
+            requires_comment=form.cleaned_data["requires_comment"],
+            requires_evidence=form.cleaned_data["requires_evidence"],
+        )
+
+
+class ReasonCodeUpdateView(InventoryWriteView):
+    form_class = ReasonCodeForm
+    required_permission = MANAGE_REASON_CODES
+    page_title = _("تعديل سبب")
+    success_message = _("حُفظ السبب.")
+    success_url_name = "inventory:reason_code_list"
+
+    def load(self) -> Any:
+        return resolve_reason_code(self.actor, self.kwargs["pk"])
+
+    def initial_for(self, instance: Any) -> dict[str, Any]:
+        return {
+            "organization": instance.organization,
+            "code": instance.code,
+            "name_ar": instance.name_ar,
+            "name_en": instance.name_en,
+            "applies_to": instance.applies_to,
+            "requires_comment": instance.requires_comment,
+            "requires_evidence": instance.requires_evidence,
+            "is_active": instance.is_active,
+        }
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_REASON_CODES, instance.organization
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        update_reason_code(
+            actor=self.actor,
+            reason_code=instance,
+            name_ar=form.cleaned_data["name_ar"],
+            name_en=form.cleaned_data["name_en"],
+            requires_comment=form.cleaned_data["requires_comment"],
+            requires_evidence=form.cleaned_data["requires_evidence"],
+            is_active=form.cleaned_data["is_active"],
+        )
+
+
+class StockCountListView(InventoryListView):
+    """Counts, with the freeze state visible on every row."""
+
+    template_name = "inventory/count_list.html"
+    context_object_name = "counts"
+    required_permission = VIEW_STOCK
+    search_fields = ("count_number", "reference", "warehouse__code")
+    manage_permission = CONDUCT_STOCK_COUNT
+    manage_scope = "warehouse"
+    page_title = _("الجرد الفعلي")
+    page_hint = _("الجرد يُجمّد المخزن من البدء حتى الاعتماد أو الإلغاء. من يعدّ لا يعتمد.")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_counts(self.actor)
+
+
+class StockCountCreateView(InventoryViewMixin, View):
+    """Prepare a count. Nothing is frozen until it is started."""
+
+    template_name = "inventory/master_form.html"
+    required_permission = CONDUCT_STOCK_COUNT
+
+    def _branches(self) -> QuerySet[Any]:
+        return branches_with_permission(self.actor, CONDUCT_STOCK_COUNT)
+
+    def _context(self, form: Any) -> dict[str, Any]:
+        return {
+            "form": form,
+            "page_title": _("جرد جديد"),
+            "page_hint": _("حدّد المخزن أولاً. التجميد ولقطة الدفاتر يحدثان عند البدء."),
+            "cancel_url": reverse("inventory:count_list"),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        branch = self._branches().first()
+        if branch is None:
+            raise Http404("no branch is reachable for this action")
+        return render(
+            request,
+            self.template_name,
+            self._context(StockCountForm(actor=self.actor, branch=branch)),
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        branch = self._branches().first()
+        if branch is None:
+            raise Http404("no branch is reachable for this action")
+        form = StockCountForm(data=request.POST, actor=self.actor, branch=branch)
+        if form.is_valid():
+            try:
+                count = create_stock_count(
+                    actor=self.actor,
+                    organization=branch.organization,
+                    branch=branch,
+                    warehouse=form.cleaned_data["warehouse"],
+                    reference=form.cleaned_data["reference"],
+                    reason=form.cleaned_data["reason"],
+                    cost_center=form.cleaned_data.get("cost_center"),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُنشئ الجرد. ابدأه لتجميد المخزن وأخذ لقطة الدفاتر."))
+                return HttpResponseRedirect(reverse("inventory:count_detail", args=[count.pk]))
+        return render(request, self.template_name, self._context(form))
+
+
+class StockCountDetailView(InventoryViewMixin, View):
+    """
+    The count as an approver sees it: book, counted, variance.
+
+    Only reachable once the sheet is out of the conductor's hands, and the
+    figures are shown only from `SUBMITTED` onwards — before that there is
+    nothing to review, and showing the book quantity to whoever opens the page
+    would be the leak the blind sheet exists to prevent.
+    """
+
+    template_name = "inventory/count_detail.html"
+    required_permission = VIEW_STOCK
+
+    def _count(self) -> Any:
+        return resolve_count(self.actor, self.kwargs["pk"])
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        count = self._count()
+        reviewable = count.status not in (StockCountStatus.DRAFT, StockCountStatus.IN_PROGRESS)
+        lines = (
+            list(
+                count.lines.select_related("item", "base_unit", "lot", "movement").order_by(
+                    "sequence"
+                )
+            )
+            if reviewable
+            else []
+        )
+        needs_cost = [
+            line
+            for line in lines
+            if (line.variance_quantity or Decimal("0")) > Decimal("0")
+            and line.book_quantity == Decimal("0")
+            and line.approved_unit_cost is None
+        ]
+        return render(
+            request,
+            self.template_name,
+            {
+                "count": count,
+                "lines": lines,
+                "reviewable": reviewable,
+                "needs_cost": needs_cost,
+                "show_cost": may_see_cost(self.actor),
+                "is_draft": count.status == StockCountStatus.DRAFT,
+                "is_in_progress": count.status == StockCountStatus.IN_PROGRESS,
+                "is_submitted": count.status == StockCountStatus.SUBMITTED,
+                "is_posted": count.status == StockCountStatus.POSTED,
+                "is_active": count.status in ACTIVE_COUNT_STATUSES,
+                "can_conduct": has_warehouse_permission(
+                    self.actor, CONDUCT_STOCK_COUNT, count.warehouse
+                ),
+                "can_approve": has_branch_permission(self.actor, APPROVE_STOCK_COUNT, count.branch),
+                "can_reverse": has_branch_permission(self.actor, REVERSE_MOVEMENT, count.branch),
+                "is_own_count": count.conducted_by_id == self.actor.pk,
+                "page_title": f"{_('جرد')} — {count}",
+                "back_url": reverse("inventory:count_list"),
+            },
+        )
+
+
+class BlindCountView(InventoryViewMixin, View):
+    """
+    The counting sheet. Genuinely blind, by construction rather than by CSS.
+
+    The context holds `blind_count_sheet`'s dictionaries and nothing else. No
+    book quantity is fetched, so none can be rendered, hidden in an input, or
+    read out of the page source by a curious counter.
+    """
+
+    template_name = "inventory/count_sheet.html"
+    required_permission = CONDUCT_STOCK_COUNT
+
+    def _count(self) -> Any:
+        return resolve_count(self.actor, self.kwargs["pk"])
+
+    def _context(self, count: Any, form: Any) -> dict[str, Any]:
+        return {
+            "count": count,
+            "rows": blind_count_sheet(actor=self.actor, count=count),
+            "unexpected_form": form,
+            "is_in_progress": count.status == StockCountStatus.IN_PROGRESS,
+            "page_title": f"{_('كشف الجرد')} — {count.count_number}",
+            "back_url": reverse("inventory:count_detail", args=[count.pk]),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        count = self._count()
+        return render(
+            request,
+            self.template_name,
+            self._context(count, UnexpectedCountLineForm(actor=self.actor, count=count)),
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Record every counted quantity the sheet came back with."""
+        count = self._count()
+        entries: list[CountEntry] = []
+        errors: list[str] = []
+        for key in request.POST:
+            if not key.startswith("counted-"):
+                continue
+            text = request.POST.get(key, "").strip()
+            if not text:
+                continue
+            if "," in text:
+                errors.append(str(_("استخدم النقطة العشرية لا الفاصلة.")))
+                continue
+            try:
+                quantity = Decimal(text)
+            except ArithmeticError, InvalidOperation, ValueError:
+                errors.append(str(_("قيمة عشرية غير صالحة.")))
+                continue
+            line_id = key.removeprefix("counted-")
+            if not line_id.isdigit():
+                continue
+            entries.append(
+                CountEntry(
+                    # Constrained to this count: a line id from another sheet
+                    # is a 404, not a write through the wrong document.
+                    line=resolve_count_line(self.actor, int(line_id), count=count),
+                    base_quantity=quantity,
+                    note=request.POST.get(f"note-{line_id}", "").strip(),
+                )
+            )
+        if not errors:
+            try:
+                record_stock_counts(actor=self.actor, count=count, entries=entries)
+            except ValidationError as error:
+                errors.extend(error.messages)
+            else:
+                messages.success(request, _("حُفظت الكميات المعدودة."))
+                return HttpResponseRedirect(reverse("inventory:count_sheet", args=[count.pk]))
+        for message in errors:
+            messages.error(request, message)
+        return render(
+            request,
+            self.template_name,
+            self._context(count, UnexpectedCountLineForm(actor=self.actor, count=count)),
+        )
+
+
+class UnexpectedCountLineView(InventoryViewMixin, View):
+    """Add stock the books do not have. Quantity only — never a cost."""
+
+    required_permission = CONDUCT_STOCK_COUNT
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        count = resolve_count(self.actor, self.kwargs["pk"])
+        form = UnexpectedCountLineForm(data=request.POST, actor=self.actor, count=count)
+        if form.is_valid():
+            try:
+                lot = None
+                item = form.cleaned_data["item"]
+                if form.cleaned_data["lot_code"]:
+                    lot = ensure_opening_lot(
+                        item=item,
+                        code=form.cleaned_data["lot_code"],
+                        expiry_date=form.cleaned_data["lot_expiry"],
+                    )
+                add_unexpected_count_line(
+                    actor=self.actor,
+                    count=count,
+                    item=item,
+                    lot=lot,
+                    base_quantity=form.cleaned_data["base_quantity"],
+                    note=form.cleaned_data["note"],
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    messages.error(request, message)
+            else:
+                messages.success(request, _("سُجّل صنف غير متوقّع."))
+        else:
+            for field_errors in form.errors.values():
+                for problem in field_errors:
+                    messages.error(request, str(problem))
+        return HttpResponseRedirect(reverse("inventory:count_sheet", args=[count.pk]))
+
+
+class StockCountActionView(InventoryViewMixin, View):
+    """Start, submit, approve, cancel or reverse — one POST each."""
+
+    required_permission = VIEW_STOCK
+    action: str = ""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        count = resolve_count(self.actor, self.kwargs["pk"])
+        reason = request.POST.get("reason", "").strip()
+        try:
+            if self.action == "start":
+                start_stock_count(actor=self.actor, count=count)
+                messages.success(request, _("بدأ الجرد وجُمّد المخزن."))
+                return HttpResponseRedirect(reverse("inventory:count_sheet", args=[count.pk]))
+            if self.action == "submit":
+                submit_stock_count(actor=self.actor, count=count)
+                messages.success(request, _("قُدّم الجرد للاعتماد."))
+            elif self.action == "approve":
+                approve_stock_count(
+                    actor=self.actor, count=count, costs=self._approved_costs(request, count)
+                )
+                messages.success(request, _("اعتُمد الجرد ورُحّلت الفروقات وفُكّ التجميد."))
+            elif self.action == "cancel":
+                cancel_stock_count(actor=self.actor, count=count, reason=reason)
+                messages.success(request, _("أُلغي الجرد وفُكّ التجميد."))
+            elif self.action == "reverse":
+                reverse_stock_count(actor=self.actor, count=count, reason=reason)
+                messages.success(request, _("عُكست فروقات الجرد."))
+            elif self.action == "delete":
+                delete_stock_count(actor=self.actor, count=count)
+                messages.success(request, _("حُذفت مسودة الجرد."))
+                return HttpResponseRedirect(reverse("inventory:count_list"))
+        except ValidationError as error:
+            for message in error.messages:
+                messages.error(request, message)
+        return HttpResponseRedirect(reverse("inventory:count_detail", args=[count.pk]))
+
+    def _approved_costs(self, request: HttpRequest, count: Any) -> list[ApprovedCost]:
+        """The unit costs the approver typed for gains the books cannot price."""
+        costs: list[ApprovedCost] = []
+        for key in request.POST:
+            if not key.startswith("cost-"):
+                continue
+            text = request.POST.get(key, "").strip()
+            if not text:
+                continue
+            line_id = key.removeprefix("cost-")
+            if not line_id.isdigit():
+                continue
+            if "," in text:
+                raise ValidationError(_("استخدم النقطة العشرية لا الفاصلة."))
+            try:
+                unit_cost = Decimal(text)
+            except (ArithmeticError, InvalidOperation, ValueError) as error:
+                raise ValidationError(_("قيمة عشرية غير صالحة.")) from error
+            costs.append(
+                ApprovedCost(
+                    line=resolve_count_line(self.actor, int(line_id), count=count),
+                    unit_cost=unit_cost,
+                    zero_confirmed=request.POST.get(f"zero-{line_id}") == "on",
+                )
+            )
+        return costs
+
+
+class AdjustmentListView(InventoryListView):
+    """Manual adjustments — the exception, and visibly labelled as one."""
+
+    template_name = "inventory/adjustment_list.html"
+    context_object_name = "adjustments"
+    required_permission = VIEW_STOCK
+    search_fields = ("document_number", "evidence_reference", "warehouse__code")
+    manage_permission = POST_ADJUSTMENT
+    manage_scope = "branch"
+    page_title = _("التسويات المخزنية اليدوية")
+    page_hint = _("لتصحيح دفاتر خاطئة فقط. ليست بديلاً عن استلام أو صرف أو تحويل أو جرد.")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_adjustments(self.actor)
+
+
+class AdjustmentCreateView(InventoryViewMixin, View):
+    template_name = "inventory/master_form.html"
+    required_permission = POST_ADJUSTMENT
+
+    def _branches(self) -> QuerySet[Any]:
+        return branches_with_permission(self.actor, POST_ADJUSTMENT)
+
+    def _context(self, form: Any) -> dict[str, Any]:
+        return {
+            "form": form,
+            "page_title": _("تسوية جديدة"),
+            "page_hint": _("التسوية تُثبت أن الدفاتر كانت خاطئة، لا أن البضاعة تحرّكت."),
+            "cancel_url": reverse("inventory:adjustment_list"),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        branch = self._branches().first()
+        if branch is None:
+            raise Http404("no branch is reachable for this action")
+        return render(
+            request,
+            self.template_name,
+            self._context(AdjustmentForm(actor=self.actor, branch=branch)),
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        branch = self._branches().first()
+        if branch is None:
+            raise Http404("no branch is reachable for this action")
+        form = AdjustmentForm(data=request.POST, actor=self.actor, branch=branch)
+        if form.is_valid():
+            try:
+                document = create_adjustment(
+                    actor=self.actor,
+                    organization=branch.organization,
+                    branch=branch,
+                    warehouse=form.cleaned_data["warehouse"],
+                    effective_at=form.cleaned_data["effective_at"],
+                    evidence_reference=form.cleaned_data["evidence_reference"],
+                    reason=form.cleaned_data["reason"],
+                    cost_center=form.cleaned_data.get("cost_center"),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُنشئت التسوية. أضف السطور ثم رحّلها."))
+                return HttpResponseRedirect(
+                    reverse("inventory:adjustment_detail", args=[document.pk])
+                )
+        return render(request, self.template_name, self._context(form))
+
+
+class AdjustmentDetailView(InventoryViewMixin, View):
+    template_name = "inventory/adjustment_detail.html"
+    required_permission = VIEW_STOCK
+
+    def _document(self) -> Any:
+        return resolve_adjustment(self.actor, self.kwargs["pk"])
+
+    def _context(self, document: Any, form: Any) -> dict[str, Any]:
+        lines = list(
+            document.lines.select_related(
+                "item", "item__base_unit", "lot", "reason_code", "movement", "control_account"
+            ).order_by("sequence")
+        )
+        return {
+            "document": document,
+            "lines": lines,
+            "line_form": form,
+            "show_cost": may_see_cost(self.actor),
+            "is_draft": document.status == InventoryDocumentStatus.DRAFT,
+            "is_posted": document.status == InventoryDocumentStatus.POSTED,
+            "can_post": has_branch_permission(self.actor, POST_ADJUSTMENT, document.branch),
+            "can_reverse": has_branch_permission(self.actor, REVERSE_MOVEMENT, document.branch),
+            "page_title": f"{_('تسوية مخزنية')} — {document}",
+            "back_url": reverse("inventory:adjustment_list"),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = self._document()
+        return render(
+            request,
+            self.template_name,
+            self._context(document, AdjustmentLineForm(actor=self.actor, document=document)),
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = self._document()
+        form = AdjustmentLineForm(data=request.POST, actor=self.actor, document=document)
+        if form.is_valid():
+            try:
+                item = form.cleaned_data["item"]
+                lot = None
+                if form.cleaned_data["lot_code"]:
+                    lot = ensure_opening_lot(
+                        item=item,
+                        code=form.cleaned_data["lot_code"],
+                        expiry_date=form.cleaned_data["lot_expiry"],
+                    )
+                add_adjustment_line(
+                    actor=self.actor,
+                    document=document,
+                    line=AdjustmentLineInput(
+                        kind=form.cleaned_data["kind"],
+                        item=item,
+                        lot=lot,
+                        reason_code=form.cleaned_data["reason_code"],
+                        base_quantity=form.cleaned_data["base_quantity"],
+                        unit_cost=form.cleaned_data["unit_cost"],
+                        zero_cost_confirmed=form.cleaned_data["zero_cost_confirmed"],
+                        value_adjustment=form.cleaned_data["value_adjustment"],
+                        line_comment=form.cleaned_data["line_comment"],
+                    ),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("أُضيف السطر."))
+                return HttpResponseRedirect(
+                    reverse("inventory:adjustment_detail", args=[document.pk])
+                )
+        return render(request, self.template_name, self._context(document, form))
+
+
+class AdjustmentActionView(InventoryViewMixin, View):
+    required_permission = VIEW_STOCK
+    action: str = ""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        document = resolve_adjustment(self.actor, self.kwargs["pk"])
+        reason = request.POST.get("reason", "").strip()
+        try:
+            if self.action == "post":
+                post_adjustment(actor=self.actor, document=document)
+                messages.success(request, _("رُحّلت التسوية."))
+            elif self.action == "reverse":
+                reverse_adjustment(actor=self.actor, document=document, reason=reason)
+                messages.success(request, _("عُكست التسوية."))
+            elif self.action == "delete":
+                delete_adjustment(actor=self.actor, document=document)
+                messages.success(request, _("حُذفت مسودة التسوية."))
+                return HttpResponseRedirect(reverse("inventory:adjustment_list"))
+        except ValidationError as error:
+            for message in error.messages:
+                messages.error(request, message)
+        return HttpResponseRedirect(reverse("inventory:adjustment_detail", args=[document.pk]))

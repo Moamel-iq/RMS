@@ -26,52 +26,80 @@ from django.db.models import Sum
 from django.http import HttpRequest
 from ninja import Router, Schema, Status
 
+from apps.inventory.adjustments import AdjustmentLineInput
 from apps.inventory.commands import (
+    add_adjustment_line,
+    add_unexpected_count_line,
+    approve_stock_count,
+    blind_count_sheet,
+    cancel_stock_count,
+    create_adjustment,
     create_document,
     create_opening,
+    create_reason_code,
+    create_stock_count,
     create_transfer,
     create_transfer_receipt,
     create_transfer_shortage,
+    delete_adjustment,
     delete_document,
     delete_opening,
+    delete_stock_count,
     delete_transfer,
     delete_transfer_receipt,
     dispatch_transfer,
     may_see_cost,
+    post_adjustment,
     post_document,
     post_opening,
     post_transfer_receipt,
     post_transfer_shortage,
+    record_stock_counts,
     replace_document_lines,
     replace_opening_lines,
     replace_transfer_lines,
     replace_transfer_receipt_lines,
+    resolve_adjustment,
+    resolve_count,
+    resolve_count_line,
     resolve_document,
     resolve_document_line,
     resolve_movement,
     resolve_opening_document,
+    resolve_reason_code,
     resolve_receipt,
     resolve_shortage,
     resolve_transfer,
     resolve_transfer_line,
     return_opening_to_draft,
+    reverse_adjustment,
     reverse_dispatch,
     reverse_document,
     reverse_opening,
+    reverse_stock_count,
     reverse_transfer_receipt,
     reverse_transfer_shortage,
+    start_stock_count,
     submit_opening,
+    submit_stock_count,
+    update_adjustment,
     update_document,
     update_opening,
+    update_reason_code,
+    update_stock_count,
     update_transfer,
     update_transfer_receipt,
+    visible_adjustments,
+    visible_counts,
     visible_documents,
     visible_in_transit,
     visible_movements,
     visible_opening_documents,
+    visible_reason_codes,
     visible_stock,
     visible_transfers,
 )
+from apps.inventory.counts import ApprovedCost, CountEntry
 from apps.inventory.models import (
     ConversionType,
     InventoryDocumentStatus,
@@ -983,6 +1011,9 @@ class DocumentLineIn(Schema):
     unit_cost: str | None = None
     #: Returns only: the posted issue line being returned against.
     source_issue_line_id: int | None = None
+    #: Waste only, and mandatory there.
+    reason_code_id: int | None = None
+    line_comment: str = ""
 
 
 class DocumentLineOut(Schema):
@@ -998,6 +1029,8 @@ class DocumentLineOut(Schema):
     inventory_account_code: str | None
     contra_account_code: str | None
     source_issue_line_id: int | None
+    reason_code: str | None
+    line_comment: str
     unit_cost: str | None = None
     total_value: str | None = None
 
@@ -1098,6 +1131,12 @@ def _document_line_input(actor: User, payload: DocumentLineIn) -> DocumentLineIn
         base_quantity=_optional_decimal(payload.base_quantity, field="base_quantity"),
         unit_cost=_optional_decimal(payload.unit_cost, field="unit_cost"),
         source_issue_line=source_line,
+        reason_code=(
+            resolve_reason_code(actor, payload.reason_code_id)
+            if payload.reason_code_id is not None
+            else None
+        ),
+        line_comment=payload.line_comment,
     )
 
 
@@ -1117,6 +1156,8 @@ def _serialize_document_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
         ),
         "contra_account_code": line.contra_account.code if line.contra_account_id else None,
         "source_issue_line_id": line.source_issue_line_id,
+        "reason_code": line.reason_code.code if line.reason_code_id else None,
+        "line_comment": line.line_comment,
     }
     if with_cost:
         payload["unit_cost"] = f"{line.unit_cost:f}" if line.unit_cost is not None else None
@@ -1127,7 +1168,12 @@ def _serialize_document_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
 def _serialize_document(document: Any, *, with_cost: bool, with_lines: bool) -> dict[str, Any]:
     lines = list(
         document.lines.select_related(
-            "item", "item__base_unit", "lot", "inventory_account", "contra_account"
+            "item",
+            "item__base_unit",
+            "lot",
+            "inventory_account",
+            "contra_account",
+            "reason_code",
         ).order_by("sequence")
     )
     payload: dict[str, Any] = {
@@ -1274,22 +1320,37 @@ def _register_document_endpoints(path: str, document_type: str, label: str) -> N
     would drift the moment one gained a check the others needed.
     """
 
-    @router.get(f"/{path}/", response=list[DocumentOut], summary=f"{label}s in scope")
+    @router.get(
+        f"/{path}/", response=list[DocumentOut], summary=f"{label}s in scope", exclude_unset=True
+    )
     def list_documents(request: HttpRequest, status: str | None = None) -> Any:
         return _list_documents(request, document_type, status)
 
-    @router.post(f"/{path}/", response={201: DocumentOut}, summary=f"Create a draft {label}")
+    @router.post(
+        f"/{path}/",
+        response={201: DocumentOut},
+        summary=f"Create a draft {label}",
+        exclude_unset=True,
+    )
     def create_endpoint(request: HttpRequest, payload: DocumentIn) -> Status[Any]:
         return _create_document(request, document_type, payload)
 
-    @router.get(f"/{path}/{{document_id}}/", response=DocumentOut, summary=f"One {label}")
+    @router.get(
+        f"/{path}/{{document_id}}/",
+        response=DocumentOut,
+        summary=f"One {label}",
+        exclude_unset=True,
+    )
     def read_endpoint(request: HttpRequest, document_id: int) -> Any:
         actor = _actor(request)
         document = resolve_document(actor, document_id, document_type=document_type)
         return _serialize_document(document, with_cost=may_see_cost(actor), with_lines=True)
 
     @router.patch(
-        f"/{path}/{{document_id}}/", response=DocumentOut, summary=f"Amend a draft {label}"
+        f"/{path}/{{document_id}}/",
+        response=DocumentOut,
+        summary=f"Amend a draft {label}",
+        exclude_unset=True,
     )
     def patch_endpoint(request: HttpRequest, document_id: int, payload: DocumentPatch) -> Any:
         return _patch_document(request, document_type, document_id, payload)
@@ -1331,6 +1392,10 @@ def _register_document_endpoints(path: str, document_type: str, label: str) -> N
 _register_document_endpoints("receipts", InventoryDocumentType.RECEIPT, "goods receipt")
 _register_document_endpoints("issues", InventoryDocumentType.ISSUE, "consumption issue")
 _register_document_endpoints("returns-in", InventoryDocumentType.RETURN_IN, "return-in")
+# Task 1.6. Waste joins the loop rather than getting a hand-written set,
+# because it *is* one of these documents — and a fourth hand-copied block would
+# be the first to miss whatever the other three gain next.
+_register_document_endpoints("waste", InventoryDocumentType.WASTE, "waste note")
 
 
 # ---------------------------------------------------------------------------
@@ -2102,6 +2167,898 @@ def in_transit_report(request: HttpRequest) -> Any:
             row["remaining_value"] = f"{line.remaining_value:f}"
         rows.append(row)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Reason codes, counts and adjustments (Task 1.6 §AD)
+# ---------------------------------------------------------------------------
+#
+# Command-oriented, like everything above: a count is started through
+# `/start/` and approved through `/approve/`, never by PATCHing a status.
+#
+# The blind-count endpoint is the one to read carefully. It returns a payload
+# that has never contained the book quantity — not filtered out at the end, but
+# never fetched — because a field that is fetched can be leaked by the next
+# person who adds a line to a serializer.
+
+
+def _lot_of(item: Any, lot_id: int | None) -> Any:
+    """A lot resolved **through its item**, so a foreign id is a 404 here."""
+    from apps.inventory.models import InventoryLot
+
+    if lot_id is None:
+        return None
+    lot = InventoryLot.objects.filter(pk=lot_id, item=item).first()
+    if lot is None:
+        raise ValidationError(f"Lot {lot_id} does not exist.", code="unknown_lot")
+    return lot
+
+
+def _conversion_of(item: Any, conversion_id: int | None) -> Any:
+    """A package conversion resolved through its item, for the same reason."""
+    from apps.inventory.models import ItemPackageConversion
+
+    if conversion_id is None:
+        return None
+    conversion = ItemPackageConversion.objects.filter(pk=conversion_id, item=item).first()
+    if conversion is None:
+        raise ValidationError(
+            f"Conversion {conversion_id} does not exist.", code="unknown_conversion"
+        )
+    return conversion
+
+
+class ReasonCodeIn(Schema):
+    organization_id: int
+    code: str
+    name_ar: str
+    applies_to: str
+    name_en: str = ""
+    requires_comment: bool = False
+    requires_evidence: bool = False
+
+
+class ReasonCodePatch(Schema):
+    name_ar: str
+    name_en: str = ""
+    requires_comment: bool | None = None
+    requires_evidence: bool | None = None
+    is_active: bool | None = None
+
+
+class ReasonCodeOut(Schema):
+    id: int
+    organization_id: int
+    code: str
+    name_ar: str
+    name_en: str
+    applies_to: str
+    requires_comment: bool
+    requires_evidence: bool
+    is_active: bool
+
+
+def _serialize_reason_code(code: Any) -> dict[str, Any]:
+    return {
+        "id": code.pk,
+        "organization_id": code.organization_id,
+        "code": code.code,
+        "name_ar": code.name_ar,
+        "name_en": code.name_en,
+        "applies_to": code.applies_to,
+        "requires_comment": code.requires_comment,
+        "requires_evidence": code.requires_evidence,
+        "is_active": code.is_active,
+    }
+
+
+@router.get("/reason-codes/", response=list[ReasonCodeOut], summary="Reason codes in scope")
+def list_reason_codes(request: HttpRequest, applies_to: str | None = None) -> Any:
+    actor = _actor(request)
+    return [
+        _serialize_reason_code(code) for code in visible_reason_codes(actor, applies_to=applies_to)
+    ]
+
+
+@router.post("/reason-codes/", response={201: ReasonCodeOut}, summary="Add a reason code")
+def create_reason_code_endpoint(request: HttpRequest, payload: ReasonCodeIn) -> Status[Any]:
+    actor = _actor(request)
+    organization = resolve_organization(actor, payload.organization_id)
+    code = create_reason_code(
+        actor=actor,
+        organization=organization,
+        code=payload.code,
+        name_ar=payload.name_ar,
+        applies_to=payload.applies_to,
+        name_en=payload.name_en,
+        requires_comment=payload.requires_comment,
+        requires_evidence=payload.requires_evidence,
+    )
+    return Status(201, _serialize_reason_code(code))
+
+
+@router.patch(
+    "/reason-codes/{reason_code_id}/",
+    response=ReasonCodeOut,
+    summary="Rename or archive a reason code",
+)
+def patch_reason_code(request: HttpRequest, reason_code_id: int, payload: ReasonCodePatch) -> Any:
+    actor = _actor(request)
+    code = resolve_reason_code(actor, reason_code_id)
+    updated = update_reason_code(
+        actor=actor,
+        reason_code=code,
+        name_ar=payload.name_ar,
+        name_en=payload.name_en,
+        requires_comment=payload.requires_comment,
+        requires_evidence=payload.requires_evidence,
+        is_active=payload.is_active,
+    )
+    return _serialize_reason_code(updated)
+
+
+class StockCountIn(Schema):
+    organization_id: int
+    branch_id: int
+    warehouse_id: int
+    reference: str = ""
+    reason: str = ""
+    cost_center_id: int | None = None
+
+
+class StockCountPatch(Schema):
+    reference: str = ""
+    reason: str = ""
+    cost_center_id: int | None = None
+
+
+class CountStartIn(Schema):
+    effective_at: datetime.datetime | None = None
+
+
+class BlindLineOut(Schema):
+    """
+    What the conductor sees. Every field here is one they must see to count.
+
+    There is deliberately no `book_quantity`, no variance and no cost — and no
+    optional variant of this schema that could grow one.
+    """
+
+    id: int
+    sequence: int
+    item_code: str
+    item_name_ar: str
+    base_unit_code: str
+    lot_code: str | None
+    tracks_lots: bool
+    is_unexpected: bool
+    counted_quantity: str | None
+    line_note: str
+
+
+class CountEntryIn(Schema):
+    line_id: int
+    base_quantity: str | None = None
+    package_conversion_id: int | None = None
+    entered_package_quantity: str | None = None
+    measured_base_quantity: str | None = None
+    note: str = ""
+
+
+class CountEntriesIn(Schema):
+    entries: list[CountEntryIn]
+
+
+class UnexpectedLineIn(Schema):
+    item_id: int
+    lot_id: int | None = None
+    base_quantity: str | None = None
+    package_conversion_id: int | None = None
+    entered_package_quantity: str | None = None
+    measured_base_quantity: str | None = None
+    note: str = ""
+
+
+class ApprovedCostIn(Schema):
+    line_id: int
+    unit_cost: str
+    zero_confirmed: bool = False
+
+
+class CountApproveIn(Schema):
+    costs: list[ApprovedCostIn] = []
+
+
+class CountLineOut(Schema):
+    """The reviewed sheet: book, counted and variance, for an approver."""
+
+    id: int
+    sequence: int
+    item_code: str
+    item_name_ar: str
+    base_unit_code: str
+    lot_code: str | None
+    is_unexpected: bool
+    book_quantity: str
+    counted_quantity: str | None
+    variance_quantity: str | None
+    movement_id: int | None
+    book_value: str | None = None
+    book_average: str | None = None
+    approved_unit_cost: str | None = None
+    zero_cost_confirmed: bool | None = None
+    variance_value: str | None = None
+
+
+class StockCountOut(Schema):
+    id: int
+    public_id: str
+    count_number: str
+    status: str
+    scope_type: str
+    organization_id: int
+    branch_id: int
+    branch_code: str
+    warehouse_id: int
+    warehouse_code: str
+    cutoff_at: datetime.datetime | None
+    business_date: datetime.date | None
+    reference: str
+    reason: str
+    cost_center_code: str | None
+    conducted_by: str | None
+    submitted_by: str | None
+    approved_by: str | None
+    cancelled_by: str | None
+    cancellation_reason: str
+    reversal_reason: str
+    stock_entry_id: int | None
+    journal_entry_number: str | None
+    line_count: int
+    lines: list[CountLineOut] = []
+
+
+def _serialize_count_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": line.pk,
+        "sequence": line.sequence,
+        "item_code": line.item.code,
+        "item_name_ar": line.item.name_ar,
+        "base_unit_code": line.base_unit.code,
+        "lot_code": line.lot.code if line.lot_id else None,
+        "is_unexpected": line.is_unexpected,
+        "book_quantity": f"{line.book_quantity:f}",
+        "counted_quantity": (
+            f"{line.counted_quantity:f}" if line.counted_quantity is not None else None
+        ),
+        "variance_quantity": (
+            f"{line.variance_quantity:f}" if line.variance_quantity is not None else None
+        ),
+        "movement_id": line.movement_id,
+    }
+    if with_cost:
+        payload["book_value"] = f"{line.book_value:f}"
+        payload["book_average"] = f"{line.book_average:f}"
+        payload["approved_unit_cost"] = (
+            f"{line.approved_unit_cost:f}" if line.approved_unit_cost is not None else None
+        )
+        payload["zero_cost_confirmed"] = line.zero_cost_confirmed
+        payload["variance_value"] = (
+            f"{line.variance_value:f}" if line.variance_value is not None else None
+        )
+    return payload
+
+
+def _serialize_count(count: Any, *, with_cost: bool, with_lines: bool) -> dict[str, Any]:
+    lines = (
+        list(count.lines.select_related("item", "base_unit", "lot").order_by("sequence"))
+        if with_lines
+        else []
+    )
+    return {
+        "id": count.pk,
+        "public_id": str(count.public_id),
+        "count_number": count.count_number,
+        "status": count.status,
+        "scope_type": count.scope_type,
+        "organization_id": count.organization_id,
+        "branch_id": count.branch_id,
+        "branch_code": count.branch.code,
+        "warehouse_id": count.warehouse_id,
+        "warehouse_code": count.warehouse.code,
+        "cutoff_at": count.cutoff_at,
+        "business_date": count.business_date,
+        "reference": count.reference,
+        "reason": count.reason,
+        "cost_center_code": count.cost_center.code if count.cost_center_id else None,
+        "conducted_by": str(count.conducted_by) if count.conducted_by_id else None,
+        "submitted_by": str(count.submitted_by) if count.submitted_by_id else None,
+        "approved_by": str(count.approved_by) if count.approved_by_id else None,
+        "cancelled_by": str(count.cancelled_by) if count.cancelled_by_id else None,
+        "cancellation_reason": count.cancellation_reason,
+        "reversal_reason": count.reversal_reason,
+        "stock_entry_id": count.stock_entry_id,
+        "journal_entry_number": (
+            count.journal_entry.entry_number if count.journal_entry_id else None
+        ),
+        "line_count": count.lines.count() if not with_lines else len(lines),
+        "lines": [_serialize_count_line(line, with_cost=with_cost) for line in lines],
+    }
+
+
+@router.get(
+    "/counts/", response=list[StockCountOut], summary="Stock counts in scope", exclude_unset=True
+)
+def list_counts(request: HttpRequest, status: str | None = None) -> Any:
+    actor = _actor(request)
+    counts_queryset = visible_counts(actor)
+    if status is not None:
+        counts_queryset = counts_queryset.filter(status=status)
+    return [
+        _serialize_count(count, with_cost=may_see_cost(actor), with_lines=False)
+        for count in counts_queryset
+    ]
+
+
+@router.post(
+    "/counts/", response={201: StockCountOut}, summary="Prepare a count", exclude_unset=True
+)
+def create_count_endpoint(request: HttpRequest, payload: StockCountIn) -> Status[Any]:
+    from apps.accounting.models import CostCenter
+
+    actor = _actor(request)
+    organization = resolve_organization(actor, payload.organization_id)
+    branch = resolve_branch(actor, payload.branch_id)
+    warehouse = resolve_warehouse(actor, payload.warehouse_id)
+    cost_center = None
+    if payload.cost_center_id is not None:
+        cost_center = CostCenter.objects.filter(
+            pk=payload.cost_center_id, organization=organization
+        ).first()
+        if cost_center is None:
+            raise OutOfScope(f"Cost center {payload.cost_center_id} does not exist.")
+    count = create_stock_count(
+        actor=actor,
+        organization=organization,
+        branch=branch,
+        warehouse=warehouse,
+        reference=payload.reference,
+        reason=payload.reason,
+        cost_center=cost_center,
+    )
+    return Status(201, _serialize_count(count, with_cost=may_see_cost(actor), with_lines=True))
+
+
+@router.get("/counts/{count_id}/", response=StockCountOut, summary="One count", exclude_unset=True)
+def read_count(request: HttpRequest, count_id: int) -> Any:
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    return _serialize_count(count, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.patch(
+    "/counts/{count_id}/", response=StockCountOut, summary="Amend a draft count", exclude_unset=True
+)
+def patch_count(request: HttpRequest, count_id: int, payload: StockCountPatch) -> Any:
+    from apps.accounting.models import CostCenter
+
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    cost_center = None
+    if payload.cost_center_id is not None:
+        cost_center = CostCenter.objects.filter(
+            pk=payload.cost_center_id, organization=count.organization
+        ).first()
+    updated = update_stock_count(
+        actor=actor,
+        count=count,
+        reference=payload.reference,
+        reason=payload.reason,
+        cost_center=cost_center,
+    )
+    return _serialize_count(updated, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.delete("/counts/{count_id}/", response={204: None}, summary="Discard a draft count")
+def delete_count_endpoint(request: HttpRequest, count_id: int) -> Status[None]:
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    delete_stock_count(actor=actor, count=count)
+    return Status(204, None)
+
+
+@router.post(
+    "/counts/{count_id}/start/",
+    response=StockCountOut,
+    summary="Freeze the warehouse and snapshot the book",
+    exclude_unset=True,
+)
+def start_count_endpoint(request: HttpRequest, count_id: int, payload: CountStartIn) -> Any:
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    started = start_stock_count(actor=actor, count=count, effective_at=payload.effective_at)
+    return _serialize_count(started, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.get(
+    "/counts/{count_id}/sheet/",
+    response=list[BlindLineOut],
+    summary="The blind counting sheet",
+)
+def blind_sheet_endpoint(request: HttpRequest, count_id: int) -> Any:
+    """
+    Deliberately blind, **whatever the caller may otherwise see**.
+
+    A manager with `view_valuation` gets exactly the same payload as a
+    storekeeper. The control is over what the person counting knows at the
+    moment they count, not over what they are entitled to look up afterwards
+    (§K).
+    """
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    return [
+        {
+            "id": row["id"],
+            "sequence": row["sequence"],
+            "item_code": row["item__code"],
+            "item_name_ar": row["item__name_ar"],
+            "base_unit_code": row["base_unit__code"],
+            "lot_code": row["lot__code"],
+            "tracks_lots": row["item__tracks_lots"],
+            "is_unexpected": row["is_unexpected"],
+            "counted_quantity": (
+                f"{row['counted_quantity']:f}" if row["counted_quantity"] is not None else None
+            ),
+            "line_note": row["line_note"],
+        }
+        for row in blind_count_sheet(actor=actor, count=count)
+    ]
+
+
+@router.patch(
+    "/counts/{count_id}/lines/",
+    response=list[BlindLineOut],
+    summary="Record counted quantities",
+)
+def record_counts_endpoint(request: HttpRequest, count_id: int, payload: CountEntriesIn) -> Any:
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    entries = []
+    for entry in payload.entries:
+        # Constrained to this count, so a line id from another one is a 404
+        # rather than a write through the wrong document. Resolved once and
+        # reused: a full sheet is many lines, and this is the hot path.
+        line = resolve_count_line(actor, entry.line_id, count=count)
+        entries.append(
+            CountEntry(
+                line=line,
+                base_quantity=_optional_decimal(entry.base_quantity, field="base_quantity"),
+                package_conversion=_conversion_of(line.item, entry.package_conversion_id),
+                entered_package_quantity=_optional_decimal(
+                    entry.entered_package_quantity, field="entered_package_quantity"
+                ),
+                measured_base_quantity=_optional_decimal(
+                    entry.measured_base_quantity, field="measured_base_quantity"
+                ),
+                note=entry.note,
+            )
+        )
+    record_stock_counts(actor=actor, count=count, entries=entries)
+    return blind_sheet_endpoint(request, count_id)
+
+
+@router.post(
+    "/counts/{count_id}/unexpected/",
+    response={201: BlindLineOut},
+    summary="Record stock the books do not have",
+)
+def add_unexpected_endpoint(
+    request: HttpRequest, count_id: int, payload: UnexpectedLineIn
+) -> Status[Any]:
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    item = resolve_item(actor, payload.item_id)
+    line = add_unexpected_count_line(
+        actor=actor,
+        count=count,
+        item=item,
+        lot=_lot_of(item, payload.lot_id),
+        base_quantity=_optional_decimal(payload.base_quantity, field="base_quantity"),
+        package_conversion=_conversion_of(item, payload.package_conversion_id),
+        entered_package_quantity=_optional_decimal(
+            payload.entered_package_quantity, field="entered_package_quantity"
+        ),
+        measured_base_quantity=_optional_decimal(
+            payload.measured_base_quantity, field="measured_base_quantity"
+        ),
+        note=payload.note,
+    )
+    return Status(
+        201,
+        {
+            "id": line.pk,
+            "sequence": line.sequence,
+            "item_code": line.item.code,
+            "item_name_ar": line.item.name_ar,
+            "base_unit_code": line.base_unit.code,
+            "lot_code": line.lot.code if line.lot_id else None,
+            "tracks_lots": line.item.tracks_lots,
+            "is_unexpected": True,
+            "counted_quantity": (
+                f"{line.counted_quantity:f}" if line.counted_quantity is not None else None
+            ),
+            "line_note": line.line_note,
+        },
+    )
+
+
+@router.post(
+    "/counts/{count_id}/submit/",
+    response=StockCountOut,
+    summary="Submit the count for approval",
+    exclude_unset=True,
+)
+def submit_count_endpoint(request: HttpRequest, count_id: int) -> Any:
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    submitted = submit_stock_count(actor=actor, count=count)
+    return _serialize_count(submitted, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.post(
+    "/counts/{count_id}/approve/",
+    response=StockCountOut,
+    summary="Approve, post the variance, and release the warehouse",
+    exclude_unset=True,
+)
+def approve_count_endpoint(request: HttpRequest, count_id: int, payload: CountApproveIn) -> Any:
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    costs = [
+        ApprovedCost(
+            line=resolve_count_line(actor, supplied.line_id, count=count),
+            unit_cost=_decimal(supplied.unit_cost, field="unit_cost"),
+            zero_confirmed=supplied.zero_confirmed,
+        )
+        for supplied in payload.costs
+    ]
+    posted = approve_stock_count(actor=actor, count=count, costs=costs)
+    return _serialize_count(posted, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.post("/counts/{count_id}/cancel/", response=StockCountOut, summary="Cancel a count")
+def cancel_count_endpoint(request: HttpRequest, count_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    cancelled = cancel_stock_count(actor=actor, count=count, reason=payload.reason)
+    return _serialize_count(cancelled, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.post(
+    "/counts/{count_id}/reverse/",
+    response=StockCountOut,
+    summary="Reverse a posted count",
+    exclude_unset=True,
+)
+def reverse_count_endpoint(request: HttpRequest, count_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    count = resolve_count(actor, count_id)
+    reversed_count = reverse_stock_count(actor=actor, count=count, reason=payload.reason)
+    return _serialize_count(reversed_count, with_cost=may_see_cost(actor), with_lines=True)
+
+
+# --- Manual adjustments -----------------------------------------------------
+
+
+class AdjustmentLineIn(Schema):
+    kind: str
+    item_id: int
+    reason_code_id: int
+    lot_id: int | None = None
+    package_conversion_id: int | None = None
+    entered_package_quantity: str | None = None
+    measured_base_quantity: str | None = None
+    base_quantity: str | None = None
+    unit_cost: str | None = None
+    zero_cost_confirmed: bool = False
+    value_adjustment: str | None = None
+    line_comment: str = ""
+
+
+class AdjustmentLineOut(Schema):
+    id: int
+    sequence: int
+    kind: str
+    item_code: str
+    item_name_ar: str
+    base_unit_code: str
+    lot_code: str | None
+    base_quantity: str
+    reason_code: str
+    line_comment: str
+    movement_id: int | None
+    unit_cost: str | None = None
+    value_adjustment: str | None = None
+    total_value: str | None = None
+    control_account_code: str | None = None
+
+
+class AdjustmentIn(Schema):
+    organization_id: int
+    branch_id: int
+    warehouse_id: int
+    effective_at: datetime.datetime
+    evidence_reference: str
+    reason: str
+    cost_center_id: int | None = None
+    lines: list[AdjustmentLineIn] = []
+
+
+class AdjustmentPatch(Schema):
+    effective_at: datetime.datetime | None = None
+    evidence_reference: str | None = None
+    reason: str | None = None
+    cost_center_id: int | None = None
+
+
+class AdjustmentOut(Schema):
+    id: int
+    public_id: str
+    document_number: str
+    status: str
+    organization_id: int
+    branch_id: int
+    branch_code: str
+    warehouse_id: int
+    warehouse_code: str
+    effective_at: datetime.datetime
+    business_date: datetime.date
+    evidence_reference: str
+    reason: str
+    cost_center_code: str | None
+    created_by: str | None
+    posted_by: str | None
+    reversed_by: str | None
+    reversal_reason: str
+    stock_entry_id: int | None
+    journal_entry_number: str | None
+    line_count: int
+    lines: list[AdjustmentLineOut] = []
+
+
+def _serialize_adjustment_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": line.pk,
+        "sequence": line.sequence,
+        "kind": line.kind,
+        "item_code": line.item.code,
+        "item_name_ar": line.item.name_ar,
+        "base_unit_code": line.item.base_unit.code,
+        "lot_code": line.lot.code if line.lot_id else None,
+        "base_quantity": f"{line.base_quantity:f}",
+        "reason_code": line.reason_code.code,
+        "line_comment": line.line_comment,
+        "movement_id": line.movement_id,
+    }
+    if with_cost:
+        payload["unit_cost"] = f"{line.unit_cost:f}" if line.unit_cost is not None else None
+        payload["value_adjustment"] = (
+            f"{line.value_adjustment:f}" if line.value_adjustment is not None else None
+        )
+        payload["total_value"] = f"{line.total_value:f}" if line.total_value is not None else None
+        payload["control_account_code"] = (
+            line.control_account.code if line.control_account_id else None
+        )
+    return payload
+
+
+def _serialize_adjustment(document: Any, *, with_cost: bool, with_lines: bool) -> dict[str, Any]:
+    lines = (
+        list(
+            document.lines.select_related(
+                "item", "item__base_unit", "lot", "reason_code", "control_account"
+            ).order_by("sequence")
+        )
+        if with_lines
+        else []
+    )
+    return {
+        "id": document.pk,
+        "public_id": str(document.public_id),
+        "document_number": document.document_number,
+        "status": document.status,
+        "organization_id": document.organization_id,
+        "branch_id": document.branch_id,
+        "branch_code": document.branch.code,
+        "warehouse_id": document.warehouse_id,
+        "warehouse_code": document.warehouse.code,
+        "effective_at": document.effective_at,
+        "business_date": document.business_date,
+        "evidence_reference": document.evidence_reference,
+        "reason": document.reason,
+        "cost_center_code": document.cost_center.code if document.cost_center_id else None,
+        "created_by": str(document.created_by) if document.created_by_id else None,
+        "posted_by": str(document.posted_by) if document.posted_by_id else None,
+        "reversed_by": str(document.reversed_by) if document.reversed_by_id else None,
+        "reversal_reason": document.reversal_reason,
+        "stock_entry_id": document.stock_entry_id,
+        "journal_entry_number": (
+            document.journal_entry.entry_number if document.journal_entry_id else None
+        ),
+        "line_count": document.lines.count() if not with_lines else len(lines),
+        "lines": [_serialize_adjustment_line(line, with_cost=with_cost) for line in lines],
+    }
+
+
+def _adjustment_line_input(actor: Any, payload: AdjustmentLineIn) -> AdjustmentLineInput:
+    item = resolve_item(actor, payload.item_id)
+    return AdjustmentLineInput(
+        kind=payload.kind,
+        item=item,
+        reason_code=resolve_reason_code(actor, payload.reason_code_id),
+        lot=_lot_of(item, payload.lot_id),
+        package_conversion=_conversion_of(item, payload.package_conversion_id),
+        entered_package_quantity=_optional_decimal(
+            payload.entered_package_quantity, field="entered_package_quantity"
+        ),
+        measured_base_quantity=_optional_decimal(
+            payload.measured_base_quantity, field="measured_base_quantity"
+        ),
+        base_quantity=_optional_decimal(payload.base_quantity, field="base_quantity"),
+        unit_cost=_optional_decimal(payload.unit_cost, field="unit_cost"),
+        zero_cost_confirmed=payload.zero_cost_confirmed,
+        value_adjustment=_optional_decimal(payload.value_adjustment, field="value_adjustment"),
+        line_comment=payload.line_comment,
+    )
+
+
+@router.get(
+    "/adjustments/",
+    response=list[AdjustmentOut],
+    summary="Adjustments in scope",
+    exclude_unset=True,
+)
+def list_adjustments(request: HttpRequest, status: str | None = None) -> Any:
+    actor = _actor(request)
+    documents = visible_adjustments(actor)
+    if status is not None:
+        documents = documents.filter(status=status)
+    return [
+        _serialize_adjustment(document, with_cost=may_see_cost(actor), with_lines=False)
+        for document in documents
+    ]
+
+
+@router.post(
+    "/adjustments/",
+    response={201: AdjustmentOut},
+    summary="Create a draft adjustment",
+    exclude_unset=True,
+)
+def create_adjustment_endpoint(request: HttpRequest, payload: AdjustmentIn) -> Status[Any]:
+    from apps.accounting.models import CostCenter
+
+    actor = _actor(request)
+    organization = resolve_organization(actor, payload.organization_id)
+    branch = resolve_branch(actor, payload.branch_id)
+    warehouse = resolve_warehouse(actor, payload.warehouse_id)
+    cost_center = None
+    if payload.cost_center_id is not None:
+        cost_center = CostCenter.objects.filter(
+            pk=payload.cost_center_id, organization=organization
+        ).first()
+        if cost_center is None:
+            raise OutOfScope(f"Cost center {payload.cost_center_id} does not exist.")
+
+    document = create_adjustment(
+        actor=actor,
+        organization=organization,
+        branch=branch,
+        warehouse=warehouse,
+        effective_at=payload.effective_at,
+        evidence_reference=payload.evidence_reference,
+        reason=payload.reason,
+        cost_center=cost_center,
+    )
+    for line in payload.lines:
+        add_adjustment_line(
+            actor=actor, document=document, line=_adjustment_line_input(actor, line)
+        )
+    return Status(
+        201, _serialize_adjustment(document, with_cost=may_see_cost(actor), with_lines=True)
+    )
+
+
+@router.get(
+    "/adjustments/{document_id}/",
+    response=AdjustmentOut,
+    summary="One adjustment",
+    exclude_unset=True,
+)
+def read_adjustment(request: HttpRequest, document_id: int) -> Any:
+    actor = _actor(request)
+    document = resolve_adjustment(actor, document_id)
+    return _serialize_adjustment(document, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.patch(
+    "/adjustments/{document_id}/",
+    response=AdjustmentOut,
+    summary="Amend a draft adjustment",
+    exclude_unset=True,
+)
+def patch_adjustment(request: HttpRequest, document_id: int, payload: AdjustmentPatch) -> Any:
+    from apps.accounting.models import CostCenter
+
+    actor = _actor(request)
+    document = resolve_adjustment(actor, document_id)
+    cost_center = None
+    if payload.cost_center_id is not None:
+        cost_center = CostCenter.objects.filter(
+            pk=payload.cost_center_id, organization=document.organization
+        ).first()
+    updated = update_adjustment(
+        actor=actor,
+        document=document,
+        effective_at=payload.effective_at,
+        evidence_reference=payload.evidence_reference,
+        reason=payload.reason,
+        cost_center=cost_center,
+    )
+    return _serialize_adjustment(updated, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.delete(
+    "/adjustments/{document_id}/", response={204: None}, summary="Delete a draft adjustment"
+)
+def delete_adjustment_endpoint(request: HttpRequest, document_id: int) -> Status[None]:
+    actor = _actor(request)
+    document = resolve_adjustment(actor, document_id)
+    delete_adjustment(actor=actor, document=document)
+    return Status(204, None)
+
+
+@router.post(
+    "/adjustments/{document_id}/lines/",
+    response={201: AdjustmentLineOut},
+    exclude_unset=True,
+    summary="Add a line to a draft adjustment",
+)
+def add_adjustment_line_endpoint(
+    request: HttpRequest, document_id: int, payload: AdjustmentLineIn
+) -> Status[Any]:
+    actor = _actor(request)
+    document = resolve_adjustment(actor, document_id)
+    line = add_adjustment_line(
+        actor=actor, document=document, line=_adjustment_line_input(actor, payload)
+    )
+    return Status(201, _serialize_adjustment_line(line, with_cost=may_see_cost(actor)))
+
+
+@router.post(
+    "/adjustments/{document_id}/post/",
+    response=AdjustmentOut,
+    summary="Post the adjustment to both ledgers",
+    exclude_unset=True,
+)
+def post_adjustment_endpoint(request: HttpRequest, document_id: int) -> Any:
+    actor = _actor(request)
+    document = resolve_adjustment(actor, document_id)
+    posted = post_adjustment(actor=actor, document=document)
+    return _serialize_adjustment(posted, with_cost=may_see_cost(actor), with_lines=True)
+
+
+@router.post(
+    "/adjustments/{document_id}/reverse/",
+    response=AdjustmentOut,
+    summary="Reverse a posted adjustment",
+    exclude_unset=True,
+)
+def reverse_adjustment_endpoint(request: HttpRequest, document_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    document = resolve_adjustment(actor, document_id)
+    reversed_document = reverse_adjustment(actor=actor, document=document, reason=payload.reason)
+    return _serialize_adjustment(reversed_document, with_cost=may_see_cost(actor), with_lines=True)
 
 
 # ---------------------------------------------------------------------------

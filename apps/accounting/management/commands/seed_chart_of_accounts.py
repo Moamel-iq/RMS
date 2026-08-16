@@ -42,6 +42,12 @@ CHART: list[tuple[str, str, str]] = [
     ("1-03-01-001", "مخزون المواد والسلع", "Inventory Control"),
     ("1-03-02", "بضاعة بالطريق", "Goods in transit"),
     ("1-03-02-001", "بضاعة بالطريق", "Goods in Transit"),
+    # A payment's unallocated remainder (Task 2.15, PRC-055). An asset — cash
+    # handed over before an invoice exists to net it against — and never a
+    # negative payable, which would make the aging report lie about both.
+    ("1-04", "السلف والدفعات المقدمة", "Advances and prepayments"),
+    ("1-04-01", "سلف الموردين", "Supplier advances"),
+    ("1-04-01-001", "سلف الموردين", "Supplier Advances"),
     # 2 Liabilities
     ("2", "الالتزامات", "Liabilities"),
     ("2-01", "الذمم الدائنة", "Payables"),
@@ -96,11 +102,41 @@ CHART: list[tuple[str, str, str]] = [
     ("6-02", "خسائر تشغيلية", "Operating losses"),
     ("6-02-01", "خسائر المخزون", "Inventory losses"),
     ("6-02-01-001", "عجز التحويلات", "Transfer Shortage Loss"),
+    # Stock destroyed in a warehouse (Task 1.6). An operating expense and never
+    # a cost of sales: spoiled food was not sold, and burying it in food cost
+    # would flatter the gross margin by exactly the amount that was thrown
+    # away. Class 6 makes a cost centre mandatory, which is the control — waste
+    # nobody's kitchen carries is waste nobody reduces.
+    ("6-02-01-002", "هالك المخزون", "Inventory Waste Expense"),
     # 7 Other income and expense
     ("7", "إيرادات ومصروفات أخرى", "Other income and expense"),
     ("7-09", "فروقات وتسويات", "Differences and adjustments"),
     ("7-09-01", "تقريب النقد", "Cash rounding"),
     ("7-09-01-001", "أرباح وخسائر تقريب النقد", "Cash Rounding Gain/Loss"),
+    # The two **bidirectional** inventory difference accounts (Task 1.6). Each
+    # takes a debit when the books were too high and a credit when they were
+    # too low, so neither is an expense account in the ordinary sense and
+    # neither belongs in class 6: a count that finds more rice than expected is
+    # not negative spending. One account per direction was considered and
+    # rejected — the pair would have to be netted in every report that asks the
+    # only interesting question, which is what the variance came to.
+    ("7-09-02", "فروقات الجرد", "Count variance"),
+    ("7-09-02-001", "فروقات الجرد", "Inventory Count Variance"),
+    ("7-09-03", "تسويات المخزون", "Inventory adjustments"),
+    ("7-09-03-001", "تسويات المخزون", "Inventory Adjustment"),
+    # The difference between the book value that left on a supplier return and
+    # the credit the supplier allows (Task 2.13 seeds it, Task 2.14 posts it).
+    # Class 7 beside the other bidirectional difference accounts, and for the
+    # same reason they are here: a return that credits more than it removed is
+    # a gain and one that credits less is a loss, both are real, and neither is
+    # negative spending. ADR-022 says both belong where somebody can see them.
+    #
+    # Deliberately NOT the purchase price variance account. That figure is
+    # invoice-versus-receipt on goods coming in; this one is credit-versus-book
+    # value on goods going out. Merging them would hide a supplier's pricing
+    # behaviour inside the arithmetic of having averaged two deliveries.
+    ("7-09-04", "فروقات إرجاع المشتريات", "Purchase return variance"),
+    ("7-09-04-001", "فروقات إرجاع المشتريات", "Purchase Return Variance"),
     # 8 Clearing and control
     ("8", "حسابات وسيطة ورقابية", "Clearing and control"),
     ("8-01", "حسابات وسيطة", "Clearing accounts"),
@@ -108,6 +144,32 @@ CHART: list[tuple[str, str, str]] = [
     ("8-01-01-001", "حساب وسيط بين الفروع", "Inter-branch Clearing"),
     ("8-01-02", "وكالة ميم", "MEM agency"),
     ("8-01-02-001", "حساب وسيط وكالة ميم", "MEM Agency Clearing"),
+    # Where an invoice-versus-receipt price difference is parked (Task 2.12).
+    # A clearing account rather than an expense one, and deliberately so.
+    #
+    # Task 2.0 §15 proposed `5-02-01-001`. Class 5 sets `requires_cost_center`,
+    # and a supplier invoice has no cost centre to give — the document belongs
+    # to a branch, not a department. More importantly ADR-022 already rejects
+    # posting the variance to cost of goods sold: it conflates a purchasing
+    # outcome with a consumption outcome, and food cost would then move for
+    # reasons that have nothing to do with the kitchen.
+    #
+    # So the difference is parked rather than classified. A later, explicitly
+    # specified period-end process splits this balance between inventory still
+    # on hand and cost of sales for what was consumed, taking its branch and
+    # cost centre from inventory ownership — never from the supplier invoice.
+    # Task 2.12 does not build that process, and until it exists this balance
+    # is expected to be non-zero and is reconciled by invoice, match and
+    # allocation rather than cleared.
+    ("8-01-03", "فروقات أسعار المشتريات", "Purchase price variance"),
+    ("8-01-03-001", "تسوية فروقات أسعار المشتريات", "Purchase Price Variance Clearing"),
+    # Where the book value of goods sent back to a supplier waits for the
+    # credit note that settles it (Task 2.13). A clearing account in the exact
+    # sense: stock has left the warehouse and the supplier has not yet agreed
+    # what it is worth, so there is a real claim in flight and no document
+    # stating its amount. Task 2.14's credit note clears it.
+    ("8-01-04", "مرتجعات الموردين", "Supplier returns"),
+    ("8-01-04-001", "تسوية مرتجعات الموردين", "Supplier Return Clearing"),
 ]
 
 #: The account the cash settlement rounding policy will post its difference to

@@ -1,0 +1,45 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# The organization's own vocabulary. Archived codes stay listed, because a  #}
+{# retired code is still what a year of posted documents means by it.        #}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "مجال الاستخدام" %}</th>
+  <th>{% translate "يستلزم ملاحظة" %}</th>
+  <th>{% translate "يستلزم إثباتاً" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th></th>
+{% endblock %}
+
+{% block rows %}
+  {% for code in reason_codes %}
+    <tr>
+      <td><code dir="ltr">{{ code.code }}</code></td>
+      <td>{{ code.name_ar }}</td>
+      <td>{{ code.get_applies_to_display }}</td>
+      <td>{% if code.requires_comment %}{% translate "نعم" %}{% else %}—{% endif %}</td>
+      <td>{% if code.requires_evidence %}{% translate "نعم" %}{% else %}—{% endif %}</td>
+      <td>
+        {% if code.is_active %}
+          {% translate "فعّال" %}
+        {% else %}
+          <span class="muted">{% translate "مؤرشف — الرمز محجوز" %}</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if can_manage %}
+          <a class="btn btn--ghost" href="{% url 'inventory:reason_code_update' code.pk %}">
+            {% translate "تعديل" %}
+          </a>
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="7">{% translate "لا أسباب بعد. أضف ما تحتاجه مؤسستك." %}</td>
+    </tr>
+  {% endfor %}
+{% endblock %}

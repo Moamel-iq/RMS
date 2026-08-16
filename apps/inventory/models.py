@@ -488,6 +488,19 @@ class ItemPackageConversion(TimeStampedModel):
         quantum = Decimal(1).scaleb(-FACTOR_PLACES)
         return f"{self.factor_to_base.quantize(quantum):f}"
 
+    def covers(self, on_date: datetime.date) -> bool:
+        """
+        Whether this version was the effective one on a given **business date**.
+
+        Same shape as `InventoryAccountMapping.covers`, and asked the same way:
+        against the document's business date rather than today's, so
+        re-versioning a factor cannot restate what an already-entered line
+        meant.
+        """
+        if on_date < self.effective_from:
+            return False
+        return self.effective_to is None or on_date <= self.effective_to
+
 
 class BranchItemSetting(TimeStampedModel):
     """
@@ -592,6 +605,28 @@ class Warehouse(TimeStampedModel):
 
     is_active = models.BooleanField(_("active"), default=True)
 
+    #: The count that has this warehouse frozen, and **the only statement that
+    #: it is frozen at all** (Task 1.6 §I).
+    #:
+    #: A boolean alongside an "active count somewhere" would be two mutable
+    #: truths about one fact, and the interesting failures are exactly the ones
+    #: where they disagree: a warehouse frozen with no count to unfreeze it, or
+    #: a count that believes it holds a freeze somebody else has released.
+    #: Here there is nothing to disagree with — frozen means this column is
+    #: set, and the row it names is the only thing that may clear it.
+    #:
+    #: `StockBalance.is_frozen` is a different, finer concept that predates
+    #: this and stays: a count freezes the **warehouse**, and pretending a
+    #: warehouse-wide freeze is a per-position one is what §H forbids.
+    frozen_by_count = models.ForeignKey(
+        "inventory.StockCount",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="frozen_warehouse_links",
+        verbose_name=_("frozen by count"),
+    )
+
     history = HistoricalRecords()
 
     class Meta:
@@ -624,6 +659,22 @@ class Warehouse(TimeStampedModel):
                 fields=["branch"],
                 condition=Q(warehouse_type=WarehouseType.IN_TRANSIT),
                 name="warehouse_one_in_transit_per_branch",
+            ),
+            # One count holds at most one warehouse. Two would mean a count
+            # whose snapshot covered a place it never froze.
+            models.UniqueConstraint(
+                fields=["frozen_by_count"],
+                condition=Q(frozen_by_count__isnull=False),
+                name="warehouse_freeze_owner_unique",
+            ),
+            # Goods on the road are in nobody's building, so nobody can count
+            # them. The in-transit balance is reconciled against the transfers
+            # that put it there (ADR-020), which is a stronger check than a
+            # physical one and does not need a freeze.
+            models.CheckConstraint(
+                condition=Q(frozen_by_count__isnull=True)
+                | ~Q(warehouse_type=WarehouseType.IN_TRANSIT),
+                name="warehouse_in_transit_is_never_counted",
             ),
         ]
 
@@ -666,6 +717,25 @@ class MovementType(models.TextChoices):
     #: original issue's cost, never today's average, so the pair nets to zero
     #: (spec §8). Added by Task 1.4 with the document that produces it.
     RETURN_IN = "RETURN_IN", _("إرجاع من صرف")
+    #: Goods going back **out** to the supplier they came from. Reserved by
+    #: Task 1.0's movement table and deliberately left unbuilt until Phase 2
+    #: had a document to produce it (Task 1.7's note: "a supplier return must
+    #: reconcile against a supplier invoice, a payable, and a credit note,
+    #: none of which exist yet"). Task 2.13 is that document.
+    #:
+    #: Its own value rather than `RETURN_IN`, and the distinction is the whole
+    #: of PRC-047: `RETURN_IN` is stock coming back from a kitchen to a store,
+    #: at the cost it was issued at, and this is stock leaving the business
+    #: altogether at the standing average. Opposite directions, opposite signs,
+    #: and two different reports. Sharing one value would make each report
+    #: wrong about the other.
+    #:
+    #: The inventory module owns the movement and nothing else. There is no
+    #: supplier-return document here and no generic screen that produces one:
+    #: this type is reachable only through `apps.procurement`'s service, which
+    #: is what keeps the causing document in the module that understands
+    #: suppliers.
+    RETURN_OUT = "RETURN_OUT", _("إرجاع إلى المورد")
     TRANSFER_OUT = "TRANSFER_OUT", _("تحويل صادر")
     TRANSFER_IN = "TRANSFER_IN", _("تحويل وارد")
     #: Dispatched goods that will never arrive, written off out of in-transit
@@ -700,6 +770,7 @@ INBOUND_MOVEMENT_TYPES = frozenset(
 OUTBOUND_MOVEMENT_TYPES = frozenset(
     {
         MovementType.ISSUE,
+        MovementType.RETURN_OUT,
         MovementType.TRANSFER_OUT,
         MovementType.TRANSFER_SHORTAGE,
         MovementType.WASTE,
@@ -707,6 +778,17 @@ OUTBOUND_MOVEMENT_TYPES = frozenset(
         MovementType.PRODUCTION_OUT,
     }
 )
+
+#: Types whose direction the **caller** must state, because the type genuinely
+#: does not carry one. A manual adjustment can add goods, remove goods, or
+#: revalue goods that are not moving at all, and no fixed sign is right for
+#: more than one of those.
+#:
+#: Task 1.2 left these out of both sets above with a comment saying why, and
+#: `post_stock_entry` fell through to the outbound branch — correct for two of
+#: the three cases and silently wrong for the third. Task 1.6 makes the caller
+#: say which, and refuses an effect that does not (`MovementInput.direction`).
+SIGNLESS_MOVEMENT_TYPES = frozenset({MovementType.MANUAL_ADJUSTMENT})
 
 
 class InventoryLot(TimeStampedModel):
@@ -1620,6 +1702,12 @@ class InventoryDocumentType(models.TextChoices):
     TRANSFER = "INVENTORY_TRANSFER", _("تحويل مخزني")
     TRANSFER_RECEIPT = "INVENTORY_TRANSFER_RECEIPT", _("استلام تحويل")
     TRANSFER_SHORTAGE = "INVENTORY_TRANSFER_SHORTAGE", _("إقفال عجز تحويل")
+    #: Task 1.6. Waste is an *operational* document and shares
+    #: `InventoryMovementDocument` with receipt, issue and return; the count
+    #: and the adjustment are their own aggregates and are numbered here only.
+    WASTE = "INVENTORY_WASTE", _("إتلاف مخزني")
+    STOCK_COUNT = "INVENTORY_STOCK_COUNT", _("جرد فعلي")
+    ADJUSTMENT = "INVENTORY_ADJUSTMENT", _("تسوية مخزنية يدوية")
 
 
 #: The visible prefix each document type numbers with, per business year.
@@ -1631,6 +1719,9 @@ DOCUMENT_NUMBER_PREFIX: dict[str, str] = {
     InventoryDocumentType.TRANSFER: "TRF",
     InventoryDocumentType.TRANSFER_RECEIPT: "TRR",
     InventoryDocumentType.TRANSFER_SHORTAGE: "TRS",
+    InventoryDocumentType.WASTE: "WST",
+    InventoryDocumentType.STOCK_COUNT: "CNT",
+    InventoryDocumentType.ADJUSTMENT: "ADJ",
 }
 
 
@@ -1648,6 +1739,21 @@ TRANSFER_DISPATCH_SOURCE_TYPE = "INVENTORY_TRANSFER_DISPATCH"
 TRANSFER_RECEIPT_SOURCE_TYPE = "INVENTORY_TRANSFER_RECEIPT_SOURCE"
 TRANSFER_RECEIPT_DESTINATION_TYPE = "INVENTORY_TRANSFER_RECEIPT_DESTINATION"
 TRANSFER_SHORTAGE_SOURCE_TYPE = "INVENTORY_TRANSFER_SHORTAGE"
+
+
+# --- Task 1.6 source identities (§Z) ---------------------------------------
+#
+# Waste posts through `InventoryMovementDocument` and so carries that model's
+# own document type as its source type, exactly as a receipt or an issue does.
+# The count and the adjustment are separate aggregates and name themselves.
+#
+# A count produces **one** economic event however many lines vary, because the
+# cutoff is one moment and the variance is one balanced journal. There is no
+# per-line event to distinguish, so one identity is enough — unlike a
+# cross-branch transfer receipt, which is genuinely two postings on two dates.
+
+STOCK_COUNT_SOURCE_TYPE = "INVENTORY_STOCK_COUNT"
+MANUAL_ADJUSTMENT_SOURCE_TYPE = "INVENTORY_MANUAL_ADJUSTMENT"
 
 
 class InventoryDocumentSequence(models.Model):
@@ -2262,6 +2368,11 @@ class InventoryMovementDocument(TimeStampedModel):
                         InventoryDocumentType.RECEIPT,
                         InventoryDocumentType.ISSUE,
                         InventoryDocumentType.RETURN_IN,
+                        # Task 1.6. Waste is an operational custody act like the
+                        # other three — one warehouse, one business date, one
+                        # posting, one reversal — and shares all of their
+                        # machinery. What is different about it is per line.
+                        InventoryDocumentType.WASTE,
                     ]
                 ),
                 name="inventory_document_type_is_operational",
@@ -2405,6 +2516,22 @@ class InventoryMovementDocumentLine(TimeStampedModel):
         blank=True,
     )
 
+    #: Why this stock was destroyed. Required on a WASTE line and forbidden
+    #: elsewhere: a receipt, an issue and a return each already say why they
+    #: exist, and offering a reason code on them would invite one to be
+    #: recorded where nothing reads it.
+    reason_code = models.ForeignKey(
+        "inventory.InventoryReasonCode",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="waste_lines",
+        verbose_name=_("reason code"),
+    )
+    #: Mandatory when the chosen reason code says so — which is what makes an
+    #: "other" reason usable without making it a hole in the record.
+    line_comment = models.CharField(_("comment"), max_length=200, blank=True)
+
     #: The issue line this return goes back against. Required on a RETURN_IN
     #: and forbidden elsewhere — a return with no original has no cost to take
     #: and no quantity to be bounded by.
@@ -2528,6 +2655,10 @@ class InventoryMovementDocumentLine(TimeStampedModel):
                 | Q(package_conversion__isnull=False),
                 name="inventory_document_line_measured_needs_package",
             ),
+            # A reason code belongs to a waste line and to no other. The
+            # document type lives on the parent, so this is expressed the way
+            # the model's other cross-row rules are — by trigger, in migration
+            # `0015`, where the parent's type can actually be read.
         ]
 
     def __str__(self) -> str:
@@ -3581,3 +3712,1669 @@ class StockTransferShortageLine(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.shortage_id}#{self.sequence}: {self.base_quantity}"
+
+
+# ===========================================================================
+# Task 1.6 — reason codes, waste, physical counts, manual adjustments
+# ===========================================================================
+#
+# Three shapes, chosen by what each thing actually is rather than by what is
+# nearest to hand:
+#
+#   WASTE           extends `InventoryMovementDocument`. Its lifecycle, its
+#                   numbering, its source-identity shape, its locking, its
+#                   scope resolution and its screens are the issue's; what
+#                   differs is one movement type, one journal side, and two
+#                   per-line fields. That is exactly the variation the type
+#                   discriminator was introduced to carry.
+#
+#   STOCK COUNT     its own aggregate. A count is not one posting: it freezes a
+#                   warehouse, snapshots a book position, is entered blind by
+#                   one person, submitted, approved by a different person, and
+#                   only then posts. Most of those steps have no analogue in a
+#                   one-post document, and three of them exist precisely to
+#                   keep two people's authority apart.
+#
+#   ADJUSTMENT      its own aggregate, for one specific reason: a single
+#                   adjustment carries lines that go in **different
+#                   directions** — a gain, a loss, and a pure revaluation that
+#                   moves no quantity at all. `InventoryMovementDocument` maps
+#                   one document type to exactly one movement type, and making
+#                   that per-line would push the discriminator down into the
+#                   lines, which is the leak Task 1.4 avoided by keeping the
+#                   type on the document.
+
+
+class ReasonCodeApplication(models.TextChoices):
+    """
+    What a reason code may be selected for. Closed.
+
+    Deliberately **not** a list of restaurant reasons. Spoilage, breakage,
+    over-portioning and theft are one organization's vocabulary; another
+    group's would differ, and a code baked into an enum could never be retired
+    without a migration. What is closed is the set of *documents* a reason can
+    attach to, because that is a property of this software.
+    """
+
+    WASTE = "WASTE", _("إتلاف")
+    COUNT_VARIANCE = "COUNT_VARIANCE", _("فروقات الجرد")
+    MANUAL_ADJUSTMENT = "MANUAL_ADJUSTMENT", _("تسوية يدوية")
+
+
+class InventoryReasonCode(TimeStampedModel):
+    """
+    Why stock was written off, found missing, or adjusted — organization master
+    data, not a hard-coded list.
+
+    **The code and what it applies to are immutable once created**, enforced by
+    an allowlist trigger. Everything else — the names, the evidence and comment
+    requirements, whether it is still offered — may change. That split is the
+    whole design: repurposing `SPOIL` from waste to count variance would
+    retroactively change what every document already posted against it says
+    happened, and no amount of care at the call site can undo that afterwards.
+
+    Archiving sets `is_active = False` and never deletes. The unique constraint
+    therefore keeps a retired code **reserved**: reissuing `BREAK` to mean
+    something new would make two different meanings share one identity in the
+    history.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="inventory_reason_codes",
+        verbose_name=_("organization"),
+    )
+    code = models.CharField(
+        _("code"),
+        max_length=32,
+        help_text=_("Canonicalised to upper case. Reserved forever once used."),
+    )
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+
+    applies_to = models.CharField(
+        _("applies to"),
+        max_length=20,
+        choices=ReasonCodeApplication.choices,
+    )
+    #: A free-text explanation is demanded on the line as well as the code.
+    #: "Other" is the reason this exists.
+    requires_comment = models.BooleanField(_("requires a comment"), default=False)
+    #: A photograph, an incident report, a signed disposal note. The document
+    #: already carries an evidence reference; this makes it mandatory for the
+    #: reasons where the absence of proof is the risk.
+    requires_evidence = models.BooleanField(_("requires evidence"), default=False)
+
+    is_active = models.BooleanField(_("active"), default=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("inventory reason code")
+        verbose_name_plural = _("inventory reason codes")
+        ordering = ["organization__code", "applies_to", "code"]
+        permissions = [
+            ("manage_reason_codes", _("Can create and archive inventory reason codes")),
+        ]
+        constraints = [
+            # Organization-wide, not per application: one operator's mental
+            # model is "our reason codes", and `SPOIL` meaning one thing on a
+            # waste note and another on a count sheet is a trap.
+            models.UniqueConstraint(
+                fields=["organization", "code"],
+                name="inventory_reason_code_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN),
+                name="inventory_reason_code_format",
+            ),
+            models.CheckConstraint(
+                condition=~Q(name_ar=""),
+                name="inventory_reason_code_name_ar_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=Q(applies_to__in=ReasonCodeApplication.values),
+                name="inventory_reason_code_application_is_known",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "applies_to", "is_active"],
+                name="reason_code_org_use_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name_ar}"
+
+
+# --- The physical count ----------------------------------------------------
+
+
+class StockCountStatus(models.TextChoices):
+    """
+    The count lifecycle. Never set by a caller — see `apps.inventory.counts`.
+
+    `IN_PROGRESS` and `SUBMITTED` are the two **active** states, and they are
+    exactly the states that own a warehouse freeze. Everything else has either
+    not started or finished with it.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    IN_PROGRESS = "IN_PROGRESS", _("جاري الجرد")
+    SUBMITTED = "SUBMITTED", _("مقدّم للاعتماد")
+    POSTED = "POSTED", _("مرحّل")
+    CANCELLED = "CANCELLED", _("ملغى")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+#: The states that hold a warehouse frozen. One list, referenced by the
+#: service, the constraint and the trigger, so the three cannot drift.
+ACTIVE_COUNT_STATUSES = frozenset({StockCountStatus.IN_PROGRESS, StockCountStatus.SUBMITTED})
+
+
+class StockCountScope(models.TextChoices):
+    """
+    What a count covers.
+
+    One value in Release 1, and the enum exists so the second one cannot be
+    added by accident. A partial count freezes only part of a warehouse, and
+    "part" has to mean something the ledger can enforce — a key-level freeze,
+    not a warehouse-level freeze with a narrower sheet of paper. Until that
+    exists, offering `SELECTED_ITEMS` would be offering a freeze that does not
+    hold (Task 1.6 §H).
+    """
+
+    FULL_WAREHOUSE = "FULL_WAREHOUSE", _("جرد كامل للمخزن")
+
+
+class StockCount(TimeStampedModel):
+    """
+    One physical count of one warehouse, from freeze to posted variance.
+
+    **The cutoff is the count's spine.** `cutoff_at` is the single moment the
+    book position was photographed, `business_date` is the day that moment
+    belongs to, and both are fixed when the warehouse freezes — not when the
+    counting finishes and not when somebody approves it. A count approved on
+    the 3rd for a cutoff on the 1st posts into the 1st, because that is when
+    the stock was what it was.
+
+    The warehouse stays frozen from `start` until the count posts or is
+    cancelled, and the freeze is owned through `Warehouse.frozen_by_count`
+    rather than through a boolean that could disagree with it.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="stock_counts",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="stock_counts",
+        verbose_name=_("branch"),
+    )
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        related_name="stock_counts",
+        verbose_name=_("warehouse"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    #: Assigned when the count **starts**, not when it posts. A counter needs a
+    #: number on the sheet in their hand before they count anything, and a
+    #: cancelled count is a real event that stays in the record — so its number
+    #: is not a hole in the sequence, it is a cancelled document.
+    count_number = models.CharField(_("count number"), max_length=32, blank=True)
+    status = models.CharField(
+        _("status"),
+        max_length=12,
+        choices=StockCountStatus.choices,
+        default=StockCountStatus.DRAFT,
+    )
+    scope_type = models.CharField(
+        _("scope"),
+        max_length=20,
+        choices=StockCountScope.choices,
+        default=StockCountScope.FULL_WAREHOUSE,
+    )
+
+    #: The moment the book position was photographed. Null while DRAFT.
+    cutoff_at = models.DateTimeField(_("cutoff at"), null=True, blank=True)
+    business_date = models.DateField(_("business date"), null=True, blank=True, db_index=True)
+    business_date_timezone = models.CharField(
+        _("business date timezone"), max_length=64, blank=True
+    )
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_counts",
+        verbose_name=_("cost center"),
+    )
+    reference = models.CharField(_("evidence reference"), max_length=200, blank=True)
+    reason = models.TextField(_("reason"), blank=True)
+
+    conducted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="conducted_stock_counts",
+        verbose_name=_("conducted by"),
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="submitted_stock_counts",
+        verbose_name=_("submitted by"),
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_stock_counts",
+        verbose_name=_("approved by"),
+    )
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="cancelled_stock_counts",
+        verbose_name=_("cancelled by"),
+    )
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_stock_counts",
+        verbose_name=_("reversed by"),
+    )
+
+    started_at = models.DateTimeField(_("started at"), null=True, blank=True)
+    submitted_at = models.DateTimeField(_("submitted at"), null=True, blank=True)
+    approved_at = models.DateTimeField(_("approved at"), null=True, blank=True)
+    cancelled_at = models.DateTimeField(_("cancelled at"), null=True, blank=True)
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    cancellation_reason = models.TextField(_("cancellation reason"), blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    #: Null on a posted count whose every line matched the book. Nothing moved,
+    #: so there is nothing to point at, and inventing an empty posting would
+    #: make "did this count find anything" unanswerable from the ledger.
+    stock_entry = models.ForeignKey(
+        StockLedgerEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_counts",
+        verbose_name=_("stock ledger entry"),
+    )
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_counts",
+        verbose_name=_("journal entry"),
+    )
+    reversal_stock_entry = models.ForeignKey(
+        StockLedgerEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_stock_counts",
+        verbose_name=_("reversal stock entry"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_stock_counts",
+        verbose_name=_("reversal journal entry"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("stock count")
+        verbose_name_plural = _("stock counts")
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            # One active count per warehouse. The freeze is warehouse-wide, so
+            # a second active count would be counting a warehouse somebody else
+            # has already frozen and snapshotted.
+            models.UniqueConstraint(
+                fields=["warehouse"],
+                condition=Q(status__in=["IN_PROGRESS", "SUBMITTED"]),
+                name="stock_count_one_active_per_warehouse",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "count_number"],
+                condition=~Q(count_number=""),
+                name="stock_count_number_unique_per_organization",
+            ),
+            # Numbered from the moment it starts, and only from then.
+            models.CheckConstraint(
+                condition=(
+                    (Q(status=StockCountStatus.DRAFT) & Q(count_number=""))
+                    | (~Q(status=StockCountStatus.DRAFT) & ~Q(count_number=""))
+                ),
+                name="stock_count_numbered_iff_started",
+            ),
+            # The cutoff and its snapshot appear together with the number, and
+            # never afterwards change.
+            models.CheckConstraint(
+                condition=(
+                    Q(status=StockCountStatus.DRAFT)
+                    | (
+                        Q(cutoff_at__isnull=False)
+                        & Q(business_date__isnull=False)
+                        & ~Q(business_date_timezone="")
+                        & Q(business_day_start__isnull=False)
+                        & Q(conducted_by__isnull=False)
+                        & Q(started_at__isnull=False)
+                    )
+                ),
+                name="stock_count_cutoff_snapshot_present",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(
+                        status__in=[
+                            StockCountStatus.SUBMITTED,
+                            StockCountStatus.POSTED,
+                            StockCountStatus.REVERSED,
+                        ]
+                    )
+                    | (Q(submitted_by__isnull=False) & Q(submitted_at__isnull=False))
+                ),
+                name="stock_count_submitted_fields_present",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status__in=[StockCountStatus.POSTED, StockCountStatus.REVERSED])
+                    | (Q(approved_by__isnull=False) & Q(approved_at__isnull=False))
+                ),
+                name="stock_count_approved_fields_present",
+            ),
+            # Maker-checker, at the database. Hiding the button is a courtesy;
+            # this is the rule.
+            models.CheckConstraint(
+                condition=(
+                    Q(approved_by__isnull=True)
+                    | Q(conducted_by__isnull=True)
+                    | ~Q(approved_by=models.F("conducted_by"))
+                ),
+                name="stock_count_approver_is_not_the_conductor",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status=StockCountStatus.CANCELLED)
+                    | (
+                        Q(cancelled_by__isnull=False)
+                        & Q(cancelled_at__isnull=False)
+                        & ~Q(cancellation_reason="")
+                    )
+                ),
+                name="stock_count_cancelled_fields_present",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status=StockCountStatus.REVERSED)
+                    | (
+                        Q(reversed_by__isnull=False)
+                        & Q(reversed_at__isnull=False)
+                        & ~Q(reversal_reason="")
+                    )
+                ),
+                name="stock_count_reversed_fields_present",
+            ),
+            # Nothing is posted before approval.
+            models.CheckConstraint(
+                condition=(
+                    Q(status__in=[StockCountStatus.POSTED, StockCountStatus.REVERSED])
+                    | (Q(stock_entry__isnull=True) & Q(journal_entry__isnull=True))
+                ),
+                name="stock_count_entries_only_when_posted",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(status=StockCountStatus.REVERSED)
+                    | (
+                        Q(reversal_stock_entry__isnull=True)
+                        & Q(reversal_journal_entry__isnull=True)
+                    )
+                ),
+                name="stock_count_reversal_entries_only_when_reversed",
+            ),
+            models.CheckConstraint(
+                condition=Q(scope_type__in=StockCountScope.values),
+                name="stock_count_scope_is_known",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="stock_count_org_status_idx"),
+            models.Index(fields=["warehouse", "business_date"], name="stock_count_wh_date_idx"),
+        ]
+
+    def __str__(self) -> str:
+        label = self.count_number or str(self.public_id)
+        return f"{label} ({self.get_status_display()})"
+
+    @property
+    def is_active(self) -> bool:
+        """Whether this count currently owns its warehouse's freeze."""
+        return self.status in ACTIVE_COUNT_STATUSES
+
+
+class StockCountLine(TimeStampedModel):
+    """
+    One `(item, lot)` on a count sheet: what the books said, and what was found.
+
+    The book columns are a **photograph taken at the cutoff** and never
+    recalculated. Reading the current balance at approval instead would value
+    the variance against a position that may have moved since — which, if the
+    freeze held, it cannot have; and if the freeze did not hold, silently
+    posting against the changed figure is the worst of the available responses.
+    `count_snapshot_mismatch` is the right one.
+
+    `counted_quantity` is null until somebody counts, and that null is the
+    difference between "nobody has been to that shelf yet" and "the shelf is
+    empty" — which is why zero is permitted and null is not, at submission.
+    """
+
+    count = models.ForeignKey(
+        StockCount,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("count"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, unique=True, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.PROTECT,
+        related_name="stock_count_lines",
+        verbose_name=_("item"),
+    )
+    lot = models.ForeignKey(
+        InventoryLot,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_count_lines",
+        verbose_name=_("lot"),
+    )
+    #: Snapshotted with the rest: an item's base unit is master data and could
+    #: in principle be corrected, and the sheet must keep meaning what it meant.
+    base_unit = models.ForeignKey(
+        "units.UnitOfMeasure",
+        on_delete=models.PROTECT,
+        related_name="stock_count_lines",
+        verbose_name=_("base unit"),
+    )
+
+    # --- The book, at the cutoff. Immutable after start. --------------------
+    book_quantity = models.DecimalField(
+        _("book quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    book_value = models.DecimalField(
+        _("book value"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    book_average = models.DecimalField(
+        _("book average cost"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+    )
+    book_control_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_count_lines",
+        verbose_name=_("book control account"),
+    )
+    book_last_movement = models.ForeignKey(
+        StockMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("last movement at cutoff"),
+    )
+    book_posted_sequence = models.BigIntegerField(_("posted sequence at cutoff"), default=0)
+
+    #: Physically present, absent from the books. Added during counting, with
+    #: every book column at zero — which is the honest snapshot, not a missing
+    #: one.
+    is_unexpected = models.BooleanField(_("unexpected stock"), default=False)
+
+    # --- What was counted ---------------------------------------------------
+    counted_quantity = models.DecimalField(
+        _("counted quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    package_conversion = models.ForeignKey(
+        ItemPackageConversion,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_count_lines",
+        verbose_name=_("package conversion"),
+    )
+    entered_package_quantity = models.DecimalField(
+        _("entered package quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    measured_base_quantity = models.DecimalField(
+        _("measured base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    line_note = models.CharField(_("note"), max_length=200, blank=True)
+    reason_code = models.ForeignKey(
+        "inventory.InventoryReasonCode",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_count_lines",
+        verbose_name=_("reason code"),
+    )
+
+    # --- What the approver decided ------------------------------------------
+    #: Required where a gain lands in a position with no standing average to
+    #: value it at. Supplied by the approver, never by the conductor: it is a
+    #: cost decision, and the blind sheet must not carry one.
+    approved_unit_cost = models.DecimalField(
+        _("approved unit cost"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+        null=True,
+        blank=True,
+    )
+    #: An omitted cost and a deliberate zero are different answers. Without
+    #: this flag they would be the same NULL, and "we found stock worth
+    #: nothing" would be indistinguishable from "nobody said what it was worth".
+    zero_cost_confirmed = models.BooleanField(_("zero cost confirmed"), default=False)
+
+    # --- The result ---------------------------------------------------------
+    variance_quantity = models.DecimalField(
+        _("variance quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    variance_value = models.DecimalField(
+        _("variance value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    movement = models.OneToOneField(
+        StockMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_count_line",
+        verbose_name=_("stock movement"),
+    )
+
+    class Meta:
+        verbose_name = _("stock count line")
+        verbose_name_plural = _("stock count lines")
+        ordering = ["count_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["count", "sequence"], name="stock_count_line_sequence_unique"
+            ),
+            # NULL-safe: a non-lot item has one position, so it must have one
+            # line, and standard SQL's "every NULL differs" would permit any
+            # number of them.
+            models.UniqueConstraint(
+                fields=["count", "item", "lot"],
+                nulls_distinct=False,
+                name="stock_count_line_key_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(counted_quantity__isnull=True) | Q(counted_quantity__gte=Decimal("0")),
+                name="stock_count_line_counted_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(book_quantity__gte=Decimal("0")),
+                name="stock_count_line_book_quantity_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(book_value__gte=Decimal("0")),
+                name="stock_count_line_book_value_not_negative",
+            ),
+            # An unexpected line is unexpected precisely because the books held
+            # nothing there.
+            models.CheckConstraint(
+                condition=(
+                    Q(is_unexpected=False)
+                    | (
+                        Q(book_quantity=Decimal("0"))
+                        & Q(book_value=Decimal("0"))
+                        & Q(book_average=Decimal("0"))
+                    )
+                ),
+                name="stock_count_line_unexpected_has_no_book",
+            ),
+            models.CheckConstraint(
+                condition=Q(approved_unit_cost__isnull=True)
+                | Q(approved_unit_cost__gte=Decimal("0")),
+                name="stock_count_line_approved_cost_not_negative",
+            ),
+            # The flag means what it says, or it means nothing.
+            models.CheckConstraint(
+                condition=Q(zero_cost_confirmed=False) | Q(approved_unit_cost=Decimal("0")),
+                name="stock_count_line_zero_cost_flag_matches",
+            ),
+            models.CheckConstraint(
+                condition=Q(measured_base_quantity__isnull=True)
+                | Q(package_conversion__isnull=False),
+                name="stock_count_line_measured_needs_package",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["count", "is_unexpected"], name="count_line_unexpected_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.count_id}#{self.sequence}: {self.item_id}"
+
+
+# --- The manual adjustment --------------------------------------------------
+
+
+class AdjustmentLineKind(models.TextChoices):
+    """
+    What one adjustment line does. Closed, and each value has its own arithmetic.
+
+    `VALUE_ONLY` is the reason this aggregate exists at all: it moves no
+    quantity and cannot be expressed as a signed movement of goods.
+    """
+
+    QUANTITY_GAIN = "QUANTITY_GAIN", _("زيادة كمية")
+    QUANTITY_LOSS = "QUANTITY_LOSS", _("نقص كمية")
+    VALUE_ONLY = "VALUE_ONLY", _("إعادة تقييم بالقيمة فقط")
+
+
+class InventoryAdjustmentDocument(TimeStampedModel):
+    """
+    An authorized exception: stock corrected outside the flows that normally
+    move it.
+
+    Not a substitute for a receipt, an issue, a transfer, a supplier return,
+    production, or a count — each of those records *what happened*, and an
+    adjustment records only that the books were wrong. The screens say so, and
+    the reason code is mandatory so that "wrong how" is always on the record.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="inventory_adjustments",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="inventory_adjustments",
+        verbose_name=_("branch"),
+    )
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        related_name="inventory_adjustments",
+        verbose_name=_("warehouse"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    document_number = models.CharField(_("document number"), max_length=32, blank=True)
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=InventoryDocumentStatus.choices,
+        default=InventoryDocumentStatus.DRAFT,
+    )
+
+    effective_at = models.DateTimeField(_("effective at"))
+    business_date = models.DateField(_("business date"))
+    business_date_timezone = models.CharField(
+        _("business date timezone"), max_length=64, blank=True
+    )
+    business_day_start = models.TimeField(_("business day start"), null=True, blank=True)
+
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_adjustments",
+        verbose_name=_("cost center"),
+    )
+    evidence_reference = models.CharField(_("evidence reference"), max_length=200)
+    reason = models.TextField(_("reason"))
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_inventory_adjustments",
+        verbose_name=_("created by"),
+    )
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_inventory_adjustments",
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_inventory_adjustments",
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    stock_entry = models.ForeignKey(
+        StockLedgerEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_adjustments",
+        verbose_name=_("stock ledger entry"),
+    )
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="inventory_adjustments",
+        verbose_name=_("journal entry"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_inventory_adjustments",
+        verbose_name=_("reversal journal entry"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("inventory adjustment")
+        verbose_name_plural = _("inventory adjustments")
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(evidence_reference=""),
+                name="inventory_adjustment_evidence_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=~Q(reason=""),
+                name="inventory_adjustment_reason_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (Q(status=InventoryDocumentStatus.DRAFT) & Q(document_number=""))
+                    | (~Q(status=InventoryDocumentStatus.DRAFT) & ~Q(document_number=""))
+                ),
+                name="inventory_adjustment_numbered_iff_posted",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "document_number"],
+                condition=~Q(document_number=""),
+                name="inventory_adjustment_number_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=InventoryDocumentStatus.DRAFT)
+                | (Q(posted_by__isnull=False) & Q(posted_at__isnull=False)),
+                name="inventory_adjustment_posted_fields_present",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=InventoryDocumentStatus.DRAFT)
+                | (~Q(business_date_timezone="") & Q(business_day_start__isnull=False)),
+                name="inventory_adjustment_business_date_snapshot_present",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=InventoryDocumentStatus.REVERSED)
+                | (
+                    Q(reversed_by__isnull=False)
+                    & Q(reversed_at__isnull=False)
+                    & ~Q(reversal_reason="")
+                ),
+                name="inventory_adjustment_reversed_fields_present",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "status"], name="inv_adjustment_org_status_idx"),
+            models.Index(fields=["warehouse", "business_date"], name="inv_adjustment_wh_date_idx"),
+        ]
+
+    def __str__(self) -> str:
+        label = self.document_number or str(self.public_id)
+        return f"{label} ({self.get_status_display()})"
+
+
+class InventoryAdjustmentLine(TimeStampedModel):
+    """
+    One corrected position, in one of three ways.
+
+    The three kinds, and what each requires:
+
+    * **QUANTITY_GAIN** — a positive base quantity and an explicit `unit_cost`.
+      There is no average to borrow for goods the books do not have, and
+      defaulting to zero would book free stock.
+    * **QUANTITY_LOSS** — a positive base quantity, valued at the standing
+      average, with the full-depletion rule at zero.
+    * **VALUE_ONLY** — no quantity at all and a signed `value_adjustment`. The
+      position must already hold quantity: value against nothing is exactly the
+      corruption `_assert_position_is_coherent` refuses to compute against.
+    """
+
+    document = models.ForeignKey(
+        InventoryAdjustmentDocument,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("document"),
+    )
+    line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, unique=True, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+    kind = models.CharField(_("kind"), max_length=16, choices=AdjustmentLineKind.choices)
+
+    item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.PROTECT,
+        related_name="adjustment_lines",
+        verbose_name=_("item"),
+    )
+    lot = models.ForeignKey(
+        InventoryLot,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="adjustment_lines",
+        verbose_name=_("lot"),
+    )
+
+    package_conversion = models.ForeignKey(
+        ItemPackageConversion,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="adjustment_lines",
+        verbose_name=_("package conversion"),
+    )
+    entered_package_quantity = models.DecimalField(
+        _("entered package quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    measured_base_quantity = models.DecimalField(
+        _("measured base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
+    )
+    #: The magnitude, always non-negative; `kind` carries the direction, for
+    #: the same reason `MovementType` does in the kernel. Zero for VALUE_ONLY.
+    base_quantity = models.DecimalField(
+        _("base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        default=Decimal("0"),
+    )
+    unit_cost = models.DecimalField(
+        _("unit cost"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+        null=True,
+        blank=True,
+    )
+    zero_cost_confirmed = models.BooleanField(_("zero cost confirmed"), default=False)
+    #: Signed, VALUE_ONLY only. Positive writes the position up.
+    value_adjustment = models.DecimalField(
+        _("value adjustment"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    #: Signed, written at posting from the movement the kernel actually made.
+    total_value = models.DecimalField(
+        _("total value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    reason_code = models.ForeignKey(
+        "inventory.InventoryReasonCode",
+        on_delete=models.PROTECT,
+        related_name="adjustment_lines",
+        verbose_name=_("reason code"),
+    )
+    line_comment = models.CharField(_("comment"), max_length=200, blank=True)
+
+    movement = models.OneToOneField(
+        StockMovement,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="adjustment_line",
+        verbose_name=_("stock movement"),
+    )
+    control_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="adjustment_lines",
+        verbose_name=_("control account"),
+    )
+
+    class Meta:
+        verbose_name = _("inventory adjustment line")
+        verbose_name_plural = _("inventory adjustment lines")
+        ordering = ["document_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "sequence"], name="inventory_adjustment_line_sequence_unique"
+            ),
+            # One line per position per document. Two would each compute
+            # against a balance the other had already changed, and the
+            # canonical journal grouping would have to guess an order.
+            models.UniqueConstraint(
+                fields=["document", "item", "lot"],
+                nulls_distinct=False,
+                name="inventory_adjustment_line_key_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind__in=AdjustmentLineKind.values),
+                name="inventory_adjustment_line_kind_is_known",
+            ),
+            # Quantity kinds move quantity; VALUE_ONLY does not.
+            models.CheckConstraint(
+                condition=(
+                    (
+                        Q(
+                            kind__in=[
+                                AdjustmentLineKind.QUANTITY_GAIN,
+                                AdjustmentLineKind.QUANTITY_LOSS,
+                            ]
+                        )
+                        & Q(base_quantity__gt=Decimal("0"))
+                    )
+                    | (Q(kind=AdjustmentLineKind.VALUE_ONLY) & Q(base_quantity=Decimal("0")))
+                ),
+                name="inventory_adjustment_line_quantity_matches_kind",
+            ),
+            # A gain names its cost; nothing else may.
+            models.CheckConstraint(
+                condition=(
+                    (Q(kind=AdjustmentLineKind.QUANTITY_GAIN) & Q(unit_cost__isnull=False))
+                    | (~Q(kind=AdjustmentLineKind.QUANTITY_GAIN) & Q(unit_cost__isnull=True))
+                ),
+                name="inventory_adjustment_line_cost_iff_gain",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_cost__isnull=True) | Q(unit_cost__gte=Decimal("0")),
+                name="inventory_adjustment_line_cost_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(zero_cost_confirmed=False) | Q(unit_cost=Decimal("0")),
+                name="inventory_adjustment_line_zero_cost_flag_matches",
+            ),
+            # A revaluation names its amount; nothing else may. Zero is
+            # excluded: a value adjustment of nothing is not a correction.
+            models.CheckConstraint(
+                condition=(
+                    (
+                        Q(kind=AdjustmentLineKind.VALUE_ONLY)
+                        & Q(value_adjustment__isnull=False)
+                        & ~Q(value_adjustment=Decimal("0"))
+                    )
+                    | (~Q(kind=AdjustmentLineKind.VALUE_ONLY) & Q(value_adjustment__isnull=True))
+                ),
+                name="inventory_adjustment_line_value_iff_value_only",
+            ),
+            models.CheckConstraint(
+                condition=Q(measured_base_quantity__isnull=True)
+                | Q(package_conversion__isnull=False),
+                name="inventory_adjustment_line_measured_needs_package",
+            ),
+            models.CheckConstraint(
+                condition=Q(entered_package_quantity__isnull=True)
+                | Q(entered_package_quantity__gt=Decimal("0")),
+                name="inventory_adjustment_line_package_quantity_positive",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.document_id}#{self.sequence}: {self.kind}"
+
+
+# ---------------------------------------------------------------------------
+# Imports (Task 1.7)
+# ---------------------------------------------------------------------------
+
+
+class ImportKind(models.TextChoices):
+    """
+    What a batch imports. Closed, and deliberately short.
+
+    Every value here is **master data or a draft**. There is no value for a
+    posted receipt, issue, transfer, count, waste or adjustment, and that is
+    the boundary rather than an omission: a spreadsheet is an assertion by
+    whoever typed it, and the ledger only accepts assertions that a person
+    posted through the service that values them. `OPENING_STOCK_DRAFT` reaches
+    the ledger the same way everything else does — somebody opens the draft it
+    produced and posts it.
+    """
+
+    ITEM_CATEGORY = "ITEM_CATEGORY", _("مجموعات الأصناف")
+    PACKAGE_UNIT = "PACKAGE_UNIT", _("وحدات التعبئة")
+    BRANCH_ITEM_SETTING = "BRANCH_ITEM_SETTING", _("إعدادات الصنف في الفرع")
+    # Task 2.17. The framework is one; the kinds name which module's master
+    # data a batch carries. Procurement's validators and writers live in
+    # `apps/procurement/imports.py` and register themselves — this module
+    # never imports procurement. The draft kind produces purchase-request
+    # DRAFTS for review, never a submitted or posted document (§16.8).
+    SUPPLIER = "SUPPLIER", _("الموردون")
+    SUPPLIER_ITEM = "SUPPLIER_ITEM", _("كتالوج الموردين")
+    PURCHASE_REQUEST_DRAFT = "PURCHASE_REQUEST_DRAFT", _("مسودات طلبات الشراء")
+
+
+#: The kinds that write branch-scoped rows and therefore name a branch.
+#: A purchase request is a branch document, so its draft import names one.
+BRANCH_SCOPED_IMPORT_KINDS = frozenset(
+    {ImportKind.BRANCH_ITEM_SETTING, ImportKind.PURCHASE_REQUEST_DRAFT}
+)
+
+#: Kinds needing `import_opening_draft` rather than `import_master_data`.
+#:
+#: **Empty in this release.** `OPENING_STOCK_DRAFT` was declared and then
+#: removed: it parses nothing, validates nothing and writes nothing, and a
+#: dropdown entry that accepts a file and then fails is worse than an absent
+#: one. It is the only kind that would reach the ledger at all — even as a
+#: draft it sets the ledger's starting position — so it earns its own review
+#: rather than a corner of this task.
+#:
+#: The set stays, rather than the lookup being deleted, because the permission
+#: split it drives is the durable decision; only the kind is deferred.
+OPENING_IMPORT_KINDS: frozenset[str] = frozenset()
+
+
+class ImportBatchStatus(models.TextChoices):
+    """
+    The batch lifecycle. Never set by a caller — see `apps.inventory.imports`.
+
+    `UPLOADED` holds parsed rows and nothing else. `VALIDATED` means every row
+    was judged and the batch may be applied; `FAILED_VALIDATION` means at
+    least one row was rejected and it may not. `APPLIED` and `CANCELLED` are
+    terminal.
+
+    There is no `PARTIALLY_APPLIED`. A batch applies completely or not at all,
+    because the alternative is a spreadsheet that half-changed the item master
+    and a person who has to work out which half.
+    """
+
+    UPLOADED = "UPLOADED", _("مرفوع")
+    VALIDATED = "VALIDATED", _("مدقّق")
+    FAILED_VALIDATION = "FAILED_VALIDATION", _("فشل التدقيق")
+    APPLIED = "APPLIED", _("مطبّق")
+    CANCELLED = "CANCELLED", _("ملغى")
+
+
+#: Statuses after which nothing more happens to a batch.
+TERMINAL_IMPORT_STATUSES = frozenset({ImportBatchStatus.APPLIED, ImportBatchStatus.CANCELLED})
+
+
+class ImportBatch(TimeStampedModel):
+    """
+    One uploaded file, its verdict, and what it did.
+
+    **Nothing outside this table changes until apply.** Upload parses and
+    stores rows; validation judges them and stores the verdict; only apply
+    writes to the item master, and it does so inside one transaction. A
+    reviewer can therefore look at exactly what a spreadsheet would do before
+    any of it happens, which is the entire reason the batch exists rather than
+    a direct upload-and-write.
+
+    `content_hash` is the fingerprint of the normalised rows. Re-uploading the
+    same file is legitimate — somebody lost the tab — but re-*applying* the
+    same content is not, and the hash is how the second attempt is recognised
+    rather than silently doubling every row it touches.
+
+    The file itself is never stored. The rows are, as parsed JSON: keeping the
+    upload would mean keeping a user-supplied binary on disk with a
+    user-supplied name, and everything worth auditing is in the rows.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="inventory_import_batches",
+        verbose_name=_("organization"),
+    )
+    #: Set for branch-scoped kinds only, and required for them by constraint.
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="inventory_import_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("branch"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    batch_number = models.CharField(_("batch number"), max_length=32, blank=True)
+
+    kind = models.CharField(_("kind"), max_length=32, choices=ImportKind.choices)
+    status = models.CharField(
+        _("status"),
+        max_length=24,
+        choices=ImportBatchStatus.choices,
+        default=ImportBatchStatus.UPLOADED,
+        db_index=True,
+    )
+
+    #: What the uploader called it, after sanitising. Kept for the audit trail;
+    #: never used to open, write, or serve anything.
+    original_filename = models.CharField(_("original filename"), max_length=255)
+    content_hash = models.CharField(_("content hash"), max_length=64, db_index=True)
+    byte_size = models.PositiveIntegerField(_("byte size"))
+
+    row_count = models.PositiveIntegerField(_("rows"), default=0)
+    valid_row_count = models.PositiveIntegerField(_("valid rows"), default=0)
+    error_row_count = models.PositiveIntegerField(_("rows in error"), default=0)
+    #: Rows apply actually changed. Below `valid_row_count` when a row asked
+    #: for a value the record already had — which is not an error and not a
+    #: change, and reporting it as either would be a lie.
+    applied_row_count = models.PositiveIntegerField(_("rows applied"), default=0)
+
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="uploaded_import_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("uploaded by"),
+    )
+    applied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="applied_import_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("applied by"),
+    )
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cancelled_import_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("cancelled by"),
+    )
+
+    validated_at = models.DateTimeField(_("validated at"), null=True, blank=True)
+    applied_at = models.DateTimeField(_("applied at"), null=True, blank=True)
+    cancelled_at = models.DateTimeField(_("cancelled at"), null=True, blank=True)
+
+    notes = models.TextField(_("notes"), blank=True)
+    #: Why it was cancelled. Required when cancelling, by service.
+    reason = models.TextField(_("reason"), blank=True)
+
+    #: The draft the opening import produced, when it produced one.
+    opening_document = models.ForeignKey(
+        "inventory.OpeningStockDocument",
+        on_delete=models.PROTECT,
+        related_name="import_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("opening document"),
+    )
+
+    class Meta:
+        verbose_name = _("import batch")
+        verbose_name_plural = _("import batches")
+        ordering = ("-created_at", "-id")
+        permissions = [
+            ("import_master_data", _("Can import inventory master data")),
+            ("import_opening_draft", _("Can import an opening stock draft")),
+            ("view_import_history", _("Can view inventory import history")),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "kind", "status"]),
+            models.Index(fields=["organization", "-created_at"]),
+        ]
+        constraints = [
+            # A branch-scoped kind names a branch; an organization-scoped one
+            # must not, because a branch there would be a scope nobody applies.
+            models.CheckConstraint(
+                condition=(
+                    (Q(kind__in=sorted(BRANCH_SCOPED_IMPORT_KINDS)) & Q(branch__isnull=False))
+                    | (~Q(kind__in=sorted(BRANCH_SCOPED_IMPORT_KINDS)) & Q(branch__isnull=True))
+                ),
+                name="inventory_import_branch_matches_kind",
+            ),
+            # Applied means somebody applied it, at a time, and the count of
+            # what changed is known. Any of those missing is a batch that
+            # cannot be audited.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status=ImportBatchStatus.APPLIED)
+                    | (Q(applied_by__isnull=False) & Q(applied_at__isnull=False))
+                ),
+                name="inventory_import_applied_records_who_and_when",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(status=ImportBatchStatus.CANCELLED)
+                    | (Q(cancelled_at__isnull=False) & ~Q(reason=""))
+                ),
+                name="inventory_import_cancelled_states_a_reason",
+            ),
+            # A failed batch never applied anything, whatever else is true.
+            models.CheckConstraint(
+                condition=(~Q(status=ImportBatchStatus.FAILED_VALIDATION) | Q(applied_row_count=0)),
+                name="inventory_import_failed_applied_nothing",
+            ),
+            models.CheckConstraint(
+                condition=Q(applied_row_count__lte=models.F("valid_row_count")),
+                name="inventory_import_applied_within_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(row_count=models.F("valid_row_count") + models.F("error_row_count")),
+                name="inventory_import_rows_add_up",
+            ),
+            # Django choices are a form-layer courtesy, not a boundary: a raw
+            # INSERT, a data migration or a `bulk_create` walks straight past
+            # them. A batch whose kind has no validator could never be
+            # previewed or applied, so it would sit in the history looking like
+            # work somebody did.
+            models.CheckConstraint(
+                condition=Q(kind__in=sorted(ImportKind.values)),
+                name="inventory_import_kind_is_supported",
+            ),
+            # One applied batch per content per kind: the second apply of the
+            # same spreadsheet is a retry, not a second import.
+            models.UniqueConstraint(
+                fields=["organization", "kind", "content_hash"],
+                condition=Q(status=ImportBatchStatus.APPLIED),
+                name="inventory_import_one_applied_batch_per_content",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.batch_number or self.public_id} {self.kind} ({self.get_status_display()})"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in TERMINAL_IMPORT_STATUSES
+
+
+class ImportRowResult(TimeStampedModel):
+    """
+    One row of the uploaded file, as parsed, and what was decided about it.
+
+    Kept for valid rows as well as rejected ones. A batch that stored only its
+    errors could say what went wrong and never what went right, and "what did
+    this import actually change" is the question an auditor asks.
+
+    `payload` is the row exactly as parsed — strings, never coerced numbers.
+    Decimal parsing happens in validation through the approved utilities, and
+    storing a parsed float here would reintroduce binary rounding into the one
+    record that exists to prove what the file said.
+    """
+
+    batch = models.ForeignKey(
+        ImportBatch,
+        on_delete=models.CASCADE,
+        related_name="rows",
+        verbose_name=_("batch"),
+    )
+    #: 1-based, and the number the person sees in their spreadsheet — the
+    #: header is row 1, so the first data row is 2.
+    row_number = models.PositiveIntegerField(_("row number"))
+    #: The row's own identity in the source: a code, usually. Blank when the
+    #: file gave none, which is itself a validation error for most kinds.
+    external_key = models.CharField(_("external key"), max_length=200, blank=True)
+
+    is_valid = models.BooleanField(_("valid"), default=False)
+    #: field name -> list of Arabic messages. `{}` for a valid row.
+    errors = models.JSONField(_("errors"), default=dict, blank=True)
+    payload = models.JSONField(_("payload"), default=dict)
+
+    #: What apply did with it, once apply has run.
+    applied_action = models.CharField(_("applied action"), max_length=16, blank=True)
+    applied_object_id = models.CharField(_("applied object id"), max_length=64, blank=True)
+
+    class Meta:
+        verbose_name = _("import row")
+        verbose_name_plural = _("import rows")
+        ordering = ("batch", "row_number")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["batch", "row_number"], name="inventory_import_row_number_unique"
+            ),
+            # A valid row carries no errors and an invalid one carries at
+            # least the field that failed. Without this a row could be shown
+            # green with a message attached, and the operator would believe
+            # the colour.
+            models.CheckConstraint(
+                condition=(Q(is_valid=True) & Q(errors={})) | Q(is_valid=False),
+                name="inventory_import_valid_row_has_no_errors",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.batch_id}#{self.row_number}"
+
+
+# ---------------------------------------------------------------------------
+# Stock locations (Task 1.7B)
+# ---------------------------------------------------------------------------
+
+
+class StockLocation(TimeStampedModel):
+    """
+    A bin, shelf or zone inside one warehouse. Refines *where*, never *what it
+    cost*.
+
+    ADR-018 §2 decided this and it is the whole design: the warehouse owns
+    value, a location owns quantity. Moving a box between two bins in one store
+    must revalue nothing, so `StockLocation` appears in no valuation key, takes
+    no average cost and names no control account. Widening the stock key to
+    include it would revalue stock on every put-away — which is precisely the
+    outcome ADR-018 forbids.
+
+    Locations are **optional**. A warehouse that has never used bins holds all
+    its quantity unlocated, and that is a supported permanent state rather than
+    a migration half-step: most stores in this business are one room.
+
+    One level. No nesting — a tree needs the depth and cycle rules
+    `ItemCategory` carries, and nothing in Release 1 asks for aisle→rack→bin.
+    """
+
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="locations",
+        verbose_name=_("warehouse"),
+    )
+    code = models.CharField(_("code"), max_length=32)
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    is_active = models.BooleanField(_("active"), default=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("stock location")
+        verbose_name_plural = _("stock locations")
+        ordering = ["warehouse__code", "code"]
+        permissions = [
+            ("manage_locations", _("Can create and archive stock locations")),
+            ("move_location_stock", _("Can move stock between locations")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["warehouse", "code"], name="stock_location_code_unique_per_warehouse"
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN), name="stock_location_code_format"
+            ),
+            models.CheckConstraint(
+                condition=~Q(name_ar=""), name="stock_location_name_ar_not_empty"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.warehouse_id}/{self.code}"
+
+
+class StockLocationBalance(TimeStampedModel):
+    """
+    How much of one `(item, lot)` sits in one location. Quantity only.
+
+    **No value, no average cost, no control account.** A location holding five
+    kilos of rice holds no money — the warehouse does, and asking this table
+    what something cost is a question it is designed to be unable to answer.
+
+    The unlocated remainder is not stored here. It is
+    `StockBalance.quantity − sum(located)`, derived rather than retained,
+    because a second retained number is a second thing that can drift from the
+    warehouse total and invariant 22 exists to make drift impossible rather
+    than merely detectable.
+    """
+
+    location = models.ForeignKey(
+        StockLocation,
+        on_delete=models.PROTECT,
+        related_name="balances",
+        verbose_name=_("location"),
+    )
+    #: Denormalised from `location.warehouse` so invariant 22 can be checked
+    #: with one grouped query rather than a join per position.
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="location_balances",
+        verbose_name=_("warehouse"),
+    )
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="location_balances",
+        verbose_name=_("item"),
+    )
+    lot = models.ForeignKey(
+        "inventory.InventoryLot",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="location_balances",
+        verbose_name=_("lot"),
+    )
+
+    quantity = models.DecimalField(
+        _("quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        default=Decimal("0"),
+    )
+
+    class Meta:
+        verbose_name = _("stock location balance")
+        verbose_name_plural = _("stock location balances")
+        ordering = ["warehouse__code", "location__code", "item__code"]
+        indexes = [
+            models.Index(fields=["warehouse", "item", "lot"]),
+        ]
+        constraints = [
+            # NULL-safe: a lotless position is one position, not one per row.
+            models.UniqueConstraint(
+                fields=["location", "item", "lot"],
+                name="stock_location_balance_key_unique",
+                nulls_distinct=False,
+            ),
+            # Negative stock in a bin is refused for the same reason it is
+            # refused in a warehouse: it describes goods nobody has.
+            models.CheckConstraint(
+                condition=Q(quantity__gte=Decimal("0")),
+                name="stock_location_balance_quantity_not_negative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.location_id}:{self.item_id}:{self.lot_id or 0} = {self.quantity}"
+
+
+class LocationMovementType(models.TextChoices):
+    """
+    Why quantity moved between or into a location. Closed.
+
+    Deliberately *not* `MovementType`. These are put-away and picking events,
+    they carry no value, and reusing the valued vocabulary would invite exactly
+    the confusion this split exists to prevent.
+    """
+
+    PUT_AWAY = "PUT_AWAY", _("إدخال إلى موقع")
+    PICK = "PICK", _("سحب من موقع")
+    TRANSFER_IN = "TRANSFER_IN", _("نقل داخلي وارد")
+    TRANSFER_OUT = "TRANSFER_OUT", _("نقل داخلي صادر")
+
+
+class StockLocationMovement(TimeStampedModel):
+    """
+    One quantity-only effect on a location balance. Append-only.
+
+    Links to the `StockMovement` that caused it where one exists — a receipt
+    puts away what it received — and to nothing where one does not: a
+    location-to-location move inside a warehouse creates a pair of these and
+    **no** `StockMovement`, because nothing entered or left the warehouse and
+    nothing was revalued. That case is the proof the split is real.
+    """
+
+    location = models.ForeignKey(
+        StockLocation,
+        on_delete=models.PROTECT,
+        related_name="movements",
+        verbose_name=_("location"),
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="location_movements",
+        verbose_name=_("warehouse"),
+    )
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="location_movements",
+        verbose_name=_("item"),
+    )
+    lot = models.ForeignKey(
+        "inventory.InventoryLot",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="location_movements",
+        verbose_name=_("lot"),
+    )
+
+    movement_type = models.CharField(
+        _("movement type"), max_length=20, choices=LocationMovementType.choices
+    )
+    #: Signed, in the item's base unit. Positive into the location.
+    base_quantity = models.DecimalField(
+        _("base quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    quantity_after = models.DecimalField(
+        _("quantity after"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+
+    #: The valued movement that caused this, when one did. Null for a move
+    #: between two locations of one warehouse, which has no valued counterpart.
+    stock_movement = models.ForeignKey(
+        "inventory.StockMovement",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="location_movements",
+        verbose_name=_("stock movement"),
+    )
+
+    effective_at = models.DateTimeField(_("effective at"))
+    posted_at = models.DateTimeField(_("posted at"), auto_now_add=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="location_movements",
+        verbose_name=_("posted by"),
+    )
+    reference = models.CharField(_("reference"), max_length=200, blank=True)
+
+    class Meta:
+        verbose_name = _("stock location movement")
+        verbose_name_plural = _("stock location movements")
+        ordering = ["-posted_at", "-id"]
+        indexes = [
+            models.Index(fields=["location", "item", "lot"]),
+            models.Index(fields=["warehouse", "-posted_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(base_quantity=Decimal("0")),
+                name="stock_location_movement_quantity_not_zero",
+            ),
+            models.CheckConstraint(
+                condition=Q(quantity_after__gte=Decimal("0")),
+                name="stock_location_movement_after_not_negative",
+            ),
+            # An inbound type moves stock in and an outbound type moves it out.
+            # Without this the sign is the caller's opinion, and a picking event
+            # that increased a bin would look like a put-away in every report.
+            models.CheckConstraint(
+                condition=(
+                    (
+                        Q(movement_type__in=["PUT_AWAY", "TRANSFER_IN"])
+                        & Q(base_quantity__gt=Decimal("0"))
+                    )
+                    | (
+                        Q(movement_type__in=["PICK", "TRANSFER_OUT"])
+                        & Q(base_quantity__lt=Decimal("0"))
+                    )
+                ),
+                name="stock_location_movement_sign_matches_type",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.location_id} {self.movement_type} {self.base_quantity}"

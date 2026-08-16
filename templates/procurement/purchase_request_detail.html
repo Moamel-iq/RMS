@@ -1,0 +1,139 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{# One request: its header, its lines, and whatever may still happen to it. #}
+{# Every action is a POST. A GET that submitted a request would fire on a   #}
+{# link prefetch, and hiding a button is presentation — the view refuses    #}
+{# the same request whether or not it was rendered.                         #}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">
+        {% if request_document.number %}<span dir="ltr">{{ request_document.number }}</span>{% else %}{% translate "مسودة طلب شراء" %}{% endif %}
+      </h1>
+      <p class="pagehead__hint">
+        {{ request_document.purpose }} —
+        <span class="chip">{{ request_document.get_status_display }}</span>
+      </p>
+    </div>
+    <a class="btn btn--ghost" href="{% url 'procurement:purchase_request_list' %}">{% translate "رجوع" %}</a>
+  </div>
+
+  <div class="formcard">
+    <dl class="detailgrid">
+      <dt>{% translate "الفرع" %}</dt><dd>{{ request_document.branch.name_ar }}</dd>
+      <dt>{% translate "المخزن المستلم" %}</dt><dd>{{ request_document.warehouse.name_ar }}</dd>
+      <dt>{% translate "الموقع" %}</dt><dd>{{ request_document.location.name_ar|default:"—" }}</dd>
+      <dt>{% translate "مطلوب بتاريخ" %}</dt><dd><span dir="ltr">{{ request_document.required_date|date:"Y-m-d" }}</span></dd>
+      <dt>{% translate "طلبه" %}</dt><dd>{{ request_document.requested_by.username }}</dd>
+      <dt>{% translate "أرسله" %}</dt><dd>{{ request_document.submitted_by.username|default:"—" }}</dd>
+      <dt>{% translate "قرّره" %}</dt><dd>{{ request_document.decided_by.username|default:"—" }}</dd>
+      {% if request_document.decision_reason %}
+        <dt>{% translate "سبب القرار" %}</dt><dd>{{ request_document.decision_reason }}</dd>
+      {% endif %}
+    </dl>
+    <p class="muted">
+      {% translate "هذا المستند لا يحرّك مخزوناً ولا يُنشئ قيداً محاسبياً في أي حالة." %}
+    </p>
+  </div>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>{% translate "الصنف" %}</th>
+        <th>{% translate "الكمية" %}</th>
+        <th>{% translate "العبوة" %}</th>
+        <th>{% translate "الكمية بالوحدة الأساسية" %}</th>
+        <th>{% translate "المورد المقترح" %}</th>
+        {% if may_edit %}<th>{% translate "إجراءات" %}</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+        <tr>
+          <td>{{ line.sequence }}</td>
+          <td>{{ line.item.code }} — {{ line.item.name_ar }}</td>
+          {# Technical, re-enterable values: never localised. #}
+          <td><span dir="ltr">{{ line.entered_quantity|stringformat:"f" }}</span></td>
+          <td>{{ line.package_unit.name_ar|default:"—" }}</td>
+          <td>
+            <span dir="ltr">{{ line.base_quantity|stringformat:"f" }}</span>
+            {{ line.item.base_unit.code }}
+          </td>
+          <td>{{ line.preferred_supplier.code|default:"—" }}</td>
+          {% if may_edit %}
+            <td>
+              <form method="post" action="{% url 'procurement:purchase_request_line_delete' request_document.pk line.pk %}">
+                {% csrf_token %}
+                <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+              </form>
+            </td>
+          {% endif %}
+        </tr>
+      {% empty %}
+        <tr><td colspan="7">{% translate "لا توجد أصناف بعد. الطلب الفارغ لا يمكن إرساله." %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if may_edit %}
+    <form class="formcard" method="post" novalidate>
+      {% csrf_token %}
+      <h2>{% translate "إضافة صنف" %}</h2>
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+      <div class="formgrid">
+        {% for field in form %}
+          <label class="field">
+            <span class="field__label">{{ field.label }}</span>
+            {{ field }}
+            {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
+            {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+          </label>
+        {% endfor %}
+      </div>
+      <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+    </form>
+  {% endif %}
+
+  <div class="formcard">
+    <h2>{% translate "الإجراءات" %}</h2>
+    <div class="rowactions">
+      {% if may_edit %}
+        <form method="post" action="{% url 'procurement:purchase_request_submit' request_document.pk %}">
+          {% csrf_token %}
+          <button class="btn btn--primary" type="submit">{% translate "إرسال للاعتماد" %}</button>
+        </form>
+      {% endif %}
+      {% if may_decide and is_submitted %}
+        <form method="post" action="{% url 'procurement:purchase_request_approve' request_document.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="reason" value="">
+          <button class="btn btn--primary" type="submit">{% translate "اعتماد" %}</button>
+        </form>
+        <form method="post" action="{% url 'procurement:purchase_request_reject' request_document.pk %}">
+          {% csrf_token %}
+          <input type="text" name="reason" placeholder="{% translate 'سبب الرفض' %}" required>
+          <button class="btn btn--ghost" type="submit">{% translate "رفض" %}</button>
+        </form>
+      {% endif %}
+      {% if may_cancel %}
+        <form method="post" action="{% url 'procurement:purchase_request_cancel' request_document.pk %}">
+          {% csrf_token %}
+          <input type="text" name="reason" placeholder="{% translate 'سبب الإلغاء' %}" required>
+          <button class="btn btn--ghost" type="submit">{% translate "إلغاء الطلب" %}</button>
+        </form>
+      {% endif %}
+    </div>
+    <p class="muted">
+      {% translate "من أرسل الطلب لا يستطيع اعتماده — القاعدة محفوظة في قاعدة البيانات وليس في الشاشة فقط." %}
+    </p>
+  </div>
+{% endblock %}

@@ -1,6 +1,11 @@
 # ADR-013 — Fiscal year and accounting periods
 
-- **Status:** Accepted. **Implemented by Task 0.6**, not yet built.
+- **Status:** Accepted and **built** by Task 0.6. `FiscalYear`,
+  `AccountingPeriod` and `PeriodState` are in `apps/accounting/models.py`;
+  the lifecycle lives in `services.close_period` / `reopen_period`; the
+  rules are held by `test_posting.py::TestPeriods` and
+  `test_hardening.py::TestPeriodOrdering`, and traced as ACC-007. (This line
+  read "not yet built" until the Phase 2 gate, long after it was.)
 - **Date:** 2026-08-08
 - **Related:** ADR-008 (business date), ADR-012 (monetary precision)
 

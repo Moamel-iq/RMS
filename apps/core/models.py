@@ -49,6 +49,11 @@ class AuditAction(models.TextChoices):
     SUBMITTED = "SUBMITTED", _("إرسال")
     APPROVED = "APPROVED", _("اعتماد")
     REJECTED = "REJECTED", _("رفض")
+    #: Abandoned before it reached the ledger, with the record kept. Distinct
+    #: from REJECTED, which is somebody refusing an approval, and from DELETED,
+    #: which removes the row: a cancelled physical count froze a warehouse for
+    #: an afternoon, and that is a fact somebody may later have to explain.
+    CANCELLED = "CANCELLED", _("إلغاء")
     POSTED = "POSTED", _("ترحيل")
     POSTING_FAILED = "POSTING_FAILED", _("فشل الترحيل")
     REVERSED = "REVERSED", _("عكس القيد")

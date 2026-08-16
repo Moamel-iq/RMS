@@ -620,11 +620,16 @@ class AccountRoleDomain(models.TextChoices):
     """
     Which module's posting rules refer to a role.
 
-    Closed and extended intentionally: Purchases, Sales, and Payroll add their
-    own values when their posting rules arrive, never before.
+    Closed and extended intentionally: Sales and Payroll add their own values
+    when their posting rules arrive, never before. `PURCHASING` arrived with
+    Task 2.10, which is the first task whose posting rules are about what the
+    organization **owes** rather than what it holds — a supplier payable is
+    not an inventory concept and filing it under `INVENTORY` would make the
+    domain column a label rather than a fact.
     """
 
     INVENTORY = "INVENTORY", _("المخزون")
+    PURCHASING = "PURCHASING", _("المشتريات")
 
 
 class AccountRoleMappingScope(models.TextChoices):
@@ -752,6 +757,126 @@ SYSTEM_INVENTORY_ROLES: tuple[tuple[str, str, str, str], ...] = (
         "Inter-branch clearing",
         "ORGANIZATION",
     ),
+)
+
+#: Added by Task 2.10 — the credit side of every supplier invoice, and the
+#: account a payment will later clear (Task 2.0 §15).
+SUPPLIER_PAYABLE = "SUPPLIER_PAYABLE"
+
+#: Added by Task 2.12 — where an invoice-versus-receipt price difference is
+#: parked. A **clearing** account, not an expense one, and that is a decision
+#: rather than a detail.
+#:
+#: Task 2.0 §15 proposed `5-02-01-001`, a cost-of-sales code. That is superseded
+#: (ADR-022, amended at Task 2.12) for two independent reasons. Mechanically,
+#: class 5 sets `requires_cost_center` and a supplier invoice has no cost centre
+#: to give: the document belongs to a branch, not to a department, and
+#: `SupplierInvoiceLine.cost_center` is constrained to direct-account lines.
+#: Substantively, ADR-022 already rejects "post the variance to cost of goods
+#: sold directly" — it "conflates a purchasing outcome with a consumption
+#: outcome", and food cost would then move for reasons that have nothing to do
+#: with the kitchen.
+#:
+#: So the difference is **parked, not classified**. It sits in a clearing
+#: account until a later, explicitly specified period-end process splits it
+#: between inventory still on hand and cost of sales for what has been
+#: consumed — a split that must take its branch and cost centre from inventory
+#: ownership and consumption, never from the supplier invoice. Task 2.12 does
+#: not build that process and does not guess at it.
+PURCHASE_PRICE_VARIANCE = "PURCHASE_PRICE_VARIANCE"
+
+#: Added by Task 2.13 — where the book value of goods sent back to a supplier
+#: waits for the credit note that settles it.
+#:
+#: A **clearing** account, and this time the word is exact: the balance is a
+#: claim in flight. Stock has left the warehouse and the supplier has not yet
+#: agreed what it is worth, so there is a real obligation to somebody and no
+#: document stating its amount. Task 2.14's credit note is what clears it, and
+#: the difference between the book value that left and the credit that arrives
+#: is `PURCHASE_RETURN_VARIANCE` — recognised there, not here.
+#:
+#: The physical return deliberately posts no variance. An expected credit is
+#: commercial metadata until the supplier says otherwise, and booking a gain
+#: or a loss from an expectation would put a number on the profit and loss
+#: that nobody has agreed to.
+SUPPLIER_RETURN_CLEARING = "SUPPLIER_RETURN_CLEARING"
+
+#: Added by Task 2.13 as vocabulary, and posted to by Task 2.14.
+#:
+#:     PURCHASE_RETURN_VARIANCE = credit the supplier allows
+#:                              - inventory book value that left
+#:
+#: Deliberately **not** `PURCHASE_PRICE_VARIANCE`, which is a different fact:
+#: invoice value less receipt value on goods coming *in*. Merging them would
+#: make it impossible to tell a supplier's pricing differences from the
+#: consequence of having averaged two deliveries together and then unwound one
+#: of them — and ADR-022's worked example exists precisely because the second
+#: looks like a bug to anyone seeing it for the first time.
+#:
+#: Seeded here without a mapping and without a posting rule, which is a
+#: departure from this module's usual practice and is the narrower of two
+#: evils: Task 2.13's returns are meaningless without the credit note that
+#: follows, and naming the destination now is what stops Task 2.14 quietly
+#: reusing the price-variance account.
+PURCHASE_RETURN_VARIANCE = "PURCHASE_RETURN_VARIANCE"
+
+#: Added by Task 2.15 — money leaving for a supplier. The cash and bank
+#: sources are resolved by the payment's `method` through these roles, never
+#: a hard-coded account id (PRC-056); when Phase 5 makes cashboxes and bank
+#: accounts first-class, the payment names one and the role becomes its
+#: default — the model widens, nothing already posted moves.
+SUPPLIER_PAYMENT_CASH = "SUPPLIER_PAYMENT_CASH"
+SUPPLIER_PAYMENT_BANK = "SUPPLIER_PAYMENT_BANK"
+
+#: Added by Task 2.15 — a payment's unallocated remainder. An **asset**: cash
+#: handed over before an invoice exists to net it against, which is a
+#: different economic event from a credit note's standing credit (that one is
+#: the supplier owing money back, and lives in the payable as a debit).
+#: Netting a prepayment against a payable that does not exist yet would make
+#: the aging report lie about both (PRC-055).
+SUPPLIER_ADVANCE = "SUPPLIER_ADVANCE"
+
+#: The purchasing vocabulary, same shape as `SYSTEM_INVENTORY_ROLES`.
+#:
+#: Organization-only, and necessarily so. Which item was bought says nothing
+#: about who is owed for it: one supplier's invoice covering rice, chicken and
+#: a delivery charge is one debt to one company, and a per-item payable would
+#: split a single obligation across three accounts that no statement could
+#: reassemble.
+#:
+#: `SUPPLIER_ADVANCE` and the two payment-source roles are specified in Task
+#: 2.0 §15 and are deliberately **not** seeded here. A role with no posting
+#: rule behind it is a grant nobody can audit — the same mistake
+#: `import_opening_draft` records in inventory. Each arrives with the task
+#: that posts to it: the advance and the payment sources with 2.15.
+SYSTEM_PURCHASING_ROLES: tuple[tuple[str, str, str, str], ...] = (
+    (SUPPLIER_PAYABLE, "ذمم الموردين", "Supplier payable", "ORGANIZATION"),
+    (
+        PURCHASE_PRICE_VARIANCE,
+        "تسوية فروقات أسعار المشتريات",
+        "Purchase price variance clearing",
+        "ORGANIZATION",
+    ),
+    (
+        SUPPLIER_RETURN_CLEARING,
+        "تسوية مرتجعات الموردين",
+        "Supplier return clearing",
+        "ORGANIZATION",
+    ),
+    (
+        PURCHASE_RETURN_VARIANCE,
+        "فروقات إرجاع المشتريات",
+        "Purchase return variance",
+        "ORGANIZATION",
+    ),
+    (SUPPLIER_PAYMENT_CASH, "دفعات الموردين نقداً", "Supplier payments — cash", "ORGANIZATION"),
+    (
+        SUPPLIER_PAYMENT_BANK,
+        "دفعات الموردين عبر المصرف",
+        "Supplier payments — bank",
+        "ORGANIZATION",
+    ),
+    (SUPPLIER_ADVANCE, "سلف الموردين", "Supplier advances", "ORGANIZATION"),
 )
 
 

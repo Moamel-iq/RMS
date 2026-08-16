@@ -1,0 +1,54 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# The audit trail. Gated on view_import_history alone: reading what somebody #}
+{# uploaded is a different act from applying it, and an accountant who may    #}
+{# apply nothing still has to be able to see what was applied.                #}
+
+{% block pageactions %}
+  <a class="btn btn--primary" href="{% url 'inventory:import_upload' %}">{% translate "استيراد جديد" %}</a>
+{% endblock %}
+
+{% block filters %}
+  <select name="status" aria-label="{% translate 'الحالة' %}"
+          style="height:42px;border:1px solid var(--line);border-radius:10px;padding-inline:12px;font:inherit">
+    <option value="">{% translate "كل الحالات" %}</option>
+    {% for value, label in statuses %}
+      <option value="{{ value }}" {% if value == selected_status %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الملف" %}</th>
+  <th>{% translate "النوع" %}</th>
+  <th>{% translate "المؤسسة" %}</th>
+  <th>{% translate "الفرع" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "سطور" %}</th>
+  <th>{% translate "صالحة" %}</th>
+  <th>{% translate "أخطاء" %}</th>
+  <th>{% translate "مُغيَّرة" %}</th>
+  <th>{% translate "رفعها" %}</th>
+  <th>{% translate "طبّقها" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for batch in batches %}
+    <tr>
+      <td><a href="{% url 'inventory:import_detail' batch.pk %}">{{ batch.original_filename }}</a></td>
+      <td>{{ batch.get_kind_display }}</td>
+      <td><code>{{ batch.organization.code }}</code></td>
+      <td>{% if batch.branch %}<code>{{ batch.branch.code }}</code>{% else %}—{% endif %}</td>
+      <td>{{ batch.get_status_display }}</td>
+      <td><code dir="ltr">{{ batch.row_count }}</code></td>
+      <td><code dir="ltr">{{ batch.valid_row_count }}</code></td>
+      <td><code dir="ltr">{{ batch.error_row_count }}</code></td>
+      <td><code dir="ltr">{{ batch.applied_row_count }}</code></td>
+      <td>{{ batch.uploaded_by.username|default:"—" }}</td>
+      <td>{{ batch.applied_by.username|default:"—" }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="11">{% translate "لم يُرفع أي ملف بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

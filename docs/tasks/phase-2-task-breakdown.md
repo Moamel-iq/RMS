@@ -1,0 +1,471 @@
+# Phase 2 — Procurement and AP: task breakdown and exit gates
+
+Proposed 2026-08-11 by Task 2.0. The order is dependency-driven, and the
+governing principle carries over from Phase 1: **nothing depends on a figure
+until the figure is reconcilable.**
+
+## Why this shape
+
+Three ordering constraints do most of the work.
+
+**Master data before documents.** A purchase request naming a supplier that
+does not exist is not a document, and a catalogue that arrives after the orders
+it was meant to inform is a data-entry exercise rather than a control.
+
+**The receipt comes before the invoice, and the accounting comes with it.**
+A goods receipt is the first procurement event that touches the ledger, and it
+touches two of them at once. Building the invoice first would mean building the
+payable against a GRNI balance nothing had yet created — so 2.8 posts stock and
+2.9 immediately proves it reconciles, before anything is allowed to clear it.
+
+**Matching comes after both sides exist, and variance after matching.** Three-
+way matching is meaningless with two of the three documents, and variance is
+meaningless without a match to differ from. Building them earlier means
+building them against fixtures instead of against posted history.
+
+One consequence is worth stating plainly: **returns (2.13) depend on 2.9, not
+on the invoice.** Goods can go back before anyone has agreed a price, and the
+task order has to admit that or the implementation will assume otherwise.
+
+## The tasks
+
+### Task 2.0 — Domain specification — **THIS TASK**
+
+Specification, invariants, task breakdown, two proposed ADRs. No code, no
+models, no migrations.
+
+**Exit:** the specification is internally consistent with ADR-006 – ADR-021 and
+with the Phase 1 implementation, and every decision it defers is named in §16.
+
+---
+
+### Task 2.1 — Supplier master
+
+`Supplier` with organization-scoped canonical code, bilingual names, contact
+details, payment terms, credit metadata, archive and reactivate. Services,
+scope-safe selectors, permissions, command API, Arabic RTL list and form,
+HTMX filters, read-only admin, audit, three demo suppliers.
+
+Depends on: 2.0. **Visible route required.**
+
+---
+
+### Task 2.2 — Supplier item catalogue
+
+`SupplierItem`: supplier SKU, purchase package, lead time, minimum order,
+preferred flag, effective dating, versioning. Fixed and variable package
+compatibility. Demo catalogue rows for the five existing items.
+
+Depends on: 2.1. **Visible route required.**
+
+---
+
+### Task 2.3 — Purchase requests
+
+`PurchaseRequest` and lines, the five statuses, maker-checker as a database
+constraint, conversion snapshot at submission, no ledger effect of any kind.
+Demo: a draft, a submitted and an approved request.
+
+Depends on: 2.2.
+
+---
+
+### Task 2.4 — Supplier quotations
+
+`SupplierQuotation` and lines, validity, freight and other charges, evidence
+reference. Demo: quotations from two suppliers against one request.
+
+Depends on: 2.3.
+
+---
+
+### Task 2.5 — Quotation comparison and award
+
+Normalised base-quantity comparison, landed base unit price, the comparison
+report and its Arabic screen, the award with actor and reason. No automatic
+selection. Demo: an award with a recorded reason.
+
+Depends on: 2.4.
+
+---
+
+### Task 2.6 — Purchase orders
+
+`PurchaseOrder` and lines, source request and quotation, agreed price, terms
+snapshot, `DRAFT → APPROVED → ISSUED`. No stock effect, no payable effect.
+
+Depends on: 2.5. **Visible route required.**
+
+---
+
+### Task 2.7 — Purchase order change control
+
+Draft editing, `PurchaseOrderVersion` for issued orders, revision reason,
+cancellation, the received-quantity floor, the supplier-change prohibition,
+immutable version history. Demo: a revised order and a cancelled one.
+
+Depends on: 2.6.
+
+---
+
+### Task 2.8 — Goods receipt and inspection
+
+`GoodsReceipt` and lines, optional PO link, delivered/accepted/rejected,
+measured quantity for variable packages, lot and expiry, warehouse and
+location, supplier delivery reference, partial receipt, the zero-tolerance
+over-receipt refusal, posting through the inventory kernel, idempotency,
+reversal. Demo: a receipt with an accepted and a rejected line.
+
+Depends on: 2.6. **Visible route required. First task in Phase 2 that moves
+stock.**
+
+---
+
+### Task 2.9 — GRNI accounting
+
+`Dr Inventory control / Cr GRNI` at accepted value, grouped debits where items
+resolve to different control accounts, effective-dated role resolution, period
+validation, mapping lock, atomic rollback, reversal, reconciliation, journal
+drill-down from the receipt.
+
+Depends on: 2.8. **Certification boundary: run the affected-domain suite.**
+
+---
+
+### Task 2.10 — Supplier invoices and the payable
+
+`SupplierInvoice` and lines, unique number per supplier, invoice and due dates,
+PO and receipt references, item and account lines, freight and discount
+allocated with `apps/core/allocation.py`, the four statuses, the payable
+posting, no stock mutation. Demo: a matched and an unmatched invoice.
+
+Depends on: 2.9. **Run the complete project suite at this boundary.**
+
+**Delivered, with one boundary that was not obvious when this was written.**
+"The payable posting" is complete for a **direct account** line:
+`Dr` the chosen expense or asset account, `Cr SUPPLIER_PAYABLE`. It is *not*
+complete for an **inventory** line, because §9 of Task 2.0 posts the *matched
+receipt value* to GRNI and the difference to purchase price variance — and both
+figures come from a match allocation, which is Task 2.11. An invoice carrying a
+goods line therefore approves and holds, with `invoice_awaiting_matching` and a
+screen that says why. Posting the invoiced amount to GRNI instead would balance
+and be wrong: it would clear a variance nobody computed and leave 2.12 nothing
+to recognise. Task 2.11 and 2.12 activate that path together, and
+`TestTheMatchingBoundary` holds the line until they do.
+
+---
+
+### Task 2.11 — Three-way matching
+
+`MatchAllocation` among PO line, receipt line and invoice line. Ordered,
+accepted, invoiced, matched quantity and value; quantity and price variance;
+derived exception status. Partial and multiple allocations. Over-allocation
+impossible.
+
+Depends on: 2.10.
+
+**Delivered, with two shapes this outline did not fix.**
+
+*An explicit header.* §9 of Task 2.0 sketches `MatchAllocation` as bare rows.
+Rows alone have no moment at which the answer is agreed, so there is a
+`PurchaseMatch` above them with `DRAFT → READY → CANCELLED` and no `POSTED` —
+readiness is what Task 2.12 will consume, and cancellation with a reason is the
+correction. One active match per invoice; a cancelled one is history and frees
+the invoice for its replacement.
+
+*Two values, not one.* §9's single `matched_value` cannot express the posting
+§9 itself specifies — `Dr` GRNI the matched **receipt** value, `Dr` variance the
+difference, `Cr` payable the **invoiced** value. Each allocation therefore
+stores `receipt_allocated_value`, `invoice_allocated_value` and their
+difference, with the database asserting the subtraction.
+
+**The variance is information here, not an entry.** It is computed, stored,
+displayed behind the cost permission and summed on the header. Nothing posts:
+no journal, no stock, no GRNI clearing, and the invoice is still `APPROVED`
+after a match is `READY`. `PURCHASE_PRICE_VARIANCE` stays unseeded until 2.12
+has a posting rule to put behind it, and `TestTheStepFourteenBoundary` fails
+the moment any of that stops being true.
+
+---
+
+### Task 2.12 — Price and quantity variance accounting
+
+GRNI clearing, payable posting, the on-hand versus consumed split, deterministic
+residual allocation, the explicit revaluation path, no historical movement
+mutation, reconciliation. ADR-022 is written here.
+
+Depends on: 2.11.
+
+**Delivered, with one half of the scope explicitly deferred.**
+
+*What shipped.* Posting a matched invoice clears GRNI at what the deliveries
+actually posted, credits the supplier with the whole invoice, and parks the
+difference. Each posting is a `SupplierInvoicePosting` **generation**, so the
+ordinary correction — reverse because the match was wrong, re-match, post again
+— works without a duplicate document and without the ledger mistaking the
+second entry for a retry of the first.
+
+*What was deferred, and why.* The **on-hand versus consumed split and the
+explicit revaluation path (PRC-044) are NOT ELECTED.** ADR-022 §4 asserted a
+permission and an audit event that no document ever defined, and the elected
+path additionally needs a source identity, an inventory-versus-cost-of-sales
+allocation policy, journal shapes for both directions, per-warehouse and
+per-lot allocation, and locking, reversal and period-close rules. Building a
+partial version would move an inventory figure nobody could derive from a
+document they were shown — the exact failure ADR-022 §4 exists to prevent. It
+becomes its own task with its own specification.
+
+*The account changed.* Task 2.0 §15's `5-02-01-001` is superseded: class 5
+demands a cost centre a supplier invoice has nowhere to get, and ADR-022 itself
+rejects booking a purchasing outcome as cost of sales. The difference parks in
+`8-01-03-001`, a clearing account, and its balance is expected to stand until
+the deferred period-end process splits it.
+
+---
+
+### Task 2.13 — Supplier returns
+
+Source receipt and lot, return quantity, warehouse and location, outbound at
+the standing average, negative-stock prevention, the distinct movement type,
+the supplier-credit-expected state, accounting clearing, reversal.
+
+Depends on: 2.9 — **not** on the invoice.
+
+**Status: DONE.**
+
+*What shipped.* `SupplierReturn` with a line per source `GoodsReceiptLine`
+(§10 amended — the header sketch alone has no quantity, no amount and no
+double-return guard), posting `RETURN_OUT` movements at the standing average
+through the kernel and one journal — `Dr SUPPLIER_RETURN_CLEARING /
+Cr INVENTORY_CONTROL` — in a single transaction. The clearing balance **is**
+the supplier-credit-expected state: no variance, no payable and no GRNI move
+at the return, because at the gate nobody knows what the supplier will credit
+(ADR-022 §2 as amended). `expected_credit_value` is recorded as claim
+metadata and posts nothing. The bound is per delivery line — accepted less
+standing returns, reversed ones release — checked under a receipt-line lock
+at drafting and re-checked at posting. Four warehouse-scoped permissions on
+the receipt's pattern; the storekeeper records and posts, only a manager
+reverses. Whole-row immutability triggers, reversal by exact mirror,
+`verify_supplier_returns` in the standing verifier, three demo returns (one
+per state), Arabic RTL screens with the navigation entry inventory gave up,
+API commands, read-only admin.
+
+*Found under a real COMMIT race and fixed here.* Task 2.9's receipt-reversal
+guard walked only line relations, and a return cites the receipt at the
+header before its first line exists in a separate transaction — so for a
+moment a standing draft return was invisible to it. The guard now walks the
+header's relations too, and the race serializes on the receipt row.
+
+---
+
+### Task 2.14 — Supplier credit notes
+
+Supplier, invoice and return references, allocations, amount, reason, payable
+reduction or standing credit, reversal, duplicate-document protection.
+
+Depends on: 2.13.
+
+**Status: DONE (2.14).**
+
+*What shipped.* `SupplierCreditNote` citing one posted return and settling it
+**partially, per line, across notes** through explicit
+`SupplierCreditReturnAllocation` rows — each slice takes the quantized
+proportional share of the line's remaining claim, the final slice the exact
+remainder, so no rounding residual strands in the clearing account — with
+`SupplierCreditAllocation` rows netting the note against posted invoices.
+Posting writes ADR-022 §2's deferred entry: `Dr SUPPLIER_PAYABLE amount /
+Cr SUPPLIER_RETURN_CLEARING settled book value / Cr-or-Dr
+PURCHASE_RETURN_VARIANCE difference`, the variance line absent when the
+figures agree. The variance role is mapped now — Task 2.13 seeded it and
+refused to, because nothing posted to it. `outstanding_amount` and
+`supplier_outstanding` subtract posted notes; the unallocated remainder is
+PRC-051's standing credit, an allocation state rather than an account.
+Whole-row triggers, exact-mirror reversal, `verify_supplier_credit_notes`
+(per-note journal equalities plus the organization-wide clearing and variance
+balances), four organization-scoped permissions with the invoice's
+maker-checker split, Arabic RTL screens, API commands, read-only admin, a
+demo note settling the chicken return as a visible 12,514.706 loss, and three
+real-COMMIT races.
+
+*Scope, recorded.* A Release 1 note **must cite a posted return**. An
+invoice-only or reference-free note has no approved contra account in §15 or
+any accepted ADR, and inventing one was refused — the same reasoning that
+excluded invoice-before-receipt at Task 2.10. Relaxing it is its own task.
+
+*Found and fixed here.* The invoice's reversal guard had the receipt guard's
+Task 2.13 blind spot: it walked only line relations, and a credit allocation
+cites the invoice at the header — so a reversal would have unmade a debt a
+posted note had netted against. The guard now walks the header too, which
+required `PurchaseMatch` to declare `live_dependency` (a cancelled match is
+history, not a dependent) so the documented reverse-and-rematch correction
+kept working.
+
+---
+
+### Task 2.15 — Supplier payments and allocations
+
+Payment, cash or bank via effective-dated role, date, amount, invoice
+allocations, partial payment, oldest-invoice default, unallocated advance, no
+over-allocation, accounting, reversal. Demo: a partial payment leaving a
+correct open balance.
+
+Depends on: 2.10.
+
+**Status: DONE.**
+
+*What shipped.* `SupplierPayment` + `PaymentAllocation` posting §11's journal
+verbatim — `Dr payable allocated / Dr advance remainder / Cr cash-or-bank
+full amount` — with the source resolved by `method` through the new
+`SUPPLIER_PAYMENT_CASH`/`SUPPLIER_PAYMENT_BANK` roles and the remainder in
+the new `1-04-01-001` under `SUPPLIER_ADVANCE` (chart 74 → 77). The
+allocation bound is the invoice's **outstanding** — one expression net of
+credit notes and payments both, in `outstanding_amount` — stricter than
+PRC-054's "its total", deliberately. Whole-row triggers, exact-mirror
+reversal, `verify_supplier_payments` (per-payment journal equalities plus
+the organization-wide advance balance), four organization-scoped permissions
+with the invoice's maker-checker split, Arabic RTL screens with the
+oldest-due-first visible ordering (PRC-057), API commands, read-only admin,
+`DEMO-SPAY-GOODS` (50,000 allocated of 60,000, a real 10,000 advance
+standing), and three real-COMMIT races.
+
+*Deferred, recorded.* Consuming a standing advance or a credit note's
+standing credit against a later invoice has no approved journal shape
+anywhere and awaits its own task — the same discipline that scoped the
+credit note.
+
+---
+
+### Task 2.16 — Reports and reconciliation
+
+Supplier aging, supplier statement, open POs, outstanding receipt quantity,
+GRNI exceptions, invoice-without-receipt, matching exceptions, purchase spend,
+price variance, return and credit status, payment allocations, and
+`verify_procurement_accounting`. Scoped CSV, HTMX filters, pagination. No
+repair button.
+
+Depends on: 2.15. **Run the complete project suite at this boundary.**
+
+**Status: DONE.**
+
+*What shipped.* Twelve GET-only reports on the Phase 1 machinery, inherited
+rather than imitated: `ProcurementReportView` subclasses the inventory report
+base, so the shared template, the CSV-equals-screen export, the formula
+neutralisation, the pagination and the scope-then-filter discipline are the
+same code Phase 1 certified. What changed is exactly what the module needs —
+entry through the new organization-scoped `view_procurement_report`
+(migration 0031, granted to manager, accounting manager, accountant and
+purchasing), cost redaction through `view_supplier_cost` instead of
+`view_valuation`, and a `supplier_id` filter on a `ReportFilters` subclass.
+Every figure is the verifiers' own derivation — `outstanding_amount`,
+`unallocated_credit`, `advance_remainder`, `settled_book_value_for`, the
+GRNI clearing arithmetic — never a second formula, so a report and a
+reconciliation cannot disagree. `verify_procurement_accounting` (PRC-058)
+proves equalities 1–3 directly — open balances vs the payable account, GRNI
+via the delegated `verify_grni_clearing`, and source identity across all six
+procurement source types — with equality 4 re-checked by the per-document
+verifiers `verify_procurement` composes alongside it. The Procurement-to-GL
+screen renders those same three checks as rows. Navigation promotes
+"أرصدة الموردين" to the aging report — the balance is derived, so the report
+*is* the balances screen. The matching-exceptions read excludes matches
+behind a live posting: once posted, a variance is an explanation in the
+price-variance report, not a pending decision.
+
+*Verified.* Route-swept on the dev database as a privileged reader (twelve
+200s, cost columns present) and as a storekeeper (twelve 403s); demo numbers
+reconcile to the fils against the Task 2.13–2.15 documents; the planted
+journal is reported by verifier and report alike and left standing.
+
+---
+
+### Task 2.17 — Imports, demo completion and hardening
+
+Preview-first imports for supplier master, supplier-item catalogue, and
+purchase-request drafts only. File security, atomic apply, idempotency,
+cross-tenant tests, concurrency tests, export formula protection, admin
+lockdown, the complete demo command, the visible route matrix, HTMX
+verification.
+
+Depends on: 2.16.
+
+**Status: DONE.**
+
+*What shipped.* The Task 1.7 framework extended, never forked: three kinds
+join `ImportKind` (`SUPPLIER`, `SUPPLIER_ITEM`, `PURCHASE_REQUEST_DRAFT`,
+the last branch-scoped — inventory migration 0020 regenerates both kind
+constraints), and `apps/procurement/imports.py` registers its validators,
+writers, compound row identities and per-kind permissions into the
+framework's registries from `AppConfig.ready` — inventory never imports
+procurement. Two registry hooks were added to the framework for this
+(`EXTERNAL_KEYS`, so a catalogue row's identity is supplier *and* item and
+never item alone; `KIND_PERMISSIONS`, so a kind another module owns demands
+that module's permission), both falling back to the unchanged Task 1.7
+behaviour. Writers call only the real services — `create_supplier`/
+`update_supplier`, the catalogue services, `create_purchase_request` +
+`add_request_line` — so an import can never do what a person could not, and
+rows sharing (warehouse, required date, purpose) become lines of **one**
+reviewable draft that draws no number and submits nothing (§16.8 kept by
+vocabulary: no kind for any posted document exists, asserted). New
+organization-scoped `import_supplier` / `import_supplier_item` (spec §13,
+migration 0032) granted to manager and purchasing; the draft kind rides
+`create_purchase_request`. File security, preview-then-apply, all-or-nothing
+and the content-hash retry guard are inherited, not reimplemented — the
+framework's own tests still pass with the six-kind positive twin replacing
+the three-kind boundary. The demo seeds **both halves of the contract**, matching
+Task 1.7's own `_applied_import`/`_failed_import` precedent: one APPLIED
+batch restating the three demo suppliers with exactly one carrying a note
+they lack — so it makes a real, visible, harmless change through
+`update_supplier` and shows an applied count (1) below its valid-row count
+(3), the framework's documented "unchanged is not a failure" behaviour on
+screen — and one FAILED_VALIDATION batch holding one good row (a restated
+existing supplier) beside a nameless supplier and unparseable terms, proving
+one bad row stops all of it and the good row is not quietly applied anyway.
+Three suppliers before and after, either way (PRC-066). Idempotent by
+filename and by content hash beneath it; the inspection list gains the
+import history route.
+
+*Verified.* Fresh `khan_mandi_p2_b11` migrated from zero, seeded twice with
+identical counts, `verify_procurement` clean, the upload screen offering all
+six kinds, HTMX fragments answering as fragments; re-verified end to end on
+`khan_mandi_p2_gate2` after the review below.
+
+*Defect found and closed at the 2.18 review.* The writers compared raw CSV
+text against **service-normalised** stored values — `create_supplier`
+canonicalises the phone and strips every text field — so a row restating a
+supplier exactly as it already existed reported `updated`, inflating
+`applied_row_count` on every re-import and breaking the framework's
+"unchanged is not a failure" contract for procurement; worse, an unusable
+phone passed validation and would have raised inside `apply_batch`, halfway
+through an atomic write. Fixed in the **validator**, not the writer: cleaned
+rows now hold exactly what the service will store, so the preview shows the
+landing value and a bad phone is a row error with a row number. Two
+regression tests hold it.
+
+---
+
+### Task 2.18 — Phase 2 exit gate
+
+All fifty procurement invariants verified. Supplier subledger equals the
+payable account. Accepted receipt quantity equals inventory. GRNI reconciles.
+Matching allocations balance. No duplicate posting, no cross-tenant access, no
+scope leak. Exact Decimals. Demo visible on every route. Fresh database
+migrated from zero. Complete suite, all quality gates, zero pending migrations,
+traceability citing real tests.
+
+**Exit:** tag `phase-2-procurement-complete`. Not merged into `main`.
+
+## Exit gates, restated
+
+A task is not complete until:
+
+- focused tests pass;
+- affected-domain tests pass;
+- security and concurrency tests pass where applicable;
+- ruff, ruff format, mypy, `manage.py check` and `makemigrations --check` pass;
+- reconciliation is clean where applicable;
+- demo data exists and the rendered route was actually opened;
+- the work is committed and the branch pushed;
+- unresolved errors are zero.
+
+A full-project suite runs at the 2.10 and 2.16 boundaries, at 2.18, and
+whenever a change reaches the inventory or accounting kernel — not after every
+small step.
