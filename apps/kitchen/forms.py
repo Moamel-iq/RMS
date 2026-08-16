@@ -335,7 +335,12 @@ class RecipeLineSubstituteForm(ScopedForm, SourceProvenanceMixin):
     substitute_item = forms.ModelChoiceField(
         queryset=InventoryItem.objects.none(), label=_("الصنف البديل")
     )
-    priority = forms.IntegerField(label=_("الأولوية"), min_value=1, initial=1)
+    priority = forms.IntegerField(
+        label=_("الأولوية"),
+        min_value=1,
+        required=False,
+        help_text=_("اتركه فارغاً ليأخذ البديل الترتيب التالي على هذا السطر."),
+    )
     reason = forms.CharField(label=_("السبب"), max_length=200, required=False)
     note = forms.CharField(
         label=_("ملاحظة"), widget=forms.Textarea(attrs={"rows": 2}), required=False

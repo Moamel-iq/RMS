@@ -844,7 +844,7 @@ def add_recipe_line_substitute(
     *,
     line: RecipeLine,
     substitute_item: InventoryItem,
-    priority: int = 1,
+    priority: int | None = None,
     reason: str = "",
     note: str = "",
     source_document: str = "",
@@ -859,6 +859,12 @@ def add_recipe_line_substitute(
     Guidance, never automation (RCP-022): nothing in this module substitutes
     anything. When a production batch is built in Task 3.4 the screen offers
     this list, and the batch records what was **actually** consumed.
+
+    A line may carry several ranked alternatives. `priority` is drawn under the
+    version's lock when the caller does not supply one, because the rank is an
+    **order** rather than a suggestion: two substitutes both at priority 1
+    would leave the batch screen choosing by primary key, which is not a
+    business decision.
     """
     current_line = (
         RecipeLine.objects.select_for_update().select_related("version", "item").get(pk=line.pk)
@@ -869,6 +875,12 @@ def add_recipe_line_substitute(
         raise ValidationError({"substitute_item": _("البديل لا يمكن أن يكون نفس الصنف.")})
     _require_same_organization(version.recipe.organization, item=substitute_item)
     document, page = _validate_provenance(source_document, source_page)
+
+    if priority is None:
+        highest = current_line.substitutes.filter(is_active=True).aggregate(
+            highest=Max("priority")
+        )["highest"]
+        priority = (highest or 0) + 1
 
     substitute = RecipeLineSubstitute(
         line=current_line,
@@ -894,7 +906,7 @@ def add_recipe_line_substitute(
 def update_recipe_line_substitute(
     *,
     substitute: RecipeLineSubstitute,
-    priority: int = 1,
+    priority: int | None = None,
     reason: str = "",
     note: str = "",
     is_active: bool = True,
@@ -908,7 +920,8 @@ def update_recipe_line_substitute(
     _lock_draft(current.line.version)
     previous = snapshot(current)
 
-    current.priority = priority
+    if priority is not None:
+        current.priority = priority
     current.reason = reason.strip()
     current.note = note.strip()
     current.is_active = is_active

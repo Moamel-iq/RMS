@@ -732,6 +732,19 @@ class RecipeLineSubstitute(TimeStampedModel, SourceProvenance):
                 condition=Q(is_active=True),
                 name="recipe_substitute_unique_active_per_line",
             ),
+            # Ranked alternatives, and the ranking has to be an order rather
+            # than a suggestion: two substitutes both at priority 1 leave the
+            # batch screen choosing by primary key, which is not a business
+            # decision. Scoped to active rows so an archived substitute does
+            # not hold a rank nothing uses.
+            models.UniqueConstraint(
+                fields=["line", "priority"],
+                condition=Q(is_active=True),
+                name="recipe_substitute_priority_unique_per_line",
+            ),
+            models.CheckConstraint(
+                condition=Q(priority__gt=0), name="recipe_substitute_priority_is_positive"
+            ),
             _provenance_constraint("recipe_substitute_provenance_is_complete"),
         ]
 
@@ -999,3 +1012,22 @@ class RecipeServing(TimeStampedModel, SourceProvenance):
 
     def __str__(self) -> str:
         return f"{self.version} · {self.code}"
+
+    @property
+    def factor_display(self) -> str:
+        """
+        The factor as a technical identity — always a period, never a comma,
+        and always at full stored precision.
+
+        Django localises Decimals, so under Arabic this would otherwise render
+        `0,033333333333`. A comma there is ambiguous and invites a mis-typed
+        re-entry (`CLAUDE.md`, locale-independence rule), and this is the exact
+        case that rule names: a conversion factor.
+
+        Quantized rather than formatted as-is so the rendering does not depend
+        on whether the value has been round-tripped through the database: a
+        freshly assigned `Decimal("0.5")` and the same value re-read must not
+        display differently. Mirrors `ItemPackageConversion.factor_display`.
+        """
+        quantum = Decimal(1).scaleb(-FACTOR_PLACES)
+        return f"{self.factor_of_batch.quantize(quantum):f}"

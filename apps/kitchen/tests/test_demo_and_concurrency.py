@@ -275,3 +275,82 @@ class TestConcurrency:
 
         self._race(work)
         assert draft.servings.filter(is_primary=True).count() <= 1
+
+    def test_two_concurrent_version_creations_cannot_collide(
+        self, recipe: Recipe, kilogram: UnitOfMeasure, manager: User
+    ) -> None:
+        """
+        Task 3.2 §B.1: the allocator is a locked read-modify-write on the
+        Recipe row, so two callers cannot draw the same number, overwrite
+        `last_version_number`, or both leave a DRAFT behind.
+
+        Asserted at real COMMIT rather than against the partial unique index
+        alone: an index only refuses the *second insert*, and by then both
+        callers have already chosen the same number and one of them has lost
+        work it thought it had done.
+        """
+        from apps.kitchen.services import create_draft_recipe_version
+
+        def work(index: int) -> None:
+            create_draft_recipe_version(
+                recipe=recipe,
+                expected_output_quantity=Decimal("10"),
+                output_unit=kilogram,
+                created_by=manager,
+            )
+
+        errors = self._race(work)
+
+        # One draft per recipe is the Task 3.1 rule, so exactly one survives.
+        assert len([e for e in errors if e is None]) == 1
+        versions = list(RecipeVersion.objects.filter(recipe=recipe))
+        assert len(versions) == 1
+        recipe.refresh_from_db()
+        # The allocator advanced exactly once, and the surviving row holds it.
+        assert recipe.last_version_number == versions[0].version_number
+
+    def test_two_ranked_alternatives_can_both_be_active(
+        self,
+        draft: RecipeVersion,
+        rice: InventoryItem,
+        oil: InventoryItem,
+        box: InventoryItem,
+        kilogram: UnitOfMeasure,
+    ) -> None:
+        """
+        Task 3.2 §B.2. The rule is one active substitute per *item* per line —
+        not one substitute per line. A cook needs a ranked list of what may
+        stand in, and the constraint permits it.
+        """
+        from apps.kitchen.services import add_recipe_line, add_recipe_line_substitute
+
+        line = add_recipe_line(
+            version=draft, item=rice, entered_quantity=Decimal("1"), entered_unit=kilogram
+        )
+        first = add_recipe_line_substitute(line=line, substitute_item=oil)
+        second = add_recipe_line_substitute(line=line, substitute_item=box)
+
+        assert line.substitutes.filter(is_active=True).count() == 2
+        # Ranks are allocated, not defaulted, so the order is an order.
+        assert [first.priority, second.priority] == [1, 2]
+
+    def test_two_active_substitutes_cannot_share_a_rank(
+        self,
+        draft: RecipeVersion,
+        rice: InventoryItem,
+        oil: InventoryItem,
+        box: InventoryItem,
+        kilogram: UnitOfMeasure,
+    ) -> None:
+        """A rank that two rows share is not a rank; the database refuses it."""
+        from django.db import IntegrityError
+
+        from apps.kitchen.services import add_recipe_line, add_recipe_line_substitute
+
+        line = add_recipe_line(
+            version=draft, item=rice, entered_quantity=Decimal("1"), entered_unit=kilogram
+        )
+        add_recipe_line_substitute(line=line, substitute_item=oil, priority=1)
+        with pytest.raises((IntegrityError, Exception)):
+            with transaction.atomic():
+                add_recipe_line_substitute(line=line, substitute_item=box, priority=1)

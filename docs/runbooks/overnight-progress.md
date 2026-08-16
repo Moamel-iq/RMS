@@ -1097,3 +1097,39 @@ production batch, no import, no report, no price. Task 3.2 is the next
 dependency, and it inherits KD-02: a real branch recipe may be captured as a
 draft and may not be **approved** until its `KM-RCP-004` costing data is
 complete.
+
+## Task 3.1 follow-up — locale defect and the Task 3.2 §B preflight
+
+Three corrections to the Task 3.1 tree, certified by their own definitive suite
+(2511 passed / 0 failed, 57:08).
+
+**A locale defect the tests missed and the browser caught.** `factor_of_batch`
+rendered as `0,033333333333` — a comma, because Django localises Decimals under
+Arabic. `CLAUDE.md` names this exact case: a conversion factor is a technical
+identity, and "a comma there is ambiguous and invites a mis-typed re-entry."
+`RecipeServing.factor_display` now mirrors `ItemPackageConversion.factor_display`
+and renders in an LTR `<code>`. Two regression tests: one on the property, one
+on the rendered HTML under Arabic.
+
+**Task 3.2 §B.1 — the version allocator had no race test.** The mechanism was
+right (a locked read-modify-write on the Recipe row), but nothing proved it.
+The new real-COMMIT test asserts the surviving version's number equals
+`last_version_number`, so the allocator advanced exactly once. A partial unique
+index alone would not have been enough: it refuses the second *insert*, by
+which point both callers have already chosen the same number.
+
+**Task 3.2 §B.2 — a correction to the Task 3.1 report, and one real gap.** The
+report said "one active substitute per line." That was **wrong**: the constraint
+is `UNIQUE(line, substitute_item) WHERE is_active`, so ranked alternatives were
+always permitted. The real gap was that `priority` had no uniqueness, so two
+substitutes could share rank 1 and the batch screen would order by primary key.
+Migration `0003` adds `UNIQUE(line, priority) WHERE is_active` and a positivity
+check; the service now draws the next free rank under the version's lock.
+
+§B.3 (`view_recipe_cost` reserved, no cost surface) and §B.4 (no station field)
+were already correct and unchanged.
+
+**Task 3.2 §C – §U is not started.** The lifecycle, effective dating, approval
+evidence, components, resolver, verifier and screens are a larger body of work
+than Task 3.1 was. It begins in its own session, from this certified tree, with
+the §B findings already banked.

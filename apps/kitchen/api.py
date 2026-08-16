@@ -192,7 +192,8 @@ class LineOut(Schema):
 
 class SubstituteIn(Schema):
     substitute_item_id: int
-    priority: int = 1
+    #: Omit to take the next free rank on this line.
+    priority: int | None = None
     reason: str = ""
     note: str = ""
 

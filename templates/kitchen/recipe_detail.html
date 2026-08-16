@@ -260,7 +260,9 @@
               <td>{{ serving.name_ar }}</td>
               <td>{{ serving.serving_quantity }} {{ serving.serving_unit.code }}</td>
               <td>{{ serving.base_quantity }} {{ draft.output_unit.code }}</td>
-              <td>{{ serving.factor_of_batch }}</td>
+              {# A conversion factor is a technical identity: period, never a #}
+              {# comma, and re-enterable exactly as shown (CLAUDE.md).        #}
+              <td><code dir="ltr">{{ serving.factor_display }}</code></td>
               <td>{% if serving.is_primary %}<span class="chip chip--on">{% translate "نعم" %}</span>{% else %}—{% endif %}</td>
               <td>{% if serving.has_source %}<span class="muted">{{ serving.source_document }} · {% translate "ص" %}{{ serving.source_page }}</span>{% else %}—{% endif %}</td>
               <td>

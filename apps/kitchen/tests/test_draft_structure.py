@@ -19,6 +19,7 @@ from decimal import Decimal
 import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.test import Client
 
 from apps.inventory.models import InventoryItem, PackageUnit
 from apps.kitchen.models import (
@@ -722,3 +723,49 @@ class TestServings:
                     if Decimal(str(node.value)) in forbidden_numbers:
                         offenders.append(f"{path}:{node.lineno}:{node.value}")
         assert offenders == []
+
+
+class TestFactorIsLocaleIndependent:
+    """
+    A serving factor is a technical identity, not a human-facing figure.
+
+    `CLAUDE.md` names this exact case: Django localises Decimals, so under
+    Arabic a factor renders `0,033333333333`, and a comma there is ambiguous
+    and invites a mis-typed re-entry. Caught by opening the screen, which is
+    why the screen is worth opening.
+    """
+
+    def test_the_factor_renders_with_a_period_at_full_precision(
+        self, draft: RecipeVersion, kilogram: UnitOfMeasure
+    ) -> None:
+        serving = add_recipe_serving(
+            version=draft,
+            code="THIRD",
+            name_ar="ثلث",
+            serving_quantity=Decimal("1"),
+            serving_unit=kilogram,
+            is_primary=True,
+        )
+        assert serving.factor_display == "0.100000000000"
+        assert "," not in serving.factor_display
+
+    def test_the_screen_renders_the_factor_left_to_right_under_arabic(
+        self, manager_client: Client, draft: RecipeVersion, kilogram: UnitOfMeasure
+    ) -> None:
+        from django.conf import settings
+        from django.urls import reverse
+
+        add_recipe_serving(
+            version=draft,
+            code="THIRD",
+            name_ar="ثلث",
+            serving_quantity=Decimal("1"),
+            serving_unit=kilogram,
+            is_primary=True,
+        )
+        manager_client.cookies[settings.LANGUAGE_COOKIE_NAME] = "ar"
+        body = manager_client.get(
+            reverse("kitchen:recipe_detail", args=[draft.recipe_id])
+        ).content.decode()
+        assert '<code dir="ltr">0.100000000000</code>' in body
+        assert "0,100000000000" not in body
