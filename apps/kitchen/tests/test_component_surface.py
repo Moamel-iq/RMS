@@ -448,14 +448,18 @@ class TestTheApi:
         )
         assert response.status_code == 403
 
-    def test_the_costing_routes_arrived_and_the_production_ones_did_not(self) -> None:
+    def test_the_drafting_routes_arrived_and_the_posting_ones_did_not(self) -> None:
         """
-        **Task 3.3 brought the cost routes in**, so that half of the original
-        claim is now false and this test was rewritten rather than deleted —
-        the fence moved, it did not come down.
+        **Task 3.3 brought the cost routes in and Task 3.4 the drafting ones**,
+        so the original claim is now false twice over and this test has been
+        rewritten each time rather than deleted — the fence moved, it did not
+        come down.
 
-        Flattening into a production batch is Task 3.4's and posting is Task
-        3.5's; neither may appear before its task.
+        What is left of it is the line that still matters: a production batch
+        may be drafted, scaled and edited over the wire, and it may not be
+        posted, reversed, issued, consumed, completed or journalled. Those are
+        Task 3.5's, and a route is the first place an unfinished boundary
+        leaks.
         """
         from config.api import api
 
@@ -468,8 +472,9 @@ class TestTheApi:
         kitchen = {path for path in paths if "kitchen" in path}
         assert kitchen
         assert any("cost" in path for path in kitchen), "Task 3.3 owns the cost routes"
+        assert any("production-batches" in path for path in kitchen), "Task 3.4 owns drafting"
         for path in kitchen:
-            for forbidden in ("flatten", "production", "batch"):
+            for forbidden in ("flatten", "/post", "reverse", "issue", "consume", "journal"):
                 assert forbidden not in path.lower(), path
 
 

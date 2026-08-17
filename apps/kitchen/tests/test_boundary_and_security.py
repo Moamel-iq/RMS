@@ -29,10 +29,12 @@ from apps.kitchen.permissions import (
     ACTIVATE_RECIPE_VERSION,
     ALL_PERMISSIONS,
     APPROVE_RECIPE_VERSION,
+    CREATE_PRODUCTION_BATCH,
     MANAGE_RECIPE,
     REJECT_RECIPE_VERSION,
     REVIEW_RECIPE_VERSION,
     SUBMIT_RECIPE_VERSION,
+    VIEW_PRODUCTION,
     VIEW_RECIPE,
     VIEW_RECIPE_COST,
     permissions_for_role,
@@ -202,11 +204,12 @@ class TestDependencyDirection:
 
 
 class TestPermissionMap:
-    def test_the_module_declares_exactly_eight_permissions(self) -> None:
+    def test_the_module_declares_exactly_ten_permissions(self) -> None:
         """
-        Three from Task 3.1 and five from the lifecycle. Task 3.1 asserted
-        three here for the same reason: a permission that arrives before the
-        workflow it guards is a grant nobody can audit.
+        Three from Task 3.1, five from the lifecycle, and the two Task 3.4
+        added for drafting. Task 3.1 asserted three here, and Task 3.2A eight,
+        for the reason this test keeps asserting a closed set: a permission
+        that arrives before the workflow it guards is a grant nobody can audit.
         """
         assert set(ALL_PERMISSIONS) == {
             VIEW_RECIPE,
@@ -217,11 +220,22 @@ class TestPermissionMap:
             APPROVE_RECIPE_VERSION,
             REJECT_RECIPE_VERSION,
             ACTIVATE_RECIPE_VERSION,
+            VIEW_PRODUCTION,
+            CREATE_PRODUCTION_BATCH,
         }
 
-    def test_no_production_or_report_permission_is_registered_early(self) -> None:
-        """Task 3.4 – 3.9's permissions arrive with Task 3.4 – 3.9's workflows."""
-        forbidden = ("production", "batch", "meal", "report", "import")
+    def test_the_two_production_permissions_only_reach_a_draft(self) -> None:
+        """
+        Task 3.4 drafts; it does not post. Reading and drafting are here
+        because their screens are; `post_production_batch` and
+        `reverse_production_batch` are not, because nothing checks them yet.
+        """
+        assert {VIEW_PRODUCTION, CREATE_PRODUCTION_BATCH} <= set(ALL_PERMISSIONS)
+        assert not [name for name in ALL_PERMISSIONS if "post_" in name or "reverse_" in name]
+
+    def test_no_meal_report_or_import_permission_is_registered_early(self) -> None:
+        """Task 3.7 – 3.10's permissions arrive with Task 3.7 – 3.10's workflows."""
+        forbidden = ("meal", "report", "import")
         assert not [name for name in ALL_PERMISSIONS if any(word in name for word in forbidden)]
 
     def test_the_four_lifecycle_authorities_are_separable(self) -> None:
@@ -409,29 +423,28 @@ class TestAdminIsReadOnly:
         assert model_admin.has_delete_permission(None) is False  # type: ignore[arg-type]
 
     def test_every_kitchen_model_is_registered_read_only(self) -> None:
+        """
+        **Every** kitchen model, enumerated from the app registry rather than
+        from a list somebody has to remember to extend.
+
+        The list form was the previous shape of this test, and it would have
+        passed unchanged when Task 3.4 added three tables that nothing
+        registered. Asking the registry is what makes "every" mean every.
+        """
+        from django.apps import apps
         from django.contrib import admin
 
         from apps.kitchen.admin import ReadOnlyAdmin
-        from apps.kitchen.models import (
-            RecipeCategory,
-            RecipeLine,
-            RecipeLineSubstitute,
-            RecipeServing,
-            RecipeStep,
-            RecipeStepIngredient,
-        )
 
-        for model in (
-            Recipe,
-            RecipeCategory,
-            RecipeVersion,
-            RecipeLine,
-            RecipeLineSubstitute,
-            RecipeStep,
-            RecipeStepIngredient,
-            RecipeServing,
-        ):
-            assert isinstance(admin.site._registry[model], ReadOnlyAdmin)
+        for model in apps.get_app_config("kitchen").get_models():
+            if model.__name__.startswith("Historical"):
+                # `simple_history` registers its own admin; it is append-only
+                # by construction and is not this module's to configure.
+                continue
+            assert model in admin.site._registry, f"{model.__name__} is not registered"
+            assert isinstance(admin.site._registry[model], ReadOnlyAdmin), (
+                f"{model.__name__} is registered writable"
+            )
 
 
 class TestNoImportsFromTheProprietarySources:

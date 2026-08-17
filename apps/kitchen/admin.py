@@ -20,7 +20,11 @@ from django.contrib import admin
 from django.http import HttpRequest
 
 from apps.kitchen.models import (
+    ProductionBatch,
+    ProductionBatchActualLine,
+    ProductionBatchLine,
     Recipe,
+    RecipeBranch,
     RecipeCategory,
     RecipeComponent,
     RecipeCostSnapshot,
@@ -68,6 +72,21 @@ class RecipeAdmin(ReadOnlyAdmin):
     list_filter = ("recipe_type", "is_active", "organization")
     search_fields = ("code", "name_ar", "name_en")
     readonly_fields = ("public_id",)
+
+
+@admin.register(RecipeBranch)
+class RecipeBranchAdmin(ReadOnlyAdmin):
+    """
+    Which branches a recipe applies to.
+
+    Registered when Task 3.4 replaced the admin test's hand-maintained model
+    list with one read from the app registry — it had been the only kitchen
+    model nobody had listed, which is exactly the kind of omission a list-shaped
+    test cannot notice.
+    """
+
+    list_display = ("recipe", "branch")
+    search_fields = ("recipe__code", "branch__code")
 
 
 @admin.register(RecipeVersion)
@@ -222,3 +241,70 @@ class RecipeCostSnapshotServingAdmin(ReadOnlyAdmin):
     )
     list_filter = ("allocation_state", "is_primary")
     search_fields = ("code", "name_ar")
+
+
+# ---------------------------------------------------------------------------
+# Task 3.4 - production drafts
+# ---------------------------------------------------------------------------
+#
+# Read-only like everything above, and here the reason is sharper than usual. A
+# writable admin on these three tables would be a second write path around the
+# services, the locks, the audit trail **and** four database triggers - and the
+# first thing it would produce is a batch whose planned quantities no longer
+# agree with its multiplier, which migration 0015 then refuses at COMMIT with a
+# message naming a constraint rather than a field.
+#
+# No cost column appears here either: a production draft carries no money.
+
+
+@admin.register(ProductionBatch)
+class ProductionBatchAdmin(ReadOnlyAdmin):
+    list_display = (
+        "id",
+        "recipe",
+        "recipe_version",
+        "branch",
+        "warehouse",
+        "planned_business_date",
+        "multiplier",
+        "expected_output_quantity",
+        "actual_output_base_quantity",
+        "status",
+    )
+    list_filter = ("status", "planned_business_date")
+    search_fields = ("recipe__code", "recipe__name_ar", "idempotency_key", "notes")
+
+
+@admin.register(ProductionBatchLine)
+class ProductionBatchLineAdmin(ReadOnlyAdmin):
+    list_display = (
+        "batch",
+        "line_order",
+        "component_path",
+        "item_code",
+        "base_unit_code",
+        "source_base_quantity",
+        "cumulative_multiplier",
+        "planned_base_quantity",
+        "cost_class",
+        "is_optional",
+    )
+    list_filter = ("source_kind", "cost_class", "is_optional")
+    search_fields = ("item_code", "item_name", "component_path", "component_label_path")
+
+
+@admin.register(ProductionBatchActualLine)
+class ProductionBatchActualLineAdmin(ReadOnlyAdmin):
+    list_display = (
+        "line",
+        "entry_order",
+        "kind",
+        "item",
+        "entered_quantity",
+        "entered_unit",
+        "package_unit",
+        "conversion_factor",
+        "base_quantity",
+    )
+    list_filter = ("kind",)
+    search_fields = ("item__code", "item__name_ar", "reason", "note")

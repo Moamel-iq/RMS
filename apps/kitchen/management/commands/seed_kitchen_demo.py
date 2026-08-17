@@ -37,7 +37,7 @@ from apps.core.context import audit_context
 from apps.inventory.demo import DEMO_ORGANIZATION_CODE, DemoSelectionError
 from apps.inventory.management.commands.seed_inventory_demo import resolve_user
 from apps.kitchen.demo import DEMO_BANNER, seed_demo_recipes
-from apps.kitchen.models import RecipeCostSnapshot
+from apps.kitchen.models import ProductionBatch, RecipeCostSnapshot
 from apps.organizations.models import Organization
 
 #: The screens this dataset makes reviewable, in navigation order.
@@ -46,6 +46,7 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("kitchen:category_list", "مجموعات الوصفات"),
     ("kitchen:version_list", "نسخ الوصفات"),
     ("kitchen:cost_snapshot_list", "لقطات الكلفة"),
+    ("kitchen:production_list", "أوامر الإنتاج"),
 ]
 
 
@@ -133,10 +134,38 @@ class Command(SeedCommand):
                 "rows for everyone, superusers included."
             )
 
+        batches = ProductionBatch.objects.filter(organization=organization)
+        if batches.exists():
+            self.write("")
+            self.write("production drafts:")
+            for batch in batches.select_related("recipe", "warehouse").order_by("pk"):
+                self.write(
+                    f"  {batch.recipe.code:<22} v{batch.recipe_version.version_number} "
+                    f"@ {batch.warehouse.code:<12} {batch.planned_business_date} "
+                    f"x{batch.multiplier_display} "
+                    f"expected {batch.expected_output_display} "
+                    f"actual {batch.actual_output_display or '—'} "
+                    f"[{batch.status}]"
+                )
+                for line in batch.lines.order_by("line_order"):
+                    path = line.component_path or "direct"
+                    rows = " + ".join(
+                        f"{row.item.code}={row.quantity_display}"
+                        for row in line.actuals.order_by("entry_order")
+                    )
+                    self.write(
+                        f"    {line.line_order:>2} {path:<8} {line.item_code:<18} "
+                        f"plan {line.planned_display:<14} actual {rows or 'none'}"
+                    )
+            self.write(
+                "  DRAFT only: a check constraint named "
+                "production_batch_is_draft_only_until_task_3_5 refuses any other status."
+            )
+
         self.write("")
         self.write(
             f"{len(recipes)} recipes present. No stock movement, no journal entry, "
-            "no production batch."
+            "no posted production batch, no document number."
         )
         self.write(
             "Every approval above is evidenced as DEMO_FICTIONAL, which the database "

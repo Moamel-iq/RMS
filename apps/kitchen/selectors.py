@@ -13,12 +13,16 @@ local variable.
 
 from __future__ import annotations
 
-from django.db.models import Model, QuerySet
+from django.db.models import Model, Q, QuerySet
 from django.utils.translation import gettext_lazy as _
 
+from apps.inventory.models import Warehouse
 from apps.kitchen.models import (
     COMPONENT_ELIGIBLE_STATUSES,
     OPEN_VERSION_STATUSES,
+    ProductionBatch,
+    ProductionBatchActualLine,
+    ProductionBatchLine,
     Recipe,
     RecipeCategory,
     RecipeComponent,
@@ -33,7 +37,12 @@ from apps.kitchen.models import (
     RecipeVersionReview,
     RecipeVersionStatus,
 )
-from apps.kitchen.permissions import MANAGE_RECIPE, VIEW_RECIPE_COST
+from apps.kitchen.permissions import (
+    CREATE_PRODUCTION_BATCH,
+    MANAGE_RECIPE,
+    VIEW_PRODUCTION,
+    VIEW_RECIPE_COST,
+)
 from apps.organizations.authorization import (
     OutOfScope,
     organization_scope,
@@ -377,4 +386,191 @@ def snapshots_for_version(version: RecipeVersion) -> QuerySet[RecipeCostSnapshot
         RecipeCostSnapshot.objects.filter(version=version)
         .select_related("warehouse", "branch", "created_by")
         .order_by("-created_at", "-id")
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.4 - production drafts
+# ---------------------------------------------------------------------------
+#
+# Production is the first kitchen concern scoped to a **warehouse** rather than
+# to the organization. Every read below therefore starts from
+# `accessible_warehouses`, which is inventory's own custody answer, narrowed by
+# the production permission - not from `reachable_organization_ids`, which
+# would hand somebody who can read the menu the branch's production plan.
+
+
+def _warehouses_with_permission(user: User, permission: str) -> QuerySet[Warehouse]:
+    """
+    Warehouses where a post the caller actually holds carries this permission.
+
+    The bulk form of `has_warehouse_permission`, which `apps.organizations`
+    offers only per warehouse. Written here rather than there because Task 3.4
+    is not authorized to modify that module, and asking the single-object
+    question once per row would be a query per warehouse on every list screen.
+
+    It answers **identically**, and the way it stays identical is by mirroring
+    `roles_at_warehouse` clause for clause: an `ALL` branch membership covers
+    every warehouse in its branch, a `SELECTED` one covers only the warehouses
+    it lists, and organization-wide authority covers the whole organization. A
+    `SELECTED` membership that does not list a warehouse contributes no role
+    there, so narrowing custody narrows authority with it. A test holds the two
+    against each other rather than trusting this comment.
+    """
+    from apps.organizations.authorization import accessible_warehouses, roles_granting
+    from apps.organizations.models import WarehouseScopeMode
+
+    if not user.is_authenticated or not user.is_active:
+        return Warehouse.objects.none()
+
+    reachable = accessible_warehouses(user)
+    if user.is_superuser:
+        return reachable
+
+    roles = roles_granting(permission)
+    if not roles:
+        return Warehouse.objects.none()
+
+    return reachable.filter(
+        # A branch membership covering the whole branch.
+        Q(
+            branch__memberships__user=user,
+            branch__memberships__is_active=True,
+            branch__memberships__role__in=roles,
+            branch__memberships__warehouse_scope_mode=WarehouseScopeMode.ALL,
+        )
+        # A branch membership restricted to specific warehouses, this one among
+        # them. Matched through the scope row so a membership that lists other
+        # warehouses contributes nothing here.
+        | Q(
+            membership_scopes__branch_membership__user=user,
+            membership_scopes__branch_membership__is_active=True,
+            membership_scopes__branch_membership__role__in=roles,
+            membership_scopes__branch_membership__warehouse_scope_mode=(
+                WarehouseScopeMode.SELECTED
+            ),
+        )
+        # Organization-wide authority reaches every warehouse it owns.
+        | Q(
+            branch__organization__memberships__user=user,
+            branch__organization__memberships__is_active=True,
+            branch__organization__memberships__role__in=roles,
+        )
+    ).distinct()
+
+
+def readable_production_warehouses(user: User) -> QuerySet[Warehouse]:
+    """
+    Warehouses whose production this caller may read.
+
+    Two questions and both must answer yes: can the caller reach this warehouse
+    at all (`accessible_warehouses`, which respects `ALL` versus `SELECTED`
+    warehouse scope), and does a post they actually hold there carry
+    `view_production`. A permission is never a reach and a reach is never a
+    permission (ADR-016).
+    """
+    return _warehouses_with_permission(user, VIEW_PRODUCTION)
+
+
+def draftable_production_warehouses(user: User) -> QuerySet[Warehouse]:
+    """Warehouses this caller may draft **into**. The create side of the pair."""
+    return _warehouses_with_permission(user, CREATE_PRODUCTION_BATCH)
+
+
+def visible_production_batches(user: User) -> QuerySet[ProductionBatch]:
+    """
+    Every production batch this caller may read, newest planned date first.
+
+    Out of scope is 404 through `_resolve`, never 403: a 403 about another
+    branch's batch would confirm the batch exists, and ids are sequential.
+    """
+    return (
+        ProductionBatch.objects.filter(warehouse__in=readable_production_warehouses(user))
+        .select_related(
+            "organization",
+            "branch",
+            "warehouse",
+            "recipe",
+            "recipe_version",
+            "recipe_version__output_unit",
+            "created_by",
+        )
+        .order_by("-planned_business_date", "-id")
+    )
+
+
+def resolve_production_batch(user: User, batch_id: int) -> ProductionBatch:
+    """One batch, resolved **with** the caller. A submitted id never widens scope."""
+    return _resolve(visible_production_batches(user), batch_id, "Production batch")
+
+
+def visible_production_lines(user: User) -> QuerySet[ProductionBatchLine]:
+    """Requirement rows under batches this caller may read."""
+    return ProductionBatchLine.objects.filter(
+        batch__warehouse__in=readable_production_warehouses(user)
+    ).select_related("batch", "item", "item__base_unit", "source_version", "source_line")
+
+
+def resolve_production_line(user: User, line_id: int) -> ProductionBatchLine:
+    return _resolve(visible_production_lines(user), line_id, "Production requirement")
+
+
+def visible_production_actuals(user: User) -> QuerySet[ProductionBatchActualLine]:
+    """Actual-consumption rows under batches this caller may read."""
+    return ProductionBatchActualLine.objects.filter(
+        line__batch__warehouse__in=readable_production_warehouses(user)
+    ).select_related("line", "line__batch", "line__item", "item", "item__base_unit", "substitute")
+
+
+def resolve_production_actual(user: User, actual_id: int) -> ProductionBatchActualLine:
+    return _resolve(visible_production_actuals(user), actual_id, "Production actual line")
+
+
+def production_lines_for(batch: ProductionBatch) -> QuerySet[ProductionBatchLine]:
+    """
+    One batch's requirements in their own deterministic order.
+
+    Unscoped by design - the caller has already resolved the batch through
+    `visible_production_batches`, and a second scope filter here would silently
+    hide rows on a screen that had already proved its right to them.
+    """
+    return (
+        ProductionBatchLine.objects.filter(batch=batch)
+        .select_related("item", "item__base_unit", "source_version", "source_line")
+        .prefetch_related("actuals__item", "actuals__substitute__substitute_item")
+        .order_by("line_order")
+    )
+
+
+def substitute_candidates(line: ProductionBatchLine) -> QuerySet[RecipeLineSubstitute]:
+    """
+    The approved stand-ins for one requirement, in the recipe's own ranking.
+
+    Read from the **source line**, not from the item: a substitute approved for
+    the rice line is not approved for the oil line even when both name rice.
+    Archived rows are excluded - somebody withdrew that approval - and the
+    service re-checks every one of these rules anyway, because a filtered
+    dropdown is a courtesy and never the control.
+    """
+    return (
+        RecipeLineSubstitute.objects.filter(line=line.source_line, is_active=True)
+        .select_related("substitute_item", "substitute_item__base_unit")
+        .order_by("priority", "substitute_item__code")
+    )
+
+
+def draftable_recipes(user: User, organization: Organization) -> QuerySet[Recipe]:
+    """
+    Recipes that may actually be produced, for the create screen.
+
+    Batch recipes only: a portion recipe has no `output_item`, and producing one
+    would create stock of an item that deliberately does not exist (RCP-032).
+    Filtering here is a courtesy - `create_production_batch` refuses the same
+    shape with a named error, so a hand-made request naming a portion recipe is
+    refused on its merits.
+    """
+    return (
+        Recipe.objects.filter(organization=organization, is_active=True, output_item__isnull=False)
+        .select_related("output_item")
+        .order_by("code")
     )

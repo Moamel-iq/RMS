@@ -1,0 +1,55 @@
+{# A destructive action, with what it destroys stated on the screen where it #}
+{# is decided. Used by the draft discard and by the actual-row removal.      #}
+{#                                                                           #}
+{# The reason field is not decoration: `discard_production_batch` requires   #}
+{# one once anything has been entered, because throwing away somebody's      #}
+{# measurements without a word is the kind of thing a system should make you #}
+{# say out loud.                                                             #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="production-action">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+      </div>
+    </div>
+
+    <p class="banner" role="alert">
+      {% translate "لا يمكن التراجع عن هذا الإجراء. لا يوجد ترحيل ولا حركة مخزنية ولا قيد محاسبي يُعكس — المحذوف هو المسودة وسطورها فقط." %}
+    </p>
+
+    <form class="formcard"
+          method="post"
+          novalidate
+          action="{{ request.path }}"
+          hx-post="{{ request.path }}"
+          hx-target="#production-action"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% include "settings/_field.html" with field=field %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions">
+        <button class="btn btn--danger" type="submit">{% translate "تأكيد الحذف" %}</button>
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "إلغاء" %}
+        </a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

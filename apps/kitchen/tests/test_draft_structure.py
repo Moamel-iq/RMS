@@ -116,11 +116,15 @@ class TestTheLifecycleBoundary:
         now moved twice.
 
         Task 3.2A held the component routes out and **3.2B brought them in**;
-        Task 3.2B held the cost routes out and **3.3 brought them in**. Each
-        time this test was rewritten rather than deleted, because a fence that
-        moves is not a fence that came down. Task 3.4's flattening and Task
-        3.5's production routes must still not exist. `recipe_reactivate` is
-        master data and stays.
+        Task 3.2B held the cost routes out and **3.3 brought them in**; Task
+        3.3 held the production routes out and **3.4 brought the drafting half
+        of them in**. Each time this test was rewritten rather than deleted,
+        because a fence that moves is not a fence that came down.
+
+        The fence now sits between drafting and posting: a batch may be
+        created, scaled, edited and discarded through a screen, and there is no
+        screen that posts it, reverses it, picks a lot or picks a location.
+        Those are Task 3.5's. `recipe_reactivate` is master data and stays.
         """
         from apps.kitchen import urls
 
@@ -131,8 +135,10 @@ class TestTheLifecycleBoundary:
         assert "component_editor" in names, "Task 3.2B owns the component workspace"
         assert "cost_card" in names, "Task 3.3 owns the costing screens"
         assert "cost_snapshot_list" in names
-        for forbidden in ("batch", "production", "flatten"):
-            assert not {name for name in names if forbidden in name}
+        assert "production_list" in names, "Task 3.4 owns the drafting screens"
+        assert "production_rescale" in names
+        for forbidden in ("flatten", "post", "reverse", "lot", "location", "journal"):
+            assert not {name for name in names if forbidden in name}, forbidden
 
     def test_version_numbers_are_sequential_and_never_reused(
         self, recipe: Recipe, kilogram: UnitOfMeasure, manager: User

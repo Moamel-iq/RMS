@@ -19,9 +19,13 @@ what the screens have to render. The numbers are invented, and being invented
 is the point: a demo screenshot that looked like the real menu is how
 unapproved figures acquire authority.
 
-One new inventory item is created, `DEMO-RICE-COOKED`, and it is named in
-RCP-056 for exactly this reason: a batch recipe needs a produced output, and
-none of the five Phase 1 demo items is producible. No other item is added.
+Two new inventory items are created, and each has one purpose that no existing
+item can serve. `DEMO-RICE-COOKED` is named in RCP-056: a batch recipe needs a
+produced output and none of the five Phase 1 demo items is producible.
+`DEMO-MEAL-READY` arrives with Task 3.4, because a production draft must show a
+**stocked semi-finished leaf left unexpanded** — and the item playing that part
+is `DEMO-RICE-COOKED`, which cannot also be the output of the recipe consuming
+it. No other item is added.
 """
 
 from __future__ import annotations
@@ -457,6 +461,9 @@ def seed_demo_recipes(
     )
     recipes.extend(
         seed_demo_cost(organization=organization, created_by=created_by, branches=branches)
+    )
+    recipes.extend(
+        seed_demo_production(organization=organization, created_by=created_by, branches=branches)
     )
     return recipes
 
@@ -1162,3 +1169,379 @@ def _seed_demo_snapshot(
         reason=DEMO_BANNER,
         note=DEMO_BANNER,
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.4 - one visible production draft
+# ---------------------------------------------------------------------------
+#
+# A production draft is the first kitchen document carrying a **plan** and a
+# **reality** at once, and almost every rule Task 3.4 enforces is only legible
+# when the two disagree. So this scenario is built to disagree, deliberately and
+# in each way the module has an opinion about:
+#
+#   DEMO-RCP-PROD v1 (BATCH, produces DEMO-MEAL-READY)
+#     - a DIRECT line of DEMO-RICE, consumed BELOW plan
+#     - a DIRECT line of DEMO-RICE-COOKED, a **stocked** semi-finished item, so
+#       one requirement and never re-expanded (RCP-071)
+#     - a DIRECT line of DEMO-CONTAINER, optional, consumed at ZERO
+#     - a COMPONENT path into DEMO-BLEND-MARINADE, whose own line reaches a
+#       second requirement by a nested path (RCP-079/080)
+#
+# and on the rice requirement, two approved stand-ins actually used:
+#
+#     - DEMO-RICE-COOKED, in the same dimension, used **partially** beside the
+#       primary row, so the requirement has a comparable quantity;
+#     - DEMO-OIL, in litres, another dimension entirely — the case the screen
+#       must show separately and never add up.
+#
+# The multiplier is 2.5: non-integral and greater than one, so the scaled
+# expected output and every scaled requirement are figures somebody had to
+# compute rather than read off the recipe. The actual output is deliberately
+# below the expected, because a yield of exactly 100% is the one number that
+# demonstrates nothing.
+#
+# **This seed posts nothing.** No stock movement, no balance change, no journal,
+# no document number, and no status but DRAFT. A test counts each of them.
+
+DEMO_PRODUCTION_RECIPE_CODE = "DEMO-RCP-PROD"
+
+#: The second produced item the demo needs, and the reason there are two.
+#:
+#: RCP-056 names `DEMO-RICE-COOKED` as the demo's produced item, and it is
+#: already spoken for: `DEMO-RCP-RICE` makes it. One item cannot be both the
+#: output of the recipe being produced and a stocked input to it, so showing
+#: "a stocked semi-finished leaf is one requirement and is never re-expanded"
+#: needs a second producible item to be the output. One item, one purpose.
+DEMO_MEAL_CODE = "DEMO-MEAL-READY"
+
+#: Named, never `today`. The version in force is resolved from the branch **and**
+#: this date, so a seed reading the wall clock would demo a different version
+#: every month — and eventually none at all, once the last one is superseded.
+DEMO_PRODUCTION_DATE = datetime.date(2026, 7, 15)
+
+#: Non-integral and greater than one. See the note above.
+DEMO_PRODUCTION_MULTIPLIER = Decimal("2.5")
+
+#: Fixed, so a second seeding run is a **retry** and returns the original batch.
+DEMO_PRODUCTION_KEY = "DEMO-PRODUCTION-BATCH-1"
+
+ZERO_QUANTITY = Decimal("0")
+
+
+@transaction.atomic
+def ensure_meal_item(*, organization: Organization) -> InventoryItem:
+    """The producible output of the demo production recipe."""
+    existing: InventoryItem | None = _seeded(
+        InventoryItem, organization=organization, code=DEMO_MEAL_CODE
+    )
+    if existing is not None:
+        return existing
+
+    category = ItemCategory.objects.filter(organization=organization, code="DEMO-GRAINS").first()
+    if category is None:
+        category = ItemCategory.objects.filter(organization=organization).first()
+    item = InventoryItem(
+        organization=organization,
+        code=DEMO_MEAL_CODE,
+        name_ar="وجبة جاهزة تجريبية",
+        category=category,
+        item_type=ItemType.SEMI_FINISHED,
+        base_unit=unit_by_code("KG"),
+        notes=DEMO_BANNER,
+    )
+    item.full_clean()
+    item.save()
+    return item
+
+
+def _production_warehouse(*, organization: Organization) -> Warehouse | None:
+    """The demo warehouse the batch draws on, if the inventory demo was seeded."""
+    return Warehouse.objects.filter(
+        branch__organization=organization, code=DEMO_COST_WAREHOUSE_CODE
+    ).first()
+
+
+def _production_draft_version(
+    *, recipe: Recipe, organization: Organization, created_by: User | None
+) -> RecipeVersion:
+    """
+    The version the batch is drafted from: three direct shapes and two approvals.
+
+    Substitutes are added here rather than afterwards because
+    `add_recipe_line_substitute` refuses anything but a draft — an approval added
+    after activation would be a change to a version somebody signed.
+    """
+    kg = unit_by_code("KG")
+    piece = unit_by_code("PIECE")
+    items = {
+        item.code: item
+        for item in InventoryItem.objects.filter(
+            organization=organization, code__startswith="DEMO-"
+        )
+    }
+
+    version = create_draft_recipe_version(
+        recipe=recipe,
+        batch_size=Decimal("1"),
+        expected_output_quantity=Decimal("20"),
+        output_unit=kg,
+        instructions=f"{DEMO_BANNER}. وصفة تجريبية لعرض مسودة الإنتاج.",
+        notes=DEMO_BANNER,
+        created_by=created_by,
+    )
+
+    rice_line = None
+    if "DEMO-RICE" in items:
+        rice_line = add_recipe_line(
+            version=version,
+            item=items["DEMO-RICE"],
+            entered_quantity=Decimal("6"),
+            entered_unit=kg,
+            cost_class=RecipeLineCostClass.FOOD,
+            note=DEMO_BANNER,
+        )
+    # A **stocked** semi-finished input. One requirement, never re-expanded: its
+    # book value already contains its own ingredients (RCP-071).
+    if COOKED_RICE_CODE in items:
+        add_recipe_line(
+            version=version,
+            item=items[COOKED_RICE_CODE],
+            entered_quantity=Decimal("3"),
+            entered_unit=kg,
+            cost_class=RecipeLineCostClass.FOOD,
+            note=f"{DEMO_BANNER} — مدخل مخزني نصف مصنّع لا يُوسَّع.",
+        )
+    # Optional, and consumed at zero below. An optional line the kitchen skipped
+    # is a fact about a real batch, and readiness must not refuse it.
+    if "DEMO-CONTAINER" in items:
+        add_recipe_line(
+            version=version,
+            item=items["DEMO-CONTAINER"],
+            entered_quantity=Decimal("20"),
+            entered_unit=piece,
+            cost_class=RecipeLineCostClass.PACKAGING,
+            is_optional=True,
+            note=f"{DEMO_BANNER} — سطر اختياري.",
+        )
+
+    if rice_line is not None:
+        # Same dimension, so a partial substitution here has a comparable figure.
+        if COOKED_RICE_CODE in items:
+            add_recipe_line_substitute(
+                line=rice_line,
+                substitute_item=items[COOKED_RICE_CODE],
+                reason=f"{DEMO_BANNER} — بديل بنفس بُعد القياس.",
+                note=DEMO_BANNER,
+            )
+        # Another dimension entirely. RCP-022 approves **items**, never
+        # conversions, so a kitchen may legitimately accept a stand-in that
+        # nothing converts to — and the screen must then say so rather than add
+        # litres to kilograms.
+        if "DEMO-OIL" in items:
+            add_recipe_line_substitute(
+                line=rice_line,
+                substitute_item=items["DEMO-OIL"],
+                reason=f"{DEMO_BANNER} — بديل ببُعد قياس مختلف.",
+                note=DEMO_BANNER,
+            )
+
+    add_recipe_step(version=version, instruction_ar="خطوة تجريبية للإنتاج.", note=DEMO_BANNER)
+    add_recipe_serving(
+        version=version,
+        code="PORTION",
+        name_ar="حصة إنتاج تجريبية",
+        serving_quantity=Decimal("1"),
+        serving_unit=kg,
+        is_primary=True,
+    )
+    return RecipeVersion.objects.get(pk=version.pk)
+
+
+def seed_demo_production(
+    *,
+    organization: Organization,
+    created_by: User | None,
+    branches: list[Branch],
+) -> list[Recipe]:
+    """
+    One producible recipe and one DRAFT batch of it, through the real services.
+
+    Idempotent the way the rest of this module is, and in one place that needed
+    thought: the batch is created with a **fixed** idempotency key, so a second
+    run is a retry that returns the original rather than drafting a second batch.
+    Each edit below is then guarded by the state it would change — on the value
+    rather than on a flag — so a second run finds the work done and writes
+    nothing, even if somebody edited the demo batch by hand in between.
+    """
+    from apps.kitchen.production import create_production_batch, record_production_output
+
+    people = ensure_demo_reviewers()
+    submitter = created_by or people["kitchen"]
+    made: list[Recipe] = []
+
+    meal = ensure_meal_item(organization=organization)
+    recipe, created = _recipe(
+        organization=organization,
+        code=DEMO_PRODUCTION_RECIPE_CODE,
+        name_ar="وجبة تجريبية للإنتاج",
+        recipe_type=RecipeType.BATCH,
+        category=None,
+        output_item=meal,
+        created_by=created_by,
+    )
+    made.append(recipe)
+    if created:
+        set_recipe_branches(recipe=recipe, branches=branches)
+
+    if not recipe.versions.exists():
+        draft = _production_draft_version(
+            recipe=recipe, organization=organization, created_by=created_by
+        )
+        # A non-stocked nested component, so the batch carries a COMPONENT path
+        # beside its direct ones and its requirement list has more than one level
+        # to display (RCP-079/080).
+        marinade = RecipeVersion.objects.filter(
+            recipe__organization=organization,
+            recipe__code=DEMO_MARINADE_CODE,
+            status=RecipeVersionStatus.ACTIVE,
+        ).first()
+        if marinade is not None:
+            create_recipe_component(
+                version=draft,
+                component_version=marinade,
+                multiplier=Decimal("0.4"),
+                note=DEMO_BANNER,
+                actor=created_by,
+            )
+        approved = _carry_to_approved(draft, people, submitter)
+        # From the **second** effective date: the component is marinade v2,
+        # which only starts then, and RCP-074 requires the child to be effective
+        # on the parent's own `effective_from`.
+        activate_recipe_version(
+            version=approved,
+            actor=people["approver"],
+            effective_from=DEMO_SECOND_EFFECTIVE,
+            reason=DEMO_BANNER,
+        )
+
+    warehouse = _production_warehouse(organization=organization)
+    branch = branches[0] if branches else None
+    if warehouse is None or branch is None:
+        # The inventory demo has not been seeded, so there is no warehouse to
+        # draft into. The recipe still exists; the batch waits for the store.
+        return made
+
+    batch = create_production_batch(
+        recipe=recipe,
+        branch=branch,
+        warehouse=warehouse,
+        planned_business_date=DEMO_PRODUCTION_DATE,
+        multiplier=DEMO_PRODUCTION_MULTIPLIER,
+        actor=created_by,
+        idempotency_key=DEMO_PRODUCTION_KEY,
+        notes=f"{DEMO_BANNER} — مسودة إنتاج للعرض فقط.",
+    )
+    _seed_demo_actuals(batch=batch, organization=organization, actor=created_by)
+
+    # The actual output, deliberately **below** the expected 50 KG. A yield of
+    # exactly 100% is the one figure that demonstrates nothing, and the gap
+    # between the two is the whole subject of the yield report.
+    refreshed = type(batch).objects.get(pk=batch.pk)
+    if refreshed.actual_output_base_quantity is None:
+        record_production_output(
+            batch=refreshed,
+            entered_quantity=Decimal("46"),
+            entered_unit=unit_by_code("KG"),
+            actor=created_by,
+        )
+    return made
+
+
+def _seed_demo_actuals(*, batch: Any, organization: Organization, actor: User | None) -> None:
+    """
+    Make the plan and the reality disagree, in each of the ways that matter.
+
+    Every edit is guarded by the value it would write, so a second seeding run
+    finds the work already done and writes nothing — which is what keeps the
+    audit trail free of a duplicate event per run.
+    """
+    from apps.kitchen.production import (
+        add_production_batch_substitute,
+        update_production_batch_actuals,
+    )
+
+    kg = unit_by_code("KG")
+    litre = unit_by_code("L")
+    items = {
+        item.code: item
+        for item in InventoryItem.objects.filter(
+            organization=organization, code__startswith="DEMO-"
+        )
+    }
+
+    for line in batch.lines.select_related("item", "item__base_unit").order_by("line_order"):
+        primary = line.actuals.filter(substitute__isnull=True).first()
+        if primary is None:
+            continue
+
+        if line.is_optional:
+            # An optional requirement the kitchen skipped. Zero is a fact, and
+            # readiness must not refuse a batch for recording one.
+            if primary.base_quantity != ZERO_QUANTITY:
+                update_production_batch_actuals(
+                    actual=primary,
+                    entered_quantity=Decimal("0"),
+                    entered_unit=line.item.base_unit,
+                    note=f"{DEMO_BANNER} — لم يُستعمل.",
+                    actor=actor,
+                )
+            continue
+
+        if line.item.code == "DEMO-RICE" and line.component_path == "":
+            # Consumed BELOW plan, with the shortfall met by approved stand-ins.
+            # Two facts about one requirement, which is exactly why they are two
+            # rows rather than one adjusted quantity.
+            shortfall = (line.planned_base_quantity * Decimal("0.75")).quantize(Decimal("0.000001"))
+            if primary.base_quantity != shortfall:
+                update_production_batch_actuals(
+                    actual=primary,
+                    entered_quantity=shortfall,
+                    entered_unit=line.item.base_unit,
+                    note=f"{DEMO_BANNER} — أقل من المخطط.",
+                    actor=actor,
+                )
+            if (
+                COOKED_RICE_CODE in items
+                and not line.actuals.filter(item__code=COOKED_RICE_CODE).exists()
+            ):
+                add_production_batch_substitute(
+                    line=line,
+                    item=items[COOKED_RICE_CODE],
+                    entered_quantity=Decimal("2"),
+                    entered_unit=kg,
+                    reason=f"{DEMO_BANNER} — استبدال جزئي بنفس البُعد.",
+                    actor=actor,
+                )
+            if "DEMO-OIL" in items and not line.actuals.filter(item__code="DEMO-OIL").exists():
+                add_production_batch_substitute(
+                    line=line,
+                    item=items["DEMO-OIL"],
+                    entered_quantity=Decimal("1.5"),
+                    entered_unit=litre,
+                    reason=f"{DEMO_BANNER} — بديل ببُعد قياس مختلف.",
+                    actor=actor,
+                )
+            continue
+
+        # Everything else: consumed slightly ABOVE plan, so the variance report
+        # has a case in each direction rather than only one.
+        above = (line.planned_base_quantity * Decimal("1.1")).quantize(Decimal("0.000001"))
+        if primary.base_quantity != above:
+            update_production_batch_actuals(
+                actual=primary,
+                entered_quantity=above,
+                entered_unit=line.item.base_unit,
+                note=f"{DEMO_BANNER} — أكثر من المخطط.",
+                actor=actor,
+            )

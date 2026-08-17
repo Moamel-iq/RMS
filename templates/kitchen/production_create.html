@@ -1,0 +1,61 @@
+{# Drafting one batch from the version in force at a branch on a date.       #}
+{#                                                                           #}
+{# `تاريخ الإنتاج` has no default, deliberately. A field pre-filled with     #}
+{# today teaches the operator that the question does not need a date, and a  #}
+{# batch drafted on Monday for Sunday's production must use Sunday's recipe. #}
+{#                                                                           #}
+{# The idempotency key is asked for rather than generated: a key the server  #}
+{# invented would make every double-click a second decision, which is        #}
+{# exactly what the key exists to prevent.                                   #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="production-create">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_preview' %}">
+          {% translate "معاينة قبل الإنشاء" %}
+        </a>
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_list' %}">
+          {% translate "أوامر الإنتاج" %}
+        </a>
+      </div>
+    </div>
+
+    <form class="formcard"
+          method="post"
+          novalidate
+          action="{% url 'kitchen:production_create' %}"
+          hx-post="{% url 'kitchen:production_create' %}"
+          hx-target="#production-create"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% include "settings/_field.html" with field=field %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "أنشئ المسودة" %}</button>
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_list' %}">
+          {% translate "إلغاء" %}
+        </a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

@@ -68,6 +68,26 @@ from apps.users.models import User
 PASSWORD = "pw-not-real-1234"
 
 
+def codes_of(error: Any) -> set[str]:
+    """
+    Every stable refusal code inside a `ValidationError`, however it was raised.
+
+    Needed because `str(error)` shows the *message* for a field-keyed error and
+    the code for a bare one, so asserting on the string quietly stops checking
+    anything the moment a refusal grows a field. The branch order matters:
+    `message` first, because an error carrying one has neither dict nor list.
+    """
+    if hasattr(error, "message"):
+        return {error.code or ""}
+    if hasattr(error, "error_dict"):
+        return {
+            code for errs in error.error_dict.values() for item in errs for code in codes_of(item)
+        }
+    if hasattr(error, "error_list"):
+        return {code for item in error.error_list for code in codes_of(item)}
+    return set()
+
+
 @pytest.fixture
 def units() -> None:
     """The standard units. Items need a base unit before they can exist."""
@@ -232,6 +252,20 @@ def oil(
     organization: Organization, item_category: ItemCategory, litre: UnitOfMeasure
 ) -> InventoryItem:
     return _item(organization=organization, category=item_category, code="OIL", unit=litre)
+
+
+@pytest.fixture
+def barley(
+    organization: Organization, item_category: ItemCategory, kilogram: UnitOfMeasure
+) -> InventoryItem:
+    """
+    A second MASS item, so a substitution can be **comparable** with its plan.
+
+    Rice and oil are deliberately in different dimensions, which makes them the
+    right pair for the cross-dimension tests and the wrong pair for every test
+    that needs a variance to be a number.
+    """
+    return _item(organization=organization, category=item_category, code="BARLEY", unit=kilogram)
 
 
 @pytest.fixture
@@ -888,3 +922,307 @@ def cost_reader(branch: Branch) -> User:
 @pytest.fixture
 def cost_reader_client(cost_reader: User) -> Client:
     return _client(cost_reader)
+
+
+# ---------------------------------------------------------------------------
+# Task 3.4 - production drafting fixtures
+# ---------------------------------------------------------------------------
+#
+# Shared here rather than per-module because the production suite is several
+# files — contracts, scale consistency, services, races, security, surface — and
+# each of them needs the same starting point: a producible recipe in effect at a
+# branch, a warehouse in that branch, and a draft.
+#
+# `PRODUCTION_EFFECTIVE_FROM` is well before `PRODUCTION_DATE` so a test that
+# wants a *gap* or a *replacement* has to arrange one, rather than beginning with
+# an edge case it did not ask for.
+
+PRODUCTION_EFFECTIVE_FROM = datetime.date(2026, 1, 1)
+PRODUCTION_DATE = datetime.date(2026, 3, 1)
+
+
+@pytest.fixture
+def batch_recipe(
+    organization: Organization,
+    branch: Branch,
+    cooked_rice: InventoryItem,
+    kilogram: UnitOfMeasure,
+    rice: InventoryItem,
+    manager: User,
+    cook: User,
+    keeper: User,
+    accountant: User,
+    approver: User,
+) -> tuple[Recipe, RecipeVersion]:
+    """
+    A producible recipe — one with an `output_item` — active from January.
+
+    `BATCH` with an output item because RCP-032 refuses to produce a portion
+    recipe: producing one would create stock of an item that deliberately does
+    not exist.
+    """
+    from apps.kitchen.services import create_recipe, set_recipe_branches
+
+    recipe = create_recipe(
+        organization=organization,
+        code="PROD-DISH",
+        name_ar="طبخة للإنتاج",
+        recipe_type=RecipeType.BATCH,
+        output_item=cooked_rice,
+        created_by=manager,
+    )
+    set_recipe_branches(recipe=recipe, branches=[branch])
+    version = carry_to_active(
+        build_complete_draft(recipe=recipe, unit=kilogram, item=rice, author=manager),
+        submitter=manager,
+        cook=cook,
+        keeper=keeper,
+        accountant=accountant,
+        approver=approver,
+        effective_from=PRODUCTION_EFFECTIVE_FROM,
+    )
+    return recipe, version
+
+
+@pytest.fixture
+def substituted_recipe(
+    organization: Organization,
+    branch: Branch,
+    cooked_rice: InventoryItem,
+    kilogram: UnitOfMeasure,
+    rice: InventoryItem,
+    barley: InventoryItem,
+    oil: InventoryItem,
+    manager: User,
+    cook: User,
+    keeper: User,
+    accountant: User,
+    approver: User,
+) -> tuple[Recipe, RecipeVersion]:
+    """
+    A producible recipe whose rice line carries **two ranked** approved stand-ins.
+
+    `barley` first, in the same dimension as rice, so a partial or complete
+    substitution has a comparable quantity. `oil` second, in another dimension
+    entirely, because RCP-022 approves items rather than conversions and a kitchen
+    may legitimately approve a stand-in nothing converts to — which is the case
+    the "not quantitatively comparable" statement exists for.
+
+    The substitutes are added while the version is a **draft**, because
+    `add_recipe_line_substitute` refuses anything else: an approval added after
+    activation would be a change to a version somebody signed.
+    """
+    from apps.kitchen.services import (
+        add_recipe_line_substitute,
+        create_recipe,
+        set_recipe_branches,
+    )
+
+    recipe = create_recipe(
+        organization=organization,
+        code="SUB-DISH",
+        name_ar="طبخة ببدائل",
+        recipe_type=RecipeType.BATCH,
+        output_item=cooked_rice,
+        created_by=manager,
+    )
+    set_recipe_branches(recipe=recipe, branches=[branch])
+    version = build_complete_draft(recipe=recipe, unit=kilogram, item=rice, author=manager)
+    line = version.lines.get()
+    add_recipe_line_substitute(line=line, substitute_item=barley, reason="نقص في السوق")
+    add_recipe_line_substitute(line=line, substitute_item=oil, reason="بديل بوحدة أخرى")
+    carry_to_active(
+        version,
+        submitter=manager,
+        cook=cook,
+        keeper=keeper,
+        accountant=accountant,
+        approver=approver,
+        effective_from=PRODUCTION_EFFECTIVE_FROM,
+    )
+    return recipe, RecipeVersion.objects.get(pk=version.pk)
+
+
+@pytest.fixture
+def substituted_draft(
+    substituted_recipe: tuple[Recipe, RecipeVersion],
+    branch: Branch,
+    store: Warehouse,
+    manager: User,
+) -> Any:
+    """A DRAFT of the substituted recipe — one requirement, two approvals to use."""
+    from apps.kitchen.production import create_production_batch
+
+    return create_production_batch(
+        recipe=substituted_recipe[0],
+        branch=branch,
+        warehouse=store,
+        planned_business_date=PRODUCTION_DATE,
+        multiplier=Decimal("2"),
+        actor=manager,
+        idempotency_key="SUB-DRAFT-1",
+    )
+
+
+@pytest.fixture
+def optional_recipe(
+    organization: Organization,
+    branch: Branch,
+    cooked_rice: InventoryItem,
+    kilogram: UnitOfMeasure,
+    piece: UnitOfMeasure,
+    rice: InventoryItem,
+    box: InventoryItem,
+    manager: User,
+    cook: User,
+    keeper: User,
+    accountant: User,
+    approver: User,
+) -> tuple[Recipe, RecipeVersion]:
+    """
+    A producible recipe with one required line and one **optional** one.
+
+    Optionality is a fact about the *recipe*, and it reaches the requirement row
+    frozen. A test that wanted to compare the two by flipping `is_optional` on a
+    drafted requirement would be asking for a state migration 0011 refuses, so
+    the difference is arranged here where it belongs.
+    """
+    from apps.kitchen.services import add_recipe_line, create_recipe, set_recipe_branches
+
+    recipe = create_recipe(
+        organization=organization,
+        code="OPT-DISH",
+        name_ar="طبخة بسطر اختياري",
+        recipe_type=RecipeType.BATCH,
+        output_item=cooked_rice,
+        created_by=manager,
+    )
+    set_recipe_branches(recipe=recipe, branches=[branch])
+    version = build_complete_draft(recipe=recipe, unit=kilogram, item=rice, author=manager)
+    add_recipe_line(
+        version=version,
+        item=box,
+        entered_quantity=Decimal("4"),
+        entered_unit=piece,
+        is_optional=True,
+    )
+    carry_to_active(
+        version,
+        submitter=manager,
+        cook=cook,
+        keeper=keeper,
+        accountant=accountant,
+        approver=approver,
+        effective_from=PRODUCTION_EFFECTIVE_FROM,
+    )
+    return recipe, RecipeVersion.objects.get(pk=version.pk)
+
+
+@pytest.fixture
+def optional_draft(
+    optional_recipe: tuple[Recipe, RecipeVersion],
+    branch: Branch,
+    store: Warehouse,
+    manager: User,
+) -> Any:
+    from apps.kitchen.production import create_production_batch
+
+    return create_production_batch(
+        recipe=optional_recipe[0],
+        branch=branch,
+        warehouse=store,
+        planned_business_date=PRODUCTION_DATE,
+        multiplier=Decimal("1"),
+        actor=manager,
+        idempotency_key="OPT-DRAFT-1",
+    )
+
+
+@pytest.fixture
+def demo_items(
+    organization: Organization,
+    item_category: ItemCategory,
+    kilogram: UnitOfMeasure,
+    litre: UnitOfMeasure,
+    piece: UnitOfMeasure,
+) -> dict[str, InventoryItem]:
+    """The Phase 1 demo items the kitchen seed builds on, named as it names them."""
+    items: dict[str, InventoryItem] = {}
+    for code, unit, kind in (
+        ("DEMO-RICE", kilogram, ItemType.RAW_MATERIAL),
+        ("DEMO-OIL", litre, ItemType.RAW_MATERIAL),
+        ("DEMO-MEAT", kilogram, ItemType.RAW_MATERIAL),
+        ("DEMO-CHICKEN", piece, ItemType.RAW_MATERIAL),
+        ("DEMO-CONTAINER", piece, ItemType.PACKAGING),
+    ):
+        items[code] = InventoryItem.objects.create(
+            organization=organization,
+            code=code,
+            name_ar=code,
+            category=item_category,
+            item_type=kind,
+            base_unit=unit,
+        )
+    return items
+
+
+@pytest.fixture
+def demo_store(
+    open_period: object,
+    organization: Organization,
+    branch: Branch,
+    demo_items: dict[str, InventoryItem],
+) -> Warehouse:
+    """
+    `DEMO-MAIN`, holding the three items the demo scenarios read.
+
+    Named exactly as the inventory demo names it, because the kitchen seed looks
+    that warehouse up by code — a fixture that invented its own name would leave
+    the snapshot and production halves of the seed silently unexercised.
+    """
+    warehouse = Warehouse.objects.create(
+        branch=branch,
+        code="DEMO-MAIN",
+        name_ar="المخزن الرئيسي — تجريبي",
+        warehouse_type=WarehouseType.PHYSICAL,
+    )
+    for code, quantity, unit_cost in (
+        ("DEMO-RICE", "200", "1500"),
+        ("DEMO-OIL", "50", "4000"),
+        ("DEMO-CONTAINER", "500", "250"),
+    ):
+        post_receipt(
+            organization=organization,
+            warehouse=warehouse,
+            item=demo_items[code],
+            quantity=quantity,
+            unit_cost=unit_cost,
+            key=f"demo-{code}",
+        )
+    return warehouse
+
+
+@pytest.fixture
+def production_draft(
+    batch_recipe: tuple[Recipe, RecipeVersion],
+    branch: Branch,
+    store: Warehouse,
+    manager: User,
+) -> Any:
+    """
+    One DRAFT batch at 2.5×, through the real service.
+
+    Non-integral deliberately: a multiplier of 2 hides every rounding question a
+    scaled requirement can raise, and half a pit is a real thing to cook.
+    """
+    from apps.kitchen.production import create_production_batch
+
+    return create_production_batch(
+        recipe=batch_recipe[0],
+        branch=branch,
+        warehouse=store,
+        planned_business_date=PRODUCTION_DATE,
+        multiplier=Decimal("2.5"),
+        actor=manager,
+        idempotency_key="PROD-DRAFT-1",
+    )

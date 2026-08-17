@@ -321,22 +321,49 @@ class TestZeroEffect:
         )
         assert self._counts() == before
 
-    def test_no_flattening_service_exists(self) -> None:
-        """Task 3.4 owns flattening a tree into production lines."""
-        from apps.kitchen import graph, services
+    def test_flattening_lives_in_the_shared_engine_and_nowhere_else(self) -> None:
+        """
+        Task 3.2B asserted that no flattening service existed anywhere; **Task
+        3.4 built one**, and this test moved with it rather than being deleted.
+
+        What it guards now is stricter than what it guarded then: flattening
+        exists in exactly one module, `apps/kitchen/expansion.py`, and the
+        recipe-editing modules still have none of their own. A second flattener
+        would not fail — it would agree, for a while, and then one of them would
+        be fixed alone.
+        """
+        from apps.kitchen import expansion, graph, services
 
         for module in (graph, services):
             names = {name.lower() for name in dir(module)}
             assert not [name for name in names if "flatten" in name and "tree" not in name], (
                 module.__name__
             )
+        assert hasattr(expansion, "expand_recipe_version")
 
-    def test_no_kitchen_model_names_a_production_batch(self) -> None:
+    def test_a_production_batch_may_exist_and_may_never_be_posted(self) -> None:
+        """
+        The fence, moved a third time.
+
+        Task 3.2B held `RecipeComponent` out and 3.2B brought it in; 3.3 brought
+        in `RecipeCostSnapshot`; **3.4 brings in `ProductionBatch`** and its two
+        child tables. Each time this test was rewritten rather than removed,
+        because the boundary is not "no production models" — it is "nothing
+        posts", and that half is still true and still worth a test.
+        """
         from django.apps import apps
 
+        from apps.kitchen.models import ProductionBatch, ProductionBatchStatus
+
         names = {model.__name__ for model in apps.get_app_config("kitchen").get_models()}
-        assert "ProductionBatch" not in names
-        assert "ProductionBatchLine" not in names
+
+        assert {
+            "ProductionBatch",
+            "ProductionBatchLine",
+            "ProductionBatchActualLine",
+        } <= names, "Task 3.4 owns the production draft"
+        assert ProductionBatch.objects.exclude(status=ProductionBatchStatus.DRAFT).count() == 0
+        assert not ProductionBatch.objects.exclude(number="").exists()
 
 
 class TestVerifierDetection:

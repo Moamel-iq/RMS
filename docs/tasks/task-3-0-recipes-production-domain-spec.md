@@ -3326,3 +3326,118 @@ recipe ledger. No repair mode anywhere.
 `ProductionBatch`'s actual cost across the servings it really produced. That
 needs production, which does not exist. The standard plate cost of an approved
 recipe version needs only the version and the ledger, and both exist now.
+
+---
+
+## 28. Task 3.4 — production drafting, as built, and what building it settled
+
+### 28.1 Who owns `ProductionBatch`
+
+**Task 3.4 owns the draft.** Several earlier notes — in §17's task list, in the
+phase breakdown, and in three tests — said `ProductionBatch` belonged to Task
+3.5. That was wrong, and the correction is recorded here rather than made
+silently, because "which task owns this table" is exactly the kind of statement
+that gets copied forward.
+
+| Task 3.4 | Task 3.5 |
+|---|---|
+| the `DRAFT` batch, its requirements and its actual rows | the document number, drawn gaplessly at posting |
+| scaling, reset-and-rescale, discard | lots, locations, availability |
+| approved substitution and the actual output figure | valuation of what was consumed |
+| readiness, derived and never stored | Inventory and GL posting |
+| | `POSTED`, `REVERSED`, and reversal |
+
+The boundary is a **check constraint**, not a convention:
+`production_batch_is_draft_only_until_task_3_5` refuses any other status, and it
+is named after the task that must delete it.
+
+### 28.2 The departure that mattered: a third table
+
+§7 sketched `consumed_quantity` as a **column on the batch line**. As built it
+is a separate table, `ProductionBatchActualLine`, and the reason is RCP-022's
+own case: a partial substitution — 3 kg of the planned item plus 1 kg of an
+approved stand-in — is *two facts about one requirement*, and a single column
+can hold only one of them. A sketch that cannot express the scenario the ranked
+substitute table exists for is a sketch, not a specification.
+
+The plan and reality staying on different rows is also RCP-030 made structural:
+an operator who consumed something else has recorded a fact, not amended a
+recipe, and there is no way to edit the requirement to make the disagreement go
+away.
+
+### 28.3 Cross-dimensional consumption is never aggregated
+
+RCP-022 approves **items**, never conversions. So a kitchen may legitimately
+accept a stand-in that nothing converts to — oil for rice — and the system then
+has a requirement with consumption in two dimensions and no honest way to sum
+them.
+
+The rule, and it holds through the model, the services, the screens, the API and
+the verifier:
+
+- every actual row is shown and reported **separately**;
+- a quantity variance is computed **only** where the dimensions agree;
+- where they do not, the answer is the sentence *not quantitatively comparable*,
+  never a blank and never a total;
+- **no physical conversion ratio is invented**, at any layer;
+- Task 3.5 values each row separately, which is where the two become comparable
+  again — in money, which they share.
+
+`comparable_consumption` returns `None` rather than zero for the incomparable
+case, because zero is a claim about the kitchen and `None` is a claim about the
+arithmetic.
+
+### 28.4 The multiplier: revisable, never independently mutable
+
+§7 said nothing about whether a drafted batch may be rescaled. It may: how much
+of a recipe to make is the ordinary thing an operator revises before cooking,
+and `rescale_production_batch` is the approved way.
+
+That permission is only safe because three figures are checked against each
+other at COMMIT by a deferred constraint trigger (`kitchen/0015`):
+
+```
+expected_output_quantity = round(version.expected_output_quantity × multiplier, 6)
+planned_base_quantity    = round(source × cumulative × multiplier, 6)   -- per row
+```
+
+Deferred, because a legitimate rescale updates the header and every requirement
+and is inconsistent *by construction* in between. Without the trigger, the
+allowlist that makes a rescale possible would also make possible a batch
+claiming to be double the recipe, expecting a single output, and asking the
+kitchen for one and a half times the rice.
+
+Two real defects surfaced from writing it, and both are recorded because each
+was invisible until the database was asked to check:
+
+1. **The multiplier was quantized before storage but not before use**, so
+   `2.5000005` stored `2.500001` and produced an expected output computed from a
+   figure the row does not contain.
+2. **The cumulative multiplier was used at full walk precision and stored at
+   twelve places.** Creation scaled by the unrounded value and a later rescale
+   by the stored one, so rescaling a two-level recipe to the multiplier it
+   already had moved its planned quantities.
+
+Both are fixed by having exactly one definition of each product —
+`production.scaled_line_quantity` and `scaled_expected_output` — used by
+creation, rescale, the preview, and mirrored by the trigger in SQL.
+
+### 28.5 Departures and decisions, recorded rather than made quietly
+
+| Where | The sketch | As built | Why |
+|---|---|---|---|
+| §7 | `consumed_quantity` on the batch line | `ProductionBatchActualLine` | a partial substitution is two facts about one requirement (§28.2) |
+| §7 | one demo item, `DEMO-RICE-COOKED` | a second, `DEMO-MEAL-READY` | the demo must show a stocked semi-finished leaf left unexpanded, and the item playing that part cannot also be the output of the recipe consuming it |
+| §7 | nothing said about rescaling | rescale, and reset-and-rescale with a mandatory reason | the scale is the field most likely to change before cooking; the consequence of discarding entered figures is stated rather than discovered |
+| §7 | nothing said about substitute removal | the primary row may go when a substitution was **complete** | forcing a zero row to remain forces a statement about an item that never entered the pot — but the *last* row may not go, because that is "nobody said", not "no consumption" |
+| §6 | one expansion per consumer | one shared engine, `apps/kitchen/expansion.py` | costing and production walk the same graph; two copies would agree until one was fixed alone |
+
+### 28.6 What Task 3.5 inherits
+
+- The constraint and triggers named in §28.1, to be removed deliberately.
+- A `DRAFT` batch whose requirements are already flattened, path-stamped and
+  scaled — posting has no expansion left to do.
+- Actual rows that already carry a complete conversion snapshot, so the posting
+  quantity needs no re-derivation.
+- Readiness, which reports every blocker but checks **no stock**: availability,
+  lots, expiry and open periods belong at posting, where the stock moves.

@@ -56,7 +56,9 @@ amounts, and quantize to `UNIT_PRICE_PLACES` (RCP-086). The serving
 
 * Re-resolve a nested child by date. A `RecipeComponent` names one exact frozen
   `component_version`; costing follows that foreign key and nothing else, after
-  it was superseded as much as before (RCP-072, RCP-081, spec §26.4).
+  it was superseded as much as before (RCP-072, RCP-081, spec §26.4). That walk
+  is `apps/kitchen/expansion.py`, shared with Task 3.4's production drafting so
+  the two cannot drift into disagreeing about what a recipe contains.
 * Expand a stocked sub-recipe. Its `output_item` is an inventory item with a
   book value that already contains its ingredients; expanding it too would
   charge the parent twice (RCP-071).
@@ -104,10 +106,9 @@ from apps.inventory.valuation import (
     posted_cutoff,
     valuation_at_cutoff,
 )
+from apps.kitchen.expansion import ExpandedLeaf, LeafKind, expand_recipe_version
 from apps.kitchen.models import (
-    MAX_COMPONENT_DEPTH,
     Recipe,
-    RecipeComponent,
     RecipeLine,
     RecipeLineCostClass,
     RecipeServing,
@@ -536,108 +537,21 @@ class RecipeCostCard:
 # ---------------------------------------------------------------------------
 # Walking the tree
 # ---------------------------------------------------------------------------
+#
+# The walk itself lives in `apps/kitchen/expansion.py`, because Task 3.4 drafts
+# production batches from the same graph and two copies of one traversal are
+# two systems that will eventually disagree about what a recipe contains.
+#
+# What stays here is the part that is genuinely costing's: turning a leaf fact
+# into a priced line. `CostLineKind` is kept as this module's own vocabulary and
+# mapped from the engine's, so a stored snapshot's `source_kind` column does not
+# change meaning because a shared module renamed an enum.
 
 
-@dataclass
-class _Leaf:
-    """One `RecipeLine` reached at one path, before anything is priced."""
-
-    path: tuple[int, ...]
-    kind: CostLineKind
-    version: RecipeVersion
-    recipe: Recipe
-    line: RecipeLine
-    cumulative: Decimal
-
-
-def _collect_leaves(version: RecipeVersion) -> list[_Leaf]:
-    """
-    Every leaf `RecipeLine` under a version, with its cumulative multiplier.
-
-    Follows `RecipeComponent.component_version` **exactly** — never
-    `resolve_recipe_version`, never the newest child, never the currently
-    active one. A parent frozen in July keeps costing the blend it named in
-    July after that blend is superseded in September, which is RCP-011 one
-    level down and the whole reason the reference is a foreign key rather than
-    a lookup.
-
-    A stocked sub-recipe never appears here as a subtree: it is an inventory
-    item on a `RecipeLine`, so it arrives as one leaf and is priced at its book
-    value once (RCP-071). The mutual exclusion that guarantees this is a
-    database constraint, not a rule this walk has to remember.
-
-    **Refuses a corrupted graph rather than recursing forever.** The graph is
-    already acyclic and depth-bounded by Task 3.2B, but this is a *costing*
-    path: a walk that silently stopped at the limit would return a total that
-    is too small and look like an answer, and a walk that did not stop would
-    hang the request. Both failures are worse than a named refusal.
-    """
-    leaves: list[_Leaf] = []
-
-    def walk(
-        current: RecipeVersion,
-        recipe: Recipe,
-        path: tuple[int, ...],
-        cumulative: Decimal,
-        on_path: tuple[int, ...],
-        kind: CostLineKind,
-    ) -> None:
-        if current.pk in on_path:
-            raise _refuse(
-                _("رسم الوصفات الفرعية يحتوي على دورة ولا يمكن تسعيره."),
-                "recipe_cost_graph_cycle",
-            )
-        if len(path) > MAX_COMPONENT_DEPTH:
-            raise _refuse(
-                _("عمق الوصفات الفرعية يتجاوز الحد المسموح ولا يمكن تسعيره."),
-                "recipe_cost_graph_too_deep",
-            )
-
-        for line in RecipeLine.objects.filter(version=current).select_related(
-            "item", "item__base_unit"
-        ):
-            leaves.append(
-                _Leaf(
-                    path=path,
-                    kind=kind,
-                    version=current,
-                    recipe=recipe,
-                    line=line,
-                    cumulative=cumulative,
-                )
-            )
-
-        components = (
-            RecipeComponent.objects.filter(version=current)
-            .select_related("component_version", "component_recipe")
-            .order_by("line_order")
-        )
-        for component in components:
-            walk(
-                component.component_version,
-                component.component_recipe,
-                (*path, component.line_order),
-                # Full precision the whole way down. See the module docstring.
-                cumulative * component.multiplier,
-                (*on_path, current.pk),
-                CostLineKind.COMPONENT,
-            )
-
-    walk(version, version.recipe, (), ONE, (), CostLineKind.DIRECT)
-    return leaves
-
-
-def _ordered(leaves: list[_Leaf]) -> list[_Leaf]:
-    """
-    Component path, then leaf line order, then item code.
-
-    Never primary-key order: two databases restored in a different order would
-    otherwise produce cost cards whose lines are the same and whose *order* is
-    not, and a diff between two snapshots would be unreadable. The empty path
-    sorts first, so a version's own lines lead and each component's subtree
-    follows in its own `line_order`.
-    """
-    return sorted(leaves, key=lambda leaf: (leaf.path, leaf.line.line_order, leaf.line.item.code))
+_KIND_FROM_LEAF = {
+    LeafKind.DIRECT: CostLineKind.DIRECT,
+    LeafKind.COMPONENT: CostLineKind.COMPONENT,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -905,7 +819,7 @@ def _build_card(
 
     with transaction.atomic():
         cutoff = posted_cutoff(organization=recipe.organization, as_of_date=as_of_date)
-        leaves = _ordered(_collect_leaves(version))
+        leaves = expand_recipe_version(version)
         valuations = valuation_at_cutoff(
             warehouse=warehouse,
             item_ids=[leaf.line.item_id for leaf in leaves],
@@ -913,22 +827,23 @@ def _build_card(
         )
 
         priced: list[RecipeCostLine] = []
+        leaf: ExpandedLeaf
         missing: list[MissingValuation] = []
         for number, leaf in enumerate(leaves, start=1):
             valuation = valuations[leaf.line.item_id]
             # One quantize, here, at the storage boundary for this figure.
-            quantity = quantize_calculation(leaf.line.base_quantity * leaf.cumulative)
+            quantity = quantize_calculation(leaf.line.base_quantity * leaf.cumulative_multiplier)
             unit_cost = valuation.unit_cost if valuation.is_available else ZERO
             extension = quantity * unit_cost if valuation.is_available else ZERO
             line = RecipeCostLine(
                 path=leaf.path,
-                kind=leaf.kind,
+                kind=_KIND_FROM_LEAF[leaf.kind],
                 source_version=leaf.version,
                 source_recipe=leaf.recipe,
                 recipe_line=leaf.line,
                 item=leaf.line.item,
                 cost_class=str(leaf.line.cost_class),
-                cumulative_multiplier=leaf.cumulative,
+                cumulative_multiplier=leaf.cumulative_multiplier,
                 effective_quantity=quantity,
                 valuation=valuation,
                 unit_cost=unit_cost,

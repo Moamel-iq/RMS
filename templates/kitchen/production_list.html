@@ -1,0 +1,62 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# Every production draft this caller may read, newest planned date first.    #}
+{#                                                                            #}
+{# Scoped by `view_production` at the **warehouse**, not by `view_recipe`: a  #}
+{# purchasing officer who legitimately reads every recipe sees an empty list  #}
+{# here rather than a filtered one.                                           #}
+{#                                                                            #}
+{# There is no status column worth the width: every row is a draft, because   #}
+{# `production_batch_is_draft_only_until_task_3_5` refuses anything else. The #}
+{# banner says so once instead.                                               #}
+
+{% block filters %}
+  {{ filter_form.recipe }}
+  {{ filter_form.warehouse }}
+  {{ filter_form.planned_business_date }}
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الوصفة" %}</th>
+  <th>{% translate "النسخة" %}</th>
+  <th>{% translate "الفرع" %}</th>
+  <th>{% translate "المخزن" %}</th>
+  <th>{% translate "تاريخ الإنتاج" %}</th>
+  <th>{% translate "المعامل" %}</th>
+  <th>{% translate "الناتج المتوقع" %}</th>
+  <th>{% translate "الناتج الفعلي" %}</th>
+  <th>{% translate "الحالة" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for batch in batches %}
+    <tr>
+      <td>
+        <a href="{% url 'kitchen:production_detail' batch.pk %}">
+          <code>{{ batch.recipe.code }}</code> {{ batch.recipe.name_ar }}
+        </a>
+      </td>
+      <td><code dir="ltr">v{{ batch.recipe_version.version_number }}</code></td>
+      <td><code>{{ batch.branch.code }}</code></td>
+      <td><code>{{ batch.warehouse.code }}</code></td>
+      <td><code dir="ltr">{{ batch.planned_business_date|date:"Y-m-d" }}</code></td>
+      {# A technical identity: period, never a localised comma. #}
+      <td><code dir="ltr">{{ batch.multiplier_display }}</code></td>
+      <td>
+        <code dir="ltr">{{ batch.expected_output_display }}</code>
+        {{ batch.expected_output_unit_code }}
+      </td>
+      <td>
+        {% if batch.actual_output_base_quantity is not None %}
+          <code dir="ltr">{{ batch.actual_output_display }}</code>
+        {% else %}
+          <span class="muted">{% translate "لم يُدخل" %}</span>
+        {% endif %}
+      </td>
+      <td><span class="pill">{{ batch.get_status_display }}</span></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="9">{% translate "لا توجد مسودات إنتاج مطابقة." %}</td></tr>
+  {% endfor %}
+{% endblock %}

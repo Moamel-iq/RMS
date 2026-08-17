@@ -1,0 +1,119 @@
+{# One production draft, whole: the decision, the plan, what was consumed,   #}
+{# what is still missing, and who did what.                                  #}
+{#                                                                           #}
+{# One page rather than fourteen routes, because the capabilities the task   #}
+{# lists are one document: an operator reading a variance needs the plan     #}
+{# beside it, and a screen that made them navigate away to see the other     #}
+{# half would be a screen that turns one question into two.                  #}
+{#                                                                           #}
+{# What this page does **not** show, and why none of it is merely hidden:    #}
+{# no post button, no reverse button, no lot picker, no location picker, no  #}
+{# availability or reservation panel, no inventory value, no recipe cost, no #}
+{# actual cost, no journal, no account, no cost centre. Not one of those     #}
+{# exists at Task 3.4. A greyed-out "post" would tell an operator that       #}
+{# posting is one permission away, when the service does not exist and a     #}
+{# check constraint refuses the row.                                         #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="production-detail">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">
+          <code>{{ batch.recipe.code }}</code> {{ batch.recipe.name_ar }}
+          <span class="muted" dir="ltr">v{{ batch.recipe_version.version_number }}</span>
+        </h1>
+        <p class="pagehead__hint">
+          {% translate "مسودة إنتاج. لا ترحيل ولا حركة مخزنية ولا قيود محاسبية في هذه المهمة." %}
+        </p>
+      </div>
+      {% if can_draft %}
+        <div class="rowactions">
+          <a class="btn btn--ghost" href="{% url 'kitchen:production_rescale' batch.pk %}">
+            {% translate "تغيير المعامل" %}
+          </a>
+          <a class="btn btn--ghost" href="{% url 'kitchen:production_output' batch.pk %}">
+            {% translate "الناتج الفعلي" %}
+          </a>
+          <a class="btn btn--ghost" href="{% url 'kitchen:production_notes' batch.pk %}">
+            {% translate "ملاحظات" %}
+          </a>
+          <a class="btn btn--ghost" href="{% url 'kitchen:production_discard' batch.pk %}">
+            {% translate "حذف المسودة" %}
+          </a>
+        </div>
+      {% endif %}
+    </div>
+
+    {# The frozen decision. Every field here is refused by a trigger, which is #}
+    {# why it is shown as text rather than offered as an edit.                 #}
+    <section class="card">
+      <h2 class="card__title">{% translate "القرار المجمَّد" %}</h2>
+      <dl class="deflist">
+        <dt>{% translate "الفرع" %}</dt>
+        <dd><code>{{ batch.branch.code }}</code> {{ batch.branch.name_ar }}</dd>
+
+        <dt>{% translate "المخزن" %}</dt>
+        <dd><code>{{ batch.warehouse.code }}</code> {{ batch.warehouse.name_ar }}</dd>
+
+        <dt>{% translate "تاريخ الإنتاج" %}</dt>
+        <dd><code dir="ltr">{{ batch.planned_business_date|date:"Y-m-d" }}</code></dd>
+
+        <dt>{% translate "النسخة السارية" %}</dt>
+        <dd>
+          <a href="{% url 'kitchen:version_detail' batch.recipe_version.pk %}">
+            <code dir="ltr">v{{ batch.recipe_version.version_number }}</code>
+          </a>
+          <span class="muted">
+            {% translate "حُدِّدت مرة واحدة عند الإنشاء ولا يُعاد تحديدها." %}
+          </span>
+        </dd>
+
+        <dt>{% translate "الحالة" %}</dt>
+        <dd><span class="pill">{{ batch.get_status_display }}</span></dd>
+      </dl>
+    </section>
+
+    {# The scale and the output. The multiplier is editable through the       #}
+    {# rescale command and through nothing else; the expected output moves    #}
+    {# with it, and migration 0015 refuses a commit in which they disagree.   #}
+    <section class="card">
+      <h2 class="card__title">{% translate "الحجم والناتج" %}</h2>
+      <dl class="deflist">
+        <dt>{% translate "المعامل" %}</dt>
+        <dd><code dir="ltr">{{ batch.multiplier_display }}</code></dd>
+
+        <dt>{% translate "الناتج المتوقع" %}</dt>
+        <dd>
+          <code dir="ltr">{{ batch.expected_output_display }}</code>
+          {{ batch.expected_output_unit_code }}
+        </dd>
+
+        <dt>{% translate "الناتج الفعلي" %}</dt>
+        <dd>
+          {% if batch.actual_output_base_quantity is not None %}
+            <code dir="ltr">{{ batch.actual_output_display }}</code>
+          {% else %}
+            <span class="muted">{% translate "لم يُدخل بعد — يُدخله المشغّل ولا يُشتق من المدخلات." %}</span>
+          {% endif %}
+        </dd>
+
+        {% if batch.notes %}
+          <dt>{% translate "ملاحظات" %}</dt>
+          <dd>{{ batch.notes|linebreaksbr }}</dd>
+        {% endif %}
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "المتطلبات والاستهلاك الفعلي" %}</h2>
+      {% include "kitchen/_production_requirements.html" %}
+    </section>
+
+    {% include "kitchen/_production_readiness.html" %}
+    {% include "kitchen/_production_timeline.html" %}
+  </div>
+{% endblock %}

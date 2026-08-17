@@ -18,7 +18,7 @@ that implied otherwise would be the router contradicting a trigger.
 
 from django.urls import path
 
-from apps.kitchen import cost_views, version_views, views
+from apps.kitchen import cost_views, production_views, version_views, views
 
 app_name = "kitchen"
 
@@ -197,5 +197,84 @@ urlpatterns = [
         "cost-snapshots/<int:pk>/",
         cost_views.CostSnapshotDetailView.as_view(),
         name="cost_snapshot_detail",
+    ),
+    # Production drafting (Task 3.4). Warehouse-scoped, draft-only, money-free.
+    #
+    # Read this list for what is **absent**: there is no post route, no reverse
+    # route, no issue, consume, complete or journal route, and no lot or location
+    # picker. None of them is hidden — none of them exists, and a URL implying
+    # otherwise would be the router contradicting a check constraint.
+    path(
+        "production/",
+        production_views.ProductionBatchListView.as_view(),
+        name="production_list",
+    ),
+    path(
+        "production/new/",
+        production_views.ProductionBatchCreateView.as_view(),
+        name="production_create",
+    ),
+    path(
+        "production/preview/",
+        production_views.ProductionPreviewView.as_view(),
+        name="production_preview",
+    ),
+    path(
+        "production/<int:pk>/",
+        production_views.ProductionBatchDetailView.as_view(),
+        name="production_detail",
+    ),
+    # The three panels the workspace swaps after an edit. Each renders the same
+    # partial the detail page includes, so a fragment and the page it came from
+    # cannot drift.
+    path(
+        "production/<int:pk>/requirements/",
+        production_views.ProductionRequirementsView.as_view(),
+        name="production_requirements",
+    ),
+    path(
+        "production/<int:pk>/readiness/",
+        production_views.ProductionReadinessView.as_view(),
+        name="production_readiness",
+    ),
+    path(
+        "production/<int:pk>/timeline/",
+        production_views.ProductionTimelineView.as_view(),
+        name="production_timeline",
+    ),
+    path(
+        "production/<int:pk>/rescale/",
+        production_views.ProductionRescaleView.as_view(),
+        name="production_rescale",
+    ),
+    path(
+        "production/<int:pk>/output/",
+        production_views.ProductionOutputView.as_view(),
+        name="production_output",
+    ),
+    path(
+        "production/<int:pk>/notes/",
+        production_views.ProductionNotesView.as_view(),
+        name="production_notes",
+    ),
+    path(
+        "production/<int:pk>/discard/",
+        production_views.ProductionDiscardView.as_view(),
+        name="production_discard",
+    ),
+    path(
+        "production-lines/<int:pk>/substitutes/new/",
+        production_views.ProductionSubstituteCreateView.as_view(),
+        name="production_substitute_create",
+    ),
+    path(
+        "production-actuals/<int:pk>/edit/",
+        production_views.ProductionActualUpdateView.as_view(),
+        name="production_actual_update",
+    ),
+    path(
+        "production-actuals/<int:pk>/delete/",
+        production_views.ProductionActualDeleteView.as_view(),
+        name="production_actual_delete",
     ),
 ]

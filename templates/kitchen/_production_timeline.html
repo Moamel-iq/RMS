@@ -1,0 +1,36 @@
+{% load i18n %}
+
+{# Who did what to this draft, newest first.                                  #}
+{#                                                                            #}
+{# Read from `AuditEvent`, which is append-only at the database. There is no  #}
+{# edit control and no delete control on this panel, and that is not          #}
+{# restraint — the rows refuse both verbs, and a button implying otherwise    #}
+{# would be the screen contradicting a trigger.                               #}
+
+<section class="card" id="production-timeline">
+  <h2 class="card__title">{% translate "سجل المسودة" %}</h2>
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{% translate "متى" %}</th>
+          <th>{% translate "الإجراء" %}</th>
+          <th>{% translate "المستخدم" %}</th>
+          <th>{% translate "السبب" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in timeline %}
+          <tr>
+            <td><code dir="ltr">{{ event.occurred_at|date:"Y-m-d H:i" }}</code></td>
+            <td>{{ event.action }}</td>
+            <td>{{ event.actor_label|default:"—" }}</td>
+            <td>{{ event.reason|default:"" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4">{% translate "لا توجد أحداث بعد." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>

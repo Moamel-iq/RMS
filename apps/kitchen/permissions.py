@@ -43,10 +43,31 @@ separates `view_valuation` from `view_stock` and procurement separates
 blanked**: a blanked column tells the reader a number exists and that they are
 not trusted with it, which is a different statement from the one intended.
 
-Task 3.1 ships no cost column at all — costing is Task 3.3 — so
-`view_recipe_cost` guards nothing yet. It is registered now because the roles
-that will hold it are decided here, in one place, rather than discovered later
-when the first cost column appears.
+Task 3.1 shipped no cost column, and Task 3.3 built one: `view_recipe_cost`
+now guards the cost card, the snapshots and every money key in the payloads.
+
+**Task 3.4 adds the two production permissions**, and they are the first in
+this module scoped to a **warehouse** rather than to the organization. That is
+deliberate and it is why `PermissionScope.WAREHOUSE` was declared in Task 3.1:
+a recipe is organization property — one dish, one menu — but a production batch
+is custody of one store's stock, and inventory already scopes custody that way
+(RCP-051). A storekeeper who runs one branch's kitchen store has no business
+drafting production against another's.
+
+`create_production_batch` covers drafting **and** editing a draft. They are not
+split, because there is no useful post that may create a batch and may not
+correct the quantities on it before it is posted — and a permission nobody can
+hold alone is a permission that only complicates the map.
+
+There is deliberately **no** `post_production_batch` and no
+`reverse_production_batch`. Task 3.5 owns posting; declaring its permissions
+now would put a grant in the role map that nothing checks, which is exactly the
+thing an auditor cannot verify.
+
+**Cost visibility stays with `view_recipe_cost` alone.** Reading a production
+batch exposes no recipe cost, no unit cost, no standard cost and no snapshot
+value, and a test reads the raw bytes to prove the keys are absent rather than
+null.
 """
 
 from __future__ import annotations
@@ -95,6 +116,12 @@ APPROVE_RECIPE_VERSION = f"{APP_LABEL}.approve_recipe_version"
 REJECT_RECIPE_VERSION = f"{APP_LABEL}.reject_recipe_version"
 ACTIVATE_RECIPE_VERSION = f"{APP_LABEL}.activate_recipe_version"
 
+#: Arrives from Django's default set for `ProductionBatch`, like `view_recipe`
+#: does for `Recipe`: declaring it again in `Meta.permissions` would be an
+#: `auth.E005` clash with the builtin.
+VIEW_PRODUCTION = f"{APP_LABEL}.view_productionbatch"
+CREATE_PRODUCTION_BATCH = f"{APP_LABEL}.create_production_batch"
+
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_RECIPE,
     MANAGE_RECIPE,
@@ -104,6 +131,8 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     APPROVE_RECIPE_VERSION,
     REJECT_RECIPE_VERSION,
     ACTIVATE_RECIPE_VERSION,
+    VIEW_PRODUCTION,
+    CREATE_PRODUCTION_BATCH,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -120,6 +149,11 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     APPROVE_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
     REJECT_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
     ACTIVATE_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
+    # The first **warehouse**-scoped kitchen permissions, and the reason the
+    # enum has carried that value since Task 3.1. A batch is custody of one
+    # store's stock, not a statement about the organization's menu.
+    VIEW_PRODUCTION: PermissionScope.WAREHOUSE,
+    CREATE_PRODUCTION_BATCH: PermissionScope.WAREHOUSE,
 }
 
 
@@ -146,34 +180,49 @@ _MANAGER = frozenset(
         APPROVE_RECIPE_VERSION,
         REJECT_RECIPE_VERSION,
         ACTIVATE_RECIPE_VERSION,
+        VIEW_PRODUCTION,
+        CREATE_PRODUCTION_BATCH,
     }
 )
 
 #: Answers for the figures. Reads recipes and their costs and signs the costing
 #: review; writes neither — inventing a dish is a kitchen act, not an
 #: accounting one, and reviewing a recipe must not become a way to edit it.
-_ACCOUNTING_MANAGER = frozenset({VIEW_RECIPE, VIEW_RECIPE_COST, REVIEW_RECIPE_VERSION})
+_ACCOUNTING_MANAGER = frozenset(
+    {VIEW_RECIPE, VIEW_RECIPE_COST, REVIEW_RECIPE_VERSION, VIEW_PRODUCTION}
+)
 
 #: The workbook assigns `كلفة الوحدة` and `كلفة المكون` to المحاسب, so the
 #: accountant reads recipe cost by the kitchen's own arrangement — and signs
 #: the costing-evidence review, which is the second of its three parties. No
 #: `manage_recipe`: the accountant attests the evidence, never the quantities.
-_ACCOUNTANT = frozenset({VIEW_RECIPE, VIEW_RECIPE_COST, REVIEW_RECIPE_VERSION})
+_ACCOUNTANT = frozenset({VIEW_RECIPE, VIEW_RECIPE_COST, REVIEW_RECIPE_VERSION, VIEW_PRODUCTION})
 
 #: Issues ingredients against a recipe card, and has no business seeing what
 #: they cost — the same boundary that keeps stock valuation away from the
 #: person counting the shelves. Signs the quantity-and-unit review, which is
 #: the one signature on `KM-RCP-004`'s page that is genuinely theirs, and gains
 #: no approval authority by holding it.
-_STOREKEEPER = frozenset({VIEW_RECIPE, REVIEW_RECIPE_VERSION})
+#:
+#: **Drafts production**, added by Task 3.4. The storekeeper is the post that
+#: actually weighs what went into the pot, so recording it is theirs; and they
+#: still read no cost, which is the whole point of keeping the two permissions
+#: apart. A batch screen shows quantities, not money.
+_STOREKEEPER = frozenset(
+    {VIEW_RECIPE, REVIEW_RECIPE_VERSION, VIEW_PRODUCTION, CREATE_PRODUCTION_BATCH}
+)
 
 #: Buys the ingredients a recipe names, so needs to read the card. Recipe cost
 #: is a kitchen and accounting figure, not a purchasing one — and reading a
 #: recipe confers no say in whether it is approved.
+#:
+#: **No production authority at all**, deliberately: what the kitchen cooked on
+#: Tuesday is not a purchasing question, and reading it would be reading another
+#: department's working papers.
 _PURCHASING = frozenset({VIEW_RECIPE})
 
 #: Reads what exists, never what it cost.
-_VIEWER = frozenset({VIEW_RECIPE})
+_VIEWER = frozenset({VIEW_RECIPE, VIEW_PRODUCTION})
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     Role.OWNER.value: _FULL,

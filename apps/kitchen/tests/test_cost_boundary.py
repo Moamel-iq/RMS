@@ -185,13 +185,35 @@ class TestZeroEffect:
 
 
 class TestTheTaskBoundary:
-    def test_no_production_model_exists_yet(self) -> None:
-        """Task 3.4's, and a model here would be a promise this task cannot keep."""
-        from django.apps import apps
+    def test_no_production_row_carries_a_cost(self) -> None:
+        """
+        Task 3.3 asserted that no production model existed; **Task 3.4 built
+        three**, and this test moved with them rather than being deleted.
 
-        names = {model.__name__ for model in apps.get_app_config("kitchen").get_models()}
-        assert "ProductionBatch" not in names
-        assert "ProductionBatchLine" not in names
+        The claim it guards is the one that still matters here: a production
+        draft carries **no money**. Costing owns cost, `view_recipe_cost` guards
+        it, and a batch that stored one would be a second answer to a question
+        the ledger already answers — going stale the moment stock moved.
+        """
+        from apps.kitchen.models import (
+            ProductionBatch,
+            ProductionBatchActualLine,
+            ProductionBatchLine,
+        )
+
+        money = ("cost", "price", "value", "amount", "total")
+        for model in (ProductionBatch, ProductionBatchLine, ProductionBatchActualLine):
+            for field in model._meta.get_fields():
+                if not getattr(field, "concrete", False):
+                    continue
+                name = field.name.lower()
+                # `cost_class` is the recipe's FOOD / PACKAGING classification
+                # and carries no figure; every other match would be an amount.
+                if name == "cost_class":
+                    continue
+                assert not any(word in name for word in money), (
+                    f"{model.__name__}.{field.name} looks like money"
+                )
 
     def test_no_cost_field_was_added_to_recipe_or_version(self) -> None:
         """
@@ -205,12 +227,21 @@ class TestTheTaskBoundary:
         for model in (Recipe, RecipeVersion):
             assert not ({field.name for field in model._meta.get_fields()} & forbidden)
 
-    def test_the_router_publishes_no_production_or_flatten_route(self) -> None:
+    def test_the_router_publishes_drafting_screens_and_no_posting_screen(self) -> None:
+        """
+        Task 3.4 brought the drafting screens in, so the original blanket ban
+        on `production` is now false and this was rewritten rather than
+        deleted. What survives is the half about posting: no route may post,
+        reverse, flatten, journal or touch an inventory document.
+        """
         from apps.kitchen.urls import urlpatterns
 
-        published = {getattr(route, "name", "") for route in urlpatterns}
-        for banned in ("production", "flatten", "batch", "journal", "inventory"):
-            assert not any(banned in name for name in published if name)
+        published = {
+            getattr(route, "name", "") for route in urlpatterns if getattr(route, "name", "")
+        }
+        assert "production_list" in published, "Task 3.4 owns the drafting screens"
+        for banned in ("flatten", "post", "reverse", "journal", "inventory", "lot", "location"):
+            assert not any(banned in name for name in published), banned
 
     def test_costing_never_reaches_for_a_procurement_price(self) -> None:
         """

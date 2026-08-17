@@ -424,3 +424,36 @@ really produced. That is a different figure from the standard plate cost built
 here, and it needs a posted batch to exist.
 
 Neither owns standard plate cost. That is this task's, and it is built.
+
+---
+
+## Amended by Task 3.4 — costing now shares its expansion
+
+The walk described above is no longer costing's own. Task 3.4 needed the
+identical traversal to flatten a production draft, so it moved to
+`apps/kitchen/expansion.py` and **costing was moved onto it in the same task**
+rather than left with a copy.
+
+What changed for a reader of `costing.py`:
+
+- `_collect_leaves` is gone. `expand_recipe_version(version)` returns
+  `ExpandedLeaf` rows and `_KIND_FROM_LEAF` maps `LeafKind` to `CostLineKind`.
+- The two graph refusals are now `recipe_expansion_graph_cycle` and
+  `recipe_expansion_graph_too_deep`. They were `recipe_cost_*`; a production
+  draft refused for a cycle is not a costing failure, and the code a caller sees
+  should say what actually happened. The two costing tests that named the old
+  codes were **rewritten, not deleted** — the behaviour they guard is unchanged
+  and only the name moved with the walk.
+- `MAX_COMPONENT_DEPTH` is read from `expansion`, so a test that monkeypatches
+  the depth limit patches it there.
+
+What did **not** change: the cost card, the plate cost, the serving allocation,
+the snapshot columns, the valuation cutoff, and every figure any of them
+produces. The full costing regression — 88 tests — passes unchanged on the
+shared engine, and that was the condition for making the move at all.
+
+Nothing about costing reaches into production, and production reads no money.
+The engine carries no cost, resolves no date, touches no warehouse and writes no
+row — which is exactly what lets costing multiply its leaves by a warehouse
+average and production multiply the same leaves by a batch multiplier without
+either inheriting the other's assumptions.

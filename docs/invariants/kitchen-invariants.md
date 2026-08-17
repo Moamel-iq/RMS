@@ -236,3 +236,45 @@ posting; audit `previous_state` re-read from the database.
   the whole distribution is five numbers and the arithmetic is constant. Capping
   the calculation because the list would be long is capping the answer because
   the paper is small.
+
+---
+
+## Added by Task 3.4 — production drafting
+
+| # | Invariant | Enforced by | Task |
+|---|---|---|---|
+| 73 | A production batch is `DRAFT` and nothing else, and a draft carries no document number | `production_batch_is_draft_only_until_task_3_5` + `production_batch_draft_has_no_number` | 3.4 |
+| 74 | The version is resolved **once**, from an explicit branch and business date, and never re-resolved | one `resolve_recipe_version` call site in `create`, one in the preview that must agree with it; a source test pins the count at two | 3.4 |
+| 75 | Organization, branch, warehouse, recipe, version and planned date are frozen from creation | `kitchen/0011` whole-row allowlist trigger | 3.4 |
+| 76 | A requirement's source basis — version, line, path, item, recipe quantity, cumulative multiplier, cost class — is frozen; only its planned quantity may be rewritten | `kitchen/0011` line guard | 3.4 |
+| 77 | The multiplier is **revisable but never independently mutable**: `multiplier`, `expected_output_quantity` and every `planned_base_quantity` agree at COMMIT | `kitchen/0015` deferred constraint trigger | 3.4 |
+| 78 | Scaling is `source × cumulative × multiplier`, quantized once, computed from the **stored** cumulative precision, by one function every writer and the trigger share | `production.scaled_line_quantity` / `scaled_expected_output` | 3.4 |
+| 79 | Ingredients leave one warehouse and the output enters it; the warehouse belongs to the batch's own branch | `_validate_shape` + `kitchen_productionbatch_warehouse_in_branch` | 3.4 |
+| 80 | The plan and reality are different rows: a variance is recorded, never refused | `ProductionBatchActualLine` beside `ProductionBatchLine` (RCP-030) | 3.4 |
+| 81 | Every actual row names the requirement's own item or an **active substitute of that same source line**, and the item is the batch's organization's | `_approved_item` + `kitchen/0014` trigger | 3.4 |
+| 82 | One primary row per requirement, one row per approval, one row per item, and a positive stable order | four constraints in `kitchen/0013` and `0016` | 3.4 |
+| 83 | Every actual row carries a real conversion factor — `1` for a base unit, the package factor for a package — and a VARIABLE package is never given an invented measurement | `production_actual_carries_its_factor` + `_actual_basis` | 3.4 |
+| 84 | **Quantities in different dimensions are never added.** A comparable figure exists only where the dimensions agree, and where they do not the answer is the words *not quantitatively comparable* | `comparable_consumption` / `ConsumptionComparison` | 3.4 |
+| 85 | A requirement never ends with **no** actual row; the count is taken under the batch lock, so two simultaneous removals cannot both succeed | `remove_production_batch_substitute` + a real-COMMIT race | 3.4 |
+| 86 | An ordinary rescale is refused once an operator has entered anything; discarding their figures needs a deliberate flag **and** a reason | `_touched` + `rescale_production_batch` | 3.4 |
+| 87 | Every command takes the **batch row first**, then lines, then actual rows — never the payload's order | `_lock_batch`, `_lock_requirement`, `_lock_actual_row`; proved by an opposite-order race | 3.4 |
+| 88 | Readiness is derived and never stored, reports every problem at once, and queries no stock | `validate_production_batch_ready`; a test records the SQL and asserts no inventory table is touched | 3.4 |
+| 89 | Drafting writes no movement, no balance, no lot, no journal and no number | before/after census over nine tables, values as well as counts | 3.4 |
+| 90 | Idempotency is a key **and** a request fingerprint per organization, and the fingerprint excludes the resolved version | `batch_fingerprint` + `production_batch_key_unique_per_organization` | 3.4 |
+
+### Three more things that sound true and are not
+
+- **"Two rows against one requirement should be added up."** Only if they are in
+  the same dimension. 4 KG of rice met with 3 KG of rice and 2 litres of an
+  approved oil substitute has not been met with "5" of anything, and a screen
+  printing 5 there would be inventing a number the kitchen never measured. Show
+  the rows separately; compare only like with like; let Task 3.5 value each row.
+- **"The multiplier should be frozen like everything else."** How much of a
+  recipe to make is exactly the kind of thing an operator revises while a batch
+  is a draft. What must not happen is the *scale* moving while the plan does
+  not, which is why 0015 checks three figures against each other at COMMIT
+  rather than freezing one of them.
+- **"A verifier finding means something is wrong."** Not always, and treating it
+  that way is how verifiers stop being read. A cross-dimension substitution is a
+  legitimate act, so it is reported as an **observation** and never counted
+  against the exit status; only defects make `verify_production_drafts` exit 1.

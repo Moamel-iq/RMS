@@ -421,3 +421,45 @@ answer would turn every honest re-run into a permanent conflict.
 - **One new Inventory module, read-only.** `apps/inventory/valuation.py`. No
   Inventory model, migration, valuation policy or posting behaviour changed, and
   Inventory still imports nothing from Kitchen.
+
+## Amended by Task 3.4 — the structural facts that moved
+
+Three things this ADR asserted are now enforced somewhere different, and one
+statement of ownership in the surrounding documents was wrong. Recorded here
+because a decision record whose facts have moved is worse than none.
+
+- **The expansion walk lives in one module.** This ADR described costing's
+  traversal of `RecipeComponent.component_version` as costing's own. Task 3.4
+  needed the identical walk to flatten a production draft, so it was extracted
+  into `apps/kitchen/expansion.py` and **costing was moved onto it**. Both
+  callers now share one interpretation of what a recipe contains; an AST test
+  asserts that neither reimplements it. The refusal codes moved with the walk —
+  `recipe_expansion_graph_cycle` and `recipe_expansion_graph_too_deep` — because
+  a production draft refused for a cycle is not a costing failure, and the code a
+  caller sees should say what happened. The costing tests naming the old codes
+  were rewritten rather than deleted; the behaviour is unchanged.
+
+- **The frozen child reference is now relied on by two consumers.** The rule is
+  unchanged and is now load-bearing twice over: a parent frozen in July expands
+  the blend it named in July, whether the question is what it costs or what to
+  buy for Tuesday.
+
+- **A cumulative multiplier is rounded once, at its storage boundary.** This ADR
+  said multipliers compose at full precision and never quantize on the way down,
+  and that remains true of the walk. What Task 3.4 had to settle is where the
+  single rounding happens for a *stored* one: `ProductionBatchLine.cumulative_
+  multiplier` holds twelve places and the walk can compose thirty-six, so the
+  value is quantized once at that column and **every consumer reads the stored
+  figure** — creation, rescale, the preview and the database trigger alike.
+  Before that, creation scaled by the unrounded product and a later rescale by
+  the stored one, so rescaling a two-level recipe to the multiplier it already
+  had moved its planned quantities. Costing is unaffected: it stores no
+  cumulative multiplier and quantizes at its own boundary.
+
+- **`ProductionBatch` belongs to Task 3.4, not Task 3.5.** Several notes said
+  otherwise. Task 3.4 owns the `DRAFT`; Task 3.5 owns the number, the lots, the
+  valuation, the posting and the two statuses after it. See the domain spec
+  §28.1 for the full split.
+
+**ADR-025 is not promoted by this task.** Nothing here changes the versioning or
+effective-dating decision this ADR records.

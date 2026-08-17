@@ -357,8 +357,23 @@ MODULES: tuple[Module, ...] = (
                 url_name="kitchen:cost_snapshot_list",
                 available=True,
             ),
+            # Task 3.4 - production drafting. Exactly one previously inert entry
+            # is promoted, and it keeps the label it always had: `أوامر الإنتاج`
+            # is what the kitchen calls the document, and renaming it to
+            # "production drafts" would describe the current task rather than the
+            # thing the entry leads to.
+            #
+            # What is behind it is a **draft** and nothing more: no posting, no
+            # stock movement, no journal. The screens say so plainly rather than
+            # offering a disabled control, because a greyed-out "post" button
+            # tells an operator that posting is one permission away when in fact
+            # the service does not exist.
+            Section(
+                label=_("أوامر الإنتاج"),
+                url_name="kitchen:production_list",
+                available=True,
+            ),
             *_sections(
-                _("أوامر الإنتاج"),
                 _("الإنتاجية والفاقد"),
                 _("الصرف للمطبخ"),
                 _("المرتجع من المطبخ"),

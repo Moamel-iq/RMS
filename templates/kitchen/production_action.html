@@ -1,0 +1,68 @@
+{# One form, one service call. Used by the actual-quantity editor, the        #}
+{# substitute picker, the output editor and the notes editor.                 #}
+{#                                                                            #}
+{# The `action` and `hx-post` point at the **same** URL, so the screen works  #}
+{# identically with JavaScript switched off: htmx swaps the fragment when it  #}
+{# is loaded, and the browser posts the form when it is not. A refusal comes  #}
+{# back as 200 with the message inline, because htmx does not swap an error   #}
+{# response and a 4xx would leave the operator staring at an unchanged form.  #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="production-action">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "رجوع إلى المسودة" %}
+        </a>
+      </div>
+    </div>
+
+    <form class="formcard"
+          method="post"
+          novalidate
+          action="{{ request.path }}"
+          hx-post="{{ request.path }}"
+          hx-target="#production-action"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% if field.field.widget.input_type == "checkbox" %}
+            <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}">
+              {{ field }}
+              <label class="formrow__label" style="margin:0" for="{{ field.id_for_label }}">
+                {{ field.label }}
+              </label>
+              {% if field.help_text %}<p class="formrow__help">{{ field.help_text }}</p>{% endif %}
+              {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+            </div>
+          {% else %}
+            {% include "settings/_field.html" with field=field %}
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "حفظ" %}</button>
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "إلغاء" %}
+        </a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

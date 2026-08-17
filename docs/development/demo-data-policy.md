@@ -370,3 +370,34 @@ the preview banner has something to sit on.
 
 No new inventory item was created for any of it (RCP-056 unchanged): every
 valued leaf is an item the inventory demo already posted stock for.
+
+## Task 3.4 — the production draft
+
+One visible `DRAFT` production batch, `DEMO-RCP-PROD` at ×2.5, built through the
+real services and showing every shape the module has an opinion about on one
+screen: a direct requirement, a nested component path, a **stocked**
+semi-finished leaf left unexpanded, the same item reached by more than one path,
+an optional requirement consumed at zero, one requirement below plan and one
+above, a partial substitution in the same dimension, a cross-dimension
+substitution beside it, complete conversion snapshots on every row, and an
+actual output deliberately **below** the expected — because a yield of exactly
+100% demonstrates nothing.
+
+**One new inventory item, and the reason RCP-056's count moved from one to two.**
+`DEMO-RICE-COOKED` is already spoken for: `DEMO-RCP-RICE` produces it. Showing
+"a stocked semi-finished leaf is one requirement and is never re-expanded"
+requires that item to be an *input*, and an item cannot be both the output of the
+recipe being produced and a stocked input to it. `DEMO-MEAL-READY` is the output
+instead. One item, one purpose.
+
+**Idempotency has one extra place to be careful.** The batch is created with a
+fixed idempotency key, so a second run is a *retry* that returns the original
+rather than drafting a second batch. Every subsequent edit is then guarded by the
+**value** it would write rather than by a flag, so a second run finds the work
+done and writes nothing — including no duplicate audit event, which is the
+strictest of the counts a test compares.
+
+**The seed posts nothing.** No stock movement, no balance change, no journal, no
+document number, and no status but `DRAFT`. The seeding command prints the batch,
+its requirements and its actual rows, and says which constraint makes the last of
+those true.

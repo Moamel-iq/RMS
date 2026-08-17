@@ -1,0 +1,84 @@
+{# Changing how much of the recipe this run is — and the confirmation for the #}
+{# version of that command which discards somebody's figures.                 #}
+{#                                                                            #}
+{# One route for both, deliberately. `reset_actuals` is a checkbox rather     #}
+{# than something the screen decides, because recomputing over an operator's  #}
+{# measurements is the consequence of the command and should be stated rather #}
+{# than discovered. The reason becomes required the moment it is ticked, and  #}
+{# the service refuses an empty one whatever this form does.                  #}
+{#                                                                            #}
+{# An **ordinary** rescale is refused outright once anything has been entered.#}
+{# That refusal arrives inline, naming the field, so the operator learns what #}
+{# the reset flag is for at the moment it becomes relevant.                   #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="production-action">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">
+          {% translate "المتطلبات لا يُعاد توسيعها. تُعاد الكميات المخططة من الأساس المجمَّد للوصفة، فلا يتراكم خطأ تقريب مع كل تغيير." %}
+        </p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "رجوع إلى المسودة" %}
+        </a>
+      </div>
+    </div>
+
+    <dl class="deflist">
+      <dt>{% translate "المعامل الحالي" %}</dt>
+      <dd><code dir="ltr">{{ batch.multiplier_display }}</code></dd>
+      <dt>{% translate "الناتج المتوقع الحالي" %}</dt>
+      <dd>
+        <code dir="ltr">{{ batch.expected_output_display }}</code>
+        {{ batch.expected_output_unit_code }}
+      </dd>
+    </dl>
+
+    <form class="formcard"
+          method="post"
+          novalidate
+          action="{{ request.path }}"
+          hx-post="{{ request.path }}"
+          hx-target="#production-action"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% if field.field.widget.input_type == "checkbox" %}
+            <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}">
+              {{ field }}
+              <label class="formrow__label" style="margin:0" for="{{ field.id_for_label }}">
+                {{ field.label }}
+              </label>
+              {% if field.help_text %}<p class="formrow__help">{{ field.help_text }}</p>{% endif %}
+              {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+            </div>
+          {% else %}
+            {% include "settings/_field.html" with field=field %}
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "طبّق المعامل" %}</button>
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "إلغاء" %}
+        </a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

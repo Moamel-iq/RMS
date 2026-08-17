@@ -1,0 +1,76 @@
+{% load i18n %}
+
+{# What still stands between this draft and a posting — and what merely needs #}
+{# saying. Two lists, because they are two different statements:              #}
+{#                                                                            #}
+{# * **Problems** block. Every one is reported at once, because an operator   #}
+{#   fixing one thing at a time and resubmitting is an operator the system is #}
+{#   wasting.                                                                 #}
+{# * **Observations** do not. A substitution measured in another dimension is #}
+{#   legitimate — the kitchen used an approved stand-in — so reporting it as  #}
+{#   a problem would refuse a batch for being correct. Saying nothing would   #}
+{#   leave a blank variance with no explanation.                              #}
+{#                                                                            #}
+{# Readiness is derived and never stored. There is no READY status and no     #}
+{# readiness column: a stored flag would go stale the moment somebody edited  #}
+{# a quantity. It queries **no stock** — availability, lots and expiry are    #}
+{# Task 3.5's, at posting.                                                    #}
+{#                                                                            #}
+{# There is no "post" button here, and not because it is hidden: the service  #}
+{# does not exist and a check constraint refuses a POSTED row outright.       #}
+
+<section class="card" id="production-readiness">
+  <h2 class="card__title">{% translate "جاهزية المسودة" %}</h2>
+
+  {% if is_ready %}
+    <p class="banner banner--ok" role="status">
+      {% translate "لا توجد موانع في المسودة. الترحيل نفسه ليس ضمن هذه المهمة." %}
+    </p>
+  {% else %}
+    <p class="banner" role="alert">
+      {% blocktranslate count counter=readiness.problems|length %}
+        مانع واحد يحتاج معالجة.
+      {% plural %}
+        {{ counter }} موانع تحتاج معالجة.
+      {% endblocktranslate %}
+    </p>
+  {% endif %}
+
+  {% if readiness.problems %}
+    <ul class="findings">
+      {% for problem in readiness.problems %}
+        <li>
+          {% if problem.line_order %}
+            <code dir="ltr">{{ problem.line_order }}</code>
+          {% endif %}
+          {{ problem.message }}
+          <code class="muted" dir="ltr">{{ problem.code }}</code>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if readiness.observations %}
+    <h3 class="card__subtitle">{% translate "ملاحظات لا تمنع" %}</h3>
+    <ul class="findings">
+      {% for note in readiness.observations %}
+        <li>
+          {{ note.message }}
+          <code class="muted" dir="ltr">{{ note.code }}</code>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if findings %}
+    <h3 class="card__subtitle">{% translate "نتائج المدقّق" %}</h3>
+    {# Reported, never repaired. There is no repair button because there is #}
+    {# no repair: a corrected number nobody can trace is worse than a       #}
+    {# finding somebody has to read.                                        #}
+    <ul class="findings">
+      {% for finding in findings %}
+        <li>{{ finding.message }} <code class="muted" dir="ltr">{{ finding.code }}</code></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</section>

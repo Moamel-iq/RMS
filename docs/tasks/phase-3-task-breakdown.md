@@ -262,13 +262,47 @@ cost; the class split reconciles to the total; no cost is stored anywhere.
 
 ---
 
-### Task 3.4 — Production batches: drafting
+### Task 3.4 — Production batches: drafting — **Done**
 
 `ProductionBatch` / `ProductionBatchLine`, drafting from an approved version
 scaled by multiplier, actual-quantity editing, substitutes offered, optional
 lines omittable, one-warehouse rule, `view_production` /
 `create_production_batch` permissions (warehouse-scoped), screens, draft
 demo batch. Nothing posts.
+
+**Who owns what, stated because earlier notes in this file and in the code got
+it wrong.** `ProductionBatch` is **Task 3.4's**, not 3.5's:
+
+| Task 3.4 owns | Task 3.5 owns |
+| --- | --- |
+| the `DRAFT` batch | the document number |
+| flattened requirements and their exact paths | lots and locations |
+| scaling and reset-and-rescale | availability and reservation |
+| actual consumption rows | valuation of what was consumed |
+| approved substitution | Inventory posting |
+| the actual output figure | GL posting |
+| readiness (derived, never stored) | `POSTED` and `REVERSED` |
+| discard | reversal |
+
+Three tables rather than the two the spec sketched. `ProductionBatchActualLine`
+is normalized out of the sketched `consumed_quantity` column, because a partial
+substitution — 3 kg of the primary plus 1 kg of an approved stand-in — is two
+facts about one requirement and a single column can hold only one of them. The
+departure is recorded in the domain spec's section 28.
+
+**As built, beyond the original list:**
+
+- **One shared expansion engine.** `apps/kitchen/expansion.py` is the only walk
+  of the component graph; Task 3.3's costing was moved onto it in this task, so
+  a card and a requirement list cannot disagree about what a recipe contains.
+- **A deferred rescale-consistency trigger** (migration 0015). The multiplier is
+  revisable while a batch is a draft, so `multiplier`,
+  `expected_output_quantity` and every `planned_base_quantity` are checked
+  against each other at COMMIT. Revisable is not independently mutable.
+- **Cross-dimensional consumption is never aggregated.** A requirement met with
+  an approved stand-in in another dimension reports its rows separately and says
+  *not quantitatively comparable* rather than printing a sum. Task 3.5 values
+  each row separately; nothing here invents a physical conversion ratio.
 
 Added by Task 3.0A:
 
@@ -280,11 +314,17 @@ Added by Task 3.0A:
 - **Draft inertness proved**, not assumed: a draft reserves no stock, reduces no
   availability, and appears in no valuation or reorder read (RCP-096).
 
-**Visible route required.** Depends on: 3.2.
+**Visible route required.** Depends on: 3.2. One previously inert Kitchen
+navigation entry — `أوامر الإنتاج` — was promoted, and nothing else.
 
-**Exit criteria:** flattening produces exactly the leaf lines with correct paths
-and scaled quantities; a stocked sub-recipe line is *not* expanded; drafting a
-batch changes no balance anywhere.
+**Exit criteria, all met:** flattening produces exactly the leaf lines with
+correct paths and scaled quantities; a stocked sub-recipe line is *not*
+expanded; drafting a batch changes no balance anywhere. Proved by a census
+taken before and after the whole scenario — create, edit, substitute, rescale,
+reset, record an output, verify, discard — over `StockMovement`,
+`StockLedgerEntry`, `StockBalance` (values, not counts), `StockLocationBalance`,
+`JournalEntry`, `JournalLine`, `InventoryLot`, `RecipeCostSnapshot` and posted
+batches.
 
 ---
 
@@ -297,6 +337,22 @@ posting, lot creation writing `produced_by_*`, expired-ingredient refusal
 (already the kernel's), reversal mirroring with availability checks,
 `post_production_batch` / `reverse_production_batch`, real-COMMIT
 concurrency tests, posted demo batch.
+
+**What 3.4 left standing for this task to remove, deliberately and by name:**
+
+- the check constraint `production_batch_is_draft_only_until_task_3_5`, which
+  refuses any status but `DRAFT`. It is named after the task that must delete
+  it, so nobody removes it while tidying;
+- `production_batch_draft_has_no_number`, which survives that deletion: a
+  `POSTED` batch may carry a number, a `DRAFT` may never;
+- migration 0011's freeze triggers, which already permit `status` and `number`
+  to move so that 3.5 does not have to rewrite them.
+
+**And one thing 3.5 must value rather than convert.** A requirement met with an
+approved stand-in in another dimension has consumption in both, and 3.4
+deliberately never adds them. Each row is valued separately at posting; there is
+no conversion ratio between kilograms and litres to find, and inventing one
+would post a figure no scale produced.
 
 Added by Task 3.0A:
 

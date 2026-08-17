@@ -30,13 +30,9 @@ import pytest
 
 from apps.accounting.models import JournalEntry, JournalLine
 from apps.inventory.models import (
-    InventoryItem,
-    ItemCategory,
-    ItemType,
     StockBalance,
     StockMovement,
     Warehouse,
-    WarehouseType,
 )
 from apps.kitchen.costing import cost_recipe_version, preview_recipe_cost
 from apps.kitchen.demo import (
@@ -56,11 +52,8 @@ from apps.kitchen.models import (
     RecipeVersion,
     RecipeVersionStatus,
 )
-from apps.organizations.models import Branch, Organization
-from apps.units.models import UnitOfMeasure
+from apps.organizations.models import Organization
 from apps.users.models import User
-
-from .conftest import post_receipt
 
 pytestmark = pytest.mark.django_db
 
@@ -91,68 +84,10 @@ def _ledger_counts() -> tuple[int, ...]:
     )
 
 
-@pytest.fixture
-def demo_items(
-    organization: Organization,
-    item_category: ItemCategory,
-    kilogram: UnitOfMeasure,
-    litre: UnitOfMeasure,
-    piece: UnitOfMeasure,
-) -> dict[str, InventoryItem]:
-    """The Phase 1 demo items the kitchen seed builds on, named as it names them."""
-    items: dict[str, InventoryItem] = {}
-    for code, unit, kind in (
-        ("DEMO-RICE", kilogram, ItemType.RAW_MATERIAL),
-        ("DEMO-OIL", litre, ItemType.RAW_MATERIAL),
-        ("DEMO-MEAT", kilogram, ItemType.RAW_MATERIAL),
-        ("DEMO-CHICKEN", piece, ItemType.RAW_MATERIAL),
-        ("DEMO-CONTAINER", piece, ItemType.PACKAGING),
-    ):
-        items[code] = InventoryItem.objects.create(
-            organization=organization,
-            code=code,
-            name_ar=code,
-            category=item_category,
-            item_type=kind,
-            base_unit=unit,
-        )
-    return items
-
-
-@pytest.fixture
-def demo_store(
-    open_period: object,
-    organization: Organization,
-    branch: Branch,
-    demo_items: dict[str, InventoryItem],
-) -> Warehouse:
-    """
-    `DEMO-MAIN`, holding the three items the costing scenario reads.
-
-    Named exactly as the inventory demo names it, because the kitchen seed
-    looks that warehouse up by code — a fixture that invented its own name
-    would leave the snapshot half of the seed silently unexercised.
-    """
-    warehouse = Warehouse.objects.create(
-        branch=branch,
-        code="DEMO-MAIN",
-        name_ar="المخزن الرئيسي — تجريبي",
-        warehouse_type=WarehouseType.PHYSICAL,
-    )
-    for code, quantity, unit_cost in (
-        ("DEMO-RICE", "200", "1500"),
-        ("DEMO-OIL", "50", "4000"),
-        ("DEMO-CONTAINER", "500", "250"),
-    ):
-        post_receipt(
-            organization=organization,
-            warehouse=warehouse,
-            item=demo_items[code],
-            quantity=quantity,
-            unit_cost=unit_cost,
-            key=f"demo-{code}",
-        )
-    return warehouse
+# `demo_items` and `demo_store` moved to `conftest.py` when Task 3.4's demo
+# tests needed the same two: one definition, so a change to the item list cannot
+# leave the costing scenario and the production scenario building on different
+# ground.
 
 
 @pytest.fixture

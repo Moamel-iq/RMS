@@ -436,6 +436,13 @@ class TestACorruptGraphFailsLoudly:
     would return a total that is too small and still look like an answer, and
     one that did not stop would hang the request thread. Both are worse than a
     named refusal, and neither is visible until somebody writes this test.
+
+    The **codes** read `recipe_expansion_*` since Task 3.4 moved the walk into
+    `apps/kitchen/expansion.py` for production drafting to share. A production
+    draft refused for a cycle is not a costing failure, so the code says what
+    happened rather than which caller asked. The behaviour these two guard —
+    refuse loudly, never truncate — is unchanged, which is why they were
+    rewritten rather than deleted.
     """
 
     def test_a_graph_deeper_than_the_limit_is_refused_not_truncated(
@@ -449,16 +456,17 @@ class TestACorruptGraphFailsLoudly:
         far as the costing walk is concerned — and the walk says so instead of
         quietly costing the top two levels and dropping the third.
         """
-        from apps.kitchen import costing
+        from apps.kitchen import expansion
 
         leaf = chain.leaf("SPICE-K")
         middle = chain.above("BLEND-K", child=leaf, multiplier=Decimal("0.25"))
         parent = chain.above("DISH-K", child=middle, multiplier=Decimal("0.5"))
 
-        monkeypatch.setattr(costing, "MAX_COMPONENT_DEPTH", 1)
+        # Patch the engine, not the caller: the bound lives with the walk now.
+        monkeypatch.setattr(expansion, "MAX_COMPONENT_DEPTH", 1)
         with pytest.raises(ValidationError) as refusal:
             cost_recipe_version(version=parent, warehouse=valued_store, as_of_date=_today())
-        assert refusal.value.code == "recipe_cost_graph_too_deep"
+        assert refusal.value.code == "recipe_expansion_graph_too_deep"
 
     @pytest.mark.django_db(transaction=True)
     def test_a_planted_cycle_is_refused_rather_than_recursed_forever(
@@ -510,4 +518,4 @@ class TestACorruptGraphFailsLoudly:
                 warehouse=valued_store,
                 as_of_date=_today(),
             )
-        assert refusal.value.code == "recipe_cost_graph_cycle"
+        assert refusal.value.code == "recipe_expansion_graph_cycle"

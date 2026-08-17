@@ -33,6 +33,13 @@ rather than only beside each route:
   `GET`s. There is no `PATCH` and no `DELETE`, because the rows are append-only
   at the database and a verb that implied otherwise would be the API
   contradicting a trigger.
+
+**Task 3.4 adds the production routes** at the very end. They are commands over
+a draft — create, correct actuals, substitute, rescale, readiness, discard — and
+there is deliberately no post, reverse, issue, consume, complete or journal verb
+anywhere among them. Task 3.5 owns posting. They are also the first routes in
+this module authorized at a **warehouse** rather than at an organization, and
+they carry no money key at all.
 """
 
 from __future__ import annotations
@@ -66,29 +73,56 @@ from apps.kitchen.lifecycle import (
     submit_recipe_version,
     supersede_recipe_version,
 )
-from apps.kitchen.models import MeasurementBasis, RecipeLineCostClass, ServingRoundingPolicy
+from apps.kitchen.models import (
+    MeasurementBasis,
+    ProductionBatch,
+    RecipeLineCostClass,
+    ServingRoundingPolicy,
+)
 from apps.kitchen.permissions import (
     ACTIVATE_RECIPE_VERSION,
     APPROVE_RECIPE_VERSION,
+    CREATE_PRODUCTION_BATCH,
     MANAGE_RECIPE,
     REJECT_RECIPE_VERSION,
     REVIEW_RECIPE_VERSION,
     SUBMIT_RECIPE_VERSION,
+    VIEW_PRODUCTION,
     VIEW_RECIPE,
     VIEW_RECIPE_COST,
 )
+from apps.kitchen.production import (
+    ConsumptionComparison,
+    add_production_batch_substitute,
+    comparable_consumption,
+    create_production_batch,
+    discard_production_batch,
+    has_recorded_consumption,
+    preview_production_batch,
+    production_batch_readiness,
+    record_production_output,
+    remove_production_batch_substitute,
+    rescale_production_batch,
+    update_production_batch_actuals,
+    update_production_batch_notes,
+)
 from apps.kitchen.selectors import (
     components_for_version,
+    production_lines_for,
     resolve_category,
     resolve_component,
     resolve_cost_snapshot,
     resolve_line,
+    resolve_production_actual,
+    resolve_production_batch,
+    resolve_production_line,
     resolve_recipe,
     resolve_serving,
     resolve_step,
     resolve_substitute,
     resolve_version,
     visible_cost_snapshots,
+    visible_production_batches,
     visible_recipes,
     visible_step_ingredients,
     visible_versions,
@@ -123,6 +157,7 @@ from apps.kitchen.snapshots import create_recipe_cost_snapshot
 from apps.organizations.authorization import (
     PermissionMissing,
     require_reachable_organization_permission,
+    require_warehouse_permission,
     resolve_branch,
     resolve_organization,
 )
@@ -1176,8 +1211,11 @@ def get_effective_version(
 # child version is a new parent version, not a PATCH, and an endpoint that
 # offered otherwise would be the one place the whole exact-version rule leaked.
 #
-# No cost route, no flatten route, no production route. Task 3.3 owns roll-up
-# and Task 3.4 owns flattening.
+# No cost route and no flatten route **on a component**. Task 3.3 owns roll-up
+# and Task 3.4 owns flattening, and both reach it through their own documents:
+# the cost card, and the production preview at the end of this module. Exposing
+# a flattened view of a component in isolation would invite a caller to treat it
+# as a plan, which it is not — a plan names a branch, a date and a warehouse.
 
 
 class ComponentOut(Schema):
@@ -1854,3 +1892,673 @@ def get_cost_snapshot(request: HttpRequest, snapshot_id: int) -> dict[str, Any]:
     actor = _actor(request)
     snapshot = resolve_cost_snapshot(actor, snapshot_id)
     return _snapshot_detail_out(snapshot)
+
+
+# ---------------------------------------------------------------------------
+# Task 3.4 - production batch drafting
+# ---------------------------------------------------------------------------
+#
+# **Commands, not CRUD.** A production batch is a document with a lifecycle, and
+# the verbs below are the acts an operator performs on a draft: create it,
+# correct its actual quantities, add an approved substitute, rescale it, ask
+# whether it is ready, discard it.
+#
+# There is deliberately **no** post, reverse, issue, consume, complete, journal
+# or inventory-post route, and no way to reach one. Task 3.5 owns posting, and a
+# route to a service that does not exist would be a promise the system cannot
+# keep - the same rule that kept the cost route out until Task 3.3 built it.
+#
+# **No money crosses these routes.** Reading a batch exposes no recipe cost, no
+# unit cost, no standard cost and no snapshot value; a test reads the raw bytes
+# to prove the keys are absent rather than null. Cost visibility remains
+# `view_recipe_cost`'s alone, and holding `view_production` grants none of it.
+
+
+def _require_production_view(request: HttpRequest, warehouse: Any) -> User:
+    """
+    Reading production is a **warehouse** question, not an organization one.
+
+    A batch is custody of one store's stock. Somebody who reads the whole menu
+    has no claim on what one branch cooked on Tuesday, so this asks
+    `has_warehouse_permission` rather than reaching for the organization.
+    """
+    actor = _actor(request)
+    require_warehouse_permission(actor, VIEW_PRODUCTION, warehouse)
+    return actor
+
+
+def _require_production_draft(request: HttpRequest, warehouse: Any) -> User:
+    """Drafting and editing a draft, at this warehouse."""
+    actor = _actor(request)
+    require_warehouse_permission(actor, CREATE_PRODUCTION_BATCH, warehouse)
+    return actor
+
+
+class ProductionActualOut(Schema):
+    id: int
+    entry_order: int
+    kind: str
+    item_code: str
+    item_name: str
+    substitute_id: int | None
+    entered_quantity: str
+    entered_unit_code: str | None
+    package_unit_code: str | None
+    conversion_factor: str | None
+    measured_base_quantity: str | None
+    base_quantity: str
+    reason: str
+    note: str
+
+
+class ProductionLineOut(Schema):
+    id: int
+    line_order: int
+    component_path: str
+    component_label_path: str
+    source_kind: str
+    source_recipe_code: str
+    source_version_number: int
+    item_code: str
+    item_name: str
+    base_unit_code: str
+    source_base_quantity: str
+    cumulative_multiplier: str
+    planned_base_quantity: str
+    cost_class: str
+    is_optional: bool
+    #: The actual quantity that may honestly be compared with the plan, or null.
+    #: **Null is not zero.** It means the rows recorded against this requirement
+    #: are in another dimension, and adding litres to kilograms would be
+    #: inventing a figure the kitchen never measured. Every row is in `actuals`
+    #: either way; Task 3.5 values each of them separately.
+    comparable_actual_quantity: str | None
+    variance: str | None
+    is_quantitatively_comparable: bool
+    comparison_statement: str
+    actuals: list[ProductionActualOut]
+
+
+class ProductionBatchOut(Schema):
+    id: int
+    public_id: str
+    status: str
+    number: str
+    recipe_code: str
+    recipe_name: str
+    version_number: int
+    branch_code: str
+    warehouse_code: str
+    planned_business_date: datetime.date
+    multiplier: str
+    expected_output_quantity: str
+    expected_output_unit_code: str
+    actual_output_entered_quantity: str | None
+    actual_output_unit_code: str | None
+    actual_output_base_quantity: str | None
+    notes: str
+    created_at: datetime.datetime
+
+
+class ProductionBatchDetailOut(ProductionBatchOut):
+    lines: list[ProductionLineOut]
+
+
+class ReadinessProblemOut(Schema):
+    code: str
+    message: str
+    line_order: int | None
+
+
+class ReadinessOut(Schema):
+    """
+    What blocks, and what merely needs saying.
+
+    Two lists rather than one flag with a severity, because they answer two
+    different questions and a caller that conflated them would either refuse a
+    correct batch or lose the explanation for a blank variance.
+    """
+
+    is_ready: bool
+    problems: list[ReadinessProblemOut]
+    observations: list[ReadinessProblemOut]
+
+
+def _actual_out(row: Any) -> dict[str, Any]:
+    return {
+        "id": row.pk,
+        "entry_order": row.entry_order,
+        "kind": row.kind,
+        "item_code": row.item.code,
+        "item_name": row.item.name_ar,
+        "substitute_id": row.substitute_id,
+        "entered_quantity": str(row.entered_quantity),
+        "entered_unit_code": row.entered_unit.code if row.entered_unit_id else None,
+        "package_unit_code": row.package_unit.code if row.package_unit_id else None,
+        "conversion_factor": (
+            str(row.conversion_factor) if row.conversion_factor is not None else None
+        ),
+        "measured_base_quantity": (
+            str(row.measured_base_quantity) if row.measured_base_quantity is not None else None
+        ),
+        "base_quantity": str(row.base_quantity),
+        "reason": row.reason,
+        "note": row.note,
+    }
+
+
+def _production_line_out(line: Any) -> dict[str, Any]:
+    comparison = ConsumptionComparison(
+        line=line,
+        comparable_quantity=comparable_consumption(line),
+        recorded=has_recorded_consumption(line),
+    )
+    variance = comparison.variance
+    return {
+        "id": line.pk,
+        "comparable_actual_quantity": (
+            str(comparison.comparable_quantity)
+            if comparison.comparable_quantity is not None
+            else None
+        ),
+        "variance": str(variance) if variance is not None else None,
+        "is_quantitatively_comparable": comparison.is_comparable,
+        "comparison_statement": str(comparison.statement),
+        "line_order": line.line_order,
+        "component_path": line.component_path,
+        "component_label_path": line.component_label_path,
+        "source_kind": line.source_kind,
+        "source_recipe_code": line.source_version.recipe.code,
+        "source_version_number": line.source_version.version_number,
+        "item_code": line.item_code,
+        "item_name": line.item_name,
+        "base_unit_code": line.base_unit_code,
+        "source_base_quantity": str(line.source_base_quantity),
+        "cumulative_multiplier": str(line.cumulative_multiplier),
+        "planned_base_quantity": str(line.planned_base_quantity),
+        "cost_class": line.cost_class,
+        "is_optional": line.is_optional,
+        "actuals": [_actual_out(row) for row in line.actuals.all()],
+    }
+
+
+def _batch_out(batch: Any) -> dict[str, Any]:
+    """
+    Serialize a batch. **Every decimal crosses as a quoted string**, and no key
+    here names money.
+    """
+    return {
+        "id": batch.pk,
+        "public_id": str(batch.public_id),
+        "status": batch.status,
+        "number": batch.number,
+        "recipe_code": batch.recipe.code,
+        "recipe_name": batch.recipe.name_ar,
+        "version_number": batch.recipe_version.version_number,
+        "branch_code": batch.branch.code,
+        "warehouse_code": batch.warehouse.code,
+        "planned_business_date": batch.planned_business_date,
+        "multiplier": str(batch.multiplier),
+        "expected_output_quantity": str(batch.expected_output_quantity),
+        "expected_output_unit_code": batch.expected_output_unit_code,
+        "actual_output_entered_quantity": (
+            str(batch.actual_output_entered_quantity)
+            if batch.actual_output_entered_quantity is not None
+            else None
+        ),
+        "actual_output_unit_code": (
+            batch.actual_output_unit.code if batch.actual_output_unit_id else None
+        ),
+        "actual_output_base_quantity": (
+            str(batch.actual_output_base_quantity)
+            if batch.actual_output_base_quantity is not None
+            else None
+        ),
+        "notes": batch.notes,
+        "created_at": batch.created_at,
+    }
+
+
+def _batch_detail_out(batch: Any) -> dict[str, Any]:
+    payload = _batch_out(batch)
+    payload["lines"] = [_production_line_out(line) for line in production_lines_for(batch)]
+    return payload
+
+
+class ProductionBatchIn(Schema):
+    recipe_id: int
+    branch_id: int
+    warehouse_id: int
+    planned_business_date: datetime.date
+    multiplier: str
+    idempotency_key: str
+    notes: str = ""
+
+
+class ProductionBatchPatch(Schema):
+    """
+    Only the operator's own facts. The decision is frozen at creation.
+
+    Absent from this payload, and deliberately: organization, branch, warehouse,
+    recipe, recipe version, planned business date and the immutable source paths.
+    A trigger refuses each of them, and offering a field here would be the API
+    contradicting the database. The **multiplier** is absent too — it is editable,
+    but only through `rescale`, because changing it also rewrites every planned
+    quantity and a PATCH that moved one of the three would be refused at COMMIT.
+
+    `notes` defaults to `None` rather than `""` so that "not sent" and "cleared"
+    are different requests. Without that distinction a note could never be
+    deleted through this route.
+    """
+
+    notes: str | None = None
+    actual_output_quantity: str | None = None
+    actual_output_unit_code: str | None = None
+
+
+class ProductionRescaleIn(Schema):
+    multiplier: str
+    reset_actuals: bool = False
+    reason: str = ""
+
+
+class ProductionActualPatch(Schema):
+    entered_quantity: str
+    entered_unit_code: str | None = None
+    package_unit_id: int | None = None
+    measured_base_quantity: str | None = None
+    note: str = ""
+
+
+class ProductionSubstituteIn(Schema):
+    item_id: int
+    entered_quantity: str
+    entered_unit_code: str | None = None
+    package_unit_id: int | None = None
+    measured_base_quantity: str | None = None
+    reason: str = ""
+
+
+@router.get(
+    "/production-batches",
+    response=list[ProductionBatchOut],
+    summary="Production batches this caller may read",
+)
+def list_production_batches(
+    request: HttpRequest,
+    recipe_id: int | None = None,
+    warehouse_id: int | None = None,
+    planned_business_date: datetime.date | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Scoped by `view_production` at the **warehouse**, not by `view_recipe`.
+
+    Somebody who reads every recipe card sees an empty list here unless they
+    also hold production authority at a store. The filters narrow what is
+    already in scope; none of them can widen it.
+    """
+    actor = _actor(request)
+    rows = visible_production_batches(actor)
+    if recipe_id is not None:
+        rows = rows.filter(recipe_id=recipe_id)
+    if warehouse_id is not None:
+        rows = rows.filter(warehouse_id=warehouse_id)
+    if planned_business_date is not None:
+        rows = rows.filter(planned_business_date=planned_business_date)
+    return [_batch_out(batch) for batch in rows]
+
+
+@router.post(
+    "/production-batches",
+    response={201: ProductionBatchDetailOut},
+    summary="Draft a batch from the version in force at a branch on a date",
+)
+def post_production_batch(
+    request: HttpRequest, payload: ProductionBatchIn
+) -> tuple[int, dict[str, Any]]:
+    """
+    A **command**. Resolves the exact version once, expands it, and freezes it.
+
+    `planned_business_date` is required and never defaulted: a batch drafted on
+    Monday for Sunday's production must use Sunday's recipe.
+
+    Idempotent on the key **and** a fingerprint of the request. The resolved
+    version is deliberately absent from that fingerprint - it is a consequence
+    of the request, not part of it, so an activation landing between two
+    retries cannot turn an honest retry into a conflict.
+    """
+    actor = _actor(request)
+    recipe = resolve_recipe(actor, payload.recipe_id)
+    branch = resolve_branch(actor, payload.branch_id)
+    warehouse = resolve_manageable_warehouse(actor, payload.warehouse_id)
+    _require_production_draft(request, warehouse)
+    batch = create_production_batch(
+        recipe=recipe,
+        branch=branch,
+        warehouse=warehouse,
+        planned_business_date=payload.planned_business_date,
+        multiplier=Decimal(payload.multiplier),
+        actor=actor,
+        idempotency_key=payload.idempotency_key,
+        notes=payload.notes,
+    )
+    return 201, _batch_detail_out(batch)
+
+
+@router.get(
+    "/production-batches/{batch_id}",
+    response=ProductionBatchDetailOut,
+    summary="One batch, with its requirements and actual consumption",
+)
+def get_production_batch(request: HttpRequest, batch_id: int) -> dict[str, Any]:
+    """Out of scope is 404, never 403."""
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    _require_production_view(request, batch.warehouse)
+    return _batch_detail_out(batch)
+
+
+@router.patch(
+    "/production-batches/{batch_id}",
+    response=ProductionBatchDetailOut,
+    summary="Record the actual output, or correct the notes",
+)
+def patch_production_batch(
+    request: HttpRequest, batch_id: int, payload: ProductionBatchPatch
+) -> dict[str, Any]:
+    """
+    Only reality. The recipe, version, warehouse, branch, date and multiplier
+    are absent from the payload because they are frozen from creation - a
+    trigger refuses them, and offering them here would be the API contradicting
+    the database.
+    """
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    _require_production_draft(request, batch.warehouse)
+
+    if payload.actual_output_quantity is not None:
+        unit = (
+            unit_by_code(payload.actual_output_unit_code)
+            if payload.actual_output_unit_code
+            else batch.recipe_version.output_unit
+        )
+        record_production_output(
+            batch=batch,
+            entered_quantity=Decimal(payload.actual_output_quantity),
+            entered_unit=unit,
+            actor=actor,
+        )
+    if payload.notes is not None:
+        # Through the service, not a `save()` here. The note is what an operator
+        # writes to explain a variance somebody reads next month, and an edit
+        # that left no audit trail would let the explanation change after the
+        # fact with nothing to say it had. `None` means "not sent"; an empty
+        # string is a deliberate clearing and is honoured.
+        update_production_batch_notes(
+            batch=ProductionBatch.objects.get(pk=batch.pk), notes=payload.notes, actor=actor
+        )
+    return _batch_detail_out(ProductionBatch.objects.get(pk=batch.pk))
+
+
+@router.delete(
+    "/production-batches/{batch_id}",
+    response={204: None},
+    summary="Discard a draft",
+)
+def delete_production_batch(
+    request: HttpRequest, batch_id: int, reason: str = ""
+) -> tuple[int, None]:
+    """
+    Cascades to its own requirement and actual rows and to nothing else.
+
+    A reason is required once an operator has entered anything: discarding
+    somebody's measurements without a word is the kind of thing a system should
+    make you say out loud.
+    """
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    _require_production_draft(request, batch.warehouse)
+    discard_production_batch(batch=batch, actor=actor, reason=reason)
+    return 204, None
+
+
+@router.post(
+    "/production-batches/{batch_id}/rescale",
+    response=ProductionBatchDetailOut,
+    summary="Change how many recipe batches this run is",
+)
+def post_production_rescale(
+    request: HttpRequest, batch_id: int, payload: ProductionRescaleIn
+) -> dict[str, Any]:
+    """
+    Refused outright once an operator has entered anything, unless the caller
+    passes `reset_actuals` **and** a reason.
+
+    Silently recomputing over somebody's measurements would be the system
+    replacing a fact with an assumption, and nothing afterwards would say it
+    happened.
+    """
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    _require_production_draft(request, batch.warehouse)
+    rescaled = rescale_production_batch(
+        batch=batch,
+        multiplier=Decimal(payload.multiplier),
+        actor=actor,
+        reset_actuals=payload.reset_actuals,
+        reason=payload.reason,
+    )
+    return _batch_detail_out(rescaled)
+
+
+@router.get(
+    "/production-batches/{batch_id}/readiness",
+    response=ReadinessOut,
+    summary="Everything standing between this draft and a posting",
+)
+def get_production_readiness(request: HttpRequest, batch_id: int) -> dict[str, Any]:
+    """
+    Derived, never stored. There is no `READY` status: a stored flag would go
+    stale the moment somebody edited a quantity.
+
+    Checks **no stock** - availability, lots and expiry are Task 3.5's.
+    """
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    _require_production_view(request, batch.warehouse)
+    readiness = production_batch_readiness(batch)
+    return {
+        "is_ready": readiness.is_ready,
+        "problems": [
+            {"code": item.code, "message": item.message, "line_order": item.line_order}
+            for item in readiness.problems
+        ],
+        # Non-blocking, and reported rather than dropped: a cross-dimension
+        # substitution is legitimate, and a caller that saw only a blank variance
+        # could not tell "not comparable" from "nobody looked".
+        "observations": [
+            {"code": item.code, "message": item.message, "line_order": item.line_order}
+            for item in readiness.observations
+        ],
+    }
+
+
+@router.patch(
+    "/production-actual-lines/{actual_id}",
+    response=ProductionActualOut,
+    summary="Record what was actually consumed on one row",
+)
+def patch_production_actual(
+    request: HttpRequest, actual_id: int, payload: ProductionActualPatch
+) -> dict[str, Any]:
+    """More than planned, less, or zero. A variance is a fact, never a refusal."""
+    actor = _actor(request)
+    actual = resolve_production_actual(actor, actual_id)
+    _require_production_draft(request, actual.line.batch.warehouse)
+    package = (
+        resolve_package_unit(actor, payload.package_unit_id)
+        if payload.package_unit_id is not None
+        else None
+    )
+    updated = update_production_batch_actuals(
+        actual=actual,
+        entered_quantity=Decimal(payload.entered_quantity),
+        entered_unit=(
+            unit_by_code(payload.entered_unit_code) if payload.entered_unit_code else None
+        ),
+        package_unit=package,
+        measured_base_quantity=(
+            Decimal(payload.measured_base_quantity)
+            if payload.measured_base_quantity is not None
+            else None
+        ),
+        note=payload.note,
+        actor=actor,
+    )
+    return _actual_out(updated)
+
+
+@router.post(
+    "/production-lines/{line_id}/substitutes",
+    response={201: ProductionActualOut},
+    summary="Record an approved stand-in beside the primary row",
+)
+def post_production_substitute(
+    request: HttpRequest, line_id: int, payload: ProductionSubstituteIn
+) -> tuple[int, dict[str, Any]]:
+    """
+    Beside, not instead of. A split is the case this exists for, and the caller
+    decides what the primary row becomes - nothing here reduces it
+    automatically, because "the rest was substituted" is an assumption.
+
+    Refuses any item that is neither the requirement's own nor an active
+    substitute **of that same source line**.
+    """
+    actor = _actor(request)
+    line = resolve_production_line(actor, line_id)
+    _require_production_draft(request, line.batch.warehouse)
+    item = resolve_item(actor, payload.item_id)
+    package = (
+        resolve_package_unit(actor, payload.package_unit_id)
+        if payload.package_unit_id is not None
+        else None
+    )
+    row = add_production_batch_substitute(
+        line=line,
+        item=item,
+        entered_quantity=Decimal(payload.entered_quantity),
+        entered_unit=(
+            unit_by_code(payload.entered_unit_code) if payload.entered_unit_code else None
+        ),
+        package_unit=package,
+        measured_base_quantity=(
+            Decimal(payload.measured_base_quantity)
+            if payload.measured_base_quantity is not None
+            else None
+        ),
+        reason=payload.reason,
+        actor=actor,
+    )
+    return 201, _actual_out(row)
+
+
+@router.delete(
+    "/production-actual-lines/{actual_id}",
+    response={204: None},
+    summary="Withdraw one actual row",
+)
+def delete_production_actual(
+    request: HttpRequest, actual_id: int, reason: str = ""
+) -> tuple[int, None]:
+    """
+    Substitute or primary. What may not go is the **last** row.
+
+    The primary row may be withdrawn when a substitution was complete - the
+    kitchen used none of the planned item - because forcing a zero row to remain
+    would force a statement about an item that never entered the pot. A
+    requirement left with no actual row at all is refused: that is not "no
+    consumption", it is "nobody said", and readiness would refuse it anyway.
+    """
+    actor = _actor(request)
+    actual = resolve_production_actual(actor, actual_id)
+    _require_production_draft(request, actual.line.batch.warehouse)
+    remove_production_batch_substitute(actual=actual, actor=actor, reason=reason)
+    return 204, None
+
+
+class ProductionPreviewLineOut(Schema):
+    component_path: str
+    component_label_path: str
+    source_kind: str
+    item_code: str
+    item_name: str
+    cumulative_multiplier: str
+    planned_base_quantity: str
+    cost_class: str
+    is_optional: bool
+
+
+class ProductionPreviewOut(Schema):
+    recipe_code: str
+    version_number: int
+    version_status: str
+    multiplier: str
+    expected_output_quantity: str
+    output_unit_code: str
+    lines: list[ProductionPreviewLineOut]
+
+
+@router.get(
+    "/recipes/{recipe_id}/production-preview",
+    response=ProductionPreviewOut,
+    summary="What a batch would contain, without creating one",
+)
+def get_production_preview(
+    request: HttpRequest,
+    recipe_id: int,
+    branch_id: int,
+    warehouse_id: int,
+    planned_business_date: datetime.date,
+    multiplier: str,
+) -> dict[str, Any]:
+    """
+    Same resolver, same expansion, same arithmetic as the create command.
+
+    Deliberately: a preview computed a second way is a preview that can
+    disagree with the thing it previews. The warehouse is required so the
+    permission is answered where it will be answered on create, rather than
+    letting somebody preview into a store they may not draft into.
+    """
+    actor = _actor(request)
+    recipe = resolve_recipe(actor, recipe_id)
+    branch = resolve_branch(actor, branch_id)
+    warehouse = resolve_manageable_warehouse(actor, warehouse_id)
+    _require_production_view(request, warehouse)
+    preview = preview_production_batch(
+        recipe=recipe,
+        branch=branch,
+        planned_business_date=planned_business_date,
+        multiplier=Decimal(multiplier),
+    )
+    return {
+        "recipe_code": recipe.code,
+        "version_number": preview.version.version_number,
+        "version_status": str(preview.version.status),
+        "multiplier": str(preview.multiplier),
+        "expected_output_quantity": str(preview.expected_output_quantity),
+        "output_unit_code": preview.output_unit_code,
+        "lines": [
+            {
+                "component_path": leaf.path_display,
+                "component_label_path": leaf.label_path,
+                "source_kind": str(leaf.kind),
+                "item_code": leaf.line.item.code,
+                "item_name": leaf.line.item.name_ar,
+                "cumulative_multiplier": leaf.multiplier_display,
+                "planned_base_quantity": str(quantity),
+                "cost_class": leaf.cost_class,
+                "is_optional": leaf.is_optional,
+            }
+            for leaf, quantity in preview.planned
+        ],
+    }

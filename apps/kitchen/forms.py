@@ -39,6 +39,7 @@ from apps.kitchen.models import (
     Recipe,
     RecipeCategory,
     RecipeLineCostClass,
+    RecipeLineSubstitute,
     RecipeReviewDecision,
     RecipeReviewType,
     RecipeType,
@@ -49,9 +50,11 @@ from apps.kitchen.models import (
 from apps.kitchen.permissions import (
     ACTIVATE_RECIPE_VERSION,
     APPROVE_RECIPE_VERSION,
+    CREATE_PRODUCTION_BATCH,
     MANAGE_RECIPE,
     REJECT_RECIPE_VERSION,
     REVIEW_RECIPE_VERSION,
+    VIEW_PRODUCTION,
     VIEW_RECIPE,
     VIEW_RECIPE_COST,
 )
@@ -878,3 +881,407 @@ class CostSnapshotFilterForm(ScopedForm):
             .filter(branch__organization_id__in=organization_ids)
             .order_by("branch__code", "code")
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.4 - production drafting
+# ---------------------------------------------------------------------------
+#
+# Production is scoped to a **warehouse**, so every selector below is narrowed by
+# `readable_production_warehouses` or `draftable_production_warehouses` rather
+# than by the organization. Somebody who reads every recipe card sees an empty
+# warehouse list here unless they hold production authority at a store.
+#
+# **No form here carries money.** There is no cost field, no valuation, no
+# selling price and no margin, because a production draft has none of those
+# things until Task 3.5 values what was consumed.
+
+
+class ProductionBatchCreateForm(ScopedForm):
+    """
+    Which recipe, at which branch and warehouse, for which business date.
+
+    `planned_business_date` has **no initial value**, deliberately. A field
+    pre-filled with today teaches the operator that the question does not need a
+    date, and a batch drafted on Monday for Sunday's production must use Sunday's
+    recipe — the resolver answers per branch per date, and defaulting would answer
+    confidently for the wrong day.
+
+    The recipe list is narrowed to batch recipes with an output item, because
+    producing a portion recipe would create stock of an item that deliberately
+    does not exist (RCP-032). That narrowing is a courtesy: the service refuses
+    the same shape by name.
+    """
+
+    scope_permission = CREATE_PRODUCTION_BATCH
+
+    recipe = forms.ModelChoiceField(queryset=Recipe.objects.none(), label=_("الوصفة"))
+    branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع"))
+    warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.none(),
+        label=_("المخزن"),
+        help_text=_("المواد تُصرف من هذا المخزن والناتج يدخله — مخزن واحد للدفعة."),
+    )
+    planned_business_date = forms.DateField(
+        label=_("تاريخ الإنتاج"),
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text=_("النسخة السارية تُحدَّد بهذا التاريخ وبهذا الفرع، لا بتاريخ اليوم."),
+    )
+    multiplier = forms.DecimalField(
+        label=_("المعامل"),
+        min_value=Decimal("0.000001"),
+        decimal_places=6,
+        help_text=_("كم مرة تُنفَّذ الوصفة. يقبل الكسور — نصف قِدر شيء حقيقي."),
+    )
+    idempotency_key = forms.CharField(
+        label=_("مفتاح التكرار"),
+        max_length=128,
+        help_text=_("نفس المفتاح لنفس الطلب يعيد الدفعة الأصلية ولا يُنشئ ثانية."),
+    )
+    notes = forms.CharField(
+        label=_("ملاحظات"), widget=forms.Textarea(attrs={"rows": 2}), required=False
+    )
+
+    field_order = [
+        "recipe",
+        "branch",
+        "warehouse",
+        "planned_business_date",
+        "multiplier",
+        "idempotency_key",
+        "notes",
+    ]
+
+    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.kitchen.selectors import draftable_production_warehouses
+
+        warehouses = draftable_production_warehouses(actor).select_related(
+            "branch", "branch__organization"
+        )
+        self.fields["warehouse"].queryset = warehouses.order_by(  # type: ignore[attr-defined]
+            "branch__code", "code"
+        )
+        organization_ids = list(
+            warehouses.values_list("branch__organization_id", flat=True).distinct()
+        )
+        branch_ids = list(warehouses.values_list("branch_id", flat=True).distinct())
+        self.fields["branch"].queryset = Branch.objects.filter(  # type: ignore[attr-defined]
+            pk__in=branch_ids
+        ).order_by("code")
+        self.fields["recipe"].queryset = (  # type: ignore[attr-defined]
+            Recipe.objects.filter(
+                organization_id__in=organization_ids,
+                is_active=True,
+                output_item__isnull=False,
+            )
+            .select_related("output_item")
+            .order_by("code")
+        )
+
+    def clean(self) -> dict[str, Any]:
+        super().clean()
+        cleaned = self.cleaned_data
+        branch = cleaned.get("branch")
+        warehouse = cleaned.get("warehouse")
+        recipe = cleaned.get("recipe")
+        # Each of these is refused again by `_validate_shape` and once more by a
+        # trigger. Named here so the operator reads which field is wrong rather
+        # than a constraint name.
+        if branch is not None and warehouse is not None and warehouse.branch_id != branch.pk:
+            self.add_error(
+                "warehouse",
+                forms.ValidationError(
+                    _("المخزن لا يتبع هذا الفرع."), code="production_batch_wrong_warehouse"
+                ),
+            )
+        if (
+            recipe is not None
+            and branch is not None
+            and branch.organization_id != (recipe.organization_id)
+        ):
+            self.add_error(
+                "branch",
+                forms.ValidationError(
+                    _("الفرع يتبع مؤسسة أخرى."), code="production_batch_foreign_branch"
+                ),
+            )
+        return cleaned
+
+
+class ProductionPreviewForm(ScopedForm):
+    """
+    The same question as creation, without the commitment.
+
+    Deliberately shares the create form's fields minus the idempotency key and
+    the notes: a preview that asked a *different* question would be previewing
+    something other than the batch it claims to.
+    """
+
+    scope_permission = VIEW_PRODUCTION
+
+    recipe = forms.ModelChoiceField(queryset=Recipe.objects.none(), label=_("الوصفة"))
+    branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع"))
+    planned_business_date = forms.DateField(
+        label=_("تاريخ الإنتاج"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    multiplier = forms.DecimalField(
+        label=_("المعامل"), min_value=Decimal("0.000001"), decimal_places=6
+    )
+
+    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.kitchen.selectors import readable_production_warehouses
+
+        warehouses = readable_production_warehouses(actor).select_related("branch")
+        organization_ids = list(
+            warehouses.values_list("branch__organization_id", flat=True).distinct()
+        )
+        self.fields["branch"].queryset = Branch.objects.filter(  # type: ignore[attr-defined]
+            pk__in=list(warehouses.values_list("branch_id", flat=True).distinct())
+        ).order_by("code")
+        self.fields["recipe"].queryset = Recipe.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=organization_ids, is_active=True, output_item__isnull=False
+        ).order_by("code")
+
+
+class ProductionBatchFilterForm(ScopedForm):
+    """Narrowing an already-scoped batch list. No field here can widen it."""
+
+    scope_permission = VIEW_PRODUCTION
+
+    recipe = forms.ModelChoiceField(
+        queryset=Recipe.objects.none(), label=_("الوصفة"), required=False
+    )
+    warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.none(), label=_("المخزن"), required=False
+    )
+    planned_business_date = forms.DateField(
+        label=_("تاريخ الإنتاج"),
+        widget=forms.DateInput(attrs={"type": "date"}),
+        required=False,
+    )
+
+    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.kitchen.selectors import readable_production_warehouses
+
+        warehouses = readable_production_warehouses(actor).select_related("branch")
+        self.fields["warehouse"].queryset = warehouses.order_by(  # type: ignore[attr-defined]
+            "branch__code", "code"
+        )
+        self.fields["recipe"].queryset = Recipe.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=list(
+                warehouses.values_list("branch__organization_id", flat=True).distinct()
+            )
+        ).order_by("code")
+
+
+class ActualEntryMixin(forms.Form):
+    """
+    The two ways to say how much was consumed, and the rule that it is one.
+
+    Either a unit of measure or a package, never both and never neither — the
+    same exclusivity `RecipeLine` uses, refused here so the message names a field
+    and refused again by `_actual_basis` and by a check constraint.
+
+    A **VARIABLE** package needs a measured base quantity because one meat
+    container is whatever it weighed; there is no arithmetic answer, and
+    inventing one would put a weight in the database that no scale produced.
+    """
+
+    entered_quantity = forms.DecimalField(
+        label=_("الكمية"),
+        min_value=Decimal("0"),
+        decimal_places=6,
+        help_text=_("أكثر من المخطط أو أقل أو صفر — الانحراف حقيقة تُسجَّل ولا تُرفض."),
+    )
+    entered_unit = forms.ModelChoiceField(
+        queryset=UnitOfMeasure.objects.none(), label=_("الوحدة"), required=False
+    )
+    package_unit = forms.ModelChoiceField(
+        queryset=PackageUnit.objects.none(), label=_("العبوة"), required=False
+    )
+    measured_base_quantity = forms.DecimalField(
+        label=_("الكمية الأساس المقاسة"),
+        min_value=Decimal("0"),
+        decimal_places=6,
+        required=False,
+        help_text=_("للعبوات متغيرة الوزن فقط — ما قاله الميزان."),
+    )
+
+    def _narrow_entry_fields(self, actor: User, item: InventoryItem) -> None:
+        self.fields["entered_unit"].queryset = UnitOfMeasure.objects.filter(  # type: ignore[attr-defined]
+            dimension=item.base_unit.dimension, is_active=True
+        ).order_by("code")
+        self.fields["package_unit"].queryset = (  # type: ignore[attr-defined]
+            visible_package_units(actor)
+            .filter(organization_id=item.organization_id)
+            .order_by("code")
+        )
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        unit = cleaned.get("entered_unit")
+        package = cleaned.get("package_unit")
+        if (unit is None) == (package is None):
+            self.add_error(
+                "entered_unit",
+                forms.ValidationError(
+                    _("أدخل الكمية بوحدة قياس أو بعبوة، وليس بالاثنين معاً."),
+                    code="production_actual_one_entry_mode",
+                ),
+            )
+        return cleaned
+
+
+class ProductionActualForm(ScopedForm, ActualEntryMixin):
+    """What the kitchen actually consumed of this requirement's own item."""
+
+    scope_permission = CREATE_PRODUCTION_BATCH
+
+    note = forms.CharField(
+        label=_("ملاحظة"), widget=forms.Textarea(attrs={"rows": 2}), required=False
+    )
+
+    field_order = [
+        "entered_quantity",
+        "entered_unit",
+        "package_unit",
+        "measured_base_quantity",
+        "note",
+    ]
+
+    def __init__(self, *args: Any, actor: User, item: InventoryItem, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self._narrow_entry_fields(actor, item)
+
+
+class ProductionSubstituteForm(ScopedForm, ActualEntryMixin):
+    """
+    Which approved stand-in, and how much of it.
+
+    The choice list comes from `substitute_candidates`, which reads the
+    requirement's **own source line**: a substitute approved for the rice line is
+    not approved for the oil line even when both name rice. A filtered dropdown is
+    a courtesy; `_approved_item` refuses the same thing by name, and a trigger
+    refuses it again.
+    """
+
+    scope_permission = CREATE_PRODUCTION_BATCH
+
+    substitute = forms.ModelChoiceField(
+        queryset=RecipeLineSubstitute.objects.none(),
+        label=_("البديل المعتمد"),
+        help_text=_("البدائل المعتمدة لهذا السطر تحديداً، بترتيب الوصفة."),
+    )
+    reason = forms.CharField(label=_("سبب الاستبدال"), max_length=200, required=False)
+
+    field_order = [
+        "substitute",
+        "entered_quantity",
+        "entered_unit",
+        "package_unit",
+        "measured_base_quantity",
+        "reason",
+    ]
+
+    def __init__(self, *args: Any, actor: User, line: Any, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        from apps.kitchen.selectors import substitute_candidates
+
+        self.line = line
+        self.fields["substitute"].queryset = substitute_candidates(line)  # type: ignore[attr-defined]
+        # Units are narrowed once a substitute is chosen; before that the widest
+        # honest list is every active unit of measure, because an approved
+        # stand-in may legitimately live in another dimension entirely.
+        self.fields["entered_unit"].queryset = UnitOfMeasure.objects.filter(  # type: ignore[attr-defined]
+            is_active=True
+        ).order_by("code")
+        self.fields["package_unit"].queryset = visible_package_units(actor).order_by("code")  # type: ignore[attr-defined]
+
+
+class ProductionRescaleForm(ScopedForm):
+    """
+    A new multiplier, and — when it would discard somebody's figures — a reason.
+
+    `reset_actuals` is a deliberate checkbox rather than something the screen
+    decides. Recomputing over an operator's measurements is the consequence of
+    the command, so it is stated rather than discovered, and the reason is
+    required when the box is ticked because discarding a measurement without a
+    word is the kind of thing a system should make you say out loud.
+    """
+
+    scope_permission = CREATE_PRODUCTION_BATCH
+
+    multiplier = forms.DecimalField(
+        label=_("المعامل الجديد"), min_value=Decimal("0.000001"), decimal_places=6
+    )
+    reset_actuals = forms.BooleanField(
+        label=_("إعادة ضبط الكميات الفعلية"),
+        required=False,
+        help_text=_("يحذف كل ما أُدخل من كميات وبدائل ويعيد الافتراضات من الخطة الجديدة."),
+    )
+    reason = forms.CharField(
+        label=_("السبب"), widget=forms.Textarea(attrs={"rows": 2}), required=False
+    )
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        if cleaned.get("reset_actuals") and not (cleaned.get("reason") or "").strip():
+            self.add_error(
+                "reason",
+                forms.ValidationError(
+                    _("إعادة الضبط تتطلب سبباً."),
+                    code="production_batch_reset_requires_reason",
+                ),
+            )
+        return cleaned
+
+
+class ProductionOutputForm(ScopedForm):
+    """
+    What actually came out. Entered by the operator, never derived (RCP-031).
+
+    Deriving it from the inputs would assume a yield the kitchen did not measure,
+    and the difference between expected and actual output is precisely what the
+    yield report exists to show.
+    """
+
+    scope_permission = CREATE_PRODUCTION_BATCH
+
+    entered_quantity = forms.DecimalField(
+        label=_("الناتج الفعلي"), min_value=Decimal("0"), decimal_places=6
+    )
+    entered_unit = forms.ModelChoiceField(queryset=UnitOfMeasure.objects.none(), label=_("الوحدة"))
+
+    def __init__(self, *args: Any, actor: User, output_item: InventoryItem, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.fields["entered_unit"].queryset = UnitOfMeasure.objects.filter(  # type: ignore[attr-defined]
+            dimension=output_item.base_unit.dimension, is_active=True
+        ).order_by("code")
+
+
+class ProductionNotesForm(ScopedForm):
+    """The operator's own note. Clearing it is a real edit and is permitted."""
+
+    scope_permission = CREATE_PRODUCTION_BATCH
+
+    notes = forms.CharField(
+        label=_("ملاحظات"), widget=forms.Textarea(attrs={"rows": 3}), required=False
+    )
+
+
+class ProductionDiscardForm(ScopedForm):
+    """
+    Throwing a draft away, and the reason once anything has been entered.
+
+    Required at the service too, and for the same reason it is asked here rather
+    than assumed: the draft may hold measurements somebody took.
+    """
+
+    scope_permission = CREATE_PRODUCTION_BATCH
+
+    reason = forms.CharField(
+        label=_("سبب الحذف"), widget=forms.Textarea(attrs={"rows": 2}), required=False
+    )

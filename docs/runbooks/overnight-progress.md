@@ -1316,3 +1316,83 @@ claimed the advisory lock made coverage sound. The owner-policy correction
 disproved that and fixed it in `apps/kitchen/graph.py` and in the concurrency
 tests, and did not reach the ADR. Corrected here, marked as a correction with
 its date, rather than quietly rewritten.
+
+---
+
+## Task 3.4 — Production batch drafting and scaling (2026-08-17)
+
+Three tables, six migrations (0010–0016), a shared expansion engine, an Arabic
+operator surface, twelve API routes, a report-only verifier, a visible demo
+draft, and no posting of any kind.
+
+### What was built
+
+`ProductionBatch` / `ProductionBatchLine` / `ProductionBatchActualLine`, drafted
+from one exact `RecipeVersion` resolved once from an explicit branch and business
+date. Scaling and reset-and-rescale, approved substitution, actual quantities,
+the actual output, readiness, discard. `أوامر الإنتاج` promoted — exactly one
+previously inert navigation entry.
+
+### Four defects found by writing the checks, not by reading the code
+
+Each of these was invisible on inspection and passed every test that existed at
+the time. Recorded because the *pattern* is the lesson: the checks that pay for
+themselves are the ones that ask the database, not the ones that re-read the
+service.
+
+1. **The freeze trigger refused a legitimate rescale.** Migration 0011's
+   allowlist omitted `multiplier` and `expected_output_quantity`, so the approved
+   `rescale_production_batch` command could not commit. Found by writing the
+   *paired positive* for a parametrized refusal test — the negative cases all
+   passed, and nothing asserted that the permitted case was permitted.
+
+2. **Readiness added kilograms to litres.** A requirement met with a
+   cross-dimension substitute summed `base_quantity` across both, because every
+   row happens to have one. Right in every test where the recipe and its
+   substitutes share a unit; silently wrong the first time a kitchen substitutes
+   across dimensions.
+
+3. **The multiplier was quantized before storage but not before use.**
+   `2.5000005` stored `2.500001` and produced an expected output computed from a
+   figure the row does not contain. Surfaced by the COMMIT-boundary consistency
+   trigger refusing a batch the service had just written.
+
+4. **Creation and rescale disagreed about the cumulative multiplier.** Creation
+   scaled by the walk's full-precision product; the column stores twelve places;
+   a rescale read the stored value. So rescaling a two-level recipe *to the
+   multiplier it already had* moved its planned quantities — on exactly the
+   recipes where the arithmetic is hardest to check by eye. Same trigger.
+
+Two more came out of the real-COMMIT races: `_lock_batch` raised
+`DoesNotExist` (a 500) when a draft was discarded while another operator edited
+it, and three commands took the actual row before the batch — inverting the
+module's own documented lock order and deadlocking against a concurrent rescale.
+
+### Decisions worth knowing about
+
+- **The multiplier is revisable, never independently mutable.** Migration 0015 is
+  a deferred constraint trigger holding `multiplier`,
+  `expected_output_quantity` and every `planned_base_quantity` in agreement at
+  COMMIT. Deferred because a legitimate rescale is inconsistent by construction
+  between its statements.
+- **Quantities in different dimensions are never added.** A variance is a number
+  only where the dimensions agree; where they do not, the answer is the words
+  *not quantitatively comparable*. No conversion ratio is invented at any layer.
+  Task 3.5 values each row separately.
+- **A verifier finding is not automatically a defect.** A cross-dimension
+  substitution is legitimate, so it is an **observation**: reported, and never
+  counted against the exit status. A red list nobody can clear stops being read.
+- **`ProductionBatch` is Task 3.4's**, not Task 3.5's. Three tests and several
+  documents said otherwise; all were corrected, and the tests were rewritten
+  rather than deleted — the fence has now moved three times and has not once come
+  down.
+
+### Genuinely deferred, with reasons
+
+- **Everything that posts.** Document number, lots, locations, availability,
+  valuation, Inventory and GL effects, `POSTED`, `REVERSED` and reversal. Task
+  3.5 owns all of it, and the boundary is a check constraint named after that
+  task rather than a convention.
+- **ADR-025 is not promoted.** Nothing in this task changes the versioning or
+  effective-dating decision ADR-024 records; the amendments are recorded against
+  ADR-024 itself.

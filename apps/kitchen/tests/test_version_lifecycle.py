@@ -1025,25 +1025,35 @@ class TestZeroEffect:
 
         assert self._counts() == before
 
-    def test_the_module_stops_where_production_begins(self) -> None:
+    def test_the_module_stops_where_posting_begins(self) -> None:
         """
         The boundary that is still true, asserted rather than commented.
 
         Task 3.2A held `RecipeComponent` out and **3.2B brought it in**; 3.2B
-        held `RecipeCostSnapshot` out and **3.3 brought it in**. Each time this
-        test was rewritten rather than deleted — the fence moved twice, and it
-        did not come down. `ProductionBatch` is Task 3.5's, `ProductionBatchLine`
-        is where flattening lands at Task 3.4, and neither may appear before its
-        task.
+        held `RecipeCostSnapshot` out and **3.3 brought it in**; 3.3 held
+        `ProductionBatch` out and **3.4 brought it in**. Each time this test was
+        rewritten rather than deleted — the fence has moved three times and has
+        not once come down.
+
+        The earlier wording said `ProductionBatch` was Task 3.5's. That was
+        wrong, and correcting it is part of Task 3.4: **3.4 owns the DRAFT**, and
+        3.5 owns the document number, the lots, the valuation, the posting and
+        the two statuses that follow it.
         """
         from django.apps import apps
+
+        from apps.kitchen.models import ProductionBatch, ProductionBatchStatus
 
         names = {model.__name__ for model in apps.get_app_config("kitchen").get_models()}
 
         assert "RecipeComponent" in names, "Task 3.2B owns the nested-recipe graph"
         assert "RecipeCostSnapshot" in names, "Task 3.3 owns cost snapshots"
-        assert "ProductionBatch" not in names
-        assert "ProductionBatchLine" not in names
+        assert "ProductionBatch" in names, "Task 3.4 owns the production draft"
+
+        # What 3.5 owns, and what therefore may not exist yet: a posted batch,
+        # and a document number on any batch at all.
+        assert not ProductionBatch.objects.exclude(status=ProductionBatchStatus.DRAFT).exists()
+        assert not ProductionBatch.objects.exclude(number="").exists()
 
     def test_no_lifecycle_row_stores_a_cost_or_a_price(self) -> None:
         """

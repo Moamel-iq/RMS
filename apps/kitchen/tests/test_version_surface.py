@@ -506,13 +506,14 @@ class TestTheApi:
 
         assert response.status_code == 404
 
-    def test_the_costing_routes_arrived_and_the_production_ones_did_not(self) -> None:
+    def test_the_drafting_routes_arrived_and_the_posting_ones_did_not(self) -> None:
         """
-        **Task 3.3 brought the cost routes in**, so that half of the original
-        claim is now false and this test was rewritten rather than deleted.
+        **Task 3.3 brought the cost routes in and Task 3.4 the drafting ones**,
+        so the original claim is now false twice over and this test was
+        rewritten each time rather than deleted.
 
-        Production and flattening are Tasks 3.4 and 3.5, and neither route may
-        appear before its task.
+        Drafting a batch is Task 3.4's; posting one is Task 3.5's, and no route
+        may cross that line before its task does.
         """
         from config.api import api
 
@@ -525,8 +526,9 @@ class TestTheApi:
         kitchen = {path for path in paths if "kitchen" in path}
         assert kitchen
         assert any("cost" in path for path in kitchen), "Task 3.3 owns the cost routes"
+        assert any("production-batches" in path for path in kitchen), "Task 3.4 owns drafting"
         for path in kitchen:
-            for forbidden in ("production", "batch", "flatten"):
+            for forbidden in ("flatten", "/post", "reverse", "issue", "consume", "journal"):
                 assert forbidden not in path.lower(), path
 
     def test_no_endpoint_exposes_a_money_field(

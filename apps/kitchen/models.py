@@ -2423,3 +2423,643 @@ class RecipeCostSnapshotServing(models.Model):
             + Decimal(self.elevated_serving_count) * self.maximum_allocated
             + self.remainder_cost
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.4 - production batch drafting
+# ---------------------------------------------------------------------------
+#
+# A recipe is an intention; the production batch is the event (RCP-002). Task
+# 3.4 builds the **draft** of that event and nothing else: what the kitchen
+# intends to consume, flattened from the exact recipe version, and what it
+# actually consumed. Task 3.5 turns a draft into a posting.
+#
+# The split is not squeamishness. Drafting touches no ledger, so it can ship
+# with screens and tests while posting waits on KD-09; and the database says so
+# rather than the docstring - `production_batch_is_draft_only_until_task_3_5`
+# refuses a POSTED row outright, so no service, migration, admin action or psql
+# prompt can produce one before Task 3.5 removes that constraint deliberately.
+
+
+class ProductionBatchStatus(models.TextChoices):
+    """
+    The approved lifecycle of one batch (spec section 7).
+
+    Declared in full because the vocabulary is settled and a later task adding
+    two values to an enum would read as a redesign. **Only `DRAFT` is
+    reachable** until Task 3.5: the check constraint is the boundary, and it is
+    named after the task that must remove it so nobody deletes it by accident
+    while tidying.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    POSTED = "POSTED", _("مرحّلة")
+    REVERSED = "REVERSED", _("معكوسة")
+
+
+class ActualLineKind(models.TextChoices):
+    """Whether an actual row records the planned item or an approved stand-in."""
+
+    PRIMARY = "PRIMARY", _("الصنف الأصلي")
+    SUBSTITUTE = "SUBSTITUTE", _("بديل معتمد")
+
+
+class ProductionBatch(TimeStampedModel):
+    """
+    One intended production run, drafted from one exact `RecipeVersion`.
+
+    **One organization, one branch, one warehouse** (RCP-029). Ingredients
+    leave that warehouse and the output enters it; producing "into" another
+    warehouse is a batch plus a Phase 1 transfer, because two things happened.
+
+    **The version is chosen once and frozen.** Creation names a recipe, a
+    branch and an explicit planned business date, and `resolve_recipe_version`
+    answers which structure was in force. That answer is stored, and nothing
+    re-resolves it afterwards - not when a newer version is activated, not when
+    the child is superseded, not when the batch is reopened. A wrong date is
+    corrected by discarding the draft and creating another, because silently
+    re-pointing a batch would change what a half-finished document claims the
+    kitchen is making (RCP-011 one level down).
+
+    **What is frozen and what is not** is the whole design of this table. The
+    organization, branch, warehouse, recipe, version and planned date are
+    facts about the *decision*; the actual quantities are facts about *reality*
+    and stay editable while the batch is a draft. `output_quantity` is entered
+    by the operator and never derived from the inputs (RCP-031) - the scale
+    decides, exactly as a variable-package receipt's measured weight does.
+
+    The **multiplier** sits in neither group and is worth stating plainly,
+    because it is the field most likely to be mistaken for frozen: how much of a
+    recipe to make is revisable while the batch is a draft, through
+    `rescale_production_batch` and through nothing else. Migration 0015 holds it,
+    `expected_output_quantity` and every requirement's `planned_base_quantity`
+    in agreement at COMMIT, so revisable does not become independently mutable -
+    a batch claiming to be double the recipe while asking for one and a half
+    times the rice is refused by the database, not merely unlikely.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="production_batches",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="production_batches",
+        verbose_name=_("branch"),
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="production_batches",
+        verbose_name=_("warehouse"),
+    )
+
+    recipe = models.ForeignKey(
+        Recipe,
+        on_delete=models.PROTECT,
+        related_name="production_batches",
+        verbose_name=_("recipe"),
+    )
+    #: The **exact** version, resolved once at creation and never again.
+    recipe_version = models.ForeignKey(
+        RecipeVersion,
+        on_delete=models.PROTECT,
+        related_name="production_batches",
+        verbose_name=_("recipe version"),
+    )
+    #: The operational date this batch belongs to, and the date its version was
+    #: resolved for. Explicit, never defaulted to today: a batch drafted on
+    #: Monday for Sunday's production must use Sunday's recipe.
+    planned_business_date = models.DateField(_("planned business date"))
+
+    #: How many `batch_size`s this run is. Decimal because half a pit is a real
+    #: thing, and positive because zero production is not a production.
+    multiplier = models.DecimalField(
+        _("multiplier"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+
+    #: `expected_output_quantity x multiplier`, snapshotted so the comparison
+    #: on the screen survives a version being superseded.
+    expected_output_quantity = models.DecimalField(
+        _("expected output"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+    expected_output_unit_code = models.CharField(_("expected output unit"), max_length=16)
+
+    #: What the scale said. Entered, not derived (RCP-031).
+    actual_output_entered_quantity = models.DecimalField(
+        _("actual output entered"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+        null=True,
+        blank=True,
+    )
+    actual_output_unit = models.ForeignKey(
+        "units.UnitOfMeasure",
+        on_delete=models.PROTECT,
+        related_name="production_batch_outputs",
+        null=True,
+        blank=True,
+        verbose_name=_("actual output unit"),
+    )
+    actual_output_base_quantity = models.DecimalField(
+        _("actual output"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    status = models.CharField(
+        _("status"),
+        max_length=12,
+        choices=ProductionBatchStatus.choices,
+        default=ProductionBatchStatus.DRAFT,
+    )
+    #: Drawn at posting, gapless per organization - Task 3.5's. Empty here, and
+    #: a constraint holds it empty while the batch is a draft.
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    notes = models.TextField(_("notes"), blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="production_batches_created",
+        null=True,
+        blank=True,
+        verbose_name=_("created by"),
+    )
+
+    #: Unique **per organization** and matched against a fingerprint, never on
+    #: the key alone (`CLAUDE.md`).
+    idempotency_key = models.CharField(_("idempotency key"), max_length=128)
+    request_fingerprint = models.CharField(_("request fingerprint"), max_length=64)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("production batch")
+        verbose_name_plural = _("production batches")
+        ordering = ["-planned_business_date", "-id"]
+        permissions = [
+            ("create_production_batch", "Can draft and edit production batches"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "idempotency_key"],
+                name="production_batch_key_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=~Q(idempotency_key=""),
+                name="production_batch_key_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=Q(multiplier__gt=Decimal("0")),
+                name="production_batch_multiplier_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(expected_output_quantity__gt=Decimal("0")),
+                name="production_batch_expected_output_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(actual_output_base_quantity__isnull=True)
+                | Q(actual_output_base_quantity__gte=Decimal("0")),
+                name="production_batch_actual_output_not_negative",
+            ),
+            # ---------------------------------------------------------------
+            # The Task 3.4 / 3.5 boundary, enforced by the database.
+            #
+            # Named after the task that must remove it. A service could be
+            # written to set POSTED; a migration could; the admin could; a psql
+            # prompt could. This refuses all four, so "Task 3.4 posts nothing"
+            # is a property of the schema rather than a promise in a docstring.
+            #
+            # Task 3.5 deletes this constraint deliberately, in its own
+            # migration, as the first thing it does.
+            # ---------------------------------------------------------------
+            models.CheckConstraint(
+                condition=Q(status=ProductionBatchStatus.DRAFT),
+                name="production_batch_is_draft_only_until_task_3_5",
+            ),
+            # A draft carries no posting evidence. Belt and braces with the
+            # status constraint above, and the half that survives Task 3.5
+            # removing the other: a POSTED batch may have a number, a DRAFT
+            # may never.
+            models.CheckConstraint(
+                condition=Q(status=ProductionBatchStatus.DRAFT, number="")
+                | ~Q(status=ProductionBatchStatus.DRAFT),
+                name="production_batch_draft_has_no_number",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "planned_business_date"],
+                name="production_batch_org_date_idx",
+            ),
+            models.Index(fields=["warehouse", "status"], name="production_batch_wh_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.recipe_id} x{self.multiplier} @ {self.planned_business_date}"
+
+    @property
+    def is_draft(self) -> bool:
+        return self.status == ProductionBatchStatus.DRAFT
+
+    @property
+    def multiplier_display(self) -> str:
+        """A technical identity: period, never a localised comma."""
+        return f"{self.multiplier:f}"
+
+    @property
+    def expected_output_display(self) -> str:
+        return f"{self.expected_output_quantity:f}"
+
+    @property
+    def actual_output_display(self) -> str:
+        if self.actual_output_base_quantity is None:
+            return ""
+        return f"{self.actual_output_base_quantity:f}"
+
+
+class ProductionBatchLine(TimeStampedModel):
+    """
+    One flattened requirement: one economic path from the version to one item.
+
+    Written once, at creation, from `apps/kitchen/expansion.py`. **Every source
+    field here is immutable from that moment**, draft or not, and a trigger
+    enforces it: these are not the operator's facts to correct. They are what
+    the recipe said, and correcting them would mean the batch quietly claims to
+    have been drafted from a structure it was not.
+
+    What *is* editable lives on `ProductionBatchActualLine` beside it. The plan
+    and reality are different rows on purpose (RCP-030): an operator who
+    consumed something else has recorded a fact, not amended a recipe.
+
+    The same `InventoryItem` reached by two paths stays **two** requirement
+    rows. Aggregating them would save a line and lose the ability to say which
+    level of the tree the variance came from, which is the batch variance
+    report's entire subject.
+
+    A stocked semi-finished item is one row and is never expanded - its book
+    value already contains its ingredients (RCP-071).
+    """
+
+    batch = models.ForeignKey(
+        ProductionBatch,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("batch"),
+    )
+    #: 1..n in the expansion's own deterministic order: component path, then
+    #: leaf line order, then item code. Never primary-key order.
+    line_order = models.PositiveIntegerField(_("line order"))
+
+    #: The **exact** version this requirement came from - the root's own for a
+    #: direct line, the frozen `component_version` for a nested one.
+    source_version = models.ForeignKey(
+        RecipeVersion,
+        on_delete=models.PROTECT,
+        related_name="production_batch_lines",
+        verbose_name=_("source version"),
+    )
+    source_line = models.ForeignKey(
+        RecipeLine,
+        on_delete=models.PROTECT,
+        related_name="production_batch_lines",
+        verbose_name=_("source recipe line"),
+    )
+    source_line_public_id = models.UUIDField(_("source line public id"))
+    source_version_public_id = models.UUIDField(_("source version public id"))
+
+    #: `2.1` - the component `line_order` path from the root. Empty for a line
+    #: the batch's own version owns (RCP-080).
+    component_path = models.CharField(_("component path"), max_length=64, blank=True)
+    #: `DISH v2 ← BLEND v1 ← SPICE v1`, so a two-year-old batch reconstructs its
+    #: exact tree without consulting versions that may since have been
+    #: superseded (RCP-080).
+    component_label_path = models.CharField(_("component label path"), max_length=400)
+    source_kind = models.CharField(_("source"), max_length=12, choices=CostLineSource.choices)
+
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="production_batch_lines",
+        verbose_name=_("item"),
+    )
+    item_code = models.CharField(_("item code"), max_length=32)
+    item_name = models.CharField(_("item name"), max_length=200)
+    base_unit_code = models.CharField(_("base unit"), max_length=16)
+
+    #: What **one batch of the leaf's own recipe** consumes. Kept so a rescale
+    #: recomputes from the recipe's own figure rather than from a previously
+    #: scaled result, which would compound rounding every time.
+    source_base_quantity = models.DecimalField(
+        _("source quantity per recipe batch"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+    #: The product of every component multiplier from the root, at full
+    #: precision and never rounded on the way down (RCP-073).
+    cumulative_multiplier = models.DecimalField(
+        _("cumulative multiplier"),
+        max_digits=EXTENSION_MAX_DIGITS,
+        decimal_places=FACTOR_PLACES,
+    )
+    #: `source x cumulative x batch multiplier`, quantized **once**, here.
+    planned_base_quantity = models.DecimalField(
+        _("planned quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+
+    cost_class = models.CharField(
+        _("cost class"), max_length=16, choices=RecipeLineCostClass.choices
+    )
+    is_optional = models.BooleanField(_("optional"), default=False)
+    preparation_stage = models.CharField(_("stage"), max_length=12, blank=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("production batch line")
+        verbose_name_plural = _("production batch lines")
+        ordering = ["batch", "line_order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["batch", "line_order"],
+                name="production_line_order_unique_per_batch",
+            ),
+            # One requirement per economic path. Two rows claiming the same
+            # path would make the variance report ambiguous about which one
+            # the kitchen actually consumed against.
+            models.UniqueConstraint(
+                fields=["batch", "component_path", "source_line"],
+                name="production_line_path_unique_per_batch",
+            ),
+            models.CheckConstraint(
+                condition=Q(line_order__gte=1), name="production_line_order_is_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(source_base_quantity__gt=Decimal("0")),
+                name="production_line_source_quantity_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(planned_base_quantity__gt=Decimal("0")),
+                name="production_line_planned_quantity_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(cumulative_multiplier__gt=Decimal("0")),
+                name="production_line_multiplier_is_positive",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.batch_id}#{self.line_order} {self.item_code}"
+
+    @property
+    def planned_display(self) -> str:
+        return f"{self.planned_base_quantity:f}"
+
+    @property
+    def multiplier_display(self) -> str:
+        return f"{self.cumulative_multiplier.normalize():f}"
+
+    @property
+    def source_display(self) -> str:
+        return f"{self.source_base_quantity:f}"
+
+
+class ProductionBatchActualLine(TimeStampedModel):
+    """
+    What was actually consumed against one requirement.
+
+    A **separate** table rather than a `consumed_quantity` column on the
+    requirement, and the reason is partial substitution: 3 kg of the primary
+    plus 1 kg of an approved stand-in is two facts about one requirement, and a
+    single column can hold only one of them. The spec's sketch put
+    `consumed_quantity` on the line; that shape cannot express the case
+    RCP-022's ranked substitute table exists for, so this is normalized instead
+    and the departure is recorded in spec section 28.
+
+    Created with one row per requirement at batch creation - actual item equals
+    source item, actual quantity equals plan - so the common case needs no
+    typing at all and a variance is a deliberate edit rather than an omission.
+
+    **The recipe is the plan; these rows are reality** (RCP-030). More, less,
+    zero on an optional line, a split across approved substitutes: all
+    permitted. A variance is the batch variance report's business, never a
+    refusal - refusing would teach kitchens to falsify quantities to match the
+    recipe, which is the one outcome that makes the whole module useless.
+
+    What is *not* permitted is an item nobody approved. The actual item must be
+    the requirement's own item or an active `RecipeLineSubstitute` **of that
+    same source line**: a substitute approved for the rice line is not approved
+    for the oil line, and a substitute from another organization is not
+    approved at all.
+    """
+
+    line = models.ForeignKey(
+        ProductionBatchLine,
+        on_delete=models.CASCADE,
+        related_name="actuals",
+        verbose_name=_("requirement"),
+    )
+    entry_order = models.PositiveIntegerField(_("entry order"), default=1)
+
+    kind = models.CharField(
+        _("kind"), max_length=12, choices=ActualLineKind.choices, default=ActualLineKind.PRIMARY
+    )
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="production_actual_lines",
+        verbose_name=_("actual item"),
+    )
+    #: The approval this stand-in rests on. Null for a primary row, and a
+    #: constraint holds the two consistent so a substitute row cannot lose the
+    #: record of what made it acceptable.
+    substitute = models.ForeignKey(
+        RecipeLineSubstitute,
+        on_delete=models.PROTECT,
+        related_name="production_actual_lines",
+        null=True,
+        blank=True,
+        verbose_name=_("approved substitute"),
+    )
+
+    entered_quantity = models.DecimalField(
+        _("entered quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+    entered_unit = models.ForeignKey(
+        "units.UnitOfMeasure",
+        on_delete=models.PROTECT,
+        related_name="production_actual_lines",
+        null=True,
+        blank=True,
+        verbose_name=_("entered unit"),
+    )
+    package_unit = models.ForeignKey(
+        "inventory.PackageUnit",
+        on_delete=models.PROTECT,
+        related_name="production_actual_lines",
+        null=True,
+        blank=True,
+        verbose_name=_("package"),
+    )
+    #: **How many base units one entered unit is**, snapshotted at entry.
+    #:
+    #: Always present, and always a fact rather than a convenience: `1` for a
+    #: base-unit entry, `0.001` for grams against a KG item, the package factor
+    #: for a package. Uniform because a snapshot that is sometimes null is a
+    #: snapshot a reader has to interpret, and because readiness can then ask
+    #: one question — is the conversion complete — instead of three.
+    #:
+    #: For a package it also freezes the sack size, so correcting that size next
+    #: year cannot restate what this batch recorded consuming.
+    conversion_factor = models.DecimalField(
+        _("conversion factor"),
+        max_digits=FACTOR_MAX_DIGITS,
+        decimal_places=FACTOR_PLACES,
+        null=True,
+        blank=True,
+    )
+    conversion_version = models.PositiveIntegerField(_("conversion version"), null=True, blank=True)
+    #: A VARIABLE package has no arithmetic answer - one meat container is
+    #: whatever it weighed - so the caller measures it, exactly as a
+    #: variable-weight receipt does.
+    measured_base_quantity = models.DecimalField(
+        _("measured base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+        null=True,
+        blank=True,
+    )
+    base_quantity = models.DecimalField(
+        _("actual quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+
+    reason = models.CharField(_("substitution reason"), max_length=200, blank=True)
+    note = models.TextField(_("note"), blank=True)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="production_actual_lines",
+        null=True,
+        blank=True,
+        verbose_name=_("recorded by"),
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("production actual line")
+        verbose_name_plural = _("production actual lines")
+        ordering = ["line", "entry_order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["line", "entry_order"],
+                name="production_actual_order_unique_per_line",
+            ),
+            # Stable *and* positive. `PositiveIntegerField` permits zero, and a
+            # zero-ordered row sorts ahead of the generated primary row that is
+            # always 1 - so an added substitute could silently become the first
+            # thing an operator reads about a requirement.
+            models.CheckConstraint(
+                condition=Q(entry_order__gte=1),
+                name="production_actual_order_is_positive",
+            ),
+            # One row per item per requirement. Two rows for the same item
+            # would be one quantity written twice, and the second would be a
+            # correction masquerading as a second consumption.
+            models.UniqueConstraint(
+                fields=["line", "item"], name="production_actual_item_unique_per_line"
+            ),
+            # Zero is legitimate - an optional line the kitchen skipped - and
+            # negative is not: consuming minus two kilos is not a fact.
+            models.CheckConstraint(
+                condition=Q(base_quantity__gte=Decimal("0")),
+                name="production_actual_quantity_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(entered_quantity__gte=Decimal("0")),
+                name="production_actual_entered_not_negative",
+            ),
+            # A substitute row names its approval; a primary row does not.
+            models.CheckConstraint(
+                condition=Q(kind=ActualLineKind.PRIMARY, substitute__isnull=True)
+                | Q(kind=ActualLineKind.SUBSTITUTE, substitute__isnull=False),
+                name="production_actual_substitute_names_its_approval",
+            ),
+            # Exactly one entry mode, the same exclusivity `RecipeLine` uses.
+            models.CheckConstraint(
+                condition=Q(entered_unit__isnull=False, package_unit__isnull=True)
+                | Q(entered_unit__isnull=True, package_unit__isnull=False),
+                name="production_actual_one_entry_mode",
+            ),
+            # Every entry carries its factor, package or not. One-directional
+            # rather than the biconditional a recipe line uses, because a
+            # base-unit entry has a real factor of 1 and calling that "no
+            # conversion" would leave readiness unable to tell a complete
+            # snapshot from a missing one.
+            models.CheckConstraint(
+                condition=Q(conversion_factor__isnull=False),
+                name="production_actual_carries_its_factor",
+            ),
+            models.CheckConstraint(
+                condition=Q(conversion_factor__gt=Decimal("0")),
+                name="production_actual_factor_is_positive",
+            ),
+            # ---------------------------------------------------------------
+            # Cardinality. Each of these closes a way of recording the same
+            # consumption twice, which is the shape a variance report cannot
+            # survive: two rows for one item are one quantity written twice, and
+            # the second is a correction masquerading as a second consumption.
+            # ---------------------------------------------------------------
+            models.UniqueConstraint(
+                fields=["line"],
+                condition=Q(kind=ActualLineKind.PRIMARY),
+                name="production_actual_one_primary_per_line",
+            ),
+            models.UniqueConstraint(
+                fields=["line", "substitute"],
+                condition=Q(substitute__isnull=False),
+                name="production_actual_one_row_per_substitute",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.line_id}#{self.entry_order} {self.item_id}"
+
+    @property
+    def quantity_display(self) -> str:
+        return f"{self.base_quantity:f}"
+
+    @property
+    def entered_display(self) -> str:
+        return f"{self.entered_quantity:f}"
+
+    @property
+    def factor_display(self) -> str:
+        if self.conversion_factor is None:
+            return ""
+        quantum = Decimal(1).scaleb(-FACTOR_PLACES)
+        return f"{self.conversion_factor.quantize(quantum):f}"
+
+    @property
+    def is_substitute(self) -> bool:
+        return self.kind == ActualLineKind.SUBSTITUTE
