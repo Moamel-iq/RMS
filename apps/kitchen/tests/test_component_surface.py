@@ -134,16 +134,30 @@ class TestScreensRender:
         assert reverse("kitchen:component_editor", args=[component.version_id]) in body
         assert component.component_recipe.code in body
 
-    def test_no_screen_shows_a_cost(
+    def test_no_component_screen_shows_a_cost(
         self, manager_client: Client, component: RecipeComponent
     ) -> None:
+        """
+        Task 3.3 built costing **screens**, and these three are not among them.
+
+        The claim was "no screen in this module shows money" and that half is
+        now false: `kitchen:cost_card` exists and shows exactly that, behind
+        `view_recipe_cost`. What is still true — and what this test was
+        rewritten to hold — is that the *component* workspace stayed money-free.
+        A tree that quietly grew a cost column would be a cost surface arriving
+        by the back door, ungated, on a screen a cook reads.
+
+        `cost` and `price` as bare substrings are gone from the search: the
+        rendered page now legitimately contains a link whose URL says `cost`.
+        The Arabic words a reader would actually see are what matter.
+        """
         for name, argument in (
             ("kitchen:component_editor", component.version_id),
             ("kitchen:component_tree", component.version_id),
             ("kitchen:component_dependencies", component.component_version_id),
         ):
             body = _arabic(manager_client).get(reverse(name, args=[argument])).content.decode()
-            for word in ("الكلفة", "السعر", "cost", "price"):
+            for word in ("الكلفة", "السعر", "كلفة الوحدة", "إجمالي كلفة"):
                 assert word not in body, f"{name} exposed {word}"
 
     def test_the_editor_says_a_frozen_parent_cannot_be_edited(
@@ -434,8 +448,15 @@ class TestTheApi:
         )
         assert response.status_code == 403
 
-    def test_there_is_no_cost_or_flatten_route(self) -> None:
-        """Task 3.3 owns costing; Task 3.4 owns flattening into a batch."""
+    def test_the_costing_routes_arrived_and_the_production_ones_did_not(self) -> None:
+        """
+        **Task 3.3 brought the cost routes in**, so that half of the original
+        claim is now false and this test was rewritten rather than deleted —
+        the fence moved, it did not come down.
+
+        Flattening into a production batch is Task 3.4's and posting is Task
+        3.5's; neither may appear before its task.
+        """
         from config.api import api
 
         paths = {
@@ -446,8 +467,9 @@ class TestTheApi:
         }
         kitchen = {path for path in paths if "kitchen" in path}
         assert kitchen
+        assert any("cost" in path for path in kitchen), "Task 3.3 owns the cost routes"
         for path in kitchen:
-            for forbidden in ("cost", "flatten", "production", "batch"):
+            for forbidden in ("flatten", "production", "batch"):
                 assert forbidden not in path.lower(), path
 
 

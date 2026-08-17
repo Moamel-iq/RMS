@@ -1,0 +1,52 @@
+{% extends "settings/base_list.html" %}
+{% load i18n money_tags %}
+
+{# Every frozen costing decision this caller may read, newest first.          #}
+{#                                                                            #}
+{# Scoped by `view_recipe_cost`, not by `view_recipe`: a storekeeper who      #}
+{# legitimately reads every recipe card sees an **empty** list here rather    #}
+{# than a costed one with the money removed. The columns are omitted with     #}
+{# the rows, which is the point - a blanked money column tells the reader a   #}
+{# number exists and that they are not trusted with it.                       #}
+
+{% block filters %}
+  {{ filter_form.recipe }}
+  {{ filter_form.warehouse }}
+  {{ filter_form.as_of_date }}
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الوصفة" %}</th>
+  <th>{% translate "النسخة" %}</th>
+  <th>{% translate "المخزن" %}</th>
+  <th>{% translate "بتاريخ" %}</th>
+  <th>{% translate "كلفة الغذاء" %}</th>
+  <th>{% translate "كلفة التغليف" %}</th>
+  <th>{% translate "إجمالي كلفة المواد" %}</th>
+  <th>{% translate "كلفة الطبق" %}</th>
+  <th>{% translate "نقطة القطع" %}</th>
+  <th>{% translate "أُنشئت" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for snapshot in snapshots %}
+    <tr>
+      <td><code>{{ snapshot.recipe_code }}</code> {{ snapshot.recipe_name }}</td>
+      <td>
+        <a href="{% url 'kitchen:cost_snapshot_detail' snapshot.pk %}">
+          v{{ snapshot.version_number }}
+        </a>
+      </td>
+      <td><code>{{ snapshot.warehouse_code }}</code></td>
+      <td><code dir="ltr">{{ snapshot.as_of_date|date:"Y-m-d" }}</code></td>
+      <td>{{ snapshot.food_total|money }}</td>
+      <td>{{ snapshot.packaging_total|money }}</td>
+      <td><strong>{{ snapshot.total_material_cost|money }}</strong></td>
+      <td><code dir="ltr">{{ snapshot.plate_cost_display }}</code></td>
+      <td><code dir="ltr">{{ snapshot.ledger_cutoff_sequence }}</code></td>
+      <td><code dir="ltr">{{ snapshot.created_at|date:"Y-m-d" }}</code></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="10">{% translate "لا توجد لقطات كلفة مطابقة." %}</td></tr>
+  {% endfor %}
+{% endblock %}

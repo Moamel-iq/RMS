@@ -136,10 +136,12 @@ class TestDependencyDirection:
     circular dependency announces itself only at start-up and only sometimes.
     """
 
-    def _imports(self, package: str) -> set[str]:
+    def _imports(self, package: str, *, include_tests: bool = True) -> set[str]:
         found: set[str] = set()
         for path in pathlib.Path(package.replace(".", "/")).rglob("*.py"):
             if "migrations" in path.parts:
+                continue
+            if not include_tests and "tests" in path.parts:
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
@@ -160,8 +162,18 @@ class TestDependencyDirection:
 
     def test_kitchen_calls_no_inventory_posting_service(self) -> None:
         """
-        Task 3.1 reads the item master and the conversions. It must never reach
-        the ledger, so the posting entry points are checked by name.
+        Kitchen reads the item master, the conversions and — from Task 3.3 —
+        the read-only valuation query. It must never reach a **posting** entry
+        point, so those are checked by name.
+
+        `include_tests=False`, and the exclusion is the point rather than a
+        convenience. The rule is about what the module *does at runtime*; a
+        costing fixture that posts stock through `apps.inventory.ledger` is
+        exercising Inventory's own public API to build a world with a real
+        moving average in it, which is exactly what the costing tests need and
+        is not Kitchen reaching the ledger. `apps/inventory/valuation.py` is
+        absent from the set below deliberately: it writes nothing, and a test
+        asserts its source contains no write at all.
         """
         forbidden = {
             "apps.inventory.ledger",
@@ -173,12 +185,18 @@ class TestDependencyDirection:
             "apps.inventory.counts",
             "apps.inventory.opening",
         }
-        assert not (self._imports("apps/kitchen") & forbidden)
+        assert not (self._imports("apps/kitchen", include_tests=False) & forbidden)
 
     def test_kitchen_calls_no_accounting_kernel(self) -> None:
+        """
+        Same narrowing, same reason: the costing fixtures open a fiscal year so
+        stock can be posted at all, and an open accounting period is a
+        precondition of Inventory's own kernel rather than anything Kitchen
+        knows about.
+        """
         assert not {
             name
-            for name in self._imports("apps/kitchen")
+            for name in self._imports("apps/kitchen", include_tests=False)
             if name.startswith("apps.accounting") and not name.endswith(".models")
         }
 

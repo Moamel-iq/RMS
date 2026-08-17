@@ -1,0 +1,279 @@
+{# The cost card itself, shared by the exact-version screen, the historical  #}
+{# resolver and the snapshot confirmation, so all three cannot drift apart.  #}
+{#                                                                           #}
+{# Money renders through the `money` filter (0 dp, the normal UI precision). #}
+{# Factors, quantities and technical identities render LTR with a period:    #}
+{# under Arabic a Decimal would otherwise localise to `0,25`, and a comma in #}
+{# a conversion factor is ambiguous and invites a mis-typed re-entry.        #}
+{#                                                                           #}
+{# There is no selling price, no cost percentage, no margin and no profit    #}
+{# column anywhere below. The heading says what the number is.               #}
+{% load i18n money_tags %}
+
+{% if is_preview %}
+  <p class="banner banner--warning" role="status">
+    <strong>{% translate "معاينة — غير معتمدة" %}</strong>
+    {% translate "هذه النسخة ما زالت مسودة أو قيد المراجعة. الأرقام للاطلاع فقط، ولا يمكن حفظ لقطة كلفة منها." %}
+  </p>
+{% endif %}
+
+<section class="formcard" id="cost-card-summary">
+  <h2>{% translate "كلفة المواد المباشرة" %}</h2>
+  <dl class="detailgrid">
+    <dt>{% translate "الوصفة" %}</dt>
+    <dd>{{ card.recipe.code }} — {{ card.recipe.name_ar }}</dd>
+
+    <dt>{% translate "النسخة" %}</dt>
+    <dd>v{{ card.version.version_number }} — {{ card.version.get_status_display }}</dd>
+
+    <dt>{% translate "المخزن" %}</dt>
+    <dd>{{ card.warehouse.code }} — {{ card.warehouse.name_ar }}</dd>
+
+    <dt>{% translate "بتاريخ" %}</dt>
+    <dd><code dir="ltr">{{ card.as_of_date|date:"Y-m-d" }}</code></dd>
+
+    <dt>{% translate "أساس التقييم" %}</dt>
+    <dd>
+      {% translate "حسب تاريخ الترحيل" %}
+      <span class="muted">(<code dir="ltr">{{ card.valuation_mode }}</code>)</span>
+    </dd>
+
+    {# The reproducibility evidence. Given the organization and this integer, #}
+    {# the exact positions this card read can be re-derived years later.      #}
+    <dt>{% translate "نقطة قطع الدفتر" %}</dt>
+    <dd><code dir="ltr">{{ card.cutoff.posted_sequence }}</code></dd>
+
+    <dt>{% translate "إصدار الحساب" %}</dt>
+    <dd><code dir="ltr">{{ card.calculation_version }}</code></dd>
+
+    <dt>{% translate "الناتج المتوقع" %}</dt>
+    <dd>
+      <code dir="ltr">{{ card.output_quantity_display }}</code> {{ card.output_unit_code }}
+    </dd>
+  </dl>
+</section>
+
+{% if missing %}
+  <section class="formcard" id="cost-missing-valuation">
+    <h2 class="text-danger">{% translate "مكوّنات بلا تقييم" %}</h2>
+    <p class="muted">
+      {% translate "لا يوجد رصيد مقوَّم لهذه الأصناف في هذا المخزن بهذا التاريخ. لا تُفترض كلفة صفر ولا يُستبدل سعر آخر، ولا يمكن حفظ لقطة كلفة قبل معالجتها." %}
+    </p>
+    <table class="table">
+      <caption class="visually-hidden">{% translate "المكوّنات غير المقوَّمة" %}</caption>
+      <thead>
+        <tr>
+          <th scope="col">{% translate "الصنف" %}</th>
+          <th scope="col">{% translate "المسار" %}</th>
+          <th scope="col">{% translate "الوصفة المصدر" %}</th>
+          <th scope="col">{% translate "السبب" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for gap in missing %}
+          <tr>
+            <td>{{ gap.item_code }} — {{ gap.item_name }}</td>
+            <td><code dir="ltr">{{ gap.component_path|default:"—" }}</code></td>
+            <td>{{ gap.recipe_code }} v{{ gap.version_number }}</td>
+            <td>
+              {% if gap.state == "NO_POSITION" %}
+                {% translate "لا يوجد رصيد لهذا الصنف في هذا المخزن." %}
+              {% else %}
+                {% translate "الرصيد صفر، فلا يوجد متوسط قابل للقسمة." %}
+              {% endif %}
+              <code dir="ltr">{{ gap.code }}</code>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endif %}
+
+<section class="formcard" id="cost-card-lines">
+  <h2>{% translate "أسطر الكلفة" %}</h2>
+  <p class="muted">
+    {% translate "الأسطر المباشرة أولاً، ثم كل وصفة فرعية بترتيبها. الصنف نفسه على مسارين يبقى سطرين، لأن البطاقة موجودة ليمكن تتبّعها." %}
+  </p>
+  <table class="table">
+    <caption class="visually-hidden">{% translate "تفصيل كلفة المواد" %}</caption>
+    <thead>
+      <tr>
+        <th scope="col">#</th>
+        <th scope="col">{% translate "المسار" %}</th>
+        <th scope="col">{% translate "المصدر" %}</th>
+        <th scope="col">{% translate "الصنف" %}</th>
+        <th scope="col">{% translate "الفئة" %}</th>
+        <th scope="col">{% translate "المعامل التراكمي" %}</th>
+        <th scope="col">{% translate "الكمية الفعّالة" %}</th>
+        <th scope="col">{% translate "كلفة الوحدة" %}</th>
+        <th scope="col">{% translate "القيمة" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+        <tr>
+          <td>{{ line.line_number }}</td>
+          <td><code dir="ltr">{{ line.path_display|default:"—" }}</code></td>
+          <td>
+            {% if line.kind == "DIRECT" %}
+              {% translate "سطر مباشر" %}
+            {% else %}
+              {{ line.source_recipe.code }} v{{ line.source_version.version_number }}
+            {% endif %}
+          </td>
+          <td>{{ line.item.code }} — {{ line.item.name_ar }}</td>
+          <td>{{ line.recipe_line.get_cost_class_display }}</td>
+          <td><code dir="ltr">{{ line.multiplier_display }}</code></td>
+          <td><code dir="ltr">{{ line.quantity_display }}</code></td>
+          <td>
+            {% if line.is_valued %}
+              <code dir="ltr">{{ line.unit_cost_display }}</code>
+            {% else %}
+              <span class="text-danger">{% translate "غير مقوَّم" %}</span>
+            {% endif %}
+          </td>
+          <td>{{ line.allocated_extension|money }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="9" class="muted">{% translate "لا توجد أسطر." %}</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <th colspan="8" scope="row">{% translate "إجمالي كلفة المواد المباشرة" %}</th>
+        <td><strong>{{ card.total_material_cost|money }}</strong></td>
+      </tr>
+    </tfoot>
+  </table>
+</section>
+
+<section class="formcard" id="cost-card-classes">
+  <h2>{% translate "الإجماليات حسب الفئة" %}</h2>
+  <p class="muted">
+    {% translate "مجموع الفئات يساوي الإجمالي تماماً: التوزيع يعيد الإجمالي المقرَّب على الأسطر بدل أن يقرِّب كل سطر على حدة." %}
+  </p>
+  <table class="table">
+    <caption class="visually-hidden">{% translate "الكلفة حسب الفئة" %}</caption>
+    <tbody>
+      {% for label, amount in class_totals %}
+        <tr>
+          <th scope="row">{{ label }}</th>
+          <td>{{ amount|money }}</td>
+        </tr>
+      {% endfor %}
+      <tr>
+        <th scope="row">{% translate "إجمالي كلفة المواد" %}</th>
+        <td><strong>{{ card.total_material_cost|money }}</strong></td>
+      </tr>
+      <tr>
+        <th scope="row">{% translate "كلفة وحدة الناتج" %}</th>
+        <td>
+          <code dir="ltr">{{ card.cost_per_output_unit_display }}</code>
+          {% translate "لكل" %} {{ card.output_unit_code }}
+        </td>
+      </tr>
+      {# The plate cost, on the primary serving's basis. Absent only on a     #}
+      {# preview of a draft with no primary serving yet, and then the reason  #}
+      {# is shown rather than a blank - a blank would read as zero.           #}
+      {% if card.plate %}
+        <tr>
+          <th scope="row">{% translate "الحصة الأساسية" %}</th>
+          <td>
+            {{ card.plate.serving.code }} — {{ card.plate.serving.name_ar }}
+            <span class="muted">
+              (<code dir="ltr">{{ card.plate.serving.quantity_display }}</code>
+              {{ card.plate.serving.serving_unit.code }})
+            </span>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">{% translate "عدد الأطباق في الدفعة" %}</th>
+          <td><code dir="ltr">{{ card.plate.portions_display }}</code></td>
+        </tr>
+        <tr>
+          <th scope="row">{% translate "كلفة الطبق" %}</th>
+          <td><strong><code dir="ltr">{{ card.plate.plate_cost_display }}</code></strong></td>
+        </tr>
+      {% else %}
+        <tr>
+          <th scope="row">{% translate "كلفة الطبق" %}</th>
+          <td class="text-danger">
+            {{ card.plate_problem.message }}
+            <code dir="ltr">{{ card.plate_problem.code }}</code>
+          </td>
+        </tr>
+      {% endif %}
+      {# RCP-093: the cost ratio is a Phase 4 read, because Phase 3 has no    #}
+      {# price. Rendered as a dash with its reason, never as zero - a zero    #}
+      {# ratio means "not calculated", not "free".                            #}
+      <tr>
+        <th scope="row">{% translate "نسبة الكلفة" %}</th>
+        <td class="muted">
+          — {% translate "لا يوجد سعر بيع في هذه المرحلة؛ النسبة تُحسب في مرحلة المبيعات." %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+{% if servings %}
+  <section class="formcard" id="cost-card-servings">
+    <h2>{% translate "كلفة الحصص" %}</h2>
+    <p class="muted">
+      {% translate "كل تعريف حصة بديل مستقل، لا يُجمع مع غيره: كل سيناريو يوزّع الإجمالي كاملاً. «كلفة الحصة» معدّل بستة أرقام عشرية، و«مجموع التوزيع» يساوي إجمالي الوصفة إلى الفلس." %}
+    </p>
+    <p class="muted">
+      {% translate "التوزيع مضغوط وليس مختصراً: الحصص الكاملة متساوية الوزن، فلا ينتج التوزيع سوى مبلغين — مبلغ عادي ومبلغ أعلى بفلس واحد للحصص التي استوعبت الباقي. العددان والمبلغان هما التوزيع كله، ومنهما يُعاد بناؤه مهما بلغ عدد الحصص." %}
+    </p>
+    <table class="table">
+      <caption class="visually-hidden">{% translate "كلفة كل حصة" %}</caption>
+      <thead>
+        <tr>
+          <th scope="col">{% translate "الحصة" %}</th>
+          <th scope="col">{% translate "المعامل" %}</th>
+          <th scope="col">{% translate "كلفة الحصة" %}</th>
+          <th scope="col">{% translate "عدد الحصص الكاملة" %}</th>
+          <th scope="col">{% translate "المتبقي من الناتج" %}</th>
+          <th scope="col">{% translate "بالكلفة العادية" %}</th>
+          <th scope="col">{% translate "بالكلفة الأعلى" %}</th>
+          <th scope="col">{% translate "كلفة المتبقي" %}</th>
+          <th scope="col">{% translate "مجموع التوزيع" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for serving in servings %}
+          <tr>
+            <td>
+              {{ serving.serving.code }} — {{ serving.serving.name_ar }}
+              {% if serving.serving.is_primary %}
+                <span class="badge">{% translate "أساسية" %}</span>
+              {% endif %}
+            </td>
+            <td><code dir="ltr">{{ serving.factor_display }}</code></td>
+            <td><code dir="ltr">{{ serving.cost_per_serving_display }}</code></td>
+            <td><code dir="ltr">{{ serving.whole_count }}</code></td>
+            <td><code dir="ltr">{{ serving.remainder_display }}</code></td>
+            {% if serving.state == "ALLOCATED" %}
+              <td>
+                <code dir="ltr">{{ serving.normal_serving_count }}</code> ×
+                {{ serving.normal_cost_per_serving|money }}
+              </td>
+              <td>
+                <code dir="ltr">{{ serving.elevated_serving_count }}</code> ×
+                {{ serving.elevated_cost_per_serving|money }}
+              </td>
+              <td>{{ serving.remainder_cost|money }}</td>
+              <td><strong>{{ serving.allocated_total|money }}</strong></td>
+            {% else %}
+              <td colspan="3" class="muted">
+                {% translate "الحصة أكبر من ناتج الدفعة، فلا توجد حصة كاملة؛ الناتج كله متبقٍّ ويحمل الكلفة كاملة." %}
+              </td>
+              <td><strong>{{ serving.allocated_total|money }}</strong></td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endif %}

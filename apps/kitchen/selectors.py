@@ -22,6 +22,7 @@ from apps.kitchen.models import (
     Recipe,
     RecipeCategory,
     RecipeComponent,
+    RecipeCostSnapshot,
     RecipeLine,
     RecipeLineSubstitute,
     RecipeServing,
@@ -32,7 +33,7 @@ from apps.kitchen.models import (
     RecipeVersionReview,
     RecipeVersionStatus,
 )
-from apps.kitchen.permissions import MANAGE_RECIPE
+from apps.kitchen.permissions import MANAGE_RECIPE, VIEW_RECIPE_COST
 from apps.organizations.authorization import (
     OutOfScope,
     organization_scope,
@@ -310,4 +311,70 @@ def component_dependencies(user: User, version: RecipeVersion) -> QuerySet[Recip
         visible_components(user)
         .filter(component_version=version)
         .order_by("version__recipe__code", "version__version_number")
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.3 - cost snapshots
+# ---------------------------------------------------------------------------
+
+
+def cost_readable_organization_ids(user: User) -> list[int]:
+    """
+    Organizations whose **money** this caller may read.
+
+    Narrower than `reachable_organization_ids` on purpose, and the narrowing is
+    the whole control: a cook reaches the organization and reads every recipe
+    card in it, and reads no cost anywhere. `view_recipe_cost` is
+    organization-scoped master-data authority (ADR-016), so this asks the same
+    question `visible_recipes` asks and then asks for the second permission too.
+
+    Used by every cost read. A screen or endpoint that filtered on
+    `reachable_organization_ids` and then checked the permission separately
+    would be one refactor away from checking neither.
+    """
+    return sorted(
+        organizations_with_permission(user, VIEW_RECIPE_COST).values_list("pk", flat=True)
+    )
+
+
+def visible_cost_snapshots(user: User) -> QuerySet[RecipeCostSnapshot]:
+    """
+    Every cost snapshot this caller may read.
+
+    Scoped by `view_recipe_cost` rather than by `view_recipe`, so a storekeeper
+    who legitimately reads the recipe list sees **no** snapshot at all - not an
+    empty-costed one. Out of scope is 404 through `_resolve`, never 403: a 403
+    about another organization's snapshot would confirm the snapshot exists,
+    and ids are sequential.
+    """
+    return RecipeCostSnapshot.objects.filter(
+        organization_id__in=cost_readable_organization_ids(user)
+    ).select_related(
+        "organization",
+        "recipe",
+        "version",
+        "branch",
+        "warehouse",
+        "created_by",
+    )
+
+
+def resolve_cost_snapshot(user: User, snapshot_id: int) -> RecipeCostSnapshot:
+    """One snapshot, resolved **with** the caller. Out of scope is 404."""
+    return _resolve(visible_cost_snapshots(user), snapshot_id, "Cost snapshot")
+
+
+def snapshots_for_version(version: RecipeVersion) -> QuerySet[RecipeCostSnapshot]:
+    """
+    Every snapshot taken of one exact version, newest first.
+
+    Unscoped by design - the caller has already resolved the version through
+    `visible_versions`, and a second scope filter here would silently hide rows
+    on a screen that had already proved its right to them.
+    """
+    return (
+        RecipeCostSnapshot.objects.filter(version=version)
+        .select_related("warehouse", "branch", "created_by")
+        .order_by("-created_at", "-id")
     )

@@ -214,11 +214,32 @@ family Task 3.2A already built, rather than needing its own.
 
 ---
 
-### Task 3.3 — Recipe costing, plate cost, snapshots
+### Task 3.3 — Recipe costing, plate cost, snapshots — **BUILT** (2026-08-17)
 
-Derived version cost and plate cost as posted-as-of reads; append-only cost
-snapshots; cost columns gated by `view_recipe_cost`, omitted not blanked.
-No new posting; no stored cost anywhere.
+Derived version cost as a posted-as-of read; append-only cost snapshots; cost
+columns gated by `view_recipe_cost`, omitted not blanked. No new posting; no
+stored cost anywhere.
+
+**Built:** `apps/kitchen/costing.py` (the engine), `apps/kitchen/snapshots.py`
+(the one write), `apps/kitchen/cost_reconciliation.py` + the
+`verify_recipe_cost_snapshots` command, `apps/inventory/valuation.py` (a
+read-only bulk valuation query — the only Inventory change), migrations 0008 and
+0009, six API routes, five Arabic RTL screens, and one promoted navigation entry.
+
+**Plate cost is built here**, from the version's primary `RecipeServing`: no
+model carries a `portions_per_batch` column, and the primary serving holds the
+same fact exactly with RCP-084 guaranteeing exactly one. `plate_cost` equals
+that serving's own standard rate, and both are frozen into every snapshot.
+
+**Every serving definition receives an exact allocation, at any count.** The
+distribution is analytic and stored in five numbers, so 50,000 portions cost
+what 10 cost and reconstruct exactly. Screens may cap how many example rows they
+list; the calculation is never capped.
+
+**What genuinely remains for Task 3.5:** the exact allocation of a *posted*
+`ProductionBatch`'s actual cost across the servings it really produced. That is
+a different figure from the standard plate cost, and it needs production to
+exist. See spec §27.11.
 
 Added by Task 3.0A:
 

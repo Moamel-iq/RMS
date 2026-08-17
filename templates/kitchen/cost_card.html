@@ -1,0 +1,78 @@
+{# One version's cost card. The warehouse/date selector swaps this whole    #}
+{# region over HTMX, and the identical URL renders a full page without      #}
+{# JavaScript - `fragment_base_template` is the only difference.            #}
+{#                                                                          #}
+{# The selector has no initial values. A date pre-filled with today teaches  #}
+{# the operator that the question does not need a date, and the first time   #}
+{# somebody re-runs a July card in September they would get September stock. #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="cost-card">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">
+          {{ recipe.code }} v{{ version.version_number }} —
+          {% translate "كلفة الوصفة والطبق" %}
+        </h1>
+        <p class="pagehead__hint">
+          {% translate "الكلفة مشتقّة، لا مخزّنة: مخزن واحد، تاريخ واحد، ونسخة واحدة بعينها. متوسط المخزن حسب تاريخ الترحيل هو الأساس الوحيد المعتمد. كلفة الطبق مشتقّة من الحصة الأساسية للنسخة." %}
+        </p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
+          {% translate "تفاصيل النسخة" %}
+        </a>
+        <a class="btn btn--ghost" href="{% url 'kitchen:cost_on_date' recipe.pk %}">
+          {% translate "الكلفة بتاريخ" %}
+        </a>
+        {% if can_snapshot %}
+          <a class="btn" href="{% url 'kitchen:cost_snapshot_create' version.pk %}">
+            {% translate "حفظ لقطة كلفة" %}
+          </a>
+        {% endif %}
+      </div>
+    </div>
+
+    <form class="formcard"
+          method="get"
+          hx-get="{% url 'kitchen:cost_card' version.pk %}"
+          hx-target="#cost-card"
+          hx-swap="outerHTML">
+      {% if form.non_field_errors %}
+        <ul class="errorlist" role="alert">
+          {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {{ form.as_p }}
+      <button class="btn" type="submit">{% translate "احسب الكلفة" %}</button>
+    </form>
+
+    {% if card %}
+      {% include "kitchen/_cost_card.html" %}
+    {% else %}
+      <p class="muted">
+        {% translate "اختر المخزن والتاريخ لعرض بطاقة الكلفة. لا يوجد تاريخ افتراضي." %}
+      </p>
+    {% endif %}
+
+    {% if snapshots %}
+      <section class="formcard">
+        <h2>{% translate "آخر لقطات هذه النسخة" %}</h2>
+        <ul>
+          {% for snapshot in snapshots %}
+            <li>
+              <a href="{% url 'kitchen:cost_snapshot_detail' snapshot.pk %}">
+                <code dir="ltr">{{ snapshot.as_of_date|date:"Y-m-d" }}</code>
+                — {{ snapshot.warehouse_code }}
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -8,10 +8,16 @@ services, so every Task 3.1 screen can be looked at with something on it. See
     .venv\Scripts\python.exe manage.py seed_kitchen_demo --user moamel
 
 There is no `--confirm-demo` flag. That guards the irreversible half of a
-seed — posted movements and journals that cannot be deleted — and Task 3.1 has
-no such half: it creates master data and drafts, moves no stock and writes no
-journal. The flag arrives with Task 3.5, when a production batch starts
-posting. Adding it now would make it a habit rather than a warning.
+seed — posted movements and journals that cannot be deleted — and this seed has
+no such half: it creates master data, versions, components and one append-only
+cost snapshot, and it moves no stock and writes no journal. The flag arrives
+with Task 3.5, when a production batch starts posting. Adding it now would make
+it a habit rather than a warning.
+
+The cost snapshot is the one row here that cannot be deleted afterwards, and it
+is still not a posting: nothing about it touches a balance or a ledger, and it
+carries the demo banner and a reference that says in as many words that it is
+not a real decision.
 
 `settings.DEBUG` is checked first, before any argument is read, and no flag
 turns it off: demo recipes in production would be indistinguishable from the
@@ -31,6 +37,7 @@ from apps.core.context import audit_context
 from apps.inventory.demo import DEMO_ORGANIZATION_CODE, DemoSelectionError
 from apps.inventory.management.commands.seed_inventory_demo import resolve_user
 from apps.kitchen.demo import DEMO_BANNER, seed_demo_recipes
+from apps.kitchen.models import RecipeCostSnapshot
 from apps.organizations.models import Organization
 
 #: The screens this dataset makes reviewable, in navigation order.
@@ -38,6 +45,7 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("kitchen:recipe_list", "الوصفات"),
     ("kitchen:category_list", "مجموعات الوصفات"),
     ("kitchen:version_list", "نسخ الوصفات"),
+    ("kitchen:cost_snapshot_list", "لقطات الكلفة"),
 ]
 
 
@@ -99,6 +107,32 @@ class Command(SeedCommand):
                 f"  {recipe.code:<22} {recipe.recipe_type:<8} {state:<9} "
                 f"{versions or 'no version':<34} {recipe.name_ar}"
             )
+        self.write("")
+        snapshots = RecipeCostSnapshot.objects.filter(organization=organization)
+        if snapshots.exists():
+            self.write("")
+            self.write("cost snapshots:")
+            for snapshot in snapshots.order_by("recipe_code", "as_of_date"):
+                self.write(
+                    f"  {snapshot.recipe_code:<22} v{snapshot.version_number} "
+                    f"@ {snapshot.warehouse_code:<12} {snapshot.as_of_date} "
+                    f"total {snapshot.total_material_cost} "
+                    f"plate {snapshot.plate_cost} "
+                    f"over {snapshot.portions_per_batch} x {snapshot.primary_serving_code} "
+                    f"(cutoff {snapshot.ledger_cutoff_sequence})"
+                )
+                for serving in snapshot.servings.order_by("display_order", "code"):
+                    self.write(
+                        f"    {serving.code:<8} {serving.whole_serving_count:>7} servings = "
+                        f"{serving.normal_serving_count} x {serving.minimum_allocated} + "
+                        f"{serving.elevated_serving_count} x {serving.maximum_allocated} + "
+                        f"{serving.remainder_cost} leftover = {serving.allocated_total}"
+                    )
+            self.write(
+                "  Append-only: a database trigger refuses UPDATE and DELETE on these "
+                "rows for everyone, superusers included."
+            )
+
         self.write("")
         self.write(
             f"{len(recipes)} recipes present. No stock movement, no journal entry, "

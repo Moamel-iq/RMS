@@ -5,15 +5,20 @@ Every path that changes something resolves its target through a scoped selector
 before it acts, and checks the same permission the API checks. A route that is
 not rendered as a button is still a route, and it is still refused.
 
-There is deliberately **no cost route**: Task 3.3 owns costing, and a route to
-a service that does not exist would be a promise the system cannot keep. Task
-3.2B added the component routes below, all of them draft-only for mutation and
-none of them exposing a cost column.
+Task 3.2B added the component routes, all of them draft-only for mutation and
+none of them exposing a cost column. **Task 3.3 adds the costing routes** at the
+end, and they are the only paths in this module that carry money. Each one
+requires `view_recipe_cost` in addition to reaching the organization, and the
+recipe, version, line, step, serving and component routes above stay money-free.
+
+The snapshot routes are a **command and two reads**. There is no edit route and
+no delete route, because the rows refuse both verbs at the database and a URL
+that implied otherwise would be the router contradicting a trigger.
 """
 
 from django.urls import path
 
-from apps.kitchen import version_views, views
+from apps.kitchen import cost_views, version_views, views
 
 app_name = "kitchen"
 
@@ -166,5 +171,31 @@ urlpatterns = [
         "components/<int:pk>/delete/",
         version_views.ComponentDeleteView.as_view(),
         name="component_delete",
+    ),
+    # Costing (Task 3.3). Money, and therefore `view_recipe_cost`.
+    path(
+        "versions/<int:pk>/cost/",
+        cost_views.RecipeCostCardView.as_view(),
+        name="cost_card",
+    ),
+    path(
+        "recipes/<int:pk>/cost-on-date/",
+        cost_views.RecipeHistoricalCostView.as_view(),
+        name="cost_on_date",
+    ),
+    path(
+        "versions/<int:pk>/cost-snapshots/new/",
+        cost_views.CostSnapshotCreateView.as_view(),
+        name="cost_snapshot_create",
+    ),
+    path(
+        "cost-snapshots/",
+        cost_views.CostSnapshotListView.as_view(),
+        name="cost_snapshot_list",
+    ),
+    path(
+        "cost-snapshots/<int:pk>/",
+        cost_views.CostSnapshotDetailView.as_view(),
+        name="cost_snapshot_detail",
     ),
 ]

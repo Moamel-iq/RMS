@@ -107,7 +107,7 @@ that holds it, so a later reader can tell an enforced rule from an intended one.
 | 2 | Absence of any cost field + `::TestNoMoneyAnywhere` |
 | 3 | `recipe_output_item_matches_type` + `::TestTheOutputItemRule` |
 | 4 | `CALCULATION_PLACES` on every quantity + `test_draft_structure.py::TestLines` |
-| 30 | Cost columns do not exist yet — Task 3.3 adds them, and `::TestScreens` asserts none is rendered now |
+| 30 | Cost columns exist from Task 3.3 and are **omitted, not blanked**, without `view_recipe_cost`; asserted on raw response bytes by `test_cost_security.py` |
 | 40 | `recipe_serving_one_primary_per_version` + `::TestServings` |
 | 42 | `::TestServings::test_no_dish_or_gram_figure_is_hard_coded_in_the_app` |
 | 47 | `recipe_*_provenance_is_complete` on all six tables + `::TestProvenance` |
@@ -199,3 +199,40 @@ posting; audit `previous_state` re-read from the database.
   different losses: the second one's ingredients already left stock through the
   batch that cooked them, and adding it to ingredient consumption charges them
   twice (RCP-105).
+
+---
+
+## Added by Task 3.3 — costing
+
+| # | Invariant | Enforced by | Task |
+|---|---|---|---|
+| 61 | A cost names an exact version, a warehouse and a date, and defaults none of them | keyword-only signatures with no default; a test reads them by reflection | 3.3 |
+| 62 | `POSTED_AS_OF` is the only authoritative valuation basis, and every position in one card reads one captured sequence cutoff | `posted_cutoff` + `valuation_at_cutoff` | 3.3 |
+| 63 | A warehouse item average is total value ÷ total quantity across lots — never an average of lot averages | `valuation_at_cutoff` | 3.3 |
+| 64 | Missing valuation is reported, never priced at zero, and forbids a snapshot | `MissingValuation` + `recipe_cost_snapshot_requires_complete_cost` | 3.3 |
+| 65 | A stocked sub-recipe is one leaf at book value; a non-stocked one expands from its exact frozen child | `costing._collect_leaves`, over RCP-070's constraint | 3.3 |
+| 66 | Nothing quantizes on the way down a component path; the leaf quantity rounds once and the document total rounds once | `costing._build_card` | 3.3 |
+| 67 | Σ snapshot line values = total, and food + packaging + accompaniment = total | the verifier, and a **database check constraint** for the second | 3.3 |
+| 68 | Each serving scenario allocates the whole total exactly, **at any count**; scenarios are alternatives and never sum together | `_compact_allocation`, held against `apps/core/allocation.allocate` | 3.3 |
+| 68a | Standard plate cost divides by the primary `RecipeServing` and equals that serving's own rate exactly | `costing._plate_cost` + an equality test | 3.3 |
+| 68b | A serving allocation is stored in five numbers that reconstruct the exact total, so storage never grows with the serving count | `RecipeCostSnapshotServing.reconstructs_to` + the verifier | 3.3 |
+| 69 | Cost snapshots are append-only for everyone, superusers included, across all three tables | `kitchen/0009` triggers | 3.3 |
+| 70 | A snapshot's idempotency is a key **and** a request fingerprint, per organization, and the fingerprint ignores the resulting figures | `snapshots._replay` + a unique constraint | 3.3 |
+| 71 | `view_recipe_cost` is required in addition to reaching the organization; cost keys are omitted rather than blanked without it | view + API layers, asserted on raw response bytes | 3.3 |
+| 72 | Costing writes nothing but its own snapshots: zero movements, balances, journal entries and production rows | before/after census tests over six tables | 3.3 |
+
+### Two more things that sound true and are not
+
+- **"A cost card should just use today's stock."** It should use the stock of
+  the date it was asked about, and say which. Two figures that differ only in
+  their as-of date look identical on a printed page, and the one nobody wrote
+  down is the one quoted back six months later.
+- **"An unvalued ingredient costs nothing."** It costs *something nobody has
+  recorded yet*, which is a different sentence. Pricing it at zero produces a
+  total that is quietly too low and carries no sign that it is — the one shape
+  of wrong answer a costing system must never produce.
+- **"Fifty thousand portions are too many to allocate."** Too many to *list*,
+  not too many to allocate. Equal-weight servings admit exactly two amounts, so
+  the whole distribution is five numbers and the arithmetic is constant. Capping
+  the calculation because the list would be long is capping the answer because
+  the paper is small.

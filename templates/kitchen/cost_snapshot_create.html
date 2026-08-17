@@ -1,0 +1,60 @@
+{# Freezing a card into an append-only record. The confirmation shows the   #}
+{# figures being frozen, because nobody should sign a total they have not   #}
+{# seen - and the POST recomputes the card server-side from the version,    #}
+{# warehouse and date rather than trusting anything the browser sends back. #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="cost-snapshot-create">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">
+          {{ recipe.code }} v{{ version.version_number }} — {% translate "حفظ لقطة كلفة" %}
+        </h1>
+        <p class="pagehead__hint">
+          {% translate "اللقطة سجل دائم لا يُعدَّل ولا يُحذف. التصحيح لقطة جديدة. نفس مفتاح التكرار لنفس الطلب يعيد اللقطة الأصلية بدل إنشاء ثانية." %}
+        </p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:cost_card' version.pk %}">
+          {% translate "بطاقة الكلفة" %}
+        </a>
+      </div>
+    </div>
+
+    <form class="formcard"
+          method="post"
+          action="{% url 'kitchen:cost_snapshot_create' version.pk %}"
+          hx-post="{% url 'kitchen:cost_snapshot_create' version.pk %}"
+          hx-target="#cost-snapshot-create"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <ul class="errorlist" role="alert">
+          {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {{ form.as_p }}
+      <button class="btn" type="submit">{% translate "احفظ اللقطة" %}</button>
+      <button class="btn btn--ghost"
+              type="submit"
+              formmethod="get"
+              formaction="{% url 'kitchen:cost_snapshot_create' version.pk %}"
+              hx-get="{% url 'kitchen:cost_snapshot_create' version.pk %}"
+              hx-target="#cost-snapshot-create"
+              hx-swap="outerHTML">
+        {% translate "اعرض ما سيُحفظ" %}
+      </button>
+    </form>
+
+    {% if card %}
+      <p class="banner" role="status">
+        {% translate "هذه هي الأرقام التي ستُجمَّد. راجعها قبل الحفظ." %}
+      </p>
+      {% include "kitchen/_cost_card.html" %}
+    {% endif %}
+  </div>
+{% endblock %}

@@ -506,23 +506,28 @@ class TestTheApi:
 
         assert response.status_code == 404
 
-    def test_there_is_no_cost_or_production_route(self) -> None:
+    def test_the_costing_routes_arrived_and_the_production_ones_did_not(self) -> None:
         """
-        Task 3.2B added the component endpoints, so the claim narrowed to what
-        is still true: no costing route, no flattening route, no production
-        route. Rewritten rather than removed.
+        **Task 3.3 brought the cost routes in**, so that half of the original
+        claim is now false and this test was rewritten rather than deleted.
+
+        Production and flattening are Tasks 3.4 and 3.5, and neither route may
+        appear before its task.
         """
-        from apps.kitchen.api import router
+        from config.api import api
 
-        paths = set(router.path_operations)
-
-        assert paths
-        assert [path for path in paths if "component" in path], "Task 3.2B owns these"
-        assert not [
-            path
-            for path in paths
-            if any(word in path for word in ("cost", "flatten", "production", "batch"))
-        ]
+        paths = {
+            f"{prefix}{operation.path}"
+            for prefix, router in api._routers
+            for path_view in router.path_operations.values()
+            for operation in path_view.operations
+        }
+        kitchen = {path for path in paths if "kitchen" in path}
+        assert kitchen
+        assert any("cost" in path for path in kitchen), "Task 3.3 owns the cost routes"
+        for path in kitchen:
+            for forbidden in ("production", "batch", "flatten"):
+                assert forbidden not in path.lower(), path
 
     def test_no_endpoint_exposes_a_money_field(
         self, manager_client: Client, active_version: RecipeVersion

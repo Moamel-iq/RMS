@@ -43,6 +43,7 @@ from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
 from apps.core.models import TimeStampedModel
+from apps.core.money import MONEY_PLACES, UNIT_PRICE_PLACES
 from apps.core.quantity import CALCULATION_PLACES, FACTOR_PLACES, QUANTITY_PLACES
 
 #: Recipe and category codes. The shape inventory items and suppliers use, and
@@ -60,6 +61,15 @@ FACTOR_MAX_DIGITS = FACTOR_PLACES + 12
 #: Rounding increments are counted in sellable units, so they use the ordinary
 #: stored-quantity precision rather than the calculation precision.
 INCREMENT_MAX_DIGITS = QUANTITY_PLACES + 15
+#: A cost snapshot stores money at the posted-line precision (ADR-012) and unit
+#: rates at the unit-price precision, with the same head-room every other money
+#: column in this repository carries.
+MONEY_MAX_DIGITS = MONEY_PLACES + 15
+UNIT_PRICE_MAX_DIGITS = UNIT_PRICE_PLACES + 15
+#: A raw line extension is `quantity(6 dp) x unit cost(6 dp)`, so it has at most
+#: twelve decimal places and is stored **exactly**. Nothing rounds on the way to
+#: the total; only the total rounds, once (§K).
+EXTENSION_MAX_DIGITS = FACTOR_PLACES + 20
 
 
 class RecipeType(models.TextChoices):
@@ -1406,6 +1416,18 @@ class RecipeServing(TimeStampedModel, SourceProvenance):
         return f"{self.version} · {self.code}"
 
     @property
+    def quantity_display(self) -> str:
+        """
+        The serving quantity as a technical identity: period, never comma.
+
+        Django localises Decimals, so under Arabic a stored `1.000000` renders
+        `1,000000` — which reads as a million beside a money column that is
+        genuinely grouped that way. Found by opening the cost card, which is
+        why the card is worth opening.
+        """
+        return f"{self.serving_quantity:f}"
+
+    @property
     def factor_display(self) -> str:
         """
         The factor as a technical identity — always a period, never a comma,
@@ -1768,3 +1790,636 @@ class RecipeVersionBranchScope(TimeStampedModel):
         if on_date < self.effective_from:
             return False
         return self.effective_to is None or on_date <= self.effective_to
+
+
+# ---------------------------------------------------------------------------
+# Task 3.3 - immutable cost snapshots
+# ---------------------------------------------------------------------------
+#
+# A cost card is derived and disposable; a snapshot is a decision somebody made
+# on a date and has to be able to explain in September. The three tables below
+# are **append-only**, enforced by database triggers rather than by discipline,
+# and they store enough denormalised text that a snapshot stays readable after
+# an item is renamed or a recipe archived.
+
+
+class CostValuationMode(models.TextChoices):
+    """
+    Which inventory read a snapshot was taken against.
+
+    One value, and the enum exists anyway. `POSTED_AS_OF` is the audit answer -
+    "what did the books say at that moment" - and it is the **only** basis an
+    authoritative recipe cost may use (spec section 6, RCP-023). Inventory also
+    offers `EFFECTIVE_DATE`, which answers a management question with a movement
+    set that is not a prefix of the posting order; a cost snapshot taken that way
+    could not be reproduced from a sequence and would disagree with itself the
+    next time somebody keyed in a late delivery.
+
+    Stored as a column rather than assumed, so a reader never has to trust that
+    the code which wrote a two-year-old row meant what today's code means.
+    """
+
+    POSTED_AS_OF = "POSTED_AS_OF", _("حسب تاريخ الترحيل")
+
+
+class CostLineSource(models.TextChoices):
+    """Whether a snapshot line came from the version itself or from a child."""
+
+    DIRECT = "DIRECT", _("سطر مباشر")
+    COMPONENT = "COMPONENT", _("وصفة فرعية")
+
+
+class ServingAllocationOutcome(models.TextChoices):
+    """
+    Whether a serving scenario divides the output into whole servings at all.
+
+    There is deliberately no "too large" value. Size never decides whether the
+    business calculation happens: the allocation is analytic, so fifty thousand
+    portions are the same arithmetic as ten.
+    """
+
+    ALLOCATED = "ALLOCATED", _("موزّعة")
+    #: The serving is larger than the whole output. A real state, not a refusal.
+    NO_WHOLE_SERVING = "NO_WHOLE_SERVING", _("لا تكفي لحصة كاملة")
+
+
+class RecipeCostSnapshot(models.Model):
+    """
+    One costing decision, frozen: this version, this warehouse, this date.
+
+    **Append-only.** No update, no delete, no archive flag that hides it - a
+    trigger refuses both verbs for everyone including a superuser at a psql
+    prompt, exactly as `core_auditevent` does. A snapshot exists so that "we
+    priced the mandi off March costs" stays checkable, and a snapshot that could
+    be edited would answer that question with whatever somebody preferred later
+    (RCP-025).
+
+    **Not a `TimeStampedModel`**, deliberately: `updated_at` would be a column
+    that can never change, and a column that lies about being mutable invites
+    somebody to try. `StockMovement` is shaped the same way for the same reason.
+
+    Corrections are new snapshots, never edits. Two snapshots of one version,
+    warehouse and date are legitimate and expected - a menu is repriced more
+    than once - so uniqueness is on the **idempotency key**, which distinguishes
+    a retry from a second decision, and not on the costing inputs.
+
+    `ledger_cutoff_sequence` is what makes the row reproducible: given the
+    organization and that integer, the exact positions this snapshot read can be
+    re-derived years later, whatever has posted since. Comparing a snapshot
+    against *today's* inventory and calling the difference an error would be
+    comparing two different questions; later postings are expected.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="recipe_cost_snapshots",
+        verbose_name=_("organization"),
+    )
+    recipe = models.ForeignKey(
+        Recipe,
+        on_delete=models.PROTECT,
+        related_name="cost_snapshots",
+        verbose_name=_("recipe"),
+    )
+    #: The **exact** version costed. Never re-resolved, never re-pointed.
+    version = models.ForeignKey(
+        RecipeVersion,
+        on_delete=models.PROTECT,
+        related_name="cost_snapshots",
+        verbose_name=_("version"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="recipe_cost_snapshots",
+        verbose_name=_("branch"),
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="recipe_cost_snapshots",
+        verbose_name=_("warehouse"),
+    )
+
+    as_of_date = models.DateField(_("as of date"))
+    valuation_mode = models.CharField(
+        _("valuation mode"),
+        max_length=16,
+        choices=CostValuationMode.choices,
+        default=CostValuationMode.POSTED_AS_OF,
+    )
+    #: The organization's posted-sequence high-water mark this card was read
+    #: against. Zero is meaningful: nothing had been posted by that date.
+    ledger_cutoff_sequence = models.BigIntegerField(_("ledger cutoff sequence"))
+    calculation_version = models.CharField(_("calculation version"), max_length=32)
+
+    #: Always true. Stored anyway, so the column that says "this is a record" is
+    #: visible in the row rather than implied by the absence of a preview table,
+    #: and so a future non-authoritative persisted card could never be mistaken
+    #: for this one. A check constraint holds the line.
+    is_authoritative = models.BooleanField(_("authoritative"), default=True)
+    #: The version's status **at the moment of the snapshot**. A version active
+    #: in March is superseded by September, and a reader needs to know which it
+    #: was when the decision was taken.
+    version_status = models.CharField(_("version status"), max_length=12)
+    version_number = models.PositiveIntegerField(_("version number"))
+    recipe_code = models.CharField(_("recipe code"), max_length=32)
+    recipe_name = models.CharField(_("recipe name"), max_length=200)
+    warehouse_code = models.CharField(_("warehouse code"), max_length=32)
+
+    output_quantity = models.DecimalField(
+        _("output quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+    output_unit_code = models.CharField(_("output unit"), max_length=16)
+
+    #: The `KM-RCP-004` summary, in the workbook's own three parts. Their sum is
+    #: held equal to the total by a check constraint rather than by a service:
+    #: an equality the database can see is one no future code path can break.
+    food_total = models.DecimalField(
+        _("food cost"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    packaging_total = models.DecimalField(
+        _("packaging cost"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    accompaniment_total = models.DecimalField(
+        _("accompaniment cost"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    total_material_cost = models.DecimalField(
+        _("total material cost"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: A rate, not a posted amount - six places (RCP-086, ADR-012).
+    cost_per_output_unit = models.DecimalField(
+        _("cost per output unit"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+    )
+
+    #: The plate-cost basis, frozen. `portions_per_batch` is the version's
+    #: expected output divided by the **primary** serving's quantity, and
+    #: `plate_cost` is the total on that serving's frozen share of the basis.
+    #:
+    #: Stored rather than derived on read for the reason every other column
+    #: here is: the serving row this came from may be renamed, its recipe
+    #: archived, its version superseded, and the decision still has to be
+    #: explicable. The serving's own identity, quantity, unit and factor are
+    #: kept on `RecipeCostSnapshotServing`, so nothing about this figure
+    #: depends on a mutable current name.
+    portions_per_batch = models.DecimalField(
+        _("portions per batch"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+    plate_cost = models.DecimalField(
+        _("plate cost"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+    )
+    #: Which serving was the basis, by its own stable public id. The joinable
+    #: row is `servings.filter(is_primary=True)`; this is the direct answer.
+    primary_serving_code = models.CharField(_("primary serving"), max_length=32)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="recipe_cost_snapshots",
+        null=True,
+        blank=True,
+        verbose_name=_("created by"),
+    )
+    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
+
+    reason = models.TextField(_("reason"), blank=True)
+    reference = models.CharField(_("reference"), max_length=120, blank=True)
+    note = models.TextField(_("note"), blank=True)
+
+    #: Unique **per organization** and matched against a fingerprint, never on
+    #: the key alone (`CLAUDE.md`). A key match with a different request is a
+    #: conflict, not a retry.
+    idempotency_key = models.CharField(_("idempotency key"), max_length=128)
+    request_fingerprint = models.CharField(_("request fingerprint"), max_length=64)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("recipe cost snapshot")
+        verbose_name_plural = _("recipe cost snapshots")
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "idempotency_key"],
+                name="recipe_cost_snapshot_key_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=~Q(idempotency_key=""),
+                name="recipe_cost_snapshot_key_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=~Q(request_fingerprint=""),
+                name="recipe_cost_snapshot_fingerprint_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=Q(is_authoritative=True),
+                name="recipe_cost_snapshot_is_authoritative",
+            ),
+            # The workbook's own summary arithmetic, as a database fact.
+            models.CheckConstraint(
+                condition=Q(
+                    total_material_cost=models.F("food_total")
+                    + models.F("packaging_total")
+                    + models.F("accompaniment_total")
+                ),
+                name="recipe_cost_snapshot_class_totals_agree",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_material_cost__gte=Decimal("0")),
+                name="recipe_cost_snapshot_total_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(output_quantity__gt=Decimal("0")),
+                name="recipe_cost_snapshot_output_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(portions_per_batch__gt=Decimal("0")),
+                name="recipe_cost_snapshot_portions_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(plate_cost__gte=Decimal("0")),
+                name="recipe_cost_snapshot_plate_cost_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=~Q(primary_serving_code=""),
+                name="recipe_cost_snapshot_names_its_plate_basis",
+            ),
+            models.CheckConstraint(
+                condition=Q(ledger_cutoff_sequence__gte=0),
+                name="recipe_cost_snapshot_cutoff_not_negative",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "as_of_date"], name="cost_snapshot_org_date_idx"),
+            models.Index(fields=["version", "warehouse"], name="cost_snapshot_version_wh_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.recipe_code} v{self.version_number} @ {self.warehouse_code} {self.as_of_date}"
+        )
+
+    @property
+    def output_quantity_display(self) -> str:
+        return f"{self.output_quantity:f}"
+
+    @property
+    def cost_per_output_unit_display(self) -> str:
+        """A rate. Six places, LTR, and never a localised comma."""
+        return f"{self.cost_per_output_unit:f}"
+
+    @property
+    def plate_cost_display(self) -> str:
+        """A rate. Six places, LTR, and never a localised comma."""
+        return f"{self.plate_cost:f}"
+
+    @property
+    def portions_per_batch_display(self) -> str:
+        return f"{self.portions_per_batch:f}"
+
+
+class RecipeCostSnapshotLine(models.Model):
+    """
+    One economic path, frozen with the identities needed to read it later.
+
+    Every foreign key is `PROTECT` **and** shadowed by denormalised text. The
+    key keeps the row joinable; the text keeps it explicable after an item is
+    renamed. Neither alone is enough: an id with no text is unreadable in a
+    printed report, and text with no id cannot be traced back.
+
+    The same item on two different paths is **two rows**, deliberately. A cost
+    card exists to be traced, and collapsing "the dish's cardamom" into "the
+    blend's cardamom" would hide which one to fix.
+    """
+
+    snapshot = models.ForeignKey(
+        RecipeCostSnapshot,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("snapshot"),
+    )
+    #: 1..n in the card's own deterministic order: component path, then leaf
+    #: line order, then item code. Never primary-key order.
+    line_number = models.PositiveIntegerField(_("line number"))
+    #: `2.1`, or empty for a line the costed version owns itself.
+    component_path = models.CharField(_("component path"), max_length=64, blank=True)
+    source_kind = models.CharField(_("source"), max_length=12, choices=CostLineSource.choices)
+
+    source_version = models.ForeignKey(
+        RecipeVersion,
+        on_delete=models.PROTECT,
+        related_name="cost_snapshot_lines",
+        verbose_name=_("source version"),
+    )
+    source_version_number = models.PositiveIntegerField(_("source version number"))
+    source_recipe_code = models.CharField(_("source recipe code"), max_length=32)
+    source_version_public_id = models.UUIDField(_("source version public id"))
+
+    recipe_line = models.ForeignKey(
+        RecipeLine,
+        on_delete=models.PROTECT,
+        related_name="cost_snapshot_lines",
+        verbose_name=_("recipe line"),
+    )
+    recipe_line_public_id = models.UUIDField(_("recipe line public id"))
+    recipe_line_order = models.PositiveIntegerField(_("recipe line order"))
+
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="recipe_cost_snapshot_lines",
+        verbose_name=_("item"),
+    )
+    item_code = models.CharField(_("item code"), max_length=32)
+    item_name = models.CharField(_("item name"), max_length=200)
+    item_unit_code = models.CharField(_("item unit"), max_length=16)
+    cost_class = models.CharField(
+        _("cost class"), max_length=16, choices=RecipeLineCostClass.choices
+    )
+
+    #: The product of every multiplier from the root, at full precision and
+    #: never rounded on the way down (RCP-073).
+    cumulative_multiplier = models.DecimalField(
+        _("cumulative multiplier"),
+        max_digits=EXTENSION_MAX_DIGITS,
+        decimal_places=FACTOR_PLACES,
+    )
+    effective_quantity = models.DecimalField(
+        _("effective quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+
+    #: What inventory actually held, so a reader can see the average was
+    #: `value / quantity` across the lots and not an average of averages.
+    valuation_quantity = models.DecimalField(
+        _("valuation quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+    valuation_value = models.DecimalField(
+        _("valuation value"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    valuation_lot_count = models.PositiveIntegerField(_("lots"), default=0)
+    unit_cost = models.DecimalField(
+        _("unit cost"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+    )
+    #: `effective_quantity x unit_cost`, exactly - twelve places is enough to
+    #: hold the product of two six-place figures with nothing lost.
+    raw_extension = models.DecimalField(
+        _("raw extension"),
+        max_digits=EXTENSION_MAX_DIGITS,
+        decimal_places=FACTOR_PLACES,
+    )
+    #: This line's share of the **rounded** document total. Their sum is the
+    #: total to the fils, because the residue was distributed and not dropped.
+    allocated_extension = models.DecimalField(
+        _("allocated extension"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+
+    class Meta:
+        verbose_name = _("recipe cost snapshot line")
+        verbose_name_plural = _("recipe cost snapshot lines")
+        ordering = ["snapshot", "line_number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["snapshot", "line_number"],
+                name="cost_snapshot_line_number_unique_per_snapshot",
+            ),
+            models.CheckConstraint(
+                condition=Q(line_number__gte=1), name="cost_snapshot_line_number_is_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(effective_quantity__gt=Decimal("0")),
+                name="cost_snapshot_line_quantity_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_cost__gte=Decimal("0")),
+                name="cost_snapshot_line_unit_cost_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(allocated_extension__gte=Decimal("0")),
+                name="cost_snapshot_line_allocation_not_negative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.snapshot_id}#{self.line_number} {self.item_code}"
+
+    @property
+    def quantity_display(self) -> str:
+        """
+        The stored effective quantity, LTR with a period.
+
+        Django localises a Decimal, so under Arabic this would render
+        `1,500000`. A comma in a re-enterable quantity is ambiguous and invites
+        a mis-typed re-entry (`CLAUDE.md`), and a snapshot exists precisely to
+        be re-read years later by somebody checking a figure.
+        """
+        return f"{self.effective_quantity:f}"
+
+    @property
+    def unit_cost_display(self) -> str:
+        return f"{self.unit_cost:f}"
+
+    @property
+    def multiplier_display(self) -> str:
+        return f"{self.cumulative_multiplier.normalize():f}"
+
+    @property
+    def valuation_quantity_display(self) -> str:
+        """
+        The inventory quantity behind the unit cost, LTR with a period.
+
+        `{{ value }}` renders `265,000` under Arabic for a stored `265.000`,
+        which reads as two hundred sixty-five thousand beside a money column
+        that is genuinely grouped that way. A quantity is a re-enterable
+        technical value and never carries a locale separator (`CLAUDE.md`).
+        """
+        return f"{self.valuation_quantity:f}"
+
+
+class RecipeCostSnapshotServing(models.Model):
+    """
+    One way of portioning this output, costed two ways because two were asked.
+
+    `cost_per_serving` is the RCP-086 **rate** - the total times the serving's
+    share of the output basis, quantized once to six places because it is a unit
+    cost. `allocated_total` is the RCP-087 **allocation** - the exact total
+    divided across the whole servings the output makes plus whatever output is
+    left over, summing to the recipe total to the fils.
+
+    Serving definitions are alternatives, never simultaneous: each row allocates
+    the **whole** total, and adding two of them together would double the
+    recipe. `minimum_allocated` and `maximum_allocated` differ by at most one
+    fils and that difference *is* the remainder distribution, exposed rather
+    than hidden.
+    """
+
+    snapshot = models.ForeignKey(
+        RecipeCostSnapshot,
+        on_delete=models.CASCADE,
+        related_name="servings",
+        verbose_name=_("snapshot"),
+    )
+    display_order = models.PositiveIntegerField(_("display order"))
+    serving = models.ForeignKey(
+        RecipeServing,
+        on_delete=models.PROTECT,
+        related_name="cost_snapshot_servings",
+        verbose_name=_("serving"),
+    )
+    serving_public_id = models.UUIDField(_("serving public id"))
+    code = models.CharField(_("code"), max_length=32)
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    is_primary = models.BooleanField(_("primary"), default=False)
+
+    serving_quantity = models.DecimalField(
+        _("serving quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+    serving_unit_code = models.CharField(_("serving unit"), max_length=16)
+    base_quantity = models.DecimalField(
+        _("serving quantity in output unit"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+    factor_of_batch = models.DecimalField(
+        _("factor of batch"), max_digits=FACTOR_MAX_DIGITS, decimal_places=FACTOR_PLACES
+    )
+
+    whole_serving_count = models.PositiveIntegerField(_("whole servings"))
+    remainder_quantity = models.DecimalField(
+        _("remainder output"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+
+    cost_per_serving = models.DecimalField(
+        _("cost per serving"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+    )
+    allocation_state = models.CharField(
+        _("allocation"),
+        max_length=16,
+        choices=ServingAllocationOutcome.choices,
+        default=ServingAllocationOutcome.ALLOCATED,
+    )
+    allocated_total = models.DecimalField(
+        _("allocated total"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+
+    #: The whole distribution, in four numbers plus the leftover.
+    #:
+    #: Every whole serving carries equal weight, so the certified allocator can
+    #: only produce two amounts: a floor, and that floor plus one fils for the
+    #: servings the residue reaches. Recording both amounts and both counts is
+    #: therefore the distribution itself rather than a summary of it — the
+    #: per-serving list is reconstructible and adds nothing. It is also what
+    #: lets a fifty-thousand-portion scenario be stored in five columns instead
+    #: of fifty thousand rows.
+    #:
+    #: The identity a reader can check on the page, and the verifier does:
+    #:
+    #:     normal_count x normal_amount
+    #:   + elevated_count x elevated_amount
+    #:   + remainder_cost
+    #:   = allocated_total = the snapshot total
+    minimum_allocated = models.DecimalField(
+        _("cost per serving (normal)"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+    )
+    maximum_allocated = models.DecimalField(
+        _("cost per serving (elevated)"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+    )
+    normal_serving_count = models.PositiveIntegerField(_("servings at normal cost"), default=0)
+    elevated_serving_count = models.PositiveIntegerField(_("servings at elevated cost"), default=0)
+    remainder_cost = models.DecimalField(
+        _("leftover output cost"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+
+    class Meta:
+        verbose_name = _("recipe cost snapshot serving")
+        verbose_name_plural = _("recipe cost snapshot servings")
+        ordering = ["snapshot", "display_order", "code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["snapshot", "serving"],
+                name="cost_snapshot_serving_unique_per_snapshot",
+            ),
+            models.CheckConstraint(
+                condition=Q(remainder_quantity__gte=Decimal("0")),
+                name="cost_snapshot_serving_remainder_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(cost_per_serving__gte=Decimal("0")),
+                name="cost_snapshot_serving_cost_not_negative",
+            ),
+            # The two counts must add up to the servings the output makes. A
+            # database fact rather than a service assertion, because a summary
+            # that stopped describing its own count would be unverifiable.
+            models.CheckConstraint(
+                condition=Q(
+                    whole_serving_count=models.F("normal_serving_count")
+                    + models.F("elevated_serving_count")
+                ),
+                name="cost_snapshot_serving_counts_add_up",
+            ),
+            models.CheckConstraint(
+                condition=Q(maximum_allocated__gte=models.F("minimum_allocated")),
+                name="cost_snapshot_serving_elevated_is_not_less",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.snapshot_id} · {self.code}"
+
+    @property
+    def factor_display(self) -> str:
+        quantum = Decimal(1).scaleb(-FACTOR_PLACES)
+        return f"{self.factor_of_batch.quantize(quantum):f}"
+
+    @property
+    def cost_per_serving_display(self) -> str:
+        return f"{self.cost_per_serving:f}"
+
+    @property
+    def remainder_display(self) -> str:
+        return f"{self.remainder_quantity:f}"
+
+    def reconstructs_to(self) -> Decimal:
+        """
+        The distribution added back up, from the stored summary alone.
+
+        What the verifier checks. If this stops equalling `allocated_total`,
+        the five columns have stopped describing the allocation they claim to.
+        """
+        from apps.core.money import quantize_money
+
+        return quantize_money(
+            Decimal(self.normal_serving_count) * self.minimum_allocated
+            + Decimal(self.elevated_serving_count) * self.maximum_allocated
+            + self.remainder_cost
+        )

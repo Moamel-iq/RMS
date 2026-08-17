@@ -324,3 +324,49 @@ parent freely, because the parent's reference to it is a frozen foreign key.
 
 Nothing invalid is ever seeded. A cycle or an over-deep chain appears only inside
 a test that rolls back.
+
+---
+
+## Task 3.3 — the first demo record that cannot be deleted
+
+`seed_kitchen_demo` now writes one **cost snapshot**, and it is the first thing
+any demo seed in this repository has created that a later run cannot remove: the
+three snapshot tables refuse UPDATE and DELETE at the database, for everyone.
+
+That does not make it a posting. It moves no stock, changes no balance and
+writes no journal entry — a test counts all six tables before and after the
+whole seed. It is a *statement about what the books already said*, and the seed
+still needs no `--confirm-demo` flag for the reason it never did: nothing here is
+irreversible in the way a posted movement is.
+
+Three rules it follows that a future demo record should copy:
+
+- **The idempotency key carries the as-of date.** A same-day re-run replays
+  through idempotency and creates nothing; a run the next morning records a
+  *new* decision rather than raising `idempotency_key_conflict`. A fixed key
+  would have looked idempotent for one day and then broken every developer's
+  morning.
+- **It says what it is, in the data.** `reason` carries the demo banner and
+  `reference` is the literal string `DEMO-NOT-A-REAL-DECISION`. A demo snapshot
+  presented as a signed Khan Mandi costing card is exactly how unapproved
+  figures acquire authority (RCP-126).
+- **It is skipped rather than forced when the card is incomplete.** If any leaf
+  has no valuation the seed writes no snapshot at all, because the rule that a
+  record may only be built over a complete card must not bend for a demo.
+
+### What the costing demo is there to show
+
+One recipe (`DEMO-RCP-COST`) whose card carries a direct line, a one-level
+roll-up, a two-level cumulative multiplier over the existing 0.5 × 0.30 path,
+food **and** packaging totals, a primary serving with its portions-per-batch and
+plate cost, four alternative serving scenarios — a whole, a half, a fractional
+portion and a deliberately tiny one whose 50,000 servings prove the allocation
+is compact rather than capped — and one frozen snapshot carrying the plate-cost
+evidence. Beside it, the Task 3.2B dish shows the other half: a stocked
+semi-finished item consumed as **one** leaf that is never expanded, which is also
+— because the demo ledger holds none of that item — the missing-valuation card
+that cannot be snapshotted. A `DRAFT` version is left on the costing recipe so
+the preview banner has something to sit on.
+
+No new inventory item was created for any of it (RCP-056 unchanged): every
+valued leaf is an item the inventory demo already posted stock for.

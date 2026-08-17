@@ -28,8 +28,8 @@ from django.db.models import QuerySet
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.quantity import FACTOR_PLACES
-from apps.inventory.models import InventoryItem, PackageUnit
-from apps.inventory.selectors import visible_items, visible_package_units
+from apps.inventory.models import InventoryItem, PackageUnit, Warehouse
+from apps.inventory.selectors import readable_warehouses, visible_items, visible_package_units
 from apps.kitchen.lifecycle import applicable_branches
 from apps.kitchen.models import (
     REQUIRED_REVIEW_TYPES,
@@ -53,6 +53,7 @@ from apps.kitchen.permissions import (
     REJECT_RECIPE_VERSION,
     REVIEW_RECIPE_VERSION,
     VIEW_RECIPE,
+    VIEW_RECIPE_COST,
 )
 from apps.kitchen.selectors import visible_categories, visible_lines
 from apps.organizations.authorization import branches_with_permission, organizations_with_permission
@@ -732,3 +733,148 @@ class RecipeComponentReorderForm(ScopedForm):
         min_value=1,
         help_text=_("الموضع المطلوب. تُعاد ترقيم البقية بلا فجوات."),
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.3 - costing
+# ---------------------------------------------------------------------------
+
+
+class CostCardForm(ScopedForm):
+    """
+    Which warehouse, and as of when.
+
+    **Neither field has an initial value**, and that is the design rather than
+    an oversight. A date pre-filled with today teaches the operator that the
+    question does not need a date, and the first time somebody re-runs a July
+    card in September they get September's stock against July's recipe and no
+    warning. A warehouse pre-filled with whichever sorts first prices a Baghdad
+    recipe off a store it never draws on.
+
+    The warehouse list is narrowed to the recipe's own organization **and** to
+    what this caller reaches. That narrowing is a courtesy: the view resolves
+    the submitted id through `resolve_manageable_warehouse` and the costing
+    service refuses a foreign organization outright, so a hand-made POST naming
+    another warehouse is refused twice more.
+    """
+
+    scope_permission = VIEW_RECIPE_COST
+
+    warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.none(),
+        label=_("المخزن"),
+        help_text=_("الكلفة تُقرأ من متوسط هذا المخزن تحديداً، لا من متوسط المؤسسة."),
+    )
+    as_of_date = forms.DateField(
+        label=_("بتاريخ"),
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text=_("تاريخ التقييم المطلوب، لا تاريخ اليوم."),
+    )
+
+    def __init__(self, *args: Any, actor: User, recipe: Recipe, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.fields["warehouse"].queryset = (  # type: ignore[attr-defined]
+            readable_warehouses(actor)
+            .filter(branch__organization_id=recipe.organization_id)
+            .order_by("branch__code", "code")
+        )
+
+
+class HistoricalCostForm(CostCardForm):
+    """
+    The same two questions, plus the branch whose version governed that day.
+
+    The branch is required because `resolve_recipe_version` is a **per-branch**
+    question: two branches may legitimately run different versions of one dish
+    on one date, and a resolver that guessed would answer confidently for the
+    wrong kitchen.
+    """
+
+    branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع"))
+
+    field_order = ["branch", "warehouse", "as_of_date"]
+
+    def __init__(self, *args: Any, actor: User, recipe: Recipe, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, recipe=recipe, **kwargs)
+        self.fields["branch"].queryset = Branch.objects.filter(  # type: ignore[attr-defined]
+            organization_id=recipe.organization_id, is_active=True
+        ).order_by("code")
+
+    def clean(self) -> dict[str, Any]:
+        super().clean()
+        cleaned = self.cleaned_data
+        branch = cleaned.get("branch")
+        warehouse = cleaned.get("warehouse")
+        # A warehouse in a different branch holds different stock. Refused here
+        # so the message names the field, and again in `cost_recipe_on_date` so
+        # a hand-made request is refused too.
+        if branch is not None and warehouse is not None and warehouse.branch_id != branch.pk:
+            self.add_error(
+                "warehouse",
+                forms.ValidationError(
+                    _("المخزن لا يتبع هذا الفرع."), code="recipe_cost_wrong_warehouse"
+                ),
+            )
+        return cleaned
+
+
+class CostSnapshotForm(CostCardForm):
+    """
+    Freeze this card. A command form, and the only write Task 3.3 offers.
+
+    `idempotency_key` is required and not generated here. A key the server
+    invented would make every double-click a second decision, which is exactly
+    what the key exists to prevent; the caller owns it because the caller is the
+    one who knows whether this is a retry.
+    """
+
+    idempotency_key = forms.CharField(
+        label=_("مفتاح التكرار"),
+        max_length=128,
+        help_text=_("نفس المفتاح لنفس الطلب يعيد اللقطة الأصلية ولا ينشئ ثانية."),
+    )
+    reference = forms.CharField(label=_("المرجع"), max_length=120, required=False)
+    reason = forms.CharField(
+        label=_("السبب"),
+        widget=forms.Textarea(attrs={"rows": 2}),
+        required=False,
+    )
+    note = forms.CharField(
+        label=_("ملاحظة"),
+        widget=forms.Textarea(attrs={"rows": 2}),
+        required=False,
+    )
+
+    field_order = ["warehouse", "as_of_date", "idempotency_key", "reference", "reason", "note"]
+
+
+class CostSnapshotFilterForm(ScopedForm):
+    """Narrowing an already-scoped snapshot list. No field here can widen it."""
+
+    scope_permission = VIEW_RECIPE_COST
+
+    recipe = forms.ModelChoiceField(
+        queryset=Recipe.objects.none(), label=_("الوصفة"), required=False
+    )
+    warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.none(), label=_("المخزن"), required=False
+    )
+    as_of_date = forms.DateField(
+        label=_("بتاريخ"),
+        widget=forms.DateInput(attrs={"type": "date"}),
+        required=False,
+    )
+
+    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        organization_ids = list(
+            organizations_with_permission(actor, VIEW_RECIPE_COST).values_list("pk", flat=True)
+        )
+        self.fields["recipe"].queryset = Recipe.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=organization_ids
+        ).order_by("code")
+        self.fields["warehouse"].queryset = (  # type: ignore[attr-defined]
+            readable_warehouses(actor)
+            .filter(branch__organization_id__in=organization_ids)
+            .order_by("branch__code", "code")
+        )

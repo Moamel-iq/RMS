@@ -1025,30 +1025,43 @@ class TestZeroEffect:
 
         assert self._counts() == before
 
-    def test_the_module_stops_where_production_and_costing_begin(self) -> None:
+    def test_the_module_stops_where_production_begins(self) -> None:
         """
         The boundary that is still true, asserted rather than commented.
 
-        Task 3.2A held `RecipeComponent` out; **Task 3.2B brought it in**, so
-        that half of the claim is now false and this test was rewritten rather
-        than deleted — the fence moved, it did not come down. `ProductionBatch`
-        is Task 3.5's, `ProductionBatchLine` is where flattening lands at Task
-        3.4, and neither may appear before its task.
+        Task 3.2A held `RecipeComponent` out and **3.2B brought it in**; 3.2B
+        held `RecipeCostSnapshot` out and **3.3 brought it in**. Each time this
+        test was rewritten rather than deleted — the fence moved twice, and it
+        did not come down. `ProductionBatch` is Task 3.5's, `ProductionBatchLine`
+        is where flattening lands at Task 3.4, and neither may appear before its
+        task.
         """
         from django.apps import apps
 
         names = {model.__name__ for model in apps.get_app_config("kitchen").get_models()}
 
         assert "RecipeComponent" in names, "Task 3.2B owns the nested-recipe graph"
+        assert "RecipeCostSnapshot" in names, "Task 3.3 owns cost snapshots"
         assert "ProductionBatch" not in names
         assert "ProductionBatchLine" not in names
-        assert "RecipeCostSnapshot" not in names
 
-    def test_no_lifecycle_row_carries_a_cost_or_a_price(self) -> None:
+    def test_no_lifecycle_row_stores_a_cost_or_a_price(self) -> None:
+        """
+        RCP-009: a recipe carries no cost field, and Task 3.3 did not add one.
+
+        **Concrete fields only.** A `RecipeVersion` now has a reverse accessor
+        to its cost snapshots, and that is the opposite of the defect this test
+        exists to catch: a snapshot is a separate append-only record of what the
+        books said on a date, not a cached figure on the version that starts
+        drifting the moment the next receipt posts. Relations are excluded and
+        the stored columns are still checked exactly as before.
+        """
         forbidden = ("cost", "price", "amount", "margin", "value")
         for model in (RecipeVersion, RecipeVersionReview, RecipeVersionBranchScope):
             for field in model._meta.get_fields():
+                if field.is_relation:
+                    continue
                 name = getattr(field, "name", "")
                 assert not any(word in name for word in forbidden), (
-                    f"{model.__name__}.{name} looks like money; Task 3.3 owns costing"
+                    f"{model.__name__}.{name} looks like money; costing is derived"
                 )

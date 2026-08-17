@@ -19,9 +19,20 @@ left `DRAFT` has no `PATCH` and no `DELETE`, because correcting an approved
 recipe is a new version — and a verb that implied otherwise would be the API
 contradicting the database.
 
-**There is still no cost endpoint and no component endpoint.** Task 3.3 owns
-costing and Task 3.2B owns nested recipes; publishing a route to a service that
-does not exist would be a promise the system cannot keep.
+Task 3.2B added the component endpoints and **Task 3.3 adds the costing ones**
+at the end of this file. Two rules govern that half and are worth stating here
+rather than only beside each route:
+
+* **Money is a second permission.** Every costing route requires
+  `view_recipe_cost` *in addition to* reaching the organization, and the recipe,
+  version, component, step and serving endpoints above stay money-free. Cost
+  keys are **omitted** from an unauthorized payload, never sent as null: a null
+  says a number exists and you are not trusted with it, which is a different
+  statement from the one intended.
+* **Snapshots are a command, not CRUD.** There is a `POST` and there are two
+  `GET`s. There is no `PATCH` and no `DELETE`, because the rows are append-only
+  at the database and a verb that implied otherwise would be the API
+  contradicting a trigger.
 """
 
 from __future__ import annotations
@@ -33,7 +44,17 @@ from typing import Any
 from django.http import HttpRequest
 from ninja import Router, Schema
 
-from apps.inventory.selectors import resolve_item, resolve_package_unit
+from apps.inventory.selectors import (
+    resolve_item,
+    resolve_manageable_warehouse,
+    resolve_package_unit,
+)
+from apps.kitchen.costing import (
+    RecipeCostCard,
+    cost_recipe_on_date,
+    cost_recipe_version,
+    preview_recipe_cost,
+)
 from apps.kitchen.graph import component_tree, flatten_tree
 from apps.kitchen.lifecycle import (
     activate_recipe_version,
@@ -54,17 +75,20 @@ from apps.kitchen.permissions import (
     REVIEW_RECIPE_VERSION,
     SUBMIT_RECIPE_VERSION,
     VIEW_RECIPE,
+    VIEW_RECIPE_COST,
 )
 from apps.kitchen.selectors import (
     components_for_version,
     resolve_category,
     resolve_component,
+    resolve_cost_snapshot,
     resolve_line,
     resolve_recipe,
     resolve_serving,
     resolve_step,
     resolve_substitute,
     resolve_version,
+    visible_cost_snapshots,
     visible_recipes,
     visible_step_ingredients,
     visible_versions,
@@ -95,6 +119,7 @@ from apps.kitchen.services import (
     update_recipe_serving,
     update_recipe_step,
 )
+from apps.kitchen.snapshots import create_recipe_cost_snapshot
 from apps.organizations.authorization import (
     PermissionMissing,
     require_reachable_organization_permission,
@@ -1343,3 +1368,489 @@ def get_component_tree(request: HttpRequest, version_id: int) -> list[dict[str, 
         }
         for node in flatten_tree(component_tree(version))
     ]
+
+
+# ---------------------------------------------------------------------------
+# Task 3.3 - recipe costing and cost snapshots
+# ---------------------------------------------------------------------------
+#
+# Every route below names its warehouse and its date explicitly. None of them
+# defaults either one: a costing read that quietly meant *today* would be right
+# during development and wrong the first time somebody re-ran a July card in
+# September, and one that defaulted a warehouse would price a Baghdad recipe
+# off whichever store happened to sort first.
+
+
+def _require_cost(request: HttpRequest, organization: Any) -> User:
+    """
+    Reaching the organization is not enough; money needs its own permission.
+
+    `view_recipe` and `review_recipe_version` both let somebody read the card
+    and neither lets them read what it cost - that is RCP-027 and the same
+    boundary inventory draws between `view_stock` and `view_valuation`. Checked
+    against the **recipe's** organization, so a permission held elsewhere does
+    not travel.
+    """
+    actor = _actor(request)
+    require_reachable_organization_permission(actor, VIEW_RECIPE_COST, organization)
+    return actor
+
+
+class CostLineOut(Schema):
+    line_number: int
+    component_path: str
+    source_kind: str
+    source_recipe_code: str
+    source_version_number: int
+    recipe_line_id: int
+    item_code: str
+    item_name: str
+    cost_class: str
+    cumulative_multiplier: str
+    effective_quantity: str
+    valuation_quantity: str
+    valuation_value: str
+    valuation_lots: int
+    unit_cost: str
+    raw_extension: str
+    allocated_extension: str
+
+
+class MissingValuationOut(Schema):
+    code: str
+    item_code: str
+    item_name: str
+    warehouse_code: str
+    component_path: str
+    recipe_code: str
+    version_number: int
+    state: str
+
+
+class CostServingOut(Schema):
+    """
+    One serving scenario, with its whole allocation in five numbers.
+
+    `normal_*` and `elevated_*` are the complete distribution rather than a
+    summary of it: every whole serving carries equal weight, so the certified
+    allocator produces exactly two amounts and these are both, with their
+    counts. `normal_count x normal + elevated_count x elevated + leftover`
+    reconstructs `allocated_total` exactly, at any serving count.
+    """
+
+    code: str
+    name_ar: str
+    name_en: str
+    is_primary: bool
+    factor_of_batch: str
+    cost_per_serving: str
+    whole_serving_count: int
+    remainder_quantity: str
+    allocation_state: str
+    allocated_total: str
+    normal_cost_per_serving: str
+    normal_serving_count: int
+    elevated_cost_per_serving: str
+    elevated_serving_count: int
+    remainder_cost: str
+
+
+class CostCardOut(Schema):
+    recipe_code: str
+    recipe_name: str
+    version_number: int
+    version_status: str
+    warehouse_code: str
+    branch_code: str
+    as_of_date: datetime.date
+    valuation_mode: str
+    ledger_cutoff_sequence: int
+    calculation_version: str
+    is_authoritative: bool
+    is_complete: bool
+    output_quantity: str
+    output_unit_code: str
+    food_total: str
+    packaging_total: str
+    accompaniment_total: str
+    total_material_cost: str
+    cost_per_output_unit: str
+    #: The plate-cost basis. `plate_cost` and `portions_per_batch` are absent
+    #: only on a preview of a draft with no primary serving, and then
+    #: `plate_cost_problem` says which.
+    plate_cost: str | None
+    portions_per_batch: str | None
+    primary_serving_code: str | None
+    plate_cost_problem: str | None
+    lines: list[CostLineOut]
+    missing_valuations: list[MissingValuationOut]
+    servings: list[CostServingOut]
+
+
+def _card_out(card: RecipeCostCard) -> dict[str, Any]:
+    """
+    Serialize a cost card. **Every decimal crosses as a quoted string.**
+
+    JSON's only numeric type is binary floating point, so a total that left here
+    as a number would arrive as a float in whatever language read it, and a
+    costing figure that has been through a float is no longer the figure that
+    was approved.
+    """
+    return {
+        "recipe_code": card.recipe.code,
+        "recipe_name": card.recipe.name_ar,
+        "version_number": card.version.version_number,
+        "version_status": card.version_status,
+        "warehouse_code": card.warehouse.code,
+        "branch_code": card.branch.code,
+        "as_of_date": card.as_of_date,
+        "valuation_mode": card.valuation_mode,
+        "ledger_cutoff_sequence": card.cutoff.posted_sequence,
+        "calculation_version": card.calculation_version,
+        "is_authoritative": card.is_authoritative,
+        "is_complete": card.is_complete,
+        "output_quantity": str(card.output_quantity),
+        "output_unit_code": card.output_unit_code,
+        "food_total": str(card.food_total),
+        "packaging_total": str(card.packaging_total),
+        "accompaniment_total": str(card.accompaniment_total),
+        "total_material_cost": str(card.total_material_cost),
+        "cost_per_output_unit": str(card.cost_per_output_unit),
+        "plate_cost": str(card.plate.plate_cost) if card.plate else None,
+        "portions_per_batch": str(card.plate.portions_per_batch) if card.plate else None,
+        "primary_serving_code": card.plate.serving.code if card.plate else None,
+        "plate_cost_problem": card.plate_problem.code if card.plate_problem else None,
+        "lines": [
+            {
+                "line_number": line.line_number,
+                "component_path": line.path_display,
+                "source_kind": str(line.kind),
+                "source_recipe_code": line.source_recipe.code,
+                "source_version_number": line.source_version.version_number,
+                "recipe_line_id": line.recipe_line.pk,
+                "item_code": line.item.code,
+                "item_name": line.item.name_ar,
+                "cost_class": line.cost_class,
+                "cumulative_multiplier": line.multiplier_display,
+                "effective_quantity": str(line.effective_quantity),
+                "valuation_quantity": str(line.valuation.quantity),
+                "valuation_value": str(line.valuation.value),
+                "valuation_lots": line.valuation.lot_count,
+                "unit_cost": str(line.unit_cost),
+                "raw_extension": str(line.raw_extension),
+                "allocated_extension": str(line.allocated_extension),
+            }
+            for line in card.lines
+        ],
+        "missing_valuations": [
+            {
+                "code": gap.code,
+                "item_code": gap.item_code,
+                "item_name": gap.item_name,
+                "warehouse_code": gap.warehouse_code,
+                "component_path": gap.component_path,
+                "recipe_code": gap.recipe_code,
+                "version_number": gap.version_number,
+                "state": str(gap.state),
+            }
+            for gap in card.missing
+        ],
+        "servings": [
+            {
+                "code": serving.serving.code,
+                "name_ar": serving.serving.name_ar,
+                "name_en": serving.serving.name_en,
+                "is_primary": serving.serving.is_primary,
+                "factor_of_batch": serving.factor_display,
+                "cost_per_serving": str(serving.cost_per_serving),
+                "whole_serving_count": serving.whole_count,
+                "remainder_quantity": str(serving.remainder_quantity),
+                "allocation_state": str(serving.state),
+                "allocated_total": str(serving.allocated_total),
+                "normal_cost_per_serving": str(serving.normal_cost_per_serving),
+                "normal_serving_count": serving.normal_serving_count,
+                "elevated_cost_per_serving": str(serving.elevated_cost_per_serving),
+                "elevated_serving_count": serving.elevated_serving_count,
+                "remainder_cost": str(serving.remainder_cost),
+            }
+            for serving in card.servings
+        ],
+    }
+
+
+@router.get(
+    "/recipe-versions/{version_id}/cost-preview",
+    response=CostCardOut,
+    summary="A non-authoritative costing preview of a DRAFT or SUBMITTED version",
+)
+def get_cost_preview(
+    request: HttpRequest, version_id: int, warehouse_id: int, as_of_date: datetime.date
+) -> dict[str, Any]:
+    """
+    The card a reviewer is being asked to sign, before anybody signs it.
+
+    `is_authoritative` is **false** in the payload and no snapshot can be built
+    from this. Refused for a version that has already left `DRAFT` or
+    `SUBMITTED`: an approved version has an authoritative answer and should be
+    asked for it.
+    """
+    actor = _actor(request)
+    version = resolve_version(actor, version_id)
+    _require_cost(request, version.recipe.organization)
+    warehouse = resolve_manageable_warehouse(actor, warehouse_id)
+    return _card_out(
+        preview_recipe_cost(version=version, warehouse=warehouse, as_of_date=as_of_date)
+    )
+
+
+@router.get(
+    "/recipe-versions/{version_id}/cost",
+    response=CostCardOut,
+    summary="The authoritative cost of one exact version",
+)
+def get_version_cost(
+    request: HttpRequest, version_id: int, warehouse_id: int, as_of_date: datetime.date
+) -> dict[str, Any]:
+    """
+    Costs the **exact** version named, with no resolver anywhere in the path.
+
+    A nested child is followed through its parent's frozen `component_version`
+    and never re-resolved by date, so this answers the same way after that child
+    is superseded as before (RCP-072).
+    """
+    actor = _actor(request)
+    version = resolve_version(actor, version_id)
+    _require_cost(request, version.recipe.organization)
+    warehouse = resolve_manageable_warehouse(actor, warehouse_id)
+    return _card_out(
+        cost_recipe_version(version=version, warehouse=warehouse, as_of_date=as_of_date)
+    )
+
+
+@router.get(
+    "/recipes/{recipe_id}/cost-on-date",
+    response=CostCardOut,
+    summary="What this recipe cost at this branch on this date",
+)
+def get_recipe_cost_on_date(
+    request: HttpRequest,
+    recipe_id: int,
+    branch_id: int,
+    warehouse_id: int,
+    on_date: datetime.date,
+) -> dict[str, Any]:
+    """
+    Version first, then costs - both halves driven by the same date (RCP-026).
+
+    Returns `recipe_version_not_effective` for a date no version covers, which
+    is the honest answer to "what did it cost before it existed".
+    """
+    actor = _actor(request)
+    recipe = resolve_recipe(actor, recipe_id)
+    _require_cost(request, recipe.organization)
+    branch = resolve_branch(actor, branch_id)
+    warehouse = resolve_manageable_warehouse(actor, warehouse_id)
+    return _card_out(
+        cost_recipe_on_date(recipe=recipe, branch=branch, warehouse=warehouse, on_date=on_date)
+    )
+
+
+class CostSnapshotIn(Schema):
+    warehouse_id: int
+    as_of_date: datetime.date
+    idempotency_key: str
+    reference: str = ""
+    reason: str = ""
+    note: str = ""
+
+
+class CostSnapshotOut(Schema):
+    id: int
+    public_id: str
+    recipe_code: str
+    version_number: int
+    version_status: str
+    branch_code: str
+    warehouse_code: str
+    as_of_date: datetime.date
+    valuation_mode: str
+    ledger_cutoff_sequence: int
+    calculation_version: str
+    is_authoritative: bool
+    output_quantity: str
+    output_unit_code: str
+    food_total: str
+    packaging_total: str
+    accompaniment_total: str
+    total_material_cost: str
+    cost_per_output_unit: str
+    plate_cost: str
+    portions_per_batch: str
+    primary_serving_code: str
+    reference: str
+    reason: str
+    note: str
+    created_at: datetime.datetime
+
+
+class CostSnapshotDetailOut(CostSnapshotOut):
+    lines: list[CostLineOut]
+    servings: list[CostServingOut]
+
+
+def _snapshot_out(snapshot: Any) -> dict[str, Any]:
+    return {
+        "id": snapshot.pk,
+        "public_id": str(snapshot.public_id),
+        "recipe_code": snapshot.recipe_code,
+        "version_number": snapshot.version_number,
+        "version_status": snapshot.version_status,
+        "branch_code": snapshot.branch.code,
+        "warehouse_code": snapshot.warehouse_code,
+        "as_of_date": snapshot.as_of_date,
+        "valuation_mode": snapshot.valuation_mode,
+        "ledger_cutoff_sequence": snapshot.ledger_cutoff_sequence,
+        "calculation_version": snapshot.calculation_version,
+        "is_authoritative": snapshot.is_authoritative,
+        "output_quantity": str(snapshot.output_quantity),
+        "output_unit_code": snapshot.output_unit_code,
+        "food_total": str(snapshot.food_total),
+        "packaging_total": str(snapshot.packaging_total),
+        "accompaniment_total": str(snapshot.accompaniment_total),
+        "total_material_cost": str(snapshot.total_material_cost),
+        "cost_per_output_unit": str(snapshot.cost_per_output_unit),
+        "plate_cost": str(snapshot.plate_cost),
+        "portions_per_batch": str(snapshot.portions_per_batch),
+        "primary_serving_code": snapshot.primary_serving_code,
+        "reference": snapshot.reference,
+        "reason": snapshot.reason,
+        "note": snapshot.note,
+        "created_at": snapshot.created_at,
+    }
+
+
+def _snapshot_detail_out(snapshot: Any) -> dict[str, Any]:
+    payload = _snapshot_out(snapshot)
+    payload["lines"] = [
+        {
+            "line_number": line.line_number,
+            "component_path": line.component_path,
+            "source_kind": line.source_kind,
+            "source_recipe_code": line.source_recipe_code,
+            "source_version_number": line.source_version_number,
+            "recipe_line_id": line.recipe_line_id,
+            "item_code": line.item_code,
+            "item_name": line.item_name,
+            "cost_class": line.cost_class,
+            "cumulative_multiplier": str(line.cumulative_multiplier),
+            "effective_quantity": str(line.effective_quantity),
+            "valuation_quantity": str(line.valuation_quantity),
+            "valuation_value": str(line.valuation_value),
+            "valuation_lots": line.valuation_lot_count,
+            "unit_cost": str(line.unit_cost),
+            "raw_extension": str(line.raw_extension),
+            "allocated_extension": str(line.allocated_extension),
+        }
+        for line in snapshot.lines.all()
+    ]
+    payload["servings"] = [
+        {
+            "code": serving.code,
+            "name_ar": serving.name_ar,
+            "name_en": serving.name_en,
+            "is_primary": serving.is_primary,
+            "factor_of_batch": str(serving.factor_of_batch),
+            "cost_per_serving": str(serving.cost_per_serving),
+            "whole_serving_count": serving.whole_serving_count,
+            "remainder_quantity": str(serving.remainder_quantity),
+            "allocation_state": serving.allocation_state,
+            "allocated_total": str(serving.allocated_total),
+            "normal_cost_per_serving": str(serving.minimum_allocated),
+            "normal_serving_count": serving.normal_serving_count,
+            "elevated_cost_per_serving": str(serving.maximum_allocated),
+            "elevated_serving_count": serving.elevated_serving_count,
+            "remainder_cost": str(serving.remainder_cost),
+        }
+        for serving in snapshot.servings.all()
+    ]
+    return payload
+
+
+@router.post(
+    "/recipe-versions/{version_id}/cost-snapshots",
+    response={201: CostSnapshotDetailOut},
+    summary="Freeze one authoritative cost card into an append-only record",
+)
+def post_cost_snapshot(
+    request: HttpRequest, version_id: int, payload: CostSnapshotIn
+) -> tuple[int, dict[str, Any]]:
+    """
+    A **command**, and the only write Task 3.3 performs.
+
+    Idempotent on the key **and** a fingerprint of the request. A retry returns
+    the original snapshot with no second set of lines; the same key with a
+    different version, warehouse, date or purpose is `idempotency_key_conflict`,
+    not a silent hand-back.
+
+    Refused for a preview, a rejected version, or a card with any unvalued leaf.
+    There is no partial mode: a costing record with a hole in it looks like a
+    total.
+    """
+    actor = _actor(request)
+    version = resolve_version(actor, version_id)
+    _require_cost(request, version.recipe.organization)
+    warehouse = resolve_manageable_warehouse(actor, payload.warehouse_id)
+    card = cost_recipe_version(version=version, warehouse=warehouse, as_of_date=payload.as_of_date)
+    snapshot = create_recipe_cost_snapshot(
+        card=card,
+        actor=actor,
+        idempotency_key=payload.idempotency_key,
+        reference=payload.reference,
+        reason=payload.reason,
+        note=payload.note,
+    )
+    return 201, _snapshot_detail_out(snapshot)
+
+
+@router.get(
+    "/recipe-cost-snapshots",
+    response=list[CostSnapshotOut],
+    summary="Cost snapshots this caller may read",
+)
+def list_cost_snapshots(
+    request: HttpRequest,
+    recipe_id: int | None = None,
+    version_id: int | None = None,
+    warehouse_id: int | None = None,
+    as_of_date: datetime.date | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Scoped by `view_recipe_cost`, not by `view_recipe`.
+
+    A storekeeper who legitimately reads every recipe card sees **no** snapshot
+    here at all - not an empty-costed one. The filters narrow what is already
+    in scope; none of them can widen it.
+    """
+    actor = _actor(request)
+    rows = visible_cost_snapshots(actor)
+    if recipe_id is not None:
+        rows = rows.filter(recipe_id=recipe_id)
+    if version_id is not None:
+        rows = rows.filter(version_id=version_id)
+    if warehouse_id is not None:
+        rows = rows.filter(warehouse_id=warehouse_id)
+    if as_of_date is not None:
+        rows = rows.filter(as_of_date=as_of_date)
+    return [_snapshot_out(snapshot) for snapshot in rows]
+
+
+@router.get(
+    "/recipe-cost-snapshots/{snapshot_id}",
+    response=CostSnapshotDetailOut,
+    summary="One cost snapshot, with its lines and serving scenarios",
+)
+def get_cost_snapshot(request: HttpRequest, snapshot_id: int) -> dict[str, Any]:
+    """Out of scope is 404, never 403. There is no PATCH and no DELETE."""
+    actor = _actor(request)
+    snapshot = resolve_cost_snapshot(actor, snapshot_id)
+    return _snapshot_detail_out(snapshot)

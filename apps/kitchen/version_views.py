@@ -82,6 +82,7 @@ from apps.kitchen.permissions import (
     REVIEW_RECIPE_VERSION,
     SUBMIT_RECIPE_VERSION,
     VIEW_RECIPE,
+    VIEW_RECIPE_COST,
 )
 from apps.kitchen.selectors import (
     component_candidates,
@@ -198,6 +199,13 @@ class VersionDetailView(KitchenViewMixin, View):
             "can_approve": _held(self.actor, APPROVE_RECIPE_VERSION, organization),
             "can_reject": _held(self.actor, REJECT_RECIPE_VERSION, organization),
             "can_activate": _held(self.actor, ACTIVATE_RECIPE_VERSION, organization),
+            # Task 3.3. The cost link is **absent** without the permission,
+            # never disabled: an inert control still announces that a costing
+            # screen exists for this recipe, which is one more thing a reader
+            # has learned that they were not meant to. The screens behind it
+            # check the same permission, so hiding it is presentation and the
+            # refusal is the protection.
+            "can_view_cost": _held(self.actor, VIEW_RECIPE_COST, organization),
             # Expiry is derived, never stored, so the screen derives it too —
             # against today only, and labelled as a fact about a date.
             "is_expired": version.is_expired_on(timezone.localdate()),

@@ -342,6 +342,21 @@ MODULES: tuple[Module, ...] = (
                 url_name="kitchen:version_list",
                 available=True,
             ),
+            # Task 3.3 - costing. Exactly one previously inert entry is
+            # promoted, and its label names both figures the screen carries:
+            # the full recipe cost card, and the plate cost derived from the
+            # version's primary serving. `كلفة الطبق` alone would undersell a
+            # screen that shows the whole card as its evidence.
+            #
+            # The entry renders for everyone; the screens behind it refuse
+            # anybody without `view_recipe_cost`. That is deliberate and matches
+            # every other module here - navigation describes the system, and
+            # authorization is decided where the data is.
+            Section(
+                label=_("كلفة الوصفة والطبق"),
+                url_name="kitchen:cost_snapshot_list",
+                available=True,
+            ),
             *_sections(
                 _("أوامر الإنتاج"),
                 _("الإنتاجية والفاقد"),
@@ -353,7 +368,6 @@ MODULES: tuple[Module, ...] = (
                 _("الاستهلاك النظري"),
                 _("الاستهلاك الفعلي"),
                 _("انحراف الاستهلاك"),
-                _("كلفة الطبق"),
             ),
         ),
     ),

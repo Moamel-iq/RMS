@@ -114,12 +114,13 @@ class TestDemoDataset:
     ) -> list[Recipe]:
         return seed_demo_recipes(organization=organization, created_by=manager)
 
-    def test_twelve_recipes_are_created(self, seeded: list[Recipe]) -> None:
+    def test_thirteen_recipes_are_created(self, seeded: list[Recipe]) -> None:
         """
-        Five that stay drafts, four that walk the approval boundary, and three
-        that form the nested graph Task 3.2B added.
+        Five that stay drafts, four that walk the approval boundary, three that
+        form the nested graph Task 3.2B added, and **one Task 3.3 added** whose
+        every leaf is valued so a cost card adds up to a real number.
         """
-        assert len(seeded) == 12
+        assert len(seeded) == 13
 
     def test_every_screen_has_something_on_it(self, seeded: list[Recipe]) -> None:
         assert RecipeLine.objects.exists()
@@ -239,9 +240,15 @@ class TestDemoDataset:
         real_names = ("حنيذ", "مدفون", "زربيان", "مضغوط", "مزموم", "كبسة", "مضبي")
         for recipe in seeded:
             assert not [word for word in real_names if word in recipe.name_ar]
-        # The book's carving weight must not appear as a demo quantity.
+        # The book's carving weight must not appear as a demo quantity, with two
+        # deliberate exceptions. `DEMO-RCP-RICE` predates this test;
+        # `DEMO-RCP-COST` carries a half serving **because a half is the case
+        # RCP-086's arithmetic has to get right**, and a costing demo that
+        # portioned only in whole units would exercise none of it. Neither
+        # names a dish, a cut or an animal, which is what RCP-082 forbids —
+        # the figure alone is data, and it lives in a row.
         assert not RecipeServing.objects.filter(base_quantity=Decimal("0.500000")).exclude(
-            version__recipe__code="DEMO-RCP-RICE"
+            version__recipe__code__in=("DEMO-RCP-RICE", "DEMO-RCP-COST")
         )
 
     def test_the_seed_moves_no_stock_and_writes_no_journal(self, seeded: list[Recipe]) -> None:

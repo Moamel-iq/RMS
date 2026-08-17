@@ -31,8 +31,10 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import transaction
+from django.utils import timezone
 
-from apps.inventory.models import InventoryItem, ItemCategory, ItemType
+from apps.inventory.models import InventoryItem, ItemCategory, ItemType, Warehouse
+from apps.kitchen.costing import cost_recipe_version
 from apps.kitchen.lifecycle import (
     activate_recipe_version,
     approve_recipe_version,
@@ -67,6 +69,7 @@ from apps.kitchen.services import (
     link_step_ingredient,
     set_recipe_branches,
 )
+from apps.kitchen.snapshots import create_recipe_cost_snapshot
 from apps.organizations.models import Branch, Organization
 from apps.units.selectors import unit_by_code
 from apps.users.models import User
@@ -451,6 +454,9 @@ def seed_demo_recipes(
     )
     recipes.extend(
         seed_demo_components(organization=organization, created_by=created_by, branches=branches)
+    )
+    recipes.extend(
+        seed_demo_cost(organization=organization, created_by=created_by, branches=branches)
     )
     return recipes
 
@@ -923,4 +929,236 @@ def _add_stocked_input(*, version: RecipeVersion, organization: Organization) ->
         entered_quantity=Decimal("1"),
         entered_unit=unit_by_code("KG"),
         note=f"{DEMO_BANNER} — مدخل نصف مصنّع مخزني، يُستهلك كسطر لا كوصفة فرعية.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.3 - a costable recipe, and one frozen costing decision
+# ---------------------------------------------------------------------------
+#
+# The nested demo graph above is built from blends whose own lines are valued
+# demo stock, so it costs. What it lacks is a **packaging** line and a second
+# serving, and those two are half of what `KM-RCP-004`'s cost summary shows. So
+# one more recipe is added here rather than reshaping an existing one: the
+# Task 3.2B scenario keeps proving what it was built to prove, and this proves
+# costing.
+#
+# No new inventory item is created. Every leaf below is an item the inventory
+# demo already posted stock for, which is what makes the card add up to a real
+# number rather than to a hole.
+#
+# **This seed posts nothing.** No stock movement, no balance change, no journal
+# entry - the only rows it writes are a recipe, its versions, and one
+# append-only cost snapshot. A test counts all three.
+
+DEMO_COST_CODE = "DEMO-RCP-COST"
+
+#: The warehouse whose average the demo card reads. Named, never defaulted:
+#: the whole point of the costing contract is that a warehouse is an input.
+DEMO_COST_WAREHOUSE_CODE = "DEMO-MAIN"
+
+#: What the demo dish is portioned into. Four definitions because they are
+#: **alternatives**, and each one is there to be looked at:
+#:
+#: * `FULL` is the **primary**, so it is the plate-cost basis.
+#: * `HALF` is the physical factor 0.500 the recipe book states.
+#: * `SMALL` deliberately does not divide the output evenly, so the leftover
+#:   and its cost are visible on the screen rather than described.
+#: * `TINY` makes 10,000 servings from the same output, which is the case the
+#:   first pass of Task 3.3 refused to allocate. It is here so a reader can see
+#:   that the compact summary reconstructs the exact total at a count no screen
+#:   would ever list.
+#:
+#: Every quantity is a row, never a constant in a service (RCP-082).
+DEMO_COST_SERVINGS: list[tuple[str, str, str, bool]] = [
+    ("FULL", "حصة كاملة تجريبية", "1", True),
+    ("HALF", "نصف حصة تجريبية", "0.5", False),
+    ("SMALL", "حصة صغيرة تجريبية", "0.35", False),
+    ("TINY", "حصة تجريبية دقيقة", "0.001", False),
+]
+
+
+def _cost_warehouse(*, organization: Organization) -> Warehouse | None:
+    """The demo warehouse, if the inventory demo has been seeded."""
+    return Warehouse.objects.filter(
+        branch__organization=organization, code=DEMO_COST_WAREHOUSE_CODE
+    ).first()
+
+
+def _cost_draft(
+    *, recipe: Recipe, organization: Organization, created_by: User | None
+) -> RecipeVersion:
+    """
+    A draft whose every leaf is a **valued** demo item.
+
+    Rice and oil are `FOOD`, the container is `PACKAGING`: the split the
+    workbook's summary needs, and the reason this recipe exists beside the
+    nested one.
+    """
+    kg = unit_by_code("KG")
+    litre = unit_by_code("L")
+    piece = unit_by_code("PIECE")
+    items = {
+        item.code: item
+        for item in InventoryItem.objects.filter(
+            organization=organization, code__startswith="DEMO-"
+        )
+    }
+
+    version = create_draft_recipe_version(
+        recipe=recipe,
+        batch_size=Decimal("1"),
+        expected_output_quantity=Decimal("10"),
+        output_unit=kg,
+        instructions=f"{DEMO_BANNER}. وصفة تجريبية لعرض بطاقة الكلفة.",
+        notes=DEMO_BANNER,
+        created_by=created_by,
+    )
+    if "DEMO-RICE" in items:
+        add_recipe_line(
+            version=version,
+            item=items["DEMO-RICE"],
+            entered_quantity=Decimal("4"),
+            entered_unit=kg,
+            cost_class=RecipeLineCostClass.FOOD,
+            note=DEMO_BANNER,
+        )
+    if "DEMO-OIL" in items:
+        add_recipe_line(
+            version=version,
+            item=items["DEMO-OIL"],
+            entered_quantity=Decimal("0.5"),
+            entered_unit=litre,
+            cost_class=RecipeLineCostClass.FOOD,
+            note=DEMO_BANNER,
+        )
+    if "DEMO-CONTAINER" in items:
+        add_recipe_line(
+            version=version,
+            item=items["DEMO-CONTAINER"],
+            entered_quantity=Decimal("10"),
+            entered_unit=piece,
+            cost_class=RecipeLineCostClass.PACKAGING,
+            note=DEMO_BANNER,
+        )
+    add_recipe_step(version=version, instruction_ar="خطوة تجريبية.", note=DEMO_BANNER)
+    for code, name, quantity, primary in DEMO_COST_SERVINGS:
+        add_recipe_serving(
+            version=version,
+            code=code,
+            name_ar=name,
+            serving_quantity=Decimal(quantity),
+            serving_unit=kg,
+            is_primary=primary,
+        )
+    return RecipeVersion.objects.get(pk=version.pk)
+
+
+def seed_demo_cost(
+    *,
+    organization: Organization,
+    created_by: User | None,
+    branches: list[Branch],
+) -> list[Recipe]:
+    """
+    One costable recipe, one preview draft, and one immutable snapshot.
+
+    Idempotent like everything else here, and in one extra place: the snapshot
+    key carries the as-of date, so a second run on the same day returns the
+    original snapshot through the idempotency path and a run on a later day
+    records a **new** decision rather than colliding with the old one. A key
+    with no date in it would raise `idempotency_key_conflict` the next morning,
+    which is a real bug dressed as a safety feature.
+    """
+    people = ensure_demo_reviewers()
+    submitter = created_by or people["kitchen"]
+    made: list[Recipe] = []
+
+    recipe, created = _recipe(
+        organization=organization,
+        code=DEMO_COST_CODE,
+        name_ar="طبق تجريبي لبطاقة الكلفة",
+        recipe_type=RecipeType.PORTION,
+        category=None,
+        output_item=None,
+        created_by=created_by,
+    )
+    made.append(recipe)
+    if created:
+        set_recipe_branches(recipe=recipe, branches=branches)
+
+    # 14 - the costable version. It carries a nested component as well as its
+    #      own lines, so one card shows a direct leaf, a one-level roll-up and
+    #      a two-level one - and the same item (rice) on three different paths,
+    #      which is what keeps the paths separate rows.
+    if not recipe.versions.exists():
+        draft = _cost_draft(recipe=recipe, organization=organization, created_by=created_by)
+        marinade = RecipeVersion.objects.filter(
+            recipe__organization=organization,
+            recipe__code=DEMO_MARINADE_CODE,
+            status=RecipeVersionStatus.ACTIVE,
+        ).first()
+        if marinade is not None:
+            create_recipe_component(
+                version=draft,
+                component_version=marinade,
+                multiplier=Decimal("0.5"),
+                note=DEMO_BANNER,
+                actor=created_by,
+            )
+        approved = _carry_to_approved(draft, people, submitter)
+        # From the **second** effective date, not the first: the component is
+        # marinade v2, which only starts on that day, and RCP-074 requires the
+        # child to be effective on the parent's `effective_from`. Activating a
+        # month earlier would claim a dish that contained a blend nobody had
+        # approved yet.
+        activate_recipe_version(
+            version=approved,
+            actor=people["approver"],
+            effective_from=DEMO_SECOND_EFFECTIVE,
+            reason=DEMO_BANNER,
+        )
+
+    active = recipe.versions.filter(status=RecipeVersionStatus.ACTIVE).first()
+
+    # 15 - a draft on top, so the preview banner has something to sit on. A
+    #      preview is non-authoritative by construction and cannot be
+    #      snapshotted; the screen says so and the service refuses it.
+    if active is not None and recipe.versions.count() == 1:
+        _cost_draft(recipe=recipe, organization=organization, created_by=created_by)
+
+    # 16 - one frozen costing decision, through the real service.
+    warehouse = _cost_warehouse(organization=organization)
+    if active is not None and warehouse is not None:
+        _seed_demo_snapshot(version=active, warehouse=warehouse, actor=created_by)
+
+    return made
+
+
+def _seed_demo_snapshot(
+    *, version: RecipeVersion, warehouse: Warehouse, actor: User | None
+) -> None:
+    """
+    Cost the active demo version today and freeze it.
+
+    **Today is named here, not defaulted.** The inventory demo's movements are
+    stamped with the wall clock at seeding time, so a fixed historical date
+    would read an empty ledger and produce a card full of holes. A seed
+    choosing a date is a different act from a service assuming one.
+
+    Skipped silently when any leaf is unvalued: a snapshot may only be built
+    from a complete card, and the demo must not be the one place that rule
+    bends.
+    """
+    as_of = timezone.localdate()
+    card = cost_recipe_version(version=version, warehouse=warehouse, as_of_date=as_of)
+    if not card.is_complete:
+        return
+    create_recipe_cost_snapshot(
+        card=card,
+        actor=actor,
+        idempotency_key=f"DEMO-COST-SNAPSHOT-{as_of:%Y%m%d}",
+        reference="DEMO-NOT-A-REAL-DECISION",
+        reason=DEMO_BANNER,
+        note=DEMO_BANNER,
     )

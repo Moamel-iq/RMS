@@ -17,10 +17,12 @@ from __future__ import annotations
 import datetime
 from datetime import time
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from django.core.management import call_command
 from django.test import Client
+from django.utils import timezone
 
 from apps.inventory.models import (
     ConversionType,
@@ -29,6 +31,8 @@ from apps.inventory.models import (
     ItemPackageConversion,
     ItemType,
     PackageUnit,
+    Warehouse,
+    WarehouseType,
 )
 from apps.kitchen.lifecycle import (
     activate_recipe_version,
@@ -644,3 +648,243 @@ def stocked_active(
         accountant=accountant,
         approver=approver,
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.3 - costing fixtures
+# ---------------------------------------------------------------------------
+#
+# Costing is the first kitchen concern that needs a **valued** ledger, so these
+# fixtures post real stock through `post_stock_entry`. Not a shortcut through
+# `StockBalance.objects.create`: the whole point of the costing contract is that
+# the number comes from the movements the kernel replayed, and a fixture that
+# wrote a balance directly would test a projection nobody produced.
+
+
+@pytest.fixture
+def open_period(organization: Organization) -> Any:
+    """
+    Stock postings need an OPEN accounting period for their business date.
+
+    `open_fiscal_year` writes all twelve months, so this uses it rather than
+    hand-building one period: a fixture that constructed periods its own way
+    could pass against a year no deployment would ever have.
+    """
+    from apps.accounting.models import AccountingPeriod
+    from apps.accounting.services import open_fiscal_year
+
+    today = timezone.localdate()
+    open_fiscal_year(organization=organization, year=today.year)
+    return AccountingPeriod.objects.get(
+        fiscal_year__organization=organization,
+        start_date__lte=today,
+        end_date__gte=today,
+    )
+
+
+@pytest.fixture
+def other_open_period(other_organization: Organization) -> Any:
+    from apps.accounting.models import AccountingPeriod
+    from apps.accounting.services import open_fiscal_year
+
+    today = timezone.localdate()
+    open_fiscal_year(organization=other_organization, year=today.year)
+    return AccountingPeriod.objects.get(
+        fiscal_year__organization=other_organization,
+        start_date__lte=today,
+        end_date__gte=today,
+    )
+
+
+@pytest.fixture
+def store(branch: Branch) -> Warehouse:
+    """The warehouse recipes are costed against. Never a default - an input."""
+    return Warehouse.objects.create(
+        branch=branch,
+        code="STORE-1",
+        name_ar="المخزن الرئيسي",
+        warehouse_type=WarehouseType.PHYSICAL,
+    )
+
+
+@pytest.fixture
+def second_store(branch: Branch) -> Warehouse:
+    """A second warehouse in the same branch, so "which one" is a real question."""
+    return Warehouse.objects.create(
+        branch=branch,
+        code="STORE-2",
+        name_ar="مخزن ثانٍ",
+        warehouse_type=WarehouseType.PHYSICAL,
+    )
+
+
+@pytest.fixture
+def rival_store(other_branch: Branch) -> Warehouse:
+    """A warehouse in another organization entirely."""
+    return Warehouse.objects.create(
+        branch=other_branch,
+        code="RIVAL-1",
+        name_ar="مخزن مؤسسة أخرى",
+        warehouse_type=WarehouseType.PHYSICAL,
+    )
+
+
+def post_receipt(
+    *,
+    organization: Organization,
+    warehouse: Warehouse,
+    item: InventoryItem,
+    quantity: str,
+    unit_cost: str,
+    key: str,
+    lot: Any = None,
+) -> Any:
+    """
+    Put valued stock on a shelf, through the real ledger.
+
+    A helper rather than a fixture because a costing test usually needs two or
+    three postings at different unit costs, and a fixture cannot be asked for
+    twice.
+    """
+    from apps.inventory.ledger import MovementInput, post_stock_entry
+    from apps.inventory.models import MovementType
+
+    return post_stock_entry(
+        organization=organization,
+        effects=[
+            MovementInput(
+                warehouse=warehouse,
+                item=item,
+                movement_type=MovementType.RECEIPT,
+                quantity=Decimal(quantity),
+                unit_cost=Decimal(unit_cost),
+                effect_key="line:1",
+                lot=lot,
+            )
+        ],
+        idempotency_key=key,
+    )
+
+
+def post_issue(
+    *,
+    organization: Organization,
+    warehouse: Warehouse,
+    item: InventoryItem,
+    quantity: str,
+    key: str,
+    lot: Any = None,
+) -> Any:
+    """Take stock off the shelf, so a position can legitimately reach zero."""
+    from apps.inventory.ledger import MovementInput, post_stock_entry
+    from apps.inventory.models import MovementType
+
+    return post_stock_entry(
+        organization=organization,
+        effects=[
+            MovementInput(
+                warehouse=warehouse,
+                item=item,
+                movement_type=MovementType.ISSUE,
+                quantity=Decimal(quantity),
+                effect_key="line:1",
+                lot=lot,
+            )
+        ],
+        idempotency_key=key,
+    )
+
+
+@pytest.fixture
+def valued_store(
+    open_period: Any,
+    organization: Organization,
+    store: Warehouse,
+    rice: InventoryItem,
+    oil: InventoryItem,
+    box: InventoryItem,
+) -> Warehouse:
+    """
+    A warehouse holding rice, oil and boxes at known averages.
+
+    Rice arrives in **two receipts at different unit costs**, so every test
+    that reads its average is reading a figure that only comes out right if the
+    lots are summed and divided rather than averaged pairwise:
+
+        100 KG @ 1,000 + 100 KG @ 2,000  ->  200 KG / 300,000  ->  1,500
+    """
+    post_receipt(
+        organization=organization,
+        warehouse=store,
+        item=rice,
+        quantity="100",
+        unit_cost="1000",
+        key="fixture-rice-1",
+    )
+    post_receipt(
+        organization=organization,
+        warehouse=store,
+        item=rice,
+        quantity="100",
+        unit_cost="2000",
+        key="fixture-rice-2",
+    )
+    post_receipt(
+        organization=organization,
+        warehouse=store,
+        item=oil,
+        quantity="50",
+        unit_cost="4000",
+        key="fixture-oil-1",
+    )
+    post_receipt(
+        organization=organization,
+        warehouse=store,
+        item=box,
+        quantity="500",
+        unit_cost="250",
+        key="fixture-box-1",
+    )
+    return store
+
+
+@pytest.fixture
+def costable_version(
+    complete_draft: RecipeVersion,
+    manager: User,
+    cook: User,
+    keeper: User,
+    accountant: User,
+    approver: User,
+) -> RecipeVersion:
+    """An `ACTIVE` version with one rice line — the smallest authoritative card."""
+    approved = carry_to_approved(
+        complete_draft,
+        submitter=manager,
+        cook=cook,
+        keeper=keeper,
+        accountant=accountant,
+        approver=approver,
+    )
+    activate_recipe_version(
+        version=approved, actor=approver, effective_from=datetime.date(2026, 1, 1)
+    )
+    return RecipeVersion.objects.get(pk=approved.pk)
+
+
+@pytest.fixture
+def cost_reader(branch: Branch) -> User:
+    """
+    Holds `view_recipe_cost` through the approved role map, and nothing extra.
+
+    `ACCOUNTANT` rather than `MANAGER`: the accountant reads cost and cannot
+    edit a recipe, which is the pair of facts every security test here needs.
+    """
+    user = _user("cost-reader")
+    grant_branch_access(user=user, branch=branch, role=Role.ACCOUNTANT)
+    return User.objects.get(pk=user.pk)
+
+
+@pytest.fixture
+def cost_reader_client(cost_reader: User) -> Client:
+    return _client(cost_reader)

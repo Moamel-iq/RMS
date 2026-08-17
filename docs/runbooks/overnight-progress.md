@@ -1258,3 +1258,61 @@ activation only — the child must be effective on the parent's start date — a
 the exact child-version FK is frozen and stays valid afterwards. An `ACTIVE`
 parent naming a superseded child is a non-blocking verifier advisory. See
 specification §26.4 and §26.8.
+
+---
+
+## Task 3.3 — Recipe costing and cost snapshots (2026-08-17)
+
+**Done.** Costing is derived, warehouse-specific, date-specific and
+version-specific, and the only rows it persists are append-only snapshots.
+
+Built: `apps/kitchen/costing.py`, `apps/kitchen/snapshots.py`,
+`apps/kitchen/cost_reconciliation.py`, `apps/kitchen/cost_views.py`,
+`apps/inventory/valuation.py` (read-only, the single Inventory change),
+migrations `0008_recipe_cost_snapshots` and `0009_cost_snapshot_append_only`,
+six API routes, five Arabic RTL screens, the `verify_recipe_cost_snapshots`
+command, and the demo costing scenario.
+
+`view_recipe_cost` now guards something. It has been registered since Task 3.1
+and guarded nothing until today; the role map is unchanged — OWNER, MANAGER,
+ACCOUNTING_MANAGER and ACCOUNTANT — and was **activated**, not widened.
+
+Read `docs/development/recipe-costing.md` before changing any of it.
+
+### Two things this pass got wrong and corrected before committing
+
+Both were scope errors rather than arithmetic ones, and both are recorded here
+because the first version of this entry stated them as decisions.
+
+- **Plate cost was deferred to Task 3.4. It should not have been.** Task 3.3
+  owns standard plate cost, and it is now built: the divisor is the version's
+  primary `RecipeServing`, because no model carries `portions_per_batch` and
+  adding one would be a second mutable statement of a fact the serving already
+  holds. The navigation entry reads `كلفة الوصفة والطبق` and names both figures
+  the screen carries. Twelve tests hold it.
+- **Large serving counts were given a rate and no allocation.** Size is a reason
+  to stop building lists, not a reason to stop answering. The distribution is
+  now analytic and stored in five numbers, proven equal to
+  `apps/core/allocation.allocate` itself for every small case, so 50,000
+  portions allocate exactly in constant work and one database row.
+  `MAX_ENUMERATED_SERVINGS` survives only as a screen's limit.
+
+### Genuinely still deferred, with reasons
+
+- **RCP-087 at posted-batch level.** The standard split across a *version's*
+  serving definitions is done here. Splitting a **posted batch's** actual cost
+  across the servings it really produced needs production, and arrives at 3.5.
+  Traceability records the two halves separately rather than marking the whole
+  requirement deferred.
+- **The demo's stocked leaf is unvalued**, because the Kitchen seed may post no
+  stock (§V) and `DEMO-RICE-COOKED` is created by that seed. It still proves
+  non-expansion — the card shows one row for it rather than the producing
+  recipe's three — and doubles as the missing-valuation case.
+
+### One correction carried out of Task 3.2B
+
+ADR-024's paragraph *"The graph lock is about coverage, not about cycles"* still
+claimed the advisory lock made coverage sound. The owner-policy correction
+disproved that and fixed it in `apps/kitchen/graph.py` and in the concurrency
+tests, and did not reach the ADR. Corrected here, marked as a correction with
+its date, rather than quietly rewritten.

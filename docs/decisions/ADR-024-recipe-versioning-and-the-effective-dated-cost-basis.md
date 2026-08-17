@@ -264,8 +264,10 @@ generalising it before a second module needs it would fit neither.
 
 ## Still open
 
-- **Costing itself** — Task 3.3 and the cost-snapshot half of this ADR's
-  original scope. Nothing in this decision stores or derives money.
+- ~~**Costing itself**~~ — **settled by Task 3.3 (2026-08-17)**; see the
+  extension below. Nothing in the *original* decision stores or derives money,
+  and that is still true: costing is derived, and the only rows it persists are
+  append-only snapshots.
 - **KD-19 and KD-20 data** — the sauce unit gap and the undocumented appetizer
   blends remain open as *data*, exactly as the register recorded. The unit layer
   refuses the conversion rather than guessing it, and this ADR does not change
@@ -314,14 +316,27 @@ auto-superseded: correcting a child is versioning, exactly as correcting a
 parent is (RCP-081). An `ACTIVE` parent naming a superseded child is a
 **non-blocking advisory**, never a defect.
 
-**The graph lock is about coverage, not about cycles.** The textbook
-`A → B` / `B → A` race cannot corrupt this graph, because an edge may only be
-written on a `DRAFT` parent and a draft is never anybody's child — so two
-concurrent additions cannot lie on one path. What genuinely races is an
-activation that validated coverage against a supersession that then removed it:
-different rows, opposite ends, nothing for a row lock to see. The
-organization-scoped advisory lock closes that, and is taken by certification as
-well as by mutation.
+**The graph lock buys a consistent read, not sound coverage.** *(Corrected
+2026-08-17. The paragraph this replaces claimed the lock closed the coverage
+race; the owner-policy correction disproved that in `apps/kitchen/graph.py` and
+in the concurrency tests and did not reach this file. The claim was wrong here
+for a day.)*
+
+The textbook `A → B` / `B → A` race cannot corrupt this graph, because an edge
+may only be written on a `DRAFT` parent and a draft is never anybody's child — so
+two concurrent additions cannot lie on one path.
+
+What the lock genuinely buys is a **consistent read of the whole edge set**.
+Cycle and depth are properties of that set and every check re-reads it, so a walk
+that observed the graph half-way through somebody else's multi-edge edit could
+certify a version against a picture that never existed. Certification therefore
+takes the lock as well as mutation, and taking it above every row lock is what
+stops opposite-order callers deadlocking.
+
+It does **not** make coverage sound. An activation racing a child supersession
+leaves a parent active from 1 July beside a child closed on 30 June — and an
+ordinary sequential order produces exactly that too. Coverage is a point-in-time
+gate at activation; the frozen reference is what carries the parent afterwards.
 
 ### Also settled by this extension
 
@@ -332,3 +347,77 @@ well as by mutation.
 - Depth counts component **edges**; `MAX_COMPONENT_DEPTH = 3` (KD-08).
 - Component endpoints exist, departing from §5B.2's "no component endpoint" at
   the owner's instruction, and are draft-only for mutation. Recorded in §26.5.
+
+
+## Extended by Task 3.3 — the cost basis, made real
+
+Task 3.3 implemented the half of this ADR's original scope that Task 3.2A
+deferred. Nothing above is revised. Four decisions are added, and every one of
+them is about the same thing this ADR has been about throughout — *what a
+number is allowed to claim about a date*.
+
+**A cost is a function of four inputs and defaults none of them.** An exact
+`RecipeVersion`, a warehouse, an as-of date, and `POSTED_AS_OF`. The version
+because RCP-011 says so; the warehouse because a moving average is a fact about
+one store; the date because both halves of a historical question are date-driven
+(RCP-026); the mode because only one of Inventory's two is reproducible.
+
+**`POSTED_AS_OF` is the only authoritative basis, and the reason is a name
+rather than a preference.** Its movement set is a *prefix* of the posting order,
+so it can be identified by one integer — the organization's posted-sequence
+high-water mark — captured once per calculation and stored on every snapshot.
+`EFFECTIVE_DATE`'s set is not a prefix; a cost taken that way could not be
+re-derived from a sequence and would disagree with itself the next time somebody
+keyed in a late delivery.
+
+That cutoff, not a lock, is what makes a card internally consistent. Costing
+takes **no** inventory row locks, deliberately: locking stock so a read-only
+query looks safe would let a reporting screen block a delivery, which is a worse
+failure than any it prevents. A receipt racing a cost card takes a sequence above
+the mark and is wholly excluded, or commits before it and is wholly included.
+
+**Missing valuation is a refusal, not a zero.** There is no fallback price of any
+kind. The card renders with the gap named — item, component path, source version
+— so somebody can see what to fix, and no snapshot may be built over it. A
+costing record with a hole in it is worse than no record, because it looks like a
+total.
+
+**A snapshot is append-only in the database, across all three tables.** A header
+nobody may edit beside lines anybody may edit would be a document whose total no
+longer agreed with the figures behind it, which is the one failure the rule
+exists to prevent. Idempotency is a key **and** a fingerprint of the request; the
+fingerprint deliberately excludes the resulting figures, because two identical
+requests a week apart legitimately produce different totals and hashing the
+answer would turn every honest re-run into a permanent conflict.
+
+### Also settled by this extension
+
+- **A preview exists, and does not weaken RCP-015.** A `DRAFT` or `SUBMITTED`
+  version may be costed non-authoritatively, because the accountant's signature
+  on `KM-RCP-004` is a signature on the *costing evidence* and asking for it
+  while refusing to show the figures would be asking for a signature on nothing.
+  It cannot become a snapshot and is never a historical answer.
+- **Two serving answers, not one.** RCP-086's rate and RCP-087's allocation ask
+  different questions; the card carries both, and the allocation is the figure
+  that has to reconcile. Output left over after whole servings carries cost and
+  takes its own weight.
+- **The primary serving is the plate basis.** *(Corrected 2026-08-17; the first
+  pass deferred plate cost to Task 3.4 and that deferral was not approved.)* No
+  model carries a `portions_per_batch` column — Task 3.0 §3 sketched one and Task
+  3.1 did not build it — and adding one now would be a second, **mutable**
+  statement of a fact the version already holds exactly. RCP-084 guarantees one
+  primary serving per version with a partial unique index, so the divisor is
+  unambiguous and frozen with the version. `plate_cost` is computed as
+  `total × factor_of_batch` rather than `total ÷ portions_per_batch`:
+  algebraically the same, and deliberately the form that makes plate cost equal
+  the primary serving's own rate *exactly* and reproduce from stored columns.
+- **A serving allocation is compact, not capped.** *(Corrected the same day; the
+  first pass returned only a rate above a constant.)* Equal-weight servings admit
+  exactly two amounts under the certified largest-remainder rule, so two amounts,
+  two counts and the leftover **are** the distribution rather than a summary of
+  it. The arithmetic and the storage are therefore constant, and a
+  fifty-thousand-portion scenario allocates exactly in one row. A screen may
+  still limit how many example rows it lists; that decides no calculation.
+- **One new Inventory module, read-only.** `apps/inventory/valuation.py`. No
+  Inventory model, migration, valuation policy or posting behaviour changed, and
+  Inventory still imports nothing from Kitchen.

@@ -3088,3 +3088,241 @@ The distinction is load-bearing. This state was briefly reported as the finding
 red list, the list stops being read. The check was removed rather than
 downgraded, because re-running the activation gate against *current* data would
 have quietly reimposed the withdrawn rule.
+
+
+---
+
+## 27. Task 3.3 — costing, as built, and what building it settled
+
+Task 3.3 implements §6 (RCP-023 to RCP-027, RCP-092, RCP-093), the roll-up half
+of §5B (RCP-078), and the cost half of §5C (RCP-086, RCP-087). Nothing above is
+revised. What follows records the decisions the implementation had to make and
+the two places where the specification's sketch met a repository convention.
+
+### 27.1 The four inputs, and why none of them has a default
+
+A cost is a function of an **exact `RecipeVersion`**, a **warehouse**, an
+**as-of date**, and `POSTED_AS_OF`. Miss any one and the answer is a different
+number wearing the same name.
+
+`as_of_date` has no default for the same reason `resolve_recipe_version`'s
+`on_date` has none (RCP-026): a read that quietly meant *today* is right during
+development and wrong the first time somebody re-runs a July card in September.
+The warehouse has none because cost is warehouse-specific — a Baghdad recipe
+priced off whichever store sorted first would be confidently wrong rather than
+obviously absent. The form fields are empty on arrival for the same reason: a
+pre-filled date teaches the operator that the question does not need one.
+
+### 27.2 POSTED_AS_OF, and the cutoff that makes it reproducible
+
+`POSTED_AS_OF` is the **only** authoritative basis, and the reason is
+reproducibility rather than preference. It takes a prefix of the posting order,
+and a prefix can be named by one integer: the organization's
+**posted-sequence high-water mark**. `EFFECTIVE_DATE`'s movement set is not a
+prefix, so a cost taken that way could not be re-derived from a sequence and
+would disagree with itself the next time somebody keyed in a late delivery.
+
+The mark is captured **once** per calculation and every position is constrained
+to it. That is what makes §F's rule enforceable rather than aspirational: a
+receipt racing a cost card takes a sequence above the mark and is wholly
+excluded, or commits before it and is wholly included. `posted_sequence` is
+allocated under a row lock held to commit, so there is no committed sequence *N*
+with an uncommitted *N-1* beside it and the mark has no holes beneath it.
+
+**Costing takes no inventory row locks, deliberately.** Locking stock so a
+read-only query looks safe would let a reporting screen block a delivery, which
+is a worse failure than any it prevents.
+
+### 27.3 A read-only Inventory query, and why it is new
+
+`apps/inventory/valuation.py` is the one Inventory change Task 3.3 makes: a
+public, read-only, bulk valuation query. `reports.stock_valuation` could not
+serve, for four reasons and not one:
+
+1. It narrows by inventory's own custody scope; costing is authorized by
+   `kitchen.view_recipe_cost` over the recipe's organization, and the caller may
+   hold that with no inventory membership at all.
+2. It returns one row per **lot**, for display. Costing needs one figure per
+   item.
+3. Its historical window is a **date** predicate, so two calls a millisecond
+   apart can include different movements and there is nothing to store on a
+   snapshot that says which.
+4. It renders a blank cell where costing must distinguish *valued at zero* from
+   *not valued*.
+
+No Inventory model, migration, valuation policy or posting behaviour changed.
+Inventory still imports nothing from Kitchen, and a test walks the whole package
+to hold that.
+
+### 27.4 Multiple lots, and the average that is not an average of averages
+
+```
+warehouse item quantity = sum of lot quantities
+warehouse item value    = sum of lot values
+warehouse item average  = total value / total quantity
+```
+
+The two methods agree only when the lots hold equal quantities, which is why a
+test uses unequal ones: 90 KG at 1,000 plus 10 KG at 2,000 is **1,100** by the
+correct method and 1,500 by the wrong one.
+
+Three availability states, because the two unavailable shapes are different
+facts a buyer would fix differently: `AVAILABLE` (positive quantity, and a zero
+value is a real zero-cost position), `NO_POSITION` (nothing was ever bought), and
+`ZERO_QUANTITY` (movements exist and the shelf is empty, so there is no average
+to divide).
+
+### 27.5 Missing valuation has no fallback
+
+No last purchase price, no supplier quotation, no purchase-order price, no
+replacement cost, no manually entered figure, and no silent zero. An unvalued
+leaf is reported with its item, its component path and a stable code, the card
+renders so somebody can see what to fix, and **no snapshot may be built over
+it**. A costing record with a hole in it is worse than no record, because it
+looks like a total.
+
+### 27.6 Where rounding is allowed to happen
+
+Three places, and nowhere else:
+
+- The **leaf quantity** quantizes once, at `CALCULATION_PLACES`. The cumulative
+  multiplier never quantizes on the way down (RCP-073).
+- The **document total** quantizes once, then is allocated back to the lines by
+  `apps/core/allocation.allocate` (remainder DESC, then sequence ASC). Rating
+  each line and rounding it is forbidden here for the reason it is forbidden
+  everywhere: forty lines each rounded down is a recipe that cost less than it
+  cost.
+- **Rates** — cost per output unit and cost per serving — quantize once to
+  `UNIT_PRICE_PLACES`, because a unit cost is not a posted amount (RCP-086).
+
+`food + packaging + accompaniment = total` is a **database check constraint** on
+the snapshot header rather than a service assertion, so no future code path can
+break it.
+
+### 27.7 The serving allocation, and the leftover that carries cost
+
+RCP-087 divides an exact total among the servings an output makes. The output
+rarely divides evenly — 10 KG in 0.350 KG portions is 28 portions and 0.200 KG
+left over — and that leftover is output the batch paid for. It takes an
+allocation weight of its own, so the scenario still sums to the total exactly.
+Dropping it would make the scenario sum to less than the recipe; inflating the
+28 portions to absorb it would overstate what one portion cost.
+
+Serving definitions are **alternatives**: each scenario allocates the whole
+total, and adding two together would double the recipe.
+
+**Every count allocates, however large**, and the allocation is stored in five
+numbers. *(Corrected 2026-08-17. The first pass of Task 3.3 stopped above a
+constant and returned only a rate; size is a reason to stop building lists, not
+a reason to stop answering a business question.)*
+
+The compact form is not an approximation. Every whole serving carries equal
+weight, so the certified largest-remainder allocator can only ever produce
+**two** amounts: a floor, and that floor plus one fils for however many servings
+the residue reaches. Recording both amounts, both counts and the leftover *is*
+the distribution — the per-serving list is reconstructible from it and adds
+nothing. So:
+
+```
+normal_count x normal_amount
++ elevated_count x elevated_amount
++ leftover_output_cost
+= the recipe total, exactly
+```
+
+That makes a 50,000-portion scenario the same arithmetic and the same storage
+as a 10-portion one. `MAX_ENUMERATED_SERVINGS` survives only as the limit on
+how many example rows a **screen** may list.
+
+### 27.8 Preview, and what it does not weaken
+
+A `DRAFT` or `SUBMITTED` version may be costed as a **preview** so the kitchen,
+storekeeper and accountant can read the card they are being asked to sign — the
+accountant's signature on `KM-RCP-004` is a signature on the costing evidence,
+and asking for it while refusing to show the figures would be asking for a
+signature on nothing. The preview carries `is_authoritative = False`, cannot
+become a snapshot, and is never a historical answer. `REJECTED` is not costable
+as a record at all.
+
+That does not weaken RCP-015: only an approved structure is authoritative. Which
+path a card takes is decided by the **stored status**, never by a caller-supplied
+flag.
+
+### 27.9 Snapshots are append-only in the database
+
+Three tables, and the trigger covers all three. A header nobody may edit beside
+lines anybody may edit would be a document whose total no longer agreed with the
+figures behind it, which is the one failure the rule exists to prevent.
+
+Idempotency is a key **and** a fingerprint of the request, per organization. The
+fingerprint deliberately excludes the resulting figures: two identical requests a
+week apart legitimately produce different totals, and hashing the answer would
+turn every honest re-run into a permanent conflict. There is deliberately **no**
+uniqueness on `(version, warehouse, as_of_date)` — a menu is repriced more than
+once, and one would forbid the second decision in the name of preventing a
+duplicate the key already prevents.
+
+### 27.10 Departures from the sketch, recorded rather than made quietly
+
+| Where | The sketch | As built | Why |
+|---|---|---|---|
+| §5C.2 | `cost_per_serving` only | the rate **and** an exact allocation | RCP-086 and RCP-087 ask different questions; the card answers both, and the allocation is the figure that has to reconcile |
+| §6 | `plate cost = version cost ÷ portions_per_batch` | the same figure, from the **primary serving** | no model carries a `portions_per_batch` column — §3 sketched one on `Recipe` and Task 3.1 did not build it. The primary `RecipeServing` holds the same fact exactly and RCP-084 guarantees exactly one, so it is the divisor. See §27.11 |
+| §6 | one cost report | a card, a historical resolver, and snapshots | the report and the record are different documents with different lifetimes |
+
+### 27.11 Plate cost, and the divisor the model actually has
+
+**Plate cost is Task 3.3's** and it is a derived read like every other figure
+here. *(Corrected 2026-08-17. The first pass deferred it to Task 3.4 and
+relabelled the navigation to avoid claiming it; that deferral was not
+approved.)*
+
+The only question the implementation had to settle is what divides the total.
+§3 sketched `portions_per_batch` on `Recipe` and Task 3.1 did not build it, and
+adding it now would be a **second, mutable** statement of a fact the version
+already holds exactly. The primary `RecipeServing` is that fact: RCP-084
+guarantees exactly one per version with a partial unique index, so the divisor
+is unambiguous and already frozen with the version.
+
+```
+portions_per_batch = expected output ÷ primary serving base quantity
+plate cost         = total material cost × primary serving factor_of_batch
+```
+
+The two forms in §6 are the same thing, because `factor_of_batch` **is** the
+primary serving's share of the output basis. The multiplication form is the one
+computed, deliberately: it uses the version's own frozen twelve-place factor, so
+`plate_cost` equals the primary serving's `cost_per_serving` *exactly* rather
+than usually, and a snapshot reproduces it from stored columns without
+re-deriving a division. A test asserts the equality rather than trusting the
+algebra.
+
+Exactly one previously inert navigation entry was promoted, and its label names
+both figures the screen carries: `كلفة الوصفة والطبق`. `كلفة الطبق` alone would
+undersell a screen that shows the whole recipe cost card as its evidence.
+
+An authoritative version cannot lack a primary serving — submission refuses it,
+and a test verifies that invariant rather than assuming it. A **preview** of a
+draft still being written can, and it gets a structured
+`recipe_cost_no_primary_serving` with the rest of the card intact, never an
+invented divisor. No snapshot may be written without a plate basis.
+
+### 27.12 What Task 3.3 deliberately did not do
+
+No `ProductionBatch`, production planning, material issue or return, actual
+consumption, completion, waste, inventory movement, `StockBalance` mutation,
+journal entry, sales or menu item, selling price, discount, commission,
+franchise fee, labour, gas, utilities, overhead allocation, profitability report,
+staff or complimentary meal, or recipe import.
+
+No cost field on `Recipe` or `RecipeVersion` (RCP-009). No second inventory or
+recipe ledger. No repair mode anywhere.
+
+`نسبة الكلفة` renders as a dash with its reason and never as zero, because Phase
+3 has no price (RCP-093).
+
+**Plate cost is not deferred and never was, after this correction.** What Task
+3.5 still owns is a different figure: the exact allocation of a *posted*
+`ProductionBatch`'s actual cost across the servings it really produced. That
+needs production, which does not exist. The standard plate cost of an approved
+recipe version needs only the version and the ledger, and both exist now.

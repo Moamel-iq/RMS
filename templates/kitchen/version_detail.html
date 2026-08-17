@@ -31,6 +31,10 @@
       <a class="btn btn--ghost" href="{% url 'kitchen:version_compare' version.pk %}">{% translate "مقارنة" %}</a>
       <a class="btn btn--ghost" href="{% url 'kitchen:component_editor' version.pk %}">{% translate "الوصفات الفرعية" %}</a>
       <a class="btn btn--ghost" href="{% url 'kitchen:component_dependencies' version.pk %}">{% translate "من يستعملها" %}</a>
+      {# Omitted, not disabled, without `view_recipe_cost`. See the view. #}
+      {% if can_view_cost %}
+        <a class="btn btn--ghost" href="{% url 'kitchen:cost_card' version.pk %}">{% translate "كلفة المواد" %}</a>
+      {% endif %}
       {% if version.status == "DRAFT" and can_submit %}
         <form method="post" action="{% url 'kitchen:version_submit' version.pk %}" style="display:inline">
           {% csrf_token %}
