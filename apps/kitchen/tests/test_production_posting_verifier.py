@@ -262,7 +262,9 @@ class TestPlantedDefects:
 class TestTheJournalAndItsSilence:
     def test_a_correct_silence_is_not_a_finding(self, posted: ProductionBatch) -> None:
         """Every account nets to zero, so the absent journal is right."""
-        movements = list(posted.stock_entry.movements.all())
+        entry = posted.stock_entry
+        assert entry is not None
+        movements = list(entry.movements.all())
         assert all(net == Decimal("0") for net in account_nets(movements).values())
         assert posted.journal_entry_id is None
         assert "posted_batch_journal_is_missing" not in codes(posted)

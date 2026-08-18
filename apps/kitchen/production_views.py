@@ -356,7 +356,12 @@ class ProductionBatchDetailView(ProductionViewMixin, View):
         batch = resolve_production_batch(self.actor, self.kwargs["pk"])
         self._require_here(batch.warehouse)
         context = batch_context(self.actor, batch)
-        context["page_title"] = _("مسودة إنتاج")
+        # The posting half of the same document. Merged here rather than shown
+        # on a separate screen because an operator deciding whether to post is
+        # reading the plan and the consumption at the same moment, and a
+        # posted batch's evidence belongs beside the requirements it came from.
+        context.update(posting_context(self.actor, batch))
+        context["page_title"] = _("مسودة إنتاج") if batch.is_draft else _("أمر إنتاج مرحّل")
         context["fragment_base_template"] = self._base()
         context["notes_form"] = ProductionNotesForm(
             actor=self.actor, initial={"notes": batch.notes}

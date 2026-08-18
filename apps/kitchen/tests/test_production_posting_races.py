@@ -51,8 +51,16 @@ from .conftest import codes_of
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
-def race(work: Callable[[int], None]) -> list[BaseException | None]:
-    """Run `work` twice in parallel and report what each attempt raised."""
+def race(work: Callable[[int], object]) -> list[BaseException | None]:
+    """
+    Run `work` twice in parallel and report what each attempt raised.
+
+    The callable may return anything; the return value is discarded on
+    purpose. What a racing thread *returned* is never the evidence — the
+    assertion is always on the committed state afterwards, because a second
+    posting that returned a batch **and** wrote a second set of movements
+    looks identical from the caller's side.
+    """
     errors: list[BaseException | None] = [None, None]
     barrier = threading.Barrier(2)
 
@@ -209,10 +217,11 @@ class TestPostingAgainstDraftEdits:
         race(work)
 
         final = _fresh(ready)
-        if final.status == ProductionBatchStatus.POSTED:
+        entry = final.stock_entry
+        if final.status == ProductionBatchStatus.POSTED and entry is not None:
             movements = {
                 movement.effect_key: abs(movement.base_quantity)
-                for movement in final.stock_entry.movements.all()
+                for movement in entry.movements.all()
             }
             for row in type(actual).objects.filter(line__batch=final):
                 if row.base_quantity > Decimal("0"):

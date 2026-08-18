@@ -27,11 +27,18 @@
           <span class="muted" dir="ltr">v{{ batch.recipe_version.version_number }}</span>
         </h1>
         <p class="pagehead__hint">
-          {% translate "مسودة إنتاج. لا ترحيل ولا حركة مخزنية ولا قيود محاسبية في هذه المهمة." %}
+          {% if batch.is_draft %}
+            {% translate "مسودة إنتاج. لا تتحرك أي كمية ولا يُكتب أي قيد حتى الترحيل." %}
+          {% else %}
+            {% translate "أمر إنتاج مرحّل. الكميات والقيم مجمّدة؛ التصحيح يكون بعكسٍ يبقى في السجل." %}
+          {% endif %}
         </p>
       </div>
-      {% if can_draft %}
-        <div class="rowactions">
+      {# Controls are absent rather than disabled without the authority for   #}
+      {# them: an inert button announces that an action exists and that the   #}
+      {# reader is not trusted with it, which is a different statement.       #}
+      <div class="rowactions">
+        {% if batch.is_draft and can_draft %}
           <a class="btn btn--ghost" href="{% url 'kitchen:production_rescale' batch.pk %}">
             {% translate "تغيير المعامل" %}
           </a>
@@ -44,8 +51,23 @@
           <a class="btn btn--ghost" href="{% url 'kitchen:production_discard' batch.pk %}">
             {% translate "حذف المسودة" %}
           </a>
-        </div>
-      {% endif %}
+        {% endif %}
+        {% if batch.is_draft and can_post %}
+          <a class="btn btn--primary" href="{% url 'kitchen:production_post' batch.pk %}">
+            {% translate "ترحيل" %}
+          </a>
+        {% endif %}
+        {% if not batch.is_draft %}
+          <a class="btn btn--ghost" href="{% url 'kitchen:production_movements' batch.pk %}">
+            {% translate "حركة الترحيل" %}
+          </a>
+        {% endif %}
+        {% if batch.status == "POSTED" and can_reverse %}
+          <a class="btn btn--danger" href="{% url 'kitchen:production_reverse' batch.pk %}">
+            {% translate "عكس الترحيل" %}
+          </a>
+        {% endif %}
+      </div>
     </div>
 
     {# The frozen decision. Every field here is refused by a trigger, which is #}
@@ -113,7 +135,11 @@
       {% include "kitchen/_production_requirements.html" %}
     </section>
 
-    {% include "kitchen/_production_readiness.html" %}
+    {% if not batch.is_draft %}
+      {% include "kitchen/_production_movements.html" %}
+    {% else %}
+      {% include "kitchen/_production_readiness.html" %}
+    {% endif %}
     {% include "kitchen/_production_timeline.html" %}
   </div>
 {% endblock %}

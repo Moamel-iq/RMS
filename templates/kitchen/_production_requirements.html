@@ -115,10 +115,17 @@
               <span class="muted">{{ actual.reason }}{{ actual.note }}</span>
             </td>
             <td>
-              {% if can_draft %}
+              {% if can_draft and batch.is_draft %}
                 <a class="btn btn--ghost"
                    href="{% url 'kitchen:production_actual_update' actual.pk %}">
                   {% translate "تعديل" %}
+                </a>
+                {# Where this quantity came from. Required before posting for a #}
+                {# lot-tracked item, and offered for every row because naming   #}
+                {# the bin is what makes the picking record answerable.         #}
+                <a class="btn btn--ghost"
+                   href="{% url 'kitchen:production_allocate' actual.pk %}">
+                  {% translate "التخصيص" %}
                 </a>
                 <a class="btn btn--ghost"
                    href="{% url 'kitchen:production_actual_delete' actual.pk %}">

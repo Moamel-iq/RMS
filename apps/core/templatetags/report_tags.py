@@ -83,8 +83,17 @@ _LTR_REPORT_KEYS = frozenset(
 
 
 @register.filter(name="is_ltr_cell")
-def is_ltr_cell(row: dict[str, Any], key: str) -> bool:
-    """Whether a report value needs bidi isolation in an Arabic table."""
+def is_ltr_cell(row: object, key: str) -> bool:
+    """
+    Whether a report value needs bidi isolation in an Arabic table.
+
+    `row` is annotated `object` rather than `dict[str, Any]` because a template
+    filter receives whatever the template hands it, and the runtime guard below
+    is the real contract. Annotating the narrow type made mypy call that guard
+    unreachable, which would have been the wrong half to delete: the guard is
+    what keeps a filter applied to the wrong variable from raising inside a
+    rendered page.
+    """
     if not isinstance(row, dict):
         return False
     value = row.get(key)
