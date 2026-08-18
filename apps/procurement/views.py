@@ -68,6 +68,7 @@ from apps.procurement.credit_notes import (
     reverse_supplier_credit_note,
     unallocated_credit,
 )
+from apps.procurement.credit_terms import CreditTermFilters, supplier_term_rows
 from apps.procurement.forms import (
     CreditAllocationForm,
     CreditReturnAllocationForm,
@@ -2796,5 +2797,63 @@ class AdditionalCostListView(InventoryViewMixin, View):
                 "page_query": query.urlencode(),
                 "today": today,
                 "editable_statuses": sorted(EDITABLE_INVOICE_STATUSES),
+            },
+        )
+
+
+class CreditTermListView(InventoryViewMixin, View):
+    """
+    شروط الائتمان — supplier default terms, and how their invoices are sitting.
+
+    A workspace over `Supplier.payment_terms_days`, not a master-data screen for
+    a table that does not exist. Editing a supplier's default goes to the
+    supplier form, which already owns that field and its audit trail; this
+    screen shows the consequences of the setting rather than re-implementing the
+    setting.
+
+    Overdue is computed against `timezone.localdate()` passed explicitly into
+    the service, so the figure is a claim about a named date rather than about
+    whenever the page happened to render.
+    """
+
+    module_key = "procurement"
+    template_name = "procurement/credit_term_list.html"
+    required_permission = VIEW_SUPPLIER
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        filters = CreditTermFilters(
+            search=request.GET.get("q", "").strip(),
+            state=request.GET.get("state", "").strip(),
+            band=request.GET.get("band", "").strip(),
+            overdue_only=request.GET.get("overdue") == "1",
+        )
+        today = timezone.localdate()
+        show_cost = bool(organizations_with_permission(self.actor, VIEW_SUPPLIER_COST).exists())
+        rows = supplier_term_rows(self.actor, filters, today=today, include_cost=show_cost)
+        return render(
+            request,
+            self.template_name,
+            {
+                "form_base_template": (
+                    "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
+                ),
+                "page_title": _("شروط الائتمان"),
+                "page_hint": _(
+                    "شروط الائتمان الافتراضية لكل مورد، بعدد الأيام. تُحفظ نسخة منها "
+                    "على كل فاتورة وأمر شراء عند الإنشاء، ويُحتسب تاريخ الاستحقاق منها."
+                ),
+                "rows": rows,
+                "total_rows": len(rows),
+                "show_cost": show_cost,
+                "may_manage": bool(
+                    organizations_with_permission(self.actor, MANAGE_SUPPLIERS).exists()
+                ),
+                "filters": {
+                    "q": request.GET.get("q", ""),
+                    "state": request.GET.get("state", ""),
+                    "band": request.GET.get("band", ""),
+                    "overdue": request.GET.get("overdue", ""),
+                },
+                "today": today,
             },
         )

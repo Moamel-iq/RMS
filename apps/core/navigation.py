@@ -422,8 +422,14 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:report_supplier_aging",
                 available=True,
             ),
-            *_sections(
-                _("شروط الائتمان"),
+            # A workspace over `Supplier.payment_terms_days`, not a master-data
+            # screen for a term table — there is no term table, and the part
+            # that carries the correctness is the snapshot each invoice and
+            # order takes at creation.
+            Section(
+                label=_("شروط الائتمان"),
+                url_name="procurement:credit_term_list",
+                available=True,
             ),
         ),
     ),

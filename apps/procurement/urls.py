@@ -257,6 +257,16 @@ urlpatterns = [
         views.AdditionalCostListView.as_view(),
         name="additional_cost_list",
     ),
+    # --- credit terms -------------------------------------------------------
+    #
+    # One GET. Editing a supplier's default terms goes to the supplier form,
+    # which already owns that field; a second edit route here would be a second
+    # place the same integer is written.
+    path(
+        "credit-terms/",
+        views.CreditTermListView.as_view(),
+        name="credit_term_list",
+    ),
     # --- three-way matching ------------------------------------------------
     path("matching/", views.MatchingQueueView.as_view(), name="matching_queue"),
     path("matches/", views.PurchaseMatchListView.as_view(), name="purchase_match_list"),
