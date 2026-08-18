@@ -10,38 +10,37 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="pagehead">
-    <div>
-      <h1 class="pagehead__title">{{ page_title }}</h1>
-      <p class="pagehead__hint">
-        {{ count.get_status_display }}
-        · {% translate "المخزن" %} <code>{{ count.warehouse.code }}</code>
-        {% if count.business_date %}
-          · {% translate "يوم العمل" %} {{ count.business_date|date:"Y-m-d" }}
-          · {% translate "لحظة القطع" %} {{ count.cutoff_at|date:"Y-m-d H:i" }}
-        {% endif %}
-        {% if count.cost_center %}
-          · {% translate "مركز الكلفة" %} <code>{{ count.cost_center.code }}</code>
-        {% endif %}
-      </p>
+  <section class="inventory-page inventory-detail-page" aria-labelledby="count-title">
+    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{{ back_url }}">{% translate "الجرد المخزني" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{% translate "تفاصيل الجرد" %}</span>
+    </nav>
+    <header class="pagehead inventory-document-hero">
+      <div>
+        <div class="inventory-detail-kicker">
+          {% include "components/status_badge.html" with status=count.status label=count.get_status_display %}
+          {% if count.count_number %}<code><bdi dir="ltr">{{ count.count_number }}</bdi></code>{% endif %}
+        </div>
+        <h1 class="pagehead__title" id="count-title">{{ page_title }}</h1>
       {% if is_active %}
-        <p class="pagehead__hint"><strong>{% translate "المخزن مجمّد ولا يقبل أي ترحيل." %}</strong></p>
+        <p class="pagehead__hint"><strong>{% translate "المخزن مجمّد ولا يقبل أي ترحيل حتى اعتماد الجرد أو إلغائه." %}</strong></p>
+      {% else %}
+        <p class="pagehead__hint">{% translate "مراجعة لقطة الرصيد والكميات المعدودة وفروقات الاعتماد." %}</p>
       {% endif %}
-      {% if count.conducted_by %}
-        <p class="pagehead__hint">
-          {% translate "العادّ" %} {{ count.conducted_by }}
-          {% if count.approved_by %}· {% translate "المعتمِد" %} {{ count.approved_by }}{% endif %}
-        </p>
-      {% endif %}
-    </div>
+      </div>
     <div class="rowactions">
       <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
       {% if is_draft and can_conduct %}
-        <form method="post" action="{% url 'inventory:count_delete' count.pk %}">
+        <form method="post" action="{% url 'inventory:count_delete' count.pk %}"
+              data-confirm="{% translate 'سيُحذف جرد المسودة نهائياً. هل تريد المتابعة؟' %}"
+              data-confirm-title="{% translate 'حذف مسودة الجرد' %}">
           {% csrf_token %}
-          <button class="btn btn--ghost" type="submit">{% translate "حذف المسودة" %}</button>
+          <button class="btn btn--danger" type="submit">{% translate "حذف المسودة" %}</button>
         </form>
-        <form method="post" action="{% url 'inventory:count_start' count.pk %}">
+        <form method="post" action="{% url 'inventory:count_start' count.pk %}"
+              data-confirm="{% translate 'سيُلتقط الرصيد الدفتري وتُمنع كل الحركات على المخزن حتى انتهاء الجرد. هل تريد البدء؟' %}"
+              data-confirm-title="{% translate 'بدء الجرد وتجميد المخزن' %}">
           {% csrf_token %}
           <button class="btn btn--primary" type="submit">
             {% translate "ابدأ الجرد وجمّد المخزن" %}
@@ -54,10 +53,23 @@
         </a>
       {% endif %}
     </div>
-  </div>
+    </header>
+
+    <dl class="factgrid" aria-label="{% translate 'بيانات الجرد' %}">
+      <div><dt>{% translate "المخزن" %}</dt><dd><code><bdi dir="ltr">{{ count.warehouse.code }}</bdi></code> {{ count.warehouse.name_ar }}</dd></div>
+      <div><dt>{% translate "نطاق الجرد" %}</dt><dd>{{ count.get_scope_type_display }}</dd></div>
+      {% if count.business_date %}<div><dt>{% translate "يوم العمل" %}</dt><dd><bdi dir="ltr">{{ count.business_date|date:"Y-m-d" }}</bdi></dd></div>{% endif %}
+      {% if count.cutoff_at %}<div><dt>{% translate "لحظة القطع" %}</dt><dd><bdi dir="ltr">{{ count.cutoff_at|date:"Y-m-d H:i" }}</bdi></dd></div>{% endif %}
+      {% if count.reference %}<div><dt>{% translate "مرجع الإثبات" %}</dt><dd><bdi dir="ltr">{{ count.reference }}</bdi></dd></div>{% endif %}
+      {% if count.cost_center %}<div><dt>{% translate "مركز الكلفة" %}</dt><dd><code><bdi dir="ltr">{{ count.cost_center.code }}</bdi></code></dd></div>{% endif %}
+      {% if count.conducted_by %}<div><dt>{% translate "العادّ" %}</dt><dd>{{ count.conducted_by }}</dd></div>{% endif %}
+      {% if count.approved_by %}<div><dt>{% translate "المعتمِد" %}</dt><dd>{{ count.approved_by }}</dd></div>{% endif %}
+    </dl>
 
   {% if is_active and can_conduct %}
-    <form class="formcard" method="post" action="{% url 'inventory:count_cancel' count.pk %}">
+    <form class="formcard" method="post" action="{% url 'inventory:count_cancel' count.pk %}"
+          data-confirm="{% translate 'سيُلغى الجرد ويُفك تجميد المخزن مع الاحتفاظ باللقطة والكميات في السجل. هل تريد المتابعة؟' %}"
+          data-confirm-title="{% translate 'إلغاء الجرد' %}">
       {% csrf_token %}
       <div class="formgrid">
         <div class="formrow">
@@ -71,13 +83,15 @@
         </div>
       </div>
       <div class="formactions">
-        <button class="btn btn--ghost" type="submit">{% translate "إلغاء الجرد" %}</button>
+        <button class="btn btn--danger" type="submit">{% translate "إلغاء الجرد" %}</button>
       </div>
     </form>
   {% endif %}
 
   {% if is_posted and can_reverse %}
-    <form class="formcard" method="post" action="{% url 'inventory:count_reverse' count.pk %}">
+    <form class="formcard" method="post" action="{% url 'inventory:count_reverse' count.pk %}"
+          data-confirm="{% translate 'سيُعكس أثر فروقات الجرد المرحّلة، ولن يُعاد تجميد المخزن. هل تريد المتابعة؟' %}"
+          data-confirm-title="{% translate 'عكس فروقات الجرد' %}">
       {% csrf_token %}
       <div class="formgrid">
         <div class="formrow">
@@ -91,7 +105,7 @@
         </div>
       </div>
       <div class="formactions">
-        <button class="btn btn--ghost" type="submit">{% translate "عكس الفروقات" %}</button>
+        <button class="btn btn--danger" type="submit">{% translate "عكس الفروقات" %}</button>
       </div>
     </form>
   {% endif %}
@@ -101,80 +115,88 @@
       {% translate "لا تُعرض الأرقام قبل التقديم: العادّ يستخدم الكشف الأعمى." %}
     </p>
   {% else %}
-    <form method="post" action="{% url 'inventory:count_approve' count.pk %}">
+    <form method="post" action="{% url 'inventory:count_approve' count.pk %}" data-inventory-form
+          data-confirm="{% translate 'سيُرحّل فرق الجرد إلى المخزون والمحاسبة ويُفك تجميد المخزن. هل تريد اعتماد الجرد؟' %}"
+          data-confirm-title="{% translate 'اعتماد فروقات الجرد' %}">
       {% csrf_token %}
-      <div class="tablewrap">
-        <table class="table">
+      <div class="tablewrap responsive-table">
+        <table class="table data-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>{% translate "الصنف" %}</th>
-              <th>{% translate "الدفعة" %}</th>
-              <th>{% translate "دفترياً" %}</th>
-              <th>{% translate "معدوداً" %}</th>
-              <th>{% translate "الفرق" %}</th>
+              <th scope="col">#</th>
+              <th scope="col">{% translate "الصنف" %}</th>
+              <th scope="col">{% translate "الدفعة" %}</th>
+              <th scope="col">{% translate "دفترياً" %}</th>
+              <th scope="col">{% translate "معدوداً" %}</th>
+              <th scope="col">{% translate "الفرق" %}</th>
               {% if show_cost %}
-                <th>{% translate "متوسط الكلفة" %}</th>
-                <th>{% translate "كلفة معتمدة" %}</th>
-                <th>{% translate "قيمة الفرق" %}</th>
+                <th scope="col">{% translate "متوسط الكلفة" %}</th>
+                <th scope="col">{% translate "كلفة معتمدة" %}</th>
+                <th scope="col">{% translate "قيمة الفرق" %}</th>
               {% endif %}
-              <th>{% translate "الحركة" %}</th>
+              <th scope="col">{% translate "الحركة" %}</th>
             </tr>
           </thead>
           <tbody>
             {% for line in lines %}
               <tr>
-                <td>{{ line.sequence }}</td>
-                <td>
-                  <code>{{ line.item.code }}</code> {{ line.item.name_ar }}
+                <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
+                <td data-label="{% translate 'الصنف' %}">
+                  <code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name_ar }}
                   {% if line.is_unexpected %}
                     <br><span class="muted">{% translate "غير متوقّع" %}</span>
                   {% endif %}
                 </td>
-                <td>{% if line.lot %}<code>{{ line.lot.code }}</code>{% else %}—{% endif %}</td>
-                <td><code dir="ltr">{{ line.book_quantity|stringformat:"f" }}</code></td>
-                <td>
+                <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
+                <td data-label="{% translate 'دفترياً' %}"><code><bdi dir="ltr">{{ line.book_quantity|stringformat:"f" }}</bdi></code></td>
+                <td data-label="{% translate 'معدوداً' %}">
                   {% if line.counted_quantity is not None %}
-                    <code dir="ltr">{{ line.counted_quantity|stringformat:"f" }}</code>
+                    <code><bdi dir="ltr">{{ line.counted_quantity|stringformat:"f" }}</bdi></code>
                   {% else %}—{% endif %}
                 </td>
-                <td>
+                <td data-label="{% translate 'الفرق' %}">
                   {% if line.variance_quantity is not None %}
-                    <code dir="ltr">{{ line.variance_quantity|stringformat:"f" }}</code>
+                    <code><bdi dir="ltr">{{ line.variance_quantity|stringformat:"f" }}</bdi></code>
                   {% else %}—{% endif %}
                 </td>
                 {% if show_cost %}
-                  <td><code dir="ltr">{{ line.book_average|stringformat:"f" }}</code></td>
-                  <td>
+                  <td data-label="{% translate 'متوسط الكلفة' %}"><code><bdi dir="ltr">{{ line.book_average|stringformat:"f" }}</bdi></code></td>
+                  <td data-label="{% translate 'كلفة معتمدة' %}">
                     {% if is_submitted and line in needs_cost %}
-                      <input type="text" dir="ltr" inputmode="decimal"
+                      <input class="inventory-table-input" type="text" dir="ltr" inputmode="decimal"
                              name="cost-{{ line.pk }}"
                              aria-label="{% translate 'كلفة الوحدة المعتمدة' %}">
-                      <label>
+                      <label class="inventory-checkbox-inline">
                         <input type="checkbox" name="zero-{{ line.pk }}">
                         {% translate "صفر مؤكّد" %}
                       </label>
                     {% elif line.approved_unit_cost is not None %}
-                      <code dir="ltr">{{ line.approved_unit_cost|stringformat:"f" }}</code>
+                      <code><bdi dir="ltr">{{ line.approved_unit_cost|stringformat:"f" }}</bdi></code>
                       {% if line.zero_cost_confirmed %}
                         <span class="muted">{% translate "صفر مؤكّد" %}</span>
                       {% endif %}
                     {% else %}—{% endif %}
                   </td>
-                  <td>
+                  <td data-label="{% translate 'قيمة الفرق' %}">
                     {% if line.variance_value is not None %}
-                      <code dir="ltr">{{ line.variance_value|stringformat:"f" }}</code>
+                      <code><bdi dir="ltr">{{ line.variance_value|stringformat:"f" }}</bdi></code>
                     {% else %}—{% endif %}
                   </td>
                 {% endif %}
-                <td>
+                <td data-label="{% translate 'الحركة' %}">
                   {% if line.movement %}
                     <a href="{% url 'inventory:movement_detail' line.movement.pk %}">
-                      #{{ line.movement.posted_sequence }}
+                      <bdi dir="ltr">#{{ line.movement.posted_sequence }}</bdi>
                     </a>
                   {% else %}—{% endif %}
                 </td>
               </tr>
+            {% empty %}
+              <tr><td colspan="10">
+                {% translate "لا توجد سطور في لقطة الجرد" as empty_title %}
+                {% translate "لم تسجل اللقطة أي أصناف قابلة للمراجعة." as empty_description %}
+                {% include "components/empty_state.html" with title=empty_title description=empty_description %}
+              </td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -188,7 +210,7 @@
         {% endif %}
         {% if can_approve and not is_own_count %}
           <div class="formactions">
-            <button class="btn btn--primary" type="submit">
+            <button class="btn btn--primary" type="submit" data-inventory-submit>
               {% translate "اعتماد وترحيل الفروقات وفكّ التجميد" %}
             </button>
           </div>
@@ -200,4 +222,5 @@
       {% endif %}
     </form>
   {% endif %}
+  </section>
 {% endblock %}

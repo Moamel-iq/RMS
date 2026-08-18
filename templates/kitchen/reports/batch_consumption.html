@@ -1,0 +1,221 @@
+{# استهلاك دفعة الإنتاج — what one posted batch actually used.               #}
+{#                                                                           #}
+{# The two agreement checks are shown rather than merely performed: recorded #}
+{# actual rows against posted PRODUCTION_OUT per item, and the value equation #}
+{# input = output. A reader who can see the check pass is a reader who can    #}
+{# notice it failing.                                                        #}
+{#                                                                           #}
+{# The attribution panel is BELOW the arithmetic and outside it. A link       #}
+{# explains a nearby document; it does not reduce what the batch consumed.    #}
+{% extends base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="kitchen-batch-consumption">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">
+          {{ page_title }} — <bdi dir="ltr"><code>{{ batch.number|default:"—" }}</code></bdi>
+        </h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "الدفعة" %}
+        </a>
+        <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_variance' batch.pk %}">
+          {% translate "الانحراف" %}
+        </a>
+      </div>
+    </div>
+
+    {% if report.is_reversed %}
+      <p class="banner" role="note">
+        {% translate "هذه الدفعة معكوسة. ما يظهر أدناه هو ما استهلكته فعلاً وقت الترحيل — وهذا تاريخ حدث. أثرها الصافي على استهلاك الفترة يصبح صفراً بعد إدراج حركات العكس." %}
+      </p>
+    {% endif %}
+
+    <dl class="deflist">
+      <dt>{% translate "الوصفة" %}</dt>
+      <dd>{{ batch.recipe.code }} — {{ batch.recipe.name_ar }}</dd>
+      <dt>{% translate "النسخة" %}</dt>
+      <dd><bdi dir="ltr"><code>v{{ batch.recipe_version.version_number }}</code></bdi></dd>
+      <dt>{% translate "المخزن" %}</dt>
+      <dd>{{ batch.warehouse.code }}</dd>
+      <dt>{% translate "تاريخ العمل" %}</dt>
+      <dd><bdi dir="ltr"><code>{{ batch.planned_business_date|date:"Y-m-d" }}</code></bdi></dd>
+      <dt>{% translate "الحالة" %}</dt>
+      <dd>{{ batch.get_status_display }}</dd>
+    </dl>
+
+    {# ---- The evidence checks ------------------------------------------ #}
+    <section class="card">
+      <h2 class="card__title">{% translate "مطابقة الأدلة" %}</h2>
+      <ul class="checklist">
+        <li>
+          {% if report.quantity_matches %}
+            <span class="chip chip--ok">{% translate "مطابق" %}</span>
+          {% else %}
+            <span class="chip chip--bad">{% translate "غير مطابق" %}</span>
+          {% endif %}
+          {% translate "مجموع الكميات الفعلية المسجّلة = مجموع حركات صرف الإنتاج، لكل صنف." %}
+        </li>
+        {% if show_cost %}
+          <li>
+            {% if report.value_matches %}
+              <span class="chip chip--ok">{% translate "مطابق" %}</span>
+            {% else %}
+              <span class="chip chip--bad">{% translate "غير مطابق" %}</span>
+            {% endif %}
+            {% translate "مجموع قيم حركات الإدخال = قيمة مدخلات الدفعة = قيمة ناتجها." %}
+            <bdi dir="ltr"><code>{{ report.input_movement_value }} = {{ batch.input_value }} = {{ batch.output_value }}</code></bdi>
+          </li>
+        {% endif %}
+      </ul>
+
+      {% if not report.quantity_matches %}
+        <div class="alert" role="alert">
+          <p>{% translate "فروق الكميات لكل صنف:" %}</p>
+          <ul>
+            {% for item_id, difference in report.quantity_differences.items %}
+              <li><bdi dir="ltr"><code>item {{ item_id }}: {{ difference }}</code></bdi></li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    </section>
+
+    {# ---- What actually went in ---------------------------------------- #}
+    <section class="card">
+      <h2 class="card__title">{% translate "المستهلك الفعلي" %}</h2>
+      <div class="tablewrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">{% translate "المسار" %}</th>
+              <th scope="col">{% translate "الصنف" %}</th>
+              <th scope="col">{% translate "النوع" %}</th>
+              <th scope="col">{% translate "المُدخل" %}</th>
+              <th scope="col">{% translate "الكمية الأساسية" %}</th>
+              <th scope="col">{% translate "اللوطات والمواقع" %}</th>
+              {% if show_cost %}<th scope="col">{% translate "القيمة المرحّلة" %}</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in report.rows %}
+              <tr>
+                <td data-label="{% translate 'المسار' %}">
+                  <bdi dir="ltr"><code>{{ row.source_line_path }}</code></bdi>
+                  <p class="muted">{{ row.source_line_label }}</p>
+                </td>
+                <td data-label="{% translate 'الصنف' %}">{{ row.item_code }} — {{ row.item_name }}</td>
+                <td data-label="{% translate 'النوع' %}">
+                  {{ row.kind }}
+                  {% if row.is_substitute and row.substitute_reason %}
+                    <p class="muted">{{ row.substitute_reason }}</p>
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'المُدخل' %}">
+                  <bdi dir="ltr"><code>{{ row.entered_quantity }} {{ row.entered_unit_code }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'الكمية الأساسية' %}">
+                  <bdi dir="ltr"><code>{{ row.base_quantity }} {{ row.base_unit_code }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'اللوطات والمواقع' %}">
+                  {% for allocation in row.allocations %}
+                    <bdi dir="ltr"><code>{{ allocation.lot_code|default:"—" }} / {{ allocation.location_code|default:"—" }} : {{ allocation.base_quantity }}</code></bdi><br>
+                  {% empty %}—{% endfor %}
+                </td>
+                {% if show_cost %}
+                  <td data-label="{% translate 'القيمة المرحّلة' %}">
+                    <bdi dir="ltr"><code>{{ row.posted_value|default_if_none:"—" }}</code></bdi>
+                  </td>
+                {% endif %}
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="{% if show_cost %}7{% else %}6{% endif %}" class="empty">
+                  {% translate "لا توجد سطور فعلية موجبة على هذه الدفعة." %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {# ---- Attribution, outside the arithmetic -------------------------- #}
+    <section class="card" id="kitchen-batch-links">
+      <h2 class="card__title">{% translate "الروابط التفسيرية" %}</h2>
+      <p class="banner" role="note">{{ link_statement }}</p>
+
+      {% if may_link %}
+        <div class="rowactions">
+          <a class="btn btn--secondary"
+             href="{% url 'kitchen:batch_link_waste' batch.pk %}"
+             hx-get="{% url 'kitchen:batch_link_waste' batch.pk %}"
+             hx-target="#kitchen-batch-links"
+             hx-swap="outerHTML">{% translate "ربط الهالك بالدفعة" %}</a>
+          <a class="btn btn--secondary"
+             href="{% url 'kitchen:batch_link_custody' batch.pk %}"
+             hx-get="{% url 'kitchen:batch_link_custody' batch.pk %}"
+             hx-target="#kitchen-batch-links"
+             hx-swap="outerHTML">{% translate "ربط حركة إرجاع الحيازة" %}</a>
+        </div>
+      {% endif %}
+
+      <div class="tablewrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">{% translate "النوع" %}</th>
+              <th scope="col">{% translate "المستند" %}</th>
+              <th scope="col">{% translate "الصنف" %}</th>
+              <th scope="col">{% translate "الكمية المنسوبة" %}</th>
+              <th scope="col">{% translate "السبب" %}</th>
+              <th scope="col">{% translate "الحالة" %}</th>
+              <th scope="col"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for link in links %}
+              <tr>
+                <td data-label="{% translate 'النوع' %}">{{ link.get_link_type_display }}</td>
+                <td data-label="{% translate 'المستند' %}">
+                  <bdi dir="ltr"><code>{{ link.source_reference }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'الصنف' %}">{{ link.item.code }}</td>
+                <td data-label="{% translate 'الكمية المنسوبة' %}">
+                  <bdi dir="ltr"><code>{{ link.quantity_display }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'السبب' %}">
+                  {{ link.reason }}
+                  {% if link.cancellation_reason %}
+                    <p class="muted">{% translate "سبب الإلغاء" %}: {{ link.cancellation_reason }}</p>
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'الحالة' %}">{{ link.get_status_display }}</td>
+                <td>
+                  {% if link.is_active and may_link %}
+                    <a class="btn btn--ghost"
+                       href="{% url 'kitchen:batch_link_cancel' link.pk %}">
+                      {% translate "إلغاء" %}
+                    </a>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="7" class="empty">
+                  {% translate "لا توجد روابط تفسيرية على هذه الدفعة. غيابها لا يغيّر أي رقم أعلاه." %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}

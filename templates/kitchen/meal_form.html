@@ -1,0 +1,51 @@
+{# تسجيل وجبة موظف / تسجيل وجبة مجانية.                                       #}
+{#                                                                           #}
+{# Every input is explicit and nothing is defaulted. There is no default     #}
+{# date because "today" is the wrong answer for a meal recorded on Monday    #}
+{# for Sunday's evening shift, and the date is what decides which recipe     #}
+{# version applies.                                                          #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="kitchen-meal-form">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }} — {{ type_label }}</h1>
+        <p class="pagehead__hint">{{ meal_statement }}</p>
+      </div>
+    </div>
+
+    <p class="banner" role="note">
+      {% translate "تُحسم نسخة الوصفة مرة واحدة من تاريخ الاستهلاك والفرع، وتُحفظ كما هي. تغيير الوصفة لاحقاً لا يعيد كتابة ما استُهلك." %}
+    </p>
+
+    <form class="formcard"
+          method="post"
+          novalidate
+          action="{{ request.path }}"
+          hx-post="{{ request.path }}"
+          hx-target="#kitchen-meal-form"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% include "settings/_field.html" with field=field %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "تسجيل" %}</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

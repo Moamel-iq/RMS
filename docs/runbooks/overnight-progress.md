@@ -5,32 +5,73 @@ step and at least every 30–45 minutes. Chat memory is not the record; this is.
 
 ---
 
-CURRENT_PIPELINE_STEP: **Phase 3 opened — Task 3.0 specification authored,
-awaiting human approval.** Branch `phase/3-kitchen` from the Phase 2 head.
-No implementation begins until the spec is approved; Task 3.1 is gated on
-that approval, not on any technical prerequisite.
+CURRENT_PIPELINE_STEP: **Phase 3 opened — Task 3.0 specification authored
+(`8ef3685`) and completed by Task 3.0A, awaiting owner approval.** Branch
+`phase/3-kitchen`. No implementation begins until the spec is approved; Task
+3.1 is gated on that approval, not on any technical prerequisite. **No decision
+in the register blocks Task 3.1**, so approval alone releases it.
 
-Deliverables on the branch: `docs/tasks/task-3-0-recipes-production-domain-spec.md`
-(RCP-001..RCP-057), `docs/tasks/phase-3-task-breakdown.md` (3.0–3.11, exit
-tag `phase-3-kitchen-complete`), `docs/invariants/kitchen-invariants.md`
-(30 proposed invariants), the Phase 3 traceability section (57 Specified
-rows), and the coverage validator extended to the Phase 3 breakdown — all
-twelve new task numbers verified covered.
+Deliverables: `docs/tasks/task-3-0-recipes-production-domain-spec.md`
+(**RCP-001..RCP-116**, 2,250 lines), `docs/tasks/phase-3-task-breakdown.md`
+(3.0–3.11 with per-task exit criteria, exit tag `phase-3-kitchen-complete`),
+`docs/invariants/kitchen-invariants.md` (**46** proposed invariants), the Phase
+3 traceability section (**116** Specified rows), the ADR index carrying
+ADR-024/025/026 as proposed, and ten Mermaid diagrams — the first in the
+repository.
 
-The design decisions a reviewer should look at hardest, each argued in the
-spec: Phase 3 adds exactly ONE stock-moving document (the batch) and reuses
-every Phase 1 kitchen flow; value is conserved through a batch with yield
-absorbed into unit cost (no standard cost, no variance journal); the batch
-journal is a per-account net and is legitimately ABSENT when accounts net to
-zero; NO new account roles, no WIP account, no new AccountRoleDomain; staff
-and complimentary meals are memo documents feeding the theoretical side,
-with the expense reclassification deferred-and-recorded; sold quantities and
-the backflush election stay in Phase 4.
+**The finding that justified Task 3.0A.** The first draft never opened the
+kitchen's own recipe form. `KhanMandiRecipe.xlsx` exists at
+`Khan Mandi/files/` — **outside the repository**, which is why it was missed —
+and is form `KM-RCP-004`, *نموذج اعتماد مكونات وكلفة الأصناف*, branch البنوك, 23
+sheets, 19 items, four signatories. Task 3.0A read all of it. It is
+**authoritative about structure and empty of data**: every quantity, unit cost,
+loss percentage, item code, effective date and signature is blank, so each
+card's summary currently shows food cost 0, packaging cost 0, and a "profit
+margin" equal to the entire selling price. Four design corrections came directly
+from it — per-ingredient loss (`فاقد %` is a column, not a recipe rate), a
+food/packaging cost class on the line, measured-versus-approved quantity as two
+facts, and the confirmation that maker-checker approval is the branch's own
+existing control (`الشيف + المحاسب + المدير`).
+
+**The defect Task 3.0A corrected.** RCP-046 transcribed the architecture
+charter's actual-consumption formula faithfully — and that formula
+double-counts against this system's documents. Its "warehouse issues to kitchen"
+and "transfers into the kitchen" terms are one event under two incompatible
+physical models, and adding custody transfers to production usage charges the
+same kilogram twice. Replaced by a **partition** (RCP-098–RCP-107, proposed
+ADR-026) in which every posted movement lands in exactly one bucket and the
+classification is proved against the stock identity. This is the only deliberate
+departure from an approved charter formula in three phases, and it is written
+down as one.
+
+The decisions a reviewer should look at hardest: value conserved through a batch
+with yield absorbed into unit cost (no standard cost, no variance journal); the
+batch journal legitimately **absent** when accounts net to zero, now with a
+verifier that proves the nets really are zero; **no** new account roles, no WIP
+account — under seven now-explicit Release 1 conditions, with multi-day
+production **refused** rather than misrepresented; stocked and non-stocked
+sub-recipes made mutually exclusive **by construction** so double counting is
+unrepresentable; servings as a division of one output, with the workbook's
+evidence that a half is currently its own card at 13,000 against a whole at
+25,000 — not a 0.5 factor; and meals memo-only but explicitly **not**
+financially complete.
+
+**Seven owner decisions are open** (KD-02, KD-03, KD-05, KD-06, KD-07, KD-09,
+KD-13); every one has a stated default. KD-09 (multi-day production) blocks Task
+3.5 only if answered YES. KD-02/05/06 block acceptance of Task 3.10's real data,
+never its code.
+
+Task 3.0A validation, all green on a documentation-only diff: traceability 4
+passed; ruff check clean; 294 files formatted; `manage.py check` 0 issues;
+`makemigrations --check` no changes; **all 13 pre-commit hooks passed**. No
+executable code, model, migration or Task 3.1 implementation exists.
 
 Previous milestone: **Procurement module exit: PASS**
 (`phase-2-procurement-complete`, commit b865e7d, suite 2362/0).
 **Accounting module exit: PASS** (`accounting-module-complete`, commit
-1b6e943, suite 2380/0). Both tags pushed; `main` untouched at fd08e4c.
+1b6e943, suite 2380/0). Both tags pushed. Local `main` untouched at 7073f95;
+the owner has since merged PR #3 upstream, so `origin/main` is at aedaa6b and
+already contains `8ef3685`.
 ERRORS 0 · FAILURES 0 · BLOCKERS 0.
 CURRENT_TASK: Task 2.17 executed to plan; commit pending only the
 affected-domain run (`apps/procurement` + both inventory import test
@@ -864,4 +905,532 @@ the item, and it is addressed.
 | 19 Imports + hardening | **COMPLETE, PUSHED** | feature + checkpoint | fresh DB b11, three kinds registered into the Task 1.7 framework, §16.8 by vocabulary |
 | 16 Supplier credit notes | **COMPLETE, PUSHED** | e26a051 + checkpoint | fresh DB b8, ADR-022 fully implemented, invoice guard hole closed |
 | 20 Phase 2 exit gate | **COMPLETE, TAGGED** | b865e7d + checkpoint, tag `phase-2-procurement-complete` | suite 2362/0 on a verified-identical tree; fresh DB gate2; two reviews applied; one real import defect closed |
-| ACCT-1..6 | in progress | — | Accounting completion queue; the goal needs an independent Accounting exit PASS |
+| ACCT-1..6 | **COMPLETE, TAGGED** | 1b6e943, tag `accounting-module-complete` | suite 2380/0 on a verified-identical tree; independent Accounting exit PASS |
+| Task 3.0 spec | **COMPLETE, PUSHED** | 8ef3685 | RCP-001..057, 30 invariants, breakdown 3.0–3.11 — awaiting owner approval |
+| Task 3.0A completion | **COMPLETE, PUSHED** | this commit | RCP-001..116, 46 invariants, 10 diagrams, 18-row decision register; `KM-RCP-004` read; RCP-046 corrected; docs only, 13 hooks green |
+| Task 3.0B reconciliation | **COMPLETE, PUSHED** | this commit | RCP-001..126, 52 invariants, 20-row register (6 open); recipe book + 2 card decks read page by page; KD-03/05/06 closed by source, KD-19/20 opened; docs only, 13 hooks green |
+
+## Task 3.0B — reconciling the specification with the real kitchen documents
+
+The owner supplied three PDFs that had been recorded as absent or unknown:
+
+| File | Pages | SHA-256 (first 16) |
+|---|---|---|
+| `كتاب وصفات المطبخ خان مندي.pdf` | 44 | `8534D2D8D5DFE9E3` |
+| `كارت الاطباق الرئيسية.pdf` | 35 | `7C3FC20F6EC01C88` |
+| `كارت المقبلات.pdf` | 10 | `E6AA0BC168D5914C` |
+
+All three live in `Khan Mandi/files/`, a **sibling of the repository**, so no
+proprietary content is tracked by Git — `git ls-files '*.pdf' '*.xlsx'` returns
+nothing.
+
+**Reading them took a detour worth recording.** `pdftoppm` is not installed, so
+the Read tool cannot render these files, and `openpyxl` is absent from the venv —
+installing either would have breached the no-new-dependency rule for a read-only
+audit. Both documents were instead parsed with the standard library alone: the
+`.xlsx` as a zip of XML, and the PDFs through their Type0/CID font ToUnicode
+CMaps, reversing each visual-order glyph run back to logical Arabic while
+preserving digit runs. All 89 pages were read this way.
+
+**The harness reported 13, 569 and 117 pages. The real counts are 44, 35 and
+10** — each file's own page-tree `/Count`, internally consistent with its node
+sums. The audit covers the real pages.
+
+### What the sources settled
+
+- **KD-03 → RESOLVED.** The method book exists: 23 recipes, numbered steps,
+  thirteen sourced durations (حنيذ chicken 90 min and meat 120 min; التبسي
+  80 min; رقبة 4–5 h). **No numeric temperature anywhere** — the book gives
+  نار هادئة, جمر, قدر الضغط, التنور — so `temperature_c` stays null rather than
+  acquiring an invented Celsius value.
+- **KD-06 → RESOLVED.** Task 3.0A had recorded that no gram servings existed.
+  Wrong, and the book says so on page 1: *"نفرات (350 غرام) للنفر الواحد"*.
+  500 g pieces for مدفون, حنيذ, مزموم and رقبة. Spec §24.3 lists every weight
+  in all three documents — including 1 kg ضلوع, 1.5 kg كتف and 2 kg فخذ — and
+  states no general rule, because none exists.
+- **KD-05 → RESOLVED, as two layers.** The plate cards decide it arithmetically:
+  the half-chicken مندي plate carries 700 g of rice, the whole carries
+  **1,300 g** — not 1,400 — with sides doubled. So the chicken divides by
+  exactly two and the plate does not. RCP-123 separates the layers; RCP-124
+  forbids deriving one plate from another. Prices agree: 13,000 and 25,000.
+
+### What they opened
+
+- **KD-19** — the دقوس recipe yields cups of **80 ml**; every plate card
+  consumes **125 g**. Same for روبة at 100 ml. Reconciling needs a density the
+  business has never stated.
+- **KD-20** — five appetizers are assembled from a pre-made **250 g خلطة**, and
+  no source documents how any blend is made. The sub-recipe tree has a missing
+  level.
+
+Eight source conflicts in total are recorded in spec §24.6 with both claims
+retained (RCP-121), including one that looks like a plain copy error: card 22 is
+titled حنيذ دجاج **نصف** حبة and its first line reads *دجاجة كاملة*. The
+importer flags it; nobody silently fixes it.
+
+**KD-02 is deliberately unchanged.** The method and assembly layers are now
+sourced; the costing layer is not. `KM-RCP-004` still has every quantity, cost,
+code, date and signature blank.
+
+### Validation
+
+| Gate | Result |
+|---|---|
+| `pytest tests/test_traceability.py -q` | **4 passed** |
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 294 files already formatted |
+| `manage.py check` | no issues |
+| `makemigrations --check --dry-run` | No changes detected |
+| `pre-commit run --all-files` | **13 hooks passed** |
+| RCP integrity | 126 unique, RCP-001..126, **no gaps, no duplicates**, all 126 traced |
+| Decision register | 20 rows, no duplicates, **6 REQUIRES OWNER DECISION** |
+| Scope | 5 documentation files; no model, migration, service, endpoint, template or seed; `apps/kitchen` still does not exist |
+
+One self-check caught a real error: the recalculated counts table initially read
+2 RECOMMENDED and 7 RESOLVED, against the register's actual 3 and 6. The prompt's
+instruction to *confirm rather than hard-code that count* is the reason it was
+checked, and the reason it was wrong for about four minutes.
+
+## Phase 3 specification approved — 2026-08-16
+
+The owner approved `docs/tasks/task-3-0-recipes-production-domain-spec.md` and
+answered every open decision. Recorded in spec §22.1; the register now shows
+**zero** rows requiring an owner decision.
+
+| ID | Decision |
+|---|---|
+| KD-02 | Real recipes may be captured as **DRAFT**; none may be approved or activated until its `KM-RCP-004` costing data is complete. The gate moves from capture to **approval** — it binds Task 3.2, not Task 3.10 |
+| KD-07 | **No `KitchenStation` master** in Task 3.1; station stays nullable |
+| KD-09 | **Atomic same-business-date, one-warehouse** production. No partial or multi-day WIP in Release 1 — §8A approved as written, and Task 3.5 released |
+| KD-13 | Selling prices and sales margins are **outside Phase 3** |
+| KD-19 | **No automatic mass-to-volume conversion** without a sourced density. The 80 ml ↔ 125 g sauce gap stays open as data; the unit layer refuses rather than guesses |
+| KD-20 | An undocumented prepared mix stays **unresolved DRAFT** and cannot be approved as a sub-recipe |
+
+Recommendations confirmed: nesting depth **3**, **one** primary batch output,
+output expiry from `InventoryItem.shelf_life_days` measured from the batch
+business date.
+
+Task 3.1 is released. Task 3.2 inherits KD-02 as an approval-time gate.
+
+## Task 3.1 — Recipe master and draft structure — COMPLETE
+
+The first Phase 3 code. `apps.kitchen` exists, and it moves no stock.
+
+**Approval first.** Commit `5015ffa` recorded the owner's approval of the Task
+3.0 specification and answered all six open decisions (spec §22.1). The
+register now shows **zero** rows requiring an owner decision. Implementation
+began only after that commit was clean and pushed.
+
+### What shipped
+
+Nine models in two migrations: `RecipeCategory`, `Recipe`, `RecipeBranch`,
+`RecipeVersion` (DRAFT only), `RecipeLine`, `RecipeLineSubstitute`,
+`RecipeStep`, `RecipeStepIngredient`, `RecipeServing`. Twenty-five services,
+three permissions with their role map, a command API, Arabic RTL screens,
+read-only admin, and `seed_kitchen_demo`.
+
+### The Task 3.1 / 3.2 boundary, held at the database
+
+`recipe_version_task_3_1_draft_only` pins every row to `DRAFT`, and
+`RecipeVersionStatus` offers exactly one value — the shape `CostingMethod`
+uses. There is no submit, approve, activate or supersede service, no such
+route, and no effective-date resolver. Task 3.2 alters that constraint when it
+brings the lifecycle **and its rules** together: maker-checker, the
+effective-range exclusion, and the immutability triggers arrive as one thing or
+not at all.
+
+### Two decisions worth recording
+
+**`RecipeStep` has no `station` field.** The task brief listed one. KD-07 says
+no `KitchenStation` master in Task 3.1, and spec §5A.2 explicitly rejected a
+nullable free-text station string — "free text that is meant to group things
+ends up with four spellings of one station." With no table and free text ruled
+out, the column is omitted rather than invented. It arrives only if KD-07 is
+revisited.
+
+**The version allocator was wrong and the code was fixed, not the test.**
+`max(existing) + 1` silently reused a number after a draft was discarded, which
+contradicted the service's own docstring. `Recipe.last_version_number` is now a
+monotonic allocator: `v2` never means two different things.
+
+### Zero-effect proof
+
+| Counter | Before the kitchen seed | After two seeds |
+|---|---|---|
+| `StockMovement` | 39 | **39** |
+| `StockLedgerEntry` | 29 | **29** |
+| `StockBalance` | 15 | **15** |
+| `JournalEntry` | 25 | **25** |
+
+Asserted in `test_boundary_and_security.py::TestZeroLedgerEffect` over the whole
+lifecycle, and again on the fresh database. Approved versions after two seeds:
+**0**.
+
+### Fresh database
+
+`km_verify_3_1`, newly created — **no existing database was dropped**. Migrated
+from zero, roles verified (`MANAGER` all three, `STOREKEEPER` `view_recipe`
+only, `CASHIER` none), `seed_inventory_demo` then `seed_kitchen_demo` **twice**
+with identical row counts: 5 recipes, 3 versions, 5 lines, 1 substitute,
+2 steps, 1 link, 4 servings.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| `pytest` (definitive, whole project) | **2506 passed, 0 failed** in 48:15 |
+| `apps/kitchen` focused | 126 passed |
+| `ruff check .` · `ruff format --check .` | passed |
+| `mypy apps config tests` | passed |
+| `manage.py check` · `makemigrations --check` | passed |
+| `pre-commit run --all-files` | 13 hooks passed |
+| Traceability | 4 passed; 36 Phase 3 rows moved to `Done` with real test citations |
+
+The only edits after the definitive suite began were to this runbook and the
+documentation beside it. **No executable file changed**, so the suite certifies
+the committed tree.
+
+### What is deliberately absent
+
+No approval, no effective dating, no costing, no `RecipeComponent`, no
+production batch, no import, no report, no price. Task 3.2 is the next
+dependency, and it inherits KD-02: a real branch recipe may be captured as a
+draft and may not be **approved** until its `KM-RCP-004` costing data is
+complete.
+
+## Task 3.1 follow-up — locale defect and the Task 3.2 §B preflight
+
+Three corrections to the Task 3.1 tree, certified by their own definitive suite
+(2511 passed / 0 failed, 57:08).
+
+**A locale defect the tests missed and the browser caught.** `factor_of_batch`
+rendered as `0,033333333333` — a comma, because Django localises Decimals under
+Arabic. `CLAUDE.md` names this exact case: a conversion factor is a technical
+identity, and "a comma there is ambiguous and invites a mis-typed re-entry."
+`RecipeServing.factor_display` now mirrors `ItemPackageConversion.factor_display`
+and renders in an LTR `<code>`. Two regression tests: one on the property, one
+on the rendered HTML under Arabic.
+
+**Task 3.2 §B.1 — the version allocator had no race test.** The mechanism was
+right (a locked read-modify-write on the Recipe row), but nothing proved it.
+The new real-COMMIT test asserts the surviving version's number equals
+`last_version_number`, so the allocator advanced exactly once. A partial unique
+index alone would not have been enough: it refuses the second *insert*, by
+which point both callers have already chosen the same number.
+
+**Task 3.2 §B.2 — a correction to the Task 3.1 report, and one real gap.** The
+report said "one active substitute per line." That was **wrong**: the constraint
+is `UNIQUE(line, substitute_item) WHERE is_active`, so ranked alternatives were
+always permitted. The real gap was that `priority` had no uniqueness, so two
+substitutes could share rank 1 and the batch screen would order by primary key.
+Migration `0003` adds `UNIQUE(line, priority) WHERE is_active` and a positivity
+check; the service now draws the next free rank under the version's lock.
+
+§B.3 (`view_recipe_cost` reserved, no cost surface) and §B.4 (no station field)
+were already correct and unchanged.
+
+**Task 3.2 §C – §U is not started.** The lifecycle, effective dating, approval
+evidence, components, resolver, verifier and screens are a larger body of work
+than Task 3.1 was. It begins in its own session, from this certified tree, with
+the §B findings already banked.
+
+---
+
+## Task 3.2A — the recipe version lifecycle
+
+The approval boundary, delivered whole: submission, four-party review evidence,
+maker-checker approval, explicit activation, effective-dated branch scope,
+database overlap enforcement, the resolver, supersession and whole-row
+immutability. Task 3.2 is **split** into 3.2A and 3.2B as an implementation
+checkpoint; the dependency order is unchanged and no scope was dropped.
+
+### What arrived together, and why it had to
+
+The previous session's report said the rules "arrive together or none of them
+do", and building it confirmed why. Every one of these is load-bearing for the
+others:
+
+- an approval workflow over mutable rows is theatre, so the triggers had to land
+  with the commands;
+- effective dating without an overlap constraint gives the resolver two answers
+  and no way to choose;
+- an overlap constraint cannot see an "empty list means everywhere" convention,
+  so organization-wide scope had to become real rows in the same design;
+- and a resolver that defaults `on_date` to today is correct through the whole
+  of development and wrong the first time a July report is re-run in September.
+
+### Three decisions worth naming
+
+**No `EXPIRED` state.** Task 3.0 §4 names one terminal state, and expiry is a
+fact about a date rather than a state a row sits in. A stored `EXPIRED` needs a
+clock-driven job, and on every morning that job did not run, the status and the
+range would disagree about the same version. `is_expired_on()` derives it.
+
+**Organization-wide scope is materialised.** `Recipe.branches` keeps Task 3.1's
+"no rows means everywhere" — that is a statement about where a *dish* is cooked
+and no constraint depends on it. A *version's* effective scope cannot work that
+way: a row claiming all branches and a row claiming branch B overlap, and no
+constraint can see it. An organization-wide activation now writes one scope row
+per applicable branch and records that it did so. The consequence is real and
+recorded in ADR-024: a branch created after an activation has no scope row until
+somebody activates a version for it. That is the right answer — a new branch
+silently inheriting a costing basis nobody chose for it would be worse — and the
+old convention would have hidden the question.
+
+**No global `CHEF` role.** `KM-RCP-004` names four signatories, and it would
+have been easy to add a role to the whole ERP's access model to hold one of
+them. They are responsibilities exercised on one document, so they are review
+types carried by whichever role holds `review_recipe_version`.
+
+### Two things the build itself turned up
+
+**`bigint`, not `integer`.** The first trigger family failed on every insert:
+`kitchen_require_draft_version(bigint, unknown) does not exist`. Django's
+`BigAutoField` means every foreign key is `bigint`, and a plpgsql helper
+declared `integer` does not match. Caught by the first test run rather than by
+review, which is the argument for running the focused tests before writing the
+surface on top.
+
+**Deferred constraints and Django's teardown.** The ambiguity tests defer
+`recipe_scope_no_overlapping_ranges` inside a transaction, activate a genuinely
+colliding version through the real service, and assert the resolver refuses.
+They passed and then failed at *teardown*: Django's `TestCase` runs
+`SET CONSTRAINTS ALL IMMEDIATE` to check integrity, and re-asserted the very
+constraint the test suspends. The fixture now calls `transaction.set_rollback(True)`
+on the way out, which is the literal meaning of "planted only inside a
+rolled-back test".
+
+### The one place a Task 3.1 test was rewritten rather than kept
+
+`TestOnlyDraftsExist` asserted `RecipeVersionStatus.values == ["DRAFT"]` and
+that no lifecycle service existed. Both statements were true of Task 3.1 and are
+false now, so the class became `TestTheLifecycleBoundary` and asserts the
+stronger form: six states and no seventh, and the lifecycle living in
+`lifecycle.py` rather than in `services.py`. Three other Task 3.1 tests
+(`test_the_database_refuses_a_non_draft_status`, the permission count, the
+"no approval permission registered early" rule) were rewritten the same way —
+each still asserts a boundary, and each now asserts the one that is true.
+
+`test_no_version_is_approved` in the demo suite was replaced rather than
+loosened: the demo dataset now has to show **every** lifecycle state, because a
+screen that has never had a `SUPERSEDED` row on it has never actually been
+reviewed.
+
+### Verification
+
+- **291 kitchen tests**, including 45 lifecycle, 31 effective-dating, 31
+  immutability, 35 surface and 12 real-COMMIT concurrency tests.
+- **Fresh PostgreSQL database `km_verify_3_2a_final`**, migrated from zero:
+  permissions synced, both seeds run, `seed_kitchen_demo` run twice with
+  identical row counts across all ten tables, `verify_recipe_versions` clean,
+  every route answering 200 on both the full-page and HTMX paths, and March
+  resolving to the superseded v1 while September resolves to the active v2.
+- **Zero stock movements and zero journal entries** across the whole lifecycle,
+  proved by counting before and after — in the unit tests, in the concurrency
+  tests, and on the fresh database.
+
+### What Task 3.2A did not do
+
+`RecipeComponent` does not exist and a test asserts its absence. Costing does
+not exist and `view_recipe_cost` still guards nothing. Task 3.2 remains **in
+progress** until 3.2B lands the nested-recipe graph.
+
+## Task 3.2B — nested recipe components (2026-08-16)
+
+`RecipeComponent` and the whole nested-recipe graph. With it **Task 3.2 is
+complete**.
+
+- Migrations `0006` (model) and `0007` (guards), both additive; `0001`–`0005`
+  untouched.
+- `apps/kitchen/graph.py` — the organization-scoped advisory graph lock, the
+  cycle walk at recipe identity, the depth bound and activation-time
+  effective-coverage validation.
+- Four draft-only commands in `services.py`, all taking the graph lock above
+  every row lock.
+- Component section in the version diff, six API routes, ten Arabic RTL screens.
+- The verifier gained the component checks; `verify_recipe_versions` is still
+  the only kitchen verifier and still has no repair mode.
+
+Corrected by owner policy the same day: a first implementation required a child
+to cover the parent's whole future range and blocked child supersession while an
+`ACTIVE` parent referenced it. Both rules are withdrawn. The gate is at initial
+activation only — the child must be effective on the parent's start date — and
+the exact child-version FK is frozen and stays valid afterwards. An `ACTIVE`
+parent naming a superseded child is a non-blocking verifier advisory. See
+specification §26.4 and §26.8.
+
+---
+
+## Task 3.3 — Recipe costing and cost snapshots (2026-08-17)
+
+**Done.** Costing is derived, warehouse-specific, date-specific and
+version-specific, and the only rows it persists are append-only snapshots.
+
+Built: `apps/kitchen/costing.py`, `apps/kitchen/snapshots.py`,
+`apps/kitchen/cost_reconciliation.py`, `apps/kitchen/cost_views.py`,
+`apps/inventory/valuation.py` (read-only, the single Inventory change),
+migrations `0008_recipe_cost_snapshots` and `0009_cost_snapshot_append_only`,
+six API routes, five Arabic RTL screens, the `verify_recipe_cost_snapshots`
+command, and the demo costing scenario.
+
+`view_recipe_cost` now guards something. It has been registered since Task 3.1
+and guarded nothing until today; the role map is unchanged — OWNER, MANAGER,
+ACCOUNTING_MANAGER and ACCOUNTANT — and was **activated**, not widened.
+
+Read `docs/development/recipe-costing.md` before changing any of it.
+
+### Two things this pass got wrong and corrected before committing
+
+Both were scope errors rather than arithmetic ones, and both are recorded here
+because the first version of this entry stated them as decisions.
+
+- **Plate cost was deferred to Task 3.4. It should not have been.** Task 3.3
+  owns standard plate cost, and it is now built: the divisor is the version's
+  primary `RecipeServing`, because no model carries `portions_per_batch` and
+  adding one would be a second mutable statement of a fact the serving already
+  holds. The navigation entry reads `كلفة الوصفة والطبق` and names both figures
+  the screen carries. Twelve tests hold it.
+- **Large serving counts were given a rate and no allocation.** Size is a reason
+  to stop building lists, not a reason to stop answering. The distribution is
+  now analytic and stored in five numbers, proven equal to
+  `apps/core/allocation.allocate` itself for every small case, so 50,000
+  portions allocate exactly in constant work and one database row.
+  `MAX_ENUMERATED_SERVINGS` survives only as a screen's limit.
+
+### Genuinely still deferred, with reasons
+
+- **RCP-087 at posted-batch level.** The standard split across a *version's*
+  serving definitions is done here. Splitting a **posted batch's** actual cost
+  across the servings it really produced needs production, and arrives at 3.5.
+  Traceability records the two halves separately rather than marking the whole
+  requirement deferred.
+- **The demo's stocked leaf is unvalued**, because the Kitchen seed may post no
+  stock (§V) and `DEMO-RICE-COOKED` is created by that seed. It still proves
+  non-expansion — the card shows one row for it rather than the producing
+  recipe's three — and doubles as the missing-valuation case.
+
+### One correction carried out of Task 3.2B
+
+ADR-024's paragraph *"The graph lock is about coverage, not about cycles"* still
+claimed the advisory lock made coverage sound. The owner-policy correction
+disproved that and fixed it in `apps/kitchen/graph.py` and in the concurrency
+tests, and did not reach the ADR. Corrected here, marked as a correction with
+its date, rather than quietly rewritten.
+
+---
+
+## Task 3.4 — Production batch drafting and scaling (2026-08-17)
+
+Three tables, six migrations (0010–0016), a shared expansion engine, an Arabic
+operator surface, twelve API routes, a report-only verifier, a visible demo
+draft, and no posting of any kind.
+
+### What was built
+
+`ProductionBatch` / `ProductionBatchLine` / `ProductionBatchActualLine`, drafted
+from one exact `RecipeVersion` resolved once from an explicit branch and business
+date. Scaling and reset-and-rescale, approved substitution, actual quantities,
+the actual output, readiness, discard. `أوامر الإنتاج` promoted — exactly one
+previously inert navigation entry.
+
+### Four defects found by writing the checks, not by reading the code
+
+Each of these was invisible on inspection and passed every test that existed at
+the time. Recorded because the *pattern* is the lesson: the checks that pay for
+themselves are the ones that ask the database, not the ones that re-read the
+service.
+
+1. **The freeze trigger refused a legitimate rescale.** Migration 0011's
+   allowlist omitted `multiplier` and `expected_output_quantity`, so the approved
+   `rescale_production_batch` command could not commit. Found by writing the
+   *paired positive* for a parametrized refusal test — the negative cases all
+   passed, and nothing asserted that the permitted case was permitted.
+
+2. **Readiness added kilograms to litres.** A requirement met with a
+   cross-dimension substitute summed `base_quantity` across both, because every
+   row happens to have one. Right in every test where the recipe and its
+   substitutes share a unit; silently wrong the first time a kitchen substitutes
+   across dimensions.
+
+3. **The multiplier was quantized before storage but not before use.**
+   `2.5000005` stored `2.500001` and produced an expected output computed from a
+   figure the row does not contain. Surfaced by the COMMIT-boundary consistency
+   trigger refusing a batch the service had just written.
+
+4. **Creation and rescale disagreed about the cumulative multiplier.** Creation
+   scaled by the walk's full-precision product; the column stores twelve places;
+   a rescale read the stored value. So rescaling a two-level recipe *to the
+   multiplier it already had* moved its planned quantities — on exactly the
+   recipes where the arithmetic is hardest to check by eye. Same trigger.
+
+Two more came out of the real-COMMIT races: `_lock_batch` raised
+`DoesNotExist` (a 500) when a draft was discarded while another operator edited
+it, and three commands took the actual row before the batch — inverting the
+module's own documented lock order and deadlocking against a concurrent rescale.
+
+### Decisions worth knowing about
+
+- **The multiplier is revisable, never independently mutable.** Migration 0015 is
+  a deferred constraint trigger holding `multiplier`,
+  `expected_output_quantity` and every `planned_base_quantity` in agreement at
+  COMMIT. Deferred because a legitimate rescale is inconsistent by construction
+  between its statements.
+- **Quantities in different dimensions are never added.** A variance is a number
+  only where the dimensions agree; where they do not, the answer is the words
+  *not quantitatively comparable*. No conversion ratio is invented at any layer.
+  Task 3.5 values each row separately.
+- **A verifier finding is not automatically a defect.** A cross-dimension
+  substitution is legitimate, so it is an **observation**: reported, and never
+  counted against the exit status. A red list nobody can clear stops being read.
+- **`ProductionBatch` is Task 3.4's**, not Task 3.5's. Three tests and several
+  documents said otherwise; all were corrected, and the tests were rewritten
+  rather than deleted — the fence has now moved three times and has not once come
+  down.
+
+### Genuinely deferred, with reasons
+
+- **Everything that posts.** Document number, lots, locations, availability,
+  valuation, Inventory and GL effects, `POSTED`, `REVERSED` and reversal. Task
+  3.5 owns all of it, and the boundary is a check constraint named after that
+  task rather than a convention.
+- **ADR-025 is not promoted.** Nothing in this task changes the versioning or
+  effective-dating decision ADR-024 records; the amendments are recorded against
+  ADR-024 itself.
+
+## Task 3.5 — production posting (2026-08-18)
+
+The DRAFT-only boundary is gone, removed additively by migration 0017 and
+replaced by five constraints that refuse every **half-posted** row rather than
+one status. Migration 0018 replaced the freeze trigger with one that branches:
+a draft keeps Task 3.4's allowlist plus the posting columns, a POSTED batch may
+change only its reversal columns, and a REVERSED one may change nothing.
+Migration 0019 added the gapless `PRD-YYYY-NNNNNN` sequence.
+
+Three things were harder than they looked.
+
+**The output's value.** It must equal the sum of the consumed values, but those
+are only known after the kernel values the outbounds — and the whole event must
+be one stock entry, because it is one economic event with one identity. Solved
+by taking the kernel's locks first and replaying `ledger.apply_outbound` in the
+kernel's own canonical order to project the figure exactly, then asserting the
+projection against what was written. It *calls* the kernel's arithmetic rather
+than restating it; a second implementation of the exact-depletion rule would
+have diverged the first time a batch emptied a position.
+
+**The dependency boundary.** Kitchen may not import the ledger. Posting goes
+through one narrow public interface, `apps/inventory/production.py`, which knows
+nothing about recipes — and a boundary test now asserts that it is the *only*
+inventory posting module Kitchen imports, so a second door has to be added
+deliberately.
+
+**Testing the verifier.** The first run of the verifier tests failed twelve
+times over on `RestrictViolation`: the triggers refuse every planted defect,
+which is exactly what they are for. The tests were restructured rather than
+weakened — shapes the schema refuses are now asserted as *schema* refusals,
+which is the stronger claim, and the verifier is tested against the shapes a
+restore or a trigger-disabled data migration would actually leave behind.
+
+Two stale Task 3.4 verifier checks were corrected: `production_batch_is_not_draft`
+and `production_draft_has_a_posting_event` reported any posted batch as out of
+bounds, which was right when nothing could post and would have reported every
+correct posting forever.

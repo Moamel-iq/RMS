@@ -1,0 +1,99 @@
+{# Which lot, and out of which bin, one consumption row came from.            #}
+{#                                                                            #}
+{# Lot-tracked stock is what this screen exists for: you cannot produce from  #}
+{# a lot you did not name, and "roughly which batch" is not an answer a       #}
+{# recall can use. For an untracked item the screen still works and the       #}
+{# allocation stays optional — requiring an empty formality there would be a  #}
+{# form to fill in for the sake of the schema.                                #}
+{#                                                                            #}
+{# The rows must sum to the consumption exactly. Letting them sum to less     #}
+{# would post part of what the kitchen recorded using, which is a partial     #}
+{# completion by another name.                                                #}
+{% extends base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="production-allocate">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">
+          {{ actual.item.code }} — <code dir="ltr">{{ actual.quantity_display }}</code>
+          {{ actual.item.base_unit.code }}
+        </p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "رجوع إلى المسودة" %}
+        </a>
+      </div>
+    </div>
+
+    {% if allocation_required %}
+      <p class="banner" role="alert">
+        {% translate "هذا الصنف يتتبع اللوطات: يجب تخصيص لوط لكل كمية قبل الترحيل." %}
+      </p>
+    {% endif %}
+
+    <section class="panel">
+      <h2 class="panel__title">{% translate "التخصيصات الحالية" %}</h2>
+      {% if allocations %}
+        <div class="tablewrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">{% translate "اللوط" %}</th>
+                <th scope="col">{% translate "الموقع" %}</th>
+                <th scope="col">{% translate "الكمية" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in allocations %}
+                <tr>
+                  <td>{{ row.allocation_order }}</td>
+                  <td>{% if row.lot_id %}<code dir="ltr">{{ row.lot.code }}</code>{% else %}—{% endif %}</td>
+                  <td>{% if row.location_id %}<code dir="ltr">{{ row.location.code }}</code>{% else %}—{% endif %}</td>
+                  <td><code dir="ltr">{{ row.quantity_display }}</code></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if can_draft %}
+          <form method="post" action="{{ request.path }}">
+            {% csrf_token %}
+            <input type="hidden" name="clear" value="1">
+            <button class="btn btn--danger" type="submit">{% translate "امسح التخصيصات" %}</button>
+          </form>
+        {% endif %}
+      {% else %}
+        <p class="empty">{% translate "لا يوجد تخصيص بعد." %}</p>
+      {% endif %}
+    </section>
+
+    {% if can_draft %}
+      <form class="formcard" method="post" novalidate action="{{ request.path }}">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+          <div class="alert" role="alert">
+            {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="formgrid">
+          {% for field in form %}
+            {% include "settings/_field.html" with field=field %}
+          {% endfor %}
+        </div>
+
+        <div class="formactions">
+          <button class="btn btn--primary" type="submit">{% translate "أضف تخصيصاً" %}</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+{% endblock %}

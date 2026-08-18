@@ -1,0 +1,79 @@
+{# Undoing a posted batch. Its own template rather than the shared confirm    #}
+{# screen, because that one says in words that nothing is being reversed —    #}
+{# true for a discarded draft and exactly wrong here. Reusing it would have   #}
+{# put a false sentence on the one screen where the operator most needs a     #}
+{# true one.                                                                  #}
+{#                                                                            #}
+{# The reversal is once-only, mirrors every value exactly, and is refused     #}
+{# outright when the produced goods are no longer on the shelf to take back.  #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="production-action">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "رجوع" %}
+        </a>
+      </div>
+    </div>
+
+    <p class="banner" role="alert">
+      {% translate "العكس حركة مخزنية جديدة تبقى في السجل إلى الأبد. لا يُحذف الترحيل الأصلي ولا يُعدَّل، ولا يمكن عكس العكس." %}
+    </p>
+
+    <dl class="deflist">
+      <dt>{% translate "الرقم" %}</dt>
+      <dd><code dir="ltr">{{ batch.number }}</code></dd>
+      {% if can_read_cost %}
+        <dt>{% translate "قيمة الناتج المرحّلة" %}</dt>
+        <dd><code dir="ltr">{{ batch.output_value }}</code></dd>
+      {% endif %}
+      <dt>{% translate "القيد المحاسبي" %}</dt>
+      <dd>
+        {% if batch.journal_entry_id %}
+          <code dir="ltr">{{ batch.journal_entry.entry_number }}</code>
+        {% else %}
+          {{ no_journal_reason }}
+          <span class="pill">{% translate "ولا قيد عكس" %}</span>
+        {% endif %}
+      </dd>
+    </dl>
+
+    <form class="formcard"
+          method="post"
+          novalidate
+          action="{{ request.path }}"
+          hx-post="{{ request.path }}"
+          hx-target="#production-action"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% include "settings/_field.html" with field=field %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions">
+        <button class="btn btn--danger" type="submit">{% translate "تأكيد العكس" %}</button>
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "إلغاء" %}
+        </a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

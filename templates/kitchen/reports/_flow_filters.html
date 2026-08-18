@@ -1,0 +1,23 @@
+{# Extra toolbar controls for the two partition reports.                     #}
+{#                                                                           #}
+{# Included inside the shared toolbar form, so these submit with the shell's #}
+{# own warehouse and date fields and survive pagination with them. The       #}
+{# bucket list is the closed enum, rendered whole: a partition with a filter #}
+{# that could not name one of its own buckets would be hiding a column.     #}
+{% load i18n %}
+
+<label class="field">
+  <span>{% translate "التصنيف" %}</span>
+  <select name="bucket">
+    <option value="">{% translate "كل التصنيفات" %}</option>
+    {% for value, label in bucket_choices %}
+      <option value="{{ value }}" {% if filters.bucket == value %}selected{% endif %}>
+        {{ label }}
+      </option>
+    {% endfor %}
+  </select>
+</label>
+<label class="field">
+  <span>{% translate "رقم الصنف" %}</span>
+  <input type="number" name="item_id" min="1" dir="ltr" value="{{ filters.item_id }}">
+</label>

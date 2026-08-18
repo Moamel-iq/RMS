@@ -1,0 +1,265 @@
+{# انحراف الاستهلاك — two outputs, and the page never lets them blur.        #}
+{#                                                                           #}
+{# The first table is a COMPLETE answer to a narrow question: what the frozen #}
+{# recipe required against what actually went in, for posted batches. Both   #}
+{# sides are posted facts about the same batch.                              #}
+{#                                                                           #}
+{# The second is a PARTIAL diagnostic and is labelled on the page, in every  #}
+{# row and in the export. It is not the final consumption variance and there #}
+{# is no control here that produces one, because approved sold quantities do #}
+{# not exist before Phase 4.                                                 #}
+{% extends base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="kitchen-usage-variance">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+    </div>
+
+    <div class="banner" role="note">
+      {% for notice in notices %}<p>{{ notice }}</p>{% endfor %}
+      <p class="chips">
+        {% for code in coverage_codes %}
+          <bdi dir="ltr"><code class="chip">{{ code }}</code></bdi>
+        {% endfor %}
+      </p>
+    </div>
+
+    <form class="toolbar"
+          method="get"
+          hx-get="{{ request.path }}"
+          hx-target="#kitchen-usage-variance"
+          hx-swap="outerHTML">
+      <label class="field">
+        <span>{% translate "المخزن" %}</span>
+        <select name="warehouse_id">
+          <option value="">{% translate "كل المخازن" %}</option>
+          {% for warehouse in warehouses %}
+            <option value="{{ warehouse.pk }}"
+              {% if filters.warehouse_id == warehouse.pk|stringformat:"s" %}selected{% endif %}>
+              {{ warehouse.code }} — {{ warehouse.name_ar }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>{% translate "رقم الفرع" %}</span>
+        <input type="number" name="branch_id" min="1" dir="ltr" value="{{ filters.branch_id }}">
+      </label>
+      <label class="field">
+        <span>{% translate "من تاريخ" %}</span>
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </label>
+      <label class="field">
+        <span>{% translate "إلى تاريخ" %}</span>
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </label>
+      <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button>
+    </form>
+
+    {% if applied_filters %}
+      <p class="chips" aria-label="{% translate 'المرشحات المطبقة' %}">
+        {% for label, value in applied_filters %}
+          <span class="chip">{{ label }}: <bdi dir="ltr">{{ value }}</bdi></span>
+        {% endfor %}
+      </p>
+    {% endif %}
+
+    {# ---- Output 1: complete ------------------------------------------- #}
+    <section class="card">
+      <h2 class="card__title">
+        {% translate "١. انحراف الإنتاج القياسي — متاح ومكتمل" %}
+      </h2>
+      <p class="muted">
+        {% translate "الجانبان وقائع مرحّلة عن الدفعة نفسها: ما طلبته النسخة المجمّدة مقابل ما دخل فعلاً. لا تدخل المبيعات في هذا الرقم ولا يحتاجها." %}
+      </p>
+
+      {% if not analysis.identity_holds %}
+        <p class="alert" role="alert">
+          {% translate "تحذير: برهان تصنيف الحركات لا يتوازن في هذه الفترة، فأرقام الاستهلاك الفعلي أدناه غير موثوقة حتى يُعالج ذلك. راجع تقرير تدفق مخزن المطبخ." %}
+        </p>
+      {% endif %}
+
+      <div class="tablewrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">{% translate "الدفعة" %}</th>
+              <th scope="col">{% translate "الوصفة" %}</th>
+              <th scope="col">{% translate "النسخة" %}</th>
+              <th scope="col">{% translate "المسار" %}</th>
+              <th scope="col">{% translate "الصنف" %}</th>
+              <th scope="col">{% translate "المخطط" %}</th>
+              <th scope="col">{% translate "الفعلي" %}</th>
+              <th scope="col">{% translate "الانحراف" %}</th>
+              {% if show_cost %}<th scope="col">{% translate "قيمة المستهلك" %}</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in analysis.production_variance %}
+              <tr>
+                <td data-label="{% translate 'الدفعة' %}">
+                  <bdi dir="ltr"><code>{{ row.batch.number }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'الوصفة' %}">{{ row.batch.recipe.name_ar }}</td>
+                <td data-label="{% translate 'النسخة' %}">
+                  <bdi dir="ltr"><code>{{ row.version_label }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'المسار' %}">
+                  <bdi dir="ltr"><code>{{ row.component_path }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'الصنف' %}">{{ row.item_code }} — {{ row.item_name }}</td>
+                <td data-label="{% translate 'المخطط' %}">
+                  <bdi dir="ltr"><code>{{ row.planned_base_quantity }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'الفعلي' %}">
+                  {% if row.is_comparable %}
+                    <bdi dir="ltr"><code>{{ row.actual_base_quantity }}</code></bdi>
+                  {% else %}—{% endif %}
+                </td>
+                <td data-label="{% translate 'الانحراف' %}">
+                  {% if row.is_comparable %}
+                    <bdi dir="ltr"><code>{{ row.variance }}</code></bdi>
+                    {% if row.excluded_rows %}
+                      {# The number above is true over the rows whose dimension #}
+                      {# matches the plan, and leaves the rest out. Saying so    #}
+                      {# is the difference between a variance and a half-truth.  #}
+                      <p><span class="chip">{{ row.compatibility }}</span></p>
+                      <p class="muted">
+                        {% translate "خارج الرقم" %}:
+                        <bdi dir="ltr"><code>{{ row.excluded_display }}</code></bdi>
+                      </p>
+                    {% endif %}
+                  {% else %}
+                    {# Never a zero here. Zero means "no deviation"; this means #}
+                    {# the two sides are not measured in comparable units.     #}
+                    <span class="chip">{{ row.compatibility }}</span>
+                  {% endif %}
+                  {% if row.statement %}<p class="muted">{{ row.statement }}</p>{% endif %}
+                </td>
+                {% if show_cost %}
+                  <td data-label="{% translate 'قيمة المستهلك' %}">
+                    <bdi dir="ltr"><code>{{ row.actual_posted_value|default_if_none:"—" }}</code></bdi>
+                  </td>
+                {% endif %}
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="{% if show_cost %}9{% else %}8{% endif %}" class="empty">
+                  {% translate "لا توجد دفعات مرحّلة في هذا النطاق. رحّل دفعة إنتاج ثم أعد التصفية." %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {# ---- Output 2: partial -------------------------------------------- #}
+    <section class="card">
+      <h2 class="card__title">
+        {% translate "٢. تشخيص جزئي للاستهلاك — ليس الانحراف النهائي" %}
+      </h2>
+      <p class="alert" role="alert">
+        {% translate "لا يجوز اعتبار الرصيد غير المُفسَّر أدناه انحراف استهلاك نهائياً: الجانب النظري لا يشمل كميات المبيعات المعتمدة، وهي غير موجودة قبل المرحلة الرابعة." %}
+      </p>
+      <p class="muted">
+        {% translate "مكافئ وجبات الموظفين والوجبات المجانية معروض بجانب الرصيد ولا يُطرح منه: مكوّنات تلك الوجبات خرجت أصلاً مع دفعة الإنتاج التي طبختها، وطرحها هنا يخصم الكمية مرتين." %}
+      </p>
+
+      <div class="tablewrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">{% translate "الصنف" %}</th>
+              <th scope="col">{% translate "الوحدة" %}</th>
+              <th scope="col">{% translate "استهلاك إنتاج صافي" %}</th>
+              <th scope="col">{% translate "استهلاك مباشر" %}</th>
+              <th scope="col">{% translate "إجمالي الاستهلاك" %}</th>
+              <th scope="col">{% translate "متطلبات الإنتاج" %}</th>
+              <th scope="col">{% translate "رصيد غير مُفسَّر بالمخطط" %}</th>
+              <th scope="col">{% translate "مكافئ وجبات موظفين" %}</th>
+              <th scope="col">{% translate "مكافئ وجبات مجانية" %}</th>
+              <th scope="col">{% translate "عهدة واردة" %}</th>
+              <th scope="col">{% translate "عهدة صادرة" %}</th>
+              <th scope="col">{% translate "هالك مواد" %}</th>
+              <th scope="col">{% translate "هالك ناتج" %}</th>
+              <th scope="col">{% translate "تصحيحات" %}</th>
+              <th scope="col">{% translate "التغطية" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in analysis.diagnostic %}
+              <tr>
+                <td data-label="{% translate 'الصنف' %}">{{ row.item_code }} — {{ row.item_name }}</td>
+                <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ row.base_unit_code }}</bdi></td>
+                <td data-label="{% translate 'استهلاك إنتاج صافي' %}"><bdi dir="ltr"><code>{{ row.net_production_consumption }}</code></bdi></td>
+                <td data-label="{% translate 'استهلاك مباشر' %}"><bdi dir="ltr"><code>{{ row.direct_economic_consumption }}</code></bdi></td>
+                <td data-label="{% translate 'إجمالي الاستهلاك' %}"><bdi dir="ltr"><code>{{ row.total_consumption }}</code></bdi></td>
+                <td data-label="{% translate 'متطلبات الإنتاج' %}"><bdi dir="ltr"><code>{{ row.production_standard_requirement }}</code></bdi></td>
+                <td data-label="{% translate 'رصيد غير مُفسَّر بالمخطط' %}"><bdi dir="ltr"><code>{{ row.unexplained_by_production_plan }}</code></bdi></td>
+                <td data-label="{% translate 'مكافئ وجبات موظفين' %}"><bdi dir="ltr"><code>{{ row.staff_meal_equivalent }}</code></bdi></td>
+                <td data-label="{% translate 'مكافئ وجبات مجانية' %}"><bdi dir="ltr"><code>{{ row.complimentary_meal_equivalent }}</code></bdi></td>
+                <td data-label="{% translate 'عهدة واردة' %}"><bdi dir="ltr"><code>{{ row.custody_in }}</code></bdi></td>
+                <td data-label="{% translate 'عهدة صادرة' %}"><bdi dir="ltr"><code>{{ row.custody_out }}</code></bdi></td>
+                <td data-label="{% translate 'هالك مواد' %}"><bdi dir="ltr"><code>{{ row.raw_material_waste }}</code></bdi></td>
+                <td data-label="{% translate 'هالك ناتج' %}"><bdi dir="ltr"><code>{{ row.produced_output_waste }}</code></bdi></td>
+                <td data-label="{% translate 'تصحيحات' %}"><bdi dir="ltr"><code>{{ row.count_correction }}</code></bdi></td>
+                <td data-label="{% translate 'التغطية' %}">
+                  <bdi dir="ltr"><code class="chip">{{ row.coverage_label }}</code></bdi>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="15" class="empty">
+                  {% translate "لا توجد حركات في هذا النطاق. عدّل المخزن أو الفترة ثم أعد المحاولة." %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {# ---- The source that is missing, named ---------------------------- #}
+    <section class="card">
+      <h2 class="card__title">{% translate "تغطية المصادر النظرية" %}</h2>
+      <div class="tablewrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">{% translate "المصدر" %}</th>
+              <th scope="col">{% translate "الحالة" %}</th>
+              <th scope="col">{% translate "عدد المساهمات" %}</th>
+              <th scope="col">{% translate "الكمية" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for source in analysis.coverage.sources %}
+              <tr>
+                <td data-label="{% translate 'المصدر' %}">
+                  {{ source.label }}
+                  <bdi dir="ltr"><code>{{ source.source_type }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'الحالة' %}">
+                  <bdi dir="ltr"><code class="chip">{{ source.status }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'عدد المساهمات' %}"><bdi dir="ltr">{{ source.contribution_count }}</bdi></td>
+                <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ source.total_quantity }}</code></bdi></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">
+        {% translate "المصدر المعروض بحالة DEFERRED_TO_PHASE_4 ليس خطأ: محوّل المبيعات غير موجود لأن بياناته غير موجودة. عرضه بالاسم أصدق من حذفه من الجدول." %}
+      </p>
+    </section>
+  </div>
+{% endblock %}

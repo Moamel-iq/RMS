@@ -1,0 +1,243 @@
+{# One frozen snapshot, with the evidence that makes it explicable.          #}
+{#                                                                          #}
+{# There is no edit button and no delete button, because there is no edit   #}
+{# and no delete: the three snapshot tables refuse both verbs at the        #}
+{# database. A correction is a new snapshot, taken by a person, with a      #}
+{# reason - and the verification block below reports, never repairs.        #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="cost-snapshot-detail">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">
+          {{ snapshot.recipe_code }} v{{ snapshot.version_number }} —
+          {% translate "لقطة كلفة" %}
+        </h1>
+        <p class="pagehead__hint">
+          {% translate "سجل دائم لقرار تسعير اتُّخذ في تاريخه. لا يُعدَّل ولا يُحذف؛ ولا يُقارَن بمخزون اليوم — الحركة اللاحقة متوقّعة وليست خطأ." %}
+        </p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:cost_snapshot_list' %}">
+          {% translate "كل اللقطات" %}
+        </a>
+        <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' snapshot.version_id %}">
+          {% translate "تفاصيل النسخة" %}
+        </a>
+      </div>
+    </div>
+
+    <section class="formcard">
+      <h2>{% translate "الأدلة" %}</h2>
+      <dl class="detailgrid">
+        <dt>{% translate "المعرّف العام" %}</dt>
+        <dd><code dir="ltr">{{ snapshot.public_id }}</code></dd>
+
+        <dt>{% translate "الوصفة" %}</dt>
+        <dd>{{ snapshot.recipe_code }} — {{ snapshot.recipe_name }}</dd>
+
+        <dt>{% translate "حالة النسخة وقت اللقطة" %}</dt>
+        <dd><code dir="ltr">{{ snapshot.version_status }}</code></dd>
+
+        <dt>{% translate "الفرع والمخزن" %}</dt>
+        <dd>{{ snapshot.branch.code }} / {{ snapshot.warehouse_code }}</dd>
+
+        <dt>{% translate "بتاريخ" %}</dt>
+        <dd><code dir="ltr">{{ snapshot.as_of_date|date:"Y-m-d" }}</code></dd>
+
+        <dt>{% translate "أساس التقييم" %}</dt>
+        <dd><code dir="ltr">{{ snapshot.valuation_mode }}</code></dd>
+
+        <dt>{% translate "نقطة قطع الدفتر" %}</dt>
+        <dd>
+          <code dir="ltr">{{ snapshot.ledger_cutoff_sequence }}</code>
+          <span class="muted">
+            {% translate "بهذا الرقم يمكن إعادة اشتقاق نفس الأرصدة بعد سنوات." %}
+          </span>
+        </dd>
+
+        <dt>{% translate "إصدار الحساب" %}</dt>
+        <dd><code dir="ltr">{{ snapshot.calculation_version }}</code></dd>
+
+        <dt>{% translate "مفتاح التكرار" %}</dt>
+        <dd><code dir="ltr">{{ snapshot.idempotency_key }}</code></dd>
+
+        <dt>{% translate "بصمة الطلب" %}</dt>
+        <dd><code dir="ltr">{{ snapshot.request_fingerprint }}</code></dd>
+
+        <dt>{% translate "أنشأها" %}</dt>
+        <dd>
+          {% if snapshot.created_by %}{{ snapshot.created_by }}{% else %}—{% endif %}
+          <code dir="ltr">{{ snapshot.created_at|date:"Y-m-d H:i" }}</code>
+        </dd>
+
+        <dt>{% translate "المرجع" %}</dt>
+        <dd>{% if snapshot.reference %}<code dir="ltr">{{ snapshot.reference }}</code>{% else %}—{% endif %}</dd>
+
+        <dt>{% translate "السبب" %}</dt>
+        <dd>{{ snapshot.reason|default:"—" }}</dd>
+
+        <dt>{% translate "ملاحظة" %}</dt>
+        <dd>{{ snapshot.note|default:"—" }}</dd>
+      </dl>
+    </section>
+
+    <section class="formcard">
+      <h2>{% translate "الإجماليات" %}</h2>
+      <table class="table">
+        <caption class="visually-hidden">{% translate "إجماليات اللقطة" %}</caption>
+        <tbody>
+          {% for label, amount in class_totals %}
+            <tr><th scope="row">{{ label }}</th><td>{{ amount|money }}</td></tr>
+          {% endfor %}
+          <tr>
+            <th scope="row">{% translate "إجمالي كلفة المواد المباشرة" %}</th>
+            <td><strong>{{ snapshot.total_material_cost|money }}</strong></td>
+          </tr>
+          <tr>
+            <th scope="row">{% translate "الناتج المتوقع" %}</th>
+            <td>
+              <code dir="ltr">{{ snapshot.output_quantity_display }}</code>
+              {{ snapshot.output_unit_code }}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">{% translate "كلفة وحدة الناتج" %}</th>
+            <td><code dir="ltr">{{ snapshot.cost_per_output_unit_display }}</code></td>
+          </tr>
+          {# The plate-cost basis, frozen. Every figure here is a stored      #}
+          {# column: nothing about this explanation depends on a serving row  #}
+          {# somebody may since have renamed.                                 #}
+          <tr>
+            <th scope="row">{% translate "الحصة الأساسية" %}</th>
+            <td><code dir="ltr">{{ snapshot.primary_serving_code }}</code></td>
+          </tr>
+          <tr>
+            <th scope="row">{% translate "عدد الأطباق في الدفعة" %}</th>
+            <td><code dir="ltr">{{ snapshot.portions_per_batch_display }}</code></td>
+          </tr>
+          <tr>
+            <th scope="row">{% translate "كلفة الطبق" %}</th>
+            <td><strong><code dir="ltr">{{ snapshot.plate_cost_display }}</code></strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="formcard">
+      <h2>{% translate "الأسطر" %}</h2>
+      <table class="table">
+        <caption class="visually-hidden">{% translate "أسطر اللقطة" %}</caption>
+        <thead>
+          <tr>
+            <th scope="col">#</th>
+            <th scope="col">{% translate "المسار" %}</th>
+            <th scope="col">{% translate "المصدر" %}</th>
+            <th scope="col">{% translate "الصنف" %}</th>
+            <th scope="col">{% translate "الفئة" %}</th>
+            <th scope="col">{% translate "المعامل التراكمي" %}</th>
+            <th scope="col">{% translate "الكمية الفعّالة" %}</th>
+            <th scope="col">{% translate "رصيد المخزن" %}</th>
+            <th scope="col">{% translate "كلفة الوحدة" %}</th>
+            <th scope="col">{% translate "القيمة" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in lines %}
+            <tr>
+              <td>{{ line.line_number }}</td>
+              <td><code dir="ltr">{{ line.component_path|default:"—" }}</code></td>
+              <td>{{ line.source_recipe_code }} v{{ line.source_version_number }}</td>
+              <td>{{ line.item_code }} — {{ line.item_name }}</td>
+              <td>{{ line.get_cost_class_display }}</td>
+              <td><code dir="ltr">{{ line.multiplier_display }}</code></td>
+              <td><code dir="ltr">{{ line.quantity_display }}</code></td>
+              <td>
+                <code dir="ltr">{{ line.valuation_quantity_display }}</code>
+                / {{ line.valuation_value|money }}
+                <span class="muted">({{ line.valuation_lot_count }})</span>
+              </td>
+              <td><code dir="ltr">{{ line.unit_cost_display }}</code></td>
+              <td>{{ line.allocated_extension|money }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th colspan="9" scope="row">{% translate "المجموع" %}</th>
+            <td><strong>{{ snapshot.total_material_cost|money }}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </section>
+
+    {% if servings %}
+      <section class="formcard">
+        <h2>{% translate "كلفة الحصص" %}</h2>
+        <p class="muted">
+          {% translate "كل سيناريو بديل مستقل يوزّع الإجمالي كاملاً، ولا تُجمع السيناريوهات." %}
+        </p>
+        <table class="table">
+          <caption class="visually-hidden">{% translate "سيناريوهات الحصص" %}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{% translate "الحصة" %}</th>
+              <th scope="col">{% translate "المعامل" %}</th>
+              <th scope="col">{% translate "كلفة الحصة" %}</th>
+              <th scope="col">{% translate "الحصص الكاملة" %}</th>
+              <th scope="col">{% translate "المتبقي" %}</th>
+              <th scope="col">{% translate "بالكلفة العادية" %}</th>
+              <th scope="col">{% translate "بالكلفة الأعلى" %}</th>
+              <th scope="col">{% translate "كلفة المتبقي" %}</th>
+              <th scope="col">{% translate "مجموع التوزيع" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for serving in servings %}
+              <tr>
+                <td>
+                  {{ serving.code }} — {{ serving.name_ar }}
+                  {% if serving.is_primary %}<span class="badge">{% translate "أساسية" %}</span>{% endif %}
+                </td>
+                <td><code dir="ltr">{{ serving.factor_display }}</code></td>
+                <td><code dir="ltr">{{ serving.cost_per_serving_display }}</code></td>
+                <td><code dir="ltr">{{ serving.whole_serving_count }}</code></td>
+                <td><code dir="ltr">{{ serving.remainder_display }}</code></td>
+                <td>
+                  <code dir="ltr">{{ serving.normal_serving_count }}</code> ×
+                  {{ serving.minimum_allocated|money }}
+                </td>
+                <td>
+                  <code dir="ltr">{{ serving.elevated_serving_count }}</code> ×
+                  {{ serving.maximum_allocated|money }}
+                </td>
+                <td>{{ serving.remainder_cost|money }}</td>
+                <td><strong>{{ serving.allocated_total|money }}</strong></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    {% endif %}
+
+    <section class="formcard">
+      <h2>{% translate "نتيجة التحقق" %}</h2>
+      {% if findings %}
+        <ul class="errorlist" role="alert">
+          {% for finding in findings %}
+            <li><code dir="ltr">{{ finding.code }}</code> — {{ finding.message }}</li>
+          {% endfor %}
+        </ul>
+        <p class="muted">
+          {% translate "التحقق يبلّغ ولا يصلح. التصحيح لقطة جديدة، لا تعديلاً على هذه." %}
+        </p>
+      {% else %}
+        <p>{% translate "اللقطة متسقة مع نفسها: الإجمالي يساوي أسطره، والفئات تساوي الإجمالي، وكل سيناريو حصة يوزّع الإجمالي كاملاً." %}</p>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

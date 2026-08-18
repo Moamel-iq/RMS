@@ -199,6 +199,7 @@ class InventoryReportView(InventoryViewMixin, View):
                 "branches": accessible_branches(self.actor),
                 "export_query": self._export_query(filters),
                 "htmx_list": True,
+                "inventory_ui": True,
                 "list_base_template": (
                     "settings/_list_fragment.html" if self.is_htmx() else "shell.html"
                 ),

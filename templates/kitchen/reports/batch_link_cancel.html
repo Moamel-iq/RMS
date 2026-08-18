@@ -1,0 +1,76 @@
+{# Withdrawing an attribution.                                                #}
+{#                                                                           #}
+{# Cancellation with a reason, never a delete. The row stays visible          #}
+{# afterwards, because a correction that hides what it corrected is not a     #}
+{# correction — and the quantity it claimed returns to the source line's      #}
+{# available attribution the moment this commits.                            #}
+{% extends base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="kitchen-batch-link-cancel">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ link_statement }}</p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_consumption' link.batch_id %}">
+          {% translate "رجوع" %}
+        </a>
+      </div>
+    </div>
+
+    <p class="banner" role="alert">
+      {% translate "الإلغاء لا يعكس حركة مخزنية ولا قيداً — لم يكن للربط أثر في أيٍّ منهما. ما يتغيّر أن هذا الربط يخرج من التفسير، وتعود كميته متاحة للنسبة على سطر المستند. السجل يبقى ظاهراً في التاريخ." %}
+    </p>
+
+    <dl class="deflist">
+      <dt>{% translate "النوع" %}</dt>
+      <dd>{{ link.get_link_type_display }}</dd>
+      <dt>{% translate "الدفعة" %}</dt>
+      <dd><bdi dir="ltr"><code>{{ link.batch.number|default:"—" }}</code></bdi></dd>
+      <dt>{% translate "المستند" %}</dt>
+      <dd><bdi dir="ltr"><code>{{ link.source_reference }}</code></bdi></dd>
+      <dt>{% translate "الصنف" %}</dt>
+      <dd>{{ link.item.code }} — {{ link.item.name_ar }}</dd>
+      <dt>{% translate "الكمية المنسوبة" %}</dt>
+      <dd><bdi dir="ltr"><code>{{ link.quantity_display }}</code></bdi></dd>
+      <dt>{% translate "المتاح حالياً على سطر المستند" %}</dt>
+      <dd><bdi dir="ltr"><code>{{ remaining }}</code></bdi></dd>
+      <dt>{% translate "السبب الأصلي" %}</dt>
+      <dd>{{ link.reason }}</dd>
+    </dl>
+
+    <form class="formcard"
+          method="post"
+          novalidate
+          action="{{ request.path }}"
+          hx-post="{{ request.path }}"
+          hx-target="#kitchen-batch-link-cancel"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% include "settings/_field.html" with field=field %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions">
+        <button class="btn btn--danger" type="submit">{% translate "تأكيد الإلغاء" %}</button>
+        <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_consumption' link.batch_id %}">
+          {% translate "تراجع" %}
+        </a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

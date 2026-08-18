@@ -2,31 +2,38 @@
 {% load i18n %}
 
 {% block columns %}
-  <th>{% translate "الرمز" %}</th>
-  <th>{% translate "الاسم" %}</th>
-  <th>{% translate "الفرع" %}</th>
-  <th>{% translate "النوع" %}</th>
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "إجراءات" %}</th>
+  <th scope="col">{% translate "الرمز" %}</th>
+  <th scope="col">{% translate "الاسم" %}</th>
+  <th scope="col">{% translate "الفرع" %}</th>
+  <th scope="col">{% translate "النوع" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "إجراءات" %}</th>
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد نتائج مطابقة" as no_results_title %}
+  {% translate "جرّب البحث برمز المخزن أو اسمه." as no_results_description %}
+  {% translate "لا توجد مخازن بعد" as empty_title %}
+  {% translate "أنشئ المخازن التي ستستقبل وتصدر حركة الأصناف." as empty_description %}
   {% for warehouse in warehouses %}
     <tr>
-      <td><code>{{ warehouse.code }}</code></td>
-      <td>{{ warehouse.name_ar }}</td>
-      <td><code>{{ warehouse.branch.code }}</code></td>
-      <td>
+      <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ warehouse.code }}</code></bdi></td>
+      <td data-label="{% translate 'الاسم' %}"><strong>{{ warehouse.name_ar }}</strong></td>
+      <td data-label="{% translate 'الفرع' %}"><bdi dir="ltr"><code>{{ warehouse.branch.code }}</code></bdi></td>
+      <td data-label="{% translate 'النوع' %}">
         {{ warehouse.get_warehouse_type_display }}
         {% if warehouse.is_system %}
-          <span class="chip chip--neutral">{% translate "نظامي" %}</span>
+          {% translate "نظامي" as system_label %}
+          {% include "components/status_badge.html" with status="NEUTRAL" label=system_label %}
         {% endif %}
       </td>
-      <td>
+      <td data-label="{% translate 'الحالة' %}">
         {% if warehouse.is_active %}
-          <span class="chip chip--on">{% translate "فعّال" %}</span>
+          {% translate "فعّال" as status_label %}
+          {% include "components/status_badge.html" with status="ACTIVE" label=status_label %}
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+          {% translate "مؤرشف" as status_label %}
+          {% include "components/status_badge.html" with status="ARCHIVED" label=status_label %}
         {% endif %}
       </td>
       {# The in-transit warehouse offers no actions at all. Renaming or       #}
@@ -34,12 +41,18 @@
       {# arrived at another would break transfers that are mid-flight, so the #}
       {# service refuses it and the screen does not pretend otherwise.        #}
       {% if warehouse.is_system %}
-        <td><span class="muted">{% translate "محمي" %}</span></td>
+        <td data-label="{% translate 'إجراءات' %}"><span class="muted">{% translate "محمي" %}</span></td>
       {% else %}
         {% include "inventory/_rowactions.html" with row=warehouse owner_id=warehouse.branch_id edit_url="inventory:warehouse_update" archive_url="inventory:warehouse_archive" reactivate_url="inventory:warehouse_reactivate" %}
       {% endif %}
     </tr>
   {% empty %}
-    <tr><td colspan="6">{% translate "لا توجد مخازن بعد." %}</td></tr>
+    <tr><td colspan="6" data-empty-state>
+      {% if filter_query %}
+        {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+      {% else %}
+        {% include "components/empty_state.html" with title=empty_title description=empty_description action_url=create_url action_label=create_label %}
+      {% endif %}
+    </td></tr>
   {% endfor %}
 {% endblock %}

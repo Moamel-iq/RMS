@@ -1,0 +1,121 @@
+{# سجل وجبات الموظفين / سجل الوجبات المجانية.                                #}
+{#                                                                           #}
+{# The statement at the top is not decoration. A report labelled "staff      #}
+{# meals" showing quantities and no money, in a system that has money, is    #}
+{# read as "staff meals cost nothing" - so the page says in words that the   #}
+{# ingredients already left stock elsewhere and that the accounting          #}
+{# reclassification is deferred (RCP-108).                                   #}
+{% extends base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="kitchen-meal-list">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ meal_statement }}</p>
+      </div>
+      {% if can_record %}
+        <div class="rowactions">
+          <a class="btn btn--primary" href="{{ create_url }}">{% translate "تسجيل وجبة" %}</a>
+        </div>
+      {% endif %}
+    </div>
+
+    <form class="toolbar"
+          method="get"
+          hx-get="{{ request.path }}"
+          hx-target="#kitchen-meal-list"
+          hx-swap="outerHTML">
+      <label class="field">
+        <span>{% translate "الحالة" %}</span>
+        <select name="status">
+          <option value="">{% translate "الكل" %}</option>
+          {% for value, label in statuses %}
+            <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>
+              {{ label }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>{% translate "من تاريخ" %}</span>
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </label>
+      <label class="field">
+        <span>{% translate "إلى تاريخ" %}</span>
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </label>
+      <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button>
+    </form>
+
+    <p class="muted">
+      {% blocktranslate count total=total_rows %}سجل واحد{% plural %}{{ total }} سجل{% endblocktranslate %}
+    </p>
+
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "تاريخ الاستهلاك" %}</th>
+            <th scope="col">{% translate "الفرع" %}</th>
+            <th scope="col">{% translate "الوصفة" %}</th>
+            <th scope="col">{% translate "النسخة" %}</th>
+            <th scope="col">{% translate "الحصة" %}</th>
+            <th scope="col">{% translate "العدد" %}</th>
+            <th scope="col">{% translate "المستفيد" %}</th>
+            <th scope="col">{% translate "الحالة" %}</th>
+            <th scope="col"><span class="sr-only">{% translate "إجراءات" %}</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td><bdi dir="ltr"><code>{{ row.consumed_on|date:"Y-m-d" }}</code></bdi></td>
+              <td>{{ row.branch.code }}</td>
+              <td>{{ row.recipe.code }} — {{ row.recipe.name_ar }}</td>
+              <td><bdi dir="ltr"><code>v{{ row.recipe_version.version_number }}</code></bdi></td>
+              <td>{% if row.serving_id %}{{ row.serving.name_ar }}{% else %}—{% endif %}</td>
+              <td><bdi dir="ltr"><code>{{ row.quantity_display }}</code></bdi></td>
+              <td>{{ row.beneficiary|default:"—" }}</td>
+              <td>
+                <span class="pill">{{ row.get_status_display }}</span>
+              </td>
+              <td>
+                <a class="btn btn--ghost" href="{% url 'kitchen:meal_detail' row.pk %}">
+                  {% translate "تفاصيل" %}
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="9" class="empty">
+                {% translate "لا توجد سجلات مطابقة. عدّل الفترة أو الحالة ثم أعد المحاولة." %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if is_paginated %}
+      <nav class="pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
+        {% if page_obj.has_previous %}
+          <a class="btn btn--ghost" href="?page={{ page_obj.previous_page_number }}"
+             hx-get="?page={{ page_obj.previous_page_number }}"
+             hx-target="#kitchen-meal-list" hx-swap="outerHTML">{% translate "السابق" %}</a>
+        {% endif %}
+        <span class="muted">
+          {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
+        </span>
+        {% if page_obj.has_next %}
+          <a class="btn btn--ghost" href="?page={{ page_obj.next_page_number }}"
+             hx-get="?page={{ page_obj.next_page_number }}"
+             hx-target="#kitchen-meal-list" hx-swap="outerHTML">{% translate "التالي" %}</a>
+        {% endif %}
+      </nav>
+    {% endif %}
+  </div>
+{% endblock %}

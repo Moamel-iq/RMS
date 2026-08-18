@@ -1,78 +1,143 @@
-{# The base every list screen extends. The parent is a variable so one        #}
-{# template serves both a full page and an htmx partial: shell.html normally, #}
-{# settings/_list_fragment.html when a view answers an HX-Request. Lists      #}
-{# whose view sets neither fall through `default` and render as they always   #}
-{# did. `extends` must be the first tag, so this note leads with comments.    #}
+{# Shared full-page/HTMX list contract. Inventory enhancements are gated by #}
+{# `inventory_ui`; Settings, Accounting, Procurement and Kitchen keep the   #}
+{# same semantic structure and never inherit inventory-only direction rules. #}
 {% extends list_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="pagehead">
-    <div>
-      <h1 class="pagehead__title">{{ page_title }}</h1>
-      {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
-    </div>
-    {% block pageactions %}
-      {% if create_url %}
-        <a class="btn btn--primary" href="{{ create_url }}">{{ create_label }}</a>
-      {% endif %}
-    {% endblock %}
-  </div>
+  <div class="list-page{% if inventory_ui %} inventory-page inventory-list-page{% endif %}">
+    {% if inventory_ui %}
+      <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+        <a href="{% url 'inventory:item_list' %}">{% translate "المخزون" %}</a>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">{{ page_title }}</span>
+      </nav>
+    {% endif %}
 
-  {# The form still submits normally without JavaScript: method="get" and the #}
-  {# submit button are untouched, and htmx only intercepts once it has loaded.#}
-  {# The hx-* attributes appear solely on lists whose view answers HX-Request #}
-  {# with the partial — swapping a whole page into the table would nest the   #}
-  {# shell inside itself.                                                     #}
-  {% block toolbar %}
-    <form class="toolbar" method="get"
-          {% if htmx_list %}
-          hx-get="{{ request.path }}"
-          hx-target="#list-results"
-          hx-swap="outerHTML"
-          hx-push-url="true"
-          hx-trigger="submit, input changed delay:300ms from:find input[type=search], change from:find select"
-          {% endif %}>
-      <div class="toolbar__search">
-        <input type="search" name="q" value="{{ search|default:'' }}"
-               placeholder="{% translate 'بحث' %}" aria-label="{% translate 'بحث' %}">
-      </div>
-      {% block filters %}{% endblock %}
-      <button class="btn btn--ghost" type="submit">{% translate "تطبيق" %}</button>
-    </form>
-  {% endblock %}
-
-  {# `filter_query` carries every filter except the page number, so paging    #}
-  {# keeps the search and the dropdowns. It ends in "&" when it is non-empty. #}
-  {% block results %}
-    <div class="tablewrap" id="list-results">
-      <table class="table">
-        <thead><tr>{% block columns %}{% endblock %}</tr></thead>
-        <tbody>
-          {% block rows %}{% endblock %}
-        </tbody>
-      </table>
-      {% if is_paginated %}
-        <div class="toolbar" style="padding:14px 16px;margin:0">
-          {% if page_obj.has_previous %}
-            <a class="btn btn--ghost" href="?{{ filter_query }}page={{ page_obj.previous_page_number }}"
-               {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.previous_page_number }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true"{% endif %}>
-              {% translate "السابق" %}
-            </a>
-          {% endif %}
-          <span class="muted">
-            {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
-          </span>
-          {% if page_obj.has_next %}
-            <a class="btn btn--ghost" href="?{{ filter_query }}page={{ page_obj.next_page_number }}"
-               {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.next_page_number }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true"{% endif %}>
-              {% translate "التالي" %}
-            </a>
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        {% if inventory_ui %}<p class="pagehead__eyebrow">{{ active_nav_group|default:active_module.label }}</p>{% endif %}
+        <div class="pagehead__title-row">
+          <h1 class="pagehead__title">{{ page_title }}</h1>
+          {% if page_obj %}
+            <span class="result-count" id="list-result-count" aria-label="{% translate 'عدد النتائج' %}" aria-live="polite">
+              <bdi dir="ltr">{{ page_obj.paginator.count }}</bdi>
+              {% if result_label %}{{ result_label }}{% else %}{% translate "سجل" %}{% endif %}
+            </span>
           {% endif %}
         </div>
-      {% endif %}
+        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+      </div>
+      <div class="pagehead__actions">
+        {% block pageactions %}
+          {% if create_url %}<a class="btn btn--primary" href="{{ create_url }}">{{ create_label }}</a>{% endif %}
+        {% endblock %}
+      </div>
     </div>
-  {% endblock %}
+
+    {% translate "ابحث بالرمز أو الاسم…" as default_search_placeholder %}
+    {% block toolbar %}
+      <form class="toolbar" method="get"{% if inventory_ui %} data-inventory-toolbar aria-label="{% translate 'البحث والمرشحات' %}"{% endif %}
+            {% if htmx_list %}
+            hx-get="{{ request.path }}"
+            hx-target="#list-results"
+            hx-swap="outerHTML"
+            hx-push-url="true"
+            hx-trigger="submit, keyup changed delay:350ms from:find input[type=search], search from:find input[type=search], change from:find select"
+            hx-indicator="#list-loading"
+            hx-sync="closest form:replace"
+            {% endif %}>
+        <div class="toolbar__search">
+          <label class="sr-only" for="list-search">{% translate "بحث" %}</label>
+          <svg class="toolbar__search-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="list-search" name="q" value="{{ search|default:'' }}"
+                 placeholder="{{ search_placeholder|default:default_search_placeholder }}"
+                 autocomplete="off">
+        </div>
+        {% if inventory_ui %}
+          <details class="filter-disclosure"{% if filter_query %} open{% endif %}>
+            <summary>
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+              {% translate "مرشحات" %}
+              {% if filter_query %}<span class="filter-disclosure__dot" aria-hidden="true"></span>{% endif %}
+            </summary>
+            <div class="toolbar__filters">
+        {% endif %}
+              {% block filters %}{% endblock %}
+        {% if inventory_ui %}
+            </div>
+          </details>
+        {% endif %}
+        <button class="btn btn--secondary toolbar__submit" type="submit">{% translate "تطبيق" %}</button>
+      </form>
+    {% endblock %}
+
+    {% block results %}
+      <div class="tablewrap" id="list-results">
+        {% if inventory_ui %}
+          {% if page_obj %}
+            <span class="sr-only" hx-swap-oob="innerHTML:#list-result-count">
+              <bdi dir="ltr">{{ page_obj.paginator.count }}</bdi>
+              {% if result_label %}{{ result_label }}{% else %}{% translate "سجل" %}{% endif %}
+            </span>
+          {% endif %}
+          <div class="list-statusbar">
+            <div class="active-filters" aria-label="{% translate 'المرشحات النشطة' %}">
+              {% if search %}<span class="filter-chip"><span>{% translate "بحث" %}</span><bdi>{{ search }}</bdi></span>{% endif %}
+              {% block active_filter_chips %}{% endblock %}
+              {% if filter_query %}
+                <a class="filter-reset" href="{{ request.path }}" data-reset-filters>{% translate "مسح المرشحات" %}</a>
+              {% else %}
+                <span class="list-statusbar__hint">{% translate "تُحدَّث النتائج تلقائياً أثناء الكتابة." %}</span>
+              {% endif %}
+            </div>
+            <span class="inventory-loading" id="list-loading" role="status" aria-live="polite">
+              <span class="inventory-loading__spinner" aria-hidden="true"></span>{% translate "جارٍ تحديث النتائج…" %}
+            </span>
+            <p class="list-feedback" id="list-feedback" role="alert" hidden></p>
+          </div>
+          <div class="data-table-shell" tabindex="0" role="region" aria-label="{{ page_title }}">
+        {% endif %}
+            <table class="table{% if inventory_ui %} data-table responsive-table{% endif %}">
+              <thead><tr>{% block columns %}{% endblock %}</tr></thead>
+              <tbody>{% block rows %}{% endblock %}</tbody>
+            </table>
+        {% if inventory_ui %}</div>{% endif %}
+
+        {% if is_paginated %}
+          <nav class="pagination{% if inventory_ui %} inventory-pagination{% endif %}" aria-label="{% translate 'ترقيم الصفحات' %}">
+            <div class="pagination__edge">
+              {% if page_obj.has_previous %}
+                <a class="btn btn--secondary btn--sm" href="?{{ filter_query }}page=1"
+                   {% if htmx_list %}hx-get="?{{ filter_query }}page=1" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% endif %}>
+                  {% translate "الأولى" %}
+                </a>
+                <a class="btn btn--secondary btn--sm" href="?{{ filter_query }}page={{ page_obj.previous_page_number }}"
+                   {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.previous_page_number }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% endif %}>
+                  {% translate "السابق" %}
+                </a>
+              {% endif %}
+            </div>
+            <span class="pagination__status">
+              {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
+            </span>
+            <div class="pagination__edge pagination__edge--end">
+              {% if page_obj.has_next %}
+                <a class="btn btn--secondary btn--sm" href="?{{ filter_query }}page={{ page_obj.next_page_number }}"
+                   {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.next_page_number }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% endif %}>
+                  {% translate "التالي" %}
+                </a>
+                <a class="btn btn--secondary btn--sm" href="?{{ filter_query }}page={{ page_obj.paginator.num_pages }}"
+                   {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.paginator.num_pages }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% endif %}>
+                  {% translate "الأخيرة" %}
+                </a>
+              {% endif %}
+            </div>
+          </nav>
+        {% endif %}
+      </div>
+    {% endblock %}
+  </div>
 {% endblock %}

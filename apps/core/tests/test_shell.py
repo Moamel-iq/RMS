@@ -105,7 +105,7 @@ class TestShellRendering:
     def test_unbuilt_sections_are_inert(self, client: Client, user: User) -> None:
         """Sections without an implementation must not be clickable."""
         client.force_login(user)
-        body = client.get(reverse("users:home"), {"module": "inventory"}).content.decode()
+        body = client.get(reverse("users:home"), {"module": "sales"}).content.decode()
         assert 'aria-disabled="true"' in body
         assert "قريباً" in body
 

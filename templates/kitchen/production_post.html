@@ -1,0 +1,115 @@
+{# The posting confirmation: what is about to move, read before it moves.     #}
+{#                                                                            #}
+{# A real screen rather than a JavaScript dialogue, because this is where the #}
+{# operator reads the consequence: every consumption with its lot, the        #}
+{# output, and — when the inventory accounts all net to zero — the sentence   #}
+{# saying that no journal will exist and why. A blank where a journal link    #}
+{# would be is indistinguishable from a bug.                                  #}
+{#                                                                            #}
+{# Nothing on this form edits the batch. Every quantity was entered on the    #}
+{# workspace and is re-read under lock by the service; a confirmation that    #}
+{# could also edit would be a second, unaudited editing surface on the one    #}
+{# screen where nobody reads carefully.                                       #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="production-action">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">
+          {% translate "الترحيل يستهلك كل سطر فعلي ويُدخل الناتج بقيمة ما خرج بالضبط. لا يمكن التراجع إلا بعكسٍ يبقى في السجل." %}
+        </p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "رجوع إلى المسودة" %}
+        </a>
+      </div>
+    </div>
+
+    {% if not is_ready %}
+      <p class="banner" role="alert">
+        {% translate "هذه الدفعة غير جاهزة للترحيل بعد." %}
+      </p>
+      <ul class="findings">
+        {% for problem in readiness.problems %}<li>{{ problem.message }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+
+    <section class="panel">
+      <h2 class="panel__title">{% translate "ما سيخرج" %}</h2>
+      {% if plan %}
+        <div class="tablewrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">{% translate "الصنف" %}</th>
+                <th scope="col">{% translate "الكمية" %}</th>
+                <th scope="col">{% translate "اللوط" %}</th>
+                <th scope="col">{% translate "الموقع" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in plan.consumptions %}
+                <tr>
+                  <td>{{ row.item.code }} — {{ row.item.name_ar }}</td>
+                  <td><code dir="ltr">{{ row.quantity }}</code> {{ row.item.base_unit.code }}</td>
+                  <td>{% if row.lot %}<code dir="ltr">{{ row.lot.code }}</code>{% else %}—{% endif %}</td>
+                  <td>{% if row.location %}<code dir="ltr">{{ row.location.code }}</code>{% else %}—{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <dl class="deflist">
+          <dt>{% translate "الناتج" %}</dt>
+          <dd>
+            {{ plan.output_item.code }} —
+            <code dir="ltr">{{ plan.output_quantity }}</code>
+            {{ plan.output_item.base_unit.code }}
+          </dd>
+        </dl>
+      {% else %}
+        <p class="empty">{% translate "لا توجد خطة ترحيل بعد." %}</p>
+      {% endif %}
+
+      <p class="pagehead__hint">
+        {% translate "الفاقد في الإنتاج يُستوعب في كلفة وحدة الناتج. لا يوجد حساب انحراف مردود ولا قيد له." %}
+      </p>
+    </section>
+
+    <form class="formcard"
+          method="post"
+          novalidate
+          action="{{ request.path }}"
+          hx-post="{{ request.path }}"
+          hx-target="#production-action"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% include "settings/_field.html" with field=field %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "تأكيد الترحيل" %}</button>
+        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+          {% translate "إلغاء" %}
+        </a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

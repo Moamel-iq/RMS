@@ -1,0 +1,54 @@
+{# "What did this recipe cost at this branch on this day?"                   #}
+{#                                                                          #}
+{# Version first, then costs, both driven by the same date (RCP-026). The   #}
+{# branch is required because resolution is a per-branch question: two      #}
+{# branches may legitimately run different versions of one dish on one day. #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="cost-historical">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">
+          {{ recipe.code }} — {% translate "كلفة الوصفة بتاريخ" %}
+        </h1>
+        <p class="pagehead__hint">
+          {% translate "تُحدَّد النسخة السارية في ذلك الفرع بذلك التاريخ أولاً، ثم تُسعَّر بمتوسطات التاريخ نفسه. النسخة المستبدلة ما زالت تجيب عن تواريخها هي." %}
+        </p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:recipe_detail' recipe.pk %}">
+          {% translate "تفاصيل الوصفة" %}
+        </a>
+      </div>
+    </div>
+
+    <form class="formcard"
+          method="get"
+          hx-get="{% url 'kitchen:cost_on_date' recipe.pk %}"
+          hx-target="#cost-historical"
+          hx-swap="outerHTML">
+      {% if form.non_field_errors %}
+        <ul class="errorlist" role="alert">
+          {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {{ form.as_p }}
+      <button class="btn" type="submit">{% translate "احسب الكلفة" %}</button>
+    </form>
+
+    {% if card %}
+      <p class="muted">
+        {% blocktranslate with number=card.version.version_number %}النسخة السارية في ذلك التاريخ: v{{ number }}.{% endblocktranslate %}
+      </p>
+      {% include "kitchen/_cost_card.html" %}
+    {% else %}
+      <p class="muted">
+        {% translate "اختر الفرع والمخزن والتاريخ. لا يوجد فرع ولا تاريخ افتراضي." %}
+      </p>
+    {% endif %}
+  </div>
+{% endblock %}

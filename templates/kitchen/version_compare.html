@@ -1,0 +1,110 @@
+{# What changed between two versions of one recipe.                          #}
+{# The select refreshes the diff through HTMX and submits normally without   #}
+{# it, so the comparison is reachable from a bookmark and from a keyboard.   #}
+{# `extends` must be the first tag, so this note leads with comments.        #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">
+        {{ left.recipe.code }} — {% translate "مقارنة" %} v{{ left.version_number }}
+        {% if right %}↔ v{{ right.version_number }}{% endif %}
+      </h1>
+      <p class="pagehead__hint">
+        {% translate "المطابقة على مفاتيح العمل — رمز الصنف ورقم الخطوة ورمز الحصة — لا على المفاتيح الأولية. الترتيب ثابت." %}
+      </p>
+    </div>
+    <div class="rowactions">
+      <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' left.pk %}">{% translate "عودة للنسخة" %}</a>
+    </div>
+  </div>
+
+  <form class="toolbar" method="get" id="compare-picker"
+        hx-get="{{ request.path }}"
+        hx-target="#compare-results"
+        hx-select="#compare-results"
+        hx-swap="outerHTML"
+        hx-push-url="true"
+        hx-trigger="submit, change from:find select">
+    <select name="against" aria-label="{% translate 'قارن مع' %}">
+      {% for sibling in siblings %}
+        <option value="{{ sibling.pk }}"{% if right and sibling.pk == right.pk %} selected{% endif %}>
+          v{{ sibling.version_number }} — {{ sibling.get_status_display }}
+        </option>
+      {% empty %}
+        <option value="">{% translate "لا توجد نسخة أخرى" %}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn--ghost" type="submit">{% translate "قارن" %}</button>
+  </form>
+
+  <div id="compare-results">
+    {% if error %}
+      <div class="alert" role="alert"><p>{{ error }}</p></div>
+    {% elif not comparison %}
+      <section class="formcard">
+        <p class="muted">{% translate "لا توجد نسخة أخرى من هذه الوصفة للمقارنة." %}</p>
+      </section>
+    {% else %}
+      <section class="formcard">
+        <p>
+          {% if comparison.has_changes %}
+            {% blocktranslate count total=comparison.change_count %}فرق واحد.{% plural %}{{ total }} فروق.{% endblocktranslate %}
+          {% else %}
+            {% translate "النسختان متطابقتان في كل ما تقارنه هذه الشاشة." %}
+          {% endif %}
+        </p>
+      </section>
+
+      {% for section in comparison.sections %}
+        <section class="formcard">
+          <h2>{{ section.label }}</h2>
+          {% if not section.has_changes %}
+            <p class="muted">{% translate "بلا تغيير." %}</p>
+          {% else %}
+            <div class="tablewrap">
+              <table class="table">
+                <thead><tr>
+                  <th>{% translate "العنصر" %}</th>
+                  <th>{% translate "التغيير" %}</th>
+                  <th>v{{ left.version_number }}</th>
+                  <th>v{{ right.version_number }}</th>
+                </tr></thead>
+                <tbody>
+                  {% for row in section.changed_rows %}
+                    {% if row.differences %}
+                      {% for difference in row.differences %}
+                        <tr>
+                          <td>{{ row.label }} · {{ difference.label }}</td>
+                          <td><span class="chip chip--off">{% translate "تغيّر" %}</span></td>
+                          <td>{{ difference.left|default_if_none:"—" }}</td>
+                          <td>{{ difference.right|default_if_none:"—" }}</td>
+                        </tr>
+                      {% endfor %}
+                    {% else %}
+                      <tr>
+                        <td>{{ row.label }}</td>
+                        <td>
+                          <span class="chip {% if row.classification == 'ADDED' %}chip--on{% else %}chip--off{% endif %}">
+                            {% if row.classification == "ADDED" %}{% translate "أُضيف" %}
+                            {% else %}{% translate "حُذف" %}{% endif %}
+                          </span>
+                        </td>
+                        <td>{% if row.classification == "REMOVED" %}✓{% else %}—{% endif %}</td>
+                        <td>{% if row.classification == "ADDED" %}✓{% else %}—{% endif %}</td>
+                      </tr>
+                    {% endif %}
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+        </section>
+      {% endfor %}
+    {% endif %}
+  </div>
+{% endblock %}

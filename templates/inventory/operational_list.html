@@ -6,37 +6,47 @@
 {# immutable public id.                                                      #}
 
 {% block columns %}
-  <th>{% translate "الرقم" %}</th>
-  <th>{% translate "المخزن" %}</th>
-  <th>{% translate "يوم العمل" %}</th>
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "مركز الكلفة" %}</th>
-  <th>{% translate "المُرحِّل" %}</th>
-  <th>{% translate "مرجع الإثبات" %}</th>
+  <th scope="col">{% translate "الرقم" %}</th>
+  <th scope="col">{% translate "المخزن" %}</th>
+  <th scope="col">{% translate "يوم العمل" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "مركز الكلفة" %}</th>
+  <th scope="col">{% translate "المُرحِّل" %}</th>
+  <th scope="col">{% translate "مرجع الإثبات" %}</th>
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد مستندات مطابقة" as no_results_title %}
+  {% translate "جرّب رقماً أو مرجعاً مختلفاً، أو امسح المرشّحات." as no_results_description %}
+  {% translate "لا توجد مستندات بعد" as empty_title %}
+  {% translate "أنشئ أول مستند لهذا النوع لبدء دورة العمل المخزنية." as empty_description %}
   {% for document in documents %}
     <tr>
-      <td>
+      <td data-label="{% translate 'الرقم' %}">
         <a href="{% url detail_url_name document.pk %}">
           {% if document.document_number %}
-            <code dir="ltr">{{ document.document_number }}</code>
+            <bdi dir="ltr"><code>{{ document.document_number }}</code></bdi>
           {% else %}
-            <code dir="ltr">{{ document.public_id|truncatechars:13 }}</code>
+            <bdi dir="ltr"><code>{{ document.public_id|truncatechars:13 }}</code></bdi>
           {% endif %}
         </a>
       </td>
-      <td><code>{{ document.warehouse.code }}</code></td>
-      <td>{{ document.business_date|date:"Y-m-d" }}</td>
-      <td>{{ document.get_status_display }}</td>
-      <td>{% if document.cost_center %}<code>{{ document.cost_center.code }}</code>{% else %}—{% endif %}</td>
-      <td>{{ document.posted_by|default:"—" }}</td>
-      <td>{{ document.evidence_reference }}</td>
+      <td data-label="{% translate 'المخزن' %}"><bdi dir="ltr"><code>{{ document.warehouse.code }}</code></bdi></td>
+      <td data-label="{% translate 'يوم العمل' %}"><bdi dir="ltr"><time datetime="{{ document.business_date|date:'Y-m-d' }}">{{ document.business_date|date:"Y-m-d" }}</time></bdi></td>
+      <td data-label="{% translate 'الحالة' %}">{% include "components/status_badge.html" with status=document.status label=document.get_status_display %}</td>
+      <td data-label="{% translate 'مركز الكلفة' %}">{% if document.cost_center %}<bdi dir="ltr"><code>{{ document.cost_center.code }}</code></bdi>{% else %}—{% endif %}</td>
+      <td data-label="{% translate 'المُرحِّل' %}">{{ document.posted_by|default:"—" }}</td>
+      <td data-label="{% translate 'مرجع الإثبات' %}">{% if document.evidence_reference %}<bdi dir="ltr">{{ document.evidence_reference }}</bdi>{% else %}—{% endif %}</td>
     </tr>
   {% empty %}
     <tr>
-      <td colspan="7">{% translate "لا مستندات بعد." %}</td>
+      <td colspan="7" data-empty-state>
+        {% if filter_query %}
+          {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+        {% else %}
+          {% include "components/empty_state.html" with title=empty_title description=empty_description action_url=create_url action_label=create_label %}
+        {% endif %}
+      </td>
     </tr>
   {% endfor %}
 {% endblock %}

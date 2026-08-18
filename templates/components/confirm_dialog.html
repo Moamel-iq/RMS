@@ -1,0 +1,14 @@
+{% load i18n %}
+<dialog class="dialog dialog--confirm" data-confirm-dialog aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-message">
+  <div class="dialog__body">
+    <span class="dialog__icon dialog__icon--warning" aria-hidden="true">!</span>
+    <div>
+      <h2 class="dialog__title" id="confirm-dialog-title" data-confirm-title>{% translate "تأكيد الإجراء" %}</h2>
+      <p class="dialog__message" id="confirm-dialog-message" data-confirm-message>{% translate "هل تريد متابعة هذا الإجراء؟" %}</p>
+    </div>
+  </div>
+  <div class="dialog__actions">
+    <button class="btn btn--secondary" type="button" data-confirm-cancel>{% translate "إلغاء" %}</button>
+    <button class="btn btn--danger" type="button" data-confirm-accept>{% translate "متابعة" %}</button>
+  </div>
+</dialog>

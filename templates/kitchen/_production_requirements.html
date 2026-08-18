@@ -1,0 +1,143 @@
+{% load i18n %}
+
+{# The flattened requirement table, with what was actually consumed beside it. #}
+{#                                                                             #}
+{# Included by the detail page and rendered alone by                           #}
+{# `kitchen:production_requirements` for an HTMX swap. One partial, so the     #}
+{# fragment and the page it came from cannot drift.                            #}
+{#                                                                             #}
+{# Three things this table does deliberately:                                  #}
+{#                                                                             #}
+{# * It shows the exact **component path** — `2.1` — beside the label path,    #}
+{#   because a variance on a nested ingredient is only actionable if the       #}
+{#   reader can see which level of the tree it came from.                      #}
+{# * It lists every actual row **separately**. A requirement met with 3 KG of  #}
+{#   rice and 2 L of an approved substitute is two facts, and merging them     #}
+{#   would be arithmetic on unlike things.                                     #}
+{# * The variance is a number **only** where the dimensions agree. Where they  #}
+{#   do not, it says so in words rather than leaving a blank a reader would    #}
+{#   mistake for "nobody looked".                                              #}
+{#                                                                             #}
+{# There is no cost column, no unit cost, no valuation and no lot. None of     #}
+{# them is hidden — a draft has none of those things until Task 3.5.           #}
+
+<div class="tablewrap" id="production-requirements">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>{% translate "#" %}</th>
+        <th>{% translate "المسار" %}</th>
+        <th>{% translate "المصدر" %}</th>
+        <th>{% translate "الصنف" %}</th>
+        <th>{% translate "الوحدة" %}</th>
+        <th>{% translate "لدفعة الوصفة" %}</th>
+        <th>{% translate "المعامل التراكمي" %}</th>
+        <th>{% translate "المخطط" %}</th>
+        <th>{% translate "الفعلي" %}</th>
+        <th>{% translate "الانحراف" %}</th>
+        <th>{% translate "إجراءات" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in lines %}
+        <tr>
+          <td><code dir="ltr">{{ row.line.line_order }}</code></td>
+          <td>
+            {% if row.line.component_path %}
+              <code dir="ltr">{{ row.line.component_path }}</code>
+            {% else %}
+              <span class="muted">{% translate "سطر مباشر" %}</span>
+            {% endif %}
+          </td>
+          <td><span class="muted" dir="ltr">{{ row.line.component_label_path }}</span></td>
+          <td>
+            <code>{{ row.line.item_code }}</code> {{ row.line.item_name }}
+            {% if row.line.is_optional %}
+              <span class="pill">{% translate "اختياري" %}</span>
+            {% endif %}
+          </td>
+          <td><code>{{ row.line.base_unit_code }}</code></td>
+          <td><code dir="ltr">{{ row.line.source_display }}</code></td>
+          <td><code dir="ltr">{{ row.line.multiplier_display }}</code></td>
+          <td><strong dir="ltr">{{ row.line.planned_display }}</strong></td>
+          <td>
+            {% if row.comparison.is_comparable %}
+              <code dir="ltr">{{ row.comparison.comparable_quantity|stringformat:"f" }}</code>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if row.comparison.is_comparable %}
+              <code dir="ltr">{{ row.comparison.variance_display }}</code>
+            {% else %}
+              <span class="muted">{{ row.comparison.statement }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if can_draft %}
+              <a class="btn btn--ghost"
+                 href="{% url 'kitchen:production_substitute_create' row.line.pk %}">
+                {% translate "بديل" %}
+              </a>
+            {% endif %}
+          </td>
+        </tr>
+
+        {# Every actual row on its own line, never summed across dimensions. #}
+        {% for actual in row.actuals %}
+          <tr class="subrow">
+            <td></td>
+            <td colspan="2">
+              <span class="pill">{{ actual.get_kind_display }}</span>
+            </td>
+            <td>
+              <code>{{ actual.item.code }}</code> {{ actual.item.name_ar }}
+              {% if actual.substitute %}
+                <span class="muted">
+                  {% translate "بموجب اعتماد" %}
+                  <code dir="ltr">#{{ actual.substitute.priority }}</code>
+                </span>
+              {% endif %}
+            </td>
+            <td>
+              {% if actual.entered_unit %}
+                <code>{{ actual.entered_unit.code }}</code>
+              {% else %}
+                <code>{{ actual.package_unit.code }}</code>
+              {% endif %}
+            </td>
+            <td><code dir="ltr">{{ actual.entered_display }}</code></td>
+            {# A conversion factor is a technical identity: LTR, period. #}
+            <td><code dir="ltr">{{ actual.factor_display }}</code></td>
+            <td><code dir="ltr">{{ actual.quantity_display }}</code></td>
+            <td colspan="2">
+              <span class="muted">{{ actual.reason }}{{ actual.note }}</span>
+            </td>
+            <td>
+              {% if can_draft and batch.is_draft %}
+                <a class="btn btn--ghost"
+                   href="{% url 'kitchen:production_actual_update' actual.pk %}">
+                  {% translate "تعديل" %}
+                </a>
+                {# Where this quantity came from. Required before posting for a #}
+                {# lot-tracked item, and offered for every row because naming   #}
+                {# the bin is what makes the picking record answerable.         #}
+                <a class="btn btn--ghost"
+                   href="{% url 'kitchen:production_allocate' actual.pk %}">
+                  {% translate "التخصيص" %}
+                </a>
+                <a class="btn btn--ghost"
+                   href="{% url 'kitchen:production_actual_delete' actual.pk %}">
+                  {% translate "حذف" %}
+                </a>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      {% empty %}
+        <tr><td colspan="11">{% translate "لا توجد متطلبات في هذه المسودة." %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

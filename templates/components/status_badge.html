@@ -1,0 +1,4 @@
+<span class="status-badge{% if status == 'POSTED' or status == 'ACTIVE' or status == 'APPLIED' or status == 'COMPLETED' %} status-badge--success{% elif status == 'DRAFT' or status == 'PENDING' or status == 'UPLOADED' or status == 'IN_PROGRESS' or status == 'CLOSED_WITH_SHORTAGE' %} status-badge--warning{% elif status == 'SUBMITTED' or status == 'VALIDATED' or status == 'DISPATCHED' or status == 'PARTIALLY_RECEIVED' %} status-badge--info{% elif status == 'REVERSED' or status == 'ARCHIVED' or status == 'CANCELLED' %} status-badge--neutral{% elif status == 'FAILED' or status == 'FAILED_VALIDATION' %} status-badge--danger{% else %} status-badge--neutral{% endif %}">
+  <span class="status-badge__dot" aria-hidden="true"></span>
+  {{ label }}
+</span>

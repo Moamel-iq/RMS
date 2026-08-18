@@ -1,0 +1,6 @@
+{# The shell-less parent for screens that also answer HTMX.                  #}
+{# A fragment view extends this when HX-Request is present and shell.html    #}
+{# otherwise, so one template serves the partial and the full page and the   #}
+{# two can never drift apart. Swapping a whole page into a target would nest #}
+{# the shell inside itself, which is the bug this file exists to prevent.    #}
+{% block page %}{% endblock %}

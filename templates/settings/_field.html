@@ -1,7 +1,15 @@
-{# One form field: label, control, help, errors. #}
-<div class="formrow{% if field.errors %} formrow--invalid{% endif %}{% if wide %} formrow--wide{% endif %}">
-  <label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+{% load i18n %}
+{# One form field: label, control, help, errors, and stable ARIA associations. #}
+<div class="formrow{% if field.errors %} formrow--invalid{% endif %}{% if wide %} formrow--wide{% endif %}" data-field>
+  <label class="formrow__label" for="{{ field.id_for_label }}">
+    {{ field.label }}
+    {% if field.field.required %}<span class="formrow__required" aria-hidden="true">*</span><span class="sr-only"> — {% translate "مطلوب" %}</span>{% endif %}
+  </label>
   {{ field }}
-  {% if field.help_text %}<p class="formrow__help">{{ field.help_text }}</p>{% endif %}
-  {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+  {% if field.help_text %}<p class="formrow__help" id="{{ field.auto_id }}_helptext" data-field-description>{{ field.help_text }}</p>{% endif %}
+  {% if field.errors %}
+    <div id="{{ field.auto_id }}_error" data-field-description data-field-error>
+      {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+    </div>
+  {% endif %}
 </div>

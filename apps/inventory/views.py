@@ -152,6 +152,7 @@ from apps.inventory.models import (
     InventoryDocumentStatus,
     InventoryDocumentType,
     ItemType,
+    MovementType,
     StockCountStatus,
     StockTransferStatus,
 )
@@ -269,6 +270,8 @@ class InventoryListView(InventoryViewMixin, _ListView):
     paginate_by = 25
     page_title: Any = ""
     page_hint: Any = ""
+    search_placeholder: Any = _("ابحث بالرمز أو الاسم…")
+    result_label: Any = _("سجل")
     search_fields: tuple[str, ...] = ()
     create_url_name: str | None = None
     create_label: Any = ""
@@ -294,7 +297,7 @@ class InventoryListView(InventoryViewMixin, _ListView):
         """Organizations, or branches, where this caller may write."""
         if not self.manage_permission:
             return []
-        if self.manage_scope == "branch":
+        if self.manage_scope in {"branch", "warehouse"}:
             return list(
                 branches_with_permission(self.actor, self.manage_permission).values_list(
                     "id", flat=True
@@ -316,6 +319,8 @@ class InventoryListView(InventoryViewMixin, _ListView):
         context["page_title"] = self.page_title
         context["page_hint"] = self.page_hint
         context["search"] = self.request.GET.get("q", "")
+        context["search_placeholder"] = self.search_placeholder
+        context["result_label"] = self.result_label
         context["create_label"] = self.create_label
         context["manageable_ids"] = manageable
         # `filter_query` comes from `apps.core.context_processors.shell`: it is
@@ -324,6 +329,7 @@ class InventoryListView(InventoryViewMixin, _ListView):
         # the hx-* attributes, and it is set only where this view answers an
         # HX-Request with the partial — see `_list_fragment.html`.
         context["htmx_list"] = True
+        context["inventory_ui"] = True
         context["list_base_template"] = (
             "settings/_list_fragment.html" if self.is_htmx() else "shell.html"
         )
@@ -377,6 +383,8 @@ class ItemListView(InventoryListView):
     manage_permission = MANAGE_ITEMS
     create_url_name = "inventory:item_create"
     create_label = _("صنف جديد")
+    search_placeholder = _("ابحث عن صنف بالرمز أو الاسم العربي أو الإنجليزي…")
+    result_label = _("صنف")
 
     def scoped_queryset(self) -> QuerySet[Any]:
         queryset = visible_items(self.actor)
@@ -674,6 +682,43 @@ class PackageUnitCreateView(InventoryWriteView):
         )
 
 
+class PackageUnitQuickCreateView(InventoryViewMixin, View):
+    """Small HTMX form for adding a package name without leaving its list."""
+
+    required_permission = MANAGE_PACKAGE_UNITS
+    template_name = "inventory/_package_unit_quick_form.html"
+
+    def form(self, data: Any = None) -> PackageUnitForm:
+        return PackageUnitForm(actor=self.actor, data=data)
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if request.headers.get("HX-Request") != "true":
+            return HttpResponseRedirect(reverse("inventory:package_unit_create"))
+        return render(request, self.template_name, {"form": self.form()})
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        form = self.form(request.POST)
+        if not form.is_valid():
+            # htmx swaps successful responses by default. Validation is a
+            # renderable form state, not a transport failure (ADR-011).
+            return render(request, self.template_name, {"form": form}, status=200)
+        require_reachable_organization_permission(
+            self.actor, MANAGE_PACKAGE_UNITS, form.cleaned_data["organization"]
+        )
+        create_package_unit(
+            organization=form.cleaned_data["organization"],
+            code=form.cleaned_data["code"],
+            name_ar=form.cleaned_data["name_ar"],
+            name_en=form.cleaned_data["name_en"],
+        )
+        if request.headers.get("HX-Request") == "true":
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = "packageUnitCreated"
+            return response
+        messages.success(request, _("تمت إضافة وحدة التعبئة."))
+        return HttpResponseRedirect(reverse("inventory:package_unit_list"))
+
+
 class PackageUnitUpdateView(InventoryWriteView):
     form_class = PackageUnitForm
     required_permission = MANAGE_PACKAGE_UNITS
@@ -734,6 +779,7 @@ class PackageUnitActionView(InventoryActionView):
 
 
 class ItemCreateView(InventoryWriteView):
+    template_name = "inventory/item_form.html"
     form_class = InventoryItemForm
     required_permission = MANAGE_ITEMS
     success_url_name = "inventory:item_list"
@@ -763,6 +809,7 @@ class ItemCreateView(InventoryWriteView):
 
 
 class ItemUpdateView(InventoryWriteView):
+    template_name = "inventory/item_form.html"
     form_class = InventoryItemForm
     required_permission = MANAGE_ITEMS
     success_url_name = "inventory:item_list"
@@ -1107,11 +1154,17 @@ class MovementHistoryView(InventoryListView):
     search_fields = ("item__code", "item__name_ar", "warehouse__code", "effect_key")
 
     def scoped_queryset(self) -> QuerySet[Any]:
-        return visible_movements(self.actor).order_by("-posted_sequence")
+        queryset = visible_movements(self.actor)
+        movement_type = self.request.GET.get("movement_type", "").strip()
+        if movement_type in MovementType.values:
+            queryset = queryset.filter(movement_type=movement_type)
+        return queryset.order_by("-posted_sequence")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["show_cost"] = may_see_cost(self.actor)
+        context["movement_types"] = MovementType.choices
+        context["selected_movement_type"] = self.request.GET.get("movement_type", "")
         return context
 
 
@@ -2402,6 +2455,8 @@ class ReasonCodeListView(InventoryListView):
     manage_scope = "organization"
     page_title = _("أسباب الحركات المخزنية")
     page_hint = _("أسبابك أنت. الرمز ومجاله لا يتغيّران بعد الإنشاء، والمؤرشف يبقى محجوزاً.")
+    create_url_name = "inventory:reason_code_create"
+    create_label = _("سبب جديد")
 
     def scoped_queryset(self) -> QuerySet[Any]:
         return visible_reason_codes(self.actor)
@@ -2483,6 +2538,8 @@ class StockCountListView(InventoryListView):
     manage_scope = "warehouse"
     page_title = _("الجرد الفعلي")
     page_hint = _("الجرد يُجمّد المخزن من البدء حتى الاعتماد أو الإلغاء. من يعدّ لا يعتمد.")
+    create_url_name = "inventory:count_create"
+    create_label = _("جرد جديد")
 
     def scoped_queryset(self) -> QuerySet[Any]:
         return visible_counts(self.actor)
@@ -2796,6 +2853,8 @@ class AdjustmentListView(InventoryListView):
     manage_scope = "branch"
     page_title = _("التسويات المخزنية اليدوية")
     page_hint = _("لتصحيح دفاتر خاطئة فقط. ليست بديلاً عن استلام أو صرف أو تحويل أو جرد.")
+    create_url_name = "inventory:adjustment_create"
+    create_label = _("تسوية جديدة")
 
     def scoped_queryset(self) -> QuerySet[Any]:
         return visible_adjustments(self.actor)

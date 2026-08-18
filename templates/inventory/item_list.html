@@ -10,34 +10,54 @@
   </select>
 {% endblock %}
 
+{% block active_filter_chips %}
+  {% if selected_item_type %}
+    {% for value, label in item_types %}
+      {% if value == selected_item_type %}<span class="filter-chip"><span>{% translate "النوع" %}</span>{{ label }}</span>{% endif %}
+    {% endfor %}
+  {% endif %}
+{% endblock %}
+
 {% block columns %}
-  <th>{% translate "الرمز" %}</th>
-  <th>{% translate "الاسم" %}</th>
-  <th>{% translate "المجموعة" %}</th>
-  <th>{% translate "النوع" %}</th>
-  <th>{% translate "وحدة الأساس" %}</th>
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "إجراءات" %}</th>
+  <th scope="col">{% translate "الرمز" %}</th>
+  <th scope="col">{% translate "الاسم" %}</th>
+  <th scope="col">{% translate "المجموعة" %}</th>
+  <th scope="col">{% translate "النوع" %}</th>
+  <th scope="col">{% translate "وحدة الأساس" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "إجراءات" %}</th>
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد نتائج مطابقة" as no_results_title %}
+  {% translate "جرّب عبارة بحث أخرى أو امسح مرشّح النوع." as no_results_description %}
+  {% translate "لا توجد أصناف بعد" as empty_title %}
+  {% translate "أضف أول صنف لبدء إعداد دليل المخزون." as empty_description %}
   {% for item in items %}
     <tr>
-      <td><code>{{ item.code }}</code></td>
-      <td>{{ item.name_ar }}</td>
-      <td>{{ item.category.name_ar }}</td>
-      <td>{{ item.get_item_type_display }}</td>
-      <td><code>{{ item.base_unit.code }}</code></td>
-      <td>
+      <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ item.code }}</code></bdi></td>
+      <td data-label="{% translate 'الاسم' %}"><strong>{{ item.name_ar }}</strong></td>
+      <td data-label="{% translate 'المجموعة' %}">{{ item.category.name_ar }}</td>
+      <td data-label="{% translate 'النوع' %}">{{ item.get_item_type_display }}</td>
+      <td data-label="{% translate 'وحدة الأساس' %}"><bdi dir="ltr"><code>{{ item.base_unit.code }}</code></bdi></td>
+      <td data-label="{% translate 'الحالة' %}">
         {% if item.is_active %}
-          <span class="chip chip--on">{% translate "فعّال" %}</span>
+          {% translate "فعّال" as status_label %}
+          {% include "components/status_badge.html" with status="ACTIVE" label=status_label %}
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+          {% translate "مؤرشف" as status_label %}
+          {% include "components/status_badge.html" with status="ARCHIVED" label=status_label %}
         {% endif %}
       </td>
       {% include "inventory/_rowactions.html" with row=item owner_id=item.organization_id edit_url="inventory:item_update" archive_url="inventory:item_archive" reactivate_url="inventory:item_reactivate" %}
     </tr>
   {% empty %}
-    <tr><td colspan="7">{% translate "لا توجد أصناف بعد." %}</td></tr>
+    <tr><td colspan="7" data-empty-state>
+      {% if filter_query %}
+        {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+      {% else %}
+        {% include "components/empty_state.html" with title=empty_title description=empty_description action_url=create_url action_label=create_label %}
+      {% endif %}
+    </td></tr>
   {% endfor %}
 {% endblock %}

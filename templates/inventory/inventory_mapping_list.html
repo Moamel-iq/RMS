@@ -5,42 +5,56 @@
 {# organization defaults are managed on the accounting module's screen.     #}
 
 {% block columns %}
-  <th>{% translate "الدور" %}</th>
-  <th>{% translate "الهدف" %}</th>
-  <th>{% translate "الحساب" %}</th>
-  <th>{% translate "سارٍ من" %}</th>
-  <th>{% translate "سارٍ حتى" %}</th>
-  <th>{% translate "الإصدار" %}</th>
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "إجراءات" %}</th>
+  <th scope="col">{% translate "الدور" %}</th>
+  <th scope="col">{% translate "الهدف" %}</th>
+  <th scope="col">{% translate "الحساب" %}</th>
+  <th scope="col">{% translate "سارٍ من" %}</th>
+  <th scope="col">{% translate "سارٍ حتى" %}</th>
+  <th scope="col">{% translate "الإصدار" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "إجراءات" %}</th>
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد نتائج مطابقة" as no_results_title %}
+  {% translate "جرّب رمز دور أو حساب أو صنف مختلفاً." as no_results_description %}
+  {% translate "لا توجد تخصيصات للحسابات" as empty_title %}
+  {% translate "تتبع الأصناف افتراضيات المؤسسة حتى تضيف تخصيصاً هنا." as empty_description %}
   {% for mapping in mappings %}
     <tr>
-      <td><code dir="ltr">{{ mapping.account_role.code }}</code></td>
-      <td>
+      <td data-label="{% translate 'الدور' %}"><bdi dir="ltr"><code>{{ mapping.account_role.code }}</code></bdi></td>
+      <td data-label="{% translate 'الهدف' %}">
         {% if mapping.item %}
-          <code>{{ mapping.item.code }}</code> {{ mapping.item.name_ar }}
+          <bdi dir="ltr"><code>{{ mapping.item.code }}</code></bdi> {{ mapping.item.name_ar }}
         {% else %}
-          <code>{{ mapping.category.code }}</code> {{ mapping.category.name_ar }}
+          <bdi dir="ltr"><code>{{ mapping.category.code }}</code></bdi> {{ mapping.category.name_ar }}
           ({% translate "مجموعة" %})
         {% endif %}
       </td>
-      <td><code dir="ltr">{{ mapping.account.code }}</code> {{ mapping.account.name_ar }}</td>
-      <td>{{ mapping.effective_from|date:"Y-m-d" }}</td>
-      <td>{% if mapping.effective_to %}{{ mapping.effective_to|date:"Y-m-d" }}{% else %}—{% endif %}</td>
-      <td>{{ mapping.version }}</td>
-      <td>{% if mapping.is_active %}{% translate "فعّال" %}{% else %}{% translate "مؤرشف" %}{% endif %}</td>
-      <td>
+      <td data-label="{% translate 'الحساب' %}"><bdi dir="ltr"><code>{{ mapping.account.code }}</code></bdi> {{ mapping.account.name_ar }}</td>
+      <td data-label="{% translate 'سارٍ من' %}"><bdi dir="ltr"><time datetime="{{ mapping.effective_from|date:'Y-m-d' }}">{{ mapping.effective_from|date:"Y-m-d" }}</time></bdi></td>
+      <td data-label="{% translate 'سارٍ حتى' %}">{% if mapping.effective_to %}<bdi dir="ltr"><time datetime="{{ mapping.effective_to|date:'Y-m-d' }}">{{ mapping.effective_to|date:"Y-m-d" }}</time></bdi>{% else %}—{% endif %}</td>
+      <td data-label="{% translate 'الإصدار' %}"><bdi dir="ltr">{{ mapping.version }}</bdi></td>
+      <td data-label="{% translate 'الحالة' %}">
         {% if mapping.is_active %}
-          <div class="rowactions">
-            <a class="btn btn--ghost btn--sm" href="{% url 'inventory:mapping_close' mapping.pk %}">
+          {% translate "فعّال" as status_label %}
+          {% include "components/status_badge.html" with status="ACTIVE" label=status_label %}
+        {% else %}
+          {% translate "مؤرشف" as status_label %}
+          {% include "components/status_badge.html" with status="ARCHIVED" label=status_label %}
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        {% if mapping.is_active %}
+          <div class="rowactions" aria-label="{% translate 'إجراءات تخصيص الحساب' %}">
+            <a class="btn btn--secondary btn--sm" href="{% url 'inventory:mapping_close' mapping.pk %}">
               {% translate "إغلاق النطاق" %}
             </a>
-            <form method="post" action="{% url 'inventory:mapping_archive' mapping.pk %}">
+            <form method="post" action="{% url 'inventory:mapping_archive' mapping.pk %}"
+                  data-confirm="{% translate 'ستتوقف أولوية هذا التخصيص وستعود العمليات الجديدة إلى التخصيص التالي المتاح.' %}"
+                  data-confirm-title="{% translate 'تأكيد أرشفة التخصيص' %}">
               {% csrf_token %}
-              <button class="btn btn--ghost btn--sm" type="submit">{% translate "أرشفة" %}</button>
+              <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "أرشفة" %}</button>
             </form>
           </div>
         {% else %}
@@ -49,6 +63,12 @@
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="8">{% translate "لا تخصيصات. الأصناف تتبع افتراضي المؤسسة." %}</td></tr>
+    <tr><td colspan="8" data-empty-state>
+      {% if filter_query %}
+        {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+      {% else %}
+        {% include "components/empty_state.html" with title=empty_title description=empty_description action_url=create_url action_label=create_label %}
+      {% endif %}
+    </td></tr>
   {% endfor %}
 {% endblock %}

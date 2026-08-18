@@ -5,52 +5,63 @@
 {# posting at all, so whoever is looking for one needs to see it here.       #}
 
 {% block columns %}
-  <th>{% translate "الرقم" %}</th>
-  <th>{% translate "المخزن" %}</th>
-  <th>{% translate "يوم العمل" %}</th>
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "التجميد" %}</th>
-  <th>{% translate "العادّ" %}</th>
-  <th>{% translate "المعتمِد" %}</th>
+  <th scope="col">{% translate "الرقم" %}</th>
+  <th scope="col">{% translate "المخزن" %}</th>
+  <th scope="col">{% translate "يوم العمل" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "التجميد" %}</th>
+  <th scope="col">{% translate "العادّ" %}</th>
+  <th scope="col">{% translate "المعتمِد" %}</th>
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد عمليات جرد مطابقة" as no_results_title %}
+  {% translate "جرّب رقم جرد أو مخزناً مختلفاً." as no_results_description %}
+  {% translate "لا توجد عمليات جرد بعد" as empty_title %}
+  {% translate "ابدأ عملية جرد عند الحاجة إلى مطابقة الرصيد الفعلي مع الدفتري." as empty_description %}
   {% for count in counts %}
     <tr>
-      <td>
+      <td data-label="{% translate 'الرقم' %}">
         <a href="{% url 'inventory:count_detail' count.pk %}">
           {% if count.count_number %}
-            <code dir="ltr">{{ count.count_number }}</code>
+            <bdi dir="ltr"><code>{{ count.count_number }}</code></bdi>
           {% else %}
-            <code dir="ltr">{{ count.public_id|truncatechars:13 }}</code>
+            <bdi dir="ltr"><code>{{ count.public_id|truncatechars:13 }}</code></bdi>
           {% endif %}
         </a>
       </td>
-      <td>
-        <code>{{ count.warehouse.code }}</code>
-        <span class="muted">{{ count.branch.code }}</span>
+      <td data-label="{% translate 'المخزن' %}">
+        <bdi dir="ltr"><code>{{ count.warehouse.code }}</code></bdi>
+        <span class="muted"><bdi dir="ltr">{{ count.branch.code }}</bdi></span>
       </td>
-      <td>
+      <td data-label="{% translate 'يوم العمل' %}">
         {% if count.business_date %}
-          {{ count.business_date|date:"Y-m-d" }}
+          <bdi dir="ltr"><time datetime="{{ count.business_date|date:'Y-m-d' }}">{{ count.business_date|date:"Y-m-d" }}</time></bdi>
         {% else %}
           <span class="muted">{% translate "لم يبدأ" %}</span>
         {% endif %}
       </td>
-      <td>{{ count.get_status_display }}</td>
-      <td>
+      <td data-label="{% translate 'الحالة' %}">{% include "components/status_badge.html" with status=count.status label=count.get_status_display %}</td>
+      <td data-label="{% translate 'التجميد' %}">
         {% if count.is_active %}
-          <strong>{% translate "المخزن مجمّد" %}</strong>
+          {% translate "المخزن مجمّد" as frozen_label %}
+          {% include "components/status_badge.html" with status="PENDING" label=frozen_label %}
         {% else %}
           <span class="muted">—</span>
         {% endif %}
       </td>
-      <td>{{ count.conducted_by|default:"—" }}</td>
-      <td>{{ count.approved_by|default:"—" }}</td>
+      <td data-label="{% translate 'العادّ' %}">{{ count.conducted_by|default:"—" }}</td>
+      <td data-label="{% translate 'المعتمِد' %}">{{ count.approved_by|default:"—" }}</td>
     </tr>
   {% empty %}
     <tr>
-      <td colspan="7">{% translate "لا عمليات جرد بعد." %}</td>
+      <td colspan="7" data-empty-state>
+        {% if filter_query %}
+          {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+        {% else %}
+          {% include "components/empty_state.html" with title=empty_title description=empty_description action_url=create_url action_label=create_label %}
+        {% endif %}
+      </td>
     </tr>
   {% endfor %}
 {% endblock %}

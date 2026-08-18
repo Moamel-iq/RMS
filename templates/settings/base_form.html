@@ -13,22 +13,18 @@
 
   <form class="formcard" method="post" novalidate>
     {% csrf_token %}
-
-    {% if form.non_field_errors %}
-      <div class="alert" role="alert">
-        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
-      </div>
-    {% endif %}
+    {% include "components/form_error_summary.html" with form=form %}
 
     <div class="formgrid">
       {% for field in form %}
         {% if field.field.widget.input_type == "checkbox" %}
-          <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}">
+          <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}" data-field>
             {{ field }}
-            <label class="formrow__label" style="margin:0" for="{{ field.id_for_label }}">
+            <label class="formrow__label formrow__label--inline" for="{{ field.id_for_label }}">
               {{ field.label }}
             </label>
-            {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+            {% if field.help_text %}<p class="formrow__help" id="{{ field.auto_id }}_helptext" data-field-description>{{ field.help_text }}</p>{% endif %}
+            {% if field.errors %}<div id="{{ field.auto_id }}_error" data-field-description data-field-error>{% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}</div>{% endif %}
           </div>
         {% else %}
           {% include "settings/_field.html" with field=field %}

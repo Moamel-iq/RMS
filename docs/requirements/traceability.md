@@ -30,7 +30,7 @@ reviews.
 | 1.7 | Superseded by 1.7A and 1.7B | Split during Phase 1; both halves carry their own rows |
 | 1.8 | `EXIT-` rows plus the Phase 1 gate record | An exit gate verifies other tasks' requirements rather than adding its own |
 | 2.18 | The Phase 2 gate record | The same; see `docs/runbooks/overnight-progress.md` Step 20 |
-| 3.0 | — | A specification task, for Phase 3 (`RCP-001`..`RCP-057`); awaiting approval |
+| 3.0 | — | A specification task, for Phase 3 (`RCP-001`..`RCP-126`, extended by Tasks 3.0A and 3.0B); **approved by the owner 2026-08-16** |
 | 3.11 | The Phase 3 gate record, when it runs | An exit gate verifies other tasks' requirements rather than adding its own |
 
 | Req ID | Summary | Module | Model / service / API | Tests | Status | Notes |
@@ -636,70 +636,234 @@ see Task 2.0 §0.
 ## Phase 3 — Recipes, Kitchen and Production
 
 Established by `docs/tasks/task-3-0-recipes-production-domain-spec.md`
-(2026-08-16), **awaiting approval**. Every row is `Specified` until its task
+(2026-08-16), **approved by the owner on 2026-08-16** (spec §22.1). Every row is
+`Specified` until its task
 lands: Task 3.0 wrote no code, and a row that claimed evidence today would be
 claiming a test that does not exist — which is the failure
 `tests/test_traceability.py` was written to stop.
 
+**Extended by Task 3.0A (2026-08-16) from 57 rows to 116.** RCP-058 – RCP-116
+cover the source audit's data gate, structured recipe steps, nested
+sub-recipes, servings, the corrected consumption partition, the Release 1
+production boundary and the profitability boundary. RCP-046 is **amended**: its
+original text described the architecture charter's actual-consumption formula,
+which double-counts against this system's documents; it now points at its
+correction.
+
+**Extended again by Task 3.0B (2026-08-16) from 116 rows to 126.** The owner
+supplied the Arabic recipe book and two plate-card decks; all 89 pages were
+audited (spec §24). RCP-117 – RCP-126 cover the three-source boundary, row-level
+provenance, measurement basis, conflict retention, the two-layer serving rule
+and the ten-condition Task 3.10 data gate. Three owner decisions closed against
+the source — KD-03, KD-05 and KD-06 — and two opened, KD-19 and KD-20.
+
 Requirement identifiers are **repository-local**. No SRS exists to map them
-to; see Task 3.0 §0.
+to; see Task 3.0 §0 — which also records that the `KhanMandiRecipe.xlsx`
+workbook (form `KM-RCP-004`) **does** exist outside the repository, was read in
+full by Task 3.0A, and is authoritative about structure while carrying no data.
+
+**Extended by Task 3.3 (2026-08-17) to RCP-140.** RCP-135 - RCP-140 record what
+costing settled. RCP-023 - RCP-027, RCP-078, RCP-086, RCP-092 and RCP-093 move
+from **Specified** to **Done**, plus the standard half of RCP-087. RCP-052 and
+RCP-071 are **Partial**, each because a named later task owns the rest of the
+clause.
+
+RCP-087 is **split into RCP-087a and RCP-087b** rather than left Partial: the
+standard recipe allocation is finished here and the posted-batch allocation
+needs production. One row saying "Partial" hid a completed requirement behind an
+unstarted one.
+
+**Extended by Task 3.2B (2026-08-16) to RCP-134.** RCP-132 - RCP-134 record what
+the nested-recipe graph settled: that a frozen exact reference outlives the
+child's supersession, why a race cannot close a cycle here, and the
+multiplier's precision.
+RCP-070, RCP-072, RCP-074, RCP-076 and RCP-077 move from **Specified** to
+**Done**.
+
+**Extended by Task 3.2A (2026-08-16) to RCP-131.** RCP-127 – RCP-131 record what
+the approval boundary settled that the specification had not: the six-state
+lifecycle and the two states it deliberately does not have, the four-signature
+evidence model without a global `CHEF` role, the separations that are actually
+enforced, materialised organization-wide scope, and the inclusive range
+convention. RCP-011 – RCP-014 move from **Specified** to **Done**; RCP-015 is
+**Partial**, because "only approved versions are produced from" cannot finish
+until production exists at Task 3.5.
 
 | ID | Requirement | Implementation | Test | Task | AT | Status |
 |---|---|---|---|---|---|---|
 | RCP-001 | Phase 3 adds exactly one stock-moving document, the production batch; kitchen flows stay Phase 1 documents | reuse, not copies | — | 3.5 | | Specified |
-| RCP-002 | Recipe and version edits touch no stock and no journal | model boundary | — | 3.1 | | Specified |
+| RCP-002 | Recipe and version edits touch no stock and no journal | apps/kitchen/models.py | `apps/kitchen/tests/test_boundary_and_security.py::TestZeroLedgerEffect` | 3.1 |  | Done |
 | RCP-003 | No model combines two events in one row | separate aggregates | — | 3.1–3.7 | | Specified |
-| RCP-004 | One new app `apps.kitchen`; nothing imports it until Phase 4 | app boundary | — | 3.1 | | Specified |
-| RCP-005 | The module owns no role overrides, no second posting path, no menu item | boundary tests | — | 3.1–3.9 | | Specified |
-| RCP-006 | Recipes are organization master data | organization FK + scoping | — | 3.1 | | Specified |
-| RCP-007 | Two recipe kinds, one model: batch (stored output item) and portion (no output item) | `recipe_type` + nullable `output_item` | — | 3.1 | | Specified |
-| RCP-008 | A batch recipe's output is `SEMI_FINISHED` or `FINISHED_GOOD`, same organization | `CheckConstraint` + service | — | 3.1 | | Specified |
-| RCP-009 | A recipe carries no cost field | model shape | — | 3.1 | | Specified |
-| RCP-010 | Menu-item mapping is the recipe's identity; Phase 4 holds the FK | nothing speculative built | — | 3.1 | | Specified |
-| RCP-011 | Versions are effective-dated; resolution by date and branch is the only resolution | one resolver | — | 3.2 | | Specified |
-| RCP-012 | Approved versions never overlap per branch | `EXCLUDE USING gist` | — | 3.2 | | Specified |
-| RCP-013 | Version approval is maker-checker | `CheckConstraint` + service | — | 3.2 | | Specified |
-| RCP-014 | Approved versions are immutable except range-close and supersession | whole-row triggers | — | 3.2 | | Specified |
-| RCP-015 | Only approved versions are produced from, costed, or counted | service guards | — | 3.2 | | Specified |
+| RCP-004 | One new app `apps.kitchen`; nothing imports it until Phase 4 | apps/kitchen app boundary | `apps/kitchen/tests/test_boundary_and_security.py::TestDependencyDirection` | 3.1 |  | Done |
+| RCP-005 | The module owns no role overrides, no second posting path, no menu item | apps/kitchen/models.py | `apps/kitchen/tests/test_boundary_and_security.py::TestDependencyDirection` | 3.1–3.9 |  | Done |
+| RCP-006 | Recipes are organization master data | Recipe.organization | `apps/kitchen/tests/test_recipe_master.py::TestCodeIsIdentity` | 3.1 |  | Done |
+| RCP-007 | Two recipe kinds, one model: batch (stored output item) and portion (no output item) | `recipe_type` + nullable `output_item` | `apps/kitchen/tests/test_recipe_master.py::TestTheOutputItemRule` | 3.1 |  | Done |
+| RCP-008 | A batch recipe's output is `SEMI_FINISHED` or `FINISHED_GOOD`, same organization | `recipe_output_item_matches_type` | `apps/kitchen/tests/test_recipe_master.py::TestTheOutputItemRule` | 3.1 |  | Done |
+| RCP-009 | A recipe carries no cost field | no cost field on Recipe | `apps/kitchen/tests/test_recipe_master.py::TestNoMoneyAnywhere` | 3.1 |  | Done |
+| RCP-010 | Menu-item mapping is the recipe's identity; Phase 4 holds the FK | Recipe.public_id | `apps/kitchen/tests/test_recipe_master.py::TestCodeIsIdentity` | 3.1 |  | Done |
+| RCP-011 | Versions are effective-dated; resolution by date and branch is the only resolution | `apps/kitchen/lifecycle.resolve_recipe_version` | `apps/kitchen/tests/test_effective_dating.py::TestRangeBoundaries` | 3.2A |  | Done |
+| RCP-012 | Approved versions never overlap per branch | `recipe_scope_no_overlapping_ranges` | `apps/kitchen/tests/test_version_concurrency.py::TestTwoActivationsCannotOverlap` | 3.2A |  | Done |
+| RCP-013 | Version approval is maker-checker | `recipe_version_approver_is_not_the_author` + `approve_recipe_version` | `apps/kitchen/tests/test_version_lifecycle.py::TestApproval` | 3.2A |  | Done |
+| RCP-014 | Approved versions are immutable except range-close and supersession | `kitchen_recipe_version_is_immutable` + five child-table triggers | `apps/kitchen/tests/test_version_immutability.py::TestTheDatabaseRefusesRawWrites` | 3.2A |  | Done |
+| RCP-015 | Only approved versions are produced from, costed, or counted | `RESOLVABLE_VERSION_STATUSES` excludes `APPROVED` | `apps/kitchen/tests/test_effective_dating.py::TestStatusIsNotResolution` | 3.2A – 3.8 |  | Partial |
 | RCP-016 | Version numbers per-recipe sequential; supersession closes the prior range atomically | service | — | 3.2 | | Specified |
-| RCP-017 | Branch applicability restricts; no per-branch line overrides | M2M restriction | — | 3.2 | | Specified |
+| RCP-017 | Branch applicability restricts; no per-branch line overrides | RecipeBranch through model | `apps/kitchen/tests/test_recipe_master.py::TestBranchApplicability` | 3.2 |  | Done |
 | RCP-018 | Line quantities are gross; loss/yield rates are informational | model semantics | — | 3.1 | | Specified |
-| RCP-019 | Line quantities persist at 6 dp, converted once at entry, quantized once | ADR-006 discipline | — | 3.1 | | Specified |
-| RCP-020 | Lines name items, never lots | model shape | — | 3.1 | | Specified |
-| RCP-021 | Optional lines are costed and omittable per batch | flags + costing | — | 3.1 / 3.3 | | Specified |
-| RCP-022 | Substitutes are informational; costing uses actual consumption | substitute table semantics | — | 3.1 / 3.4 | | Specified |
-| RCP-023 | Version cost and plate cost are derived as-of reads | derivation only | — | 3.3 | | Specified |
-| RCP-024 | A recipe cost equals the sum of its effective component costs | golden case | — | 3.3 | | Specified |
-| RCP-025 | Cost snapshots are explicit, dated, append-only | insert-only trigger | — | 3.3 | | Specified |
-| RCP-026 | Historical cost resolves version first, then as-of cost; never silently today | resolver reuse | — | 3.3 | | Specified |
-| RCP-027 | Recipe cost visibility is a separate permission | `view_recipe_cost` | — | 3.1 / 3.3 | | Specified |
-| RCP-028 | Batches draft from an approved version, scaled; no ad-hoc production | service | — | 3.4 | | Specified |
-| RCP-029 | One warehouse per batch | model + service | — | 3.4 | | Specified |
-| RCP-030 | Consumed quantities record reality; mismatch is variance, never refusal | batch editing | — | 3.4 | | Specified |
-| RCP-031 | Output quantity is entered, positive, beside the expected figure | service validation | — | 3.4 | | Specified |
-| RCP-032 | Only batch recipes are producible | service refusal | — | 3.4 | | Specified |
-| RCP-033 | Draft batches editable and deletable; posted immutable except reversal | whole-row triggers | — | 3.4 / 3.5 | | Specified |
-| RCP-034 | Value is conserved: output enters at Σ consumed values via `inbound_value` | kernel exact-value channel | — | 3.5 | | Specified |
-| RCP-035 | Yield loss is absorbed into unit cost, never posted | no variance journal exists | — | 3.5 | | Specified |
-| RCP-036 | The journal is the per-account net; zero-net batches post no journal | posting service | — | 3.5 | | Specified |
-| RCP-037 | Non-zero nets debit/credit exactly the movements' accounts, branches, values | `verify_inventory_against_gl` by construction | — | 3.5 | | Specified |
-| RCP-038 | Produced lots record `produced_by_*` and expire by shelf life | posting writes reserved fields | — | 3.5 | | Specified |
-| RCP-039 | Expired ingredients cannot enter a batch | kernel expired-lot rule, kept | — | 3.5 | | Specified |
-| RCP-040 | Reversal mirrors exactly, checks availability, once, with reason; ADR-017 identity unchanged | kernel reversal | — | 3.5 | | Specified |
+| RCP-019 | Line quantities persist at 6 dp, converted once at entry, quantized once | CALCULATION_PLACES on every quantity | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 |  | Done |
+| RCP-020 | Lines name items, never lots | RecipeLine.item, organization-checked | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 |  | Done |
+| RCP-021 | Optional lines are costed and omittable per batch | RecipeLine.is_optional | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 / 3.3 |  | Done |
+| RCP-022 | Substitutes are informational; costing uses actual consumption | `RecipeLineSubstitute` approves **items**, never conversions; a batch records what was consumed | `apps/kitchen/tests/test_draft_structure.py::TestSubstitutes` · `apps/kitchen/tests/test_production_services.py::TestSubstitution` | 3.1 / 3.4 | An approved stand-in may be in another dimension; the two are reported separately and never summed (spec §28.3) | Done |
+| RCP-023 | Version cost **and plate cost** are derived from an exact version, warehouse and date; never stored | `apps/kitchen/costing.py` — plate cost from the primary `RecipeServing` | `apps/kitchen/tests/test_costing.py::TestDirectLines` · `apps/kitchen/tests/test_cost_plate.py::TestPlateCost` · `apps/kitchen/tests/test_cost_boundary.py::TestTheTaskBoundary::test_no_cost_field_was_added_to_recipe_or_version` | 3.3 | No `portions_per_batch` column exists; the primary serving is the divisor (spec §27.11) | Done |
+| RCP-024 | A recipe cost equals the sum of its lines, to the fils; no cached figure may disagree | largest-remainder allocation + a check constraint | `apps/kitchen/tests/test_cost_snapshots.py::TestWhatIsRecorded::test_the_lines_sum_to_the_header_total` · `apps/kitchen/tests/test_costing.py::TestDirectLines::test_class_totals_add_up_to_the_document_total` | 3.3 | | Done |
+| RCP-025 | Cost snapshots are explicit, dated and append-only | `kitchen/0009` triggers on all three tables | `apps/kitchen/tests/test_cost_snapshots.py::TestAppendOnly` | 3.3 | | Done |
+| RCP-026 | Historical cost resolves version first, then costs at the same date; never silently today | `cost_recipe_on_date` | `apps/kitchen/tests/test_costing.py::TestPreviewAndAuthority::test_the_historical_read_resolves_the_version_first` · `::test_no_costing_entry_point_defaults_a_date` | 3.3 | | Done |
+| RCP-027 | Recipe cost visibility is a separate permission | `view_recipe_cost`, organization-scoped | `apps/kitchen/tests/test_cost_security.py::TestTheApprovedRoleMap` · `::TestTheScreens` | 3.1 / 3.3 | | Done |
+| RCP-028 | Batches draft from an approved version, scaled; no ad-hoc production | `create_production_batch` resolves one exact version from branch + explicit date and freezes it | `apps/kitchen/tests/test_production_contracts.py::TestIdempotencyAndVersionRaces` · `apps/kitchen/tests/test_production_scale.py::TestCreationRescaleAndPreviewAgree` | 3.4 | | Done |
+| RCP-029 | One warehouse per batch | `_validate_shape` + `kitchen_productionbatch_warehouse_in_branch` | `apps/kitchen/tests/test_production_contracts.py::TestTheDecisionIsFrozen` · `apps/kitchen/tests/test_production_surface.py::TestAuthorizationIsNeverTheButton` | 3.4 | | Done |
+| RCP-030 | Consumed quantities record reality; mismatch is variance, never refusal | `ProductionBatchActualLine` as a separate table; no service refuses a variance | `apps/kitchen/tests/test_production_services.py::TestActualConsumption::test_a_variance_is_recorded_and_never_refused` · `::TestSubstitution` | 3.4 | Normalized out of the sketched `consumed_quantity` column; spec §28.2 | Done |
+| RCP-031 | Output quantity is entered, positive, beside the expected figure | `record_production_output`; nothing derives it from the inputs | `apps/kitchen/tests/test_production_services.py::TestOutputAndNotes::test_the_output_is_entered_and_never_derived` | 3.4 | | Done |
+| RCP-032 | Only batch recipes are producible | `_validate_shape` refuses a recipe with no `output_item`; `draftable_recipes` never offers one | `apps/kitchen/tests/test_production_services.py::TestOnlyBatchRecipesAreProducible` | 3.4 | | Done |
+| RCP-033 | Draft batches editable and deletable; posted immutable except reversal | `kitchen/0011` and `kitchen/0018` whole-row triggers branching on status, plus DELETE guards | `apps/kitchen/tests/test_production_contracts.py::TestTheDecisionIsFrozen` · `apps/kitchen/tests/test_production_posting.py::TestPostedImmutability` · `apps/kitchen/tests/test_production_posting_verifier.py::TestPlantedDefects` | 3.4 / 3.5 | 0018 replaced 0011's `status`/`number` escape hatch with a POSTED branch whose allowlist is the reversal columns and nothing else | Done |
+| RCP-034 | Value is conserved: output enters at Σ consumed values via `inbound_value` | `apps/inventory/production.py` projects with the kernel's own `apply_outbound`, posts once, then asserts the projection against the movements; `production_batch_conserves_value` refuses the row | `apps/kitchen/tests/test_production_posting.py::TestValueConservation` · `apps/kitchen/tests/test_production_posting_verifier.py::TestPlantedDefects::test_the_database_refuses_to_break_value_conservation` | 3.5 | | Done |
+| RCP-035 | Yield loss is absorbed into unit cost, never posted | the output's unit cost is Σ consumed ÷ actual output; no yield account and no yield journal exist | `apps/kitchen/tests/test_production_posting.py::TestValueConservation::test_yield_loss_lands_in_the_unit_cost_and_nowhere_else` | 3.5 | | Done |
+| RCP-036 | The journal is the per-account net; zero-net batches post no journal | `_journal_for` nets per control account and returns `None` when nothing is left to say | `apps/kitchen/tests/test_production_posting.py::TestTheJournalAndItsSilence` · `apps/kitchen/tests/test_production_posting_verifier.py::TestTheJournalAndItsSilence` | 3.5 | The absent journal is proved absent **for the right reason** by recomputing the nets, not by reading the column | Done |
+| RCP-037 | Non-zero nets debit/credit exactly the movements' accounts, branches, values | one balanced entry per non-zero net, with full source identity, linked to the stock entry | `apps/kitchen/tests/test_production_posting.py::TestTheJournalAndItsSilence::test_a_separate_output_account_writes_a_netted_balanced_journal` · `apps/kitchen/tests/test_production_posting_verifier.py::TestTheJournalAndItsSilence::test_a_journal_that_should_have_been_silent_is_caught` | 3.5 | | Done |
+| RCP-038 | Produced lots record `produced_by_*` and expire by shelf life | `_output_lot` writes the fields Phase 1 reserved; expiry runs from the batch's business date, never today | `apps/kitchen/tests/test_production_posting.py::TestTheOutputLot` · `apps/kitchen/tests/test_production_posting_verifier.py::TestPlantedDefects::test_a_missing_output_lot_is_caught` | 3.5 | | Done |
+| RCP-039 | Expired ingredients cannot enter a batch | `PRODUCTION_OUT` stays out of `EXPIRED_LOT_REMOVAL_TYPES`; the kernel refuses | `apps/inventory/tests/test_ledger.py` (kernel rule, unchanged) | 3.5 | Kept by **not** extending the kernel's exemption set — the rule's stated purpose is stopping expired food reaching a kitchen, and production is that path | Done |
+| RCP-040 | Reversal mirrors exactly, checks availability, once, with reason; ADR-017 identity unchanged | `reverse_production_batch` through the kernel's own mirror; a batch with no journal writes no reversal journal | `apps/kitchen/tests/test_production_posting.py::TestReversal` · `apps/kitchen/tests/test_production_posting_verifier.py::TestReversal` · `apps/kitchen/tests/test_production_posting_races.py::TestTheOutputAndItsReversal` | 3.5 | | Done |
 | RCP-041 | Yield, loss and batch variance are reads | report queries | — | 3.6 | | Specified |
 | RCP-042 | Version rates display beside measured yield | yield report | — | 3.6 | | Specified |
 | RCP-043 | Meal records move no stock and post no journal; they explain, not consume | model shape | — | 3.7 | | Specified |
 | RCP-044 | Staff-meal expense reclassification is deferred, recorded, data accumulating | deferral note | — | 3.7 | | Specified |
 | RCP-045 | Meal corrections are cancellation, never edits | status machine | — | 3.7 | | Specified |
-| RCP-046 | Actual consumption is the charter's formula over a selected warehouse | report derivation | — | 3.8 | | Specified |
+| RCP-046 | **Amended by 3.0A.** Actual consumption is not one formula; it is two reads (RCP-098 – RCP-107) | superseded derivation | — | 3.8 | | Specified |
 | RCP-047 | Theoretical consumption uses effective versions over recordable sources; Phase 4 plugs sales in | quantity-source socket | — | 3.8 | | Specified |
 | RCP-048 | The backflush election is not made here; Phase 4 records it if elected | documented boundary | — | 3.8 | | Specified |
 | RCP-049 | `verify_kitchen` proves batch agreement, value conservation, identity | the verifier | — | 3.9 | | Specified |
 | RCP-050 | Verification reports and refuses to repair | no repair path | — | 3.9 | | Specified |
 | RCP-051 | Production permissions are warehouse-scoped; recipes organization-scoped | `PERMISSION_SCOPE` | — | 3.1–3.5 | | Specified |
-| RCP-052 | Cost columns omitted, not blanked, without `view_recipe_cost` | view layer | — | 3.3 / 3.9 | | Specified |
-| RCP-053 | No writable CRUD or admin for posted records | command API + read-only admin | — | 3.10 | | Specified |
+| RCP-052 | Cost columns omitted, not blanked, without `view_recipe_cost` | view + API layer, asserted on raw bytes | `apps/kitchen/tests/test_cost_security.py::TestTheApi::test_an_unauthorized_caller_gets_no_cost_key_at_all` · `::TestTheScreens::test_the_version_detail_page_omits_the_cost_link_without_the_permission` | 3.3 / 3.9 | Costing screens only; later reports at 3.9 | Partial |
+| RCP-053 | No writable CRUD or admin for posted records | read-only admin | `apps/kitchen/tests/test_boundary_and_security.py::TestAdminIsReadOnly` | 3.10 |  | Done |
 | RCP-054 | API is commands; money and quantities as exact strings; ADR-017 keys | schema layer | — | 3.1–3.9 | | Specified |
-| RCP-055 | Arabic RTL screens in the shell; sections go live task by task | templates + navigation | — | 3.1–3.10 | | Specified |
-| RCP-056 | Demo: two named recipes, one permitted new item, posted and draft batches, meals, every screen showing something | demo tooling | — | 3.1–3.10 | | Specified |
+| RCP-055 | Arabic RTL screens in the shell; sections go live task by task | templates/kitchen/ | `apps/kitchen/tests/test_boundary_and_security.py::TestScreens` | 3.1–3.10 |  | Done |
+| RCP-056 | Demo: two named recipes, one permitted new item, posted and draft batches, meals, every screen showing something | apps/kitchen/demo.py | `apps/kitchen/tests/test_demo_and_concurrency.py::TestDemoDataset` | 3.1–3.10 |  | Done |
 | RCP-057 | Recipe imports are preview-first master data; nothing that posts imports | Task 1.7 framework registration | — | 3.10 | | Specified |
+| RCP-058 | The workbook's structure is source; its data is not. No import or demo counts as real recipes until a filled `KM-RCP-004` exists | data gate + `DEMO` namespace | — | 3.10 | | Specified |
+| RCP-059 | No quantity, loss, yield, cost or price is presented as a Khan Mandi figure without a traceable source | symbols and labelled illustrations | — | 3.1–3.10 | | Specified |
+| RCP-060 | Loss is recorded per ingredient line as well as per version; both informational | RecipeLine.loss_rate | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 |  | Done |
+| RCP-061 | Every line carries a cost class FOOD / PACKAGING / ACCOMPANIMENT; a reporting dimension only | RecipeLine.cost_class | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 |  | Done |
+| RCP-062 | Measured and approved quantities are separate facts; costing reads only the approved one | measured_quantity beside base_quantity | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1 |  | Done |
+| RCP-063 | The method is a sequence of structured steps; free-text instructions is an overview only | RecipeStep | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1 |  | Done |
+| RCP-064 | Steps are frozen with the approved version, like lines | allowlist trigger | — | 3.2 | | Specified |
+| RCP-065 | Step sequence is explicit, positive and unique per version; gaps are legal | `recipe_step_sequence_unique_per_version` | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1 |  | Done |
+| RCP-066 | Steps carry no arithmetic; no costing or consumption read touches them | RecipeStepIngredient | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1–3.9 |  | Done |
+| RCP-067 | Step ingredient share is in (0, 1] and sums to at most 1 per line | share bound + per-line sum | `apps/kitchen/tests/test_draft_structure.py::TestStepIngredientLinks` | 3.1 |  | Done |
+| RCP-068 | Duration and temperature stay null unless a source supplies them | nullable duration and temperature | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1 |  | Done |
+| RCP-069 | Arabic is the source language for instructions and checkpoints | instruction_ar required | `apps/kitchen/tests/test_draft_structure.py::TestSteps` | 3.1 |  | Done |
+| RCP-070 | Stocked and non-stocked sub-recipes are mutually exclusive **by construction** | `recipe_component_child_is_stocked` | `apps/kitchen/tests/test_components.py::TestTheTwoShapes` | 3.2B | Done |
+| RCP-071 | A stocked sub-recipe is consumed at book value; its tree is never re-expanded | `expansion.expand_recipe_version` treats it as a leaf, for costing **and** drafting | `apps/kitchen/tests/test_cost_nesting.py::TestStockedSubRecipesAreNotExpanded` · `apps/kitchen/tests/test_production_services.py::TestTheDemoProductionDraft::test_the_draft_shows_every_shape_the_task_asks_for` | 3.3 / 3.4 | Posting half arrives at 3.5 | Partial |
+| RCP-072 | A component references one exact approved child version; no silent re-pointing | `exact child version, never re-pointed` | `apps/kitchen/tests/test_components.py::TestExactVersionAdoption` | 3.2B | Done |
+| RCP-073 | Quantities scale multiplicatively down the tree and quantize once | `production.scaled_line_quantity`, mirrored by the `kitchen/0015` trigger | `apps/kitchen/tests/test_production_scale.py::TestThePythonAndSqlArithmeticAgree` · `::TestCreationRescaleAndPreviewAgree` | 3.4 | The cumulative multiplier is rounded once at its own column, and every consumer reads the stored figure — see ADR-024's Task 3.4 amendment | Done |
+| RCP-074 | A child version's effective range covers the parent's, for every applicable branch | `require_effective_coverage` | `apps/kitchen/tests/test_component_coverage.py::TestCoverageAtActivation` | 3.2B | Done |
+| RCP-075 | Parent and child share an organization; the child's branches are a superset | approval validation | — | 3.2 | | Specified |
+| RCP-076 | Cycles are rejected at any depth, on draft save and again at approval | `cycle_path at recipe identity` | `apps/kitchen/tests/test_components.py::TestCycles` | 3.2B | Done |
+| RCP-077 | Nesting depth is a validated constant with a named error; default 3 | `MAX_COMPONENT_DEPTH = 3` | `apps/kitchen/tests/test_components.py::TestDepth` | 3.2B | Done |
+| RCP-078 | Component cost rolls up recursively and quantizes once, at the top | `apps/kitchen/costing.py` | `apps/kitchen/tests/test_cost_nesting.py::TestNestedRollUp` | 3.3 | | Done |
+| RCP-079 | A non-stocked component moves no stock and creates no item; drafting flattens the tree | `expansion.expand_recipe_version` + `_write_lines` | `apps/kitchen/tests/test_production_contracts.py::TestOneSharedExpansion` · `apps/kitchen/tests/test_production_services.py::TestZeroInventoryAndZeroGeneralLedger` | 3.4 | | Done |
+| RCP-080 | Flattened lines record their source component version and tree path | `source_version`, `component_path`, `component_label_path` on every requirement | `apps/kitchen/tests/test_production_services.py::TestTheDemoProductionDraft::test_the_draft_shows_every_shape_the_task_asks_for` · `apps/kitchen/tests/test_production_surface.py::TestScreensRender` | 3.4 | | Done |
+| RCP-081 | Correcting a child is a new child version; existing parents are unaffected | versioning rule | — | 3.2 | | Specified |
+| RCP-082 | No dish, cut, serving code or gram figure appears in `apps/kitchen` source | no dish or gram figure in code | `apps/kitchen/tests/test_draft_structure.py::TestServings` | 3.1 |  | Done |
+| RCP-083 | A serving's unit converts to the output basis, once at entry | unit dimension check at entry | `apps/kitchen/tests/test_draft_structure.py::TestServings` | 3.1 |  | Done |
+| RCP-084 | Exactly one primary serving per version | `recipe_serving_one_primary_per_version` | `apps/kitchen/tests/test_draft_structure.py::TestServings` | 3.1 |  | Done |
+| RCP-085 | Rounding governs planning counts only and never moves money | rounding governs counts only | `apps/kitchen/tests/test_draft_structure.py::TestServings` | 3.3 |  | Done |
+| RCP-086 | Cost per serving is a 6 dp rate over the serving's share of the output basis | `_serving_costs` | `apps/kitchen/tests/test_cost_servings.py::TestTheServingRate` | 3.3 | | Done |
+| RCP-087a | A **standard recipe** cost splits across serving definitions by exact allocation, summing to the fils, at any count | `_compact_allocation`, derived from `apps/core/allocation.allocate` | `apps/kitchen/tests/test_cost_servings.py::TestTheServingAllocation` · `apps/kitchen/tests/test_cost_plate.py::TestTheCompactAllocationIsTheCertifiedOne` · `::TestServingAllocationHasNoSizeLimit` | 3.3 | Analytic and constant-size: 50,000 portions allocate exactly in one row | Done |
+| RCP-087b | A **posted batch's actual** cost splits across the servings it really produced | — | — | 3.5 | Needs production, which does not exist yet. Split from RCP-087a on 2026-08-17 so the built half is not hidden behind the unbuilt one | Specified |
+| RCP-088 | Servings never post: no stock, no journal, no source identity | servings post nothing | `apps/kitchen/tests/test_boundary_and_security.py::TestZeroLedgerEffect` | 3.1 |  | Done |
+| RCP-089 | Servings imply a cost basis, never a price | no price field anywhere | `apps/kitchen/tests/test_recipe_master.py::TestNoMoneyAnywhere` | 3.1 |  | Done |
+| RCP-090 | Both serving shapes are supported and neither is forced; the owner chooses per item | model neutrality | — | 3.1 | | Specified |
+| RCP-091 | Phase 4's `MenuItem` binds to (Recipe, RecipeServing) from its own side | RecipeServing.public_id | `apps/kitchen/tests/test_draft_structure.py::TestServings` | 3.1 |  | Done |
+| RCP-092 | The cost card splits by cost class, reproducing `KM-RCP-004`'s own summary | derived from allocated line values + a check constraint | `apps/kitchen/tests/test_costing.py::TestDirectLines::test_class_totals_add_up_to_the_document_total` · `apps/kitchen/tests/test_cost_demo.py::TestTheCostingScenario::test_the_food_and_packaging_totals_are_both_real` | 3.3 | | Done |
+| RCP-093 | Cost ratio is a Phase 4 read, rendered "—" with its reason, never zero | `templates/kitchen/_cost_card.html` | `apps/kitchen/tests/test_cost_security.py::TestTheArabicSurface::test_the_cost_ratio_renders_as_a_dash_with_its_reason` | 3.3 | | Done |
+| RCP-094 | A Release 1 batch satisfies seven enumerated conditions, each a test | one date, one warehouse, no partial completion, no in-progress state, one open period, atomic posting, inert draft | `apps/kitchen/tests/test_production_posting.py::TestRefusals` · `apps/kitchen/tests/test_production_posting.py::TestValueConservation` · `apps/kitchen/tests/test_production_posting_surface.py::TestAllocationsOverTheWire::test_a_partial_allocation_is_refused` | 3.5 | | Done |
+| RCP-095 | Multi-day or partial production is refused with a named error, never approximated | service refusals | — | 3.5 | | Specified |
+| RCP-096 | A draft batch holds nothing: no stock, reservation, valuation or reorder effect | no posting import anywhere in production code; readiness queries no stock | `apps/kitchen/tests/test_production_services.py::TestZeroInventoryAndZeroGeneralLedger` · `::TestReadiness::test_readiness_queries_no_stock_and_writes_nothing` | 3.4 | Census over nine tables, values as well as counts | Done |
+| RCP-097 | A YES to KD-09 blocks Task 3.5 until WIP custody and accounting are specified | documented gate | — | 3.5 | | Specified |
+| RCP-098 | Consumption is two distinct reads, never one | two report services | — | 3.8 | | Specified |
+| RCP-099 | `consumed_quantity` is primary evidence; post-posting returns are Phase 1 documents plus a link | link model | — | 3.8 | | Specified |
+| RCP-100 | Waste is linked to a batch, never inferred from date or item | link model | — | 3.8 | | Specified |
+| RCP-101 | The link model is kitchen-owned and annotates only; inventory never imports kitchen | app boundary test | — | 3.8 | | Specified |
+| RCP-102 | Attributed quantity never exceeds the source line | service under lock + verifier | — | 3.8 | | Specified |
+| RCP-103 | Every posted movement falls in exactly one bucket; transfers are custody, not consumption | partition query | — | 3.8 | | Specified |
+| RCP-104 | The partition's stock identity reconciles to the Phase 1 warehouse balance | verifier assertion | — | 3.9 | | Specified |
+| RCP-105 | Waste is classified by what was lost; finished-output waste never joins ingredient consumption | report classification | — | 3.8 | | Specified |
+| RCP-106 | Corrections stay corrections and are excluded from consumption | dedicated report column | — | 3.8 | | Specified |
+| RCP-107 | No `is_kitchen` flag; the reader selects the warehouse | report scoping | — | 3.8 | | Specified |
+| RCP-108 | The meal process is not financially complete, and every meal surface says so | screen, report and CSV copy | — | 3.7 | | Specified |
+| RCP-109 | A serving divides one output; it is not a second output | model shape | — | 3.1 | | Specified |
+| RCP-110 | Multi-output begins when two items receive stock from one input pool; deferred | documented boundary | — | 3.5 | | Specified |
+| RCP-111 | A by-product cannot be activated by data alone; no posting path exists | absent code path | — | 3.5 | | Specified |
+| RCP-112 | `verify_kitchen` also proves zero nets, no over-attribution, the partition, and no orphan links | the verifier | — | 3.9 | | Specified |
+| RCP-113 | The legitimate no-journal case carries three explicit test obligations | all three shipped: no `JournalEntry` row; a netted balanced entry when accounts differ; full source identity on the stock entry in **both** cases | `apps/kitchen/tests/test_production_posting.py::TestTheJournalAndItsSilence` | 3.5 | | Done |
+| RCP-114 | Worked examples use symbols or values labelled illustrative | documentation and fixtures | — | 3.1–3.10 | | Specified |
+| RCP-115 | No Phase 3 surface calls any figure it can compute "profit"; margins are named | view layer and copy | — | 3.9 | | Specified |
+| RCP-116 | Price minus material cost is not net profit, and the system says so where it would be assumed | report headings | — | 3.9 | | Specified |
+| RCP-117 | The three sources map onto batch recipe, portion recipe and the approval instrument | documented mapping | — | 3.1 | | Specified |
+| RCP-118 | Source documents populate `DRAFT` versions and steps; they approve nothing | importer status guard | — | 3.10 | | Specified |
+| RCP-119 | Every imported row records `source_document` and `source_page` | SourceProvenance + constraint | `apps/kitchen/tests/test_recipe_master.py::TestProvenance` | 3.1, 3.10 |  | Done |
+| RCP-120 | Every quantity carries a `measurement_basis`; no report compares across bases | MeasurementBasis on every quantity | `apps/kitchen/tests/test_draft_structure.py::TestLines` | 3.1, 3.8 |  | Done |
+| RCP-121 | Conflicting source claims are both stored and surfaced, never silently reconciled | importer and conflict report | — | 3.10 | | Specified |
+| RCP-122 | No PDF is a runtime dependency; none is tracked in Git | no PDF at runtime | `apps/kitchen/tests/test_boundary_and_security.py::TestNoImportsFromTheProprietarySources` | 3.1–3.11 |  | Done |
+| RCP-123 | Servings convert the output; plates are separate approved compositions | serving model and portion recipes | — | 3.1, 3.3 | | Specified |
+| RCP-124 | No code derives one plate's quantity, cost or price by doubling or halving another's | convention test and costing services | — | 3.3 | | Specified |
+| RCP-125 | Task 3.10 is accepted only when all ten data-gate conditions hold | task exit criteria | — | 3.10 | | Specified |
+| RCP-126 | Demo recipes stay fiction and carry no real dish name or sourced gram figure | DEMO banner on every row | `apps/kitchen/tests/test_demo_and_concurrency.py::TestDemoDataset` | 3.1–3.10 |  | Done |
+| RCP-127 | The lifecycle is six states with one terminal state; no status depends on the current date and none is unreachable | `RecipeVersionStatus` + `is_expired_on` | `apps/kitchen/tests/test_draft_structure.py::TestTheLifecycleBoundary` | 3.2A |  | Done |
+| RCP-128 | No global `CHEF` role; the four signatures are review types on one document | `RecipeReviewType` + `review_recipe_version` | `apps/kitchen/tests/test_boundary_and_security.py::TestPermissionMap` | 3.2A |  | Done |
+| RCP-129 | The approver is never the author, the submitter or a reviewer; kitchen and costing reviews are two people | `approve_recipe_version` + `_require_distinct_parties` | `apps/kitchen/tests/test_version_lifecycle.py::TestApproval` | 3.2A |  | Done |
+| RCP-130 | Organization-wide effective scope is materialised per branch, so overlap is enforceable | `RecipeVersionBranchScope` + `kitchen_scope_follows_its_version` | `apps/kitchen/tests/test_effective_dating.py::TestOverlapEnforcement` | 3.2A |  | Done |
+| RCP-131 | The effective range is inclusive at both ends and expressed once; the supersession seam has no gap and no overlap | `covers_on_date` + `daterange(..., '[]')` | `apps/kitchen/tests/test_effective_dating.py::TestRangeBoundaries` | 3.2A |  | Done |
+| RCP-132 | A child is validated as effective at the parent's **start date** on initial activation only; the frozen exact reference survives the child's later supersession, and nothing is re-pointed or cascaded | `require_effective_coverage` + `component_advisories` | `apps/kitchen/tests/test_component_coverage.py::TestSupersessionAfterActivation` | 3.2B |  | Done |
+| RCP-133 | Two concurrent component additions cannot jointly close a cycle, because a draft is never a child | `create_recipe_component` draft-only rule + `lock_component_graph` | `apps/kitchen/tests/test_component_concurrency.py::TestTwoEdgesCannotCloseACycle` | 3.2B |  | Done |
+| RCP-134 | The component multiplier is a technical identity at the repository's factor precision, rendered with a period | `RecipeComponent.multiplier_display` | `apps/kitchen/tests/test_components.py::TestTheMultiplier` | 3.2B |  | Done |
+
+**Extended by Task 3.3 (2026-08-17) to RCP-138.** RCP-135 – RCP-138 record what
+costing settled that the specification had not: the reproducible ledger cutoff,
+the two unavailable valuation states, the leftover output that carries cost, and
+the fingerprint that deliberately ignores its own answer.
+
+| ID | Requirement | Where | Test | Task | Note | Status |
+|---|---|---|---|---|---|---|
+| RCP-135 | A cost is reproducible from one integer: the organization's posted-sequence high-water mark, captured once per calculation and stored on every snapshot | `apps/inventory/valuation.posted_cutoff` | `apps/kitchen/tests/test_cost_concurrency.py::TestARacingReceipt::test_every_line_of_one_card_reads_the_same_cutoff` | 3.3 | Why `POSTED_AS_OF` is the only authoritative basis: its movement set is a prefix, so it has a name | Done |
+| RCP-136 | "Valued at zero" and "not valued" are different facts, and only the first is a cost | `ValuationState` | `apps/kitchen/tests/test_costing.py::TestTheValuationRead` | 3.3 | A positive quantity with no value is a real zero-cost position; an empty position has no average to divide | Done |
+| RCP-137 | Output left over after whole servings carries cost and takes its own allocation weight | `_serving_costs` | `apps/kitchen/tests/test_cost_servings.py::TestTheServingAllocation::test_leftover_output_carries_cost_rather_than_vanishing` | 3.3 | Dropping it under-sums the scenario; absorbing it overstates one serving | Done |
+| RCP-138 | A snapshot's idempotency fingerprint covers the request and never the resulting figures | `snapshots.snapshot_fingerprint` | `apps/kitchen/tests/test_cost_snapshots.py::TestIdempotency::test_the_fingerprint_ignores_the_figures_it_produced` | 3.3 | Hashing the answer would turn every honest re-run into a permanent conflict | Done |
+| RCP-139 | Standard plate cost divides by the version's **primary** `RecipeServing`, and equals that serving's own standard rate exactly | `costing._plate_cost` | `apps/kitchen/tests/test_cost_plate.py::TestPlateCost::test_plate_cost_equals_the_primary_servings_own_rate` | 3.3 | No `portions_per_batch` column exists; adding one would be a second mutable statement of a fact the serving holds. RCP-084 guarantees exactly one primary | Done |
+| RCP-140 | A serving allocation is stored compactly — two amounts, two counts, one leftover — and reconstructs the exact total at any serving count | `costing._compact_allocation` | `apps/kitchen/tests/test_cost_plate.py::TestTheCompactAllocationIsTheCertifiedOne` · `::TestServingAllocationHasNoSizeLimit::test_fifty_thousand_servings_still_allocate_exactly` | 3.3 | Equal-weight servings admit only two amounts, so the compact form **is** the distribution rather than a summary of it. Held against the certified allocator itself | Done |
+
+## Phase 3 — Tasks 3.8 and 3.9 (accelerated implementation checkpoints)
+
+Evidence here is a **development-database smoke or probe**, not a test, under the
+owner's accelerated policy. `docs/runbooks/phase-3-deferred-verification.md` rows
+18 – 32 record what Task 3.11 must still certify. Nothing below may be described
+as suite-verified.
+
+| Rule | Statement | Implementation | Evidence | Task | Status |
+|---|---|---|---|---|---|
+| RCP-103 | Every posted movement at a kitchen warehouse belongs to exactly one bucket | `consumption.classify_kitchen_movement` | smoke: 76 movements, 76 unique ids, 15 buckets populated | 3.8 | Implemented |
+| RCP-104 | `closing − opening = Σ buckets` per `(warehouse, item, lot)` | `consumption.kitchen_warehouse_flow` | smoke: identity holds across 15 `(warehouse, item)` rows | 3.8 | Implemented |
+| RCP-105 | Waste is classified by what was lost; output waste is not expanded into ingredients | `_DIRECT_BUCKETS` + `produced_output_item_ids` | smoke: `PRODUCED_OUTPUT_WASTE` = 1 on the demo waste of `DEMO-RICE-COOKED` | 3.8 | Implemented |
+| RCP-106 | Count and adjustment corrections are excluded from consumption | `CORRECTION_BUCKETS` | smoke: corrections reported in their own columns | 3.8 | Implemented |
+| RCP-098 | Consumption is two distinct reads, neither defined over the other's rows | `batch_actual_consumption` · `period_actual_consumption` | smoke: batch quantity and value equations both hold | 3.8 | Implemented |
+| RCP-099 | Batch consumption is the posted evidence; §11.2's adjusted formula is superseded | ADR-026 §4 | `document_links` is not read by `batch_actual_consumption` | 3.8 | Amended |
+| RCP-100 | Waste and returns are linked, never assumed | `BatchDocumentLink` | demo: 2 links, one of each closed type | 3.8 | Implemented |
+| RCP-101 | The link model is kitchen-owned and one-directional | `apps/kitchen/document_links.py` | `apps.inventory` imports nothing from it | 3.8 | Implemented |
+| RCP-102 | Attribution may not exceed the source line | service `FOR UPDATE` + migration 0023 trigger | probe: service refuses with `link_attribution_exceeds_source`; trigger refuses the same insert with the service bypassed | 3.8 | Implemented |
+| RCP-047 | Theoretical consumption takes a quantity source; sales are Phase 4's contribution | `TheoreticalConsumptionSource` | smoke: `SALES` reports `DEFERRED_TO_PHASE_4`, `is_final` is `False` | 3.8 | Interface ready |
+| RCP-043 | Meals explain fed-but-not-sold output rather than consuming stock again | `staff_meal_equivalent_usage` | smoke: 2 staff and 1 complimentary contributions, cancelled meal excluded | 3.8 | Implemented |
+| RCP-044 | Meal accounting reclassification is deferred and recorded | `verify_kitchen` section 5 | reported as `MEAL_ACCOUNTING_RECLASSIFICATION_DEFERRED` | 3.8 | Deferred |
+| — | A variance computed over part of the evidence discloses what it excluded | `consumption.PARTIALLY_COMPARABLE` | probe: 3 demo rows carry `DEMO-OIL 1.500000 L` outside a −1.75 KG variance | 3.8 | Implemented |
+| RCP-050 | Verification reports and refuses to repair | `manage.py verify_kitchen` | run: 0 ERROR, exit 0, no `--fix` flag exists | 3.9 | Implemented |
+| RCP-049 | `verify_kitchen` proves posting, value conservation, journals and Inventory-to-GL | composes seven verifiers | run: sections 1 – 10 all clean | 3.9 | Implemented |
+| RCP-112 | The absent journal is absent for the right reason | `production_posting_reconciliation` recomputes per-account nets | composed by `verify_kitchen` section 4 | 3.9 | Composed |
+| RCP-107 | No `is_kitchen` flag; the reader selects the warehouse | `FlowFilters.warehouse_id` | every consumption screen scopes by warehouse | 3.8 | Implemented |

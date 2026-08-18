@@ -85,6 +85,27 @@ not the constraint.
 investor information, ever, including in a name field that "will not be
 committed".
 
+**Not an approval that looks real.** Where a module records *evidence* behind an
+approval, the demo dataset must name its evidence as fictional and the database
+must refuse the alternative. `apps.kitchen` is the first module with this shape:
+`ApprovalEvidenceKind` is `SIGNED_FORM` or `DEMO_FICTIONAL`, and a trigger
+permits `DEMO_FICTIONAL` only inside the `DEMO-` namespace **and refuses
+`SIGNED_FORM` inside it**.
+
+The second direction is the one that matters and the one a policy written from
+first principles would miss. A demo recipe carrying what looks like a signed
+`KM-RCP-004` reference is exactly how unapproved figures acquire authority
+(RCP-126): somebody screenshots the costing screen, the signature is there, and
+by the time anybody checks, the number has been quoted in three meetings.
+
+**A demo dataset that exercises an approval workflow needs real separate
+actors.** `seed_kitchen_demo` creates four namespaced data actors —
+`demo-kitchen-reviewer`, `demo-store-reviewer`, `demo-cost-reviewer`,
+`demo-recipe-approver` — each with an unusable password, exactly as
+`seed_inventory_demo`'s count conductor has since Task 1.6. Reusing one user
+would produce an approval the real system refuses, which is the opposite of what
+a demo is for.
+
 **Not a licence to delete.** `--reset-demo` may remove only records carrying the
 command's own namespace, and only where removal is legitimate. It never runs a
 general flush, never resets migrations, never touches a record it did not
@@ -251,7 +272,7 @@ because swapping a page into a table would nest the shell inside itself.
 |---|---|---|
 | `seed_inventory_demo` | `DEMO-INVENTORY-V1` | Inventory master data, opening stock, receipts, issues, returns, reversal, transfers, in-transit, shortage, waste, stock counts, manual adjustments, reorder points, dated lots, import batches |
 | `seed_procurement_demo` | `DEMO-*` procurement codes | Suppliers, catalogue, requests, quotations, award, orders, revision, receipts, invoices, matching, returns, credit notes, payments, report routes, applied and rejected import batches. (This row was missing while the command shipped through Phase 2 — the table lagged the code by a phase, found at Task 3.0.) |
-| `seed_kitchen_demo` (planned, Phase 3) | `DEMO-KITCHEN-V1` | Per `task-3-0` §14: two named recipes, one permitted new produced item, posted and draft batches, meal records |
+| `seed_kitchen_demo` (Task 3.1) | `DEMO-KITCHEN-V1` | Five recipes: one batch recipe with FOOD and PACKAGING lines, a substitute, numbered steps (one with a sourced duration, one with a qualitative heat instruction and a **null** temperature) and three servings; one portion recipe drawing on the batch's output; one draft with no structure; one recipe with no draft; one archived. Creates the single permitted new item `DEMO-RICE-COOKED`. **No approved version, no cost, no price, no stock movement and no journal entry.** Every row carries `تجريبي — غير معتمد للإنتاج` |
 
 Reference data seeds — `seed_units`, `seed_chart_of_accounts`,
 `sync_accounting_roles` — are **not** demo commands. They create deterministic
@@ -279,3 +300,127 @@ was applied to the reports and the import history. `seed_inventory_demo` gained:
 
 Both batches are found by filename on re-run, so a second seed reports them as
 reused and creates no third batch.
+
+
+## The nested-recipe demo graph (Task 3.2B)
+
+`seed_kitchen_demo` adds three more recipes, and they exist to make one
+distinction visible that no amount of prose conveys:
+
+    DEMO-RCP-DISH v1  →  DEMO-BLEND-MARINADE v1  →  DEMO-BLEND-SPICE v1
+    DEMO-RCP-DISH v2  →  DEMO-BLEND-MARINADE v2  →  DEMO-BLEND-SPICE v1
+
+Both dish versions also carry `DEMO-RICE-COOKED` as an ordinary **line**. That
+is the point of the scenario: the semi-finished item has a book value and is
+consumed at it, while the marinade beside it has no book value and is expanded
+from its exact child version. Adding the stocked item as a component instead is
+refused by the service and by a trigger — the two shapes are mutually exclusive
+by construction, not by rule.
+
+The dish's first version runs a **closed** range on purpose, so the scenario shows
+a **parent** supersession as well as a child one — two different corrections on
+one screen. It is not a workaround: a child may be superseded under an open-ended
+parent freely, because the parent's reference to it is a frozen foreign key.
+
+Nothing invalid is ever seeded. A cycle or an over-deep chain appears only inside
+a test that rolls back.
+
+---
+
+## Task 3.3 — the first demo record that cannot be deleted
+
+`seed_kitchen_demo` now writes one **cost snapshot**, and it is the first thing
+any demo seed in this repository has created that a later run cannot remove: the
+three snapshot tables refuse UPDATE and DELETE at the database, for everyone.
+
+That does not make it a posting. It moves no stock, changes no balance and
+writes no journal entry — a test counts all six tables before and after the
+whole seed. It is a *statement about what the books already said*, and the seed
+still needs no `--confirm-demo` flag for the reason it never did: nothing here is
+irreversible in the way a posted movement is.
+
+Three rules it follows that a future demo record should copy:
+
+- **The idempotency key carries the as-of date.** A same-day re-run replays
+  through idempotency and creates nothing; a run the next morning records a
+  *new* decision rather than raising `idempotency_key_conflict`. A fixed key
+  would have looked idempotent for one day and then broken every developer's
+  morning.
+- **It says what it is, in the data.** `reason` carries the demo banner and
+  `reference` is the literal string `DEMO-NOT-A-REAL-DECISION`. A demo snapshot
+  presented as a signed Khan Mandi costing card is exactly how unapproved
+  figures acquire authority (RCP-126).
+- **It is skipped rather than forced when the card is incomplete.** If any leaf
+  has no valuation the seed writes no snapshot at all, because the rule that a
+  record may only be built over a complete card must not bend for a demo.
+
+### What the costing demo is there to show
+
+One recipe (`DEMO-RCP-COST`) whose card carries a direct line, a one-level
+roll-up, a two-level cumulative multiplier over the existing 0.5 × 0.30 path,
+food **and** packaging totals, a primary serving with its portions-per-batch and
+plate cost, four alternative serving scenarios — a whole, a half, a fractional
+portion and a deliberately tiny one whose 50,000 servings prove the allocation
+is compact rather than capped — and one frozen snapshot carrying the plate-cost
+evidence. Beside it, the Task 3.2B dish shows the other half: a stocked
+semi-finished item consumed as **one** leaf that is never expanded, which is also
+— because the demo ledger holds none of that item — the missing-valuation card
+that cannot be snapshotted. A `DRAFT` version is left on the costing recipe so
+the preview banner has something to sit on.
+
+No new inventory item was created for any of it (RCP-056 unchanged): every
+valued leaf is an item the inventory demo already posted stock for.
+
+## Task 3.4 — the production draft
+
+One visible `DRAFT` production batch, `DEMO-RCP-PROD` at ×2.5, built through the
+real services and showing every shape the module has an opinion about on one
+screen: a direct requirement, a nested component path, a **stocked**
+semi-finished leaf left unexpanded, the same item reached by more than one path,
+an optional requirement consumed at zero, one requirement below plan and one
+above, a partial substitution in the same dimension, a cross-dimension
+substitution beside it, complete conversion snapshots on every row, and an
+actual output deliberately **below** the expected — because a yield of exactly
+100% demonstrates nothing.
+
+**One new inventory item, and the reason RCP-056's count moved from one to two.**
+`DEMO-RICE-COOKED` is already spoken for: `DEMO-RCP-RICE` produces it. Showing
+"a stocked semi-finished leaf is one requirement and is never re-expanded"
+requires that item to be an *input*, and an item cannot be both the output of the
+recipe being produced and a stocked input to it. `DEMO-MEAL-READY` is the output
+instead. One item, one purpose.
+
+**Idempotency has one extra place to be careful.** The batch is created with a
+fixed idempotency key, so a second run is a *retry* that returns the original
+rather than drafting a second batch. Every subsequent edit is then guarded by the
+**value** it would write rather than by a flag, so a second run finds the work
+done and writes nothing — including no duplicate audit event, which is the
+strictest of the counts a test compares.
+
+**The seed posted nothing at Task 3.4, and posts through real services from
+Task 3.5 onward.** The paragraph above described the draft-only era and is kept
+because the reasoning still applies to drafting; the claim itself is no longer
+true and would mislead anybody reading it today.
+
+What the kitchen seed does now: it receives a semi-finished component so a batch
+can consume it, posts production, reverses one batch, records four meals
+(including one cancelled and its replacement), raises a produced-output waste
+document, and attributes two Inventory documents to a batch. Every one of those
+goes through the domain service that owns it — `post_production_batch`,
+`record_meal`, `post_document`, `create_batch_document_link`. Nothing in the
+command writes a `StockMovement`, a `StockBalance` or a `JournalEntry` directly,
+and that is the rule the earlier paragraph was really protecting.
+
+**A demo seed is one transaction, so a domain refusal anywhere takes the whole
+seed down.** This has cost the kitchen demo four times: a batch that could not
+post for want of stock, a meal probing a fixed date, a replacement meal with no
+serving, and a link whose source document did not satisfy the attribution rules.
+Each was fixed the same way — the seed either resolves the precondition properly
+or degrades to a graceful skip, and never lets an ordinary state of a
+development database roll back every recipe, cost card and meal alongside it.
+
+**A seed that renders empty is a seed that failed.** Task 3.8 found every demo
+batch sitting in `DRAFT` because a semi-finished component had never been put on
+the shelf, which meant the productivity report and every consumption read had
+been rendering correctly against nothing at all. Counting the rows a screen will
+show is part of writing the seed, not part of reviewing it later.
