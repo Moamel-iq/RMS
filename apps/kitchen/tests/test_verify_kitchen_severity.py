@@ -26,8 +26,11 @@ own direct probe; this proves the severity and exit logic.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import pytest
 
+from apps.kitchen.consumption import FlowFilters
 from apps.kitchen.consumption_reconciliation import (
     ADVISORY,
     COVERAGE_LIMITATION,
@@ -35,6 +38,9 @@ from apps.kitchen.consumption_reconciliation import (
     Finding,
 )
 from apps.kitchen.management.commands.verify_kitchen import Section
+
+if TYPE_CHECKING:
+    from apps.users.models import User
 
 
 class TestTheSeverityContract:
@@ -127,8 +133,10 @@ class TestThePartitionVerifierReactsToAContradiction:
             raise ValueError("unclassified movement type 'INVENTED' on movement 1")
 
         monkeypatch.setattr(consumption_reconciliation, "kitchen_warehouse_flow", explode)
+        # The scoped read is monkeypatched away, so no real caller is needed;
+        # the cast states that rather than leaving `object()` to be puzzled over.
         findings = consumption_reconciliation.verify_movement_partition(
-            object(), consumption_reconciliation.FlowFilters()
+            cast("User", object()), FlowFilters()
         )
 
         assert len(findings) == 1
@@ -169,8 +177,10 @@ class TestThePartitionVerifierReactsToAContradiction:
             consumption_reconciliation, "kitchen_warehouse_flow", lambda *_a, **_k: flow
         )
 
+        # The scoped read is monkeypatched away, so no real caller is needed;
+        # the cast states that rather than leaving `object()` to be puzzled over.
         findings = consumption_reconciliation.verify_movement_partition(
-            object(), consumption_reconciliation.FlowFilters()
+            cast("User", object()), FlowFilters()
         )
         errors = [row for row in findings if row.severity == ERROR]
 
