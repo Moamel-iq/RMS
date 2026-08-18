@@ -69,7 +69,7 @@ not reformatted at the moment it was being preserved.
 | 23 | The theoretical **sales** adapter | Cannot be written until Phase 4 exists. What can be certified now is that `SALES` reports `DEFERRED_TO_PHASE_4` and that no surface claims finality |
 | 24 | The meal-equivalent deduplication policy | Task 3.8 refuses to combine production plans with meal expansions because no portion-to-batch key exists. If Phase 4 introduces one, this decision must be revisited — and until then the refusal itself should be a test |
 | 25 | Report security, as tests | Money is structurally omitted rather than blanked; verified by one 403 and one absent column on the development database, not by a permission matrix |
-| 26 | API security, as tests | Seven new endpoints. Scope resolution is 404 and missing authority is 403 by construction; neither is asserted |
+| 26 | API security, as tests | Eleven endpoints now (seven consumption, four meal). Scope resolution answering 404 and a foreign id were smoked; a **missing-authority 403** on each was not, because the smoke ran as a superuser |
 | 27 | The HTMX / full-page matrix | All 14 report routes answered both with a smaller fragment and no nested shell. That is a smoke, not a parity proof over filter and pagination combinations |
 | 28 | CSV formula safety | `_safe` prefixes the five leading characters, and the coverage rows go through it too. Untested since Task 3.6 |
 | 29 | Demo idempotency, as a test | Proved by running the seed twice and comparing ten counts. Not automated |
@@ -82,11 +82,11 @@ not reformatted at the moment it was being preserved.
 These are **not** deferred verification — they are scope decisions written down
 so Task 3.11 does not mistake them for oversights:
 
-- **Task 3.7's meal API routes were never built.** `GET/POST
-  /api/v1/kitchen/meals/`, `GET /api/v1/kitchen/meals/{id}/` and
-  `POST /api/v1/kitchen/meals/{id}/cancel/` are specified and absent; the HTML
-  surface is complete. Task 3.8 added its own seven endpoints, so the API is
-  otherwise current.
+- **Task 3.7's meal API routes are now built** as a forward correction rather
+  than an amendment to `8fb22be`. All four exist and were smoked: list, detail,
+  create, cancel, plus idempotent retry, changed-payload conflict, `PATCH`/`DELETE`
+  refused with 405 and a foreign id answering 404. What Task 3.11 owes is the
+  permission matrix as tests — the routes were exercised as a superuser.
 - **Task 3.7's documentation updates were not made** to the Task 3.0 spec, the
   phase-3 breakdown, the invariants list or the traceability matrix. Task 3.9
   updates the breakdown and this manifest; the spec's §11.2 formula is
