@@ -89,6 +89,7 @@ from apps.kitchen.permissions import (
     LINK_BATCH_DOCUMENT,
     MANAGE_RECIPE,
     POST_PRODUCTION_BATCH,
+    RECORD_MEAL,
     REJECT_RECIPE_VERSION,
     REVERSE_PRODUCTION_BATCH,
     REVIEW_RECIPE_VERSION,
@@ -172,6 +173,7 @@ from apps.kitchen.snapshots import create_recipe_cost_snapshot
 from apps.organizations.authorization import (
     OutOfScope,
     PermissionMissing,
+    require_branch_permission,
     require_reachable_organization_permission,
     require_warehouse_permission,
     resolve_branch,
@@ -3611,3 +3613,229 @@ def cancel_batch_document_link_endpoint(
     link = resolve_batch_document_link(actor, link_id)
     _require_link_authority(request, link.batch.warehouse)
     return _link_out(cancel_batch_document_link(link=link, reason=payload.reason, actor=actor))
+
+
+# ---------------------------------------------------------------------------
+# Task 3.7 forward correction — the meal command API
+# ---------------------------------------------------------------------------
+#
+# Task 3.7 shipped the HTML surface and left these four routes unbuilt. They are
+# added here rather than by amending `8fb22be`, because that commit is pushed and
+# rewriting it would rewrite history other clones may already hold.
+#
+# Two reads and two commands. There is no `PATCH` and no `DELETE`, and the
+# absence is the design: a recorded meal is a statement about a day that has
+# already happened, so correcting it is a cancellation plus a new statement. A
+# verb implying an edit would be the API contradicting the service.
+#
+# **Nothing here moves stock or writes a journal.** The ingredients already left
+# through the batch that cooked them or the issue that took them out; recording
+# the meal again as a stock movement would take the same kilogram out twice.
+
+
+class MealRecordOut(Schema):
+    id: int
+    public_id: uuid.UUID
+    meal_type: str
+    status: str
+    branch_code: str
+    recipe_code: str
+    recipe_name: str
+    #: The version **stored on the record**, never a re-resolved one. A recipe
+    #: changed in June must not restate what March consumed.
+    version_number: int
+    recipe_version_id: int
+    serving_code: str
+    #: Portions, as an exact string. JSON's only numeric type is binary floating
+    #: point, and a quantity that arrived as 2.0000000000000004 would be nobody's
+    #: fault and everybody's problem.
+    quantity: str
+    output_base_quantity: str
+    output_unit_code: str
+    consumed_on: datetime.date
+    beneficiary: str
+    reason: str
+    notes: str
+    cancellation_reason: str
+    replaces_id: int | None
+    #: Constant on every payload. This is the question a reader of a meal record
+    #: actually has, and it should not require reading a docstring to answer.
+    stock_effect: str = "none"
+    journal_effect: str = "none"
+
+
+def _meal_out(record: Any) -> dict[str, Any]:
+    serving = record.serving
+    return {
+        "id": record.pk,
+        "public_id": record.public_id,
+        "meal_type": record.meal_type,
+        "status": record.status,
+        "branch_code": record.branch.code,
+        "recipe_code": record.recipe.code,
+        "recipe_name": record.recipe.name_ar,
+        "version_number": record.recipe_version.version_number,
+        "recipe_version_id": record.recipe_version_id,
+        "serving_code": serving.code if serving is not None else "",
+        "quantity": record.quantity_display,
+        "output_base_quantity": record.output_display,
+        "output_unit_code": record.output_unit_code,
+        "consumed_on": record.consumed_on,
+        "beneficiary": record.beneficiary,
+        "reason": record.reason,
+        "notes": record.notes,
+        "cancellation_reason": record.cancellation_reason,
+        "replaces_id": record.replaces_id,
+    }
+
+
+class MealRecordIn(Schema):
+    """
+    One meal, with every input explicit and nothing defaulted.
+
+    There is no default `consumed_on`, because "today" is the wrong answer for a
+    meal recorded on Monday for Sunday's evening shift — and the date is what
+    decides which recipe version applies.
+    """
+
+    branch_id: int
+    recipe_id: int
+    meal_type: str
+    consumed_on: datetime.date
+    #: An exact string, parsed with `Decimal`. See `MealRecordOut.quantity`.
+    quantity: str
+    idempotency_key: str
+    serving_id: int | None = None
+    beneficiary: str = ""
+    reason: str = ""
+    notes: str = ""
+    #: The cancelled record this one replaces, where a correction is being made.
+    replaces_id: int | None = None
+
+
+class MealCancelIn(Schema):
+    reason: str
+
+
+@router.get(
+    "/meals",
+    response=list[MealRecordOut],
+    summary="Staff and complimentary meals, newest consumed date first",
+)
+def list_meals(
+    request: HttpRequest,
+    meal_type: str | None = None,
+    branch_id: int | None = None,
+    recipe_id: int | None = None,
+    status: str | None = None,
+    date_from: datetime.date | None = None,
+    date_to: datetime.date | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Scoped by `visible_meal_records`, which filters to what the caller reaches.
+
+    No money key at all: a meal carries no cost in Phase 3, and the accounting
+    reclassification is deferred and recorded (RCP-044).
+    """
+    from apps.kitchen.selectors import visible_meal_records
+
+    rows = visible_meal_records(_actor(request))
+    if meal_type:
+        rows = rows.filter(meal_type=meal_type)
+    if branch_id:
+        rows = rows.filter(branch_id=branch_id)
+    if recipe_id:
+        rows = rows.filter(recipe_id=recipe_id)
+    if status:
+        rows = rows.filter(status=status)
+    if date_from:
+        rows = rows.filter(consumed_on__gte=date_from)
+    if date_to:
+        rows = rows.filter(consumed_on__lte=date_to)
+    return [_meal_out(record) for record in rows]
+
+
+@router.get("/meals/{meal_id}", response=MealRecordOut, summary="One meal record")
+def get_meal(request: HttpRequest, meal_id: int) -> dict[str, Any]:
+    """Out of scope is **404**: a 403 would confirm another branch's meal exists."""
+    from apps.kitchen.selectors import resolve_meal_record
+
+    return _meal_out(resolve_meal_record(_actor(request), meal_id))
+
+
+@router.post("/meals", response={201: MealRecordOut}, summary="Record one meal")
+def create_meal(request: HttpRequest, payload: MealRecordIn) -> tuple[int, dict[str, Any]]:
+    """
+    Calls `record_meal` and adds nothing to it.
+
+    Every domain rule — the exact version resolved once from the date, the
+    serving requirement, the idempotency key matched against a fingerprint —
+    lives in the service. Re-checking any of them here would create a second
+    place for them to be true, and the two would eventually disagree.
+
+    A retry with the same key returns the original record with **201**; a
+    changed request under the same key is `idempotency_key_conflict`, refused by
+    the service rather than silently returning the wrong row.
+    """
+    from apps.kitchen.meals import record_meal
+    from apps.kitchen.models import MealRecord, RecipeServing
+    from apps.kitchen.selectors import resolve_meal_record, resolve_recipe
+
+    actor = _actor(request)
+    branch = resolve_branch(actor, payload.branch_id)
+    # Branch-scoped, not warehouse-scoped: a meal is fed at a branch and moves
+    # no stock, so there is no custody to scope it to.
+    require_branch_permission(actor, RECORD_MEAL, branch)
+    recipe = resolve_recipe(actor, payload.recipe_id)
+
+    serving = None
+    if payload.serving_id is not None:
+        serving = RecipeServing.objects.filter(
+            pk=payload.serving_id, version__recipe=recipe
+        ).first()
+        if serving is None:
+            raise OutOfScope(f"RecipeServing {payload.serving_id} does not exist.")
+
+    replaces: MealRecord | None = None
+    if payload.replaces_id is not None:
+        replaces = resolve_meal_record(actor, payload.replaces_id)
+
+    record = record_meal(
+        branch=branch,
+        recipe=recipe,
+        meal_type=payload.meal_type,
+        consumed_on=payload.consumed_on,
+        quantity=Decimal(payload.quantity),
+        idempotency_key=payload.idempotency_key,
+        serving=serving,
+        beneficiary=payload.beneficiary,
+        reason=payload.reason,
+        notes=payload.notes,
+        replaces=replaces,
+        actor=actor,
+    )
+    return 201, _meal_out(record)
+
+
+@router.post(
+    "/meals/{meal_id}/cancel",
+    response=MealRecordOut,
+    summary="Cancel a recorded meal, with a reason that is kept",
+)
+def cancel_meal_endpoint(
+    request: HttpRequest, meal_id: int, payload: MealCancelIn
+) -> dict[str, Any]:
+    """
+    Cancellation, never deletion.
+
+    The row stays visible afterwards — a correction that hides what it corrected
+    is not a correction — and stops contributing to theoretical consumption. No
+    stock is reversed because none ever moved.
+    """
+    from apps.kitchen.meals import cancel_meal
+    from apps.kitchen.selectors import resolve_meal_record
+
+    actor = _actor(request)
+    record = resolve_meal_record(actor, meal_id)
+    require_branch_permission(actor, RECORD_MEAL, record.branch)
+    return _meal_out(cancel_meal(record=record, reason=payload.reason, actor=actor))
