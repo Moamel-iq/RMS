@@ -13,7 +13,7 @@ first for the reasoning. This page is the operator's and maintainer's view.
 Consumption is answered by a **partition**, not a formula.
 
 `apps/kitchen/consumption.classify_kitchen_movement` places every posted
-`StockMovement` at a kitchen warehouse into exactly one of seventeen buckets. It
+`StockMovement` at a kitchen warehouse into exactly one of fifteen buckets. It
 **raises** on a `MovementType` it does not know. Everything else — the actual
 consumption report, the variance diagnostic, the API — is a *reading* of that
 partition rather than a second calculation.
@@ -35,7 +35,7 @@ than a table of good intentions.
 
 ---
 
-## The seventeen buckets
+## The fifteen public buckets
 
 | Bucket | Movement type | Consumption? |
 |---|---|---|
@@ -53,14 +53,29 @@ than a table of good intentions.
 | `VALUE_ONLY_ADJUSTMENT` | `MANUAL_ADJUSTMENT`, zero quantity | No — nothing left |
 | `OTHER_QUANTITY_CORRECTION` | `MANUAL_ADJUSTMENT`, non-zero | No |
 | `REVERSAL` | `REVERSAL` | Nets against whatever it cancelled |
-| `SUPPLIER_RETURN_OUT` | `RETURN_OUT` | No — procurement's report |
-| `TRANSIT_SHORTAGE_LOSS` | `TRANSFER_SHORTAGE` | No — the transfer report's |
 
-The last two were **not** in the approved bucket list. `RETURN_OUT` and
-`TRANSFER_SHORTAGE` had no home in it, and both are real movement types a kitchen
-warehouse can carry. Folding them into a bucket that means something else would
-corrupt whatever report reads that bucket; letting them fall through would break
-the stock identity. ADR-026 §2.1 records the choice.
+Fifteen public buckets — the approved vocabulary, and no more.
+
+## The three internal subcategories
+
+Two movement types need **drill-down detail** rather than a public bucket of
+their own, and one bucket genuinely holds two kinds of event:
+
+| Public bucket | Subcategory | Movement type | Nets against |
+|---|---|---|---|
+| `ECONOMIC_RETURN_OR_REVERSAL` | `ISSUE_RETURN_IN` | `RETURN_IN` | direct economic consumption |
+| `ECONOMIC_RETURN_OR_REVERSAL` | `SUPPLIER_RETURN_OUT` | `RETURN_OUT` | **supply** |
+| `CUSTODY_TRANSFER_OUT` | `TRANSIT_SHORTAGE_LOSS` | `TRANSFER_SHORTAGE` | custody out |
+
+This is what keeps the arithmetic safe. A supplier return reverses a *receipt*,
+not a use — so netting the whole return bucket against consumption would make
+goods sent back to a supplier look like the kitchen having cooked less.
+`direct_economic_consumption` nets only the `ISSUE_RETURN_IN` share;
+`supply_receipt` nets the `SUPPLIER_RETURN_OUT` share.
+
+Subcategories are internal. They are never a reporting dimension of their own,
+and `MovementBucket` stays at fifteen. ADR-026 §2.1 records why an earlier
+seventeen-bucket version was wrong.
 
 Waste splits by asking whether the item is any recipe's `output_item` in that
 organization — a data question with a closed answer, never the document's

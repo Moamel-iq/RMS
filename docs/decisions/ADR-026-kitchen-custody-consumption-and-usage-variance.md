@@ -58,22 +58,42 @@ The classifier **raises** on an unknown `MovementType` rather than falling
 through to an `OTHER` bucket. A default would silently absorb a new movement
 type into a bucket nobody chose.
 
-### 2.1 Two buckets the approved list did not have
+### 2.1 `RETURN_OUT` and `TRANSFER_SHORTAGE`: subcategories, not buckets
 
-The approved bucket vocabulary had no home for `RETURN_OUT` (a supplier return)
-or `TRANSFER_SHORTAGE` (a loss in transit). Both are real movement types a
-kitchen warehouse can legitimately carry.
+`RETURN_OUT` (a supplier return) and `TRANSFER_SHORTAGE` (a loss in transit) are
+real movement types a kitchen warehouse can carry, and at first reading neither
+had a home in the approved vocabulary.
 
-`SUPPLIER_RETURN_OUT` and `TRANSIT_SHORTAGE_LOSS` were therefore added.
-Neither is consumption, and neither belongs to the kitchen's story — a supplier
-return leaves the business and is procurement's report; a transfer shortage
-belongs to the transfer report. The alternatives were worse: folding them into a
-bucket that means something else would corrupt whatever report reads that
-bucket, and letting them fall through the classifier would break the stock
-identity and take the partition's only proof down with it.
+**A first implementation added two public buckets for them.** That was the wrong
+answer, and the reasoning is worth keeping because the mistake is an easy one:
+what those movements needed was **drill-down detail**, not a seat in the public
+vocabulary that ADR-026, the CSV headers, the API contract and every future
+consumer would then have to understand. Widening a public enum looks free and is
+not.
 
-A named bucket that the consumption totals deliberately ignore is the honest
-option, and this paragraph is the record of the choice.
+Both have homes:
+
+| Movement type | Public bucket | Internal subcategory | Nets against |
+|---|---|---|---|
+| `RETURN_IN` | `ECONOMIC_RETURN_OR_REVERSAL` | `ISSUE_RETURN_IN` | direct economic consumption |
+| `RETURN_OUT` | `ECONOMIC_RETURN_OR_REVERSAL` | `SUPPLIER_RETURN_OUT` | **supply** |
+| `TRANSFER_SHORTAGE` | `CUSTODY_TRANSFER_OUT` | `TRANSIT_SHORTAGE_LOSS` | custody out |
+
+A supplier return is a genuine reversal — of a **receipt**, not of a use. A
+transfer shortage is stock that left this store's custody and never arrived,
+which is custody exactly like the dispatch it closes.
+
+**The subcategory is what makes the arithmetic safe.** `RETURN_IN` and
+`RETURN_OUT` share a public bucket, so netting the whole bucket against
+consumption would make goods sent back to a supplier look like the kitchen
+having cooked less. `direct_economic_consumption` therefore nets only the
+`ISSUE_RETURN_IN` share, and `supply_receipt` nets the `SUPPLIER_RETURN_OUT`
+share. Verified on the development database: a warehouse with 115 received and
+20 returned to the supplier reports net supply 95 and direct consumption 0.
+
+The public vocabulary is the approved **fifteen**. Subcategories are internal,
+exist only where a bucket genuinely holds two kinds of event, and are never a
+reporting dimension of their own.
 
 ---
 

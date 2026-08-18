@@ -73,7 +73,7 @@ not reformatted at the moment it was being preserved.
 | 27 | The HTMX / full-page matrix | All 14 report routes answered both with a smaller fragment and no nested shell. That is a smoke, not a parity proof over filter and pagination combinations |
 | 28 | CSV formula safety | `_safe` prefixes the five leading characters, and the coverage rows go through it too. Untested since Task 3.6 |
 | 29 | Demo idempotency, as a test | Proved by running the seed twice and comparing ten counts. Not automated |
-| 30 | `verify_kitchen` itself | Runs clean with 0 ERROR on the development database. Its own behaviour under a *planted* defect per section is unproven — a verifier nobody has watched fail is a verifier nobody should trust |
+| 30 | `verify_kitchen` **end to end** | The severity contract is now proved by `apps/kitchen/tests/test_verify_kitchen_severity.py`: ERROR fails, ADVISORY and COVERAGE_LIMITATION do not, an unclassifiable movement and a broken stock identity both become ERROR findings. What remains for 3.11 is a planted defect in *each of the ten sections*, driven through the real command against a real database |
 | 31 | Every reconciliation command, together | The four Kitchen and three Inventory verifiers are composed by `verify_kitchen`; each has been run, but not as one gate on a fresh database |
 | 32 | All concurrency cases | Attribution cap under two concurrent writers, meal recording, posting and reversal races |
 
@@ -91,11 +91,13 @@ so Task 3.11 does not mistake them for oversights:
   phase-3 breakdown, the invariants list or the traceability matrix. Task 3.9
   updates the breakdown and this manifest; the spec's §11.2 formula is
   superseded by ADR-026 rather than edited in place.
-- **`SUPPLIER_RETURN_OUT` and `TRANSIT_SHORTAGE_LOSS`** are buckets Task 3.8
-  added beyond the approved fifteen, because `RETURN_OUT` and
-  `TRANSFER_SHORTAGE` had no home in that list. ADR-026 §2.1 records the
-  reasoning. Task 3.11 should confirm the addition is accepted rather than
-  merely present.
+- **`SUPPLIER_RETURN_OUT` and `TRANSIT_SHORTAGE_LOSS` are no longer public
+  buckets.** Task 3.8 first added them beyond the approved fifteen; they are now
+  internal subcategories under `ECONOMIC_RETURN_OR_REVERSAL` and
+  `CUSTODY_TRANSFER_OUT` respectively, and `MovementBucket` is back to fifteen
+  (ADR-026 §2.1). What Task 3.11 should certify is the **netting**: a supplier
+  return must reduce supply and not consumption, which the subcategory split is
+  what makes true.
 
 ## What Task 3.11 must do with this page
 

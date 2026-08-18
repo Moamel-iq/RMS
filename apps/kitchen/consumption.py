@@ -112,26 +112,27 @@ class MovementBucket(StrEnum):
     Where one posted movement belongs. Closed, exhaustive, and mutually
     exclusive over `MovementType`.
 
-    Seventeen values for fifteen movement types, and the arithmetic is worth
-    spelling out because two of the values were not in the approved bucket
-    list and are here deliberately.
+    **Fifteen values — the approved vocabulary, and no more.** `WASTE` splits in
+    two by what was lost and `MANUAL_ADJUSTMENT` splits in two by whether any
+    quantity moved; every other `MovementType` maps to exactly one member.
 
-    `WASTE` splits in two (`RAW_MATERIAL_WASTE` / `PRODUCED_OUTPUT_WASTE`) and
-    `MANUAL_ADJUSTMENT` splits in two (`VALUE_ONLY_ADJUSTMENT` /
-    `OTHER_QUANTITY_CORRECTION`), which is +2. `RETURN_OUT` and
-    `TRANSFER_SHORTAGE` had no home in the approved list at all, which is +2
-    more, and 15 + 2 + 2 − 2 (the two split types counted once each) = 17.
+    An earlier version of this enum carried seventeen, having added
+    `SUPPLIER_RETURN_OUT` and `TRANSIT_SHORTAGE_LOSS` because `RETURN_OUT` and
+    `TRANSFER_SHORTAGE` appeared to have no home. They do have homes, and the
+    two extra members were solving the wrong problem: what those movements
+    needed was **drill-down detail**, not a seat in the public vocabulary that
+    every report, every export and every future consumer would then have to
+    understand.
 
-    **`SUPPLIER_RETURN_OUT` and `TRANSIT_SHORTAGE_LOSS` are additions, and
-    saying so matters.** Neither is consumption and neither belongs to the
-    kitchen's story: a supplier return leaves the business and is procurement's
-    report (RCP-103), and a transfer shortage is a loss in transit that belongs
-    to the transfer report. But both are real movement types that a kitchen
-    warehouse can legitimately carry, and the alternatives were to fold them
-    into a bucket that means something else — corrupting whatever report reads
-    that bucket — or to let them fall through the classifier, which would break
-    the stock identity and take the partition's only proof down with it. A
-    named bucket that the consumption totals ignore is the honest option.
+    They now live in `MovementSubcategory`, which is internal. A supplier return
+    is a genuine reversal of a supply receipt, so it sits under
+    `ECONOMIC_RETURN_OR_REVERSAL` and nets against **supply** rather than against
+    consumption. A transfer shortage is stock that left this store's custody and
+    never arrived, so it sits under `CUSTODY_TRANSFER_OUT` — custody, exactly
+    like the dispatch it closes.
+
+    Widening a public enum is the kind of change that looks free and is not: the
+    fifteen are what ADR-026, the CSV headers and the API contract all name.
     """
 
     #: The starting point, not a flow.
@@ -173,9 +174,35 @@ class MovementBucket(StrEnum):
     #: A movement cancelling another exactly. Its own bucket, and it also
     #: carries `reverses_bucket` so the netting knows what it undid.
     REVERSAL = "REVERSAL"
-    #: Not in the approved list; see the class docstring. Procurement's report.
+
+
+class MovementSubcategory(StrEnum):
+    """
+    Drill-down detail **inside** a public bucket. Never a reporting dimension.
+
+    Two of these exist so the arithmetic can be precise where a bucket holds
+    more than one kind of event, and so a screen can say which kind it found
+    without the public vocabulary growing to accommodate it.
+
+    `ECONOMIC_RETURN_OR_REVERSAL` is the bucket that needs it. A `RETURN_IN`
+    reverses an **issue** and must reduce direct economic consumption; a
+    `RETURN_OUT` reverses a **receipt** and must reduce supply instead. Netting
+    both against consumption — which is what a single undifferentiated bucket
+    would force — would let a supplier return look like the kitchen having used
+    less.
+    """
+
+    #: The ordinary case: the bucket needs no further distinction.
+    NONE = ""
+    #: `RETURN_IN` — unused material back from a prior issue. Reduces direct
+    #: economic consumption, because it genuinely reverses it.
+    ISSUE_RETURN_IN = "ISSUE_RETURN_IN"
+    #: `RETURN_OUT` — goods leaving the business back to the supplier. Reduces
+    #: **supply**, never consumption. Procurement's report owns the event; this
+    #: records only that the stock left.
     SUPPLIER_RETURN_OUT = "SUPPLIER_RETURN_OUT"
-    #: Not in the approved list; see the class docstring. The transfer report's.
+    #: `TRANSFER_SHORTAGE` — dispatched stock that never arrived, written off
+    #: out of in-transit. Custody that ended in a loss, not consumption.
     TRANSIT_SHORTAGE_LOSS = "TRANSIT_SHORTAGE_LOSS"
 
 
@@ -196,8 +223,13 @@ BUCKET_LABELS: dict[MovementBucket, Promise] = {
     MovementBucket.VALUE_ONLY_ADJUSTMENT: _("تسوية قيمة فقط"),
     MovementBucket.OTHER_QUANTITY_CORRECTION: _("تصحيح كمية"),
     MovementBucket.REVERSAL: _("عكس حركة"),
-    MovementBucket.SUPPLIER_RETURN_OUT: _("إرجاع إلى المورد"),
-    MovementBucket.TRANSIT_SHORTAGE_LOSS: _("عجز في الطريق"),
+}
+
+#: Arabic for each internal subcategory, for a drill-down column.
+SUBCATEGORY_LABELS: dict[MovementSubcategory, Promise] = {
+    MovementSubcategory.ISSUE_RETURN_IN: _("إرجاع من صرف"),
+    MovementSubcategory.SUPPLIER_RETURN_OUT: _("إرجاع إلى المورد"),
+    MovementSubcategory.TRANSIT_SHORTAGE_LOSS: _("عجز في الطريق"),
 }
 
 #: The buckets that are consumption of an ingredient by the kitchen. Everything
@@ -236,10 +268,21 @@ _DIRECT_BUCKETS: dict[str, MovementBucket] = {
     MovementType.PRODUCTION_IN: MovementBucket.PRODUCTION_OUTPUT,
     MovementType.ISSUE: MovementBucket.DIRECT_ECONOMIC_ISSUE,
     MovementType.RETURN_IN: MovementBucket.ECONOMIC_RETURN_OR_REVERSAL,
-    MovementType.RETURN_OUT: MovementBucket.SUPPLIER_RETURN_OUT,
-    MovementType.TRANSFER_SHORTAGE: MovementBucket.TRANSIT_SHORTAGE_LOSS,
+    # A supplier return reverses a receipt, not a use, so it shares the return
+    # bucket and is told apart by its subcategory below.
+    MovementType.RETURN_OUT: MovementBucket.ECONOMIC_RETURN_OR_REVERSAL,
+    # Dispatched stock that never arrived: custody that ended badly.
+    MovementType.TRANSFER_SHORTAGE: MovementBucket.CUSTODY_TRANSFER_OUT,
     MovementType.COUNT_GAIN: MovementBucket.COUNT_GAIN,
     MovementType.COUNT_LOSS: MovementBucket.COUNT_LOSS,
+}
+
+
+#: Which movement types carry a subcategory, and which. Absent means `NONE`.
+_SUBCATEGORIES: dict[str, MovementSubcategory] = {
+    MovementType.RETURN_IN: MovementSubcategory.ISSUE_RETURN_IN,
+    MovementType.RETURN_OUT: MovementSubcategory.SUPPLIER_RETURN_OUT,
+    MovementType.TRANSFER_SHORTAGE: MovementSubcategory.TRANSIT_SHORTAGE_LOSS,
 }
 
 
@@ -255,6 +298,8 @@ class ClassifiedMovement:
     #: `None` for a reversal whose original is not readable — which is a
     #: finding, not a default.
     reverses_bucket: MovementBucket | None = None
+    #: Drill-down detail inside `bucket`. `NONE` for the ordinary case.
+    subcategory: MovementSubcategory = MovementSubcategory.NONE
 
     @property
     def signed_quantity(self) -> Decimal:
@@ -319,7 +364,11 @@ def classify_kitchen_movement(
 
     direct = _DIRECT_BUCKETS.get(kind)
     if direct is not None:
-        return ClassifiedMovement(movement=movement, bucket=direct)
+        return ClassifiedMovement(
+            movement=movement,
+            bucket=direct,
+            subcategory=_SUBCATEGORIES.get(kind, MovementSubcategory.NONE),
+        )
 
     if kind == MovementType.WASTE:
         known = (
@@ -352,10 +401,16 @@ def classify_kitchen_movement(
             if original is not None
             else None
         )
+        original_subcategory = (
+            _SUBCATEGORIES.get(original.movement_type, MovementSubcategory.NONE)
+            if original is not None
+            else MovementSubcategory.NONE
+        )
         return ClassifiedMovement(
             movement=movement,
             bucket=MovementBucket.REVERSAL,
             reverses_bucket=reverses_bucket,
+            subcategory=original_subcategory,
         )
 
     raise ValueError(f"unclassified movement type {kind!r} on movement {movement.pk}")
@@ -404,6 +459,10 @@ class ItemFlow:
     closing: Decimal = ZERO
     quantities: dict[MovementBucket, Decimal] = field(default_factory=dict)
     values: dict[MovementBucket, Decimal] = field(default_factory=dict)
+    #: Drill-down inside a bucket. The public totals above stay whole; this is
+    #: what lets `direct_economic_consumption` net an issue return without also
+    #: netting a supplier return that happens to share its bucket.
+    subcategories: dict[MovementSubcategory, Decimal] = field(default_factory=dict)
     movement_count: int = 0
 
     def quantity_of(self, bucket: MovementBucket) -> Decimal:
@@ -411,6 +470,9 @@ class ItemFlow:
 
     def value_of(self, bucket: MovementBucket) -> Decimal:
         return self.values.get(bucket, ZERO)
+
+    def subcategory_of(self, subcategory: MovementSubcategory) -> Decimal:
+        return self.subcategories.get(subcategory, ZERO)
 
     @property
     def net_movement(self) -> Decimal:
@@ -448,11 +510,28 @@ class ItemFlow:
 
     @property
     def direct_economic_consumption(self) -> Decimal:
-        """An ordinary issue, less its genuine return and its exact reversal."""
+        """
+        An ordinary issue, less its genuine return and its exact reversal.
+
+        Nets only the `ISSUE_RETURN_IN` share of the return bucket. A supplier
+        return sits in the same bucket and reverses a **receipt**; subtracting it
+        here would make goods sent back to a supplier look like the kitchen
+        having cooked less.
+        """
         return -quantize_calculation(
             self.quantity_of(MovementBucket.DIRECT_ECONOMIC_ISSUE)
-            + self.quantity_of(MovementBucket.ECONOMIC_RETURN_OR_REVERSAL)
+            + self.subcategory_of(MovementSubcategory.ISSUE_RETURN_IN)
         )
+
+    @property
+    def supplier_return_out(self) -> Decimal:
+        """Goods sent back to the supplier. Reduces supply, never consumption."""
+        return -quantize_calculation(self.subcategory_of(MovementSubcategory.SUPPLIER_RETURN_OUT))
+
+    @property
+    def transit_shortage_loss(self) -> Decimal:
+        """Dispatched stock that never arrived. Custody that ended in a loss."""
+        return -quantize_calculation(self.subcategory_of(MovementSubcategory.TRANSIT_SHORTAGE_LOSS))
 
     @property
     def total_consumption(self) -> Decimal:
@@ -496,7 +575,16 @@ class ItemFlow:
 
     @property
     def supply_receipt(self) -> Decimal:
-        return quantize_calculation(self.quantity_of(MovementBucket.SUPPLY_RECEIPT))
+        """
+        Goods received from outside, **net of what went back to the supplier**.
+
+        A supplier return is stored negative, so adding its subcategory total
+        nets it out of supply — which is the term it actually reverses.
+        """
+        return quantize_calculation(
+            self.quantity_of(MovementBucket.SUPPLY_RECEIPT)
+            + self.subcategory_of(MovementSubcategory.SUPPLIER_RETURN_OUT)
+        )
 
     @property
     def count_correction(self) -> Decimal:
@@ -634,6 +722,10 @@ def kitchen_warehouse_flow(user: User, filters: FlowFilters) -> WarehouseFlow:
         bucket = row.nets_against
         flow.quantities[bucket] = flow.quantity_of(bucket) + movement.base_quantity
         flow.values[bucket] = flow.value_of(bucket) + movement.inventory_value
+        if row.subcategory is not MovementSubcategory.NONE:
+            flow.subcategories[row.subcategory] = (
+                flow.subcategory_of(row.subcategory) + movement.base_quantity
+            )
         flow.movement_count += 1
 
         key = (movement.warehouse_id, movement.item_id, movement.lot_id)
@@ -695,6 +787,8 @@ def flow_totals_by_item(flow: WarehouseFlow) -> list[ItemFlow]:
             combined.quantities[bucket] = combined.quantity_of(bucket) + quantity
         for bucket, value in row.values.items():
             combined.values[bucket] = combined.value_of(bucket) + value
+        for subcategory, quantity in row.subcategories.items():
+            combined.subcategories[subcategory] = combined.subcategory_of(subcategory) + quantity
     return sorted(merged.values(), key=lambda row: row.item_code)
 
 
@@ -1224,6 +1318,8 @@ __all__ = [
     "FlowFilters",
     "ItemFlow",
     "MovementBucket",
+    "MovementSubcategory",
+    "SUBCATEGORY_LABELS",
     "PeriodConsumption",
     "StandardRequirementRow",
     "WarehouseFlow",

@@ -458,10 +458,13 @@ formula" — that formula double-counts against this system's documents (spec
   are posted facts about the same batch) and a partial diagnostic stamped
   `PARTIAL_COVERAGE` / `NOT_FINAL_USAGE_VARIANCE`. No surface produces a final
   sales-based figure, because approved sold quantities arrive in Phase 4.
-- **Two buckets beyond the approved fifteen**: `SUPPLIER_RETURN_OUT` and
-  `TRANSIT_SHORTAGE_LOSS`, because `RETURN_OUT` and `TRANSFER_SHORTAGE` had no
-  home in that list and letting either fall through the classifier would break
-  the stock identity that is the partition's only proof (ADR-026 §2.1).
+- **The public bucket vocabulary is the approved fifteen.** `RETURN_OUT` and
+  `TRANSFER_SHORTAGE` are carried as **internal subcategories** under
+  `ECONOMIC_RETURN_OR_REVERSAL` and `CUSTODY_TRANSFER_OUT`, alongside
+  `ISSUE_RETURN_IN`. The split is not cosmetic: a supplier return and an issue
+  return share a bucket and reverse different things, so consumption nets only
+  the issue-return share and supply nets the supplier-return share (ADR-026
+  §2.1).
 
 Depends on: 3.5, 3.7.
 
