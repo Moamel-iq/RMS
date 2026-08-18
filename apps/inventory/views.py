@@ -255,6 +255,17 @@ class InventoryViewMixin(LoginRequiredMixin, UserPassesTestMixin, ModuleViewMixi
         user: User = self.request.user  # type: ignore[assignment]
         return user
 
+    def is_htmx(self) -> bool:
+        """
+        Whether htmx made this request, rather than the browser navigating.
+
+        On the mixin rather than on the list view, because the **write** views
+        need the same answer: a form rendered into an HTMX target must not carry
+        the shell. Defined once so a list and a form cannot disagree about what
+        an HTMX request is.
+        """
+        return self.request.headers.get("HX-Request") == "true"
+
 
 class InventoryListView(InventoryViewMixin, _ListView):
     """
@@ -308,10 +319,6 @@ class InventoryListView(InventoryViewMixin, _ListView):
                 "id", flat=True
             )
         )
-
-    def is_htmx(self) -> bool:
-        """Whether htmx made this request, rather than the browser navigating."""
-        return self.request.headers.get("HX-Request") == "true"
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -499,6 +506,14 @@ class InventoryWriteView(InventoryViewMixin, View):
             "page_hint": self.page_hint,
             "cancel_url": self.get_success_url(),
             "instance": instance,
+            # The write-screen half of the contract `list_base_template`
+            # already gives every list. Without it an HTMX GET rendered the
+            # whole shell into the target: two <html> elements, two navigation
+            # rails, and a page that looks correct until somebody swaps it into
+            # a panel. Defaults to the shell, so no existing caller changes.
+            "form_base_template": (
+                "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
+            ),
         }
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:

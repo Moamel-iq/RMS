@@ -370,11 +370,26 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:goods_receipt_list",
                 available=True,
             ),
-            # Task 2.10 onward — visible so the shape of the module is legible,
-            # inert because the documents that would fill them do not exist.
-            *_sections(
-                _("فواتير الموردين"),
-                _("التكاليف الإضافية"),
+            # The supplier invoice. Its comment used to say the backing
+            # documents "do not exist" — they had existed since Task 2.12 and
+            # the entry stayed inert anyway, which is the failure mode where a
+            # stale note outlives the thing it described. `SupplierInvoice`,
+            # `SupplierInvoiceLine`, `SupplierInvoicePosting`, `PurchaseMatch`,
+            # matching, GRNI, PPV, payments and credit notes are all built.
+            Section(
+                label=_("فواتير الموردين"),
+                url_name="procurement:supplier_invoice_list",
+                available=True,
+            ),
+            # A workspace over ACCOUNT invoice lines rather than its own
+            # document: an additional cost is a charge that never entered stock,
+            # it is billed on a supplier invoice, and the invoice owns its
+            # posting. Giving it a second home would give it a second path to
+            # the ledger for a charge the supplier billed once.
+            Section(
+                label=_("التكاليف الإضافية"),
+                url_name="procurement:additional_cost_list",
+                available=True,
             ),
             # Task 2.13 — supplier returns. Built and reachable; the entry the
             # inventory module gave up ("returns belong to Procurement, where
@@ -407,8 +422,14 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:report_supplier_aging",
                 available=True,
             ),
-            *_sections(
-                _("شروط الائتمان"),
+            # A workspace over `Supplier.payment_terms_days`, not a master-data
+            # screen for a term table — there is no term table, and the part
+            # that carries the correctness is the snapshot each invoice and
+            # order takes at creation.
+            Section(
+                label=_("شروط الائتمان"),
+                url_name="procurement:credit_term_list",
+                available=True,
             ),
         ),
     ),

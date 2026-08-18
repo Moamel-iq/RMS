@@ -1,0 +1,142 @@
+{# شروط الائتمان — a workspace over Supplier.payment_terms_days.             #}
+{#                                                                           #}
+{# There is no credit-term table. A supplier's terms are one integer, and     #}
+{# every document that cares snapshots it at creation. This screen shows the  #}
+{# defaults and how each supplier's open invoices sit against their own       #}
+{# snapshots; changing a default affects future documents only, and the page  #}
+{# says so rather than leaving the reader to discover it.                     #}
+{% extends form_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="procurement-credit-terms">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+    </div>
+
+    <p class="banner" role="note">
+      {% translate "تغيير شروط الائتمان لمورد يسري على المستندات الجديدة فقط. الفواتير وأوامر الشراء القائمة تحتفظ بالشروط وتاريخ الاستحقاق المحفوظين عند إنشائها — ولا يُعاد احتسابها من الإعداد الحالي للمورد." %}
+    </p>
+
+    <form class="toolbar"
+          method="get"
+          hx-get="{{ request.path }}"
+          hx-target="#procurement-credit-terms"
+          hx-swap="outerHTML">
+      <label class="field">
+        <span class="field__label">{% translate "بحث" %}</span>
+        <input type="search" name="q" value="{{ filters.q }}"
+               placeholder="{% translate 'رمز المورد أو اسمه' %}">
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "الحالة" %}</span>
+        <select name="state">
+          <option value="">{% translate "الكل" %}</option>
+          <option value="active" {% if filters.state == "active" %}selected{% endif %}>{% translate "نشط" %}</option>
+          <option value="archived" {% if filters.state == "archived" %}selected{% endif %}>{% translate "مؤرشف" %}</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "مدة الائتمان" %}</span>
+        <select name="band">
+          <option value="">{% translate "كل المدد" %}</option>
+          <option value="on_receipt" {% if filters.band == "on_receipt" %}selected{% endif %}>{% translate "عند الاستلام" %}</option>
+          <option value="1_15" {% if filters.band == "1_15" %}selected{% endif %}>{% translate "١ – ١٥ يوم" %}</option>
+          <option value="16_30" {% if filters.band == "16_30" %}selected{% endif %}>{% translate "١٦ – ٣٠ يوم" %}</option>
+          <option value="over_30" {% if filters.band == "over_30" %}selected{% endif %}>{% translate "أكثر من ٣٠ يوم" %}</option>
+        </select>
+      </label>
+      <label class="field field--check">
+        <input type="checkbox" name="overdue" value="1" {% if filters.overdue %}checked{% endif %}>
+        <span>{% translate "لديه فواتير متأخرة" %}</span>
+      </label>
+      <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button>
+      <a class="btn btn--ghost" href="{{ request.path }}">{% translate "مسح المرشحات" %}</a>
+    </form>
+
+    <p class="muted">
+      {% blocktranslate count total=total_rows %}مورد واحد{% plural %}{{ total }} مورد{% endblocktranslate %}
+    </p>
+
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "رمز المورد" %}</th>
+            <th scope="col">{% translate "اسم المورد" %}</th>
+            <th scope="col">{% translate "عدد الأيام" %}</th>
+            <th scope="col">{% translate "شرط الائتمان" %}</th>
+            <th scope="col">{% translate "الحالة" %}</th>
+            <th scope="col">{% translate "فواتير قائمة" %}</th>
+            <th scope="col">{% translate "فواتير متأخرة" %}</th>
+            <th scope="col">{% translate "أقرب استحقاق" %}</th>
+            {% if show_cost %}<th scope="col">{% translate "إجمالي المتأخر" %}</th>{% endif %}
+            <th scope="col"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td data-label="{% translate 'رمز المورد' %}">
+                <bdi dir="ltr"><code>{{ row.supplier.code }}</code></bdi>
+              </td>
+              <td data-label="{% translate 'اسم المورد' %}">{{ row.supplier.name_ar }}</td>
+              <td data-label="{% translate 'عدد الأيام' %}">
+                <bdi dir="ltr"><code>{{ row.days }}</code></bdi>
+              </td>
+              <td data-label="{% translate 'شرط الائتمان' %}">
+                <span class="chip">{{ row.label }}</span>
+              </td>
+              <td data-label="{% translate 'الحالة' %}">
+                {% if row.supplier.is_active %}
+                  <span class="chip chip--ok">{% translate "نشط" %}</span>
+                {% else %}
+                  <span class="chip">{% translate "مؤرشف" %}</span>
+                {% endif %}
+              </td>
+              <td data-label="{% translate 'فواتير قائمة' %}">
+                <bdi dir="ltr">{{ row.open_count }}</bdi>
+              </td>
+              <td data-label="{% translate 'فواتير متأخرة' %}">
+                {% if row.has_overdue %}
+                  <span class="chip chip--bad"><bdi dir="ltr">{{ row.overdue_count }}</bdi></span>
+                {% else %}
+                  <bdi dir="ltr">0</bdi>
+                {% endif %}
+              </td>
+              <td data-label="{% translate 'أقرب استحقاق' %}">
+                {% if row.next_due %}
+                  <bdi dir="ltr"><code>{{ row.next_due|date:"Y-m-d" }}</code></bdi>
+                {% else %}—{% endif %}
+              </td>
+              {% if show_cost %}
+                <td data-label="{% translate 'إجمالي المتأخر' %}">
+                  <bdi dir="ltr"><code>{{ row.overdue_total }}</code></bdi>
+                </td>
+              {% endif %}
+              <td>
+                {% if may_manage %}
+                  <a class="btn btn--ghost"
+                     href="{% url 'procurement:supplier_update' row.supplier.pk %}">
+                    {% translate "تعديل الشروط" %}
+                  </a>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="{% if show_cost %}10{% else %}9{% endif %}" class="empty">
+                {% translate "لا يوجد مورد مطابق. عدّل البحث أو المدة ثم أعد المحاولة." %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}
