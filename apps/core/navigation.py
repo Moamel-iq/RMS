@@ -381,12 +381,15 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:supplier_invoice_list",
                 available=True,
             ),
-            # Checkpoint 2 activates this. It stays listed and inert meanwhile:
-            # replacing the block above briefly dropped it from the sidebar
-            # altogether, which is worse than an honest "coming soon" — an entry
-            # that vanishes looks like a feature that was cancelled.
-            *_sections(
-                _("التكاليف الإضافية"),
+            # A workspace over ACCOUNT invoice lines rather than its own
+            # document: an additional cost is a charge that never entered stock,
+            # it is billed on a supplier invoice, and the invoice owns its
+            # posting. Giving it a second home would give it a second path to
+            # the ledger for a charge the supplier billed once.
+            Section(
+                label=_("التكاليف الإضافية"),
+                url_name="procurement:additional_cost_list",
+                available=True,
             ),
             # Task 2.13 — supplier returns. Built and reachable; the entry the
             # inventory module gave up ("returns belong to Procurement, where

@@ -22,10 +22,12 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 
@@ -45,6 +47,12 @@ from apps.organizations.authorization import (
     require_organization_permission,
     require_reachable_organization_permission,
     require_warehouse_permission,
+)
+from apps.procurement.additional_costs import (
+    EDITABLE_INVOICE_STATUSES,
+    AdditionalCostFilters,
+    additional_costs,
+    totals_for,
 )
 from apps.procurement.comparison import award_quotation, comparison_for_request
 from apps.procurement.credit_notes import (
@@ -2683,4 +2691,110 @@ class SupplierCreditNoteTransitionView(InventoryViewMixin, View):
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
         return HttpResponseRedirect(
             reverse("procurement:supplier_credit_note_detail", args=[credit_note.pk])
+        )
+
+
+# ---------------------------------------------------------------------------
+# التكاليف الإضافية — the ACCOUNT-line workspace
+# ---------------------------------------------------------------------------
+
+
+class AdditionalCostListView(InventoryViewMixin, View):
+    """
+    Every `ACCOUNT` invoice line, in one place, with its invoice beside it.
+
+    A workspace rather than a document list. There is no additional-cost model,
+    no create action here and no post or reverse action — an additional cost is
+    a line on a supplier invoice, and the invoice owns its lifecycle. The
+    screen's job is to make the charges findable across invoices, which is the
+    thing the invoice detail page cannot do.
+
+    Money is redacted **structurally**: without `view_supplier_cost` the amount
+    columns are absent from the context rather than blanked, because a blank
+    cell says a number exists and is being withheld, which is a different
+    statement from the one intended.
+    """
+
+    module_key = "procurement"
+    template_name = "procurement/additional_cost_list.html"
+    required_permission = VIEW_SUPPLIER_INVOICE
+    paginate_by = 25
+
+    def _int(self, name: str) -> int | None:
+        raw = self.request.GET.get(name, "").strip()
+        return int(raw) if raw.isdigit() else None
+
+    def _date(self, name: str) -> datetime.date | None:
+        raw = self.request.GET.get(name, "").strip()
+        if not raw:
+            return None
+        try:
+            return datetime.date.fromisoformat(raw)
+        except ValueError:
+            # A malformed date narrows nothing rather than 400ing; the chip
+            # still shows what was typed.
+            return None
+
+    def filters(self) -> AdditionalCostFilters:
+        return AdditionalCostFilters(
+            search=self.request.GET.get("q", "").strip(),
+            supplier_id=self._int("supplier_id"),
+            invoice_id=self._int("invoice_id"),
+            account_id=self._int("account_id"),
+            cost_center_id=self._int("cost_center_id"),
+            status=self.request.GET.get("status", "").strip(),
+            date_from=self._date("date_from"),
+            date_to=self._date("date_to"),
+            overdue_only=self.request.GET.get("overdue") == "1",
+        )
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        filters = self.filters()
+        today = timezone.localdate()
+        rows = additional_costs(self.actor, filters, today=today)
+        totals = totals_for(rows)
+
+        paginator = Paginator(rows, self.paginate_by)
+        page = paginator.get_page(request.GET.get("page"))
+
+        # One permission question, asked once, for the whole screen.
+        may_read_cost = bool(organizations_with_permission(self.actor, VIEW_SUPPLIER_COST).exists())
+
+        query = request.GET.copy()
+        query.pop("page", None)
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "form_base_template": (
+                    "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
+                ),
+                "page_title": _("التكاليف الإضافية"),
+                "page_hint": _(
+                    "التكاليف الإضافية سطور من نوع «مصروف أو حساب مباشر» على فواتير "
+                    "الموردين — نقل، مناولة، صيانة، خدمة. لا تدخل المخزن، ولا تُرحَّل "
+                    "إلا مع فاتورتها، ولا تُرسمل في كلفة البضاعة."
+                ),
+                "rows": page.object_list,
+                "page_obj": page,
+                "paginator": paginator,
+                "is_paginated": page.has_other_pages(),
+                "total_rows": paginator.count,
+                "totals": totals if may_read_cost else None,
+                "show_cost": may_read_cost,
+                "statuses": SupplierInvoiceStatus.choices,
+                "filters": {
+                    "q": request.GET.get("q", ""),
+                    "supplier_id": request.GET.get("supplier_id", ""),
+                    "invoice_id": request.GET.get("invoice_id", ""),
+                    "status": request.GET.get("status", ""),
+                    "date_from": request.GET.get("date_from", ""),
+                    "date_to": request.GET.get("date_to", ""),
+                    "overdue": request.GET.get("overdue", ""),
+                },
+                "page_query": query.urlencode(),
+                "today": today,
+                "editable_statuses": sorted(EDITABLE_INVOICE_STATUSES),
+            },
         )
