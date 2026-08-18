@@ -77,6 +77,17 @@ not reformatted at the moment it was being preserved.
 | 31 | Every reconciliation command, together | The four Kitchen and three Inventory verifiers are composed by `verify_kitchen`; each has been run, but not as one gate on a fresh database |
 | 32 | All concurrency cases | Attribution cap under two concurrent writers, meal recording, posting and reversal races |
 
+## Owner data gate — open
+
+`docs/runbooks/phase-3-owner-data-gate.md` records it in full. In short: the
+`KM-RCP-004` workbook is a **blank, unsigned template**. Ingredient names and
+units are filled; every approved quantity, item code, effective date, version
+and signature is not.
+
+Task 3.11 must not certify "real recipe data loaded". The generic import code is
+certifiable; the operational data is absent, and no quantity was invented to
+cover for it. `KD-02`, `KD-05` and `KD-06` stay unresolved for that one reason.
+
 ## Known gaps recorded rather than fixed
 
 These are **not** deferred verification — they are scope decisions written down
