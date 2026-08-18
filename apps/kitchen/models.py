@@ -486,6 +486,12 @@ class Recipe(TimeStampedModel, SourceProvenance):
         permissions = [
             ("manage_recipe", _("Can create, edit and archive recipes")),
             ("view_recipe_cost", _("Can view recipe cost columns")),
+            # One permission for the whole Kitchen report family, following the
+            # pattern procurement set with `view_procurement_report`. Declared
+            # on `Recipe` because that is where this module already hangs its
+            # organization-scoped grants, and because a report is a read of the
+            # menu rather than custody of one store.
+            ("view_kitchen_report", _("Can view the kitchen report family")),
             # The lifecycle authorities, separated because they are separated
             # in the kitchen: preparing a version, attesting one column of it,
             # signing it off and putting it into effect are four acts and the

@@ -18,7 +18,7 @@ that implied otherwise would be the router contradicting a trigger.
 
 from django.urls import path
 
-from apps.kitchen import cost_views, production_views, version_views, views
+from apps.kitchen import cost_views, production_views, report_views, version_views, views
 
 app_name = "kitchen"
 
@@ -300,5 +300,42 @@ urlpatterns = [
         "production/<int:pk>/reverse/",
         production_views.ProductionReverseView.as_view(),
         name="production_reverse",
+    ),
+    # --- Task 3.6: reads over what production and Inventory already did ----
+    #
+    # Six screens, one report shell, one export path. The two custody routes
+    # are named for custody rather than for consumption on purpose: goods
+    # moving into or out of the kitchen store have changed hands and have not
+    # been used, and the naming is the first place that distinction is either
+    # kept or quietly lost.
+    path(
+        "reports/production/",
+        report_views.ProductionRegisterView.as_view(),
+        name="report_production_register",
+    ),
+    path(
+        "reports/productivity/",
+        report_views.ProductivityReportView.as_view(),
+        name="report_productivity",
+    ),
+    path(
+        "reports/batch-variance/<int:pk>/",
+        report_views.BatchVarianceView.as_view(),
+        name="report_batch_variance",
+    ),
+    path(
+        "reports/kitchen-issue/",
+        report_views.KitchenIssueReportView.as_view(),
+        name="report_kitchen_issue",
+    ),
+    path(
+        "reports/kitchen-return/",
+        report_views.KitchenReturnReportView.as_view(),
+        name="report_kitchen_return",
+    ),
+    path(
+        "reports/kitchen-waste/",
+        report_views.KitchenWasteReportView.as_view(),
+        name="report_kitchen_waste",
     ),
 ]

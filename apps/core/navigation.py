@@ -468,11 +468,36 @@ MODULES: tuple[Module, ...] = (
                 url_name="kitchen:production_list",
                 available=True,
             ),
+            # Task 3.6 - four more entries promoted, and only four. Each one
+            # leads to a screen that exists and renders; the rest stay inert
+            # until their own task builds them, because an active entry that
+            # 404s is worse than an obviously unfinished one.
+            #
+            # The two custody entries keep the kitchen's own words. الصرف للمطبخ
+            # is what the storekeeper calls handing goods over, and it is a
+            # **custody** movement: nothing has been consumed until a batch
+            # cooks it or somebody issues it out.
+            Section(
+                label=_("الإنتاجية والفاقد"),
+                url_name="kitchen:report_productivity",
+                available=True,
+            ),
+            Section(
+                label=_("الصرف للمطبخ"),
+                url_name="kitchen:report_kitchen_issue",
+                available=True,
+            ),
+            Section(
+                label=_("المرتجع من المطبخ"),
+                url_name="kitchen:report_kitchen_return",
+                available=True,
+            ),
+            Section(
+                label=_("الهالك"),
+                url_name="kitchen:report_kitchen_waste",
+                available=True,
+            ),
             *_sections(
-                _("الإنتاجية والفاقد"),
-                _("الصرف للمطبخ"),
-                _("المرتجع من المطبخ"),
-                _("الهالك"),
                 _("وجبات الموظفين"),
                 _("الوجبات المجانية"),
                 _("الاستهلاك النظري"),

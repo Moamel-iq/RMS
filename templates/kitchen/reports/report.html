@@ -1,0 +1,113 @@
+{# One template for every Kitchen report. Columns are data, so the header row #}
+{# and the body are both loops - a report that adds a column changes its view #}
+{# class and nothing here, and the HTMX partial inherits the change for free. #}
+{#                                                                           #}
+{# Redaction is structural: a caller without view_recipe_cost gets a columns  #}
+{# list with no money entries, so the cells are absent rather than blank. The #}
+{# cell filter renders a missing key as a dash, because a blank reads as a    #}
+{# zero and a zero here would be a lie.                                       #}
+{% extends base_template|default:"shell.html" %}
+{% load i18n report_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="kitchen-report">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+      </div>
+      {% if export_query %}
+        <div class="rowactions">
+          <a class="btn btn--secondary" href="?{{ export_query }}" download>
+            {% translate "تصدير CSV" %}
+          </a>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if coverage_note %}
+      <p class="banner" role="note">{{ coverage_note }}</p>
+    {% endif %}
+
+    <form class="toolbar"
+          method="get"
+          hx-get="{{ request.path }}"
+          hx-target="#kitchen-report"
+          hx-swap="outerHTML">
+      <label class="field">
+        <span>{% translate "المخزن" %}</span>
+        <select name="warehouse_id">
+          <option value="">{% translate "كل المخازن" %}</option>
+          {% for warehouse in warehouses %}
+            <option value="{{ warehouse.pk }}"
+              {% if filters.warehouse_id == warehouse.pk|stringformat:"s" %}selected{% endif %}>
+              {{ warehouse.code }} — {{ warehouse.name_ar }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>{% translate "من تاريخ" %}</span>
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </label>
+      <label class="field">
+        <span>{% translate "إلى تاريخ" %}</span>
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </label>
+      <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button>
+    </form>
+
+    <p class="muted">
+      {% blocktranslate count total=total_rows %}سطر واحد{% plural %}{{ total }} سطر{% endblocktranslate %}
+    </p>
+
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>{% for key, header in columns %}<th scope="col">{{ header }}</th>{% endfor %}</tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              {% for key, header in columns %}
+                {% if row|is_ltr_cell:key %}
+                  <td data-label="{{ header }}"><bdi dir="ltr"><code>{{ row|cell:key }}</code></bdi></td>
+                {% else %}
+                  <td data-label="{{ header }}">{{ row|cell:key }}</td>
+                {% endif %}
+              {% endfor %}
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="{{ columns|length }}" class="empty">
+                {% translate "لا توجد بيانات مطابقة. عدّل الفترة أو المخزن ثم أعد المحاولة." %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if is_paginated %}
+      <nav class="pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
+        {% if page_obj.has_previous %}
+          <a class="btn btn--ghost"
+             href="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.previous_page_number }}"
+             hx-get="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.previous_page_number }}"
+             hx-target="#kitchen-report" hx-swap="outerHTML">{% translate "السابق" %}</a>
+        {% endif %}
+        <span class="muted">
+          {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
+        </span>
+        {% if page_obj.has_next %}
+          <a class="btn btn--ghost"
+             href="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.next_page_number }}"
+             hx-get="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.next_page_number }}"
+             hx-target="#kitchen-report" hx-swap="outerHTML">{% translate "التالي" %}</a>
+        {% endif %}
+      </nav>
+    {% endif %}
+  </div>
+{% endblock %}

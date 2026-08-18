@@ -118,6 +118,10 @@ class PermissionScope(Enum):
 VIEW_RECIPE = f"{APP_LABEL}.view_recipe"
 MANAGE_RECIPE = f"{APP_LABEL}.manage_recipe"
 VIEW_RECIPE_COST = f"{APP_LABEL}.view_recipe_cost"
+#: One grant for the whole report family, the pattern procurement set.
+#: Organization-scoped: a report is a read of the menu and its production
+#: history, not custody of one store.
+VIEW_KITCHEN_REPORT = f"{APP_LABEL}.view_kitchen_report"
 SUBMIT_RECIPE_VERSION = f"{APP_LABEL}.submit_recipe_version"
 REVIEW_RECIPE_VERSION = f"{APP_LABEL}.review_recipe_version"
 APPROVE_RECIPE_VERSION = f"{APP_LABEL}.approve_recipe_version"
@@ -136,6 +140,7 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_RECIPE,
     MANAGE_RECIPE,
     VIEW_RECIPE_COST,
+    VIEW_KITCHEN_REPORT,
     SUBMIT_RECIPE_VERSION,
     REVIEW_RECIPE_VERSION,
     APPROVE_RECIPE_VERSION,
@@ -156,6 +161,7 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     VIEW_RECIPE: PermissionScope.ORGANIZATION_MASTER_DATA,
     MANAGE_RECIPE: PermissionScope.ORGANIZATION_MASTER_DATA,
     VIEW_RECIPE_COST: PermissionScope.ORGANIZATION_MASTER_DATA,
+    VIEW_KITCHEN_REPORT: PermissionScope.ORGANIZATION_MASTER_DATA,
     SUBMIT_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
     REVIEW_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
     APPROVE_RECIPE_VERSION: PermissionScope.ORGANIZATION_MASTER_DATA,
@@ -189,6 +195,7 @@ _MANAGER = frozenset(
         VIEW_RECIPE,
         MANAGE_RECIPE,
         VIEW_RECIPE_COST,
+        VIEW_KITCHEN_REPORT,
         SUBMIT_RECIPE_VERSION,
         REVIEW_RECIPE_VERSION,
         APPROVE_RECIPE_VERSION,
@@ -205,14 +212,28 @@ _MANAGER = frozenset(
 #: review; writes neither — inventing a dish is a kitchen act, not an
 #: accounting one, and reviewing a recipe must not become a way to edit it.
 _ACCOUNTING_MANAGER = frozenset(
-    {VIEW_RECIPE, VIEW_RECIPE_COST, REVIEW_RECIPE_VERSION, VIEW_PRODUCTION}
+    {
+        VIEW_RECIPE,
+        VIEW_RECIPE_COST,
+        VIEW_KITCHEN_REPORT,
+        REVIEW_RECIPE_VERSION,
+        VIEW_PRODUCTION,
+    }
 )
 
 #: The workbook assigns `كلفة الوحدة` and `كلفة المكون` to المحاسب, so the
 #: accountant reads recipe cost by the kitchen's own arrangement — and signs
 #: the costing-evidence review, which is the second of its three parties. No
 #: `manage_recipe`: the accountant attests the evidence, never the quantities.
-_ACCOUNTANT = frozenset({VIEW_RECIPE, VIEW_RECIPE_COST, REVIEW_RECIPE_VERSION, VIEW_PRODUCTION})
+_ACCOUNTANT = frozenset(
+    {
+        VIEW_RECIPE,
+        VIEW_RECIPE_COST,
+        VIEW_KITCHEN_REPORT,
+        REVIEW_RECIPE_VERSION,
+        VIEW_PRODUCTION,
+    }
+)
 
 #: Issues ingredients against a recipe card, and has no business seeing what
 #: they cost — the same boundary that keeps stock valuation away from the
@@ -236,6 +257,7 @@ _STOREKEEPER = frozenset(
         VIEW_RECIPE,
         REVIEW_RECIPE_VERSION,
         VIEW_PRODUCTION,
+        VIEW_KITCHEN_REPORT,
         CREATE_PRODUCTION_BATCH,
         POST_PRODUCTION_BATCH,
     }
@@ -251,7 +273,7 @@ _STOREKEEPER = frozenset(
 _PURCHASING = frozenset({VIEW_RECIPE})
 
 #: Reads what exists, never what it cost.
-_VIEWER = frozenset({VIEW_RECIPE, VIEW_PRODUCTION})
+_VIEWER = frozenset({VIEW_RECIPE, VIEW_PRODUCTION, VIEW_KITCHEN_REPORT})
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     Role.OWNER.value: _FULL,
