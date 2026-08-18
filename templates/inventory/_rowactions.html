@@ -12,22 +12,30 @@
 
 {# The flex container sits INSIDE the cell. `display:flex` on a <td> takes it #}
 {# out of the table formatting context and the columns stop lining up.       #}
-<td>
-  <div class="rowactions">
+<td data-label="{% translate 'إجراءات' %}">
+  <div class="rowactions" aria-label="{% translate 'إجراءات السجل' %}: {{ row }}">
     {% if owner_id in manageable_ids %}
-      <a class="btn btn--ghost btn--sm" href="{% url edit_url row.pk %}">{% translate "تعديل" %}</a>
+      <a class="btn btn--quiet btn--sm" href="{% url edit_url row.pk %}"
+         aria-label="{% translate 'تعديل' %}: {{ row }}">{% translate "تعديل" %}</a>
       {% if extra_url %}
-        <a class="btn btn--ghost btn--sm" href="{% url extra_url row.pk %}">{{ extra_label }}</a>
+        <a class="btn btn--secondary btn--sm" href="{% url extra_url row.pk %}"
+           aria-label="{{ extra_label }}: {{ row }}">{{ extra_label }}</a>
       {% endif %}
       {% if row.is_active %}
-        <form method="post" action="{% url archive_url row.pk %}">
+        <form method="post" action="{% url archive_url row.pk %}"
+              data-confirm="{% translate 'سيبقى السجل محفوظاً في العمليات السابقة، ولن يكون متاحاً للاستخدام الجديد.' %}"
+              data-confirm-title="{% translate 'تأكيد الأرشفة' %}">
           {% csrf_token %}
-          <button class="btn btn--ghost btn--sm" type="submit">{% translate "أرشفة" %}</button>
+          <button class="btn btn--danger-quiet btn--sm" type="submit"
+                  aria-label="{% translate 'أرشفة' %}: {{ row }}">{% translate "أرشفة" %}</button>
         </form>
       {% else %}
-        <form method="post" action="{% url reactivate_url row.pk %}">
+        <form method="post" action="{% url reactivate_url row.pk %}"
+              data-confirm="{% translate 'سيصبح السجل متاحاً للاستخدام في العمليات الجديدة.' %}"
+              data-confirm-title="{% translate 'تأكيد إعادة التفعيل' %}">
           {% csrf_token %}
-          <button class="btn btn--ghost btn--sm" type="submit">{% translate "إعادة للخدمة" %}</button>
+          <button class="btn btn--secondary btn--sm" type="submit"
+                  aria-label="{% translate 'إعادة للخدمة' %}: {{ row }}">{% translate "إعادة للخدمة" %}</button>
         </form>
       {% endif %}
     {% else %}

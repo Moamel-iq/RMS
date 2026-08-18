@@ -33,6 +33,11 @@ urlpatterns = [
     path("package-units/", views.PackageUnitListView.as_view(), name="package_unit_list"),
     path("package-units/new/", views.PackageUnitCreateView.as_view(), name="package_unit_create"),
     path(
+        "package-units/quick-add/",
+        views.PackageUnitQuickCreateView.as_view(),
+        name="package_unit_quick_add",
+    ),
+    path(
         "package-units/<int:pk>/",
         views.PackageUnitUpdateView.as_view(),
         name="package_unit_update",

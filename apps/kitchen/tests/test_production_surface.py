@@ -434,10 +434,27 @@ class TestNoScreenOffersAPosting:
 
         assert "لا ترحيل" in body
 
-    def test_no_production_url_names_a_posting_verb(self) -> None:
+    def test_the_production_urls_name_posting_and_nothing_beyond_it(self) -> None:
+        """
+        The fence, moved once. Task 3.4 banned every posting verb because none
+        existed; **Task 3.5 posts and reverses**, so those two are now expected
+        and the rewrite keeps the half that is still true.
+
+        What may still not appear: `issue`, `consume` and `complete`, which are
+        the vocabulary of the multi-day, partially completed production RCP-094
+        says a Release 1 batch never is. A route named for one of them would be
+        the router promising a lifecycle the constraint set refuses.
+        """
         from apps.kitchen import urls
 
-        forbidden = ("post", "reverse", "issue", "consume", "complete", "journal")
+        names = {
+            pattern.name
+            for pattern in urls.urlpatterns
+            if (pattern.name or "").startswith("production")
+        }
+        assert {"production_post", "production_reverse"} <= names
+
+        forbidden = ("issue", "consume", "complete", "journal", "flatten")
         for pattern in urls.urlpatterns:
             name = pattern.name or ""
             if not name.startswith("production"):
@@ -772,19 +789,24 @@ class TestTheApiContract:
         # reached the route rather than being rejected wholesale.
         assert refreshed.notes == "ملاحظة مقبولة"
 
-    def test_no_api_route_names_a_posting_verb(self) -> None:
+    def test_the_production_api_names_posting_and_nothing_beyond_it(self) -> None:
+        """
+        The same fence on the API, moved for the same reason.
+
+        `/post` and `/reverse` are Task 3.5's and are asserted **present**;
+        `issue`, `consume` and `complete` stay absent because a Release 1 batch
+        has no lifecycle for them to belong to.
+        """
         from apps.kitchen.api import router
 
-        forbidden = ("post", "reverse", "issue", "consume", "complete", "journal")
-        for path, view in router.path_operations.items():
-            if "production" not in path:
-                continue
-            for operation in view.operations:
-                summary = (operation.summary or "").lower()
-                for verb in forbidden:
-                    # `post` as an HTTP method is fine; `post` in the *path* is not.
-                    assert verb not in path.lower(), f"{path} names {verb!r}"
-                    assert f"{verb} the batch" not in summary, f"{path}: {summary}"
+        production_paths = {path for path in router.path_operations if "production" in path}
+        assert any(path.endswith("/post") for path in production_paths)
+        assert any(path.endswith("/reverse") for path in production_paths)
+
+        forbidden = ("issue", "consume", "complete", "journal", "flatten")
+        for path in production_paths:
+            for verb in forbidden:
+                assert verb not in path.lower(), f"{path} names {verb!r}"
 
     def test_a_foreign_batch_is_404_and_an_unauthorised_one_is_403(
         self, rival_manager: User, cashier: User, production_draft: ProductionBatch

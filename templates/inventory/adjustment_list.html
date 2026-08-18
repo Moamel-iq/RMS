@@ -6,38 +6,48 @@
 {# shortcut for the document that should have been raised.                   #}
 
 {% block columns %}
-  <th>{% translate "الرقم" %}</th>
-  <th>{% translate "المخزن" %}</th>
-  <th>{% translate "يوم العمل" %}</th>
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "السبب" %}</th>
-  <th>{% translate "المُرحِّل" %}</th>
+  <th scope="col">{% translate "الرقم" %}</th>
+  <th scope="col">{% translate "المخزن" %}</th>
+  <th scope="col">{% translate "يوم العمل" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "السبب" %}</th>
+  <th scope="col">{% translate "المُرحِّل" %}</th>
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد تسويات مطابقة" as no_results_title %}
+  {% translate "جرّب رقم تسوية أو سبباً مختلفاً." as no_results_description %}
+  {% translate "لا توجد تسويات" as empty_title %}
+  {% translate "هذا هو الوضع الطبيعي؛ استخدم التسوية فقط لمعالجة فرق موثّق." as empty_description %}
   {% for adjustment in adjustments %}
     <tr>
-      <td>
+      <td data-label="{% translate 'الرقم' %}">
         <a href="{% url 'inventory:adjustment_detail' adjustment.pk %}">
           {% if adjustment.document_number %}
-            <code dir="ltr">{{ adjustment.document_number }}</code>
+            <bdi dir="ltr"><code>{{ adjustment.document_number }}</code></bdi>
           {% else %}
-            <code dir="ltr">{{ adjustment.public_id|truncatechars:13 }}</code>
+            <bdi dir="ltr"><code>{{ adjustment.public_id|truncatechars:13 }}</code></bdi>
           {% endif %}
         </a>
       </td>
-      <td>
-        <code>{{ adjustment.warehouse.code }}</code>
-        <span class="muted">{{ adjustment.branch.code }}</span>
+      <td data-label="{% translate 'المخزن' %}">
+        <bdi dir="ltr"><code>{{ adjustment.warehouse.code }}</code></bdi>
+        <span class="muted"><bdi dir="ltr">{{ adjustment.branch.code }}</bdi></span>
       </td>
-      <td>{{ adjustment.business_date|date:"Y-m-d" }}</td>
-      <td>{{ adjustment.get_status_display }}</td>
-      <td>{{ adjustment.reason|truncatechars:60 }}</td>
-      <td>{{ adjustment.posted_by|default:"—" }}</td>
+      <td data-label="{% translate 'يوم العمل' %}"><bdi dir="ltr"><time datetime="{{ adjustment.business_date|date:'Y-m-d' }}">{{ adjustment.business_date|date:"Y-m-d" }}</time></bdi></td>
+      <td data-label="{% translate 'الحالة' %}">{% include "components/status_badge.html" with status=adjustment.status label=adjustment.get_status_display %}</td>
+      <td data-label="{% translate 'السبب' %}">{{ adjustment.reason|truncatechars:60 }}</td>
+      <td data-label="{% translate 'المُرحِّل' %}">{{ adjustment.posted_by|default:"—" }}</td>
     </tr>
   {% empty %}
     <tr>
-      <td colspan="6">{% translate "لا تسويات. وهذا هو الوضع الطبيعي." %}</td>
+      <td colspan="6" data-empty-state>
+        {% if filter_query %}
+          {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+        {% else %}
+          {% include "components/empty_state.html" with title=empty_title description=empty_description action_url=create_url action_label=create_label %}
+        {% endif %}
+      </td>
     </tr>
   {% endfor %}
 {% endblock %}

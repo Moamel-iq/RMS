@@ -6,43 +6,53 @@
 {# not be burned by a draft somebody abandons.                               #}
 
 {% block columns %}
-  <th>{% translate "الرقم" %}</th>
-  <th>{% translate "من" %}</th>
-  <th>{% translate "إلى" %}</th>
-  <th>{% translate "يوم العمل" %}</th>
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "المُرسِل" %}</th>
-  <th>{% translate "مرجع الإثبات" %}</th>
+  <th scope="col">{% translate "الرقم" %}</th>
+  <th scope="col">{% translate "من" %}</th>
+  <th scope="col">{% translate "إلى" %}</th>
+  <th scope="col">{% translate "يوم العمل" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "المُرسِل" %}</th>
+  <th scope="col">{% translate "مرجع الإثبات" %}</th>
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد تحويلات مطابقة" as no_results_title %}
+  {% translate "جرّب رقم تحويل أو مرجعاً مختلفاً." as no_results_description %}
+  {% translate "لا توجد تحويلات بعد" as empty_title %}
+  {% translate "أنشئ أول تحويل لنقل المخزون بين المخازن المسموح بها." as empty_description %}
   {% for transfer in transfers %}
     <tr>
-      <td>
+      <td data-label="{% translate 'الرقم' %}">
         <a href="{% url 'inventory:transfer_detail' transfer.pk %}">
           {% if transfer.transfer_number %}
-            <code dir="ltr">{{ transfer.transfer_number }}</code>
+            <bdi dir="ltr"><code>{{ transfer.transfer_number }}</code></bdi>
           {% else %}
-            <code dir="ltr">{{ transfer.public_id|truncatechars:13 }}</code>
+            <bdi dir="ltr"><code>{{ transfer.public_id|truncatechars:13 }}</code></bdi>
           {% endif %}
         </a>
       </td>
-      <td>
-        <code>{{ transfer.source_warehouse.code }}</code>
-        <span class="muted">{{ transfer.source_warehouse.branch.code }}</span>
+      <td data-label="{% translate 'من' %}">
+        <bdi dir="ltr"><code>{{ transfer.source_warehouse.code }}</code></bdi>
+        <span class="muted"><bdi dir="ltr">{{ transfer.source_warehouse.branch.code }}</bdi></span>
       </td>
-      <td>
-        <code>{{ transfer.destination_warehouse.code }}</code>
-        <span class="muted">{{ transfer.destination_warehouse.branch.code }}</span>
+      <td data-label="{% translate 'إلى' %}">
+        <bdi dir="ltr"><code>{{ transfer.destination_warehouse.code }}</code></bdi>
+        <span class="muted"><bdi dir="ltr">{{ transfer.destination_warehouse.branch.code }}</bdi></span>
       </td>
-      <td>{{ transfer.business_date|date:"Y-m-d" }}</td>
-      <td>{{ transfer.get_status_display }}</td>
-      <td>{{ transfer.dispatched_by|default:"—" }}</td>
-      <td>{{ transfer.evidence_reference }}</td>
+      <td data-label="{% translate 'يوم العمل' %}"><bdi dir="ltr"><time datetime="{{ transfer.business_date|date:'Y-m-d' }}">{{ transfer.business_date|date:"Y-m-d" }}</time></bdi></td>
+      <td data-label="{% translate 'الحالة' %}">{% include "components/status_badge.html" with status=transfer.status label=transfer.get_status_display %}</td>
+      <td data-label="{% translate 'المُرسِل' %}">{{ transfer.dispatched_by|default:"—" }}</td>
+      <td data-label="{% translate 'مرجع الإثبات' %}">{% if transfer.evidence_reference %}<bdi dir="ltr">{{ transfer.evidence_reference }}</bdi>{% else %}—{% endif %}</td>
     </tr>
   {% empty %}
     <tr>
-      <td colspan="7">{% translate "لا تحويلات بعد." %}</td>
+      <td colspan="7" data-empty-state>
+        {% if filter_query %}
+          {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+        {% else %}
+          {% include "components/empty_state.html" with title=empty_title description=empty_description action_url=create_url action_label=create_label %}
+        {% endif %}
+      </td>
     </tr>
   {% endfor %}
 {% endblock %}

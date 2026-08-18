@@ -24,6 +24,7 @@ from django.core.management import call_command
 from django.test import Client
 from django.utils import timezone
 
+from apps.accounting.models import Account
 from apps.inventory.models import (
     ConversionType,
     InventoryItem,
@@ -772,6 +773,7 @@ def post_receipt(
     unit_cost: str,
     key: str,
     lot: Any = None,
+    control_account: Account | None = None,
 ) -> Any:
     """
     Put valued stock on a shelf, through the real ledger.
@@ -779,6 +781,12 @@ def post_receipt(
     A helper rather than a fixture because a costing test usually needs two or
     three postings at different unit costs, and a fixture cannot be asked for
     twice.
+
+    `control_account` is optional because Task 3.3's costing tests genuinely do
+    not need one — a cost card reads quantity and value and never asks which
+    account holds them. Task 3.5 does need it: an outbound leaves through the
+    account its position carries, and a position with no account contributes
+    nothing to a journal that the produced goods would then unbalance.
     """
     from apps.inventory.ledger import MovementInput, post_stock_entry
     from apps.inventory.models import MovementType
@@ -794,6 +802,7 @@ def post_receipt(
                 unit_cost=Decimal(unit_cost),
                 effect_key="line:1",
                 lot=lot,
+                control_account=control_account,
             )
         ],
         idempotency_key=key,
@@ -1226,3 +1235,109 @@ def production_draft(
         actor=manager,
         idempotency_key="PROD-DRAFT-1",
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.5 — what a posting needs that a draft did not
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def kitchen_accounts(organization: Organization, open_period: Any) -> Account:
+    """
+    A chart, and one `INVENTORY_CONTROL` account mapped from the year's start.
+
+    Task 3.4 never needed this: a draft resolves no account, and the costing
+    fixtures posted their receipts with no control account at all — which is
+    why every batch in those tests nets to zero by having no accounts rather
+    than by having matching ones. Posting resolves the **output** item's
+    account, so the mapping has to exist and has to cover the batch's own
+    business date rather than today's.
+    """
+    from django.core.management import call_command
+
+    from apps.accounting.models import INVENTORY_CONTROL, AccountRole
+    from apps.accounting.services import create_account_mapping
+
+    call_command("seed_chart_of_accounts", organization=organization.code, verbosity=0)
+    account = Account.objects.get(organization=organization, code="1-03-01-001")
+    create_account_mapping(
+        organization=organization,
+        account_role=AccountRole.objects.get(code=INVENTORY_CONTROL),
+        account=account,
+        effective_from=datetime.date(2026, 1, 1),
+    )
+    return account
+
+
+@pytest.fixture
+def separate_output_account(
+    organization: Organization, kitchen_accounts: Account, cooked_rice: InventoryItem
+) -> Account:
+    """
+    An **item-scoped** control account for the produced item only.
+
+    This is the whole of the non-zero journal case: the ingredients leave the
+    organization default and the output enters somewhere else, so the per-
+    account nets stop cancelling and a journal has something to say. Without an
+    override the two sides are the same account and the correct answer is
+    silence.
+    """
+    from apps.accounting.models import INVENTORY_CONTROL
+    from apps.accounting.services import create_account
+    from apps.inventory.accounts import create_inventory_mapping
+
+    account = create_account(
+        organization=organization,
+        code="1-03-01-009",
+        name_ar="مخزون الإنتاج التام",
+        name_en="Finished production inventory",
+    )
+    create_inventory_mapping(
+        organization=organization,
+        role=INVENTORY_CONTROL,
+        account=account,
+        item=cooked_rice,
+        effective_from=datetime.date(2026, 1, 1),
+    )
+    return account
+
+
+@pytest.fixture
+def posting_store(
+    kitchen_accounts: Account,
+    organization: Organization,
+    store: Warehouse,
+    rice: InventoryItem,
+    oil: InventoryItem,
+    box: InventoryItem,
+) -> Warehouse:
+    """
+    `valued_store`, but with every position homed to a real control account.
+
+    A separate fixture rather than a change to `valued_store`, because the two
+    answer different questions. Costing asks what stock is worth and does not
+    care where the value sits; posting asks the value to *move between*
+    accounts, and a position with no account has nowhere for it to move from.
+
+    Same figures as `valued_store` so a reader comparing the two sees only the
+    account:
+
+        100 KG @ 1,000 + 100 KG @ 2,000  ->  200 KG / 300,000  ->  1,500
+    """
+    for item, quantity, unit_cost, key in (
+        (rice, "100", "1000", "posting-rice-1"),
+        (rice, "100", "2000", "posting-rice-2"),
+        (oil, "50", "4000", "posting-oil-1"),
+        (box, "500", "250", "posting-box-1"),
+    ):
+        post_receipt(
+            organization=organization,
+            warehouse=store,
+            item=item,
+            quantity=quantity,
+            unit_cost=unit_cost,
+            key=key,
+            control_account=kitchen_accounts,
+        )
+    return store

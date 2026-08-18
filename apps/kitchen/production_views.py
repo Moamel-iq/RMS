@@ -64,17 +64,25 @@ from apps.core.models import AuditEvent
 from apps.inventory.selectors import resolve_manageable_warehouse
 from apps.kitchen.forms import (
     ProductionActualForm,
+    ProductionAllocationForm,
     ProductionBatchCreateForm,
     ProductionBatchFilterForm,
     ProductionDiscardForm,
     ProductionNotesForm,
     ProductionOutputForm,
+    ProductionPostForm,
     ProductionPreviewForm,
     ProductionRescaleForm,
+    ProductionReverseForm,
     ProductionSubstituteForm,
 )
 from apps.kitchen.models import ProductionBatch
-from apps.kitchen.permissions import CREATE_PRODUCTION_BATCH, VIEW_PRODUCTION
+from apps.kitchen.permissions import (
+    CREATE_PRODUCTION_BATCH,
+    POST_PRODUCTION_BATCH,
+    REVERSE_PRODUCTION_BATCH,
+    VIEW_PRODUCTION,
+)
 from apps.kitchen.production import (
     add_production_batch_substitute,
     consumption_comparisons,
@@ -88,8 +96,17 @@ from apps.kitchen.production import (
     update_production_batch_actuals,
     update_production_batch_notes,
 )
+from apps.kitchen.production_posting import (
+    AllocationInput,
+    allocation_is_required,
+    build_posting_plan,
+    post_production_batch,
+    reverse_production_batch,
+    set_production_allocations,
+)
 from apps.kitchen.production_reconciliation import batch_findings
 from apps.kitchen.selectors import (
+    cost_readable_organization_ids,
     draftable_production_warehouses,
     production_lines_for,
     resolve_production_actual,
@@ -439,6 +456,22 @@ class ProductionWriteView(ProductionViewMixin, View):
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {}
 
+    def authorize(self, batch: ProductionBatch) -> None:
+        """
+        Which authority this particular command needs at this warehouse.
+
+        Drafting for every Task 3.4 command, which is why that is the default.
+        Task 3.5's posting and reversal override it: they are separate grants
+        because they are separate acts, and a subclass that forgot to override
+        would ask for the weaker one, so the override is a deliberate line of
+        code rather than an omission.
+        """
+        self._require_draft_authority(batch.warehouse)
+
+    def extra_context_for(self, instance: Any) -> dict[str, Any]:
+        """What this command's confirmation screen shows besides its form."""
+        return {}
+
     def perform(self, instance: Any, form: Any) -> Any:  # pragma: no cover - overridden
         raise NotImplementedError
 
@@ -452,29 +485,27 @@ class ProductionWriteView(ProductionViewMixin, View):
         return self.form_class(initial=self.initial_for(instance), **kwargs)
 
     def render_form(self, instance: Any, form: Any) -> HttpResponse:
-        return render(
-            self.request,
-            self.template_name,
-            {
-                "form": form,
-                "instance": instance,
-                "batch": self.batch_of(instance),
-                "page_title": self.page_title,
-                "page_hint": self.page_hint,
-                "fragment_base_template": self._base(),
-            },
-        )
+        context: dict[str, Any] = {
+            "form": form,
+            "instance": instance,
+            "batch": self.batch_of(instance),
+            "page_title": self.page_title,
+            "page_hint": self.page_hint,
+            "fragment_base_template": self._base(),
+        }
+        context.update(self.extra_context_for(instance))
+        return render(self.request, self.template_name, context)
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.load()
-        self._require_draft_authority(self.batch_of(instance).warehouse)
+        self.authorize(self.batch_of(instance))
         return self.render_form(instance, self.build_form(instance))
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.load()
         # Checked on POST as well as on GET. A hand-made POST from somebody who
         # never saw the form reaches exactly this line.
-        self._require_draft_authority(self.batch_of(instance).warehouse)
+        self.authorize(self.batch_of(instance))
         form = self.build_form(instance, data=request.POST)
         if not form.is_valid():
             return self.render_form(instance, form)
@@ -746,3 +777,220 @@ class ProductionDiscardView(ProductionWriteView):
 
     def success_url(self, instance: Any, result: Any) -> str:
         return reverse("kitchen:production_list")
+
+
+# ---------------------------------------------------------------------------
+# Task 3.5 — allocation, posting, reversal, and the posted document
+# ---------------------------------------------------------------------------
+
+
+def posting_context(actor: User, batch: ProductionBatch) -> dict[str, Any]:
+    """
+    Everything the posting half of the workspace shows.
+
+    Separate from `batch_context` because the two answer different questions,
+    and a posted batch has no readiness left to compute: readiness is about
+    what still has to be entered, and after posting the answer is nothing, for
+    good.
+
+    The **movement timeline** is the evidence panel — what left, what arrived,
+    at what value, out of which lot. It matters most when a batch wrote no
+    journal, because then the stock ledger is the only place the event exists.
+    """
+    plan = None
+    if batch.is_draft:
+        try:
+            plan = build_posting_plan(batch)
+        except ValidationError:
+            plan = None
+    entry = batch.stock_entry
+    reversal_entry = batch.reversal_stock_entry
+    movements: list[Any] = []
+    if entry is not None:
+        movements = list(
+            entry.movements.select_related("item", "lot", "warehouse").order_by("posted_sequence")
+        )
+    reversal_movements: list[Any] = []
+    if reversal_entry is not None:
+        reversal_movements = list(
+            reversal_entry.movements.select_related("item", "lot").order_by("posted_sequence")
+        )
+    return {
+        "plan": plan,
+        "movements": movements,
+        "reversal_movements": reversal_movements,
+        # Money is **omitted, not blanked**: the template renders no value
+        # column at all without `view_recipe_cost`, because a blanked column
+        # tells the reader a number exists and that they are not trusted with
+        # it, which is a different statement from the one intended.
+        "can_read_cost": batch.organization_id in cost_readable_organization_ids(actor),
+        "can_post": has_warehouse_permission(actor, POST_PRODUCTION_BATCH, batch.warehouse),
+        "can_reverse": has_warehouse_permission(actor, REVERSE_PRODUCTION_BATCH, batch.warehouse),
+        # The sentence a reader needs when there is no journal to click through
+        # to. A journal that is rightly absent and one that is wrongly missing
+        # look identical on a screen, so the screen says which this is.
+        "no_journal_reason": (
+            _("لا يوجد قيد — صافي حسابات المخزون صفر.")
+            if entry is not None and batch.journal_entry_id is None
+            else ""
+        ),
+    }
+
+
+class ProductionMovementsView(ProductionViewMixin, View):
+    """The posted movement timeline, as a fragment and as a page."""
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        batch = resolve_production_batch(self.actor, kwargs["pk"])
+        self._require_here(batch.warehouse)
+        context: dict[str, Any] = {"base_template": self._base(), "batch": batch}
+        context.update(posting_context(self.actor, batch))
+        return render(request, "kitchen/production_movements.html", context)
+
+
+class ProductionAllocateView(ProductionViewMixin, View):
+    """
+    Name the lots and bins one consumption row came out of.
+
+    A `GET` lists what is allocated so far and offers one more row; a `POST`
+    adds a row, and `clear` empties the set. The service replaces the whole set
+    on every call, so this view reads the current rows and hands back the
+    complete intended answer rather than an increment — which is what makes an
+    interrupted operator's second attempt produce the same state as their
+    first.
+    """
+
+    def _load(self, pk: int) -> tuple[Any, ProductionBatch]:
+        actual = resolve_production_actual(self.actor, pk)
+        batch: ProductionBatch = actual.line.batch
+        self._require_here(batch.warehouse)
+        return actual, batch
+
+    def _render(
+        self, request: HttpRequest, actual: Any, batch: ProductionBatch, form: Any
+    ) -> HttpResponse:
+        return render(
+            request,
+            "kitchen/production_allocate.html",
+            {
+                "base_template": self._base(),
+                "fragment_base_template": self._base(),
+                "page_title": _("تخصيص اللوطات والمواقع"),
+                "batch": batch,
+                "actual": actual,
+                "allocations": list(actual.allocations.select_related("lot", "location").all()),
+                "allocation_required": allocation_is_required(actual),
+                "form": form,
+                "can_draft": can_draft_here(self.actor, batch.warehouse),
+            },
+        )
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        actual, batch = self._load(kwargs["pk"])
+        form = ProductionAllocationForm(
+            actor=self.actor, item=actual.item, warehouse=batch.warehouse
+        )
+        return self._render(request, actual, batch, form)
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        actual, batch = self._load(kwargs["pk"])
+        self._require_draft_authority(batch.warehouse)
+
+        if request.POST.get("clear"):
+            set_production_allocations(actual=actual, rows=[])
+            messages.success(request, _("تم مسح التخصيصات."))
+            return HttpResponseRedirect(reverse("kitchen:production_detail", args=[batch.pk]))
+
+        form = ProductionAllocationForm(
+            request.POST, actor=self.actor, item=actual.item, warehouse=batch.warehouse
+        )
+        if form.is_valid():
+            wanted = [
+                AllocationInput(base_quantity=row.base_quantity, lot=row.lot, location=row.location)
+                for row in actual.allocations.all()
+            ]
+            wanted.append(
+                AllocationInput(
+                    base_quantity=form.cleaned_data["base_quantity"],
+                    lot=form.cleaned_data.get("lot"),
+                    location=form.cleaned_data.get("location"),
+                )
+            )
+            try:
+                set_production_allocations(actual=actual, rows=wanted)
+            except ValidationError as refusal:
+                form.add_error(None, refusal)
+            else:
+                messages.success(request, _("تم حفظ التخصيص."))
+                return HttpResponseRedirect(reverse("kitchen:production_detail", args=[batch.pk]))
+        return self._render(request, actual, batch, form)
+
+
+class ProductionPostView(ProductionWriteView):
+    """
+    Commit the batch to both ledgers, or refuse and change nothing.
+
+    The confirmation is a real screen rather than a JavaScript dialogue because
+    it is where the operator reads what is about to move: every consumption
+    with its lot, the output, and — when the accounts all net to zero — the
+    sentence saying that no journal will exist and why.
+    """
+
+    form_class = ProductionPostForm
+    template_name = "kitchen/production_post.html"
+    page_title = _("ترحيل أمر الإنتاج")
+    success_message = _("تم ترحيل أمر الإنتاج.")
+
+    def load(self) -> Any:
+        return resolve_production_batch(self.actor, self.kwargs["pk"])
+
+    def batch_of(self, instance: Any) -> ProductionBatch:
+        batch: ProductionBatch = instance
+        return batch
+
+    def authorize(self, batch: ProductionBatch) -> None:
+        require_warehouse_permission(self.actor, POST_PRODUCTION_BATCH, batch.warehouse)
+
+    def extra_context_for(self, instance: Any) -> dict[str, Any]:
+        context = batch_context(self.actor, instance)
+        context.update(posting_context(self.actor, instance))
+        return context
+
+    def perform(self, instance: Any, form: Any) -> Any:
+        return post_production_batch(
+            batch=instance,
+            idempotency_key=f"screen-post:{instance.public_id}",
+            actor=self.actor,
+            reason=form.cleaned_data.get("reason", ""),
+        )
+
+
+class ProductionReverseView(ProductionWriteView):
+    """Undo a posted batch, once, with a reason that is kept forever."""
+
+    form_class = ProductionReverseForm
+    template_name = "kitchen/production_reverse.html"
+    page_title = _("عكس أمر الإنتاج")
+    page_hint = _("العكس يعيد كل مدخل بقيمته المرحّلة ويسحب الناتج بقيمته.")
+    success_message = _("تم عكس أمر الإنتاج.")
+
+    def load(self) -> Any:
+        return resolve_production_batch(self.actor, self.kwargs["pk"])
+
+    def batch_of(self, instance: Any) -> ProductionBatch:
+        batch: ProductionBatch = instance
+        return batch
+
+    def authorize(self, batch: ProductionBatch) -> None:
+        require_warehouse_permission(self.actor, REVERSE_PRODUCTION_BATCH, batch.warehouse)
+
+    def extra_context_for(self, instance: Any) -> dict[str, Any]:
+        return posting_context(self.actor, instance)
+
+    def perform(self, instance: Any, form: Any) -> Any:
+        return reverse_production_batch(
+            batch=instance,
+            idempotency_key=f"screen-reverse:{instance.public_id}",
+            reason=form.cleaned_data["reason"],
+            actor=self.actor,
+        )

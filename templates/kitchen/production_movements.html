@@ -1,0 +1,12 @@
+{# The posted movement panel as a page, so the HTMX fragment has a real       #}
+{# full-page fallback rather than a bare section floating without a shell.    #}
+{#                                                                           #}
+{# Two files rather than one: `_production_movements.html` stays a pure       #}
+{# partial the batch workspace can `{% include %}`, and this wraps it. A      #}
+{# template that both extends and is included is the shape that renders the   #}
+{# shell inside itself the first time somebody swaps it into a target.        #}
+{% extends base_template|default:"shell.html" %}
+
+{% block page %}
+  {% include "kitchen/_production_movements.html" %}
+{% endblock %}

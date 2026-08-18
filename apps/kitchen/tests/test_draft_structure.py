@@ -116,15 +116,16 @@ class TestTheLifecycleBoundary:
         now moved twice.
 
         Task 3.2A held the component routes out and **3.2B brought them in**;
-        Task 3.2B held the cost routes out and **3.3 brought them in**; Task
-        3.3 held the production routes out and **3.4 brought the drafting half
-        of them in**. Each time this test was rewritten rather than deleted,
+        Task 3.2B held the cost routes out and **3.3 brought them in**; 3.3 held
+        the production routes out and **3.4 brought the drafting half in**; 3.4
+        held posting out and **3.5 brought it in**. Four rewrites, no removal,
         because a fence that moves is not a fence that came down.
 
-        The fence now sits between drafting and posting: a batch may be
-        created, scaled, edited and discarded through a screen, and there is no
-        screen that posts it, reverses it, picks a lot or picks a location.
-        Those are Task 3.5's. `recipe_reactivate` is master data and stays.
+        The fence now sits between production and the Kitchen report family: a
+        batch may be drafted, scaled, allocated, posted and reversed through a
+        screen, and there is no meal log, no theoretical or actual consumption
+        read and no usage variance. Those are Tasks 3.6 to 3.9.
+        `recipe_reactivate` is master data and stays.
         """
         from apps.kitchen import urls
 
@@ -137,7 +138,9 @@ class TestTheLifecycleBoundary:
         assert "cost_snapshot_list" in names
         assert "production_list" in names, "Task 3.4 owns the drafting screens"
         assert "production_rescale" in names
-        for forbidden in ("flatten", "post", "reverse", "lot", "location", "journal"):
+        assert "production_post" in names, "Task 3.5 owns posting"
+        assert "production_reverse" in names
+        for forbidden in ("flatten", "meal", "variance", "consumption", "theoretical"):
             assert not {name for name in names if forbidden in name}, forbidden
 
     def test_version_numbers_are_sequential_and_never_reused(

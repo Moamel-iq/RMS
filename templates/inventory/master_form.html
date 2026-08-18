@@ -9,6 +9,11 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
+  <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+    <a href="{% url 'inventory:item_list' %}">{% translate "المخزون" %}</a>
+    <span aria-hidden="true">/</span>
+    <span aria-current="page">{{ page_title }}</span>
+  </nav>
   <div class="pagehead">
     <div>
       <h1 class="pagehead__title">{{ page_title }}</h1>
@@ -16,25 +21,20 @@
     </div>
   </div>
 
-  <form class="formcard" method="post" novalidate>
+  <form class="formcard inventory-master-form" method="post" novalidate data-inventory-form>
     {% csrf_token %}
-
-    {% if form.non_field_errors %}
-      <div class="alert" role="alert">
-        {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
-      </div>
-    {% endif %}
+    {% include "components/form_error_summary.html" with form=form %}
 
     <div class="formgrid">
       {% for field in form %}
         {% if field.field.widget.input_type == "checkbox" %}
-          <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}">
+          <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}" data-field>
             {{ field }}
-            <label class="formrow__label" style="margin:0" for="{{ field.id_for_label }}">
+            <label class="formrow__label formrow__label--inline" for="{{ field.id_for_label }}">
               {{ field.label }}
             </label>
-            {% if field.help_text %}<p class="formrow__help">{{ field.help_text }}</p>{% endif %}
-            {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+            {% if field.help_text %}<p class="formrow__help" id="{{ field.auto_id }}_helptext" data-field-description>{{ field.help_text }}</p>{% endif %}
+            {% if field.errors %}<div id="{{ field.auto_id }}_error" data-field-description data-field-error>{% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}</div>{% endif %}
           </div>
         {% else %}
           {% include "settings/_field.html" with field=field %}
@@ -43,7 +43,7 @@
     </div>
 
     <div class="formactions">
-      <button class="btn btn--primary" type="submit">{% translate "حفظ" %}</button>
+      <button class="btn btn--primary" type="submit" data-inventory-submit>{% translate "حفظ" %}</button>
       <a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
     </div>
   </form>

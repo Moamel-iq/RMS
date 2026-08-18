@@ -114,15 +114,17 @@ class TestDemoDataset:
     ) -> list[Recipe]:
         return seed_demo_recipes(organization=organization, created_by=manager)
 
-    def test_fourteen_recipes_are_created(self, seeded: list[Recipe]) -> None:
+    def test_fifteen_recipes_are_created(self, seeded: list[Recipe]) -> None:
         """
         Five that stay drafts, four that walk the approval boundary, three that
         form the nested graph Task 3.2B added, **one Task 3.3 added** whose
         every leaf is valued so a cost card adds up to a real number, and
         **one Task 3.4 added** — a batch recipe with an output item, which is
-        the only shape a production draft can be raised from.
+        the only shape a production draft can be raised from — and **one Task
+        3.5 added**, producing a lot-tracked item into its own control account
+        so both the output lot and a real netted journal appear on a screen.
         """
-        assert len(seeded) == 14
+        assert len(seeded) == 15
 
     def test_every_screen_has_something_on_it(self, seeded: list[Recipe]) -> None:
         assert RecipeLine.objects.exists()

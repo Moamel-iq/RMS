@@ -1,0 +1,110 @@
+{# What the posting actually moved: every movement, its lot, and its value.   #}
+{#                                                                            #}
+{# This panel is the drill-down that matters most when a batch wrote **no**   #}
+{# journal, because then the stock ledger is the only place the event exists. #}
+{# So the no-journal sentence is stated here in words rather than left as an  #}
+{# empty link: absent evidence and missing evidence look identical, and only  #}
+{# one of them is correct.                                                    #}
+{% load i18n %}
+
+<section class="panel" id="production-movements">
+  <h2 class="panel__title">{% translate "حركة الترحيل" %}</h2>
+
+  {% if not batch.stock_entry_id %}
+    <p class="empty">{% translate "لم تُرحَّل هذه الدفعة بعد." %}</p>
+  {% else %}
+    <dl class="deflist">
+      <dt>{% translate "الرقم" %}</dt>
+      <dd><code dir="ltr">{{ batch.number }}</code></dd>
+      <dt>{% translate "تاريخ العمل" %}</dt>
+      <dd><code dir="ltr">{{ batch.stock_entry.business_date|date:"Y-m-d" }}</code></dd>
+      {% if can_read_cost %}
+        <dt>{% translate "قيمة المستهلك" %}</dt>
+        <dd><code dir="ltr">{{ batch.input_value }}</code></dd>
+        <dt>{% translate "قيمة الناتج" %}</dt>
+        <dd><code dir="ltr">{{ batch.output_value }}</code></dd>
+        <dt>{% translate "حفظ القيمة" %}</dt>
+        <dd>
+          {% if batch.input_value == batch.output_value %}
+            {% translate "متطابقتان — لم تُخلق قيمة ولم تُفقد." %}
+          {% else %}
+            {% translate "غير متطابقتين" %}
+          {% endif %}
+        </dd>
+      {% endif %}
+      {% if batch.output_lot_id %}
+        <dt>{% translate "لوط الناتج" %}</dt>
+        <dd>
+          <code dir="ltr">{{ batch.output_lot.code }}</code>
+          {% if batch.output_lot.expiry_date %}
+            <span class="pill">{{ batch.output_lot.expiry_date|date:"Y-m-d" }}</span>
+          {% endif %}
+        </dd>
+      {% endif %}
+      <dt>{% translate "القيد المحاسبي" %}</dt>
+      <dd>
+        {% if batch.journal_entry_id %}
+          <code dir="ltr">{{ batch.journal_entry.entry_number }}</code>
+        {% else %}
+          {{ no_journal_reason }}
+        {% endif %}
+      </dd>
+    </dl>
+
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "النوع" %}</th>
+            <th scope="col">{% translate "الصنف" %}</th>
+            <th scope="col">{% translate "اللوط" %}</th>
+            <th scope="col">{% translate "الكمية" %}</th>
+            {% if can_read_cost %}<th scope="col">{% translate "القيمة" %}</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for movement in movements %}
+            <tr>
+              <td>{{ movement.get_movement_type_display }}</td>
+              <td>{{ movement.item.code }}</td>
+              <td>{% if movement.lot_id %}<code dir="ltr">{{ movement.lot.code }}</code>{% else %}—{% endif %}</td>
+              <td><code dir="ltr">{{ movement.base_quantity }}</code></td>
+              {% if can_read_cost %}
+                <td><code dir="ltr">{{ movement.inventory_value }}</code></td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {% if reversal_movements %}
+    <h3 class="panel__subtitle">{% translate "حركة العكس" %}</h3>
+    <p class="pagehead__hint">{{ batch.reversal_reason }}</p>
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "الصنف" %}</th>
+            <th scope="col">{% translate "اللوط" %}</th>
+            <th scope="col">{% translate "الكمية" %}</th>
+            {% if can_read_cost %}<th scope="col">{% translate "القيمة" %}</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for movement in reversal_movements %}
+            <tr>
+              <td>{{ movement.item.code }}</td>
+              <td>{% if movement.lot_id %}<code dir="ltr">{{ movement.lot.code }}</code>{% else %}—{% endif %}</td>
+              <td><code dir="ltr">{{ movement.base_quantity }}</code></td>
+              {% if can_read_cost %}
+                <td><code dir="ltr">{{ movement.inventory_value }}</code></td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>

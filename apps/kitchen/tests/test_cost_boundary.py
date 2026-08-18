@@ -185,35 +185,68 @@ class TestZeroEffect:
 
 
 class TestTheTaskBoundary:
-    def test_no_production_row_carries_a_cost(self) -> None:
+    def test_no_production_row_carries_a_costing_figure(self) -> None:
         """
-        Task 3.3 asserted that no production model existed; **Task 3.4 built
-        three**, and this test moved with them rather than being deleted.
+        The fence, moved a third time, and this is the move that needed care.
 
-        The claim it guards is the one that still matters here: a production
-        draft carries **no money**. Costing owns cost, `view_recipe_cost` guards
-        it, and a batch that stored one would be a second answer to a question
-        the ledger already answers — going stale the moment stock moved.
+        Task 3.3 asserted no production model existed; **3.4 built three** and
+        this test moved with them; **3.5 posts**, and a posted batch genuinely
+        does carry money - what its inputs were worth and what its output was
+        worth. Deleting the test would have been the easy answer and the wrong
+        one, because the claim underneath it never changed:
+
+        **the money on a production row is the ledger's, never costing's.**
+
+        `input_value`, `output_value` and `consumed_value` are figures the stock
+        kernel computed and this module wrote down. A `recipe_cost`,
+        `standard_cost`, `plate_cost`, `price` or `margin` column would be the
+        thing RCP-009 forbids - a cached second answer that starts drifting the
+        moment the next receipt posts. So the allowlist is by **name**, and it
+        is short.
+
+        The plan rows stay money-free entirely: a requirement and a consumption
+        are quantities, and Task 3.6 derives their cost consequence rather than
+        storing it.
         """
         from apps.kitchen.models import (
             ProductionBatch,
             ProductionBatchActualLine,
+            ProductionBatchAllocation,
             ProductionBatchLine,
         )
 
-        money = ("cost", "price", "value", "amount", "total")
-        for model in (ProductionBatch, ProductionBatchLine, ProductionBatchActualLine):
+        money = ("cost", "price", "value", "amount", "total", "margin")
+        #: Exactly what the ledger told this module, and nothing derived.
+        posted_evidence = {"input_value", "output_value", "consumed_value"}
+        for model in (
+            ProductionBatch,
+            ProductionBatchLine,
+            ProductionBatchActualLine,
+            ProductionBatchAllocation,
+        ):
             for field in model._meta.get_fields():
                 if not getattr(field, "concrete", False):
                     continue
                 name = field.name.lower()
                 # `cost_class` is the recipe's FOOD / PACKAGING classification
                 # and carries no figure; every other match would be an amount.
-                if name == "cost_class":
+                if name == "cost_class" or name in posted_evidence:
                     continue
                 assert not any(word in name for word in money), (
-                    f"{model.__name__}.{field.name} looks like money"
+                    f"{model.__name__}.{field.name} looks like a costing figure"
                 )
+
+    def test_the_plan_rows_carry_no_money_at_all(self) -> None:
+        """The half of the old claim that survives untouched."""
+        from apps.kitchen.models import ProductionBatchActualLine, ProductionBatchLine
+
+        for model in (ProductionBatchLine, ProductionBatchActualLine):
+            names = {
+                field.name
+                for field in model._meta.get_fields()
+                if getattr(field, "concrete", False)
+            }
+            assert not (names & {"input_value", "output_value", "consumed_value", "unit_cost"})
 
     def test_no_cost_field_was_added_to_recipe_or_version(self) -> None:
         """
@@ -227,12 +260,15 @@ class TestTheTaskBoundary:
         for model in (Recipe, RecipeVersion):
             assert not ({field.name for field in model._meta.get_fields()} & forbidden)
 
-    def test_the_router_publishes_drafting_screens_and_no_posting_screen(self) -> None:
+    def test_the_router_publishes_posting_screens_and_no_report_screen(self) -> None:
         """
-        Task 3.4 brought the drafting screens in, so the original blanket ban
-        on `production` is now false and this was rewritten rather than
-        deleted. What survives is the half about posting: no route may post,
-        reverse, flatten, journal or touch an inventory document.
+        The fence, moved twice more.
+
+        Task 3.4 brought the drafting screens in and **3.5 brings in posting,
+        reversal and the lot and location pickers those need**. Each rewrite
+        kept the half that was still true. What is still true now: the Kitchen
+        report family - meals, theoretical and actual consumption, usage
+        variance - belongs to Tasks 3.6 to 3.9, and none of it may appear early.
         """
         from apps.kitchen.urls import urlpatterns
 
@@ -240,7 +276,9 @@ class TestTheTaskBoundary:
             getattr(route, "name", "") for route in urlpatterns if getattr(route, "name", "")
         }
         assert "production_list" in published, "Task 3.4 owns the drafting screens"
-        for banned in ("flatten", "post", "reverse", "journal", "inventory", "lot", "location"):
+        assert "production_post" in published, "Task 3.5 owns posting"
+        assert "production_reverse" in published
+        for banned in ("flatten", "meal", "variance", "consumption", "theoretical"):
             assert not any(banned in name for name in published), banned
 
     def test_costing_never_reaches_for_a_procurement_price(self) -> None:

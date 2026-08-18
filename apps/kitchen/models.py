@@ -38,7 +38,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
@@ -2441,15 +2441,58 @@ class RecipeCostSnapshotServing(models.Model):
 # prompt can produce one before Task 3.5 removes that constraint deliberately.
 
 
+class KitchenDocumentSequence(models.Model):
+    """
+    The gapless per-organization, per-type, per-year counter.
+
+    A third sequence table beside inventory's and procurement's, and for the
+    same reason procurement declared the second: `PRODUCTION_BATCH` is not an
+    inventory document type, and keying it into `InventoryDocumentType` would
+    make that enum a statement about documents inventory does not own. The
+    counting *rule* is four lines under a row lock and is deliberately
+    identical — what must never be duplicated is a sequence one document could
+    draw from twice.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="kitchen_sequences",
+        verbose_name=_("organization"),
+    )
+    document_type = models.CharField(_("document type"), max_length=32)
+    year = models.PositiveSmallIntegerField(_("year"))
+    last_number = models.PositiveIntegerField(_("last number"), default=0)
+
+    class Meta:
+        verbose_name = _("kitchen document sequence")
+        verbose_name_plural = _("kitchen document sequences")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "document_type", "year"],
+                name="kitchen_sequence_unique_per_type_and_year",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.organization.code} {self.document_type} {self.year}: {self.last_number}"
+
+
 class ProductionBatchStatus(models.TextChoices):
     """
     The approved lifecycle of one batch (spec section 7).
 
-    Declared in full because the vocabulary is settled and a later task adding
-    two values to an enum would read as a redesign. **Only `DRAFT` is
-    reachable** until Task 3.5: the check constraint is the boundary, and it is
-    named after the task that must remove it so nobody deletes it by accident
-    while tidying.
+    Three states and no fourth. There is deliberately no `IN_PROGRESS`, no
+    partial completion and no multi-day work in progress: a Release 1 batch
+    posts atomically on one business date into one warehouse or stays a draft
+    (RCP-094). Adding a fourth value would need §8A superseded first, because
+    the absence of a WIP account is true only under those conditions.
+
+    Task 3.4 declared all three and made only `DRAFT` reachable, through a
+    check constraint named after the task that had to remove it. Task 3.5
+    removed it in migration 0017 and put the posting-evidence constraints in
+    its place — a batch is now a draft with none of the evidence or a posted
+    one with all of it.
     """
 
     DRAFT = "DRAFT", _("مسودة")
@@ -2496,6 +2539,14 @@ class ProductionBatch(TimeStampedModel):
     in agreement at COMMIT, so revisable does not become independently mutable -
     a batch claiming to be double the recipe while asking for one and a half
     times the rice is refused by the database, not merely unlikely.
+
+    **Posting ends all of it** (Task 3.5). `post_production_batch` consumes
+    every positive actual row through `PRODUCTION_OUT`, creates the output
+    through `PRODUCTION_IN` at exactly the sum of the consumed values, draws the
+    gapless number, writes the journal only if the per-account nets need one,
+    and freezes the whole aggregate. From `POSTED` the only permitted change is
+    a reversal; migration 0018's trigger enforces that against every writer,
+    including a superuser at a psql prompt.
     """
 
     organization = models.ForeignKey(
@@ -2582,11 +2633,129 @@ class ProductionBatch(TimeStampedModel):
         choices=ProductionBatchStatus.choices,
         default=ProductionBatchStatus.DRAFT,
     )
-    #: Drawn at posting, gapless per organization - Task 3.5's. Empty here, and
-    #: a constraint holds it empty while the batch is a draft.
+    #: Drawn at posting, gapless per organization. Empty on a draft, and a
+    #: constraint holds it empty there: a number consumed by a posting that
+    #: failed is a gap, and a gapless sequence with gaps in it is worse than an
+    #: honest one.
     number = models.CharField(_("number"), max_length=32, blank=True)
 
     notes = models.TextField(_("notes"), blank=True)
+
+    # -----------------------------------------------------------------------
+    # Posting evidence (Task 3.5)
+    #
+    # Every field below is NULL on a draft and written exactly once, inside the
+    # posting transaction. They are evidence rather than state: the authority
+    # for what this batch did is the stock ledger entry, and these columns are
+    # what let a reader reach it without reconstructing the link from movement
+    # rows.
+    # -----------------------------------------------------------------------
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="production_batches_posted",
+        null=True,
+        blank=True,
+        verbose_name=_("posted by"),
+    )
+    stock_entry = models.ForeignKey(
+        "inventory.StockLedgerEntry",
+        on_delete=models.PROTECT,
+        related_name="production_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("stock posting"),
+    )
+    #: Null on a **correctly** silent posting as well as on a draft, which is
+    #: why `verify_kitchen` recomputes the per-account nets rather than reading
+    #: this column: a journal that is rightly absent and one that is wrongly
+    #: missing look identical here (RCP-112 proof 5).
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        related_name="production_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("journal entry"),
+    )
+    #: Snapshotted from `recipe.output_item` at posting. Re-reading the recipe
+    #: later would let a master-data edit restate what a posted batch produced.
+    output_item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="production_batch_outputs",
+        null=True,
+        blank=True,
+        verbose_name=_("output item"),
+    )
+    output_lot = models.ForeignKey(
+        "inventory.InventoryLot",
+        on_delete=models.PROTECT,
+        related_name="production_batches",
+        null=True,
+        blank=True,
+        verbose_name=_("output lot"),
+    )
+    output_movement = models.ForeignKey(
+        "inventory.StockMovement",
+        on_delete=models.PROTECT,
+        related_name="production_batch_outputs",
+        null=True,
+        blank=True,
+        verbose_name=_("output movement"),
+    )
+    #: `Σ consumed input movement values`, and the output's inbound value. Two
+    #: columns holding one number on purpose: value conservation (RCP-034) is
+    #: the invariant this task exists to keep, and an invariant asserted
+    #: against a single stored figure is not asserted at all.
+    input_value = models.DecimalField(
+        _("consumed value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    output_value = models.DecimalField(
+        _("output value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    #: The posting command's own key, separate from the creation key above:
+    #: drafting and posting are two commands, and one key matched against two
+    #: fingerprints would make a retry of either look like a conflict.
+    post_idempotency_key = models.CharField(_("posting key"), max_length=128, blank=True)
+    post_request_fingerprint = models.CharField(_("posting fingerprint"), max_length=64, blank=True)
+    posting_rule_version = models.CharField(_("posting rule version"), max_length=32, blank=True)
+
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="production_batches_reversed",
+        null=True,
+        blank=True,
+        verbose_name=_("reversed by"),
+    )
+    reversal_reason = models.CharField(_("reversal reason"), max_length=200, blank=True)
+    reversal_stock_entry = models.ForeignKey(
+        "inventory.StockLedgerEntry",
+        on_delete=models.PROTECT,
+        related_name="production_batch_reversals",
+        null=True,
+        blank=True,
+        verbose_name=_("reversing stock posting"),
+    )
+    reversal_journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        related_name="production_batch_reversals",
+        null=True,
+        blank=True,
+        verbose_name=_("reversing journal entry"),
+    )
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -2611,11 +2780,21 @@ class ProductionBatch(TimeStampedModel):
         ordering = ["-planned_business_date", "-id"]
         permissions = [
             ("create_production_batch", "Can draft and edit production batches"),
+            ("post_production_batch", "Can post production batches"),
+            ("reverse_production_batch", "Can reverse posted production batches"),
         ]
         constraints = [
             models.UniqueConstraint(
                 fields=["organization", "idempotency_key"],
                 name="production_batch_key_unique_per_organization",
+            ),
+            # The posting command's key, unique per organization exactly as the
+            # drafting one is. Partial, because a draft has none and every
+            # draft would otherwise collide on the empty string.
+            models.UniqueConstraint(
+                fields=["organization", "post_idempotency_key"],
+                condition=~Q(post_idempotency_key=""),
+                name="production_batch_post_key_unique_per_organization",
             ),
             models.CheckConstraint(
                 condition=~Q(idempotency_key=""),
@@ -2635,28 +2814,83 @@ class ProductionBatch(TimeStampedModel):
                 name="production_batch_actual_output_not_negative",
             ),
             # ---------------------------------------------------------------
-            # The Task 3.4 / 3.5 boundary, enforced by the database.
-            #
-            # Named after the task that must remove it. A service could be
-            # written to set POSTED; a migration could; the admin could; a psql
-            # prompt could. This refuses all four, so "Task 3.4 posts nothing"
-            # is a property of the schema rather than a promise in a docstring.
-            #
-            # Task 3.5 deletes this constraint deliberately, in its own
-            # migration, as the first thing it does.
+            # The Task 3.4 / 3.5 boundary was a check constraint named
+            # `production_batch_is_draft_only_until_task_3_5`, and migration
+            # 0017 removes it — deliberately, in its own migration, as the
+            # first thing Task 3.5 does. What replaces it is not weaker: the
+            # constraints below say that a batch is either a draft with **no**
+            # posting evidence at all or a posted one with **all** of it, and
+            # there is no third shape. The old rule refused one status; these
+            # refuse every half-posted row.
             # ---------------------------------------------------------------
-            models.CheckConstraint(
-                condition=Q(status=ProductionBatchStatus.DRAFT),
-                name="production_batch_is_draft_only_until_task_3_5",
-            ),
-            # A draft carries no posting evidence. Belt and braces with the
-            # status constraint above, and the half that survives Task 3.5
-            # removing the other: a POSTED batch may have a number, a DRAFT
-            # may never.
+            # A draft carries no posting evidence. This half predates Task 3.5
+            # and survives it unchanged.
             models.CheckConstraint(
                 condition=Q(status=ProductionBatchStatus.DRAFT, number="")
                 | ~Q(status=ProductionBatchStatus.DRAFT),
                 name="production_batch_draft_has_no_number",
+            ),
+            # Everything a posting writes, written together or not at all. A
+            # row with a stock entry and no value, or a value and no number, is
+            # a posting that failed halfway and looks complete — the one shape
+            # `transaction.atomic` is supposed to make impossible and the one a
+            # later bulk update could still produce.
+            models.CheckConstraint(
+                condition=Q(
+                    status=ProductionBatchStatus.DRAFT,
+                    posted_at__isnull=True,
+                    stock_entry__isnull=True,
+                    output_value__isnull=True,
+                    input_value__isnull=True,
+                    output_item__isnull=True,
+                    output_movement__isnull=True,
+                )
+                | (
+                    ~Q(status=ProductionBatchStatus.DRAFT)
+                    & ~Q(number="")
+                    & Q(
+                        posted_at__isnull=False,
+                        stock_entry__isnull=False,
+                        output_value__isnull=False,
+                        input_value__isnull=False,
+                        output_item__isnull=False,
+                        output_movement__isnull=False,
+                    )
+                ),
+                name="production_batch_posting_evidence_is_complete",
+            ),
+            # Value conservation, at the database. The service computes the
+            # output's inbound value as the sum of the consumed movement values
+            # and the kernel writes exactly that; this refuses the row where
+            # the two ever disagree, so RCP-034 is a property of the schema
+            # rather than of one code path.
+            models.CheckConstraint(
+                condition=Q(input_value__isnull=True, output_value__isnull=True)
+                | Q(input_value=F("output_value")),
+                name="production_batch_conserves_value",
+            ),
+            # A reversal names who did it, when, and why — all three or none.
+            models.CheckConstraint(
+                condition=Q(
+                    status=ProductionBatchStatus.REVERSED,
+                    reversed_at__isnull=False,
+                    reversal_stock_entry__isnull=False,
+                )
+                & ~Q(reversal_reason="")
+                | ~Q(status=ProductionBatchStatus.REVERSED)
+                & Q(
+                    reversed_at__isnull=True,
+                    reversal_stock_entry__isnull=True,
+                    reversal_reason="",
+                ),
+                name="production_batch_reversal_evidence_is_complete",
+            ),
+            # A posting key belongs to a posting. A draft holding one would be
+            # a key consumed by a command that never ran.
+            models.CheckConstraint(
+                condition=Q(status=ProductionBatchStatus.DRAFT, post_idempotency_key="")
+                | ~Q(status=ProductionBatchStatus.DRAFT) & ~Q(post_idempotency_key=""),
+                name="production_batch_posting_key_belongs_to_a_posting",
             ),
         ]
         indexes = [
@@ -3063,3 +3297,127 @@ class ProductionBatchActualLine(TimeStampedModel):
     @property
     def is_substitute(self) -> bool:
         return self.kind == ActualLineKind.SUBSTITUTE
+
+
+class ProductionBatchAllocation(TimeStampedModel):
+    """
+    Which lot, and out of which bin, one actual row's quantity came from.
+
+    A fourth table rather than three nullable columns on the actual row,
+    because the cardinality is genuinely one-to-many: 4 kg of rice may be two
+    kilos from the lot that expires on Friday and two from the one that expires
+    next month, and a kitchen that had to record it as one lot would record the
+    wrong one. Lot-tracked stock is exactly where "roughly which batch" is not
+    an acceptable answer — it is what a recall traces.
+
+    **Drafted before posting, frozen after it.** The rows are the operator's
+    plan while the batch is a draft; posting validates them against real
+    availability, posts one `PRODUCTION_OUT` movement per row, and writes back
+    the movement and the value the kernel took. After that they are history.
+
+    **Optional where the item permits it.** An item that tracks no lots and
+    sits in a warehouse with no bins needs no allocation row: the posting
+    derives one lot-less, location-less effect from the actual row itself.
+    Requiring an empty formality there would be a form to fill in for the sake
+    of the schema. A lot-tracked item is the opposite case and posting refuses
+    without exact allocation (RCP-038's neighbour: you cannot produce from a
+    lot you did not name).
+    """
+
+    actual = models.ForeignKey(
+        ProductionBatchActualLine,
+        on_delete=models.CASCADE,
+        related_name="allocations",
+        verbose_name=_("actual line"),
+    )
+    #: 1..n, stable, and the order the effects are built in — so two postings
+    #: of the same shape produce the same movement sequence.
+    allocation_order = models.PositiveIntegerField(_("allocation order"))
+
+    lot = models.ForeignKey(
+        "inventory.InventoryLot",
+        on_delete=models.PROTECT,
+        related_name="production_allocations",
+        null=True,
+        blank=True,
+        verbose_name=_("lot"),
+    )
+    location = models.ForeignKey(
+        "inventory.StockLocation",
+        on_delete=models.PROTECT,
+        related_name="production_allocations",
+        null=True,
+        blank=True,
+        verbose_name=_("location"),
+    )
+    base_quantity = models.DecimalField(
+        _("quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+
+    #: Written at posting, once. Null while the batch is a draft.
+    movement = models.ForeignKey(
+        "inventory.StockMovement",
+        on_delete=models.PROTECT,
+        related_name="production_allocations",
+        null=True,
+        blank=True,
+        verbose_name=_("stock movement"),
+    )
+    #: What the kernel's moving average actually charged. Not
+    #: `quantity x average` recomputed later — the exact figure the movement
+    #: carries, which is what value conservation is summed from.
+    consumed_value = models.DecimalField(
+        _("consumed value"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("production allocation")
+        verbose_name_plural = _("production allocations")
+        ordering = ["actual", "allocation_order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["actual", "allocation_order"],
+                name="production_allocation_order_unique_per_actual",
+            ),
+            models.CheckConstraint(
+                condition=Q(allocation_order__gte=1),
+                name="production_allocation_order_is_positive",
+            ),
+            # Zero is not an allocation. An actual row that consumed nothing
+            # simply has no allocation rows.
+            models.CheckConstraint(
+                condition=Q(base_quantity__gt=Decimal("0")),
+                name="production_allocation_quantity_is_positive",
+            ),
+            # One row per (lot, location) per actual row. Two rows naming the
+            # same position would be one quantity written twice, and the sum
+            # against the actual row would still add up — which is exactly the
+            # kind of double count no later report can detect.
+            models.UniqueConstraint(
+                fields=["actual", "lot", "location"],
+                name="production_allocation_position_unique_per_actual",
+                nulls_distinct=False,
+            ),
+            # A posted allocation names its movement and its value together.
+            models.CheckConstraint(
+                condition=Q(movement__isnull=True, consumed_value__isnull=True)
+                | Q(movement__isnull=False, consumed_value__isnull=False),
+                name="production_allocation_posting_evidence_is_complete",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.actual_id}#{self.allocation_order} {self.base_quantity}"
+
+    @property
+    def quantity_display(self) -> str:
+        return f"{self.base_quantity:f}"

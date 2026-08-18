@@ -7,35 +7,43 @@
 {# blanked — an empty cell still says a number belongs there.                #}
 
 {% block columns %}
-  <th>{% translate "المخزن" %}</th>
-  <th>{% translate "الصنف" %}</th>
-  <th>{% translate "الدفعة" %}</th>
-  <th>{% translate "الكمية" %}</th>
-  <th>{% translate "الوحدة" %}</th>
+  <th scope="col">{% translate "المخزن" %}</th>
+  <th scope="col">{% translate "الصنف" %}</th>
+  <th scope="col">{% translate "الدفعة" %}</th>
+  <th scope="col">{% translate "الكمية" %}</th>
+  <th scope="col">{% translate "الوحدة" %}</th>
   {% if show_cost %}
-    <th>{% translate "متوسط الكلفة" %}</th>
-    <th>{% translate "القيمة" %}</th>
+    <th scope="col">{% translate "متوسط الكلفة" %}</th>
+    <th scope="col">{% translate "القيمة" %}</th>
   {% endif %}
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد نتائج مطابقة" as no_results_title %}
+  {% translate "جرّب البحث برمز الصنف أو المخزن أو امسح المرشّحات." as no_results_description %}
+  {% translate "لا يوجد مخزون بعد" as empty_title %}
+  {% translate "تظهر الأرصدة هنا بعد ترحيل أول حركة مخزنية." as empty_description %}
   {% for balance in balances %}
     <tr>
-      <td><code>{{ balance.warehouse.code }}</code></td>
-      <td><code>{{ balance.item.code }}</code> {{ balance.item.name_ar }}</td>
-      <td>{% if balance.lot %}<code>{{ balance.lot.code }}</code>{% else %}—{% endif %}</td>
+      <td data-label="{% translate 'المخزن' %}"><bdi dir="ltr"><code>{{ balance.warehouse.code }}</code></bdi></td>
+      <td data-label="{% translate 'الصنف' %}"><bdi dir="ltr"><code>{{ balance.item.code }}</code></bdi> {{ balance.item.name_ar }}</td>
+      <td data-label="{% translate 'الدفعة' %}">{% if balance.lot %}<bdi dir="ltr"><code>{{ balance.lot.code }}</code></bdi>{% else %}—{% endif %}</td>
       {# Technical values: a period, never a locale comma. #}
-      <td><code dir="ltr">{{ balance.quantity|stringformat:"f" }}</code></td>
-      <td>{{ balance.item.base_unit.code }}</td>
+      <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ balance.quantity|stringformat:"f" }}</code></bdi></td>
+      <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ balance.item.base_unit.code }}</bdi></td>
       {% if show_cost %}
-        <td><code dir="ltr">{{ balance.average_cost|stringformat:"f" }}</code></td>
-        <td><code dir="ltr">{{ balance.value|stringformat:"f" }}</code></td>
+        <td data-label="{% translate 'متوسط الكلفة' %}"><bdi dir="ltr"><code>{{ balance.average_cost|stringformat:"f" }}</code></bdi></td>
+        <td data-label="{% translate 'القيمة' %}"><bdi dir="ltr"><code>{{ balance.value|stringformat:"f" }}</code></bdi></td>
       {% endif %}
     </tr>
   {% empty %}
     <tr>
-      <td colspan="{% if show_cost %}7{% else %}5{% endif %}">
-        {% translate "لا يوجد مخزون بعد. تظهر الأرصدة بعد أول عملية ترحيل." %}
+      <td colspan="{% if show_cost %}7{% else %}5{% endif %}" data-empty-state>
+        {% if filter_query %}
+          {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+        {% else %}
+          {% include "components/empty_state.html" with title=empty_title description=empty_description %}
+        {% endif %}
       </td>
     </tr>
   {% endfor %}

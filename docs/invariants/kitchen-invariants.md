@@ -278,3 +278,48 @@ posting; audit `previous_state` re-read from the database.
   that way is how verifiers stop being read. A cross-dimension substitution is a
   legitimate act, so it is reported as an **observation** and never counted
   against the exit status; only defects make `verify_production_drafts` exit 1.
+
+## Task 3.5 — posting
+
+91. **A batch is a draft with no posting evidence or a posting with all of it.**
+    `production_batch_posting_evidence_is_complete` refuses every half-posted
+    row: no stock entry without a value, no value without a number, no number
+    without a posting moment. The old DRAFT-only constraint refused one status;
+    this refuses every incoherent one.
+92. **`input_value = output_value`, at the database.** Value conservation is
+    `production_batch_conserves_value`, not a code path — a bulk update, a data
+    migration and a psql prompt all meet it.
+93. **One stock ledger entry per posting**, carrying every `PRODUCTION_OUT` and
+    the single `PRODUCTION_IN`, with `KITCHEN_PRODUCTION_BATCH` /
+    `public_id` / `POSTED`.
+94. **A zero-net batch writes no journal, and that is correct.** The verifier
+    proves it by recomputing the per-account nets from the movements. A journal
+    that is rightly absent and one that is wrongly missing are the same `NULL`.
+95. **Yield loss lands in the output's unit cost and nowhere else.** No
+    yield-variance account exists to receive it.
+96. **A posted batch is frozen; a reversed one is history.** Migration 0018's
+    trigger allows exactly the reversal columns out of POSTED and nothing at all
+    out of REVERSED, and DELETE is refused on all four production tables.
+97. **A lot-tracked input must be allocated exactly.** Allocations sum to their
+    consumption or the posting is refused — summing to less is a partial
+    completion by another name.
+98. **A produced lot names the batch that produced it**, and expires from the
+    batch's business date rather than from today.
+99. **Money is on its own endpoint, not on a nullable key.** The posting
+    commands carry no value at all; `/posting` carries them behind
+    `view_recipe_cost`. Omitted, never blanked.
+100. **Posting and reversing are separate grants.** A storekeeper commits the
+     movement they weighed; undoing a posted economic event is supervisory.
+
+### What is still tempting, and still wrong
+
+- **"Value the output at the recipe's standard cost."** There is no approved
+  standard cost in this system. The variance would measure the distance between
+  reality and a number somebody typed into a recipe, and it would reconcile,
+  which is what makes it dangerous.
+- **"Always write a journal so reports have something to click."** Two entries
+  that always net to zero are motion without information. The drill-down goes
+  to the stock ledger, which is where a production event's truth is.
+- **"Delete the movement and repost."** A posted movement is append-only and a
+  `StockBalance` references it. Correction is reversal plus a fresh draft — the
+  standing rule for every posted document in this system.

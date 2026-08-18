@@ -448,7 +448,7 @@ class TestTheApi:
         )
         assert response.status_code == 403
 
-    def test_the_drafting_routes_arrived_and_the_posting_ones_did_not(self) -> None:
+    def test_the_posting_routes_arrived_and_the_report_ones_did_not(self) -> None:
         """
         **Task 3.3 brought the cost routes in and Task 3.4 the drafting ones**,
         so the original claim is now false twice over and this test has been
@@ -473,8 +473,10 @@ class TestTheApi:
         assert kitchen
         assert any("cost" in path for path in kitchen), "Task 3.3 owns the cost routes"
         assert any("production-batches" in path for path in kitchen), "Task 3.4 owns drafting"
+        assert any(path.endswith("/post") for path in kitchen), "Task 3.5 owns posting"
+        assert any(path.endswith("/reverse") for path in kitchen)
         for path in kitchen:
-            for forbidden in ("flatten", "/post", "reverse", "issue", "consume", "journal"):
+            for forbidden in ("flatten", "meal", "consumption", "variance", "theoretical"):
                 assert forbidden not in path.lower(), path
 
 

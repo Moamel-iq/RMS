@@ -49,8 +49,10 @@ from decimal import Decimal
 from typing import Any
 
 from django.http import HttpRequest
+from django.utils.translation import gettext_lazy as _
 from ninja import Router, Schema
 
+from apps.inventory.models import InventoryLot, StockLocation
 from apps.inventory.selectors import (
     resolve_item,
     resolve_manageable_warehouse,
@@ -84,7 +86,9 @@ from apps.kitchen.permissions import (
     APPROVE_RECIPE_VERSION,
     CREATE_PRODUCTION_BATCH,
     MANAGE_RECIPE,
+    POST_PRODUCTION_BATCH,
     REJECT_RECIPE_VERSION,
+    REVERSE_PRODUCTION_BATCH,
     REVIEW_RECIPE_VERSION,
     SUBMIT_RECIPE_VERSION,
     VIEW_PRODUCTION,
@@ -106,6 +110,13 @@ from apps.kitchen.production import (
     update_production_batch_actuals,
     update_production_batch_notes,
 )
+from apps.kitchen.production_posting import (
+    SOURCE_DOCUMENT_TYPE,
+    AllocationInput,
+    post_production_batch,
+    reverse_production_batch,
+    set_production_allocations,
+)
 from apps.kitchen.selectors import (
     components_for_version,
     production_lines_for,
@@ -114,6 +125,7 @@ from apps.kitchen.selectors import (
     resolve_cost_snapshot,
     resolve_line,
     resolve_production_actual,
+    resolve_production_allocation,
     resolve_production_batch,
     resolve_production_line,
     resolve_recipe,
@@ -155,6 +167,7 @@ from apps.kitchen.services import (
 )
 from apps.kitchen.snapshots import create_recipe_cost_snapshot
 from apps.organizations.authorization import (
+    OutOfScope,
     PermissionMissing,
     require_reachable_organization_permission,
     require_warehouse_permission,
@@ -2213,7 +2226,7 @@ def list_production_batches(
     response={201: ProductionBatchDetailOut},
     summary="Draft a batch from the version in force at a branch on a date",
 )
-def post_production_batch(
+def create_production_batch_endpoint(
     request: HttpRequest, payload: ProductionBatchIn
 ) -> tuple[int, dict[str, Any]]:
     """
@@ -2561,4 +2574,367 @@ def get_production_preview(
             }
             for leaf, quantity in preview.planned
         ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Task 3.5 — allocation, posting, reversal, and the valued evidence
+#
+# Two rules shape this block.
+#
+# **The service is authoritative.** Every endpoint below resolves a scoped
+# object, checks a warehouse permission, validates a schema and calls a service.
+# There is no generic PATCH on a posted batch, no writable movement endpoint, no
+# way to name a `StockMovement` or a `JournalEntry`, and no path that reaches the
+# ledger without going through `post_production_batch`.
+#
+# **Money is a separate endpoint, not a nullable field.** Cost visibility is
+# `view_recipe_cost` and the repository's rule is omitted-not-blanked, so the
+# posted values live on `/posting` behind that permission rather than as keys
+# that turn into nulls. A reader without the permission does not receive the
+# key at all, which is a different statement from receiving it empty.
+# ---------------------------------------------------------------------------
+
+
+class ProductionAllocationOut(Schema):
+    """Where one consumption came from. Quantities only — no money here."""
+
+    id: int
+    allocation_order: int
+    lot_code: str | None
+    location_code: str | None
+    base_quantity: str
+    is_posted: bool
+
+
+class ProductionAllocationIn(Schema):
+    base_quantity: str
+    lot_id: int | None = None
+    location_id: int | None = None
+
+
+class ProductionAllocationsIn(Schema):
+    """
+    The **whole** allocation set for one consumption row.
+
+    Replace rather than append, because an allocation set is a single answer to
+    a single question and appending would make a correction indistinguishable
+    from a second consumption.
+    """
+
+    rows: list[ProductionAllocationIn]
+
+
+class ProductionPostIn(Schema):
+    idempotency_key: str
+    reason: str = ""
+
+
+class ProductionReverseIn(Schema):
+    idempotency_key: str
+    reason: str
+
+
+class ProductionMovementOut(Schema):
+    movement_type: str
+    item_code: str
+    lot_code: str | None
+    base_quantity: str
+    inventory_value: str
+    unit_cost: str
+    control_account_code: str | None
+
+
+class ProductionPostingOut(Schema):
+    """
+    The valued evidence of one posting. Behind `view_recipe_cost`.
+
+    `no_journal_reason` is a sentence rather than an empty field on purpose: a
+    journal that is rightly absent and one that is wrongly missing look
+    identical from the outside, and only one of them is acceptable.
+    """
+
+    status: str
+    number: str
+    posted_at: datetime.datetime | None
+    business_date: datetime.date | None
+    input_value: str | None
+    output_value: str | None
+    value_is_conserved: bool
+    output_item_code: str | None
+    output_quantity: str | None
+    output_lot_code: str | None
+    output_lot_expiry: datetime.date | None
+    journal_entry_number: str | None
+    no_journal_reason: str
+    source_document_type: str
+    source_document_id: str
+    movements: list[ProductionMovementOut]
+    reversal_movements: list[ProductionMovementOut]
+    reversal_reason: str
+
+
+def _allocation_out(row: Any) -> dict[str, Any]:
+    return {
+        "id": row.pk,
+        "allocation_order": row.allocation_order,
+        "lot_code": row.lot.code if row.lot_id else None,
+        "location_code": row.location.code if row.location_id else None,
+        "base_quantity": str(row.base_quantity),
+        "is_posted": row.movement_id is not None,
+    }
+
+
+def _allocation_rows(actor: User, actual: Any, rows: list[ProductionAllocationIn]) -> list[Any]:
+    """
+    Turn submitted ids into objects the caller already reaches.
+
+    Resolved **with** the caller rather than fetched and checked afterwards, so
+    a submitted lot or location id can only ever select from what is already
+    visible and can never widen scope.
+    """
+    warehouse = actual.line.batch.warehouse
+    resolved: list[Any] = []
+    for row in rows:
+        lot = None
+        if row.lot_id is not None:
+            lot = InventoryLot.objects.filter(
+                pk=row.lot_id, item=actual.item, organization=actual.line.batch.organization
+            ).first()
+            if lot is None:
+                raise OutOfScope(_("InventoryLot %(id)s does not exist.") % {"id": row.lot_id})
+        location = None
+        if row.location_id is not None:
+            location = StockLocation.objects.filter(pk=row.location_id, warehouse=warehouse).first()
+            if location is None:
+                raise OutOfScope(
+                    _("StockLocation %(id)s does not exist.") % {"id": row.location_id}
+                )
+        resolved.append(
+            AllocationInput(base_quantity=Decimal(row.base_quantity), lot=lot, location=location)
+        )
+    return resolved
+
+
+@router.get(
+    "/production-actual-lines/{actual_id}/allocations",
+    response=list[ProductionAllocationOut],
+    summary="Which lots and bins one consumption row came from",
+)
+def list_production_allocations(request: HttpRequest, actual_id: int) -> list[dict[str, Any]]:
+    actor = _actor(request)
+    actual = resolve_production_actual(actor, actual_id)
+    _require_production_view(request, actual.line.batch.warehouse)
+    return [_allocation_out(row) for row in actual.allocations.all()]
+
+
+@router.post(
+    "/production-actual-lines/{actual_id}/allocations",
+    response=list[ProductionAllocationOut],
+    summary="Replace one consumption row's allocation set",
+)
+def replace_production_allocations(
+    request: HttpRequest, actual_id: int, payload: ProductionAllocationsIn
+) -> list[dict[str, Any]]:
+    """
+    The rows must sum to the consumption exactly, or the command is refused.
+
+    Summing to less would post part of what the kitchen recorded using, which
+    is a partial completion by another name and the one thing RCP-094 says a
+    Release 1 batch never is.
+    """
+    actor = _actor(request)
+    actual = resolve_production_actual(actor, actual_id)
+    _require_production_draft(request, actual.line.batch.warehouse)
+    written = set_production_allocations(
+        actual=actual, rows=_allocation_rows(actor, actual, payload.rows)
+    )
+    return [_allocation_out(row) for row in written]
+
+
+@router.patch(
+    "/production-allocations/{allocation_id}",
+    response=list[ProductionAllocationOut],
+    summary="Correct one allocation row",
+)
+def patch_production_allocation(
+    request: HttpRequest, allocation_id: int, payload: ProductionAllocationIn
+) -> list[dict[str, Any]]:
+    """
+    Correcting one row still replaces the whole set.
+
+    The service has one way in, so a correction reaching it by a different path
+    would be a second way to write the same table — and the two would disagree
+    the first time one of them changed.
+    """
+    actor = _actor(request)
+    allocation = resolve_production_allocation(actor, allocation_id)
+    actual = allocation.actual
+    _require_production_draft(request, actual.line.batch.warehouse)
+
+    wanted: list[Any] = []
+    for row in actual.allocations.all():
+        if row.pk == allocation.pk:
+            wanted.extend(_allocation_rows(actor, actual, [payload]))
+        else:
+            wanted.append(
+                AllocationInput(base_quantity=row.base_quantity, lot=row.lot, location=row.location)
+            )
+    written = set_production_allocations(actual=actual, rows=wanted)
+    return [_allocation_out(row) for row in written]
+
+
+@router.delete(
+    "/production-allocations/{allocation_id}",
+    response={204: None},
+    summary="Remove one allocation row",
+)
+def delete_production_allocation(request: HttpRequest, allocation_id: int) -> tuple[int, None]:
+    actor = _actor(request)
+    allocation = resolve_production_allocation(actor, allocation_id)
+    actual = allocation.actual
+    _require_production_draft(request, actual.line.batch.warehouse)
+    remaining = [
+        AllocationInput(base_quantity=row.base_quantity, lot=row.lot, location=row.location)
+        for row in actual.allocations.all()
+        if row.pk != allocation.pk
+    ]
+    set_production_allocations(actual=actual, rows=remaining)
+    return 204, None
+
+
+@router.post(
+    "/production-batches/{batch_id}/post",
+    response=ProductionBatchDetailOut,
+    summary="Commit the batch to both ledgers",
+)
+def post_production_batch_endpoint(
+    request: HttpRequest, batch_id: int, payload: ProductionPostIn
+) -> dict[str, Any]:
+    """
+    The only way a production batch reaches the stock ledger.
+
+    Nothing is trusted from the caller except the batch's identity and the
+    idempotency key: status, quantities, allocations and output are all re-read
+    under lock by the service, so a stale client object cannot post a batch
+    that has since changed.
+
+    The response carries **no money**. What the posting was worth lives on
+    `/posting`, behind `view_recipe_cost`.
+    """
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    require_warehouse_permission(actor, POST_PRODUCTION_BATCH, batch.warehouse)
+    posted = post_production_batch(
+        batch=batch,
+        idempotency_key=payload.idempotency_key,
+        actor=actor,
+        reason=payload.reason,
+    )
+    return _batch_detail_out(posted)
+
+
+@router.post(
+    "/production-batches/{batch_id}/reverse",
+    response=ProductionBatchDetailOut,
+    summary="Mirror a posted batch exactly, once, with a reason",
+)
+def reverse_production_batch_endpoint(
+    request: HttpRequest, batch_id: int, payload: ProductionReverseIn
+) -> dict[str, Any]:
+    """
+    Elevated, and refused when the produced goods are no longer on the shelf to
+    take back — a reversal must not become the standard way to drive a position
+    negative.
+    """
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    require_warehouse_permission(actor, REVERSE_PRODUCTION_BATCH, batch.warehouse)
+    reversed_batch = reverse_production_batch(
+        batch=batch,
+        idempotency_key=payload.idempotency_key,
+        reason=payload.reason,
+        actor=actor,
+    )
+    return _batch_detail_out(reversed_batch)
+
+
+def _movement_out(movement: Any) -> dict[str, Any]:
+    return {
+        "movement_type": movement.movement_type,
+        "item_code": movement.item.code,
+        "lot_code": movement.lot.code if movement.lot_id else None,
+        "base_quantity": str(movement.base_quantity),
+        "inventory_value": str(movement.inventory_value),
+        "unit_cost": str(movement.unit_cost),
+        "control_account_code": (
+            movement.control_account.code if movement.control_account_id else None
+        ),
+    }
+
+
+@router.get(
+    "/production-batches/{batch_id}/posting",
+    response=ProductionPostingOut,
+    summary="What one posting moved, and what it was worth",
+)
+def get_production_posting(request: HttpRequest, batch_id: int) -> dict[str, Any]:
+    """
+    The valued evidence, behind `view_recipe_cost` **and** `view_production`.
+
+    A separate endpoint rather than nullable keys on the batch: cost visibility
+    is omitted-not-blanked in this repository, and a key that becomes `null`
+    tells the reader a number exists and that they are not trusted with it —
+    which is a different statement from the one intended.
+    """
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    _require_production_view(request, batch.warehouse)
+    require_reachable_organization_permission(actor, VIEW_RECIPE_COST, batch.organization)
+
+    # Narrowed into locals so the type checker sees the same guard a reader
+    # does: every field below exists only on a posted batch.
+    entry = batch.stock_entry
+    reversal_entry = batch.reversal_stock_entry
+    output_item = batch.output_item
+    output_lot = batch.output_lot
+    journal = batch.journal_entry
+
+    movements = (
+        list(entry.movements.select_related("item", "lot", "control_account").all())
+        if entry is not None
+        else []
+    )
+    reversal_movements = (
+        list(reversal_entry.movements.select_related("item", "lot", "control_account").all())
+        if reversal_entry is not None
+        else []
+    )
+    return {
+        "status": batch.status,
+        "number": batch.number,
+        "posted_at": batch.posted_at,
+        "business_date": entry.business_date if entry is not None else None,
+        "input_value": str(batch.input_value) if batch.input_value is not None else None,
+        "output_value": str(batch.output_value) if batch.output_value is not None else None,
+        "value_is_conserved": batch.input_value == batch.output_value,
+        "output_item_code": output_item.code if output_item is not None else None,
+        "output_quantity": (
+            str(batch.actual_output_base_quantity)
+            if batch.actual_output_base_quantity is not None
+            else None
+        ),
+        "output_lot_code": output_lot.code if output_lot is not None else None,
+        "output_lot_expiry": output_lot.expiry_date if output_lot is not None else None,
+        "journal_entry_number": (journal.entry_number if journal is not None else None),
+        "no_journal_reason": (
+            str(_("لا يوجد قيد — صافي حسابات المخزون صفر."))
+            if entry is not None and journal is None
+            else ""
+        ),
+        "source_document_type": SOURCE_DOCUMENT_TYPE if entry is not None else "",
+        "source_document_id": str(batch.public_id) if entry is not None else "",
+        "movements": [_movement_out(row) for row in movements],
+        "reversal_movements": [_movement_out(row) for row in reversal_movements],
+        "reversal_reason": batch.reversal_reason,
     }

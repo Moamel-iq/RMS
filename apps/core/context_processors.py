@@ -25,19 +25,37 @@ def shell(request: HttpRequest) -> dict[str, Any]:
     # sidebar can show what that phase will contain. Only known keys are
     # honoured; anything else falls back rather than erroring.
     requested = request.GET.get("module")
-    if requested in MODULES_BY_KEY:
+    actual_key = getattr(request, "active_module", None) or DEFAULT_MODULE_KEY
+    # Module previewing belongs only to the home screen. A query string must
+    # never make a real Inventory URL render without its Inventory assets or
+    # highlight the wrong permission/workflow context.
+    if actual_key == DEFAULT_MODULE_KEY and requested in MODULES_BY_KEY:
         active_key = requested
     else:
-        active_key = getattr(request, "active_module", None) or DEFAULT_MODULE_KEY
+        active_key = actual_key
 
     active_module = MODULES_BY_KEY.get(active_key, MODULES_BY_KEY[DEFAULT_MODULE_KEY])
+    resolver_match = getattr(request, "resolver_match", None)
+    current_url_name = getattr(resolver_match, "view_name", "") or ""
+    active_section = next(
+        (
+            section
+            for section in active_module.sections
+            if section.url_name == current_url_name
+            or any(current_url_name.startswith(prefix) for prefix in section.active_prefixes)
+        ),
+        None,
+    )
 
     return {
         "nav_modules": MODULES,
         "active_module": active_module,
+        "active_section": active_section,
+        "active_nav_group": active_section.group if active_section else "",
+        "current_url_name": current_url_name,
         # Evaluated lazily by the template; an unrendered branch picker costs
         # no query.
-        "user_branches": accessible_branches(user),
+        "user_branches": accessible_branches(user).select_related("organization"),
         "filter_query": _filter_query(request),
     }
 
@@ -57,5 +75,14 @@ def _filter_query(request: HttpRequest) -> str:
     parameters = request.GET.copy()
     parameters.pop("page", None)
     parameters.pop("module", None)
+    # Browser GET forms submit empty search/select controls too. They are not
+    # active filters and should not keep a reset badge visible or pollute the
+    # shareable URL. Repeated non-empty values are preserved in order.
+    for key in list(parameters):
+        values = [value for value in parameters.getlist(key) if value.strip()]
+        if values:
+            parameters.setlist(key, values)
+        else:
+            parameters.pop(key, None)
     encoded = parameters.urlencode()
     return f"{encoded}&" if encoded else ""

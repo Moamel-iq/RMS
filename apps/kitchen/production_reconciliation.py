@@ -43,7 +43,6 @@ from apps.kitchen.models import (
     ActualLineKind,
     ProductionBatch,
     ProductionBatchLine,
-    ProductionBatchStatus,
     RecipeLineSubstitute,
 )
 from apps.kitchen.production import scaled_expected_output, scaled_line_quantity
@@ -197,16 +196,15 @@ def batch_findings(batch: ProductionBatch) -> list[DraftFinding]:
             )
         )
 
-    # --- Nothing Task 3.5 owns may exist yet ------------------------------
-    if batch.status != ProductionBatchStatus.DRAFT:
-        findings.append(
-            _finding(
-                "production_batch_is_not_draft",
-                batch,
-                f"الحالة {batch.status} خارج حدود المهمة 3.4.",
-            )
-        )
-    if batch.number:
+    # --- A draft holds nothing a posting writes ---------------------------
+    #
+    # Task 3.4 reported any non-DRAFT status here, because none was reachable.
+    # Task 3.5 makes POSTED and REVERSED legitimate, so what survives is the
+    # half that is still a defect: a batch that is **still a draft** and is
+    # already carrying a document number. `production_posting_reconciliation`
+    # owns everything about a posted batch, and duplicating the status test
+    # here would report every correct posting forever.
+    if batch.is_draft and batch.number:
         findings.append(
             _finding(
                 "production_draft_carries_a_number",
@@ -353,18 +351,23 @@ def _task_3_5_link_findings(batch: ProductionBatch) -> list[DraftFinding]:
             )
         )
 
-    # Audit events are expected and correct; a *posting* audit event is not.
-    posted = AuditEvent.objects.filter(
-        target_type=identity, target_id=str(batch.pk), action__in=["POSTED", "REVERSED"]
-    ).count()
-    if posted:
-        findings.append(
-            _finding(
-                "production_draft_has_a_posting_event",
-                batch,
-                f"مسودة تحمل {posted} حدث ترحيل أو عكس.",
+    # Audit events are expected and correct; a posting event on a batch that is
+    # **still a draft** is not. Task 3.4 reported any posting event at all,
+    # because none could legitimately exist; Task 3.5 makes them ordinary, so
+    # what survives is the half that is still a defect — evidence of a posting
+    # against a row whose status says nothing was posted.
+    if batch.is_draft:
+        posted = AuditEvent.objects.filter(
+            target_type=identity, target_id=str(batch.pk), action__in=["POSTED", "REVERSED"]
+        ).count()
+        if posted:
+            findings.append(
+                _finding(
+                    "production_draft_has_a_posting_event",
+                    batch,
+                    f"مسودة تحمل {posted} حدث ترحيل أو عكس.",
+                )
             )
-        )
     return findings
 
 

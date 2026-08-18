@@ -574,9 +574,9 @@ class TestScreens:
         # The recorded figure is absent from the table…
         assert "1234.000000" not in html
         assert "6170.000" not in html
-        assert "<th>القيمة</th>" not in html
+        assert '<th scope="col">القيمة</th>' not in html
         # …and so is the account it would post to.
-        assert "<th>حساب المخزون</th>" not in html
+        assert '<th scope="col">حساب المخزون</th>' not in html
 
         # The manager, who holds view_valuation, sees all of it.
         manager_html = (
@@ -585,7 +585,7 @@ class TestScreens:
             .content.decode()
         )
         assert "6170.000" in manager_html
-        assert "<th>القيمة</th>" in manager_html
+        assert '<th scope="col">القيمة</th>' in manager_html
 
     def test_a_hidden_post_button_is_still_refused_on_a_direct_post(
         self,

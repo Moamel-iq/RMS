@@ -20,8 +20,10 @@ from django.contrib import admin
 from django.http import HttpRequest
 
 from apps.kitchen.models import (
+    KitchenDocumentSequence,
     ProductionBatch,
     ProductionBatchActualLine,
+    ProductionBatchAllocation,
     ProductionBatchLine,
     Recipe,
     RecipeBranch,
@@ -308,3 +310,33 @@ class ProductionBatchActualLineAdmin(ReadOnlyAdmin):
     )
     list_filter = ("kind",)
     search_fields = ("item__code", "item__name_ar", "reason", "note")
+
+
+@admin.register(ProductionBatchAllocation)
+class ProductionBatchAllocationAdmin(ReadOnlyAdmin):
+    """Which lot, out of which bin, and what the kernel charged for it."""
+
+    list_display = (
+        "actual",
+        "allocation_order",
+        "lot",
+        "location",
+        "base_quantity",
+        "movement",
+        "consumed_value",
+    )
+    list_filter = ("location",)
+    search_fields = ("lot__code", "actual__item__code")
+
+
+@admin.register(KitchenDocumentSequence)
+class KitchenDocumentSequenceAdmin(ReadOnlyAdmin):
+    """
+    Read-only like everything else here, and for a sharper reason than usual.
+
+    Editing `last_number` by hand is how a gapless sequence acquires a gap or a
+    duplicate, and both are worse than the inconvenience of not being able to.
+    """
+
+    list_display = ("organization", "document_type", "year", "last_number")
+    list_filter = ("document_type", "year")

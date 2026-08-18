@@ -10,8 +10,7 @@
 {% endblock %}
 
 {% block filters %}
-  <select name="status" aria-label="{% translate 'الحالة' %}"
-          style="height:42px;border:1px solid var(--line);border-radius:10px;padding-inline:12px;font:inherit">
+  <select name="status" aria-label="{% translate 'الحالة' %}">
     <option value="">{% translate "كل الحالات" %}</option>
     {% for value, label in statuses %}
       <option value="{{ value }}" {% if value == selected_status %}selected{% endif %}>{{ label }}</option>
@@ -19,36 +18,56 @@
   </select>
 {% endblock %}
 
+{% block active_filter_chips %}
+  {% if selected_status %}
+    {% for value, label in statuses %}
+      {% if value == selected_status %}<span class="filter-chip"><span>{% translate "الحالة" %}</span>{{ label }}</span>{% endif %}
+    {% endfor %}
+  {% endif %}
+{% endblock %}
+
 {% block columns %}
-  <th>{% translate "الملف" %}</th>
-  <th>{% translate "النوع" %}</th>
-  <th>{% translate "المؤسسة" %}</th>
-  <th>{% translate "الفرع" %}</th>
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "سطور" %}</th>
-  <th>{% translate "صالحة" %}</th>
-  <th>{% translate "أخطاء" %}</th>
-  <th>{% translate "مُغيَّرة" %}</th>
-  <th>{% translate "رفعها" %}</th>
-  <th>{% translate "طبّقها" %}</th>
+  <th scope="col">{% translate "الملف" %}</th>
+  <th scope="col">{% translate "النوع" %}</th>
+  <th scope="col">{% translate "المؤسسة" %}</th>
+  <th scope="col">{% translate "الفرع" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "سطور" %}</th>
+  <th scope="col">{% translate "صالحة" %}</th>
+  <th scope="col">{% translate "أخطاء" %}</th>
+  <th scope="col">{% translate "مُغيَّرة" %}</th>
+  <th scope="col">{% translate "رفعها" %}</th>
+  <th scope="col">{% translate "طبّقها" %}</th>
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد دفعات استيراد مطابقة" as no_results_title %}
+  {% translate "غيّر عبارة البحث أو حالة الدفعة." as no_results_description %}
+  {% translate "لم يُرفع أي ملف بعد" as empty_title %}
+  {% translate "ابدأ باستيراد ملف جديد، وستبقى كل دفعة محفوظة هنا للتدقيق." as empty_description %}
   {% for batch in batches %}
     <tr>
-      <td><a href="{% url 'inventory:import_detail' batch.pk %}">{{ batch.original_filename }}</a></td>
-      <td>{{ batch.get_kind_display }}</td>
-      <td><code>{{ batch.organization.code }}</code></td>
-      <td>{% if batch.branch %}<code>{{ batch.branch.code }}</code>{% else %}—{% endif %}</td>
-      <td>{{ batch.get_status_display }}</td>
-      <td><code dir="ltr">{{ batch.row_count }}</code></td>
-      <td><code dir="ltr">{{ batch.valid_row_count }}</code></td>
-      <td><code dir="ltr">{{ batch.error_row_count }}</code></td>
-      <td><code dir="ltr">{{ batch.applied_row_count }}</code></td>
-      <td>{{ batch.uploaded_by.username|default:"—" }}</td>
-      <td>{{ batch.applied_by.username|default:"—" }}</td>
+      <td data-label="{% translate 'الملف' %}"><a href="{% url 'inventory:import_detail' batch.pk %}"><bdi dir="auto">{{ batch.original_filename }}</bdi></a></td>
+      <td data-label="{% translate 'النوع' %}">{{ batch.get_kind_display }}</td>
+      <td data-label="{% translate 'المؤسسة' %}"><bdi dir="ltr"><code>{{ batch.organization.code }}</code></bdi></td>
+      <td data-label="{% translate 'الفرع' %}">{% if batch.branch %}<bdi dir="ltr"><code>{{ batch.branch.code }}</code></bdi>{% else %}—{% endif %}</td>
+      <td data-label="{% translate 'الحالة' %}">{% include "components/status_badge.html" with status=batch.status label=batch.get_status_display %}</td>
+      <td data-label="{% translate 'سطور' %}"><bdi dir="ltr"><code>{{ batch.row_count }}</code></bdi></td>
+      <td data-label="{% translate 'صالحة' %}"><bdi dir="ltr"><code>{{ batch.valid_row_count }}</code></bdi></td>
+      <td data-label="{% translate 'أخطاء' %}"><bdi dir="ltr"><code>{{ batch.error_row_count }}</code></bdi></td>
+      <td data-label="{% translate 'مُغيَّرة' %}"><bdi dir="ltr"><code>{{ batch.applied_row_count }}</code></bdi></td>
+      <td data-label="{% translate 'رفعها' %}"><bdi dir="auto">{{ batch.uploaded_by.username|default:"—" }}</bdi></td>
+      <td data-label="{% translate 'طبّقها' %}"><bdi dir="auto">{{ batch.applied_by.username|default:"—" }}</bdi></td>
     </tr>
   {% empty %}
-    <tr><td colspan="11">{% translate "لم يُرفع أي ملف بعد." %}</td></tr>
+    <tr><td colspan="11" data-empty-state>
+      {% if filter_query %}
+        {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+      {% else %}
+        {% url "inventory:import_upload" as import_url %}
+        {% translate "استيراد جديد" as import_label %}
+        {% include "components/empty_state.html" with title=empty_title description=empty_description action_url=import_url action_label=import_label %}
+      {% endif %}
+    </td></tr>
   {% endfor %}
 {% endblock %}

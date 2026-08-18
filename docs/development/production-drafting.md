@@ -1,5 +1,10 @@
 # Production drafting
 
+> **Task 3.5 has shipped.** Everything below is still true of a *draft*; what
+> happens when one commits is `production-posting.md`. Where this document says
+> a thing does not exist yet — a post button, a lot picker, a value — read it as
+> "does not exist on a draft", because that is now the accurate claim.
+
 Task 3.4. How a kitchen says what it intends to cook, and what it actually
 consumed — before anything moves.
 

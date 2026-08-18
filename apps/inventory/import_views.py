@@ -18,6 +18,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -69,6 +70,7 @@ class ImportBatchListView(InventoryViewMixin, View):
 
     required_permission = VIEW_IMPORT_HISTORY
     template_name = "inventory/import_list.html"
+    paginate_by = 50
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         batches = (
@@ -83,6 +85,8 @@ class ImportBatchListView(InventoryViewMixin, View):
         if search:
             batches = batches.filter(original_filename__icontains=search)
 
+        paginator = Paginator(batches, self.paginate_by)
+        page = paginator.get_page(request.GET.get("page"))
         return render(
             request,
             self.template_name,
@@ -92,7 +96,10 @@ class ImportBatchListView(InventoryViewMixin, View):
                     "كل ملف رُفع، وحكمه، وما غيّره. الرفع والتدقيق لا يكتبان شيئاً — "
                     "التطبيق وحده يكتب، وكاملاً أو لا شيء."
                 ),
-                "batches": batches[:200],
+                "batches": page.object_list,
+                "page_obj": page,
+                "is_paginated": page.has_other_pages(),
+                "paginator": paginator,
                 "statuses": ImportBatchStatus.choices,
                 "selected_status": status,
                 "search": search,
@@ -102,6 +109,7 @@ class ImportBatchListView(InventoryViewMixin, View):
                     if kind in imports.VALIDATORS
                 ],
                 "htmx_list": True,
+                "inventory_ui": True,
                 "list_base_template": (
                     "settings/_list_fragment.html"
                     if request.headers.get("HX-Request") == "true"

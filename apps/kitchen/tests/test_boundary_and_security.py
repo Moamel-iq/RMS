@@ -31,7 +31,9 @@ from apps.kitchen.permissions import (
     APPROVE_RECIPE_VERSION,
     CREATE_PRODUCTION_BATCH,
     MANAGE_RECIPE,
+    POST_PRODUCTION_BATCH,
     REJECT_RECIPE_VERSION,
+    REVERSE_PRODUCTION_BATCH,
     REVIEW_RECIPE_VERSION,
     SUBMIT_RECIPE_VERSION,
     VIEW_PRODUCTION,
@@ -114,13 +116,19 @@ class TestZeroLedgerEffect:
         )
         assert before == after
 
-    def test_the_module_declares_no_posting_source_document_type(self) -> None:
+    def test_only_the_posting_module_declares_a_source_document_type(self) -> None:
         """
-        A source document type is what a posting carries. Task 3.1 posts
-        nothing, so it declares none — the constant arrives with the
-        production batch in Task 3.5.
+        A source document type is what a posting carries, so exactly one module
+        may declare one.
+
+        Task 3.1 declared none and this test said so; **Task 3.5 declares one**,
+        and the rewrite narrows the claim rather than dropping it. `models` and
+        `services` still post nothing and still name nothing; the constant lives
+        beside the command that writes it, and its value is checked here because
+        a source identity that drifts by one character stops matching the
+        journals and stock entries already carrying it.
         """
-        from apps.kitchen import models, services
+        from apps.kitchen import models, production_posting, services
 
         for module in (models, services):
             assert not [
@@ -128,6 +136,7 @@ class TestZeroLedgerEffect:
                 for name in dir(module)
                 if name.isupper() and "SOURCE" in name and "DOCUMENT" in name
             ]
+        assert production_posting.SOURCE_DOCUMENT_TYPE == "KITCHEN_PRODUCTION_BATCH"
 
 
 class TestDependencyDirection:
@@ -138,12 +147,16 @@ class TestDependencyDirection:
     circular dependency announces itself only at start-up and only sometimes.
     """
 
-    def _imports(self, package: str, *, include_tests: bool = True) -> set[str]:
+    def _imports(
+        self, package: str, *, include_tests: bool = True, include_demo: bool = True
+    ) -> set[str]:
         found: set[str] = set()
         for path in pathlib.Path(package.replace(".", "/")).rglob("*.py"):
             if "migrations" in path.parts:
                 continue
             if not include_tests and "tests" in path.parts:
+                continue
+            if not include_demo and path.name == "demo.py":
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
@@ -176,6 +189,16 @@ class TestDependencyDirection:
         is not Kitchen reaching the ledger. `apps/inventory/valuation.py` is
         absent from the set below deliberately: it writes nothing, and a test
         asserts its source contains no write at all.
+
+        `include_demo=False`, added by Task 3.5, is the same exclusion for the
+        same reason. `demo.py` is DEBUG-only seeding, not domain logic: it
+        builds an organization that has a chart of accounts and an item mapping
+        so the posting screens have something on them, and it does so through
+        `create_account` and `create_inventory_mapping` — the approved public
+        services, used exactly as an operator would. A seeder constructing a
+        world is not Kitchen reaching the accounting kernel to post, and the
+        two would only be conflated by a rule that reads imports without
+        reading what they are for.
         """
         forbidden = {
             "apps.inventory.ledger",
@@ -186,8 +209,43 @@ class TestDependencyDirection:
             "apps.inventory.adjustments",
             "apps.inventory.counts",
             "apps.inventory.opening",
+            "apps.inventory.locations",
         }
-        assert not (self._imports("apps/kitchen", include_tests=False) & forbidden)
+        assert not (
+            self._imports("apps/kitchen", include_tests=False, include_demo=False) & forbidden
+        )
+
+    def test_kitchen_posts_stock_through_exactly_one_inventory_module(self) -> None:
+        """
+        Task 3.5 has to move stock, and it moves it through one door.
+
+        `apps.inventory.production` is the narrow public interface the multi-
+        module approval allowed: it takes quantities and a source identity, it
+        knows nothing about recipes, and it is the **only** inventory module in
+        the posting family that kitchen may import. The list above stays a list
+        of refusals; this is the single, named exception, asserted so that a
+        second door has to be added deliberately.
+        """
+        imported = self._imports("apps/kitchen", include_tests=False, include_demo=False)
+        posting_family = {
+            name
+            for name in imported
+            if name.startswith("apps.inventory.")
+            # Read-only neighbours kitchen has used since Task 3.3, and the
+            # demo seeder it composes with. None of them posts.
+            and name.split(".")[-1]
+            not in {
+                "models",
+                "valuation",
+                "selectors",
+                "reports",
+                "demo",
+                "seed_inventory_demo",
+                "reason_codes",
+                "permissions",
+            }
+        }
+        assert posting_family == {"apps.inventory.production"}
 
     def test_kitchen_calls_no_accounting_kernel(self) -> None:
         """
@@ -198,18 +256,19 @@ class TestDependencyDirection:
         """
         assert not {
             name
-            for name in self._imports("apps/kitchen", include_tests=False)
+            for name in self._imports("apps/kitchen", include_tests=False, include_demo=False)
             if name.startswith("apps.accounting") and not name.endswith(".models")
         }
 
 
 class TestPermissionMap:
-    def test_the_module_declares_exactly_ten_permissions(self) -> None:
+    def test_the_module_declares_exactly_twelve_permissions(self) -> None:
         """
-        Three from Task 3.1, five from the lifecycle, and the two Task 3.4
-        added for drafting. Task 3.1 asserted three here, and Task 3.2A eight,
-        for the reason this test keeps asserting a closed set: a permission
-        that arrives before the workflow it guards is a grant nobody can audit.
+        Three from Task 3.1, five from the lifecycle, two Task 3.4 added for
+        drafting, and two Task 3.5 added for posting. Task 3.1 asserted three
+        here, 3.2A eight and 3.4 ten, for the reason this test keeps asserting
+        a **closed** set: a permission that arrives before the workflow it
+        guards is a grant nobody can audit.
         """
         assert set(ALL_PERMISSIONS) == {
             VIEW_RECIPE,
@@ -222,19 +281,32 @@ class TestPermissionMap:
             ACTIVATE_RECIPE_VERSION,
             VIEW_PRODUCTION,
             CREATE_PRODUCTION_BATCH,
+            POST_PRODUCTION_BATCH,
+            REVERSE_PRODUCTION_BATCH,
         }
 
-    def test_the_two_production_permissions_only_reach_a_draft(self) -> None:
+    def test_drafting_posting_and_reversing_are_three_separate_grants(self) -> None:
         """
-        Task 3.4 drafts; it does not post. Reading and drafting are here
-        because their screens are; `post_production_batch` and
-        `reverse_production_batch` are not, because nothing checks them yet.
+        The control this separation exists for, checked on the role map.
+
+        A storekeeper weighs the ingredients and commits the movement, and
+        cannot undo it. Undoing a posted economic event is supervisory. If one
+        post held all three, the person who made a wrong posting would be the
+        only person able to make it disappear.
         """
-        assert {VIEW_PRODUCTION, CREATE_PRODUCTION_BATCH} <= set(ALL_PERMISSIONS)
-        assert not [name for name in ALL_PERMISSIONS if "post_" in name or "reverse_" in name]
+        keeper = permissions_for_role(Role.STOREKEEPER)
+        assert CREATE_PRODUCTION_BATCH in keeper
+        assert POST_PRODUCTION_BATCH in keeper
+        assert REVERSE_PRODUCTION_BATCH not in keeper
+
+        assert REVERSE_PRODUCTION_BATCH in permissions_for_role(Role.MANAGER)
+        for role in (Role.ACCOUNTANT, Role.ACCOUNTING_MANAGER, Role.VIEWER):
+            held = permissions_for_role(role)
+            assert VIEW_PRODUCTION in held
+            assert not held & {POST_PRODUCTION_BATCH, REVERSE_PRODUCTION_BATCH}
 
     def test_no_meal_report_or_import_permission_is_registered_early(self) -> None:
-        """Task 3.7 – 3.10's permissions arrive with Task 3.7 – 3.10's workflows."""
+        """Task 3.7 - 3.10's permissions arrive with Task 3.7 - 3.10's workflows."""
         forbidden = ("meal", "report", "import")
         assert not [name for name in ALL_PERMISSIONS if any(word in name for word in forbidden)]
 

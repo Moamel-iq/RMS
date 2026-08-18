@@ -364,8 +364,10 @@ Added by Task 3.0A:
   with full source identity; and the stock ledger entry carries the identity in
   **both** cases.
 
-**First task in Phase 3 that moves stock. Certification boundary: run the
-complete project suite.** Depends on: 3.4, and **KD-09** — a YES answer blocks
+**Complete (2026-08-18).** First task in Phase 3 that moves stock, and the
+first Kitchen module to import an Inventory posting service — through one
+narrow named door, `apps.inventory.production`, asserted by a boundary test.
+Certification boundary: the complete project suite ran here. Depends on: 3.4, and **KD-09** — a YES answer blocks
 this task until WIP custody, WIP accounting, issue/completion events and
 partial-completion arithmetic are specified and approved (RCP-097). The default
 is NO, and 3.1 – 3.4 proceed regardless.

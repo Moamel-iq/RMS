@@ -9,7 +9,9 @@ that did it would be proving something about a different system.
 
 from __future__ import annotations
 
+import ast
 import datetime
+import pathlib
 from decimal import Decimal
 
 import pytest
@@ -1049,11 +1051,30 @@ class TestZeroEffect:
         assert "RecipeComponent" in names, "Task 3.2B owns the nested-recipe graph"
         assert "RecipeCostSnapshot" in names, "Task 3.3 owns cost snapshots"
         assert "ProductionBatch" in names, "Task 3.4 owns the production draft"
+        assert "ProductionBatchAllocation" in names, "Task 3.5 owns the allocations"
 
-        # What 3.5 owns, and what therefore may not exist yet: a posted batch,
-        # and a document number on any batch at all.
-        assert not ProductionBatch.objects.exclude(status=ProductionBatchStatus.DRAFT).exists()
-        assert not ProductionBatch.objects.exclude(number="").exists()
+        # Task 3.5 posts, so the old assertion that nothing is POSTED is
+        # deliberately gone. What replaces it is the boundary *this* module
+        # still has: the recipe lifecycle writes no batch and posts nothing,
+        # and its source says so.
+        tree = ast.parse(pathlib.Path("apps/kitchen/lifecycle.py").read_text(encoding="utf-8"))
+        imported = {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module
+        }
+        # Reading the item master is fine and always was; **posting** is not.
+        assert not {
+            name
+            for name in imported
+            if name.startswith("apps.kitchen.production")
+            or name in {"apps.inventory.production", "apps.inventory.ledger"}
+        }
+        assert (
+            not ProductionBatch.objects.filter(status=ProductionBatchStatus.DRAFT)
+            .exclude(number="")
+            .exists()
+        )
 
     def test_no_lifecycle_row_stores_a_cost_or_a_price(self) -> None:
         """

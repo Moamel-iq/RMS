@@ -50,6 +50,8 @@ from apps.kitchen.models import (
     ApprovalEvidenceKind,
     MeasurementBasis,
     PreparationStage,
+    ProductionBatch,
+    ProductionBatchStatus,
     Recipe,
     RecipeCategory,
     RecipeLineCostClass,
@@ -465,6 +467,12 @@ def seed_demo_recipes(
     recipes.extend(
         seed_demo_production(organization=organization, created_by=created_by, branches=branches)
     )
+    recipes.extend(
+        seed_demo_plated_recipe(organization=organization, created_by=created_by, branches=branches)
+    )
+    # Postings last, because they consume the stock the inventory demo put on
+    # the shelf and produce the evidence every Task 3.5 screen reads.
+    seed_demo_postings(organization=organization, created_by=created_by, branches=branches)
     return recipes
 
 
@@ -1545,3 +1553,343 @@ def _seed_demo_actuals(*, batch: Any, organization: Organization, actor: User | 
                 note=f"{DEMO_BANNER} — أكثر من المخطط.",
                 actor=actor,
             )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.5 — postings, a reversal, an output lot, and both journal cases
+# ---------------------------------------------------------------------------
+
+#: A second producible item, and the reason there are two.
+#:
+#: The demo has to show **both** journal outcomes, and they differ by exactly
+#: one thing: whether the produced goods enter the same inventory control
+#: account the ingredients left. `DEMO-MEAL-READY` shares the organization
+#: default, so its batches net to zero on every account and write no journal at
+#: all. `DEMO-MEAL-PLATED` carries a Demo-only item-scoped override, so its
+#: batches have something to say and write one balanced entry.
+#:
+#: It also tracks lots, which is what makes the output-lot evidence visible on
+#: a screen rather than only in a test.
+DEMO_PLATED_CODE = "DEMO-MEAL-PLATED"
+DEMO_PLATED_RECIPE_CODE = "DEMO-RCP-PROD-PLATED"
+DEMO_PLATED_ACCOUNT_CODE = "1-03-01-090"
+
+DEMO_POSTED_KEY = "DEMO-PRODUCTION-BATCH-POSTED"
+DEMO_REVERSED_KEY = "DEMO-PRODUCTION-BATCH-REVERSED"
+DEMO_JOURNAL_KEY = "DEMO-PRODUCTION-BATCH-JOURNAL"
+
+
+def ensure_plated_item(*, organization: Organization) -> InventoryItem:
+    """The lot-tracked producible output of the second demo production recipe."""
+    existing: InventoryItem | None = _seeded(
+        InventoryItem, organization=organization, code=DEMO_PLATED_CODE
+    )
+    if existing is not None:
+        return existing
+
+    category = ItemCategory.objects.filter(organization=organization, code="DEMO-GRAINS").first()
+    if category is None:
+        category = ItemCategory.objects.filter(organization=organization).first()
+    item = InventoryItem(
+        organization=organization,
+        code=DEMO_PLATED_CODE,
+        name_ar="طبق جاهز تجريبي",
+        category=category,
+        item_type=ItemType.SEMI_FINISHED,
+        base_unit=unit_by_code("KG"),
+        tracks_lots=True,
+        tracks_expiry=True,
+        shelf_life_days=3,
+        notes=DEMO_BANNER,
+    )
+    item.full_clean()
+    item.save()
+    return item
+
+
+def _ensure_plated_account_override(*, organization: Organization, item: InventoryItem) -> bool:
+    """
+    A Demo-only item-scoped `INVENTORY_CONTROL` override, through the real service.
+
+    Written this way rather than by inserting a mapping row because the mapping
+    machinery is what a production posting resolves against, and a demo that
+    bypassed it would be demonstrating something the application does not do.
+
+    Returns whether the override is in force, so the caller can skip the
+    journal batch honestly when the accounting demo has not been seeded — an
+    invented account would be worse than a missing example.
+    """
+    from apps.accounting.models import INVENTORY_CONTROL, Account, AccountRole
+    from apps.accounting.services import create_account
+    from apps.inventory.accounts import create_inventory_mapping
+    from apps.inventory.models import InventoryAccountMapping
+
+    role = AccountRole.objects.filter(code=INVENTORY_CONTROL).first()
+    if role is None:
+        return False
+    if InventoryAccountMapping.objects.filter(
+        organization=organization, account_role=role, item=item, is_active=True
+    ).exists():
+        return True
+    if not Account.objects.filter(organization=organization, code="1-03-01").exists():
+        # No chart, so no parent to hang a leaf from. The seed says nothing
+        # rather than inventing one.
+        return False
+
+    account = Account.objects.filter(
+        organization=organization, code=DEMO_PLATED_ACCOUNT_CODE
+    ).first()
+    if account is None:
+        account = create_account(
+            organization=organization,
+            code=DEMO_PLATED_ACCOUNT_CODE,
+            name_ar=f"مخزون الأطباق الجاهزة — {DEMO_BANNER}",
+            name_en="Demo plated inventory",
+        )
+    create_inventory_mapping(
+        organization=organization,
+        role=INVENTORY_CONTROL,
+        account=account,
+        item=item,
+        effective_from=datetime.date(DEMO_PRODUCTION_DATE.year, 1, 1),
+    )
+    return True
+
+
+def _demo_batch(
+    *,
+    recipe: Recipe,
+    branch: Branch,
+    warehouse: Warehouse,
+    key: str,
+    note: str,
+    output: Decimal,
+    created_by: User | None,
+    organization: Organization,
+) -> Any:
+    """
+    One demo batch, drafted, filled in and given an output — but not posted.
+
+    The **fixed** idempotency key is what makes a second seed a retry rather
+    than a second batch, and every edit below is guarded on the value it would
+    change rather than on a flag, so a second run finds the work done even if
+    somebody edited the batch by hand in between.
+    """
+    from apps.kitchen.production import create_production_batch, record_production_output
+
+    batch = create_production_batch(
+        recipe=recipe,
+        branch=branch,
+        warehouse=warehouse,
+        planned_business_date=DEMO_PRODUCTION_DATE,
+        multiplier=DEMO_PRODUCTION_MULTIPLIER,
+        actor=created_by,
+        idempotency_key=key,
+        notes=note,
+    )
+    _seed_demo_actuals(batch=batch, organization=organization, actor=created_by)
+    refreshed = ProductionBatch.objects.get(pk=batch.pk)
+    if refreshed.is_draft and refreshed.actual_output_base_quantity is None:
+        record_production_output(
+            batch=refreshed,
+            entered_quantity=output,
+            entered_unit=unit_by_code("KG"),
+            actor=created_by,
+        )
+    return ProductionBatch.objects.get(pk=batch.pk)
+
+
+def seed_demo_postings(
+    *,
+    organization: Organization,
+    created_by: User | None,
+    branches: list[Branch],
+) -> None:
+    """
+    Three postings the screens need, through the real posting service.
+
+    * a **POSTED** batch whose accounts all net to zero, so it writes no
+      journal at all — the common case, and the one whose correctness is
+      invisible without the verifier;
+    * a **POSTED then REVERSED** batch, so the reversal timeline and the
+      exact-mirror evidence are visible;
+    * a **POSTED** batch producing a lot-tracked item through a Demo-only
+      account override, so both the output lot and a real netted journal
+      appear on a screen.
+
+    Nothing here inserts a movement, a balance, a journal or a lot. Every row
+    is produced by `post_production_batch`, which is the only thing that may
+    produce one.
+    """
+    from apps.kitchen.production_posting import post_production_batch, reverse_production_batch
+
+    warehouse = _production_warehouse(organization=organization)
+    branch = branches[0] if branches else None
+    if warehouse is None or branch is None:
+        return
+    if not _inventory_control_is_mapped(organization=organization):
+        # No chart of accounts, so the produced goods have nowhere to land.
+        # The recipes and the draft still exist; the postings wait for the
+        # accounting demo, because a posting into an invented account would be
+        # a worse example than a missing one.
+        return
+
+    recipe = Recipe.objects.filter(
+        organization=organization, code=DEMO_PRODUCTION_RECIPE_CODE
+    ).first()
+    if recipe is None:
+        return
+
+    # --- 1. The legitimate silence -----------------------------------------
+    posted = _demo_batch(
+        recipe=recipe,
+        branch=branch,
+        warehouse=warehouse,
+        key=DEMO_POSTED_KEY,
+        note=f"{DEMO_BANNER} — دفعة مرحّلة بلا قيد محاسبي.",
+        output=Decimal("46"),
+        created_by=created_by,
+        organization=organization,
+    )
+    if posted.is_draft:
+        post_production_batch(
+            batch=posted,
+            idempotency_key=f"{DEMO_POSTED_KEY}-POST",
+            actor=created_by,
+            reason=DEMO_BANNER,
+        )
+
+    # --- 2. Posted, then reversed ------------------------------------------
+    reversible = _demo_batch(
+        recipe=recipe,
+        branch=branch,
+        warehouse=warehouse,
+        key=DEMO_REVERSED_KEY,
+        note=f"{DEMO_BANNER} — دفعة مرحّلة ثم معكوسة.",
+        output=Decimal("44"),
+        created_by=created_by,
+        organization=organization,
+    )
+    if reversible.is_draft:
+        reversible = post_production_batch(
+            batch=reversible,
+            idempotency_key=f"{DEMO_REVERSED_KEY}-POST",
+            actor=created_by,
+            reason=DEMO_BANNER,
+        )
+    if reversible.status == ProductionBatchStatus.POSTED:
+        reverse_production_batch(
+            batch=reversible,
+            idempotency_key=f"{DEMO_REVERSED_KEY}-REVERSE",
+            reason=f"{DEMO_BANNER} — عكس تجريبي للعرض.",
+            actor=created_by,
+        )
+
+    # --- 3. An output lot, and a journal that has something to say ---------
+    #
+    # Skipped, deliberately, when the accounting demo has not been seeded: the
+    # journal case needs a real item-scoped account override, and an invented
+    # account would be a worse example than a missing one.
+    plated = Recipe.objects.filter(organization=organization, code=DEMO_PLATED_RECIPE_CODE).first()
+    if plated is None or not _plated_override_is_in_force(organization=organization):
+        return
+    journalled = _demo_batch(
+        recipe=plated,
+        branch=branch,
+        warehouse=warehouse,
+        key=DEMO_JOURNAL_KEY,
+        note=f"{DEMO_BANNER} — دفعة مرحّلة بقيد محاسبي ولوط ناتج.",
+        output=Decimal("42"),
+        created_by=created_by,
+        organization=organization,
+    )
+    if journalled.is_draft:
+        post_production_batch(
+            batch=journalled,
+            idempotency_key=f"{DEMO_JOURNAL_KEY}-POST",
+            actor=created_by,
+            reason=DEMO_BANNER,
+        )
+
+
+def _inventory_control_is_mapped(*, organization: Organization) -> bool:
+    """
+    Whether `INVENTORY_CONTROL` resolves for this organization on the demo date.
+
+    Asked before anything posts rather than discovered inside the kernel: the
+    kitchen demo runs in environments where only the recipe fixtures exist, and
+    a seeder that raised there would make an unrelated test suite depend on the
+    accounting chart.
+    """
+    from apps.accounting.models import INVENTORY_CONTROL
+    from apps.accounting.services import resolve_default_account
+
+    try:
+        resolve_default_account(
+            organization=organization,
+            account_role=INVENTORY_CONTROL,
+            on_date=DEMO_PRODUCTION_DATE,
+        )
+    except Exception:  # noqa: BLE001 - any refusal means "not mapped"
+        return False
+    return True
+
+
+def _plated_override_is_in_force(*, organization: Organization) -> bool:
+    """Whether the Demo-only item mapping exists, so the journal case is honest."""
+    from apps.accounting.models import INVENTORY_CONTROL, AccountRole
+    from apps.inventory.models import InventoryAccountMapping
+
+    role = AccountRole.objects.filter(code=INVENTORY_CONTROL).first()
+    if role is None:
+        return False
+    return InventoryAccountMapping.objects.filter(
+        organization=organization,
+        account_role=role,
+        item__code=DEMO_PLATED_CODE,
+        is_active=True,
+    ).exists()
+
+
+def seed_demo_plated_recipe(
+    *,
+    organization: Organization,
+    created_by: User | None,
+    branches: list[Branch],
+) -> list[Recipe]:
+    """
+    The second producible recipe, its lot-tracked output, and the account
+    override that gives its postings a journal to write.
+
+    Master data is created unconditionally so the recipe list is the same
+    everywhere; only the **override** depends on a seeded chart of accounts,
+    and only the journal batch depends on the override.
+    """
+    item = ensure_plated_item(organization=organization)
+    _ensure_plated_account_override(organization=organization, item=item)
+
+    people = ensure_demo_reviewers()
+    submitter = created_by or people["kitchen"]
+    recipe, created = _recipe(
+        organization=organization,
+        code=DEMO_PLATED_RECIPE_CODE,
+        name_ar="طبق تجريبي للإنتاج",
+        recipe_type=RecipeType.BATCH,
+        category=None,
+        output_item=item,
+        created_by=created_by,
+    )
+    if created:
+        set_recipe_branches(recipe=recipe, branches=branches)
+    if not recipe.versions.exists():
+        draft = _production_draft_version(
+            recipe=recipe, organization=organization, created_by=created_by
+        )
+        approved = _carry_to_approved(draft, people, submitter)
+        activate_recipe_version(
+            version=approved,
+            actor=people["approver"],
+            effective_from=DEMO_SECOND_EFFECTIVE,
+            reason=DEMO_BANNER,
+        )
+    return [recipe]

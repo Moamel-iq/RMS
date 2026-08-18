@@ -34,7 +34,8 @@ Label = str | Promise
 
 def _icon(paths: str) -> SafeString:
     return mark_safe(  # noqa: S308 - author-authored constant, not user input
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '
+        '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" '
+        'stroke="currentColor" stroke-width="1.7" '
         'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
         f"{paths}</svg>"
     )
@@ -85,6 +86,8 @@ class Section:
     label: Label
     url_name: str | None = None
     available: bool = False
+    group: Label = ""
+    active_prefixes: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -127,107 +130,199 @@ MODULES: tuple[Module, ...] = (
         url_name="inventory:item_list",
         available=True,
         sections=(
-            # Task 1.1 — master data. Built and reachable.
-            Section(label=_("الأصناف"), url_name="inventory:item_list", available=True),
+            # Navigation follows the operator's workflow instead of the order
+            # in which Phase 1 happened to be implemented. `active_prefixes`
+            # keeps create, detail and action screens anchored to their list.
+            Section(
+                label=_("الأصناف"),
+                url_name="inventory:item_list",
+                available=True,
+                group=_("البيانات الأساسية"),
+                active_prefixes=("inventory:item_",),
+            ),
             Section(
                 label=_("مجموعات الأصناف"),
                 url_name="inventory:category_list",
                 available=True,
+                group=_("البيانات الأساسية"),
+                active_prefixes=("inventory:category_",),
             ),
             Section(
                 label=_("وحدات التعبئة"),
                 url_name="inventory:package_unit_list",
                 available=True,
+                group=_("البيانات الأساسية"),
+                active_prefixes=("inventory:package_unit_",),
             ),
-            # The section the Task 1.0 review found missing from this rail.
             Section(
                 label=_("تحويلات وحدات الصنف"),
                 url_name="inventory:conversion_list",
                 available=True,
+                group=_("البيانات الأساسية"),
+                active_prefixes=("inventory:conversion_",),
             ),
-            Section(label=_("المخازن"), url_name="inventory:warehouse_list", available=True),
-            # Task 1.2 — the ledger. Both screens read the movements that
-            # exist; they show an empty table until real business postings
-            # fill them, which is the honest state rather than a placeholder.
-            Section(label=_("المخزون المتوفر"), url_name="inventory:stock_list", available=True),
-            Section(label=_("حركة المخزون"), url_name="inventory:movement_list", available=True),
-            # Task 1.3 — opening stock, mapping overrides, reconciliation.
+            Section(
+                label=_("المخازن"),
+                url_name="inventory:warehouse_list",
+                available=True,
+                group=_("البيانات الأساسية"),
+                active_prefixes=("inventory:warehouse_",),
+            ),
+            Section(
+                label=_("المخزون المتوفر"),
+                url_name="inventory:stock_list",
+                available=True,
+                group=_("الرصيد والحركة"),
+            ),
+            Section(
+                label=_("حركة المخزون"),
+                url_name="inventory:movement_list",
+                available=True,
+                group=_("الرصيد والحركة"),
+                active_prefixes=("inventory:movement_",),
+            ),
             Section(
                 label=_("الأرصدة الافتتاحية"),
                 url_name="inventory:opening_list",
                 available=True,
+                group=_("الحركات المخزنية"),
+                active_prefixes=("inventory:opening_",),
             ),
-            Section(
-                label=_("ربط حسابات المخزون"),
-                url_name="inventory:mapping_list",
-                available=True,
-            ),
-            Section(
-                label=_("مطابقة المخزون والأستاذ"),
-                url_name="inventory:reconciliation",
-                available=True,
-            ),
-            # Task 1.4 — the operational documents.
             Section(
                 label=_("استلام مخزني غير مفوتر"),
                 url_name="inventory:inventory_receipt_list",
                 available=True,
+                group=_("الحركات المخزنية"),
+                active_prefixes=("inventory:inventory_receipt_",),
             ),
             Section(
                 label=_("صرف مخزني للاستهلاك"),
                 url_name="inventory:inventory_issue_list",
                 available=True,
+                group=_("الحركات المخزنية"),
+                active_prefixes=("inventory:inventory_issue_",),
             ),
             Section(
                 label=_("إرجاع من صرف سابق"),
                 url_name="inventory:inventory_return_in_list",
                 available=True,
+                group=_("الحركات المخزنية"),
+                active_prefixes=("inventory:inventory_return_in_",),
             ),
-            # Task 1.5 — transfers and the in-transit report.
             Section(
                 label=_("التحويلات المخزنية"),
                 url_name="inventory:transfer_list",
                 available=True,
+                group=_("الحركات المخزنية"),
+                active_prefixes=("inventory:transfer_",),
             ),
             Section(
                 label=_("بضاعة بالطريق"),
                 url_name="inventory:in_transit",
                 available=True,
+                group=_("الحركات المخزنية"),
             ),
-            # Task 1.6 — waste, physical counts, manual adjustments, and the
-            # reason vocabulary all three draw on.
             Section(
                 label=_("إتلاف مخزني"),
                 url_name="inventory:inventory_waste_list",
                 available=True,
+                group=_("الحركات المخزنية"),
+                active_prefixes=("inventory:inventory_waste_",),
             ),
             Section(
                 label=_("الجرد الفعلي"),
                 url_name="inventory:count_list",
                 available=True,
+                group=_("الجرد والتسويات"),
+                active_prefixes=("inventory:count_",),
             ),
             Section(
                 label=_("التسويات المخزنية"),
                 url_name="inventory:adjustment_list",
                 available=True,
+                group=_("الجرد والتسويات"),
+                active_prefixes=("inventory:adjustment_",),
             ),
             Section(
                 label=_("أسباب الحركات"),
                 url_name="inventory:reason_code_list",
                 available=True,
+                group=_("الضبط والمطابقة"),
+                active_prefixes=("inventory:reason_code_",),
+            ),
+            Section(
+                label=_("ربط حسابات المخزون"),
+                url_name="inventory:mapping_list",
+                available=True,
+                group=_("الضبط والمطابقة"),
+                active_prefixes=("inventory:mapping_",),
+            ),
+            Section(
+                label=_("مطابقة المخزون والأستاذ"),
+                url_name="inventory:reconciliation",
+                available=True,
+                group=_("الضبط والمطابقة"),
+            ),
+            Section(
+                label=_("سجل الاستيراد"),
+                url_name="inventory:import_list",
+                available=True,
+                group=_("الضبط والمطابقة"),
+                active_prefixes=("inventory:import_",),
+            ),
+            Section(
+                label=_("تقييم المخزون"),
+                url_name="inventory:report_valuation",
+                available=True,
+                group=_("التقارير"),
+            ),
+            Section(
+                label=_("بطاقة الصنف"),
+                url_name="inventory:report_stock_card",
+                available=True,
+                group=_("التقارير"),
+            ),
+            Section(
+                label=_("البضاعة بالطريق وأعمارها"),
+                url_name="inventory:report_in_transit",
+                available=True,
+                group=_("التقارير"),
+            ),
+            Section(
+                label=_("الصلاحية"),
+                url_name="inventory:report_expiry",
+                available=True,
+                group=_("التقارير"),
+            ),
+            Section(
+                label=_("حدود إعادة الطلب"),
+                url_name="inventory:report_reorder",
+                available=True,
+                group=_("التقارير"),
+            ),
+            Section(
+                label=_("ملخص الإتلاف"),
+                url_name="inventory:report_waste",
+                available=True,
+                group=_("التقارير"),
+            ),
+            Section(
+                label=_("فروقات الجرد"),
+                url_name="inventory:report_count_variance",
+                available=True,
+                group=_("التقارير"),
+            ),
+            Section(
+                label=_("تقرير التسويات"),
+                url_name="inventory:report_adjustments",
+                available=True,
+                group=_("التقارير"),
             ),
             Section(
                 label=_("أرصدة المواقع"),
                 url_name="inventory:report_locations",
                 available=True,
-            ),
-            # Task 1.7 onward — visible so the shape of the module is legible,
-            # inert because the documents that would fill them do not exist.
-            # "المرتجعات" is gone from this list: returns from a prior issue
-            # are live above, and supplier returns belong to Procurement,
-            # where they reconcile against an invoice and a credit note.
-            *_sections(
-                _("تقييم المخزون"),
+                group=_("التقارير"),
             ),
         ),
     ),

@@ -8,81 +8,122 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="pagehead">
-    <div>
-      <h1 class="pagehead__title">{{ batch.original_filename }}</h1>
-      <p class="pagehead__hint">
-        {{ batch.get_kind_display }} · {{ batch.get_status_display }} ·
-        {% blocktranslate with total=batch.row_count valid=batch.valid_row_count bad=batch.error_row_count %}{{ total }} سطر — {{ valid }} صالح، {{ bad }} خطأ{% endblocktranslate %}
-        {% if batch.applied_row_count %}
-          · {% blocktranslate with changed=batch.applied_row_count %}{{ changed }} سطر مُغيَّر{% endblocktranslate %}
-        {% endif %}
-      </p>
-    </div>
+  <section class="inventory-page inventory-detail-page" aria-labelledby="import-detail-title">
+    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'inventory:import_list' %}">{% translate "سجل الاستيراد" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{% translate "معاينة الدفعة" %}</span>
+    </nav>
+    <header class="pagehead inventory-document-hero">
+      <div>
+        <div class="inventory-detail-kicker">
+          {% include "components/status_badge.html" with status=batch.status label=batch.get_status_display %}
+          <span class="inventory-status">{{ batch.get_kind_display }}</span>
+        </div>
+        <h1 class="pagehead__title" id="import-detail-title"><bdi dir="ltr">{{ batch.original_filename }}</bdi></h1>
+        <p class="pagehead__hint">{% translate "راجع نتيجة كل سطر قبل تطبيق التغييرات. التدقيق وحده لا يغيّر بيانات التشغيل." %}</p>
+      </div>
     {% if may_act %}
       <div class="pagehead__actions">
-        <form method="post" style="display:inline">
-          {% csrf_token %}
-          {% if can_validate %}
-            <button class="btn btn--ghost" name="action" value="validate">{% translate "إعادة التدقيق" %}</button>
-          {% endif %}
-          {% if can_apply %}
-            <button class="btn btn--primary" name="action" value="apply">{% translate "تطبيق" %}</button>
-          {% endif %}
-        </form>
+        {% if can_validate %}
+          <form class="inventory-inline-form" method="post">
+            {% csrf_token %}
+            <button class="btn btn--ghost" type="submit" name="action" value="validate">{% translate "إعادة التدقيق" %}</button>
+          </form>
+        {% endif %}
+        {% if can_apply %}
+          <form class="inventory-inline-form" method="post" data-inventory-form
+                data-confirm="{% translate 'سيُطبّق كل السطور الصالحة كوحدة واحدة ويغيّر بيانات التشغيل. هل راجعت المعاينة وتريد المتابعة؟' %}"
+                data-confirm-title="{% translate 'تطبيق دفعة الاستيراد' %}">
+            {% csrf_token %}
+            <button class="btn btn--primary" type="submit" name="action" value="apply">{% translate "تطبيق" %}</button>
+          </form>
+        {% endif %}
         {% if can_cancel %}
-          <form method="post" style="display:inline">
+          <form class="inventory-inline-form" method="post"
+                data-confirm="{% translate 'ستُلغى الدفعة ولن يمكن تطبيقها بعد ذلك. هل تريد المتابعة؟' %}"
+                data-confirm-title="{% translate 'إلغاء دفعة الاستيراد' %}">
             {% csrf_token %}
             <input type="hidden" name="action" value="cancel">
-            <input type="text" name="reason" placeholder="{% translate 'سبب الإلغاء' %}" required>
-            <button class="btn btn--ghost">{% translate "إلغاء الدفعة" %}</button>
+            <label class="sr-only" for="import-cancel-reason">{% translate "سبب إلغاء الدفعة" %}</label>
+            <input class="inventory-inline-input" id="import-cancel-reason" type="text" name="reason"
+                   placeholder="{% translate 'سبب الإلغاء' %}" required>
+            <button class="btn btn--danger" type="submit" data-inventory-submit>{% translate "إلغاء الدفعة" %}</button>
           </form>
         {% endif %}
       </div>
     {% endif %}
-  </div>
+    </header>
+
+    <dl class="factgrid" aria-label="{% translate 'ملخص دفعة الاستيراد' %}">
+      <div><dt>{% translate "المؤسسة" %}</dt><dd><code><bdi dir="ltr">{{ batch.organization.code }}</bdi></code> {{ batch.organization.name_ar }}</dd></div>
+      {% if batch.branch %}<div><dt>{% translate "الفرع" %}</dt><dd><code><bdi dir="ltr">{{ batch.branch.code }}</bdi></code> {{ batch.branch.name_ar }}</dd></div>{% endif %}
+      <div><dt>{% translate "إجمالي السطور" %}</dt><dd><bdi dir="ltr">{{ batch.row_count }}</bdi></dd></div>
+      <div><dt>{% translate "السطور الصالحة" %}</dt><dd><bdi dir="ltr">{{ batch.valid_row_count }}</bdi></dd></div>
+      <div><dt>{% translate "سطور الأخطاء" %}</dt><dd><bdi dir="ltr">{{ batch.error_row_count }}</bdi></dd></div>
+      <div><dt>{% translate "السطور المطبقة" %}</dt><dd><bdi dir="ltr">{{ batch.applied_row_count }}</bdi></dd></div>
+      <div><dt>{% translate "رفعها" %}</dt><dd>{{ batch.uploaded_by|default:"—" }}</dd></div>
+      {% if batch.applied_by %}<div><dt>{% translate "طبقها" %}</dt><dd>{{ batch.applied_by }}</dd></div>{% endif %}
+    </dl>
 
   {# Row filtering is an htmx swap: the same page, a narrower table. #}
-  <div class="toolbar">
-    <a class="btn btn--ghost" href="?" hx-get="?" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true">{% translate "الكل" %}</a>
-    <a class="btn btn--ghost" href="?rows=errors" hx-get="?rows=errors" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true">{% translate "الأخطاء فقط" %}</a>
-    <a class="btn btn--ghost" href="?rows=valid" hx-get="?rows=valid" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true">{% translate "الصالحة فقط" %}</a>
+  <div class="toolbar inventory-import-filters" aria-label="{% translate 'تصفية سطور الاستيراد' %}">
+    <a class="btn btn--ghost{% if not row_filter %} is-active{% endif %}" href="?" hx-get="?" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% if not row_filter %} aria-current="page"{% endif %}>{% translate "الكل" %}</a>
+    <a class="btn btn--ghost{% if row_filter == 'errors' %} is-active{% endif %}" href="?rows=errors" hx-get="?rows=errors" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% if row_filter == 'errors' %} aria-current="page"{% endif %}>{% translate "الأخطاء فقط" %}</a>
+    <a class="btn btn--ghost{% if row_filter == 'valid' %} is-active{% endif %}" href="?rows=valid" hx-get="?rows=valid" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% if row_filter == 'valid' %} aria-current="page"{% endif %}>{% translate "الصالحة فقط" %}</a>
+    <span class="inventory-loading" id="list-loading" role="status" aria-live="polite">
+      <span class="inventory-loading__spinner" aria-hidden="true"></span>{% translate "جارٍ تحديث السطور…" %}
+    </span>
+    <p class="list-feedback" id="list-feedback" role="alert" hidden></p>
   </div>
 
   {% block results %}
-    <div class="tablewrap" id="list-results">
-      <table class="table">
+    <div class="tablewrap responsive-table" id="list-results" aria-live="polite">
+      <table class="table data-table">
         <thead>
           <tr>
-            <th>{% translate "السطر" %}</th>
-            <th>{% translate "المفتاح" %}</th>
-            <th>{% translate "صالح" %}</th>
-            <th>{% translate "الأخطاء" %}</th>
-            <th>{% translate "الأثر" %}</th>
+            <th scope="col">{% translate "السطر" %}</th>
+            <th scope="col">{% translate "المفتاح" %}</th>
+            <th scope="col">{% translate "النتيجة" %}</th>
+            <th scope="col">{% translate "الأخطاء" %}</th>
+            <th scope="col">{% translate "الأثر" %}</th>
           </tr>
         </thead>
         <tbody>
           {% for row in rows %}
             <tr>
-              <td><code dir="ltr">{{ row.row_number }}</code></td>
-              <td><code>{{ row.external_key|default:"—" }}</code></td>
-              <td>{% if row.is_valid %}✓{% else %}✕{% endif %}</td>
-              <td>
+              <td data-label="{% translate 'السطر' %}"><code><bdi dir="ltr">{{ row.row_number }}</bdi></code></td>
+              <td data-label="{% translate 'المفتاح' %}"><code><bdi dir="ltr">{{ row.external_key|default:"—" }}</bdi></code></td>
+              <td data-label="{% translate 'النتيجة' %}">
+                {% if row.is_valid %}
+                  {% translate "صالح" as valid_label %}
+                  {% include "components/status_badge.html" with status="COMPLETED" label=valid_label %}
+                {% else %}
+                  {% translate "يتطلب تصحيحاً" as invalid_label %}
+                  {% include "components/status_badge.html" with status="FAILED" label=invalid_label %}
+                {% endif %}
+              </td>
+              <td data-label="{% translate 'الأخطاء' %}">
                 {% if row.errors %}
-                  <ul style="margin:0;padding-inline-start:18px">
+                  <ul class="inventory-import-errors">
                     {% for field, messages in row.errors.items %}
-                      <li><code>{{ field }}</code>: {{ messages|join:"، " }}</li>
+                      <li><code><bdi dir="ltr">{{ field }}</bdi></code>: {{ messages|join:"، " }}</li>
                     {% endfor %}
                   </ul>
                 {% else %}—{% endif %}
               </td>
-              <td>{{ row.applied_action|default:"—" }}</td>
+              <td data-label="{% translate 'الأثر' %}">{{ row.applied_action|default:"—" }}</td>
             </tr>
           {% empty %}
-            <tr><td colspan="5">{% translate "لا توجد سطور ضمن هذا المرشح." %}</td></tr>
+            <tr><td colspan="5">
+              {% translate "لا توجد سطور ضمن هذا المرشح" as empty_title %}
+              {% translate "اختر مرشحاً آخر لعرض بقية نتيجة التدقيق." as empty_description %}
+              {% include "components/empty_state.html" with title=empty_title description=empty_description %}
+            </td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   {% endblock %}
+  </section>
 {% endblock %}

@@ -198,12 +198,15 @@ urlpatterns = [
         cost_views.CostSnapshotDetailView.as_view(),
         name="cost_snapshot_detail",
     ),
-    # Production drafting (Task 3.4). Warehouse-scoped, draft-only, money-free.
+    # Production (Tasks 3.4 and 3.5). Warehouse-scoped throughout, and three
+    # different grants: reading, drafting, posting. Task 3.4 shipped the
+    # drafting half of this list and said what was absent; Task 3.5 adds the
+    # allocation, posting, reversal and movement routes.
     #
-    # Read this list for what is **absent**: there is no post route, no reverse
-    # route, no issue, consume, complete or journal route, and no lot or location
-    # picker. None of them is hidden — none of them exists, and a URL implying
-    # otherwise would be the router contradicting a check constraint.
+    # Read the list for what is **still** absent: no meal log, no theoretical or
+    # actual consumption read, no usage variance. Those are Tasks 3.6 to 3.9,
+    # and a URL implying otherwise would be the router promising a screen that
+    # does not exist.
     path(
         "production/",
         production_views.ProductionBatchListView.as_view(),
@@ -276,5 +279,26 @@ urlpatterns = [
         "production-actuals/<int:pk>/delete/",
         production_views.ProductionActualDeleteView.as_view(),
         name="production_actual_delete",
+    ),
+    # --- Task 3.5 ---------------------------------------------------------
+    path(
+        "production-actuals/<int:pk>/allocate/",
+        production_views.ProductionAllocateView.as_view(),
+        name="production_allocate",
+    ),
+    path(
+        "production/<int:pk>/movements/",
+        production_views.ProductionMovementsView.as_view(),
+        name="production_movements",
+    ),
+    path(
+        "production/<int:pk>/post/",
+        production_views.ProductionPostView.as_view(),
+        name="production_post",
+    ),
+    path(
+        "production/<int:pk>/reverse/",
+        production_views.ProductionReverseView.as_view(),
+        name="production_reverse",
     ),
 ]

@@ -1,30 +1,54 @@
 {% extends "settings/base_list.html" %}
 {% load i18n %}
 
+{% block pageactions %}
+  {% if create_url %}
+    <a class="btn btn--primary" href="{{ create_url }}" hx-get="{% url 'inventory:package_unit_quick_add' %}" hx-target="#package-unit-dialog" hx-swap="innerHTML">{% translate "وحدة تعبئة سريعة" %}</a>
+  {% endif %}
+{% endblock %}
+
+{% block toolbar %}
+  {{ block.super }}
+  <div hx-get="{{ request.path }}" hx-trigger="packageUnitCreated from:body" hx-target="#list-results" hx-swap="outerHTML" aria-hidden="true"></div>
+  <dialog class="inventory-dialog" id="package-unit-dialog" aria-label="{% translate 'وحدة تعبئة سريعة' %}" aria-modal="true"></dialog>
+{% endblock %}
+
 {% block columns %}
-  <th>{% translate "الرمز" %}</th>
-  <th>{% translate "الاسم" %}</th>
-  <th>{% translate "معامل التحويل" %}</th>
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "إجراءات" %}</th>
+  <th scope="col">{% translate "الرمز" %}</th>
+  <th scope="col">{% translate "الاسم" %}</th>
+  <th scope="col">{% translate "معامل التحويل" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "إجراءات" %}</th>
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد نتائج مطابقة" as no_results_title %}
+  {% translate "جرّب البحث برمز أو اسم مختلف." as no_results_description %}
+  {% translate "لا توجد وحدات تعبئة بعد" as empty_title %}
+  {% translate "أضف وحدات العبوات المستخدمة ثم اربط معامل التحويل بكل صنف." as empty_description %}
   {% for unit in package_units %}
     <tr>
-      <td><code>{{ unit.code }}</code></td>
-      <td>{{ unit.name_ar }}</td>
-      <td class="muted">{% translate "يُحدَّد لكل صنف" %}</td>
-      <td>
+      <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ unit.code }}</code></bdi></td>
+      <td data-label="{% translate 'الاسم' %}"><strong>{{ unit.name_ar }}</strong></td>
+      <td data-label="{% translate 'معامل التحويل' %}" class="muted">{% translate "يُحدَّد لكل صنف" %}</td>
+      <td data-label="{% translate 'الحالة' %}">
         {% if unit.is_active %}
-          <span class="chip chip--on">{% translate "فعّالة" %}</span>
+          {% translate "فعّالة" as status_label %}
+          {% include "components/status_badge.html" with status="ACTIVE" label=status_label %}
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشفة" %}</span>
+          {% translate "مؤرشفة" as status_label %}
+          {% include "components/status_badge.html" with status="ARCHIVED" label=status_label %}
         {% endif %}
       </td>
       {% include "inventory/_rowactions.html" with row=unit owner_id=unit.organization_id edit_url="inventory:package_unit_update" archive_url="inventory:package_unit_archive" reactivate_url="inventory:package_unit_reactivate" %}
     </tr>
   {% empty %}
-    <tr><td colspan="5">{% translate "لا توجد وحدات تعبئة بعد." %}</td></tr>
+    <tr><td colspan="5" data-empty-state>
+      {% if filter_query %}
+        {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+      {% else %}
+        {% include "components/empty_state.html" with title=empty_title description=empty_description action_url=create_url action_label=create_label %}
+      {% endif %}
+    </td></tr>
   {% endfor %}
 {% endblock %}

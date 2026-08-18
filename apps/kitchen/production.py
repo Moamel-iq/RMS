@@ -234,7 +234,7 @@ def scaled_line_quantity(
 # ---------------------------------------------------------------------------
 
 
-def _lock_batch(batch_id: int) -> ProductionBatch:
+def _lock_batch(batch_id: int, *, require_draft: bool = True) -> ProductionBatch:
     """
     Re-read one batch under a row lock, and refuse anything but a draft.
 
@@ -247,6 +247,13 @@ def _lock_batch(batch_id: int) -> ProductionBatch:
     operator discarding a draft while another types into it is an ordinary
     Tuesday, and the second operator should read a sentence rather than meet a
     500 — the row they were editing was legitimately thrown away.
+
+    `require_draft=False` exists for the two Task 3.5 commands that legitimately
+    act on a batch that is **not** a draft — posting reads one to decide whether
+    a retry is a replay or a conflict, and reversal acts on a posted one. Both
+    check the status themselves against the state they need, which is why the
+    default stays `True`: an editing command that forgot the check would be the
+    one that mattered, and the default is what a new command inherits.
     """
     batch = (
         ProductionBatch.objects.select_for_update()
@@ -256,7 +263,7 @@ def _lock_batch(batch_id: int) -> ProductionBatch:
     )
     if batch is None:
         raise _gone("batch")
-    if not batch.is_draft:
+    if require_draft and not batch.is_draft:
         raise _refuse(
             _("هذه الدفعة لم تعد مسودة ولا يمكن تعديلها."),
             "production_batch_is_not_draft",

@@ -7,17 +7,27 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="pagehead">
-    <div>
-      <h1 class="pagehead__title">{{ page_title }}</h1>
-      <p class="pagehead__hint">
-        {% translate "الترحيلات السابقة تحتفظ بحسابها. الإغلاق يغيّر المستقبل فقط." %}
-      </p>
-    </div>
-  </div>
+  <section class="inventory-page inventory-form-page" aria-labelledby="mapping-close-title">
+    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{{ cancel_url }}">{% translate "ربط حسابات المخزون" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{% translate "إغلاق النطاق" %}</span>
+    </nav>
+    <header class="pagehead inventory-document-hero">
+      <div>
+        <p class="pagehead__eyebrow">{% translate "إجراء رقابي" %}</p>
+        <h1 class="pagehead__title" id="mapping-close-title">{{ page_title }}</h1>
+        <p class="pagehead__hint">
+          {% translate "الترحيلات السابقة تحتفظ بحسابها. الإغلاق يغيّر المستقبل فقط ويُبقي التخصيص السابق في سجل المراجعة." %}
+        </p>
+      </div>
+    </header>
 
-  <form class="formcard" method="post" novalidate>
+  <form class="formcard inventory-form" method="post" novalidate
+        data-confirm="{% translate 'سيُغلق نطاق هذا التخصيص في التاريخ المحدد ولن يُستخدم في الترحيلات اللاحقة. هل تريد المتابعة؟' %}"
+        data-confirm-title="{% translate 'إغلاق نطاق التخصيص' %}">
     {% csrf_token %}
+    {% include "components/form_error_summary.html" with form=form %}
     <div class="formgrid">
       {% for field in form %}
         {% include "settings/_field.html" with field=field %}
@@ -28,4 +38,5 @@
       <a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
     </div>
   </form>
+  </section>
 {% endblock %}

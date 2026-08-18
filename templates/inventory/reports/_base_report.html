@@ -8,41 +8,44 @@
 {% load i18n report_tags %}
 
 {% block pageactions %}
-  <div class="pagehead__actions">
-    {% if export_query %}
-      <a class="btn btn--ghost" href="?{{ export_query }}">{% translate "تصدير CSV" %}</a>
-    {% endif %}
-  </div>
+  {% if export_query %}
+    <a class="btn btn--secondary" href="?{{ export_query }}" download>{% translate "تصدير CSV" %}</a>
+  {% endif %}
 {% endblock %}
 
 {% block filters %}
   {% if supports_modes %}
     {# §D: the mode is never implied. It is a visible control and a visible #}
     {# label, because the two answers legitimately differ.                  #}
-    <select name="mode" aria-label="{% translate 'وضع التقرير' %}"
-            style="height:42px;border:1px solid var(--line);border-radius:10px;padding-inline:12px;font:inherit">
+    <select name="mode" aria-label="{% translate 'وضع التقرير' %}">
       {% for value, label in modes %}
         <option value="{{ value }}" {% if value == mode.value %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
   {% endif %}
   <input type="date" name="date_from" value="{{ filters.date_from|default:'' }}"
-         aria-label="{% translate 'من تاريخ' %}"
-         style="height:42px;border:1px solid var(--line);border-radius:10px;padding-inline:12px;font:inherit">
+         aria-label="{% translate 'من تاريخ' %}">
   <input type="date" name="date_to" value="{{ filters.date_to|default:'' }}"
-         aria-label="{% translate 'إلى تاريخ' %}"
-         style="height:42px;border:1px solid var(--line);border-radius:10px;padding-inline:12px;font:inherit">
+         aria-label="{% translate 'إلى تاريخ' %}">
   {% block extra_filters %}{% endblock %}
 {% endblock %}
 
+{% block active_filter_chips %}
+  {% if supports_modes %}<span class="filter-chip"><span>{% translate "الوضع" %}</span>{{ mode_label }}</span>{% endif %}
+  {% if filters.date_from %}<span class="filter-chip"><span>{% translate "من" %}</span><bdi dir="ltr">{{ filters.date_from }}</bdi></span>{% endif %}
+  {% if filters.date_to %}<span class="filter-chip"><span>{% translate "إلى" %}</span><bdi dir="ltr">{{ filters.date_to }}</bdi></span>{% endif %}
+{% endblock %}
+
 {% block columns %}
-  {% for key, header in columns %}<th>{{ header }}</th>{% endfor %}
+  {% for key, header in columns %}<th scope="col">{{ header }}</th>{% endfor %}
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد بيانات مطابقة" as empty_title %}
+  {% translate "عدّل الفترة أو عبارة البحث ثم أعد المحاولة." as empty_description %}
   {% if supports_modes %}
     <tr class="report-mode-note">
-      <td colspan="{{ columns|length }}" class="muted">
+      <td colspan="{{ columns|length }}" class="muted" data-label="{% translate 'وضع التقرير' %}">
         {% blocktranslate with label=mode_label count=total_rows %}الوضع: {{ label }} — {{ count }} سطر{% endblocktranslate %}
       </td>
     </tr>
@@ -50,17 +53,17 @@
   {% for row in rows %}
     <tr>
       {% for key, header in columns %}
-        {% if row|is_numeric_cell:key %}
-          <td><code dir="ltr">{{ row|cell:key }}</code></td>
+        {% if row|is_ltr_cell:key %}
+          <td data-label="{{ header }}"><bdi dir="ltr"><code>{{ row|cell:key }}</code></bdi></td>
         {% else %}
-          <td>{{ row|cell:key }}</td>
+          <td data-label="{{ header }}">{{ row|cell:key }}</td>
         {% endif %}
       {% endfor %}
     </tr>
   {% empty %}
     <tr>
-      <td colspan="{{ columns|length }}">
-        {% translate "لا توجد بيانات ضمن هذه المرشحات." %}
+      <td colspan="{{ columns|length }}" data-empty-state>
+        {% include "components/empty_state.html" with title=empty_title description=empty_description %}
       </td>
     </tr>
   {% endfor %}

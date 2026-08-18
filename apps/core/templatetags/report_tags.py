@@ -65,3 +65,33 @@ def cell(row: dict[str, Any], key: str) -> Any:
 def is_numeric_cell(row: dict[str, Any], key: str) -> bool:
     """Whether this cell should be rendered LTR in an RTL table."""
     return isinstance(row, dict) and isinstance(row.get(key), Decimal | int)
+
+
+_LTR_REPORT_KEYS = frozenset(
+    {
+        "unit",
+        "reference",
+        "control_account",
+        "cost_center",
+        "source_document_type",
+        "source_branch",
+        "source_warehouse",
+        "destination_branch",
+        "destination_warehouse",
+    }
+)
+
+
+@register.filter(name="is_ltr_cell")
+def is_ltr_cell(row: dict[str, Any], key: str) -> bool:
+    """Whether a report value needs bidi isolation in an Arabic table."""
+    if not isinstance(row, dict):
+        return False
+    value = row.get(key)
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, Decimal | int | datetime.date | datetime.datetime):
+        return True
+    return key in _LTR_REPORT_KEYS or key.endswith(
+        ("_code", "_number", "_date", "_at", "_sequence")
+    )

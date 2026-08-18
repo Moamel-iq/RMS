@@ -4,13 +4,35 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f8f6f2">
+    <script>
+      (function (root) {
+        root.classList.add("has-js");
+        try {
+          if (window.matchMedia("(min-width: 1101px)").matches &&
+              window.localStorage.getItem("khan-mandi:navigation-collapsed") === "true") {
+            root.classList.add("nav-collapsed-pref");
+          }
+        } catch (_error) {
+          /* Storage may be unavailable; the expanded shell remains usable. */
+        }
+      })(document.documentElement);
+    </script>
     <title>{% block title %}{% translate "نظام خان مندي" %}{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+    {# Keep shell markup and CSS on the same revision during local development. #}
+    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260818-ui-fix-1">
+    {% if active_module.key == "inventory" %}
+      <link rel="stylesheet" href="{% static 'css/inventory.css' %}?v=20260818-ui-fix-1">
+    {% endif %}
     {# htmx is vendored, not loaded from a CDN: no third-party request on a login page. #}
     <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
+    {% if active_module %}<script src="{% static 'js/app-shell.js' %}?v=20260818-ui-fix-1" defer></script>{% endif %}
+    {% if active_module.key == "inventory" %}
+      <script src="{% static 'js/inventory-htmx.js' %}?v=20260818-ui-fix-1" defer></script>
+    {% endif %}
     {% block head %}{% endblock %}
   </head>
-  <body>
+  <body{% if active_module %} data-module="{{ active_module.key }}"{% endif %}>
     {% block content %}{% endblock %}
   </body>
 </html>

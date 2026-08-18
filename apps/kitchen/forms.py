@@ -28,7 +28,13 @@ from django.db.models import QuerySet
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.quantity import FACTOR_PLACES
-from apps.inventory.models import InventoryItem, PackageUnit, Warehouse
+from apps.inventory.models import (
+    InventoryItem,
+    InventoryLot,
+    PackageUnit,
+    StockLocation,
+    Warehouse,
+)
 from apps.inventory.selectors import readable_warehouses, visible_items, visible_package_units
 from apps.kitchen.lifecycle import applicable_branches
 from apps.kitchen.models import (
@@ -52,7 +58,9 @@ from apps.kitchen.permissions import (
     APPROVE_RECIPE_VERSION,
     CREATE_PRODUCTION_BATCH,
     MANAGE_RECIPE,
+    POST_PRODUCTION_BATCH,
     REJECT_RECIPE_VERSION,
+    REVERSE_PRODUCTION_BATCH,
     REVIEW_RECIPE_VERSION,
     VIEW_PRODUCTION,
     VIEW_RECIPE,
@@ -1285,3 +1293,93 @@ class ProductionDiscardForm(ScopedForm):
     reason = forms.CharField(
         label=_("سبب الحذف"), widget=forms.Textarea(attrs={"rows": 2}), required=False
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.5 — posting, reversal, and the allocations posting needs
+# ---------------------------------------------------------------------------
+
+
+class ProductionAllocationForm(ScopedForm):
+    """
+    One lot, one bin, one quantity — added to a consumption row's allocation set.
+
+    Lot-tracked stock is the case this exists for: you cannot produce from a lot
+    you did not name, and "roughly which batch" is not an answer a recall can
+    use. The form adds a row; the service replaces the whole set, because an
+    allocation set is one answer to one question and appending would make a
+    correction indistinguishable from a second consumption.
+    """
+
+    scope_permission = CREATE_PRODUCTION_BATCH
+
+    lot = forms.ModelChoiceField(
+        queryset=InventoryLot.objects.none(), label=_("اللوط"), required=False
+    )
+    location = forms.ModelChoiceField(
+        queryset=StockLocation.objects.none(), label=_("الموقع"), required=False
+    )
+    base_quantity = forms.DecimalField(label=_("الكمية"), min_value=Decimal("0"), decimal_places=6)
+
+    def __init__(
+        self,
+        *args: Any,
+        actor: User,
+        item: InventoryItem,
+        warehouse: Warehouse,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, actor=actor, **kwargs)
+        self.fields["lot"].queryset = (  # type: ignore[attr-defined]
+            InventoryLot.objects.filter(item=item, is_active=True).order_by("expiry_date", "code")
+        )
+        self.fields["location"].queryset = (  # type: ignore[attr-defined]
+            StockLocation.objects.filter(warehouse=warehouse, is_active=True).order_by("code")
+        )
+        if item.tracks_lots:
+            self.fields["lot"].required = True
+
+    def clean_base_quantity(self) -> Decimal:
+        quantity: Decimal = self.cleaned_data["base_quantity"]
+        if quantity <= Decimal("0"):
+            raise forms.ValidationError(
+                _("كمية التخصيص يجب أن تكون أكبر من صفر."),
+                code="production_allocation_quantity_not_positive",
+            )
+        return quantity
+
+
+class ProductionPostForm(ScopedForm):
+    """
+    The posting confirmation.
+
+    Deliberately thin: nothing on this form changes what is posted. Every
+    quantity, every allocation and the output were entered on the workspace and
+    are re-read under lock by the service. A confirmation that could also edit
+    would be a second, unaudited editing surface on the one screen where the
+    operator is not reading carefully.
+    """
+
+    scope_permission = POST_PRODUCTION_BATCH
+
+    reason = forms.CharField(
+        label=_("ملاحظة الترحيل"),
+        widget=forms.Textarea(attrs={"rows": 2}),
+        required=False,
+    )
+
+
+class ProductionReverseForm(ScopedForm):
+    """Undoing a posted batch. The reason is required and is kept forever."""
+
+    scope_permission = REVERSE_PRODUCTION_BATCH
+
+    reason = forms.CharField(
+        label=_("سبب العكس"), widget=forms.Textarea(attrs={"rows": 2}), max_length=200
+    )
+
+    def clean_reason(self) -> str:
+        reason: str = (self.cleaned_data.get("reason") or "").strip()
+        if not reason:
+            raise forms.ValidationError(_("العكس يحتاج سبباً."), code="reason_required")
+        return reason

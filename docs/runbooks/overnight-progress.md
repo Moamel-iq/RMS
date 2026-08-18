@@ -1396,3 +1396,41 @@ module's own documented lock order and deadlocking against a concurrent rescale.
 - **ADR-025 is not promoted.** Nothing in this task changes the versioning or
   effective-dating decision ADR-024 records; the amendments are recorded against
   ADR-024 itself.
+
+## Task 3.5 — production posting (2026-08-18)
+
+The DRAFT-only boundary is gone, removed additively by migration 0017 and
+replaced by five constraints that refuse every **half-posted** row rather than
+one status. Migration 0018 replaced the freeze trigger with one that branches:
+a draft keeps Task 3.4's allowlist plus the posting columns, a POSTED batch may
+change only its reversal columns, and a REVERSED one may change nothing.
+Migration 0019 added the gapless `PRD-YYYY-NNNNNN` sequence.
+
+Three things were harder than they looked.
+
+**The output's value.** It must equal the sum of the consumed values, but those
+are only known after the kernel values the outbounds — and the whole event must
+be one stock entry, because it is one economic event with one identity. Solved
+by taking the kernel's locks first and replaying `ledger.apply_outbound` in the
+kernel's own canonical order to project the figure exactly, then asserting the
+projection against what was written. It *calls* the kernel's arithmetic rather
+than restating it; a second implementation of the exact-depletion rule would
+have diverged the first time a batch emptied a position.
+
+**The dependency boundary.** Kitchen may not import the ledger. Posting goes
+through one narrow public interface, `apps/inventory/production.py`, which knows
+nothing about recipes — and a boundary test now asserts that it is the *only*
+inventory posting module Kitchen imports, so a second door has to be added
+deliberately.
+
+**Testing the verifier.** The first run of the verifier tests failed twelve
+times over on `RestrictViolation`: the triggers refuse every planted defect,
+which is exactly what they are for. The tests were restructured rather than
+weakened — shapes the schema refuses are now asserted as *schema* refusals,
+which is the stronger claim, and the verifier is tested against the shapes a
+restore or a trigger-disabled data migration would actually leave behind.
+
+Two stale Task 3.4 verifier checks were corrected: `production_batch_is_not_draft`
+and `production_draft_has_a_posting_event` reported any posted batch as out of
+bounds, which was right when nothing could post and would have reported every
+correct posting forever.

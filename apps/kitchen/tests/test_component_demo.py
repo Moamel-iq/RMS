@@ -341,15 +341,19 @@ class TestZeroEffect:
             )
         assert hasattr(expansion, "expand_recipe_version")
 
-    def test_a_production_batch_may_exist_and_may_never_be_posted(self) -> None:
+    def test_a_batch_is_a_draft_with_no_evidence_or_a_posting_with_all_of_it(self) -> None:
         """
-        The fence, moved a third time.
+        The fence, moved a fourth time - and this move retired half of it.
 
-        Task 3.2B held `RecipeComponent` out and 3.2B brought it in; 3.3 brought
-        in `RecipeCostSnapshot`; **3.4 brings in `ProductionBatch`** and its two
-        child tables. Each time this test was rewritten rather than removed,
-        because the boundary is not "no production models" — it is "nothing
-        posts", and that half is still true and still worth a test.
+        Task 3.2B held `RecipeComponent` out and brought it in; 3.3 brought in
+        `RecipeCostSnapshot`; 3.4 brought in `ProductionBatch`; **3.5 posts**,
+        so "nothing posts" is finally and deliberately false. Rewritten rather
+        than removed, because what replaces it is the stronger claim the
+        posting-evidence constraint enforces: there is no half-posted batch.
+
+        A draft holds no number, no stock entry, no value and no posting
+        moment. A posted batch holds all four, and its input and output values
+        are equal. Nothing in between is representable.
         """
         from django.apps import apps
 
@@ -361,9 +365,20 @@ class TestZeroEffect:
             "ProductionBatch",
             "ProductionBatchLine",
             "ProductionBatchActualLine",
-        } <= names, "Task 3.4 owns the production draft"
-        assert ProductionBatch.objects.exclude(status=ProductionBatchStatus.DRAFT).count() == 0
-        assert not ProductionBatch.objects.exclude(number="").exists()
+            "ProductionBatchAllocation",
+        } <= names, "Task 3.5 owns the allocation rows"
+
+        for batch in ProductionBatch.objects.all():
+            if batch.status == ProductionBatchStatus.DRAFT:
+                assert batch.number == ""
+                assert batch.stock_entry_id is None
+                assert batch.output_value is None
+                assert batch.posted_at is None
+            else:
+                assert batch.number != ""
+                assert batch.stock_entry_id is not None
+                assert batch.output_value is not None
+                assert batch.input_value == batch.output_value
 
 
 class TestVerifierDetection:

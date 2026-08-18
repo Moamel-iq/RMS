@@ -59,10 +59,18 @@ split, because there is no useful post that may create a batch and may not
 correct the quantities on it before it is posted — and a permission nobody can
 hold alone is a permission that only complicates the map.
 
-There is deliberately **no** `post_production_batch` and no
-`reverse_production_batch`. Task 3.5 owns posting; declaring its permissions
-now would put a grant in the role map that nothing checks, which is exactly the
-thing an auditor cannot verify.
+**Task 3.5 adds the two posting permissions**, and they are separate from
+`create_production_batch` because the acts are separate. Drafting consumes
+nothing and a wrong draft is discarded; posting moves stock and writes a
+journal, and a wrong posting is corrected by a reversal that stays on the
+record forever. A kitchen where the person who weighs the ingredients also
+commits the stock movement is a kitchen with no second pair of eyes on the one
+step that touches the ledger.
+
+`reverse_production_batch` is **elevated** and sits with the manager rather
+than the storekeeper, exactly as the goods-receipt reversal does: undoing a
+posted economic event is a supervisory act, and the person who made the
+posting should not be the only one who can make it disappear.
 
 **Cost visibility stays with `view_recipe_cost` alone.** Reading a production
 batch exposes no recipe cost, no unit cost, no standard cost and no snapshot
@@ -121,6 +129,8 @@ ACTIVATE_RECIPE_VERSION = f"{APP_LABEL}.activate_recipe_version"
 #: `auth.E005` clash with the builtin.
 VIEW_PRODUCTION = f"{APP_LABEL}.view_productionbatch"
 CREATE_PRODUCTION_BATCH = f"{APP_LABEL}.create_production_batch"
+POST_PRODUCTION_BATCH = f"{APP_LABEL}.post_production_batch"
+REVERSE_PRODUCTION_BATCH = f"{APP_LABEL}.reverse_production_batch"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_RECIPE,
@@ -133,6 +143,8 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     ACTIVATE_RECIPE_VERSION,
     VIEW_PRODUCTION,
     CREATE_PRODUCTION_BATCH,
+    POST_PRODUCTION_BATCH,
+    REVERSE_PRODUCTION_BATCH,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -154,6 +166,8 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # store's stock, not a statement about the organization's menu.
     VIEW_PRODUCTION: PermissionScope.WAREHOUSE,
     CREATE_PRODUCTION_BATCH: PermissionScope.WAREHOUSE,
+    POST_PRODUCTION_BATCH: PermissionScope.WAREHOUSE,
+    REVERSE_PRODUCTION_BATCH: PermissionScope.WAREHOUSE,
 }
 
 
@@ -182,6 +196,8 @@ _MANAGER = frozenset(
         ACTIVATE_RECIPE_VERSION,
         VIEW_PRODUCTION,
         CREATE_PRODUCTION_BATCH,
+        POST_PRODUCTION_BATCH,
+        REVERSE_PRODUCTION_BATCH,
     }
 )
 
@@ -204,12 +220,25 @@ _ACCOUNTANT = frozenset({VIEW_RECIPE, VIEW_RECIPE_COST, REVIEW_RECIPE_VERSION, V
 #: the one signature on `KM-RCP-004`'s page that is genuinely theirs, and gains
 #: no approval authority by holding it.
 #:
-#: **Drafts production**, added by Task 3.4. The storekeeper is the post that
-#: actually weighs what went into the pot, so recording it is theirs; and they
-#: still read no cost, which is the whole point of keeping the two permissions
-#: apart. A batch screen shows quantities, not money.
+#: **Drafts production**, added by Task 3.4, **and posts it**, added by Task
+#: 3.5. The storekeeper is the post that actually weighs what went into the pot,
+#: so recording it is theirs, and so is committing it: the stock leaving the
+#: store is the storekeeper's own custody and nobody else is standing at the
+#: scale. They still read no cost, which is the whole point of keeping the two
+#: permissions apart — a batch screen shows quantities, not money, and posting
+#: one shows no valuation either.
+#:
+#: **No reversal.** Undoing a posted economic event is supervisory, and a post
+#: that could both make and unmake its own movements is a post with no control
+#: over it at all.
 _STOREKEEPER = frozenset(
-    {VIEW_RECIPE, REVIEW_RECIPE_VERSION, VIEW_PRODUCTION, CREATE_PRODUCTION_BATCH}
+    {
+        VIEW_RECIPE,
+        REVIEW_RECIPE_VERSION,
+        VIEW_PRODUCTION,
+        CREATE_PRODUCTION_BATCH,
+        POST_PRODUCTION_BATCH,
+    }
 )
 
 #: Buys the ingredients a recipe names, so needs to read the card. Recipe cost

@@ -2,31 +2,43 @@
 {% load i18n %}
 
 {% block columns %}
-  <th>{% translate "الرمز" %}</th>
-  <th>{% translate "الاسم" %}</th>
-  <th>{% translate "المستوى" %}</th>
-  <th>{% translate "المجموعة الأعلى" %}</th>
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "إجراءات" %}</th>
+  <th scope="col">{% translate "الرمز" %}</th>
+  <th scope="col">{% translate "الاسم" %}</th>
+  <th scope="col">{% translate "المستوى" %}</th>
+  <th scope="col">{% translate "المجموعة الأعلى" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "إجراءات" %}</th>
 {% endblock %}
 
 {% block rows %}
+  {% translate "لا توجد نتائج مطابقة" as no_results_title %}
+  {% translate "جرّب البحث برمز أو اسم مختلف." as no_results_description %}
+  {% translate "لا توجد مجموعات أصناف بعد" as empty_title %}
+  {% translate "أنشئ المجموعات لتصنيف الأصناف وتسهيل الوصول إليها." as empty_description %}
   {% for category in categories %}
     <tr>
-      <td><code>{{ category.code }}</code></td>
-      <td>{{ category.name_ar }}</td>
-      <td>{{ category.depth }}</td>
-      <td>{% if category.parent %}<code>{{ category.parent.code }}</code>{% else %}—{% endif %}</td>
-      <td>
+      <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ category.code }}</code></bdi></td>
+      <td data-label="{% translate 'الاسم' %}"><strong>{{ category.name_ar }}</strong></td>
+      <td data-label="{% translate 'المستوى' %}"><bdi dir="ltr">{{ category.depth }}</bdi></td>
+      <td data-label="{% translate 'المجموعة الأعلى' %}">{% if category.parent %}<bdi dir="ltr"><code>{{ category.parent.code }}</code></bdi>{% else %}—{% endif %}</td>
+      <td data-label="{% translate 'الحالة' %}">
         {% if category.is_active %}
-          <span class="chip chip--on">{% translate "فعّالة" %}</span>
+          {% translate "فعّالة" as status_label %}
+          {% include "components/status_badge.html" with status="ACTIVE" label=status_label %}
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشفة" %}</span>
+          {% translate "مؤرشفة" as status_label %}
+          {% include "components/status_badge.html" with status="ARCHIVED" label=status_label %}
         {% endif %}
       </td>
       {% include "inventory/_rowactions.html" with row=category owner_id=category.organization_id edit_url="inventory:category_update" archive_url="inventory:category_archive" reactivate_url="inventory:category_reactivate" %}
     </tr>
   {% empty %}
-    <tr><td colspan="6">{% translate "لا توجد مجموعات بعد." %}</td></tr>
+    <tr><td colspan="6" data-empty-state>
+      {% if filter_query %}
+        {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
+      {% else %}
+        {% include "components/empty_state.html" with title=empty_title description=empty_description action_url=create_url action_label=create_label %}
+      {% endif %}
+    </td></tr>
   {% endfor %}
 {% endblock %}

@@ -22,6 +22,7 @@ from apps.kitchen.models import (
     OPEN_VERSION_STATUSES,
     ProductionBatch,
     ProductionBatchActualLine,
+    ProductionBatchAllocation,
     ProductionBatchLine,
     Recipe,
     RecipeCategory,
@@ -40,6 +41,8 @@ from apps.kitchen.models import (
 from apps.kitchen.permissions import (
     CREATE_PRODUCTION_BATCH,
     MANAGE_RECIPE,
+    POST_PRODUCTION_BATCH,
+    REVERSE_PRODUCTION_BATCH,
     VIEW_PRODUCTION,
     VIEW_RECIPE_COST,
 )
@@ -477,6 +480,22 @@ def draftable_production_warehouses(user: User) -> QuerySet[Warehouse]:
     return _warehouses_with_permission(user, CREATE_PRODUCTION_BATCH)
 
 
+def postable_production_warehouses(user: User) -> QuerySet[Warehouse]:
+    """
+    Warehouses whose production this caller may **commit** to the ledger.
+
+    A separate question from drafting, and it must stay separate: drafting
+    consumes nothing and a wrong draft is discarded, while posting moves stock
+    and writes a journal. Same machinery, different permission.
+    """
+    return _warehouses_with_permission(user, POST_PRODUCTION_BATCH)
+
+
+def reversible_production_warehouses(user: User) -> QuerySet[Warehouse]:
+    """Warehouses whose posted production this caller may reverse. Elevated."""
+    return _warehouses_with_permission(user, REVERSE_PRODUCTION_BATCH)
+
+
 def visible_production_batches(user: User) -> QuerySet[ProductionBatch]:
     """
     Every production batch this caller may read, newest planned date first.
@@ -524,6 +543,18 @@ def visible_production_actuals(user: User) -> QuerySet[ProductionBatchActualLine
 
 def resolve_production_actual(user: User, actual_id: int) -> ProductionBatchActualLine:
     return _resolve(visible_production_actuals(user), actual_id, "Production actual line")
+
+
+def visible_production_allocations(user: User) -> QuerySet[ProductionBatchAllocation]:
+    """Every allocation row this caller may read, scoped the same way its batch is."""
+    return ProductionBatchAllocation.objects.filter(
+        actual__line__batch__warehouse__in=readable_production_warehouses(user)
+    ).select_related("actual", "actual__line", "actual__line__batch", "lot", "location")
+
+
+def resolve_production_allocation(user: User, allocation_id: int) -> ProductionBatchAllocation:
+    """Out of scope is 404, exactly as it is for the batch the row belongs to."""
+    return _resolve(visible_production_allocations(user), allocation_id, "allocation")
 
 
 def production_lines_for(batch: ProductionBatch) -> QuerySet[ProductionBatchLine]:
