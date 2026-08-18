@@ -1,0 +1,11 @@
+{# The shell-less parent for a write screen that also answers HTMX.          #}
+{#                                                                           #}
+{# The mirror of `settings/_list_fragment.html`, and it exists for the same  #}
+{# reason: a form view that rendered the full shell into an HTMX target would #}
+{# nest a document inside a document — two <html> elements, two navigation    #}
+{# rails, and a page that looks right until somebody swaps it into a panel.   #}
+{#                                                                           #}
+{# `InventoryWriteView` selects this over `shell.html` when the request       #}
+{# carries HX-Request, so one template serves the full page and the fragment  #}
+{# and the two cannot drift apart.                                           #}
+{% block page %}{% endblock %}

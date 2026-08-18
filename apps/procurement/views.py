@@ -1591,6 +1591,12 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
             self.actor, CREATE_SUPPLIER_INVOICE, invoice.organization
         )
         return {
+            # One hook, set once here, so all three render paths on this view —
+            # the GET, the inventory-line POST and the account-line POST — answer
+            # an HTMX request with a fragment rather than a nested document.
+            "form_base_template": (
+                "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
+            ),
             "invoice": invoice,
             "lines": invoice.lines.select_related(
                 "item", "account", "cost_center", "receipt_line", "receipt_line__receipt"

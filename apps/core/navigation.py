@@ -370,10 +370,22 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:goods_receipt_list",
                 available=True,
             ),
-            # Task 2.10 onward — visible so the shape of the module is legible,
-            # inert because the documents that would fill them do not exist.
+            # The supplier invoice. Its comment used to say the backing
+            # documents "do not exist" — they had existed since Task 2.12 and
+            # the entry stayed inert anyway, which is the failure mode where a
+            # stale note outlives the thing it described. `SupplierInvoice`,
+            # `SupplierInvoiceLine`, `SupplierInvoicePosting`, `PurchaseMatch`,
+            # matching, GRNI, PPV, payments and credit notes are all built.
+            Section(
+                label=_("فواتير الموردين"),
+                url_name="procurement:supplier_invoice_list",
+                available=True,
+            ),
+            # Checkpoint 2 activates this. It stays listed and inert meanwhile:
+            # replacing the block above briefly dropped it from the sidebar
+            # altogether, which is worse than an honest "coming soon" — an entry
+            # that vanishes looks like a feature that was cancelled.
             *_sections(
-                _("فواتير الموردين"),
                 _("التكاليف الإضافية"),
             ),
             # Task 2.13 — supplier returns. Built and reachable; the entry the
