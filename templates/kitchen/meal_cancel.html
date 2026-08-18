@@ -1,0 +1,70 @@
+{# Cancelling a recorded meal.                                               #}
+{#                                                                           #}
+{# Its own template rather than the shared destructive confirmation, because #}
+{# that one warns about postings being undone and there are none here to     #}
+{# undo. What actually changes is narrower and worth saying exactly: the row #}
+{# stops contributing to theoretical consumption, and it stays in history.   #}
+{% extends fragment_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="kitchen-meal-cancel">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ meal_statement }}</p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:meal_detail' record.pk %}">
+          {% translate "رجوع" %}
+        </a>
+      </div>
+    </div>
+
+    <p class="banner" role="alert">
+      {% translate "الإلغاء لا يعكس حركة مخزنية ولا قيداً — لم يُسجَّل أيٌّ منهما أصلاً. ما يتغيّر أن السجل يخرج من الاستهلاك النظري، ويبقى ظاهراً في السجل التاريخي. التصحيح يكون بإلغاء ثم تسجيل بديل." %}
+    </p>
+
+    <dl class="deflist">
+      <dt>{% translate "النوع" %}</dt>
+      <dd>{{ record.get_meal_type_display }}</dd>
+      <dt>{% translate "الوصفة" %}</dt>
+      <dd>{{ record.recipe.code }} — {{ record.recipe.name_ar }}</dd>
+      <dt>{% translate "تاريخ الاستهلاك" %}</dt>
+      <dd><code dir="ltr">{{ record.consumed_on|date:"Y-m-d" }}</code></dd>
+      <dt>{% translate "عدد الحصص" %}</dt>
+      <dd><code dir="ltr">{{ record.quantity_display }}</code></dd>
+    </dl>
+
+    <form class="formcard"
+          method="post"
+          novalidate
+          action="{{ request.path }}"
+          hx-post="{{ request.path }}"
+          hx-target="#kitchen-meal-cancel"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% include "settings/_field.html" with field=field %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions">
+        <button class="btn btn--danger" type="submit">{% translate "تأكيد الإلغاء" %}</button>
+        <a class="btn btn--ghost" href="{% url 'kitchen:meal_detail' record.pk %}">
+          {% translate "تراجع" %}
+        </a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

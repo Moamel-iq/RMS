@@ -136,6 +136,10 @@ CREATE_PRODUCTION_BATCH = f"{APP_LABEL}.create_production_batch"
 POST_PRODUCTION_BATCH = f"{APP_LABEL}.post_production_batch"
 REVERSE_PRODUCTION_BATCH = f"{APP_LABEL}.reverse_production_batch"
 
+#: Task 3.7. **Branch**-scoped, not warehouse-scoped: a meal is fed at a
+#: branch and moves no stock, so there is no custody to scope it to.
+RECORD_MEAL = f"{APP_LABEL}.record_meal"
+
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_RECIPE,
     MANAGE_RECIPE,
@@ -150,6 +154,7 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     CREATE_PRODUCTION_BATCH,
     POST_PRODUCTION_BATCH,
     REVERSE_PRODUCTION_BATCH,
+    RECORD_MEAL,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -174,6 +179,10 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     CREATE_PRODUCTION_BATCH: PermissionScope.WAREHOUSE,
     POST_PRODUCTION_BATCH: PermissionScope.WAREHOUSE,
     REVERSE_PRODUCTION_BATCH: PermissionScope.WAREHOUSE,
+    # The first BRANCH-scoped kitchen permission. A meal is fed at a branch
+    # and touches no store, so warehouse scope would be asking the wrong
+    # question and organization scope would be too wide.
+    RECORD_MEAL: PermissionScope.BRANCH,
 }
 
 
@@ -205,6 +214,7 @@ _MANAGER = frozenset(
         CREATE_PRODUCTION_BATCH,
         POST_PRODUCTION_BATCH,
         REVERSE_PRODUCTION_BATCH,
+        RECORD_MEAL,
     }
 )
 

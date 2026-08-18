@@ -34,6 +34,7 @@ import datetime
 from decimal import Decimal
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
@@ -48,6 +49,8 @@ from apps.kitchen.lifecycle import (
 )
 from apps.kitchen.models import (
     ApprovalEvidenceKind,
+    MealRecord,
+    MealType,
     MeasurementBasis,
     PreparationStage,
     ProductionBatch,
@@ -473,6 +476,9 @@ def seed_demo_recipes(
     # Postings last, because they consume the stock the inventory demo put on
     # the shelf and produce the evidence every Task 3.5 screen reads.
     seed_demo_postings(organization=organization, created_by=created_by, branches=branches)
+    # Meals last: they reference a recipe version, move nothing, and are the
+    # explanation the consumption reports read rather than a stock event.
+    seed_demo_meals(organization=organization, created_by=created_by, branches=branches)
     return recipes
 
 
@@ -1234,6 +1240,10 @@ DEMO_PRODUCTION_MULTIPLIER = Decimal("2.5")
 #: Fixed, so a second seeding run is a **retry** and returns the original batch.
 DEMO_PRODUCTION_KEY = "DEMO-PRODUCTION-BATCH-1"
 
+#: The day the demo meals were eaten. The production date, so the meal and
+#: the batch that cooked for it sit in the same period on every report.
+DEMO_MEAL_DATE = DEMO_PRODUCTION_DATE
+
 ZERO_QUANTITY = Decimal("0")
 
 
@@ -1721,7 +1731,26 @@ def seed_demo_postings(
     is produced by `post_production_batch`, which is the only thing that may
     produce one.
     """
+    from django.core.exceptions import ValidationError
+
     from apps.kitchen.production_posting import post_production_batch, reverse_production_batch
+
+    def try_post(batch: Any, key: str) -> Any:
+        """
+        Post a demo batch, or leave it a draft and say nothing.
+
+        A demo store that has run out of an ingredient is an ordinary state of
+        a development database, not a defect in the seed. The whole seed is one
+        transaction, so letting the refusal escape would roll back every recipe,
+        version, cost card and meal alongside it — the demo would be all or
+        nothing on the availability of one shelf.
+        """
+        try:
+            return post_production_batch(
+                batch=batch, idempotency_key=key, actor=created_by, reason=DEMO_BANNER
+            )
+        except ValidationError:
+            return ProductionBatch.objects.get(pk=batch.pk)
 
     warehouse = _production_warehouse(organization=organization)
     branch = branches[0] if branches else None
@@ -1752,12 +1781,7 @@ def seed_demo_postings(
         organization=organization,
     )
     if posted.is_draft:
-        post_production_batch(
-            batch=posted,
-            idempotency_key=f"{DEMO_POSTED_KEY}-POST",
-            actor=created_by,
-            reason=DEMO_BANNER,
-        )
+        posted = try_post(posted, f"{DEMO_POSTED_KEY}-POST")
 
     # --- 2. Posted, then reversed ------------------------------------------
     reversible = _demo_batch(
@@ -1771,12 +1795,7 @@ def seed_demo_postings(
         organization=organization,
     )
     if reversible.is_draft:
-        reversible = post_production_batch(
-            batch=reversible,
-            idempotency_key=f"{DEMO_REVERSED_KEY}-POST",
-            actor=created_by,
-            reason=DEMO_BANNER,
-        )
+        reversible = try_post(reversible, f"{DEMO_REVERSED_KEY}-POST")
     if reversible.status == ProductionBatchStatus.POSTED:
         reverse_production_batch(
             batch=reversible,
@@ -1804,12 +1823,7 @@ def seed_demo_postings(
         organization=organization,
     )
     if journalled.is_draft:
-        post_production_batch(
-            batch=journalled,
-            idempotency_key=f"{DEMO_JOURNAL_KEY}-POST",
-            actor=created_by,
-            reason=DEMO_BANNER,
-        )
+        try_post(journalled, f"{DEMO_JOURNAL_KEY}-POST")
 
 
 def _inventory_control_is_mapped(*, organization: Organization) -> bool:
@@ -1893,3 +1907,190 @@ def seed_demo_plated_recipe(
             reason=DEMO_BANNER,
         )
     return [recipe]
+
+
+# ---------------------------------------------------------------------------
+# Task 3.7 — staff and complimentary meals
+# ---------------------------------------------------------------------------
+
+#: Fixed keys, so a second seed is a retry rather than a second meal. The
+#: cancelled record and its replacement are two rows on purpose: a correction
+#: in this module is a cancellation plus a new statement, never an edit, and a
+#: demo that showed only the corrected row would hide the shape of the thing.
+DEMO_MEAL_STAFF_KEY = "DEMO-MEAL-STAFF-1"
+DEMO_MEAL_COMPLIMENTARY_KEY = "DEMO-MEAL-COMP-1"
+DEMO_MEAL_CANCELLED_KEY = "DEMO-MEAL-CANCELLED-1"
+DEMO_MEAL_REPLACEMENT_KEY = "DEMO-MEAL-REPLACEMENT-1"
+
+
+def seed_demo_meals(
+    *,
+    organization: Organization,
+    created_by: User | None,
+    branches: list[Branch],
+) -> None:
+    """
+    Four meal records, through the real service, moving nothing.
+
+    A staff meal, a complimentary meal, and a cancelled record with the
+    replacement that corrects it — which is the whole lifecycle this module
+    has. Every one is raised by `record_meal`, so the exact version resolution,
+    the serving basis and the idempotency all behave here exactly as they do
+    for an operator.
+
+    **Zero stock and zero journal**, by construction rather than by assertion:
+    the service that writes these rows has no path to either ledger.
+    """
+    from apps.kitchen.meals import cancel_meal
+
+    branch = branches[0] if branches else None
+    if branch is None:
+        return
+
+    # A recipe with a version actually in force on the demo date. Resolved by
+    # probing rather than assumed, because the lifecycle seed activates its
+    # versions on dates this module does not own.
+    basis = _demo_meal_basis(organization=organization, branch=branch)
+    if basis is None:
+        return
+    recipe, consumed_on = basis
+
+    staff = _demo_meal(
+        branch=branch,
+        recipe=recipe,
+        meal_type=MealType.STAFF,
+        key=DEMO_MEAL_STAFF_KEY,
+        consumed_on=consumed_on,
+        quantity=Decimal("4"),
+        beneficiary="وردية المساء — تجريبي",
+        reason=f"{DEMO_BANNER} — وجبة موظفين للعرض.",
+        created_by=created_by,
+    )
+    _demo_meal(
+        branch=branch,
+        recipe=recipe,
+        meal_type=MealType.COMPLIMENTARY,
+        key=DEMO_MEAL_COMPLIMENTARY_KEY,
+        consumed_on=consumed_on,
+        quantity=Decimal("2"),
+        beneficiary="ضيافة — تجريبي",
+        reason=f"{DEMO_BANNER} — وجبة مجانية للعرض.",
+        created_by=created_by,
+    )
+    if staff is None:
+        return
+
+    # The correction pair: a record that was wrong, cancelled with a reason,
+    # and the replacement that points back at it.
+    wrong = _demo_meal(
+        branch=branch,
+        recipe=recipe,
+        meal_type=MealType.STAFF,
+        key=DEMO_MEAL_CANCELLED_KEY,
+        consumed_on=consumed_on,
+        quantity=Decimal("9"),
+        beneficiary="وردية الصباح — تجريبي",
+        reason=f"{DEMO_BANNER} — عدد خاطئ يُصحَّح بالإلغاء والاستبدال.",
+        created_by=created_by,
+    )
+    if wrong is None:
+        return
+    if wrong.is_recorded:
+        wrong = cancel_meal(
+            record=wrong,
+            reason=f"{DEMO_BANNER} — عدد الحصص كان خاطئاً.",
+            actor=created_by,
+        )
+    # Through `_demo_meal` like every other row, so the serving is chosen the
+    # same way. Writing this one call by hand was the defect: it passed no
+    # serving, the service refused, and the refusal aborted the whole seed.
+    _demo_meal(
+        branch=branch,
+        recipe=recipe,
+        meal_type=MealType.STAFF,
+        key=DEMO_MEAL_REPLACEMENT_KEY,
+        consumed_on=wrong.consumed_on,
+        quantity=Decimal("3"),
+        beneficiary="وردية الصباح — تجريبي",
+        reason=f"{DEMO_BANNER} — السجل البديل الصحيح.",
+        created_by=created_by,
+        replaces=wrong,
+    )
+
+
+def _demo_meal_basis(
+    *, organization: Organization, branch: Branch
+) -> tuple[Recipe, datetime.date] | None:
+    """
+    A demo recipe **and** a date its version is genuinely in force on.
+
+    Probed rather than assumed. The lifecycle seed activates its versions on
+    dates this module does not own, so a fixed date would silently produce no
+    meals the moment those dates moved — which is exactly what a first run of
+    this seed did.
+    """
+    from apps.kitchen.lifecycle import resolve_recipe_version
+
+    candidates = (DEMO_MEAL_DATE, DEMO_SECOND_EFFECTIVE, DEMO_FIRST_EFFECTIVE)
+    for recipe in Recipe.objects.filter(
+        organization=organization, code__startswith="DEMO-", is_active=True
+    ).order_by("pk"):
+        for on_date in candidates:
+            try:
+                resolve_recipe_version(recipe=recipe, branch=branch, on_date=on_date)
+            except ValidationError:
+                continue
+            return recipe, on_date
+    return None
+
+
+def _demo_meal(
+    *,
+    branch: Branch,
+    recipe: Recipe,
+    meal_type: str,
+    key: str,
+    consumed_on: datetime.date,
+    quantity: Decimal,
+    beneficiary: str,
+    reason: str,
+    created_by: User | None,
+    replaces: MealRecord | None = None,
+) -> MealRecord | None:
+    """One demo meal, or the one already there. Never a second."""
+    from apps.kitchen.lifecycle import resolve_recipe_version
+    from apps.kitchen.meals import record_meal
+
+    existing = MealRecord.objects.filter(
+        organization=recipe.organization, idempotency_key=key
+    ).first()
+    if existing is not None:
+        return existing
+
+    # Where the version defines servings, one has to be chosen: "four portions"
+    # of a recipe with a full and a half serving is not a quantity until
+    # somebody says which. The demo picks the primary, exactly as an operator
+    # would from the same list.
+    version = resolve_recipe_version(recipe=recipe, branch=branch, on_date=consumed_on)
+    serving = (
+        version.servings.filter(is_primary=True).first()
+        or version.servings.order_by("code").first()
+    )
+    try:
+        return record_meal(
+            branch=branch,
+            recipe=recipe,
+            meal_type=meal_type,
+            consumed_on=consumed_on,
+            serving=serving,
+            quantity=quantity,
+            beneficiary=beneficiary,
+            reason=reason,
+            idempotency_key=key,
+            replaces=replaces,
+            actor=created_by,
+        )
+    except ValidationError:
+        # A version that requires a serving the demo cannot choose for it is
+        # not fatal; anything that is not a domain refusal still surfaces.
+        return None

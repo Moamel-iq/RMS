@@ -18,7 +18,14 @@ that implied otherwise would be the router contradicting a trigger.
 
 from django.urls import path
 
-from apps.kitchen import cost_views, production_views, report_views, version_views, views
+from apps.kitchen import (
+    cost_views,
+    meal_views,
+    production_views,
+    report_views,
+    version_views,
+    views,
+)
 
 app_name = "kitchen"
 
@@ -338,4 +345,36 @@ urlpatterns = [
         report_views.KitchenWasteReportView.as_view(),
         name="report_kitchen_waste",
     ),
+    # --- Task 3.7: staff and complimentary meals --------------------------
+    #
+    # One set of views for both meal types, parameterised in the route rather
+    # than duplicated: they are the same document with a different reason on
+    # it, and two copies would drift the first time one gained a column.
+    #
+    # Nothing behind these routes posts stock or writes a journal. The
+    # ingredients already left through production or an issue, and recording
+    # the meal a second time as a stock movement would take the same kilogram
+    # out twice.
+    path(
+        "meals/staff/",
+        meal_views.MealListView.as_view(meal_type="STAFF"),
+        name="meal_staff_list",
+    ),
+    path(
+        "meals/complimentary/",
+        meal_views.MealListView.as_view(meal_type="COMPLIMENTARY"),
+        name="meal_complimentary_list",
+    ),
+    path(
+        "meals/new/staff/",
+        meal_views.MealCreateView.as_view(meal_type="STAFF"),
+        name="meal_create_staff",
+    ),
+    path(
+        "meals/new/complimentary/",
+        meal_views.MealCreateView.as_view(meal_type="COMPLIMENTARY"),
+        name="meal_create_complimentary",
+    ),
+    path("meals/<int:pk>/", meal_views.MealDetailView.as_view(), name="meal_detail"),
+    path("meals/<int:pk>/cancel/", meal_views.MealCancelView.as_view(), name="meal_cancel"),
 ]

@@ -20,6 +20,7 @@ from apps.inventory.models import Warehouse
 from apps.kitchen.models import (
     COMPONENT_ELIGIBLE_STATUSES,
     OPEN_VERSION_STATUSES,
+    MealRecord,
     ProductionBatch,
     ProductionBatchActualLine,
     ProductionBatchAllocation,
@@ -42,16 +43,19 @@ from apps.kitchen.permissions import (
     CREATE_PRODUCTION_BATCH,
     MANAGE_RECIPE,
     POST_PRODUCTION_BATCH,
+    RECORD_MEAL,
     REVERSE_PRODUCTION_BATCH,
+    VIEW_KITCHEN_REPORT,
     VIEW_PRODUCTION,
     VIEW_RECIPE_COST,
 )
 from apps.organizations.authorization import (
     OutOfScope,
+    branches_with_permission,
     organization_scope,
     organizations_with_permission,
 )
-from apps.organizations.models import Organization
+from apps.organizations.models import Branch, Organization
 from apps.organizations.selectors import accessible_branches
 from apps.users.models import User
 
@@ -588,6 +592,32 @@ def substitute_candidates(line: ProductionBatchLine) -> QuerySet[RecipeLineSubst
         .select_related("substitute_item", "substitute_item__base_unit")
         .order_by("priority", "substitute_item__code")
     )
+
+
+def visible_meal_records(user: User) -> QuerySet[MealRecord]:
+    """
+    Every meal this caller may read, newest consumed date first.
+
+    Scoped by **branch reach** rather than by warehouse: a meal is fed at a
+    branch and moves no stock, so there is no custody to scope it to. Reading
+    is tied to the report family, so somebody who reads the kitchen reports
+    reads the meal log with them.
+    """
+    return MealRecord.objects.filter(
+        organization_id__in=organizations_with_permission(user, VIEW_KITCHEN_REPORT).values_list(
+            "pk", flat=True
+        )
+    ).select_related("organization", "branch", "recipe", "recipe_version", "serving", "recorded_by")
+
+
+def resolve_meal_record(user: User, meal_id: int) -> MealRecord:
+    """Out of scope is 404: a 403 would confirm another branch's meal exists."""
+    return _resolve(visible_meal_records(user), meal_id, "MealRecord")
+
+
+def recordable_branches(user: User) -> QuerySet[Branch]:
+    """Branches where a post this caller holds carries `record_meal`."""
+    return branches_with_permission(user, RECORD_MEAL)
 
 
 def draftable_recipes(user: User, organization: Organization) -> QuerySet[Recipe]:

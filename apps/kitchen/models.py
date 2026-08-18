@@ -3427,3 +3427,237 @@ class ProductionBatchAllocation(TimeStampedModel):
     @property
     def quantity_display(self) -> str:
         return f"{self.base_quantity:f}"
+
+
+class MealType(models.TextChoices):
+    """
+    Who ate it, and why it is not a sale.
+
+    Two values and no third. A meal given to staff and a meal given away are
+    the two ways a portion leaves the kitchen without a customer paying for it,
+    and both need explaining on the theoretical-consumption side. Anything else
+    that leaves without payment is waste, and waste is an Inventory document.
+    """
+
+    STAFF = "STAFF", _("وجبة موظفين")
+    COMPLIMENTARY = "COMPLIMENTARY", _("وجبة مجانية")
+
+
+class MealRecordStatus(models.TextChoices):
+    """
+    Recorded, or cancelled. There is deliberately no edited state.
+
+    A recorded meal is a statement about a day that has happened. Correcting it
+    means saying the first statement was wrong and making another, which is why
+    the lifecycle is a cancellation plus a replacement rather than an update:
+    an edited row would quietly restate a variance report somebody has already
+    read and acted on.
+    """
+
+    RECORDED = "RECORDED", _("مسجلة")
+    CANCELLED = "CANCELLED", _("ملغاة")
+
+
+class MealRecord(TimeStampedModel):
+    """
+    A portion fed to staff, or given away — and **no stock, no journal**.
+
+    This is the model most likely to be misread, so the reason is stated at the
+    top rather than buried further down: a meal record moves nothing.
+
+    The ingredients of a staff meal already left stock. They left through a
+    production batch that cooked them, or through an ordinary Inventory issue
+    out of the kitchen store. Both are posted economic events with movements
+    and, where the accounts need one, a journal. Recording the meal a second
+    time as a stock issue would take the same kilogram out twice.
+
+    What the record adds is the **explanation**. Without it, portions that were
+    fed rather than sold surface as unexplained usage variance, and a variance
+    nobody can close is a report people stop reading. With it, the theoretical
+    side says: this much was cooked for production, this much for staff, this
+    much given away (RCP-043).
+
+    **The reclassification is deferred, not forgotten.** Moving staff-meal cost
+    out of consumption into a staff-benefit expense account is real accounting
+    practice. It needs an approved journal shape, an expense role and a
+    theoretical-cost basis, and none of the three exists in any approved
+    document (RCP-044). So the records accumulate from day one and the task
+    that reclassifies them starts with its data already there. Every meal
+    surface says so in words, because a report labelled "staff meals" showing
+    quantities and no money, in a system that has money, is otherwise read as
+    "staff meals cost nothing" (RCP-108).
+
+    **The version is resolved once and frozen.** A meal eaten on the 3rd is a
+    portion of whatever the recipe said on the 3rd. Re-resolving later would
+    let a recipe changed in June restate what March consumed, which is the
+    charter's absolute rule and the reason `recipe_version` is stored rather
+    than derived.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="meal_records",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="meal_records",
+        verbose_name=_("branch"),
+    )
+    meal_type = models.CharField(_("meal type"), max_length=16, choices=MealType.choices)
+
+    recipe = models.ForeignKey(
+        Recipe,
+        on_delete=models.PROTECT,
+        related_name="meal_records",
+        verbose_name=_("recipe"),
+    )
+    #: The **exact** version, resolved once for this branch and this date.
+    recipe_version = models.ForeignKey(
+        RecipeVersion,
+        on_delete=models.PROTECT,
+        related_name="meal_records",
+        verbose_name=_("recipe version"),
+    )
+    #: Which serving of that version a portion is. Optional, because a batch
+    #: recipe measured in its own output unit is countable without one; the
+    #: service requires it wherever the version defines servings, so nobody has
+    #: to guess what "three portions" means.
+    serving = models.ForeignKey(
+        RecipeServing,
+        on_delete=models.PROTECT,
+        related_name="meal_records",
+        null=True,
+        blank=True,
+        verbose_name=_("serving"),
+    )
+
+    #: How many portions. Decimal because half a portion is a real thing.
+    quantity = models.DecimalField(
+        _("quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+    #: `quantity x serving size`, in the version's own output unit, snapshotted
+    #: at recording. Stored rather than derived so that correcting a serving
+    #: size next year cannot restate what this meal consumed — the same reason
+    #: a production actual row freezes its conversion factor.
+    output_base_quantity = models.DecimalField(
+        _("output quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+    output_unit_code = models.CharField(_("output unit"), max_length=16)
+
+    #: The operational date this meal belongs to. Explicit, never today: a meal
+    #: recorded on Monday for Sunday's evening shift is Sunday's.
+    consumed_on = models.DateField(_("consumed on"))
+
+    beneficiary = models.CharField(_("beneficiary or shift"), max_length=200, blank=True)
+    reason = models.CharField(_("reason"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=12,
+        choices=MealRecordStatus.choices,
+        default=MealRecordStatus.RECORDED,
+    )
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="meal_records_recorded",
+        null=True,
+        blank=True,
+        verbose_name=_("recorded by"),
+    )
+    recorded_at = models.DateTimeField(_("recorded at"), auto_now_add=True)
+
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="meal_records_cancelled",
+        null=True,
+        blank=True,
+        verbose_name=_("cancelled by"),
+    )
+    cancelled_at = models.DateTimeField(_("cancelled at"), null=True, blank=True)
+    cancellation_reason = models.CharField(_("cancellation reason"), max_length=200, blank=True)
+    #: The record this one was raised to correct, where there was one. A
+    #: pointer rather than an edit, so both statements stay visible and the
+    #: history reads as what actually happened.
+    replaces = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="replaced_by",
+        null=True,
+        blank=True,
+        verbose_name=_("replaces"),
+    )
+
+    idempotency_key = models.CharField(_("idempotency key"), max_length=128)
+    request_fingerprint = models.CharField(_("request fingerprint"), max_length=64)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("meal record")
+        verbose_name_plural = _("meal records")
+        ordering = ["-consumed_on", "-id"]
+        permissions = [
+            ("record_meal", "Can record and cancel staff and complimentary meals"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "idempotency_key"],
+                name="meal_record_key_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=~Q(idempotency_key=""), name="meal_record_key_not_empty"
+            ),
+            # Zero portions is not a meal, and negative is not a fact.
+            models.CheckConstraint(
+                condition=Q(quantity__gt=Decimal("0")), name="meal_record_quantity_is_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(output_base_quantity__gt=Decimal("0")),
+                name="meal_record_output_is_positive",
+            ),
+            # A cancellation names who did it, when, and why — all three, or the
+            # record is not cancelled at all. A cancelled row with no reason is
+            # the shape that turns a correction into a shrug.
+            models.CheckConstraint(
+                condition=Q(
+                    status=MealRecordStatus.CANCELLED,
+                    cancelled_at__isnull=False,
+                    cancelled_by__isnull=False,
+                )
+                & ~Q(cancellation_reason="")
+                | Q(status=MealRecordStatus.RECORDED)
+                & Q(cancelled_at__isnull=True, cancelled_by__isnull=True, cancellation_reason=""),
+                name="meal_record_cancellation_evidence_is_complete",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "consumed_on"], name="meal_record_org_date_idx"),
+            models.Index(fields=["branch", "meal_type"], name="meal_record_branch_type_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.meal_type} {self.recipe_id} x{self.quantity} @ {self.consumed_on}"
+
+    @property
+    def is_recorded(self) -> bool:
+        return self.status == MealRecordStatus.RECORDED
+
+    @property
+    def quantity_display(self) -> str:
+        """A technical identity: period, never a localised comma."""
+        return f"{self.quantity:f}"
+
+    @property
+    def output_display(self) -> str:
+        return f"{self.output_base_quantity:f}"

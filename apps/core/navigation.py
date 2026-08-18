@@ -497,9 +497,21 @@ MODULES: tuple[Module, ...] = (
                 url_name="kitchen:report_kitchen_waste",
                 available=True,
             ),
+            # Task 3.7. Both meal entries promoted together, because they are
+            # the same screen with a different reason on it. Nothing behind
+            # either one moves stock or writes a journal, and each page says so
+            # in a sentence rather than leaving the reader to notice.
+            Section(
+                label=_("وجبات الموظفين"),
+                url_name="kitchen:meal_staff_list",
+                available=True,
+            ),
+            Section(
+                label=_("الوجبات المجانية"),
+                url_name="kitchen:meal_complimentary_list",
+                available=True,
+            ),
             *_sections(
-                _("وجبات الموظفين"),
-                _("الوجبات المجانية"),
                 _("الاستهلاك النظري"),
                 _("الاستهلاك الفعلي"),
                 _("انحراف الاستهلاك"),
