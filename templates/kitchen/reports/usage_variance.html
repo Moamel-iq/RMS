@@ -126,12 +126,22 @@
                 <td data-label="{% translate 'الانحراف' %}">
                   {% if row.is_comparable %}
                     <bdi dir="ltr"><code>{{ row.variance }}</code></bdi>
+                    {% if row.excluded_rows %}
+                      {# The number above is true over the rows whose dimension #}
+                      {# matches the plan, and leaves the rest out. Saying so    #}
+                      {# is the difference between a variance and a half-truth.  #}
+                      <p><span class="chip">{{ row.compatibility }}</span></p>
+                      <p class="muted">
+                        {% translate "خارج الرقم" %}:
+                        <bdi dir="ltr"><code>{{ row.excluded_display }}</code></bdi>
+                      </p>
+                    {% endif %}
                   {% else %}
                     {# Never a zero here. Zero means "no deviation"; this means #}
                     {# the two sides are not measured in comparable units.     #}
                     <span class="chip">{{ row.compatibility }}</span>
-                    {% if row.statement %}<p class="muted">{{ row.statement }}</p>{% endif %}
                   {% endif %}
+                  {% if row.statement %}<p class="muted">{{ row.statement }}</p>{% endif %}
                 </td>
                 {% if show_cost %}
                   <td data-label="{% translate 'قيمة المستهلك' %}">

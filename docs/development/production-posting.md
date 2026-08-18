@@ -143,3 +143,17 @@ because a red list nobody can clear stops being read within a week.
 - No backflush.
 - No partial completion and no multi-day batch — refused by name.
 - No consumption or variance reporting; that is Tasks 3.6 and 3.8.
+
+## What Task 3.8 built on top of it
+
+- **The movement partition** classifies every `PRODUCTION_OUT` this module wrote
+  as `PRODUCTION_CONSUMPTION` and every `PRODUCTION_IN` as `PRODUCTION_OUTPUT`,
+  and nets a reversal against whichever it cancelled.
+- **`batch_actual_consumption`** reads back the value conservation this module
+  enforces: `Σ input movement values = input_value = output_value`. Per-row value
+  comes from `ProductionBatchAllocation.consumed_value` where a row was
+  allocated, and from the movement keyed `production-actual:<uuid>` where it was
+  not — the two effect-key shapes this module writes.
+- **Post-production correction stays reversal and repost.** ADR-026 §4 records
+  why no later document may adjust a posted batch's inputs or value, which is
+  this module's invariant restated from the reporting side.

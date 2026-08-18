@@ -357,7 +357,9 @@ class StandardRequirementsView(_ConsumptionReportView):
     page_title = _("متطلبات الإنتاج القياسية")
     page_hint = _(
         "انحراف قياسي حقيقي: المخطط المجمّد للدفعة مقابل ما دخل فعلاً. هذا ليس "
-        "انحراف الاستهلاك النهائي المعتمد على المبيعات."
+        "انحراف الاستهلاك النهائي المعتمد على المبيعات. حيث سُجّل بديل ببُعد قياس "
+        "مختلف، يُحسب الانحراف على السطور المتوافقة فقط ويُعرض الباقي في عمود "
+        "«مستهلك خارج الرقم» — لأن الكيلوغرامات واللترات لا تُجمع."
     )
     export_stem = "kitchen-production-standard"
     filter_extras_template = "kitchen/reports/_standard_filters.html"
@@ -373,6 +375,11 @@ class StandardRequirementsView(_ConsumptionReportView):
         ("actual", _("الفعلي")),
         ("variance", _("الانحراف")),
         ("compatibility", _("قابلية المقارنة")),
+        # The disclosure column. A variance computed over only the rows whose
+        # dimension matches the plan is honest arithmetic and an incomplete
+        # statement; this is where the rest of the statement goes.
+        ("excluded", _("مستهلك خارج الرقم")),
+        ("statement", _("بيان")),
     )
     money_columns = (("actual_value", _("قيمة المستهلك")),)
 
@@ -398,6 +405,8 @@ class StandardRequirementsView(_ConsumptionReportView):
                 ),
                 "variance": f"{entry.variance:f}" if entry.variance is not None else "",
                 "compatibility": entry.compatibility or "",
+                "excluded": entry.excluded_display,
+                "statement": entry.statement,
             }
             value = _money(entry.actual_posted_value, include=include_cost)
             if value is not None:

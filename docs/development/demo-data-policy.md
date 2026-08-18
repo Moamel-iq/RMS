@@ -397,7 +397,30 @@ rather than drafting a second batch. Every subsequent edit is then guarded by th
 done and writes nothing — including no duplicate audit event, which is the
 strictest of the counts a test compares.
 
-**The seed posts nothing.** No stock movement, no balance change, no journal, no
-document number, and no status but `DRAFT`. The seeding command prints the batch,
-its requirements and its actual rows, and says which constraint makes the last of
-those true.
+**The seed posted nothing at Task 3.4, and posts through real services from
+Task 3.5 onward.** The paragraph above described the draft-only era and is kept
+because the reasoning still applies to drafting; the claim itself is no longer
+true and would mislead anybody reading it today.
+
+What the kitchen seed does now: it receives a semi-finished component so a batch
+can consume it, posts production, reverses one batch, records four meals
+(including one cancelled and its replacement), raises a produced-output waste
+document, and attributes two Inventory documents to a batch. Every one of those
+goes through the domain service that owns it — `post_production_batch`,
+`record_meal`, `post_document`, `create_batch_document_link`. Nothing in the
+command writes a `StockMovement`, a `StockBalance` or a `JournalEntry` directly,
+and that is the rule the earlier paragraph was really protecting.
+
+**A demo seed is one transaction, so a domain refusal anywhere takes the whole
+seed down.** This has cost the kitchen demo four times: a batch that could not
+post for want of stock, a meal probing a fixed date, a replacement meal with no
+serving, and a link whose source document did not satisfy the attribution rules.
+Each was fixed the same way — the seed either resolves the precondition properly
+or degrades to a graceful skip, and never lets an ordinary state of a
+development database roll back every recipe, cost card and meal alongside it.
+
+**A seed that renders empty is a seed that failed.** Task 3.8 found every demo
+batch sitting in `DRAFT` because a semi-finished component had never been put on
+the shelf, which meant the productivity report and every consumption read had
+been rendering correctly against nothing at all. Counting the rows a screen will
+show is part of writing the seed, not part of reviewing it later.

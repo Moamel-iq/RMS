@@ -323,3 +323,75 @@ posting; audit `previous_state` re-read from the database.
 - **"Delete the movement and repost."** A posted movement is append-only and a
   `StockBalance` references it. Correction is reversal plus a fresh draft — the
   standing rule for every posted document in this system.
+
+## Task 3.8 — consumption, the partition, and attribution
+
+101. **Consumption is a partition, not a formula.** Every posted movement at a
+     kitchen warehouse lands in exactly one of seventeen buckets. The classifier
+     **raises** on an unknown `MovementType`; there is no `OTHER` fallback,
+     because a fallback silently absorbs a new type into a bucket nobody chose.
+102. **The partition proves itself.** Per `(warehouse, item, lot)`,
+     `closing − opening = Σ buckets`. The left side is the kernel's own
+     `quantity_before` / `quantity_after`; the right side is built from the
+     buckets. A movement that reached the ledger and no bucket breaks it.
+103. **Custody transfer is not consumption, in either direction.** A transfer
+     into the kitchen is not usage; a transfer back to the store is not negative
+     production consumption. Either reading double-counts the same kilogram.
+104. **A posted batch is never rewritten.** Its inputs are frozen and its input
+     value equals its output value. Correction is reverse → fix the draft →
+     repost, never a later document that adjusts one side.
+105. **Waste is classified by what was lost.** Produced-output waste is never
+     expanded back into raw ingredients: they already left through the batch.
+106. **Corrections stay corrections.** Count gain, count loss and manual
+     adjustment are excluded from consumption. Folding them in would drive the
+     variance towards zero and make the report self-fulfilling.
+107. **A value-only adjustment is not a quantity correction.** A revaluation
+     moved money and no goods, so it cannot be consumption and gets its own
+     bucket.
+108. **A link explains; it never corrects.** `BatchDocumentLink` changes no
+     quantity, no value, no ledger and no variance. `batch_actual_consumption`
+     does not read the table, and deleting every row would leave both ledgers
+     byte-identical.
+109. **A link's source is a typed foreign key**, not a document-type string plus
+     a UUID. A caller-supplied table name cannot be checked, and a link pointing
+     at a deleted or foreign row would look exactly like a valid one.
+110. **Attribution may not exceed its source**, and no two `ACTIVE` links may
+     point one batch at one source line. Enforced in the service under
+     `FOR UPDATE` **and** by a deferred constraint trigger — the service check
+     alone loses to a concurrent second writer.
+111. **An `ACTIVE` link is immutable and is never deleted.** Correction is
+     cancellation with a reason; the row stays, and its quantity returns to the
+     source line's available attribution.
+112. **Meal equivalents are never added to production plans.** The two overlap
+     physically and no portion-to-batch deduplication key exists, so adding them
+     counts the same ingredients twice. They are separate explanatory buckets.
+113. **A cancelled meal contributes no row**, not a zero row: the correction
+     said the meal never happened.
+114. **The `SALES` theoretical adapter is absent, and `SALES` is still a
+     declared enum member.** Coverage iterates the enum rather than the
+     registry, so a missing source is named rather than silently skipped.
+115. **`is_final` is a constant `False`.** A derived flag would eventually
+     report `True` for a period with no sales in it, which is where a false
+     claim of finality does the most damage.
+116. **A variance is a number only over comparable dimensions**, and where it is
+     computed over *part* of the evidence the row says so.
+     `PARTIALLY_COMPARABLE_DIMENSIONS_EXCLUDED` carries the excluded rows, because
+     "used 1.75 KG less than planned" and "…and also put in 1.5 L of oil" are
+     materially different statements.
+117. **No surface produces a final sales-based usage variance.** The partial
+     diagnostic carries `PARTIAL_COVERAGE` and `NOT_FINAL_USAGE_VARIANCE` on
+     every row, on screen and in every export.
+118. **Verification reports and refuses to repair.** `verify_kitchen` composes
+     the seven existing verifiers rather than restating their equations, and
+     exits non-zero only for `ERROR` — a coverage limitation is not a defect.
+
+### What is still tempting, and still wrong
+
+- **"Subtract the kitchen's returns from what it consumed."** The transfer
+  already moved its own stock and wrote its own journal. Subtracting it again in
+  a report credits the same goods twice.
+- **"Add the meal expansions to the batch plan for a theoretical total."** The
+  batch already contains the ingredients that produced the output the meal ate.
+- **"Show one usage-variance number; the coverage note explains the caveat."** A
+  number with a caveat beside it is read as a number. Approved sold quantities
+  do not exist, so neither does the figure.

@@ -840,3 +840,30 @@ the fingerprint that deliberately ignores its own answer.
 | RCP-138 | A snapshot's idempotency fingerprint covers the request and never the resulting figures | `snapshots.snapshot_fingerprint` | `apps/kitchen/tests/test_cost_snapshots.py::TestIdempotency::test_the_fingerprint_ignores_the_figures_it_produced` | 3.3 | Hashing the answer would turn every honest re-run into a permanent conflict | Done |
 | RCP-139 | Standard plate cost divides by the version's **primary** `RecipeServing`, and equals that serving's own standard rate exactly | `costing._plate_cost` | `apps/kitchen/tests/test_cost_plate.py::TestPlateCost::test_plate_cost_equals_the_primary_servings_own_rate` | 3.3 | No `portions_per_batch` column exists; adding one would be a second mutable statement of a fact the serving holds. RCP-084 guarantees exactly one primary | Done |
 | RCP-140 | A serving allocation is stored compactly — two amounts, two counts, one leftover — and reconstructs the exact total at any serving count | `costing._compact_allocation` | `apps/kitchen/tests/test_cost_plate.py::TestTheCompactAllocationIsTheCertifiedOne` · `::TestServingAllocationHasNoSizeLimit::test_fifty_thousand_servings_still_allocate_exactly` | 3.3 | Equal-weight servings admit only two amounts, so the compact form **is** the distribution rather than a summary of it. Held against the certified allocator itself | Done |
+
+## Phase 3 — Tasks 3.8 and 3.9 (accelerated implementation checkpoints)
+
+Evidence here is a **development-database smoke or probe**, not a test, under the
+owner's accelerated policy. `docs/runbooks/phase-3-deferred-verification.md` rows
+18 – 32 record what Task 3.11 must still certify. Nothing below may be described
+as suite-verified.
+
+| Rule | Statement | Implementation | Evidence | Task | Status |
+|---|---|---|---|---|---|
+| RCP-103 | Every posted movement at a kitchen warehouse belongs to exactly one bucket | `consumption.classify_kitchen_movement` | smoke: 76 movements, 76 unique ids, 15 buckets populated | 3.8 | Implemented |
+| RCP-104 | `closing − opening = Σ buckets` per `(warehouse, item, lot)` | `consumption.kitchen_warehouse_flow` | smoke: identity holds across 15 `(warehouse, item)` rows | 3.8 | Implemented |
+| RCP-105 | Waste is classified by what was lost; output waste is not expanded into ingredients | `_DIRECT_BUCKETS` + `produced_output_item_ids` | smoke: `PRODUCED_OUTPUT_WASTE` = 1 on the demo waste of `DEMO-RICE-COOKED` | 3.8 | Implemented |
+| RCP-106 | Count and adjustment corrections are excluded from consumption | `CORRECTION_BUCKETS` | smoke: corrections reported in their own columns | 3.8 | Implemented |
+| RCP-098 | Consumption is two distinct reads, neither defined over the other's rows | `batch_actual_consumption` · `period_actual_consumption` | smoke: batch quantity and value equations both hold | 3.8 | Implemented |
+| RCP-099 | Batch consumption is the posted evidence; §11.2's adjusted formula is superseded | ADR-026 §4 | `document_links` is not read by `batch_actual_consumption` | 3.8 | Amended |
+| RCP-100 | Waste and returns are linked, never assumed | `BatchDocumentLink` | demo: 2 links, one of each closed type | 3.8 | Implemented |
+| RCP-101 | The link model is kitchen-owned and one-directional | `apps/kitchen/document_links.py` | `apps.inventory` imports nothing from it | 3.8 | Implemented |
+| RCP-102 | Attribution may not exceed the source line | service `FOR UPDATE` + migration 0023 trigger | probe: service refuses with `link_attribution_exceeds_source`; trigger refuses the same insert with the service bypassed | 3.8 | Implemented |
+| RCP-047 | Theoretical consumption takes a quantity source; sales are Phase 4's contribution | `TheoreticalConsumptionSource` | smoke: `SALES` reports `DEFERRED_TO_PHASE_4`, `is_final` is `False` | 3.8 | Interface ready |
+| RCP-043 | Meals explain fed-but-not-sold output rather than consuming stock again | `staff_meal_equivalent_usage` | smoke: 2 staff and 1 complimentary contributions, cancelled meal excluded | 3.8 | Implemented |
+| RCP-044 | Meal accounting reclassification is deferred and recorded | `verify_kitchen` section 5 | reported as `MEAL_ACCOUNTING_RECLASSIFICATION_DEFERRED` | 3.8 | Deferred |
+| — | A variance computed over part of the evidence discloses what it excluded | `consumption.PARTIALLY_COMPARABLE` | probe: 3 demo rows carry `DEMO-OIL 1.500000 L` outside a −1.75 KG variance | 3.8 | Implemented |
+| RCP-050 | Verification reports and refuses to repair | `manage.py verify_kitchen` | run: 0 ERROR, exit 0, no `--fix` flag exists | 3.9 | Implemented |
+| RCP-049 | `verify_kitchen` proves posting, value conservation, journals and Inventory-to-GL | composes seven verifiers | run: sections 1 – 10 all clean | 3.9 | Implemented |
+| RCP-112 | The absent journal is absent for the right reason | `production_posting_reconciliation` recomputes per-account nets | composed by `verify_kitchen` section 4 | 3.9 | Composed |
+| RCP-107 | No `is_kitchen` flag; the reader selects the warehouse | `FlowFilters.warehouse_id` | every consumption screen scopes by warehouse | 3.8 | Implemented |

@@ -88,6 +88,7 @@ from apps.kitchen.models import (
     ProductionBatch,
     ProductionBatchActualLine,
     ProductionBatchAllocation,
+    ProductionBatchLine,
     ProductionBatchStatus,
     Recipe,
 )
@@ -991,6 +992,26 @@ def period_actual_consumption(user: User, filters: FlowFilters) -> PeriodConsump
 #: and this means "the question does not have a number for an answer".
 NOT_QUANTITATIVELY_COMPARABLE = "NOT_QUANTITATIVELY_COMPARABLE"
 
+#: The subtler case, and the one that actually occurs. A requirement met with
+#: **some** rows in the plan's own dimension and **some** in another has a
+#: perfectly honest variance over the rows that match — and a reader who is shown
+#: only that number is being misled by omission.
+#:
+#: The demo carries exactly this shape: 15 KG of rice planned, met with 11.25 KG
+#: of rice, 2 KG of cooked rice, and 1.5 **litres** of an approved oil
+#: substitute. `comparable_consumption` correctly sums the two kilogram rows to
+#: 13.25 and correctly refuses to add the litres, so the variance is −1.75 KG.
+#: That is arithmetically right. But "used 1.75 KG less than planned" is a
+#: materially different statement from "used 1.75 KG less than planned, and also
+#: put in 1.5 L of oil", and a manager acting on the first would not know a
+#: substitution had happened at all.
+#:
+#: Task 3.6's `ConsumptionComparison` returns an empty `statement` whenever a
+#: figure is comparable, so there is nowhere in it for this disclosure to live.
+#: Rather than reopen a certified module for it, Task 3.8's own read carries the
+#: excluded rows and this status beside the number.
+PARTIALLY_COMPARABLE = "PARTIALLY_COMPARABLE_DIMENSIONS_EXCLUDED"
+
 
 @dataclass(frozen=True)
 class StandardRequirementRow:
@@ -1007,14 +1028,34 @@ class StandardRequirementRow:
     planned_base_quantity: Decimal
     actual_base_quantity: Decimal | None
     variance: Decimal | None
-    #: `""` when comparable, `NOT_QUANTITATIVELY_COMPARABLE` when not.
+    #: `""` when every recorded row shares the plan's dimension,
+    #: `PARTIALLY_COMPARABLE_DIMENSIONS_EXCLUDED` when the variance is real but
+    #: incomplete, `NOT_QUANTITATIVELY_COMPARABLE` when there is no number.
     compatibility: str
     statement: str
     actual_posted_value: Decimal | None
+    #: Actual rows in another dimension, which the variance above **excludes**.
+    #: `("DEMO-OIL 1.500000 L",)`. Empty for the ordinary case.
+    excluded_rows: tuple[str, ...] = ()
 
     @property
     def is_comparable(self) -> bool:
         return self.variance is not None
+
+    @property
+    def is_complete(self) -> bool:
+        """
+        Whether the variance accounts for **everything** recorded.
+
+        A comparable variance with excluded rows is a true number about part of
+        the evidence. Distinguishing that from a variance with nothing left out
+        is the whole point of this property.
+        """
+        return self.variance is not None and not self.excluded_rows
+
+    @property
+    def excluded_display(self) -> str:
+        return " + ".join(self.excluded_rows)
 
     @property
     def version_label(self) -> str:
@@ -1043,6 +1084,52 @@ def _line_posted_value(line_id: int) -> Decimal:
     )
 
 
+def _excluded_statement(excluded: tuple[str, ...]) -> str:
+    """
+    What to say when a real variance leaves recorded consumption out of itself.
+
+    Empty when nothing was excluded, so the ordinary row stays silent.
+    """
+    if not excluded:
+        return ""
+    return str(
+        _(
+            "الانحراف أعلاه يشمل السطور المتوافقة في البُعد فقط. سُجّل أيضاً "
+            "استهلاك ببُعد قياس مختلف وهو خارج الرقم: %(rows)s"
+        )
+        % {"rows": " + ".join(excluded)}
+    )
+
+
+def _excluded_dimension_rows(line: ProductionBatchLine) -> tuple[str, ...]:
+    """
+    Recorded actual rows whose dimension differs from the requirement's.
+
+    These are the rows `comparable_consumption` deliberately leaves out of its
+    sum. Reading them here rather than re-deriving the comparability rule keeps
+    one definition of "same dimension": the unit's own `dimension`, exactly as
+    Task 3.6 asks it.
+    """
+    target = line.item.base_unit
+    excluded: list[str] = []
+    for row in line.actuals.select_related("item", "item__base_unit").order_by("entry_order"):
+        if row.base_quantity <= ZERO:
+            continue
+        unit = row.item.base_unit
+        if unit.dimension == target.dimension:
+            continue
+        excluded.append(f"{row.item.code} {row.base_quantity:f} {unit.code}")
+    return tuple(excluded)
+
+
+def _compatibility_of(row: object, excluded: tuple[str, ...]) -> str:
+    """`""`, partially comparable, or not comparable at all."""
+    comparable = getattr(row, "is_comparable", False)
+    if not comparable:
+        return NOT_QUANTITATIVELY_COMPARABLE
+    return PARTIALLY_COMPARABLE if excluded else ""
+
+
 def production_standard_requirements(
     user: User, filters: ProductionFilters, *, include_cost: bool = False
 ) -> list[StandardRequirementRow]:
@@ -1066,6 +1153,7 @@ def production_standard_requirements(
     for batch in batches:
         for row in variance_rows(batch):
             line = row.line
+            excluded = _excluded_dimension_rows(line)
             rows.append(
                 StandardRequirementRow(
                     batch=batch,
@@ -1079,9 +1167,10 @@ def production_standard_requirements(
                     planned_base_quantity=row.planned,
                     actual_base_quantity=row.comparable_actual,
                     variance=row.variance,
-                    compatibility="" if row.is_comparable else NOT_QUANTITATIVELY_COMPARABLE,
-                    statement=row.statement,
+                    compatibility=_compatibility_of(row, excluded),
+                    statement=row.statement or _excluded_statement(excluded),
                     actual_posted_value=_line_posted_value(line.pk) if include_cost else None,
+                    excluded_rows=excluded,
                 )
             )
     return rows
@@ -1104,7 +1193,14 @@ def production_standard_variance(
     blank cell.
     """
     rows = production_standard_requirements(user, filters, include_cost=include_cost)
-    deviating = [row for row in rows if row.variance is None or row.variance != ZERO]
+    deviating = [
+        row
+        for row in rows
+        # A row that came out exactly but excluded a cross-dimension
+        # substitution is still a deviation worth reading: the zero is only zero
+        # over the rows the variance could account for.
+        if row.variance is None or row.variance != ZERO or row.excluded_rows
+    ]
     return sorted(
         # `variance is None` sorts False before True, so every comparable row
         # comes first by descending magnitude and the incomparable ones follow.
@@ -1120,6 +1216,7 @@ __all__ = [
     "CUSTODY_BUCKETS",
     "LOSS_BUCKETS",
     "NOT_QUANTITATIVELY_COMPARABLE",
+    "PARTIALLY_COMPARABLE",
     "BatchActualConsumption",
     "BatchConsumptionAllocation",
     "BatchConsumptionRow",

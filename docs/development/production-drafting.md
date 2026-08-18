@@ -239,3 +239,7 @@ organization that does not exist" must never look like "clean".
 - `docs/development/recipe-costing.md` — the other consumer of the shared
   expansion engine
 - `docs/decisions/ADR-024-recipe-versioning-and-the-effective-dated-cost-basis.md`
+- `docs/decisions/ADR-026-kitchen-custody-consumption-and-usage-variance.md` —
+  what Task 3.8 does with the planned lines and actual rows this module writes,
+  and why `comparable_consumption`'s dimension rule needed a third status
+  (`PARTIALLY_COMPARABLE_DIMENSIONS_EXCLUDED`) once it reached a variance report

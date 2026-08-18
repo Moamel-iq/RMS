@@ -3314,10 +3314,17 @@ class StandardVarianceRowOut(Schema):
     planned_base_quantity: str
     actual_base_quantity: str | None
     variance: str | None
-    #: `NOT_QUANTITATIVELY_COMPARABLE` where the dimensions disagree. Never a
-    #: zero: zero means "no deviation" and this means "no numeric answer".
+    #: `NOT_QUANTITATIVELY_COMPARABLE` where the dimensions disagree, or
+    #: `PARTIALLY_COMPARABLE_DIMENSIONS_EXCLUDED` where the variance is a true
+    #: number over only part of the evidence. Never a zero: zero means "no
+    #: deviation" and neither of these does.
     compatibility: str
     statement: str
+    #: Recorded actual rows in another dimension, which `variance` excludes.
+    excluded_rows: list[str]
+    #: `False` when `excluded_rows` is non-empty: the variance is real but does
+    #: not account for everything recorded against the requirement.
+    variance_is_complete: bool
 
 
 class UsageDiagnosticRowOut(Schema):
@@ -3414,6 +3421,8 @@ def get_usage_variance(
                 "variance": f"{row.variance:f}" if row.variance is not None else None,
                 "compatibility": row.compatibility,
                 "statement": row.statement,
+                "excluded_rows": list(row.excluded_rows),
+                "variance_is_complete": row.is_complete,
             }
             for row in analysis.production_variance
         ],
