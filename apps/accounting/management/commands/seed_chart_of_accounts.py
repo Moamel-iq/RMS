@@ -29,11 +29,24 @@ CHART: list[tuple[str, str, str]] = [
     ("1-01-01-001", "الصندوق الرئيسي", "Main Cash"),
     ("1-01-02", "الحسابات البنكية", "Bank accounts"),
     ("1-01-02-001", "البنك", "Bank"),
+    # Card takings between the sale and the acquirer's remittance (Task 4.0).
+    # A clearing **asset** rather than cash: the money is real and the
+    # restaurant does not have it yet, and treating a card sale as cash on hand
+    # would make every cashier closing count short by that day's card volume.
+    ("1-01-03", "شبكات الدفع", "Card settlement"),
+    ("1-01-03-001", "تسوية مبيعات البطاقات", "Card Clearing"),
     ("1-02", "الذمم المدينة", "Receivables"),
     ("1-02-01", "ذمم تطبيقات التوصيل", "Delivery application receivables"),
     ("1-02-01-001", "ذمم بالي", "Bally Receivable"),
     ("1-02-01-002", "ذمم توترز", "Toters Receivable"),
     ("1-02-01-003", "ذمم طلبات", "Talabat Receivable"),
+    # The organization default for `DELIVERY_APP_RECEIVABLE` (Task 4.0). A
+    # general leaf rather than one of the three named applications above,
+    # because the default has to be an account that is correct for an
+    # application nobody has configured yet — and pointing it at Bally would
+    # quietly file a new application's debt under a company that is not owed
+    # it. Each application may override to its own account.
+    ("1-02-01-009", "ذمم تطبيقات التوصيل — عام", "Delivery App Receivable — General"),
     # Inventory control and in-transit (Task 1.3). Accounts only: which of
     # them carries INVENTORY_CONTROL is an OrganizationAccountMapping the
     # organization records deliberately, never something this seed decides.
@@ -74,6 +87,24 @@ CHART: list[tuple[str, str, str]] = [
     ("4-01-01-002", "مبيعات السفري", "Takeaway Sales"),
     ("4-01-02", "مبيعات التطبيقات", "Delivery application sales"),
     ("4-01-02-001", "مبيعات تطبيقات التوصيل", "Delivery App Sales"),
+    # Contra-revenue, and deliberately in class 4 rather than class 6 (Task
+    # 4.0). A restaurant-funded discount is money the restaurant chose not to
+    # collect: it reduces what the restaurant earns. Booking it as a marketing
+    # expense would leave gross revenue overstated and marketing overstated by
+    # the same amount, and both figures would look defensible on their own.
+    #
+    # An **application**-funded discount never reaches this account. The
+    # application reimburses it, so it is part of what the application owes.
+    ("4-02", "خصومات المبيعات", "Sales discounts"),
+    ("4-02-01", "خصومات ممولة من المطعم", "Restaurant-funded discounts"),
+    ("4-02-01-001", "خصومات المبيعات المموّلة من المطعم", "Restaurant-funded Sales Discount"),
+    # Separate from discounts because the two answer different questions. A
+    # discount is a pricing decision made before the sale; a return is a sale
+    # that stopped being one afterwards. Netting them would make a month of
+    # generous promotions indistinguishable from a month of rejected food.
+    ("4-03", "مردودات المبيعات", "Sales returns"),
+    ("4-03-01", "مردودات وإلغاءات", "Returns and cancellations"),
+    ("4-03-01-001", "مردودات وإلغاءات المبيعات", "Sales Returns and Cancellations"),
     # 5 Cost of sales
     ("5", "كلفة المبيعات", "Cost of sales"),
     ("5-01", "كلفة المواد", "Material cost"),
@@ -108,6 +139,18 @@ CHART: list[tuple[str, str, str]] = [
     # away. Class 6 makes a cost centre mandatory, which is the control — waste
     # nobody's kitchen carries is waste nobody reduces.
     ("6-02-01-002", "هالك المخزون", "Inventory Waste Expense"),
+    # What the delivery applications take (Task 4.0). Accrued at the sale from
+    # the effective agreement, not discovered at settlement: the rate is known
+    # the day the order is taken, and waiting for a statement would leave a
+    # month's margin unknown until the following month.
+    #
+    # Two leaves rather than one, because a percentage of value and a fixed fee
+    # per order behave differently as volume moves, and a single account would
+    # hide which of the two changed.
+    ("6-03", "مصروفات البيع والتوصيل", "Selling and delivery expenses"),
+    ("6-03-01", "عمولات ورسوم التطبيقات", "Application commissions and fees"),
+    ("6-03-01-001", "عمولات تطبيقات التوصيل", "Delivery Commission Expense"),
+    ("6-03-01-002", "رسوم تطبيقات التوصيل الأخرى", "Delivery Other Fee Expense"),
     # 7 Other income and expense
     ("7", "إيرادات ومصروفات أخرى", "Other income and expense"),
     ("7-09", "فروقات وتسويات", "Differences and adjustments"),
@@ -137,6 +180,19 @@ CHART: list[tuple[str, str, str]] = [
     # behaviour inside the arithmetic of having averaged two deliveries.
     ("7-09-04", "فروقات إرجاع المشتريات", "Purchase return variance"),
     ("7-09-04-001", "فروقات إرجاع المشتريات", "Purchase Return Variance"),
+    # The two bidirectional Sales difference accounts (Task 4.0), here for the
+    # same reason the count variance is: an application that over-remits and a
+    # till that is over are not negative spending, and class 6 would make both
+    # look like costs that went the wrong way.
+    #
+    # Neither is reached automatically. An unexplained settlement difference
+    # blocks posting until somebody categorises it and states a reason — a
+    # system that silently absorbs differences is one where a mis-configured
+    # commission rate stays invisible for a year.
+    ("7-09-05", "فروقات تسويات التطبيقات", "Delivery settlement variance"),
+    ("7-09-05-001", "فروقات تسويات التطبيقات", "Delivery Settlement Variance"),
+    ("7-09-06", "فروقات الصندوق", "Cash over and short"),
+    ("7-09-06-001", "فروقات الصندوق", "Cash Over and Short"),
     # 8 Clearing and control
     ("8", "حسابات وسيطة ورقابية", "Clearing and control"),
     ("8-01", "حسابات وسيطة", "Clearing accounts"),

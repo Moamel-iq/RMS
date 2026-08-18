@@ -484,6 +484,7 @@ def sync_system_account_roles() -> None:
     from apps.accounting.models import (
         SYSTEM_INVENTORY_ROLES,
         SYSTEM_PURCHASING_ROLES,
+        SYSTEM_SALES_ROLES,
         AccountRole,
         AccountRoleDomain,
     )
@@ -491,6 +492,7 @@ def sync_system_account_roles() -> None:
     vocabularies = (
         (SYSTEM_INVENTORY_ROLES, AccountRoleDomain.INVENTORY),
         (SYSTEM_PURCHASING_ROLES, AccountRoleDomain.PURCHASING),
+        (SYSTEM_SALES_ROLES, AccountRoleDomain.SALES),
     )
     for roles, domain in vocabularies:
         for code, name_ar, name_en, mapping_scope in roles:

@@ -630,6 +630,12 @@ class AccountRoleDomain(models.TextChoices):
 
     INVENTORY = "INVENTORY", _("المخزون")
     PURCHASING = "PURCHASING", _("المشتريات")
+    #: Task 4.0. The first domain whose posting rules are about what the
+    #: organization **earns**, and the first with a receivable of its own. A
+    #: delivery-application receivable is not a purchasing concept and filing
+    #: it under `PURCHASING` because both are "somebody owes somebody" would
+    #: make the domain column a label rather than a fact.
+    SALES = "SALES", _("المبيعات")
 
 
 class AccountRoleMappingScope(models.TextChoices):
@@ -877,6 +883,139 @@ SYSTEM_PURCHASING_ROLES: tuple[tuple[str, str, str, str], ...] = (
         "ORGANIZATION",
     ),
     (SUPPLIER_ADVANCE, "سلف الموردين", "Supplier advances", "ORGANIZATION"),
+)
+
+
+# ---------------------------------------------------------------------------
+# Sales — Task 4.0
+# ---------------------------------------------------------------------------
+
+#: What the restaurant earned, before any deduction. Gross list value, always:
+#: a discount is shown as a deduction beside it rather than netted into it,
+#: because a revenue figure that already has discounts inside it cannot answer
+#: "what did we give away this month" (ADR-027 §2).
+SALES_REVENUE = "SALES_REVENUE"
+
+#: **Contra-revenue**, and the word is exact. A restaurant-funded discount is
+#: money the restaurant chose not to collect, so it reduces what the restaurant
+#: earns and belongs beside revenue rather than in class 6. Booking it as an
+#: operating expense would leave gross revenue overstated and marketing spend
+#: overstated by the same amount, and both figures would look defensible.
+#:
+#: An **application**-funded discount never reaches this account. The
+#: application reimburses it, so it is part of what the application owes —
+#: `DELIVERY_APP_RECEIVABLE`, not a restaurant cost (ADR-028 §3).
+SALES_DISCOUNT = "SALES_DISCOUNT"
+
+#: Reversed sales value, kept separate from `SALES_DISCOUNT` because the two
+#: answer different questions. A discount is a pricing decision made before the
+#: sale; a return is a sale that stopped being one afterwards. Netting them
+#: would make a month of generous promotions indistinguishable from a month of
+#: rejected food.
+SALES_RETURNS = "SALES_RETURNS"
+
+#: Where cash takings sit until a cashier closing counts them. The organization
+#: decides which cashbox; Phase 5 makes cashboxes first-class and this role
+#: becomes their default. Nothing already posted moves when it does.
+SALES_CASH_ON_HAND = "SALES_CASH_ON_HAND"
+
+#: Card takings between the sale and the acquirer's remittance. A clearing
+#: asset, not cash: the money is real and the restaurant does not have it yet.
+SALES_CARD_CLEARING = "SALES_CARD_CLEARING"
+
+#: What a delivery application owes for sales it has taken. **Derived from an
+#: append-only ledger, never a stored balance** (ADR-027 §5): a mutable balance
+#: field is a number that can disagree with the entries that produced it, and
+#: the disagreement is discovered during a settlement argument.
+#:
+#: Organization-scoped here, with a per-application override carried on
+#: `sales.DeliveryApplication` — the same arrangement `INVENTORY_CONTROL` uses
+#: for items. Accounting never learns what a delivery application is.
+DELIVERY_APP_RECEIVABLE = "DELIVERY_APP_RECEIVABLE"
+
+#: The application's cut, accrued at sale (ADR-028 §4). Accrued rather than
+#: discovered at settlement, because the agreement states the rate on the day
+#: the order is taken: waiting for a statement would mean a month's margin was
+#: unknown until the following month, and every unexplained settlement
+#: difference would look like a commission surprise.
+DELIVERY_COMMISSION_EXPENSE = "DELIVERY_COMMISSION_EXPENSE"
+
+#: Other contractually agreed application deductions accrued at sale —
+#: per-order service fees and the like. Separate from commission because a
+#: fixed fee per order and a percentage of value behave differently as volume
+#: moves, and one account would hide which of the two changed.
+DELIVERY_OTHER_FEE_EXPENSE = "DELIVERY_OTHER_FEE_EXPENSE"
+
+#: The difference between what a settlement was expected to remit and what it
+#: actually did. **Bidirectional** — a debit when the application short-paid
+#: and a credit when it over-paid — which is why it sits in class 7 beside the
+#: other difference accounts rather than in class 6.
+#:
+#: Reaching it is never automatic. An unexplained variance blocks posting until
+#: somebody categorises it and states a reason (ADR-028 §7); a system that
+#: silently absorbs differences into an account is a system where a
+#: mis-configured commission rate is invisible for a year.
+DELIVERY_SETTLEMENT_VARIANCE = "DELIVERY_SETTLEMENT_VARIANCE"
+
+#: Where a bank remittance lands when a settlement pays out. Cash settlements
+#: use `SALES_CASH_ON_HAND`; the settlement names its destination and the role
+#: resolves the account, never a hard-coded id.
+SALES_SETTLEMENT_BANK = "SALES_SETTLEMENT_BANK"
+
+#: Counted cash against expected cash. Bidirectional for the same reason
+#: `INVENTORY_COUNT_VARIANCE` is: a till that is over is not negative spending.
+#:
+#: This is the **only** thing a cashier closing may post. The sale already
+#: recognised the revenue; a closing that posted sales again would double every
+#: cash takings figure in the system (ADR-027 §8).
+SALES_CASH_OVER_SHORT = "SALES_CASH_OVER_SHORT"
+
+#: The sales vocabulary, same shape as the two above.
+#:
+#: Every one is `ORGANIZATION`-scoped. `ITEM` would be the wrong question in
+#: every case here: sales roles are about a *channel*, an *application* or a
+#: *tender*, and none of those is an inventory item. Where a finer answer is
+#: genuinely needed — this application settles into that receivable account,
+#: this channel earns into that revenue account — the override is carried by
+#: the sales master data that owns the concept, exactly as inventory carries
+#: its item overrides. Accounting stays ignorant of both.
+SYSTEM_SALES_ROLES: tuple[tuple[str, str, str, str], ...] = (
+    (SALES_REVENUE, "إيرادات المبيعات", "Sales revenue", "ORGANIZATION"),
+    (SALES_DISCOUNT, "خصومات المبيعات", "Sales discounts", "ORGANIZATION"),
+    (SALES_RETURNS, "مردودات المبيعات", "Sales returns", "ORGANIZATION"),
+    (SALES_CASH_ON_HAND, "نقدية المبيعات", "Sales cash on hand", "ORGANIZATION"),
+    (SALES_CARD_CLEARING, "تسوية مبيعات البطاقات", "Card clearing", "ORGANIZATION"),
+    (
+        DELIVERY_APP_RECEIVABLE,
+        "ذمم تطبيقات التوصيل",
+        "Delivery application receivable",
+        "ORGANIZATION",
+    ),
+    (
+        DELIVERY_COMMISSION_EXPENSE,
+        "عمولات تطبيقات التوصيل",
+        "Delivery commission expense",
+        "ORGANIZATION",
+    ),
+    (
+        DELIVERY_OTHER_FEE_EXPENSE,
+        "رسوم تطبيقات التوصيل الأخرى",
+        "Delivery other fee expense",
+        "ORGANIZATION",
+    ),
+    (
+        DELIVERY_SETTLEMENT_VARIANCE,
+        "فروقات تسويات التطبيقات",
+        "Delivery settlement variance",
+        "ORGANIZATION",
+    ),
+    (
+        SALES_SETTLEMENT_BANK,
+        "تحصيلات التطبيقات عبر المصرف",
+        "Settlement bank receipts",
+        "ORGANIZATION",
+    ),
+    (SALES_CASH_OVER_SHORT, "فروقات الصندوق", "Cash over and short", "ORGANIZATION"),
 )
 
 
