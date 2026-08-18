@@ -1,0 +1,20 @@
+{# Extra toolbar controls for the production standard report.                #}
+{#                                                                           #}
+{# Recipe, version and batch are typed as ids rather than offered as global  #}
+{# dropdowns: the operator arrives here from a batch or a recipe screen, and #}
+{# a select of every version in the organization would be both unusable and  #}
+{# a listing of the whole menu to somebody who only reaches one branch.      #}
+{% load i18n %}
+
+<label class="field">
+  <span>{% translate "رقم الوصفة" %}</span>
+  <input type="number" name="recipe_id" min="1" dir="ltr" value="{{ filters.recipe_id }}">
+</label>
+<label class="field">
+  <span>{% translate "رقم النسخة" %}</span>
+  <input type="number" name="version_id" min="1" dir="ltr" value="{{ filters.version_id }}">
+</label>
+<label class="field">
+  <span>{% translate "رقم الدفعة" %}</span>
+  <input type="number" name="batch_id" min="1" dir="ltr" value="{{ filters.batch_id }}">
+</label>

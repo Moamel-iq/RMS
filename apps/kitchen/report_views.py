@@ -90,9 +90,29 @@ class KitchenReportView(KitchenViewMixin, View):
     #: Rendered above the table when the report's coverage is narrower than its
     #: title suggests. Task 3.8 uses it for the Phase 4 sales exclusion.
     coverage_note: Any = ""
+    #: Machine-readable coverage labels, rendered as chips beside the note and
+    #: written into the CSV. Task 3.8 stamps `SALES_NOT_INCLUDED_PHASE_4` and,
+    #: on the variance screen, `PARTIAL_COVERAGE` / `NOT_FINAL_USAGE_VARIANCE`.
+    #: They are codes rather than sentences on purpose: a downstream reader
+    #: greps a code and cannot grep a translated paragraph.
+    coverage_codes: Sequence[str] = ()
+    #: An optional partial rendered inside the shared toolbar, so a report can
+    #: add its own filters without a second report template. The shell keeps
+    #: owning scope, dates, pagination, HTMX and the export.
+    filter_extras_template: str = ""
 
     def report_rows(self, *, include_cost: bool) -> list[dict[str, Any]]:
         raise NotImplementedError
+
+    def extra_context(self) -> dict[str, Any]:
+        """
+        Anything this report needs beside its rows — coverage, totals, choices.
+
+        A hook rather than an overridden `get`, so a subclass cannot
+        accidentally drop the scope, the pagination or the export while adding
+        a filter dropdown.
+        """
+        return {}
 
     # -- request plumbing --------------------------------------------------
 
@@ -148,6 +168,35 @@ class KitchenReportView(KitchenViewMixin, View):
     def is_htmx(self) -> bool:
         return self.request.headers.get("HX-Request") == "true"
 
+    #: Arabic for each filter key, for the applied-filter chips.
+    FILTER_LABELS: dict[str, Any] = {
+        "date_from": _("من تاريخ"),
+        "date_to": _("إلى تاريخ"),
+        "warehouse_id": _("المخزن"),
+        "branch_id": _("الفرع"),
+        "item_id": _("الصنف"),
+        "recipe_id": _("الوصفة"),
+        "version_id": _("النسخة"),
+        "batch_id": _("الدفعة"),
+        "bucket": _("التصنيف"),
+        "meal_type": _("نوع الوجبة"),
+        "status": _("الحالة"),
+    }
+
+    def applied_filters(self) -> list[tuple[Any, str]]:
+        """
+        The filters actually in force, for a chip row above the table.
+
+        Read from `request.GET` rather than from the parsed filter objects, so
+        a value the report could not parse still shows as applied — a silently
+        ignored malformed date is the filter bug hardest to notice.
+        """
+        return [
+            (label, self.request.GET.get(key, "").strip())
+            for key, label in self.FILTER_LABELS.items()
+            if self.request.GET.get(key, "").strip()
+        ]
+
     def active_columns(self) -> list[tuple[str, Any]]:
         columns = list(self.columns)
         if self.include_cost:
@@ -167,6 +216,15 @@ class KitchenReportView(KitchenViewMixin, View):
         response["Content-Disposition"] = f'attachment; filename="{self.export_stem}-{stamp}.csv"'
         response.write("﻿")
         writer = csv.writer(response)
+        # Coverage first, above the header, so a partial diagnostic cannot be
+        # separated from the fact that it is partial by somebody deleting a
+        # column. `_safe` runs on it too: it is still a spreadsheet cell.
+        if self.coverage_codes:
+            writer.writerow(
+                [_safe(str(_("تغطية التقرير"))), *(_safe(code) for code in self.coverage_codes)]
+            )
+            if self.coverage_note:
+                writer.writerow([_safe(str(_("بيان التغطية"))), _safe(str(self.coverage_note))])
         writer.writerow([str(header) for _key, header in columns])
         for row in rows:
             writer.writerow([_safe(row.get(key)) for key, _header in columns])
@@ -193,15 +251,31 @@ class KitchenReportView(KitchenViewMixin, View):
                 "is_paginated": page.has_other_pages(),
                 "paginator": paginator,
                 "total_rows": paginator.count,
+                # Every filter this family understands, echoed back whether or
+                # not this particular report uses it. That is what makes a
+                # filter survive pagination: the links are built from the same
+                # query string, and a key the template forgot would be dropped
+                # on the second page only.
                 "filters": {
                     "date_from": request.GET.get("date_from", ""),
                     "date_to": request.GET.get("date_to", ""),
                     "warehouse_id": request.GET.get("warehouse_id", ""),
+                    "branch_id": request.GET.get("branch_id", ""),
+                    "item_id": request.GET.get("item_id", ""),
+                    "recipe_id": request.GET.get("recipe_id", ""),
+                    "version_id": request.GET.get("version_id", ""),
+                    "batch_id": request.GET.get("batch_id", ""),
+                    "bucket": request.GET.get("bucket", ""),
+                    "meal_type": request.GET.get("meal_type", ""),
                     "status": request.GET.get("status", ""),
                 },
                 "warehouses": readable_kitchen_warehouses(self.actor),
                 "show_cost": self.include_cost,
                 "export_query": self._export_query(),
+                "coverage_codes": list(self.coverage_codes),
+                "filter_extras_template": self.filter_extras_template,
+                "applied_filters": self.applied_filters(),
+                **self.extra_context(),
             },
         )
 

@@ -20,6 +20,7 @@ from apps.inventory.models import Warehouse
 from apps.kitchen.models import (
     COMPONENT_ELIGIBLE_STATUSES,
     OPEN_VERSION_STATUSES,
+    BatchDocumentLink,
     MealRecord,
     ProductionBatch,
     ProductionBatchActualLine,
@@ -41,6 +42,7 @@ from apps.kitchen.models import (
 )
 from apps.kitchen.permissions import (
     CREATE_PRODUCTION_BATCH,
+    LINK_BATCH_DOCUMENT,
     MANAGE_RECIPE,
     POST_PRODUCTION_BATCH,
     RECORD_MEAL,
@@ -635,3 +637,41 @@ def draftable_recipes(user: User, organization: Organization) -> QuerySet[Recipe
         .select_related("output_item")
         .order_by("code")
     )
+
+
+def visible_batch_document_links(user: User) -> QuerySet[BatchDocumentLink]:
+    """
+    Every attribution this caller may read, newest first.
+
+    Scoped through `visible_production_batches`, which is **warehouse**-scoped:
+    a link is a statement about one kitchen store's flow, so it is readable
+    exactly where the batch it annotates is readable. Scoping it to the report
+    permission instead would let somebody who may read reports at one branch
+    see attributions on another branch's stores.
+    """
+    return BatchDocumentLink.objects.filter(
+        batch__in=visible_production_batches(user)
+    ).select_related(
+        "organization",
+        "branch",
+        "warehouse",
+        "batch",
+        "item",
+        "item__base_unit",
+        "transfer_line",
+        "transfer_line__transfer",
+        "waste_line",
+        "waste_line__document",
+        "created_by",
+        "cancelled_by",
+    )
+
+
+def resolve_batch_document_link(user: User, link_id: int) -> BatchDocumentLink:
+    """Out of scope is 404: a 403 would confirm another store's link exists."""
+    return _resolve(visible_batch_document_links(user), link_id, "BatchDocumentLink")
+
+
+def linkable_production_warehouses(user: User) -> QuerySet[Warehouse]:
+    """Warehouses where a post this caller holds carries `link_batch_document`."""
+    return _warehouses_with_permission(user, LINK_BATCH_DOCUMENT)

@@ -1,0 +1,99 @@
+{# Creating one explanatory attribution.                                      #}
+{#                                                                           #}
+{# The source line is entered by id rather than picked from a dropdown: the   #}
+{# operator arrives here from the document they are looking at, and a select  #}
+{# of every transfer or waste line in the organization would be both unusable #}
+{# and a listing of other branches' documents. The service refuses anything   #}
+{# outside this batch's own organization, branch and warehouse.               #}
+{% extends base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="kitchen-batch-links">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">
+          {{ page_title }} — <bdi dir="ltr"><code>{{ batch.number|default:"—" }}</code></bdi>
+        </h1>
+        <p class="pagehead__hint">{{ link_statement }}</p>
+      </div>
+      <div class="rowactions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_consumption' batch.pk %}">
+          {% translate "رجوع" %}
+        </a>
+      </div>
+    </div>
+
+    <p class="banner" role="note">
+      {% if is_custody %}
+        {% translate "إرجاع العهدة ليس عكساً لصرف الإنتاج: المادة غادرت عهدة المطبخ إلى المخزن، ولم يُلغَ شيء مما طُبخ. هذا الربط يجعل الحركة قابلة للعثور من الدفعة، ولا ينقص كميتها المرحّلة ولا قيمتها." %}
+      {% else %}
+        {% translate "هالك بمستند إتلاف مرحّل وسبب وقيمة وقيد خاص به. هذا الربط ينسبه إلى الدفعة لأجل التفسير فقط، ولا يُضاف إلى قيمة مدخلات الدفعة مرة ثانية." %}
+      {% endif %}
+    </p>
+
+    <p class="muted">
+      {% translate "الكمية المنسوبة لا يجوز أن تتجاوز كمية سطر المستند بعد خصم ما نُسب منه سابقاً، ولا يمكن ربط السطر نفسه بالدفعة نفسها مرتين. القاعدتان محفوظتان في الخدمة وفي قاعدة البيانات." %}
+    </p>
+
+    <form class="formcard"
+          method="post"
+          novalidate
+          action="{{ request.path }}"
+          hx-post="{{ request.path }}"
+          hx-target="#kitchen-batch-links"
+          hx-swap="outerHTML">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+        <div class="alert" role="alert">
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% include "settings/_field.html" with field=field %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions">
+        <button class="btn btn--primary" type="submit">{% translate "إنشاء الربط" %}</button>
+        <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_consumption' batch.pk %}">
+          {% translate "تراجع" %}
+        </a>
+      </div>
+    </form>
+
+    {% if links %}
+      <div class="tablewrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">{% translate "النوع" %}</th>
+              <th scope="col">{% translate "المستند" %}</th>
+              <th scope="col">{% translate "الكمية" %}</th>
+              <th scope="col">{% translate "الحالة" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for link in links %}
+              <tr>
+                <td data-label="{% translate 'النوع' %}">{{ link.get_link_type_display }}</td>
+                <td data-label="{% translate 'المستند' %}">
+                  <bdi dir="ltr"><code>{{ link.source_reference }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'الكمية' %}">
+                  <bdi dir="ltr"><code>{{ link.quantity_display }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'الحالة' %}">{{ link.get_status_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

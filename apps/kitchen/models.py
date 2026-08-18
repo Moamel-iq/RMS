@@ -3661,3 +3661,295 @@ class MealRecord(TimeStampedModel):
     @property
     def output_display(self) -> str:
         return f"{self.output_base_quantity:f}"
+
+
+# ---------------------------------------------------------------------------
+# Task 3.8 — explanatory attribution between a posted batch and an Inventory
+# document that happened near it
+# ---------------------------------------------------------------------------
+
+
+class BatchLinkType(models.TextChoices):
+    """
+    What an attribution **claims**, and the two things it is careful not to.
+
+    Both values end in `_CONTEXT` because that is honestly all either one is.
+    Task 3.0 §11.2 named the first `MATERIAL_RETURN` and defined batch
+    consumption as `consumed − linked returns + linked waste`; ADR-026
+    supersedes that arithmetic and keeps the link.
+
+    The reason is the one in §11.2's own margin: a posted batch is immutable
+    and its input value equals its output value to the fils (RCP-034). A
+    custody transfer carrying unopened spice from the kitchen back to the
+    store is a genuine Phase 1 event with its own movements and its own
+    journal — but it does **not** reverse the batch's `PRODUCTION_OUT`, and
+    subtracting it from that batch's consumption would credit the same
+    kilogram twice: once in the transfer's own ledger effect, once again in a
+    report. If the batch's inputs were genuinely wrong, the correction is to
+    reverse the batch and repost it (ADR-025 §7).
+
+    So a link explains. It says *this waste document is about that batch*, so
+    a reader of either one finds the other. It changes no quantity, no value,
+    no ledger and no variance.
+    """
+
+    #: A Phase 1 transfer moving material out of the kitchen store, in the
+    #: neighbourhood of a batch. Custody moved; nothing was un-consumed.
+    CUSTODY_RETURN_CONTEXT = "CUSTODY_RETURN_CONTEXT", _("سياق إرجاع عهدة")
+    #: A Phase 1 Waste document at the kitchen store that this batch explains.
+    #: Abnormal loss, with its own reason code, value and journal — never
+    #: folded into the batch's own input value a second time.
+    ABNORMAL_WASTE_CONTEXT = "ABNORMAL_WASTE_CONTEXT", _("سياق هالك غير طبيعي")
+
+
+class BatchDocumentLinkStatus(models.TextChoices):
+    """Live, or withdrawn with a reason. There is no third state and no edit."""
+
+    ACTIVE = "ACTIVE", _("سارٍ")
+    CANCELLED = "CANCELLED", _("ملغى")
+
+
+class BatchDocumentLink(TimeStampedModel):
+    """
+    One posted Inventory line, attributed to one posted production batch.
+
+    **Kitchen-owned and one-directional** (RCP-101). It lives here, holds keys
+    *into* `apps.inventory`, and `apps.inventory` neither imports it nor
+    changes behaviour because of it. Deleting every row would leave both
+    ledgers byte-identical and only the kitchen's attribution reports poorer.
+
+    ## Typed foreign keys, not a document-type string
+
+    Task 3.0 sketched `document_type` + `document_id` as a UUID pair. That is a
+    caller-controlled table name in disguise: nothing in the database can then
+    check that the id exists, that it belongs to the right organization, or
+    that its item matches — and a link pointing at a deleted or foreign row
+    would sit in a variance report looking exactly like a valid one.
+
+    Two nullable `PROTECT` foreign keys instead, one per source family, with a
+    constraint saying exactly one is set and that it agrees with `link_type`.
+    Referential integrity becomes the database's job, which is where it
+    belongs, and a foreign source is refused rather than merely unlikely.
+
+    ## The attribution cap
+
+    `attributed_quantity` may not push the source line's total attribution past
+    the line's own quantity (RCP-102), and no two `ACTIVE` links may point the
+    same batch at the same source line. Both are enforced twice — in the
+    service under `select_for_update`, and by a deferred constraint trigger —
+    because the service check alone loses to a concurrent second writer, and a
+    waste document charged to three batches would let a variance report balance
+    against nothing.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="batch_document_links",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="batch_document_links",
+        verbose_name=_("branch"),
+    )
+    #: The kitchen store whose flow this attribution belongs to. Denormalised
+    #: from the batch so the report can scope without a join, and checked
+    #: against the source line's own warehouse before the row is written.
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="kitchen_batch_document_links",
+        verbose_name=_("kitchen warehouse"),
+    )
+
+    batch = models.ForeignKey(
+        ProductionBatch,
+        on_delete=models.PROTECT,
+        related_name="document_links",
+        verbose_name=_("production batch"),
+    )
+    #: Optionally narrowed to one requirement or one recorded actual. At most
+    #: one of the two: a link is about a planned line **or** about what was
+    #: actually put in, and naming both would leave the report to guess which.
+    line = models.ForeignKey(
+        ProductionBatchLine,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="document_links",
+        verbose_name=_("requirement"),
+    )
+    actual_line = models.ForeignKey(
+        ProductionBatchActualLine,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="document_links",
+        verbose_name=_("actual line"),
+    )
+
+    link_type = models.CharField(_("link type"), max_length=24, choices=BatchLinkType.choices)
+
+    #: Exactly one of these two is set, and which one must agree with
+    #: `link_type`. `PROTECT` throughout: an Inventory line that a kitchen
+    #: report cites may not vanish underneath it.
+    transfer_line = models.ForeignKey(
+        "inventory.StockTransferLine",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="kitchen_batch_links",
+        verbose_name=_("transfer line"),
+    )
+    waste_line = models.ForeignKey(
+        "inventory.InventoryMovementDocumentLine",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="kitchen_batch_links",
+        verbose_name=_("waste line"),
+    )
+
+    #: Denormalised from the source line, and checked to equal it. The report
+    #: groups by item, and a join through two nullable keys to reach one column
+    #: is the shape that makes a report slow and its filters wrong.
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="kitchen_batch_links",
+        verbose_name=_("item"),
+    )
+    #: In the item's base unit, positive, and capped by the source line.
+    attributed_quantity = models.DecimalField(
+        _("attributed quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+    )
+
+    reason = models.CharField(_("reason"), max_length=200)
+    note = models.TextField(_("note"), blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=12,
+        choices=BatchDocumentLinkStatus.choices,
+        default=BatchDocumentLinkStatus.ACTIVE,
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="batch_document_links_created",
+        verbose_name=_("created by"),
+    )
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="batch_document_links_cancelled",
+        verbose_name=_("cancelled by"),
+    )
+    cancelled_at = models.DateTimeField(_("cancelled at"), null=True, blank=True)
+    cancellation_reason = models.CharField(_("cancellation reason"), max_length=200, blank=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("batch document link")
+        verbose_name_plural = _("batch document links")
+        ordering = ["-created_at", "-id"]
+        permissions = [
+            ("link_batch_document", "Can attribute an inventory document to a production batch"),
+        ]
+        constraints = [
+            # Exactly one source, and the type says which. One constraint
+            # rather than two, because "which key is set" and "what the row
+            # claims" are the same question asked twice.
+            models.CheckConstraint(
+                condition=Q(
+                    link_type=BatchLinkType.CUSTODY_RETURN_CONTEXT,
+                    transfer_line__isnull=False,
+                    waste_line__isnull=True,
+                )
+                | Q(
+                    link_type=BatchLinkType.ABNORMAL_WASTE_CONTEXT,
+                    transfer_line__isnull=True,
+                    waste_line__isnull=False,
+                ),
+                name="batch_document_link_source_matches_type",
+            ),
+            # A link is about a requirement or about an actual, never both.
+            models.CheckConstraint(
+                condition=Q(line__isnull=True) | Q(actual_line__isnull=True),
+                name="batch_document_link_batch_target_is_single",
+            ),
+            models.CheckConstraint(
+                condition=Q(attributed_quantity__gt=Decimal("0")),
+                name="batch_document_link_quantity_is_positive",
+            ),
+            # An attribution without a reason is a claim nobody can review.
+            models.CheckConstraint(
+                condition=~Q(reason=""), name="batch_document_link_reason_is_given"
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    status=BatchDocumentLinkStatus.CANCELLED,
+                    cancelled_at__isnull=False,
+                    cancelled_by__isnull=False,
+                )
+                & ~Q(cancellation_reason="")
+                | Q(status=BatchDocumentLinkStatus.ACTIVE)
+                & Q(cancelled_at__isnull=True, cancelled_by__isnull=True, cancellation_reason=""),
+                name="batch_document_link_cancellation_evidence_is_complete",
+            ),
+            # One live attribution per batch per source line. Two batches may
+            # legitimately share a waste document — that is what the cap
+            # governs — but the same batch claiming the same line twice is a
+            # double submission, and the second claim is the same physical
+            # quantity counted again.
+            models.UniqueConstraint(
+                fields=["batch", "transfer_line"],
+                condition=Q(status=BatchDocumentLinkStatus.ACTIVE),
+                name="batch_document_link_transfer_once_per_batch",
+            ),
+            models.UniqueConstraint(
+                fields=["batch", "waste_line"],
+                condition=Q(status=BatchDocumentLinkStatus.ACTIVE),
+                name="batch_document_link_waste_once_per_batch",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["warehouse", "link_type"], name="batch_link_wh_type_idx"),
+            models.Index(fields=["batch", "status"], name="batch_link_batch_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.link_type} {self.batch_id} x{self.attributed_quantity}"
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == BatchDocumentLinkStatus.ACTIVE
+
+    @property
+    def quantity_display(self) -> str:
+        """A technical identity: period, never a localised comma."""
+        return f"{self.attributed_quantity:f}"
+
+    @property
+    def source_reference(self) -> str:
+        """The Inventory document and line this row points at, for a screen."""
+        # Narrowed through the objects rather than the `_id` columns so the
+        # nullability is visible to a reader and to the type checker alike.
+        transfer_line = self.transfer_line
+        if transfer_line is not None:
+            return f"{transfer_line.transfer.transfer_number or '—'} / {transfer_line.sequence}"
+        waste_line = self.waste_line
+        if waste_line is not None:
+            return f"{waste_line.document.document_number or '—'} / {waste_line.sequence}"
+        return ""

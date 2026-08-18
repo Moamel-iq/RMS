@@ -19,6 +19,7 @@ that implied otherwise would be the router contradicting a trigger.
 from django.urls import path
 
 from apps.kitchen import (
+    consumption_views,
     cost_views,
     meal_views,
     production_views,
@@ -377,4 +378,73 @@ urlpatterns = [
     ),
     path("meals/<int:pk>/", meal_views.MealDetailView.as_view(), name="meal_detail"),
     path("meals/<int:pk>/cancel/", meal_views.MealCancelView.as_view(), name="meal_cancel"),
+    # --- Task 3.8: consumption, the movement partition, and attribution ----
+    #
+    # Read the names for what this task does and does not claim. There is a
+    # `theoretical` route and a `variance` route, and neither one promises a
+    # sales-based figure: both carry `SALES_NOT_INCLUDED_PHASE_4` on every
+    # response, and the variance screen labels its residual `PARTIAL_COVERAGE`
+    # and `NOT_FINAL_USAGE_VARIANCE`. A route called `usage-variance` that
+    # returned a definitive number would be the router making a promise the
+    # data cannot keep.
+    #
+    # The two link routes are `POST` targets that create one explanatory row
+    # each and touch no ledger. There is deliberately no delete route: an
+    # attribution is withdrawn by cancelling it with a reason, and the row
+    # stays.
+    path(
+        "reports/warehouse-flow/",
+        consumption_views.WarehouseFlowView.as_view(),
+        name="report_warehouse_flow",
+    ),
+    path(
+        "reports/actual-consumption/",
+        consumption_views.ActualConsumptionView.as_view(),
+        name="report_actual_consumption",
+    ),
+    path(
+        "reports/production-standard/",
+        consumption_views.StandardRequirementsView.as_view(),
+        name="report_production_standard",
+    ),
+    path(
+        "reports/theoretical-consumption/",
+        consumption_views.TheoreticalConsumptionView.as_view(),
+        name="report_theoretical_consumption",
+    ),
+    path(
+        "reports/usage-variance/",
+        consumption_views.UsageVarianceView.as_view(),
+        name="report_usage_variance",
+    ),
+    path(
+        "reports/meal-equivalents/staff/",
+        consumption_views.MealEquivalentUsageView.as_view(meal_type="STAFF"),
+        name="report_meal_equivalent_staff",
+    ),
+    path(
+        "reports/meal-equivalents/complimentary/",
+        consumption_views.MealEquivalentUsageView.as_view(meal_type="COMPLIMENTARY"),
+        name="report_meal_equivalent_complimentary",
+    ),
+    path(
+        "reports/batch-consumption/<int:pk>/",
+        consumption_views.BatchConsumptionView.as_view(),
+        name="report_batch_consumption",
+    ),
+    path(
+        "production/<int:pk>/links/waste/",
+        consumption_views.BatchDocumentLinkCreateView.as_view(link_type="ABNORMAL_WASTE_CONTEXT"),
+        name="batch_link_waste",
+    ),
+    path(
+        "production/<int:pk>/links/custody/",
+        consumption_views.BatchDocumentLinkCreateView.as_view(link_type="CUSTODY_RETURN_CONTEXT"),
+        name="batch_link_custody",
+    ),
+    path(
+        "batch-links/<int:pk>/cancel/",
+        consumption_views.BatchDocumentLinkCancelView.as_view(),
+        name="batch_link_cancel",
+    ),
 ]

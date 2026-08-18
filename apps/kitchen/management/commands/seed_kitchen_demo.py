@@ -37,16 +37,36 @@ from apps.core.context import audit_context
 from apps.inventory.demo import DEMO_ORGANIZATION_CODE, DemoSelectionError
 from apps.inventory.management.commands.seed_inventory_demo import resolve_user
 from apps.kitchen.demo import DEMO_BANNER, seed_demo_recipes
-from apps.kitchen.models import ProductionBatch, RecipeCostSnapshot
+from apps.kitchen.models import (
+    BatchDocumentLink,
+    MealRecord,
+    MealRecordStatus,
+    ProductionBatch,
+    RecipeCostSnapshot,
+)
 from apps.organizations.models import Organization
 
 #: The screens this dataset makes reviewable, in navigation order.
+#: Every Kitchen screen the demo actually populates. Kept in step with
+#: `apps/core/navigation.py`: an entry here that 404s or renders empty is the
+#: demo telling an operator to look at nothing.
 INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("kitchen:recipe_list", "الوصفات"),
     ("kitchen:category_list", "مجموعات الوصفات"),
     ("kitchen:version_list", "نسخ الوصفات"),
-    ("kitchen:cost_snapshot_list", "لقطات الكلفة"),
+    ("kitchen:cost_snapshot_list", "كلفة الوصفة والطبق"),
     ("kitchen:production_list", "أوامر الإنتاج"),
+    ("kitchen:report_productivity", "الإنتاجية والفاقد"),
+    ("kitchen:report_kitchen_issue", "الصرف للمطبخ"),
+    ("kitchen:report_kitchen_return", "المرتجع من المطبخ"),
+    ("kitchen:report_kitchen_waste", "الهالك"),
+    ("kitchen:meal_staff_list", "وجبات الموظفين"),
+    ("kitchen:meal_complimentary_list", "الوجبات المجانية"),
+    ("kitchen:report_warehouse_flow", "تدفق مخزن المطبخ"),
+    ("kitchen:report_actual_consumption", "الاستهلاك الفعلي"),
+    ("kitchen:report_theoretical_consumption", "الاستهلاك النظري"),
+    ("kitchen:report_usage_variance", "انحراف الاستهلاك"),
+    ("kitchen:report_production_standard", "متطلبات الإنتاج القياسية"),
 ]
 
 
@@ -54,7 +74,8 @@ class Command(SeedCommand):
     help = (
         "Seed the kitchen demo recipes (DEBUG only). Five recipes against the "
         "existing inventory demo organization, through the real services. "
-        "Creates no stock movement and no journal entry."
+        "Posts production, records meals, and attributes two inventory documents "
+        "to a batch — all through domain services, never by direct insert."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -158,20 +179,42 @@ class Command(SeedCommand):
                         f"plan {line.planned_display:<14} actual {rows or 'none'}"
                     )
             self.write(
-                "  DRAFT only: a check constraint named "
-                "production_batch_is_draft_only_until_task_3_5 refuses any other status."
+                "  Statuses above are real: Task 3.5 removed "
+                "production_batch_is_draft_only_until_task_3_5 in migration 0017, and a "
+                "POSTED batch here has moved stock through post_production_batch."
             )
 
         self.write("")
         self.write(
-            f"{len(recipes)} recipes present. No stock movement, no journal entry, "
-            "no posted production batch, no document number."
+            f"{len(recipes)} recipes present, with posted production, staff and "
+            "complimentary meals, and Task 3.8 consumption attribution."
+        )
+        self.write(
+            "Every movement and journal above was produced by a domain service. "
+            "Nothing in this command writes a movement, a balance or a journal directly."
         )
         self.write(
             "Every approval above is evidenced as DEMO_FICTIONAL, which the database "
             "permits only inside the DEMO- namespace."
         )
+        links = BatchDocumentLink.objects.filter(organization=organization)
+        meals = MealRecord.objects.filter(organization=organization)
+        self.write("")
+        self.write(
+            f"meal records: {meals.count()} "
+            f"({meals.filter(status=MealRecordStatus.CANCELLED).count()} cancelled and "
+            "excluded from theoretical consumption)"
+        )
+        self.write(
+            f"batch document links: {links.count()} — explanatory only. They move no "
+            "stock, write no journal, and change no batch's consumption or value."
+        )
+        self.write(
+            "Sales-based theoretical consumption is unavailable: the SALES adapter is "
+            "absent until Phase 4, and every theoretical and variance surface reports "
+            "SALES_NOT_INCLUDED_PHASE_4."
+        )
         self.write("")
         self.write("Screens to inspect (python manage.py runserver, then):")
         for route, label in INSPECTION_ROUTES:
-            self.write(f"  http://127.0.0.1:8000{reverse(route):<28} {label}")
+            self.write(f"  http://127.0.0.1:8000{reverse(route):<46} {label}")

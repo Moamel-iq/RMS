@@ -45,6 +45,7 @@ they carry no money key at all.
 from __future__ import annotations
 
 import datetime
+import uuid
 from decimal import Decimal
 from typing import Any
 
@@ -85,12 +86,14 @@ from apps.kitchen.permissions import (
     ACTIVATE_RECIPE_VERSION,
     APPROVE_RECIPE_VERSION,
     CREATE_PRODUCTION_BATCH,
+    LINK_BATCH_DOCUMENT,
     MANAGE_RECIPE,
     POST_PRODUCTION_BATCH,
     REJECT_RECIPE_VERSION,
     REVERSE_PRODUCTION_BATCH,
     REVIEW_RECIPE_VERSION,
     SUBMIT_RECIPE_VERSION,
+    VIEW_KITCHEN_REPORT,
     VIEW_PRODUCTION,
     VIEW_RECIPE,
     VIEW_RECIPE_COST,
@@ -2938,3 +2941,664 @@ def get_production_posting(request: HttpRequest, batch_id: int) -> dict[str, Any
         "reversal_movements": [_movement_out(row) for row in reversal_movements],
         "reversal_reason": batch.reversal_reason,
     }
+
+
+# ---------------------------------------------------------------------------
+# Task 3.8 — consumption, the movement partition, and attribution
+# ---------------------------------------------------------------------------
+#
+# Five reads and two commands. Read the list for what is absent as much as for
+# what is present: no `PATCH` on a link, no `DELETE` on anything, no posting
+# endpoint, no journal endpoint. A link is created or cancelled; nothing here
+# moves stock.
+#
+# Every decimal crosses as an **exact string**, and every consumption response
+# carries `coverage_code`. The theoretical and variance endpoints carry
+# `SALES_NOT_INCLUDED_PHASE_4` on every response regardless of filters, because
+# the missing input is a whole module rather than a date range.
+
+
+def _require_kitchen_report(request: HttpRequest, organization: Any) -> User:
+    """Reading a consumption report is an organization-scoped question."""
+    actor = _actor(request)
+    require_reachable_organization_permission(actor, VIEW_KITCHEN_REPORT, organization)
+    return actor
+
+
+def _require_link_authority(request: HttpRequest, warehouse: Any) -> User:
+    """
+    Attributing a document is a **warehouse** act, like production itself.
+
+    A link is a statement about one kitchen store's own flow, made by the people
+    who hold that store's stock.
+    """
+    actor = _actor(request)
+    require_warehouse_permission(actor, LINK_BATCH_DOCUMENT, warehouse)
+    return actor
+
+
+class WarehouseFlowRowOut(Schema):
+    warehouse: str
+    item_code: str
+    item_name: str
+    base_unit_code: str
+    opening: str
+    closing: str
+    identity_difference: str
+    identity_holds: bool
+    movement_count: int
+    net_production_consumption: str
+    direct_economic_consumption: str
+    total_consumption: str
+    custody_in: str
+    custody_out: str
+    supply_receipt: str
+    production_output: str
+    raw_material_waste: str
+    produced_output_waste: str
+    count_correction: str
+
+
+class WarehouseFlowOut(Schema):
+    identity_holds: bool
+    classified_movement_count: int
+    rows: list[WarehouseFlowRowOut]
+    #: Present on every response. Custody is reported outside consumption and a
+    #: consumer of this payload should not have to infer that from column names.
+    custody_is_not_consumption: bool = True
+
+
+def _flow_row_out(row: Any) -> dict[str, Any]:
+    return {
+        "warehouse": row.warehouse_code,
+        "item_code": row.item_code,
+        "item_name": row.item_name,
+        "base_unit_code": row.base_unit_code,
+        "opening": f"{row.opening:f}",
+        "closing": f"{row.closing:f}",
+        "identity_difference": f"{row.identity_difference:f}",
+        "identity_holds": row.identity_holds,
+        "movement_count": row.movement_count,
+        "net_production_consumption": f"{row.net_production_consumption:f}",
+        "direct_economic_consumption": f"{row.direct_economic_consumption:f}",
+        "total_consumption": f"{row.total_consumption:f}",
+        "custody_in": f"{row.custody_in:f}",
+        "custody_out": f"{row.custody_out:f}",
+        "supply_receipt": f"{row.supply_receipt:f}",
+        "production_output": f"{row.production_output:f}",
+        "raw_material_waste": f"{row.raw_material_waste:f}",
+        "produced_output_waste": f"{row.produced_output_waste:f}",
+        "count_correction": f"{row.count_correction:f}",
+    }
+
+
+def _flow_filters(
+    warehouse_id: int | None,
+    item_id: int | None,
+    date_from: datetime.date | None,
+    date_to: datetime.date | None,
+) -> Any:
+    from apps.kitchen.consumption import FlowFilters
+
+    return FlowFilters(
+        warehouse_id=warehouse_id, item_id=item_id, date_from=date_from, date_to=date_to
+    )
+
+
+@router.get(
+    "/warehouse-flow/",
+    response=WarehouseFlowOut,
+    summary="Every posted movement at a kitchen store, in exactly one bucket",
+)
+def get_warehouse_flow(
+    request: HttpRequest,
+    warehouse_id: int | None = None,
+    item_id: int | None = None,
+    date_from: datetime.date | None = None,
+    date_to: datetime.date | None = None,
+) -> dict[str, Any]:
+    """
+    The partition, with its own proof attached.
+
+    `identity_holds` is `(closing − opening) − Σ buckets == 0` per
+    `(warehouse, item)`. A caller that ignores it is reading totals whose
+    completeness it has chosen not to check.
+    """
+    from apps.kitchen.consumption import kitchen_warehouse_flow
+
+    actor = _actor(request)
+    flow = kitchen_warehouse_flow(actor, _flow_filters(warehouse_id, item_id, date_from, date_to))
+    return {
+        "identity_holds": flow.identity_holds,
+        "classified_movement_count": flow.classified_count,
+        "rows": [_flow_row_out(row) for row in flow.items],
+    }
+
+
+class BatchConsumptionAllocationOut(Schema):
+    lot_code: str
+    location_code: str
+    base_quantity: str
+
+
+class BatchConsumptionRowOut(Schema):
+    actual_id: int
+    kind: str
+    is_substitute: bool
+    substitute_reason: str
+    component_path: str
+    component_label_path: str
+    source_recipe_line_id: int | None
+    item_code: str
+    item_name: str
+    base_unit_code: str
+    entered_quantity: str
+    entered_unit_code: str
+    base_quantity: str
+    allocations: list[BatchConsumptionAllocationOut]
+
+
+class BatchConsumptionOut(Schema):
+    batch_number: str
+    status: str
+    is_reversed: bool
+    quantity_matches: bool
+    rows: list[BatchConsumptionRowOut]
+    #: Stated rather than implied. Task 3.0 §11.2 defined batch consumption as
+    #: `consumed − linked returns + linked waste`; ADR-026 supersedes that, and
+    #: a consumer of this payload needs to know which of the two it is holding.
+    links_change_this_arithmetic: bool = False
+
+
+@router.get(
+    "/production-batches/{batch_id}/actual-consumption",
+    response=BatchConsumptionOut,
+    summary="What one posted batch actually used",
+)
+def get_batch_actual_consumption(request: HttpRequest, batch_id: int) -> dict[str, Any]:
+    """
+    Quantities and evidence, with no money key at all.
+
+    Values live on `/production-batches/{id}/posting` behind `view_recipe_cost`,
+    exactly as Task 3.5 arranged. A nullable money key here would say a number
+    exists and is being withheld, which is a different statement.
+    """
+    from apps.kitchen.consumption import batch_actual_consumption
+
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    _require_production_view(request, batch.warehouse)
+    report = batch_actual_consumption(batch)
+    return {
+        "batch_number": batch.number,
+        "status": batch.status,
+        "is_reversed": report.is_reversed,
+        "quantity_matches": report.quantity_matches,
+        "rows": [
+            {
+                "actual_id": row.actual_id,
+                "kind": row.kind,
+                "is_substitute": row.is_substitute,
+                "substitute_reason": row.substitute_reason,
+                "component_path": row.source_line_path,
+                "component_label_path": row.source_line_label,
+                "source_recipe_line_id": row.source_recipe_line_id,
+                "item_code": row.item_code,
+                "item_name": row.item_name,
+                "base_unit_code": row.base_unit_code,
+                "entered_quantity": f"{row.entered_quantity:f}",
+                "entered_unit_code": row.entered_unit_code,
+                "base_quantity": f"{row.base_quantity:f}",
+                "allocations": [
+                    {
+                        "lot_code": allocation.lot_code,
+                        "location_code": allocation.location_code,
+                        "base_quantity": f"{allocation.base_quantity:f}",
+                    }
+                    for allocation in row.allocations
+                ],
+            }
+            for row in report.rows
+        ],
+    }
+
+
+@router.get(
+    "/consumption/actual/",
+    response=WarehouseFlowOut,
+    summary="Actual consumption for one kitchen store over a period",
+)
+def get_actual_consumption(
+    request: HttpRequest,
+    warehouse_id: int | None = None,
+    item_id: int | None = None,
+    date_from: datetime.date | None = None,
+    date_to: datetime.date | None = None,
+) -> dict[str, Any]:
+    """
+    The same partition, read as consumption.
+
+    Deliberately the same payload shape as `/warehouse-flow/` rather than a
+    reduced one: consumption is a *reading* of the partition, not a separate
+    calculation, and two shapes would invite two implementations.
+    """
+    from apps.kitchen.consumption import period_actual_consumption
+
+    actor = _actor(request)
+    period = period_actual_consumption(
+        actor, _flow_filters(warehouse_id, item_id, date_from, date_to)
+    )
+    return {
+        "identity_holds": period.identity_holds,
+        "classified_movement_count": period.flow.classified_count,
+        "rows": [_flow_row_out(row) for row in period.items],
+    }
+
+
+class TheoreticalSourceOut(Schema):
+    source_type: str
+    status: str
+    contribution_count: int
+    total_quantity: str
+
+
+class TheoreticalTotalOut(Schema):
+    source_type: str
+    equivalent_label: str
+    item_code: str
+    item_name: str
+    base_unit_code: str
+    effective_base_quantity: str
+    contribution_count: int
+    coverage_code: str
+
+
+class TheoreticalConsumptionOut(Schema):
+    #: `SALES_NOT_INCLUDED_PHASE_4`, on every response, without exception.
+    coverage_code: str
+    coverage_notice: str
+    #: Constant `False` in Phase 3. Not derived from the data: a derived flag
+    #: would eventually report `True` for a period with no sales in it.
+    is_final: bool
+    sources: list[TheoreticalSourceOut]
+    totals: list[TheoreticalTotalOut]
+
+
+def _meal_filters(
+    branch_id: int | None,
+    recipe_id: int | None,
+    item_id: int | None,
+    date_from: datetime.date | None,
+    date_to: datetime.date | None,
+) -> Any:
+    from apps.kitchen.consumption_sources import MealUsageFilters
+
+    return MealUsageFilters(
+        branch_id=branch_id,
+        recipe_id=recipe_id,
+        item_id=item_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+@router.get(
+    "/consumption/theoretical/",
+    response=TheoreticalConsumptionOut,
+    summary="Theoretical consumption, with the sales gap named",
+)
+def get_theoretical_consumption(
+    request: HttpRequest,
+    branch_id: int | None = None,
+    recipe_id: int | None = None,
+    item_id: int | None = None,
+    date_from: datetime.date | None = None,
+    date_to: datetime.date | None = None,
+) -> dict[str, Any]:
+    """
+    Meal equivalents, per source, and **no combined total**.
+
+    `sources` lists every declared source type, so `SALES` appears as
+    `DEFERRED_TO_PHASE_4` rather than being silently absent. Adding the two
+    available sources together is refused by omission: a `ProductionBatch` plan
+    and a `MealRecord` expansion overlap physically, and no deduplication key
+    linking a portion to the batch that produced it exists.
+    """
+    from apps.kitchen.consumption_sources import (
+        SALES_COVERAGE_NOTICE,
+        theoretical_consumption_coverage,
+    )
+
+    actor = _actor(request)
+    coverage = theoretical_consumption_coverage(
+        actor, _meal_filters(branch_id, recipe_id, item_id, date_from, date_to)
+    )
+    return {
+        "coverage_code": coverage.coverage_code,
+        "coverage_notice": str(SALES_COVERAGE_NOTICE),
+        "is_final": coverage.is_final,
+        "sources": [
+            {
+                "source_type": str(row.source_type),
+                "status": str(row.status),
+                "contribution_count": row.contribution_count,
+                "total_quantity": f"{row.total_quantity:f}",
+            }
+            for row in coverage.sources
+        ],
+        "totals": [
+            {
+                "source_type": str(row.source_type),
+                "equivalent_label": row.equivalent_label,
+                "item_code": row.leaf_item_code,
+                "item_name": row.leaf_item_name,
+                "base_unit_code": row.base_unit_code,
+                "effective_base_quantity": f"{row.effective_base_quantity:f}",
+                "contribution_count": row.contribution_count,
+                "coverage_code": row.coverage_code,
+            }
+            for row in coverage.totals
+        ],
+    }
+
+
+class StandardVarianceRowOut(Schema):
+    batch_number: str
+    business_date: datetime.date
+    recipe_code: str
+    version: str
+    component_path: str
+    item_code: str
+    item_name: str
+    base_unit_code: str
+    planned_base_quantity: str
+    actual_base_quantity: str | None
+    variance: str | None
+    #: `NOT_QUANTITATIVELY_COMPARABLE` where the dimensions disagree. Never a
+    #: zero: zero means "no deviation" and this means "no numeric answer".
+    compatibility: str
+    statement: str
+
+
+class UsageDiagnosticRowOut(Schema):
+    item_code: str
+    item_name: str
+    base_unit_code: str
+    net_production_consumption: str
+    direct_economic_consumption: str
+    total_consumption: str
+    production_standard_requirement: str
+    unexplained_by_production_plan: str
+    staff_meal_equivalent: str
+    complimentary_meal_equivalent: str
+    custody_in: str
+    custody_out: str
+    raw_material_waste: str
+    produced_output_waste: str
+    count_correction: str
+    coverage_code: str
+    coverage_label: str
+    finality_label: str
+
+
+class UsageVarianceOut(Schema):
+    #: Complete. Both sides are posted facts about the same batch.
+    production_standard_variance: list[StandardVarianceRowOut]
+    #: Partial, and every row says so.
+    partial_diagnostic: list[UsageDiagnosticRowOut]
+    coverage_code: str
+    coverage_label: str
+    finality_label: str
+    #: Constant `False`. There is no filter that makes it true in Phase 3.
+    final_sales_variance_available: bool
+    missing_sources: list[str]
+    identity_holds: bool
+    notices: list[str]
+
+
+@router.get(
+    "/consumption/variance/",
+    response=UsageVarianceOut,
+    summary="Production standard variance (complete) and a labelled partial diagnostic",
+)
+def get_usage_variance(
+    request: HttpRequest,
+    warehouse_id: int | None = None,
+    branch_id: int | None = None,
+    recipe_id: int | None = None,
+    batch_id: int | None = None,
+    date_from: datetime.date | None = None,
+    date_to: datetime.date | None = None,
+) -> dict[str, Any]:
+    """
+    Two outputs, never blended into one number.
+
+    There is no field here holding "the" usage variance, and that absence is the
+    contract: approved sold quantities do not exist before Phase 4, so the final
+    figure cannot be computed and is not approximated.
+    """
+    from apps.kitchen.consumption_reconciliation import usage_variance_analysis
+    from apps.kitchen.productivity import ProductionFilters
+
+    actor = _actor(request)
+    analysis = usage_variance_analysis(
+        actor,
+        flow=_flow_filters(warehouse_id, None, date_from, date_to),
+        production=ProductionFilters(
+            warehouse_id=warehouse_id,
+            branch_id=branch_id,
+            recipe_id=recipe_id,
+            batch_id=batch_id,
+            date_from=date_from,
+            date_to=date_to,
+        ),
+        meals=_meal_filters(branch_id, recipe_id, None, date_from, date_to),
+    )
+    return {
+        "production_standard_variance": [
+            {
+                "batch_number": row.batch.number,
+                "business_date": row.batch.planned_business_date,
+                "recipe_code": row.batch.recipe.code,
+                "version": row.version_label,
+                "component_path": row.component_path,
+                "item_code": row.item_code,
+                "item_name": row.item_name,
+                "base_unit_code": row.base_unit_code,
+                "planned_base_quantity": f"{row.planned_base_quantity:f}",
+                "actual_base_quantity": (
+                    f"{row.actual_base_quantity:f}"
+                    if row.actual_base_quantity is not None
+                    else None
+                ),
+                "variance": f"{row.variance:f}" if row.variance is not None else None,
+                "compatibility": row.compatibility,
+                "statement": row.statement,
+            }
+            for row in analysis.production_variance
+        ],
+        "partial_diagnostic": [
+            {
+                "item_code": row.item_code,
+                "item_name": row.item_name,
+                "base_unit_code": row.base_unit_code,
+                "net_production_consumption": f"{row.net_production_consumption:f}",
+                "direct_economic_consumption": f"{row.direct_economic_consumption:f}",
+                "total_consumption": f"{row.total_consumption:f}",
+                "production_standard_requirement": f"{row.production_standard_requirement:f}",
+                "unexplained_by_production_plan": f"{row.unexplained_by_production_plan:f}",
+                "staff_meal_equivalent": f"{row.staff_meal_equivalent:f}",
+                "complimentary_meal_equivalent": f"{row.complimentary_meal_equivalent:f}",
+                "custody_in": f"{row.custody_in:f}",
+                "custody_out": f"{row.custody_out:f}",
+                "raw_material_waste": f"{row.raw_material_waste:f}",
+                "produced_output_waste": f"{row.produced_output_waste:f}",
+                "count_correction": f"{row.count_correction:f}",
+                "coverage_code": row.coverage_code,
+                "coverage_label": row.coverage_label,
+                "finality_label": row.finality_label,
+            }
+            for row in analysis.diagnostic
+        ],
+        "coverage_code": analysis.coverage_code,
+        "coverage_label": analysis.coverage_label,
+        "finality_label": analysis.finality_label,
+        "final_sales_variance_available": analysis.final_sales_variance_available,
+        "missing_sources": list(analysis.missing_sources),
+        "identity_holds": analysis.identity_holds,
+        "notices": [str(notice) for notice in analysis.notices],
+    }
+
+
+class BatchDocumentLinkOut(Schema):
+    id: int
+    public_id: uuid.UUID
+    link_type: str
+    status: str
+    item_code: str
+    base_unit_code: str
+    attributed_quantity: str
+    source_reference: str
+    reason: str
+    note: str
+    cancellation_reason: str
+    #: Constant, on every link payload. The one thing a reader must not have to
+    #: guess about a row in this table.
+    stock_effect: str = "none"
+    journal_effect: str = "none"
+    changes_batch_consumption: bool = False
+
+
+def _link_out(link: Any) -> dict[str, Any]:
+    return {
+        "id": link.pk,
+        "public_id": link.public_id,
+        "link_type": link.link_type,
+        "status": link.status,
+        "item_code": link.item.code,
+        "base_unit_code": link.item.base_unit.code,
+        "attributed_quantity": link.quantity_display,
+        "source_reference": link.source_reference,
+        "reason": link.reason,
+        "note": link.note,
+        "cancellation_reason": link.cancellation_reason,
+    }
+
+
+class BatchDocumentLinkIn(Schema):
+    link_type: str
+    #: Exactly one of the two, and it must agree with `link_type`. Typed ids
+    #: into the real Inventory line models rather than a `document_type` string
+    #: plus a UUID: a caller-supplied table name cannot be checked by the
+    #: database, and a link pointing at a deleted or foreign row would look
+    #: exactly like a valid one.
+    transfer_line_id: int | None = None
+    waste_line_id: int | None = None
+    production_line_id: int | None = None
+    production_actual_line_id: int | None = None
+    attributed_quantity: str
+    reason: str
+    note: str = ""
+
+
+class BatchDocumentLinkCancelIn(Schema):
+    reason: str
+
+
+@router.get(
+    "/production-batches/{batch_id}/document-links",
+    response=list[BatchDocumentLinkOut],
+    summary="Explanatory attributions on one batch",
+)
+def list_batch_document_links(request: HttpRequest, batch_id: int) -> list[dict[str, Any]]:
+    from apps.kitchen.document_links import links_for_batch
+
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    _require_production_view(request, batch.warehouse)
+    return [_link_out(link) for link in links_for_batch(batch)]
+
+
+@router.post(
+    "/production-batches/{batch_id}/document-links",
+    response={201: BatchDocumentLinkOut},
+    summary="Attribute one posted inventory line to one posted batch",
+)
+def create_batch_document_link_endpoint(
+    request: HttpRequest, batch_id: int, payload: BatchDocumentLinkIn
+) -> tuple[int, dict[str, Any]]:
+    """
+    Creates one explanatory row and touches no ledger.
+
+    The quantity arrives as a **string** and is parsed with `Decimal`, because
+    JSON's only numeric type is binary floating point and an attribution of
+    0.30000000000000004 would be nobody's fault and everybody's problem.
+    """
+    from apps.inventory.models import InventoryMovementDocumentLine, StockTransferLine
+    from apps.kitchen.document_links import create_batch_document_link
+    from apps.kitchen.models import ProductionBatchActualLine, ProductionBatchLine
+
+    actor = _actor(request)
+    batch = resolve_production_batch(actor, batch_id)
+    _require_link_authority(request, batch.warehouse)
+
+    transfer_line = (
+        StockTransferLine.objects.filter(pk=payload.transfer_line_id).first()
+        if payload.transfer_line_id
+        else None
+    )
+    waste_line = (
+        InventoryMovementDocumentLine.objects.filter(pk=payload.waste_line_id).first()
+        if payload.waste_line_id
+        else None
+    )
+    line = (
+        ProductionBatchLine.objects.filter(pk=payload.production_line_id, batch=batch).first()
+        if payload.production_line_id
+        else None
+    )
+    actual_line = (
+        ProductionBatchActualLine.objects.filter(
+            pk=payload.production_actual_line_id, line__batch=batch
+        ).first()
+        if payload.production_actual_line_id
+        else None
+    )
+
+    link = create_batch_document_link(
+        batch=batch,
+        link_type=payload.link_type,
+        transfer_line=transfer_line,
+        waste_line=waste_line,
+        line=line,
+        actual_line=actual_line,
+        attributed_quantity=Decimal(payload.attributed_quantity),
+        reason=payload.reason,
+        note=payload.note,
+        actor=actor,
+    )
+    return 201, _link_out(link)
+
+
+@router.post(
+    "/document-links/{link_id}/cancel",
+    response=BatchDocumentLinkOut,
+    summary="Withdraw an attribution, with a reason that stays on the row",
+)
+def cancel_batch_document_link_endpoint(
+    request: HttpRequest, link_id: int, payload: BatchDocumentLinkCancelIn
+) -> dict[str, Any]:
+    """
+    Cancellation, never deletion, and no `PATCH` anywhere near it.
+
+    An `ACTIVE` link is immutable at the database. Correcting one is cancelling
+    it and making another, so a verb implying an edit would be the API
+    contradicting a trigger.
+    """
+    from apps.kitchen.document_links import cancel_batch_document_link
+    from apps.kitchen.selectors import resolve_batch_document_link
+
+    actor = _actor(request)
+    link = resolve_batch_document_link(actor, link_id)
+    _require_link_authority(request, link.batch.warehouse)
+    return _link_out(cancel_batch_document_link(link=link, reason=payload.reason, actor=actor))

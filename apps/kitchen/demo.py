@@ -38,7 +38,14 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from apps.inventory.models import InventoryItem, ItemCategory, ItemType, Warehouse
+from apps.inventory.models import (
+    InventoryItem,
+    InventoryMovementDocument,
+    InventoryMovementDocumentLine,
+    ItemCategory,
+    ItemType,
+    Warehouse,
+)
 from apps.kitchen.costing import cost_recipe_version
 from apps.kitchen.lifecycle import (
     activate_recipe_version,
@@ -475,10 +482,20 @@ def seed_demo_recipes(
     )
     # Postings last, because they consume the stock the inventory demo put on
     # the shelf and produce the evidence every Task 3.5 screen reads.
+    # Task 3.8: the semi-finished component has to be on the shelf before a
+    # batch can consume it. Before the postings, deliberately — the previous
+    # ordering is why every demo batch stayed a draft.
+    seed_demo_semi_finished_stock(
+        organization=organization, created_by=created_by, branches=branches
+    )
     seed_demo_postings(organization=organization, created_by=created_by, branches=branches)
     # Meals last: they reference a recipe version, move nothing, and are the
     # explanation the consumption reports read rather than a stock event.
     seed_demo_meals(organization=organization, created_by=created_by, branches=branches)
+    # Task 3.8: output waste needs a posted batch to be attributed to, and the
+    # links need both. Last, therefore.
+    seed_demo_output_waste(organization=organization, created_by=created_by, branches=branches)
+    seed_demo_batch_links(organization=organization, created_by=created_by, branches=branches)
     return recipes
 
 
@@ -2094,3 +2111,321 @@ def _demo_meal(
         # A version that requires a serving the demo cannot choose for it is
         # not fatal; anything that is not a domain refusal still surfaces.
         return None
+
+
+# ---------------------------------------------------------------------------
+# Task 3.8 — the stock a batch needs, the output waste, and the attributions
+# ---------------------------------------------------------------------------
+
+#: Fixed references, so a second seed is a retry rather than a second document.
+DEMO_SEMI_FINISHED_REFERENCE = "DEMO-SEMI-FINISHED-1"
+DEMO_OUTPUT_WASTE_REFERENCE = "DEMO-OUTPUT-WASTE-1"
+DEMO_LINK_WASTE_REASON = "ربط تفسيري — هالك ناتج مُصنَّع من هذه الدفعة"
+DEMO_LINK_CUSTODY_REASON = "ربط تفسيري — إرجاع عهدة بعد الترحيل"
+
+
+def seed_demo_semi_finished_stock(
+    *,
+    organization: Organization,
+    created_by: User | None,
+    branches: list[Branch],
+) -> None:
+    """
+    Put the semi-finished item on the shelf, so a batch can actually post.
+
+    The demo production recipe consumes `DEMO-RICE-COOKED` — a nested component
+    that is itself a recipe output — and the kitchen store had none. Every demo
+    batch therefore failed `insufficient_stock` and stayed a draft, which meant
+    Task 3.6's productivity report, Task 3.8's partition and every consumption
+    read had **no posted production to read**. The screens rendered, and they
+    rendered empty, which is the failure mode a demo exists to prevent.
+
+    A receipt rather than a sub-batch, and the choice is worth defending: a
+    kitchen legitimately receives a prepared blend from a central kitchen, the
+    Inventory receipt service is the approved path for that, and producing the
+    component here instead would need its own recipe version, its own actuals
+    and its own posting — a second demo scenario inside the setup for the first.
+
+    Posted through `create_document` / `add_line` / `post_document`. Nothing
+    here writes a movement, a balance or a journal directly.
+    """
+    from apps.inventory.models import InventoryDocumentType
+    from apps.inventory.operations import (
+        DocumentLineInput,
+        add_line,
+        create_document,
+        post_document,
+    )
+
+    warehouse = _production_warehouse(organization=organization)
+    branch = branches[0] if branches else None
+    if warehouse is None or branch is None:
+        return
+    cooked = InventoryItem.objects.filter(organization=organization, code=COOKED_RICE_CODE).first()
+    if cooked is None:
+        return
+
+    if InventoryMovementDocument.objects.filter(
+        organization=organization, evidence_reference=DEMO_SEMI_FINISHED_REFERENCE
+    ).exists():
+        return
+
+    document = create_document(
+        organization=organization,
+        branch=branch,
+        warehouse=warehouse,
+        document_type=InventoryDocumentType.RECEIPT,
+        effective_at=_demo_moment(DEMO_PRODUCTION_DATE),
+        evidence_reference=DEMO_SEMI_FINISHED_REFERENCE,
+        narration=f"{DEMO_BANNER} — استلام نصف مصنّع ليتوفر للإنتاج.",
+    )
+    add_line(
+        document=document,
+        # No `line_comment`: the Inventory service accepts one only on a waste
+        # line, where it explains the reason code. The banner lives on the
+        # document's narration instead.
+        line=DocumentLineInput(
+            item=cooked,
+            base_quantity=Decimal("120"),
+            unit_cost=Decimal("2500"),
+        ),
+    )
+    post_document(document=document)
+
+
+def seed_demo_output_waste(
+    *,
+    organization: Organization,
+    created_by: User | None,
+    branches: list[Branch],
+) -> None:
+    """
+    Waste a produced item, so `PRODUCED_OUTPUT_WASTE` has something in it.
+
+    This is the bucket the partition exists to keep separate (RCP-105). Wasting
+    3 kg of cooked rice is the loss of a **produced** good whose ingredients
+    already left stock through the batch that cooked them; adding it back into
+    ingredient consumption would charge the rice, spice and oil a second time.
+    Without a demo row here, the column that proves the separation is empty and
+    the separation is untestable by looking.
+    """
+    from apps.accounting.models import CostCenter
+    from apps.inventory.models import (
+        InventoryDocumentType,
+        InventoryReasonCode,
+        ReasonCodeApplication,
+    )
+    from apps.inventory.operations import (
+        DocumentLineInput,
+        add_line,
+        create_document,
+        post_document,
+    )
+
+    warehouse = _production_warehouse(organization=organization)
+    branch = branches[0] if branches else None
+    if warehouse is None or branch is None:
+        return
+    cooked = InventoryItem.objects.filter(organization=organization, code=COOKED_RICE_CODE).first()
+    if cooked is None:
+        return
+    # Waste needs a reason code, and inventing one here would be inventing
+    # master data the Inventory demo owns.
+    # Declared **for waste**, not merely active. A COUNT_VARIANCE code on a
+    # waste note is refused by the Inventory service, and rightly: every waste
+    # report grouped by reason would otherwise contain rows nobody meant.
+    reason = (
+        InventoryReasonCode.objects.filter(
+            organization=organization,
+            is_active=True,
+            applies_to=ReasonCodeApplication.WASTE,
+        )
+        .order_by("code")
+        .first()
+    )
+    if reason is None:
+        return
+
+    cost_center = (
+        CostCenter.objects.filter(organization=organization, is_active=True, code="KITCHEN")
+        .order_by("pk")
+        .first()
+    )
+    if cost_center is None:
+        return
+
+    if InventoryMovementDocument.objects.filter(
+        organization=organization, evidence_reference=DEMO_OUTPUT_WASTE_REFERENCE
+    ).exists():
+        return
+
+    document = create_document(
+        organization=organization,
+        branch=branch,
+        warehouse=warehouse,
+        document_type=InventoryDocumentType.WASTE,
+        effective_at=_demo_moment(DEMO_PRODUCTION_DATE),
+        evidence_reference=DEMO_OUTPUT_WASTE_REFERENCE,
+        narration=f"{DEMO_BANNER} — هالك ناتج مُصنَّع، لا يُعاد توسيعه إلى مواد أولية.",
+        # The waste expense account demands a cost centre, and a kitchen's
+        # spoilage belongs to the kitchen. Resolved rather than assumed: if the
+        # accounting demo has not run there is no centre to name, and the seed
+        # skips instead of inventing one.
+        cost_center=cost_center,
+    )
+    add_line(
+        document=document,
+        line=DocumentLineInput(
+            item=cooked,
+            base_quantity=Decimal("3"),
+            reason_code=reason,
+            line_comment=DEMO_BANNER,
+        ),
+    )
+    post_document(document=document)
+
+
+def seed_demo_batch_links(
+    *,
+    organization: Organization,
+    created_by: User | None,
+    branches: list[Branch],
+) -> None:
+    """
+    Two explanatory attributions, through the real command.
+
+    One of each closed link type, so both halves of the `link_type` /
+    source-family agreement are visible on a screen:
+
+    * `ABNORMAL_WASTE_CONTEXT` — the produced-output waste above, attributed to
+      the batch it came out of.
+    * `CUSTODY_RETURN_CONTEXT` — a transfer line carrying material out of the
+      kitchen store, attributed to the batch it happened near.
+
+    **Neither one changes a number.** The batch's consumption, its input value
+    and its output value are identical before and after, and the Task 3.8 smoke
+    measures that rather than asserting it. What the links add is that a reader
+    on the batch screen can now find the two documents.
+    """
+    from apps.inventory.models import (
+        InventoryDocumentStatus,
+        InventoryDocumentType,
+        StockTransferLine,
+    )
+    from apps.kitchen.models import BatchDocumentLink, BatchLinkType
+
+    warehouse = _production_warehouse(organization=organization)
+    if warehouse is None:
+        return
+    batch = (
+        ProductionBatch.objects.filter(
+            organization=organization,
+            warehouse=warehouse,
+            status=ProductionBatchStatus.POSTED,
+        )
+        .order_by("pk")
+        .first()
+    )
+    if batch is None:
+        # No posted batch means nothing to attribute to. Not a defect: the
+        # posting seed above says why it may legitimately have been skipped.
+        return
+
+    waste_line = (
+        InventoryMovementDocumentLine.objects.filter(
+            document__organization=organization,
+            document__warehouse=warehouse,
+            document__document_type=InventoryDocumentType.WASTE,
+            document__status=InventoryDocumentStatus.POSTED,
+        )
+        .select_related("document", "item")
+        .order_by("pk")
+        .first()
+    )
+    if (
+        waste_line is not None
+        and not BatchDocumentLink.objects.filter(batch=batch, waste_line=waste_line).exists()
+    ):
+        _try_link(
+            batch=batch,
+            link_type=BatchLinkType.ABNORMAL_WASTE_CONTEXT,
+            waste_line=waste_line,
+            quantity=min(waste_line.base_quantity, Decimal("2")),
+            reason=f"{DEMO_BANNER} — {DEMO_LINK_WASTE_REASON}",
+            created_by=created_by,
+        )
+
+    transfer_line = (
+        StockTransferLine.objects.filter(
+            transfer__organization=organization,
+            transfer__source_warehouse=warehouse,
+        )
+        .select_related("transfer", "item")
+        .order_by("pk")
+        .first()
+    )
+    if (
+        transfer_line is not None
+        and not BatchDocumentLink.objects.filter(batch=batch, transfer_line=transfer_line).exists()
+    ):
+        _try_link(
+            batch=batch,
+            link_type=BatchLinkType.CUSTODY_RETURN_CONTEXT,
+            transfer_line=transfer_line,
+            quantity=min(transfer_line.base_quantity, Decimal("1")),
+            reason=f"{DEMO_BANNER} — {DEMO_LINK_CUSTODY_REASON}",
+            created_by=created_by,
+        )
+
+
+def _try_link(
+    *,
+    batch: Any,
+    link_type: str,
+    quantity: Decimal,
+    reason: str,
+    created_by: User | None,
+    waste_line: Any = None,
+    transfer_line: Any = None,
+) -> None:
+    """
+    Create one demo link, or leave it out and say nothing.
+
+    The seed is one transaction. A demo document that does not satisfy the
+    attribution rules — wrong branch, already fully attributed, a transfer that
+    never dispatched — is an ordinary state of a development database, and
+    letting that refusal escape would roll back every recipe, cost card, batch
+    and meal alongside it. That failure mode has already cost this demo three
+    times; it does not get a fourth.
+    """
+    from django.core.exceptions import ValidationError
+
+    from apps.kitchen.document_links import create_batch_document_link
+
+    try:
+        create_batch_document_link(
+            batch=batch,
+            link_type=link_type,
+            waste_line=waste_line,
+            transfer_line=transfer_line,
+            attributed_quantity=quantity,
+            reason=reason,
+            note=DEMO_BANNER,
+            actor=created_by,
+        )
+    except ValidationError:
+        return
+
+
+def _demo_moment(day: datetime.date) -> datetime.datetime:
+    """
+    Midday Baghdad on a demo date, as an aware datetime.
+
+    Midday rather than midnight so the branch's operating-day cutoff cannot
+    push the business date onto the previous day — which would put the receipt
+    outside the window the demo reports filter on.
+    """
+    from django.utils import timezone as django_timezone
+
+    naive = datetime.datetime.combine(day, datetime.time(12, 0))
+    return django_timezone.make_aware(naive)

@@ -140,6 +140,18 @@ REVERSE_PRODUCTION_BATCH = f"{APP_LABEL}.reverse_production_batch"
 #: branch and moves no stock, so there is no custody to scope it to.
 RECORD_MEAL = f"{APP_LABEL}.record_meal"
 
+#: Task 3.8. **Warehouse**-scoped, because the act is about one kitchen store's
+#: own flow: attributing a waste document or a custody transfer to a batch is a
+#: statement by the people who hold that store's stock.
+#:
+#: Its own grant rather than folding into `create_production_batch`, and the
+#: distinction is worth stating: drafting is about a batch that has not
+#: happened, and this annotates two documents that already have. It is
+#: deliberately *not* folded into `view_kitchen_report` either — reading an
+#: attribution and making one are different acts, and only one of them can be
+#: wrong in a way somebody has to cancel.
+LINK_BATCH_DOCUMENT = f"{APP_LABEL}.link_batch_document"
+
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_RECIPE,
     MANAGE_RECIPE,
@@ -155,6 +167,7 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     POST_PRODUCTION_BATCH,
     REVERSE_PRODUCTION_BATCH,
     RECORD_MEAL,
+    LINK_BATCH_DOCUMENT,
 )
 
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
@@ -183,6 +196,9 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # and touches no store, so warehouse scope would be asking the wrong
     # question and organization scope would be too wide.
     RECORD_MEAL: PermissionScope.BRANCH,
+    # Task 3.8. Warehouse-scoped for the same reason production is: the act
+    # is about one kitchen store's own flow, not about the shared menu.
+    LINK_BATCH_DOCUMENT: PermissionScope.WAREHOUSE,
 }
 
 
@@ -215,6 +231,7 @@ _MANAGER = frozenset(
         POST_PRODUCTION_BATCH,
         REVERSE_PRODUCTION_BATCH,
         RECORD_MEAL,
+        LINK_BATCH_DOCUMENT,
     }
 )
 
@@ -270,6 +287,9 @@ _STOREKEEPER = frozenset(
         VIEW_KITCHEN_REPORT,
         CREATE_PRODUCTION_BATCH,
         POST_PRODUCTION_BATCH,
+        # Task 3.8: the storekeeper attributes a waste document or a custody
+        # transfer to the batch it belongs to. They were standing there.
+        LINK_BATCH_DOCUMENT,
     }
 )
 
