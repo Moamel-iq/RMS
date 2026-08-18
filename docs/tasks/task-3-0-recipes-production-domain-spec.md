@@ -1412,6 +1412,21 @@ neither is defined as a sum over the other's rows.
 
 ### 11.2 Report 1 — Batch actual consumption
 
+> **Amended by ADR-026 (Task 3.8).** The formula below is **superseded**. Batch
+> actual consumption is the posted `PRODUCTION_OUT` movements and the recorded
+> actual rows, and nothing else: a posted batch's input value already equals its
+> output value to the fils (RCP-034), and a linked return or waste document
+> already moved its own stock and wrote its own journal, so subtracting or
+> adding it counts the same quantity twice. A posted batch whose inputs were
+> materially wrong is corrected by **reversal and repost**, never by a later
+> document.
+>
+> `BatchDocumentLink` survives, and RCP-100 – RCP-102 survive with it — but as
+> **explanatory attribution only**, with the link types renamed
+> `CUSTODY_RETURN_CONTEXT` and `ABNORMAL_WASTE_CONTEXT` so that no future reader
+> infers that a link reverses `PRODUCTION_OUT`. The original text is kept below
+> because the reasoning it was written against is still worth reading.
+
 The subject is one `ProductionBatch`. The answer:
 
 ```

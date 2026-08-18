@@ -511,10 +511,51 @@ MODULES: tuple[Module, ...] = (
                 url_name="kitchen:meal_complimentary_list",
                 available=True,
             ),
-            *_sections(
-                _("الاستهلاك النظري"),
-                _("الاستهلاك الفعلي"),
-                _("انحراف الاستهلاك"),
+            # Task 3.8 - the last three entries promoted, and the module's
+            # section list is now complete. Each one leads to a screen that
+            # exists, renders, and is populated by the demo seed.
+            #
+            # Two of the three carry a **coverage limitation** rather than a
+            # finished answer, and that is deliberate rather than unfinished.
+            # `الاستهلاك النظري` reports staff and complimentary meals and says
+            # in a sentence that approved sales quantities arrive in Phase 4;
+            # `انحراف الاستهلاك` shows a complete production standard variance
+            # and a partial diagnostic labelled `PARTIAL_COVERAGE` /
+            # `NOT_FINAL_USAGE_VARIANCE`. Neither pretends to be sales-complete.
+            #
+            # Activating them with the limitation stated beats leaving them
+            # inert: an operator who needs to know what the kitchen consumed can
+            # now read it, and can see exactly which part of the picture is
+            # missing. An inert entry answers neither question.
+            Section(
+                label=_("الاستهلاك الفعلي"),
+                url_name="kitchen:report_actual_consumption",
+                available=True,
+            ),
+            Section(
+                label=_("الاستهلاك النظري"),
+                url_name="kitchen:report_theoretical_consumption",
+                available=True,
+            ),
+            Section(
+                label=_("انحراف الاستهلاك"),
+                url_name="kitchen:report_usage_variance",
+                available=True,
+            ),
+            # Two further screens Task 3.8 built. They are not in the approved
+            # thirteen, so they are additions rather than promotions: the
+            # partition is what proves every consumption figure above it, and
+            # the standard requirement report is where a production deviation
+            # is actually diagnosed.
+            Section(
+                label=_("تدفق مخزن المطبخ"),
+                url_name="kitchen:report_warehouse_flow",
+                available=True,
+            ),
+            Section(
+                label=_("متطلبات الإنتاج القياسية"),
+                url_name="kitchen:report_production_standard",
+                available=True,
             ),
         ),
     ),

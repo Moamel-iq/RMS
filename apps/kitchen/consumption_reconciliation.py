@@ -89,6 +89,7 @@ from apps.kitchen.productivity import ProductionFilters
 if TYPE_CHECKING:
     from django.utils.functional import Promise
 
+    from apps.organizations.models import Organization
     from apps.users.models import User
 
 ZERO = Decimal("0")
@@ -348,7 +349,7 @@ def verify_movement_partition(user: User, flow: FlowFilters) -> list[Finding]:
     return findings
 
 
-def verify_document_links() -> list[Finding]:
+def verify_document_links(*, organization: Organization | None = None) -> list[Finding]:
     """
     Attribution stays inside its source, and points at things that exist.
 
@@ -366,6 +367,8 @@ def verify_document_links() -> list[Finding]:
     live = BatchDocumentLink.objects.filter(status=BatchDocumentLinkStatus.ACTIVE).select_related(
         "batch", "transfer_line", "waste_line", "item"
     )
+    if organization is not None:
+        live = live.filter(organization=organization)
 
     attributed: dict[tuple[str, int], Decimal] = {}
     capacity: dict[tuple[str, int], Decimal] = {}

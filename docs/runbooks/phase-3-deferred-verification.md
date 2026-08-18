@@ -1,7 +1,12 @@
 # Phase 3 — verification deliberately deferred to Task 3.11
 
-**Status:** open. Nothing on this page has been run for Tasks 3.5 – 3.9, and
-nothing on it may be described as passing until Task 3.11 runs it.
+**Status:** open, and **complete through Task 3.9**. Nothing on this page has
+been run for Tasks 3.5 – 3.9, and nothing on it may be described as passing
+until Task 3.11 runs it.
+
+Rows 1 – 17 were recorded by Tasks 3.5 – 3.7. Rows 18 – 32 were added by Task
+3.8. The "known gaps" section at the end records scope decisions rather than
+skipped checks, so that Task 3.11 does not mistake one for the other.
 
 ## Why this page exists
 
@@ -45,10 +50,52 @@ not reformatted at the moment it was being preserved.
 | 9 | Every HTMX / full-page parity check | Each report answers both; only some pairs have been exercised |
 | 10 | The Demo double-run proof | The Task 3.5 demo seeds postings and a reversal; idempotency is designed, not proved |
 | 11 | Inventory-to-GL reconciliation with production included | The construction satisfies it; the verifier proves construction met reality |
-| 12 | A complete `verify_kitchen` run | Task 3.9 composes it |
-| 13 | `pre-commit run --all-files` | Hooks run per commit on changed files only |
-| 14 | Full `mypy apps config tests` | Run per task on changed modules |
-| 15 | Full `ruff check .` and `ruff format --check .` | As above |
+| 12 | The complete Kitchen test suite | Task 3.9 built `verify_kitchen`; the suite behind it has not been run since Task 3.4 |
+| 13 | The complete project suite | Not run under the accelerated policy |
+| 14 | A fresh migration from zero | Every migration since 0017 has only ever been applied incrementally |
+| 15 | `pre-commit run --all-files` | Hooks run per commit on changed files only |
+| 16 | Full `mypy apps config tests` | Run per task on changed modules |
+| 17 | Full `ruff check .` and `ruff format --check .` | As above |
+
+## Added by Task 3.8
+
+| # | Not run | Why it matters |
+|---|---|---|
+| 18 | Every `BatchDocumentLink` constraint, as tests | Five check constraints and two partial unique indexes. The five guards were proved by direct probe on the development database (service refusal, deferred trigger with the service bypassed, `ACTIVE` immutability, delete refusal, cancellation releasing the quantity) — but a probe is one path, not a matrix |
+| 19 | The **movement-partition classification matrix** | Seventeen buckets against fifteen `MovementType` values, including both `WASTE` splits, both `MANUAL_ADJUSTMENT` splits, and a `REVERSAL` of each. Only the buckets the demo happens to produce have been exercised: 15 of 17 appeared, and `PRODUCTION_OUTPUT`/`COUNT_GAIN` combinations remain unseen |
+| 20 | `classify_kitchen_movement` raising on an unknown type | The refusal is the design — a new `MovementType` must be classified explicitly rather than defaulted. Nothing yet asserts the raise |
+| 21 | The actual-consumption equations, as tests | `Σ positive actuals = Σ \|PRODUCTION_OUT\|` per item and `Σ movement values = input_value = output_value` both hold on the demo batch. One batch is not the equation |
+| 22 | The stock identity at scale | It holds across 15 `(warehouse, item)` rows today. It is the partition's only proof and deserves a property test over generated movement sets |
+| 23 | The theoretical **sales** adapter | Cannot be written until Phase 4 exists. What can be certified now is that `SALES` reports `DEFERRED_TO_PHASE_4` and that no surface claims finality |
+| 24 | The meal-equivalent deduplication policy | Task 3.8 refuses to combine production plans with meal expansions because no portion-to-batch key exists. If Phase 4 introduces one, this decision must be revisited — and until then the refusal itself should be a test |
+| 25 | Report security, as tests | Money is structurally omitted rather than blanked; verified by one 403 and one absent column on the development database, not by a permission matrix |
+| 26 | API security, as tests | Seven new endpoints. Scope resolution is 404 and missing authority is 403 by construction; neither is asserted |
+| 27 | The HTMX / full-page matrix | All 14 report routes answered both with a smaller fragment and no nested shell. That is a smoke, not a parity proof over filter and pagination combinations |
+| 28 | CSV formula safety | `_safe` prefixes the five leading characters, and the coverage rows go through it too. Untested since Task 3.6 |
+| 29 | Demo idempotency, as a test | Proved by running the seed twice and comparing ten counts. Not automated |
+| 30 | `verify_kitchen` itself | Runs clean with 0 ERROR on the development database. Its own behaviour under a *planted* defect per section is unproven — a verifier nobody has watched fail is a verifier nobody should trust |
+| 31 | Every reconciliation command, together | The four Kitchen and three Inventory verifiers are composed by `verify_kitchen`; each has been run, but not as one gate on a fresh database |
+| 32 | All concurrency cases | Attribution cap under two concurrent writers, meal recording, posting and reversal races |
+
+## Known gaps recorded rather than fixed
+
+These are **not** deferred verification — they are scope decisions written down
+so Task 3.11 does not mistake them for oversights:
+
+- **Task 3.7's meal API routes were never built.** `GET/POST
+  /api/v1/kitchen/meals/`, `GET /api/v1/kitchen/meals/{id}/` and
+  `POST /api/v1/kitchen/meals/{id}/cancel/` are specified and absent; the HTML
+  surface is complete. Task 3.8 added its own seven endpoints, so the API is
+  otherwise current.
+- **Task 3.7's documentation updates were not made** to the Task 3.0 spec, the
+  phase-3 breakdown, the invariants list or the traceability matrix. Task 3.9
+  updates the breakdown and this manifest; the spec's §11.2 formula is
+  superseded by ADR-026 rather than edited in place.
+- **`SUPPLIER_RETURN_OUT` and `TRANSIT_SHORTAGE_LOSS`** are buckets Task 3.8
+  added beyond the approved fifteen, because `RETURN_OUT` and
+  `TRANSFER_SHORTAGE` had no home in that list. ADR-026 §2.1 records the
+  reasoning. Task 3.11 should confirm the addition is accepted rather than
+  merely present.
 
 ## What Task 3.11 must do with this page
 

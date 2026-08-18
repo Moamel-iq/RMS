@@ -427,8 +427,13 @@ with its coverage labelled honestly.
 formula" — that formula double-counts against this system's documents (spec
 §11.1, ADR-026). This task delivers **two** reads:
 
-- **Batch actual consumption** (§11.2): consumed quantities, less linked
-  material returns, plus linked waste.
+- **Batch actual consumption** (§11.2, **as amended by ADR-026**): the posted
+  `PRODUCTION_OUT` movements and the recorded actual rows, and nothing else.
+  §11.2's `consumed − linked returns + linked waste` is **superseded**: a posted
+  batch's input value already equals its output value to the fils (RCP-034), and
+  the linked documents already moved their own stock and wrote their own
+  journals, so either adjustment counts the same quantity twice. A posted batch
+  whose inputs were wrong is corrected by reversal and repost.
 - **Kitchen warehouse flow** (§11.3): an **exhaustive partition** of the
   warehouse's posted movements — custody, supply, production use, non-production
   use, loss, corrections — in which every movement lands in exactly one bucket,
@@ -436,7 +441,27 @@ formula" — that formula double-counts against this system's documents (spec
   kept out of ingredient consumption.
 - **`BatchDocumentLink`** (RCP-100 – RCP-102): kitchen-owned, holding keys into
   inventory, mutating nothing, with attribution capped at the source line under
-  `select_for_update`.
+  `select_for_update` **and** by a deferred constraint trigger. Implemented with
+  **typed nullable `PROTECT` foreign keys** into `StockTransferLine` and
+  `InventoryMovementDocumentLine` rather than the sketched `document_type` +
+  UUID pair, which the database cannot check. Link types are
+  `CUSTODY_RETURN_CONTEXT` and `ABNORMAL_WASTE_CONTEXT`, not `MATERIAL_RETURN`
+  and `LINKED_WASTE`: the earlier names imply a link reverses `PRODUCTION_OUT`.
+- **Theoretical consumption source interface**: `TheoreticalConsumptionSource`
+  and `TheoreticalConsumptionContribution`, with `STAFF_MEAL` and
+  `COMPLIMENTARY_MEAL` adapters registered and the **`SALES` adapter absent**
+  while `SALES` stays a declared enum member — so coverage reports name the gap
+  rather than summing what it has. Production plans and meal expansions are
+  **never added together**: they overlap physically and no portion-to-batch
+  deduplication key exists.
+- **Two variance outputs**: production standard variance (complete — both sides
+  are posted facts about the same batch) and a partial diagnostic stamped
+  `PARTIAL_COVERAGE` / `NOT_FINAL_USAGE_VARIANCE`. No surface produces a final
+  sales-based figure, because approved sold quantities arrive in Phase 4.
+- **Two buckets beyond the approved fifteen**: `SUPPLIER_RETURN_OUT` and
+  `TRANSIT_SHORTAGE_LOSS`, because `RETURN_OUT` and `TRANSFER_SHORTAGE` had no
+  home in that list and letting either fall through the classifier would break
+  the stock identity that is the partition's only proof (ADR-026 §2.1).
 
 Depends on: 3.5, 3.7.
 
