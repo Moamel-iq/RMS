@@ -15,13 +15,28 @@ from django.utils.translation import gettext_lazy as _
 from apps.core.models import AuditAction
 from apps.core.services import record_audit_event, snapshot
 from apps.hr.models import (
+    AttendanceApprovalStatus,
+    AttendanceDayApproval,
+    AttendanceEvent,
+    AttendanceEventSource,
     ContractStatus,
     Employee,
     EmployeeContract,
     EmployeeDocument,
     EmployeeStatus,
     PayrollPolicy,
+    Shift,
+    ShiftAssignment,
 )
+from apps.hr.permissions import (
+    APPROVE_ATTENDANCE,
+    ASSIGN_SHIFT,
+    CORRECT_ATTENDANCE,
+    MANAGE_SHIFT,
+    RECORD_ATTENDANCE,
+)
+from apps.organizations.authorization import require_organization_permission
+from apps.organizations.business_dates import business_date_for
 from apps.organizations.models import Branch, Organization
 from apps.users.models import User
 
@@ -415,3 +430,353 @@ def default_policy_values(*, organization: Organization, actor: User) -> Payroll
         },
     )
     return policy
+
+
+def _ranges_overlap_dates(
+    left_start: datetime.date,
+    left_end: datetime.date | None,
+    right_start: datetime.date,
+    right_end: datetime.date | None,
+) -> bool:
+    return left_start <= (right_end or datetime.date.max) and right_start <= (
+        left_end or datetime.date.max
+    )
+
+
+@transaction.atomic
+def create_shift(
+    *,
+    branch: Branch,
+    code: str,
+    actor: User,
+    name_ar: str,
+    name_en: str,
+    start_time: datetime.time,
+    end_time: datetime.time,
+    crosses_midnight: bool,
+    scheduled_minutes: int,
+    break_minutes: int,
+    grace_minutes: int,
+    late_threshold_minutes: int,
+    early_departure_threshold_minutes: int,
+    effective_from: datetime.date,
+    effective_to: datetime.date | None,
+    is_active: bool,
+    notes: str,
+) -> Shift:
+    require_organization_permission(actor, MANAGE_SHIFT, branch.organization)
+    normalized_code = code.strip().upper()
+    existing = Shift.objects.select_for_update().filter(branch=branch, code=normalized_code)
+    for current in existing:
+        if _ranges_overlap_dates(
+            effective_from, effective_to, current.effective_from, current.effective_to
+        ):
+            raise ValidationError(
+                _("Shift versions with the same code may not overlap."),
+                code="shift_period_overlap",
+            )
+    version = (existing.aggregate(value=Max("version"))["value"] or 0) + 1
+    shift = Shift(
+        organization=branch.organization,
+        branch=branch,
+        code=normalized_code,
+        version=version,
+        name_ar=name_ar.strip(),
+        name_en=name_en.strip(),
+        start_time=start_time,
+        end_time=end_time,
+        crosses_midnight=crosses_midnight,
+        scheduled_minutes=scheduled_minutes,
+        break_minutes=break_minutes,
+        grace_minutes=grace_minutes,
+        late_threshold_minutes=late_threshold_minutes,
+        early_departure_threshold_minutes=early_departure_threshold_minutes,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        is_active=is_active,
+        notes=notes.strip(),
+        created_by=actor,
+    )
+    _validate(shift)
+    shift.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=shift,
+        branch=shift.branch,
+        new_state=snapshot(shift),
+    )
+    return shift
+
+
+@transaction.atomic
+def update_shift(*, shift: Shift, actor: User, **values: Any) -> Shift:
+    locked = Shift.objects.select_for_update().get(pk=shift.pk)
+    require_organization_permission(actor, MANAGE_SHIFT, locked.organization)
+    if locked.assignments.exists() or locked.attendance_events.exists():
+        raise ValidationError(
+            _("A used shift version is immutable; create a new effective version."),
+            code="shift_version_immutable",
+        )
+    previous = snapshot(locked)
+    for field, value in values.items():
+        setattr(locked, field, value.strip() if isinstance(value, str) else value)
+    _validate(locked)
+    locked.save()
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=locked,
+        branch=locked.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def assign_shift(
+    *,
+    employee: Employee,
+    shift: Shift,
+    effective_from: datetime.date,
+    effective_to: datetime.date | None,
+    rotation_code: str,
+    notes: str,
+    actor: User,
+) -> ShiftAssignment:
+    locked_employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    locked_shift = Shift.objects.select_for_update().get(pk=shift.pk)
+    require_organization_permission(actor, ASSIGN_SHIFT, locked_employee.organization)
+    if locked_employee.organization_id != locked_shift.organization_id:
+        raise ValidationError(_("The shift belongs to another organization."))
+    if locked_employee.branch_id != locked_shift.branch_id:
+        raise ValidationError(_("The shift belongs to another branch."))
+    if effective_from < locked_shift.effective_from or (
+        locked_shift.effective_to is not None
+        and (effective_to is None or effective_to > locked_shift.effective_to)
+    ):
+        raise ValidationError(_("Assignment dates must remain inside the shift version dates."))
+    current_assignments = ShiftAssignment.objects.select_for_update().filter(
+        employee=locked_employee
+    )
+    for current in current_assignments:
+        if _ranges_overlap_dates(
+            effective_from, effective_to, current.effective_from, current.effective_to
+        ):
+            raise ValidationError(
+                _("Employee shift assignments may not overlap."),
+                code="shift_assignment_overlap",
+            )
+    assignment = ShiftAssignment(
+        organization=locked_employee.organization,
+        employee=locked_employee,
+        shift=locked_shift,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        rotation_code=rotation_code.strip(),
+        notes=notes.strip(),
+        created_by=actor,
+    )
+    _validate(assignment)
+    assignment.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=assignment,
+        branch=locked_shift.branch,
+        new_state=snapshot(assignment),
+    )
+    return assignment
+
+
+@transaction.atomic
+def record_attendance_event(
+    *,
+    employee: Employee,
+    branch: Branch,
+    business_date: datetime.date,
+    occurred_at: datetime.datetime,
+    event_type: str,
+    source: str,
+    device_reference: str,
+    notes: str,
+    actor: User,
+) -> AttendanceEvent:
+    from apps.hr.attendance import assignment_for
+
+    locked_employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    require_organization_permission(actor, RECORD_ATTENDANCE, locked_employee.organization)
+    if locked_employee.branch_id != branch.pk:
+        raise ValidationError(_("The employee belongs to another branch."))
+    if timezone.is_naive(occurred_at):
+        raise ValidationError(_("Attendance timestamps must include a timezone."))
+    if abs((business_date - business_date_for(branch, occurred_at)).days) > 1:
+        raise ValidationError(_("Attendance business date is too far from the event timestamp."))
+    assignment = assignment_for(locked_employee, business_date)
+    if device_reference.strip():
+        existing = (
+            AttendanceEvent.objects.select_for_update()
+            .filter(
+                organization=locked_employee.organization,
+                source=source,
+                device_reference=device_reference.strip(),
+            )
+            .first()
+        )
+        if existing is not None:
+            if (
+                existing.employee_id == locked_employee.pk
+                and existing.occurred_at == occurred_at
+                and existing.event_type == event_type
+            ):
+                return existing
+            raise ValidationError(
+                _("This attendance reference was already used with different values."),
+                code="attendance_reference_conflict",
+            )
+    event = AttendanceEvent(
+        organization=locked_employee.organization,
+        employee=locked_employee,
+        branch=branch,
+        shift_assignment=assignment,
+        scheduled_shift=assignment.shift if assignment is not None else None,
+        business_date=business_date,
+        occurred_at=occurred_at,
+        event_type=event_type,
+        source=source,
+        device_reference=device_reference.strip(),
+        notes=notes.strip(),
+        created_by=actor,
+    )
+    _validate(event)
+    event.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=event,
+        branch=event.branch,
+        new_state=snapshot(event),
+    )
+    return event
+
+
+@transaction.atomic
+def correct_attendance_event(
+    *,
+    event: AttendanceEvent,
+    business_date: datetime.date,
+    occurred_at: datetime.datetime,
+    event_type: str,
+    reason: str,
+    notes: str,
+    actor: User,
+) -> AttendanceEvent:
+    if not reason.strip():
+        raise ValidationError(_("Attendance correction requires a reason."))
+    locked = AttendanceEvent.objects.select_for_update().get(pk=event.pk)
+    require_organization_permission(actor, CORRECT_ATTENDANCE, locked.organization)
+    if locked.corrections.exists():
+        raise ValidationError(
+            _("This event has already been superseded."), code="attendance_event_stale"
+        )
+    if AttendanceDayApproval.objects.filter(
+        employee=locked.employee,
+        business_date=locked.business_date,
+        status=AttendanceApprovalStatus.APPROVED,
+    ).exists():
+        raise ValidationError(_("Reopen the approved attendance day before correction."))
+    if abs((business_date - business_date_for(locked.branch, occurred_at)).days) > 1:
+        raise ValidationError(
+            _("Attendance business date is too far from the corrected timestamp.")
+        )
+    replacement = AttendanceEvent(
+        organization=locked.organization,
+        employee=locked.employee,
+        branch=locked.branch,
+        shift_assignment=locked.shift_assignment,
+        scheduled_shift=locked.scheduled_shift,
+        business_date=business_date,
+        occurred_at=occurred_at,
+        event_type=event_type,
+        source=AttendanceEventSource.MANUAL,
+        device_reference="",
+        notes=notes.strip(),
+        created_by=actor,
+        supersedes=locked,
+        correction_reason=reason.strip(),
+    )
+    _validate(replacement)
+    replacement.save()
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=replacement,
+        branch=replacement.branch,
+        previous_state=snapshot(locked),
+        new_state=snapshot(replacement),
+        reason=reason.strip(),
+    )
+    return replacement
+
+
+@transaction.atomic
+def approve_attendance_day(
+    *, employee: Employee, business_date: datetime.date, actor: User
+) -> AttendanceDayApproval:
+    from apps.hr.attendance import calculate_attendance_day
+
+    locked_employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    require_organization_permission(actor, APPROVE_ATTENDANCE, locked_employee.organization)
+    approval, _ = AttendanceDayApproval.objects.select_for_update().get_or_create(
+        employee=locked_employee,
+        business_date=business_date,
+        defaults={
+            "organization": locked_employee.organization,
+            "branch": locked_employee.branch,
+            "created_by": actor,
+        },
+    )
+    if approval.status == AttendanceApprovalStatus.APPROVED:
+        return approval
+    previous = snapshot(approval)
+    result = calculate_attendance_day(employee=locked_employee, business_date=business_date)
+    approval.status = AttendanceApprovalStatus.APPROVED
+    approval.result_snapshot = result.snapshot()
+    approval.approved_by = actor
+    approval.approved_at = timezone.now()
+    approval.reason = ""
+    _validate(approval)
+    approval.save()
+    record_audit_event(
+        action=AuditAction.APPROVED,
+        target=approval,
+        branch=approval.branch,
+        previous_state=previous,
+        new_state=snapshot(approval),
+    )
+    return approval
+
+
+@transaction.atomic
+def reopen_attendance_day(
+    *, employee: Employee, business_date: datetime.date, reason: str, actor: User
+) -> AttendanceDayApproval:
+    if not reason.strip():
+        raise ValidationError(_("Reopening attendance requires a reason."))
+    approval = AttendanceDayApproval.objects.select_for_update().get(
+        employee=employee, business_date=business_date
+    )
+    require_organization_permission(actor, APPROVE_ATTENDANCE, approval.organization)
+    if approval.status != AttendanceApprovalStatus.APPROVED:
+        raise ValidationError(_("Only an approved attendance day can be reopened."))
+    previous = snapshot(approval)
+    approval.status = AttendanceApprovalStatus.REOPENED
+    approval.reason = reason.strip()
+    approval.approved_by = None
+    approval.approved_at = None
+    approval.save()
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=approval,
+        branch=approval.branch,
+        previous_state=previous,
+        new_state=snapshot(approval),
+        reason=reason.strip(),
+    )
+    return approval

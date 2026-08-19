@@ -383,6 +383,13 @@ def test_every_hr_permission_is_scoped_and_the_role_matrix_separates_sensitive_d
         "hr.view_contract_workspace",
         "hr.manage_contract",
         "hr.approve_contract",
+        "hr.view_shift_workspace",
+        "hr.manage_shift",
+        "hr.assign_shift",
+        "hr.view_attendance_workspace",
+        "hr.record_attendance",
+        "hr.correct_attendance",
+        "hr.approve_attendance",
     }
     assert all(
         scope_of(permission) is PermissionScope.ORGANIZATION_AUTHORITY

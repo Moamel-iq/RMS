@@ -24,6 +24,13 @@ VIEW_EMPLOYEE_SALARY = f"{APP_LABEL}.view_employee_salary"
 VIEW_CONTRACT = f"{APP_LABEL}.view_contract_workspace"
 MANAGE_CONTRACT = f"{APP_LABEL}.manage_contract"
 APPROVE_CONTRACT = f"{APP_LABEL}.approve_contract"
+VIEW_SHIFT = f"{APP_LABEL}.view_shift_workspace"
+MANAGE_SHIFT = f"{APP_LABEL}.manage_shift"
+ASSIGN_SHIFT = f"{APP_LABEL}.assign_shift"
+VIEW_ATTENDANCE = f"{APP_LABEL}.view_attendance_workspace"
+RECORD_ATTENDANCE = f"{APP_LABEL}.record_attendance"
+CORRECT_ATTENDANCE = f"{APP_LABEL}.correct_attendance"
+APPROVE_ATTENDANCE = f"{APP_LABEL}.approve_attendance"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_EMPLOYEE,
@@ -34,6 +41,13 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_CONTRACT,
     MANAGE_CONTRACT,
     APPROVE_CONTRACT,
+    VIEW_SHIFT,
+    MANAGE_SHIFT,
+    ASSIGN_SHIFT,
+    VIEW_ATTENDANCE,
+    RECORD_ATTENDANCE,
+    CORRECT_ATTENDANCE,
+    APPROVE_ATTENDANCE,
 )
 
 PERMISSION_SCOPE = dict.fromkeys(ALL_PERMISSIONS, PermissionScope.ORGANIZATION_AUTHORITY)
@@ -49,12 +63,28 @@ _MANAGER = frozenset(
         VIEW_CONTRACT,
         MANAGE_CONTRACT,
         APPROVE_CONTRACT,
+        VIEW_SHIFT,
+        MANAGE_SHIFT,
+        ASSIGN_SHIFT,
+        VIEW_ATTENDANCE,
+        RECORD_ATTENDANCE,
+        CORRECT_ATTENDANCE,
+        APPROVE_ATTENDANCE,
     }
 )
 _ACCOUNTING_MANAGER = frozenset(
-    {VIEW_EMPLOYEE, VIEW_EMPLOYEE_SALARY, VIEW_CONTRACT, APPROVE_CONTRACT}
+    {
+        VIEW_EMPLOYEE,
+        VIEW_EMPLOYEE_SALARY,
+        VIEW_CONTRACT,
+        APPROVE_CONTRACT,
+        VIEW_SHIFT,
+        VIEW_ATTENDANCE,
+    }
 )
-_ACCOUNTANT = frozenset({VIEW_EMPLOYEE, VIEW_EMPLOYEE_SALARY, VIEW_CONTRACT})
+_ACCOUNTANT = frozenset(
+    {VIEW_EMPLOYEE, VIEW_EMPLOYEE_SALARY, VIEW_CONTRACT, VIEW_SHIFT, VIEW_ATTENDANCE}
+)
 _VIEWER = frozenset({VIEW_EMPLOYEE})
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {

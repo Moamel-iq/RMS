@@ -8,8 +8,26 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
-from apps.hr.models import Employee, EmployeeContract, EmployeeDocument, PayrollPolicy
-from apps.hr.permissions import MANAGE_CONTRACT, MANAGE_EMPLOYEE
+from apps.hr.models import (
+    AttendanceEvent,
+    AttendanceEventSource,
+    AttendanceEventType,
+    Employee,
+    EmployeeContract,
+    EmployeeDocument,
+    EmployeeStatus,
+    PayrollPolicy,
+    Shift,
+    ShiftAssignment,
+)
+from apps.hr.permissions import (
+    ASSIGN_SHIFT,
+    CORRECT_ATTENDANCE,
+    MANAGE_CONTRACT,
+    MANAGE_EMPLOYEE,
+    MANAGE_SHIFT,
+    RECORD_ATTENDANCE,
+)
 from apps.hr.services import allowances_as_text, parse_fixed_allowances
 from apps.organizations.authorization import organizations_with_permission
 from apps.organizations.models import Branch, Organization
@@ -221,3 +239,179 @@ class EmployeeContractForm(forms.ModelForm):  # type: ignore[type-arg]
             if employee.organization_id != policy.organization_id:
                 self.add_error("payroll_policy", _("The policy belongs to another organization."))
         return cleaned
+
+
+class ShiftForm(forms.ModelForm):  # type: ignore[type-arg]
+    class Meta:
+        model = Shift
+        fields = (
+            "branch",
+            "code",
+            "name_ar",
+            "name_en",
+            "start_time",
+            "end_time",
+            "crosses_midnight",
+            "scheduled_minutes",
+            "break_minutes",
+            "grace_minutes",
+            "late_threshold_minutes",
+            "early_departure_threshold_minutes",
+            "effective_from",
+            "effective_to",
+            "is_active",
+            "notes",
+        )
+        widgets = {
+            "start_time": forms.TimeInput(attrs={"type": "time"}),
+            "end_time": forms.TimeInput(attrs={"type": "time"}),
+            "effective_from": DATE_WIDGET,
+            "effective_to": DATE_WIDGET,
+            "notes": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "branch": _("الفرع"),
+            "code": _("رمز الوردية"),
+            "name_ar": _("الاسم بالعربية"),
+            "name_en": _("الاسم بالإنجليزية"),
+            "start_time": _("وقت البداية"),
+            "end_time": _("وقت النهاية"),
+            "crosses_midnight": _("تمتد بعد منتصف الليل"),
+            "scheduled_minutes": _("دقائق العمل المجدولة"),
+            "break_minutes": _("دقائق الاستراحة"),
+            "grace_minutes": _("دقائق السماح"),
+            "late_threshold_minutes": _("حد التأخر بالدقائق"),
+            "early_departure_threshold_minutes": _("حد الانصراف المبكر بالدقائق"),
+            "effective_from": _("سارية من"),
+            "effective_to": _("سارية إلى"),
+            "is_active": _("نشطة"),
+            "notes": _("ملاحظات"),
+        }
+
+    def __init__(self, *, actor: User, instance: Shift | None = None, **kwargs: Any) -> None:
+        super().__init__(instance=instance, **kwargs)
+        organizations = organizations_with_permission(actor, MANAGE_SHIFT)
+        cast(
+            "forms.ModelChoiceField[Branch]", self.fields["branch"]
+        ).queryset = Branch.objects.filter(organization__in=organizations, is_active=True)
+        if instance is not None:
+            self.fields["branch"].disabled = True
+            self.fields["code"].disabled = True
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        start = cleaned.get("start_time")
+        end = cleaned.get("end_time")
+        crosses = cleaned.get("crosses_midnight")
+        if start is not None and end is not None and crosses != (end <= start):
+            self.add_error(
+                "crosses_midnight",
+                _("حدّد الامتداد بعد منتصف الليل عندما يكون وقت النهاية قبل البداية."),
+            )
+        return cleaned
+
+
+class ShiftAssignmentForm(forms.ModelForm):  # type: ignore[type-arg]
+    class Meta:
+        model = ShiftAssignment
+        fields = (
+            "employee",
+            "shift",
+            "effective_from",
+            "effective_to",
+            "rotation_code",
+            "notes",
+        )
+        widgets = {
+            "effective_from": DATE_WIDGET,
+            "effective_to": DATE_WIDGET,
+            "notes": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "employee": _("الموظف"),
+            "shift": _("الوردية"),
+            "effective_from": _("من تاريخ"),
+            "effective_to": _("إلى تاريخ"),
+            "rotation_code": _("رمز التناوب"),
+            "notes": _("ملاحظات"),
+        }
+
+    def __init__(self, *, actor: User, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        organizations = organizations_with_permission(actor, ASSIGN_SHIFT)
+        cast(
+            "forms.ModelChoiceField[Employee]", self.fields["employee"]
+        ).queryset = Employee.objects.filter(
+            organization__in=organizations, status=EmployeeStatus.ACTIVE
+        ).select_related("branch")
+        cast("forms.ModelChoiceField[Shift]", self.fields["shift"]).queryset = Shift.objects.filter(
+            organization__in=organizations, is_active=True
+        ).select_related("branch")
+
+
+class AttendanceEventForm(forms.ModelForm):  # type: ignore[type-arg]
+    class Meta:
+        model = AttendanceEvent
+        fields = (
+            "employee",
+            "branch",
+            "business_date",
+            "occurred_at",
+            "event_type",
+            "source",
+            "device_reference",
+            "notes",
+        )
+        widgets = {
+            "occurred_at": forms.DateTimeInput(attrs={"type": "datetime-local"}),
+            "business_date": DATE_WIDGET,
+            "notes": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "employee": _("الموظف"),
+            "branch": _("الفرع / مكان العمل"),
+            "business_date": _("يوم العمل"),
+            "occurred_at": _("وقت الحدث"),
+            "event_type": _("نوع الحدث"),
+            "source": _("المصدر"),
+            "device_reference": _("مرجع الجهاز أو الاستيراد"),
+            "notes": _("ملاحظات"),
+        }
+
+    def __init__(self, *, actor: User, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        organizations = organizations_with_permission(actor, RECORD_ATTENDANCE)
+        cast(
+            "forms.ModelChoiceField[Employee]", self.fields["employee"]
+        ).queryset = Employee.objects.filter(organization__in=organizations).select_related(
+            "branch"
+        )
+        cast(
+            "forms.ModelChoiceField[Branch]", self.fields["branch"]
+        ).queryset = Branch.objects.filter(organization__in=organizations, is_active=True)
+        self.fields["source"].initial = AttendanceEventSource.MANUAL
+        self.fields["source"].widget = forms.HiddenInput()
+
+
+class AttendanceCorrectionForm(forms.Form):
+    business_date = forms.DateField(label=_("يوم العمل المصحح"), widget=DATE_WIDGET)
+    occurred_at = forms.DateTimeField(
+        label=_("الوقت المصحح"), widget=forms.DateTimeInput(attrs={"type": "datetime-local"})
+    )
+    event_type = forms.ChoiceField(label=_("نوع الحدث المصحح"), choices=AttendanceEventType.choices)
+    reason = forms.CharField(label=_("سبب التصحيح"), widget=forms.Textarea(attrs={"rows": 2}))
+    notes = forms.CharField(
+        label=_("ملاحظات"), required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
+
+    def __init__(self, *, actor: User, event: AttendanceEvent, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        if (
+            not organizations_with_permission(actor, CORRECT_ATTENDANCE)
+            .filter(pk=event.organization_id)
+            .exists()
+        ):
+            self.fields["reason"].disabled = True
+        self.fields["occurred_at"].initial = event.occurred_at
+        self.fields["business_date"].initial = event.business_date
+        self.fields["event_type"].initial = event.event_type

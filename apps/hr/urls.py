@@ -1,6 +1,6 @@
 from django.urls import path
 
-from apps.hr import views
+from apps.hr import attendance_views, shift_views, views
 
 app_name = "hr"
 
@@ -35,5 +35,59 @@ urlpatterns = [
     path("contracts/<int:pk>/edit/", views.ContractUpdateView.as_view(), name="contract_update"),
     path(
         "contracts/<int:pk>/approve/", views.ContractApproveView.as_view(), name="contract_approve"
+    ),
+    path("shifts/", shift_views.ShiftListView.as_view(), name="shift_list"),
+    path("shifts/new/", shift_views.ShiftCreateView.as_view(), name="shift_create"),
+    path("shifts/<int:pk>/edit/", shift_views.ShiftUpdateView.as_view(), name="shift_update"),
+    path(
+        "shifts/assignments/",
+        shift_views.ShiftAssignmentWorkspace.as_view(),
+        name="shift_assignments",
+    ),
+    path(
+        "shifts/schedules/employees/",
+        shift_views.ScheduleView.as_view(mode="employee"),
+        name="employee_schedule",
+    ),
+    path(
+        "shifts/schedules/branches/",
+        shift_views.ScheduleView.as_view(mode="branch"),
+        name="branch_schedule",
+    ),
+    path(
+        "shifts/rotations/",
+        shift_views.ScheduleView.as_view(mode="rotation"),
+        name="shift_rotations",
+    ),
+    path("attendance/", attendance_views.AttendanceDayListView.as_view(), name="attendance_list"),
+    path(
+        "attendance/new/",
+        attendance_views.AttendanceEventCreateView.as_view(),
+        name="attendance_create",
+    ),
+    path(
+        "attendance/employees/<int:pk>/",
+        attendance_views.EmployeeAttendanceView.as_view(),
+        name="attendance_employee",
+    ),
+    path(
+        "attendance/events/<int:pk>/correct/",
+        attendance_views.AttendanceCorrectionView.as_view(),
+        name="attendance_correct",
+    ),
+    path(
+        "attendance/missing-punches/",
+        attendance_views.MissingPunchView.as_view(),
+        name="attendance_missing",
+    ),
+    path(
+        "attendance/employees/<int:pk>/<str:business_date>/approve/",
+        attendance_views.AttendanceApproveView.as_view(),
+        name="attendance_approve",
+    ),
+    path(
+        "attendance/employees/<int:pk>/<str:business_date>/reopen/",
+        attendance_views.AttendanceReopenView.as_view(),
+        name="attendance_reopen",
     ),
 ]
