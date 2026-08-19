@@ -1,0 +1,156 @@
+{# المستحقات والمقدمات — two registers on one page.                          #}
+{#                                                                            #}
+{# One sidebar entry because an accountant reaches for both at month end;     #}
+{# two documents underneath because they answer opposite questions.           #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-deferrals">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        {% if may_manage_accruals %}
+          <a class="btn btn--secondary" href="{% url 'accounting:accrual_create' %}">{% translate "مستحق جديد" %}</a>
+        {% endif %}
+        {% if may_manage_prepayments %}
+          <a class="btn btn--primary" href="{% url 'accounting:prepayment_create' %}">{% translate "مقدَّم جديد" %}</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <nav class="tabs" aria-label="{% translate 'التبويبات' %}">
+      <a class="tab {% if tab != 'prepayments' %}tab--active{% endif %}"
+         href="{% url 'accounting:deferral_list' %}?tab=accruals"
+         hx-get="{% url 'accounting:deferral_list' %}?tab=accruals"
+         hx-target="#accounting-deferrals" hx-swap="outerHTML" hx-push-url="true">
+        {% translate "المستحقات" %}
+      </a>
+      <a class="tab {% if tab == 'prepayments' %}tab--active{% endif %}"
+         href="{% url 'accounting:deferral_list' %}?tab=prepayments"
+         hx-get="{% url 'accounting:deferral_list' %}?tab=prepayments"
+         hx-target="#accounting-deferrals" hx-swap="outerHTML" hx-push-url="true">
+        {% translate "المقدمات" %}
+      </a>
+    </nav>
+
+    {% if tab == "prepayments" %}
+      <section class="card">
+        <h2 class="card__title">{% translate "المقدمات" %}</h2>
+        <div class="tablewrap">
+          <table class="table" id="prepayment-table">
+            <thead><tr>
+              <th>{% translate "الرقم" %}</th><th>{% translate "الوصف" %}</th>
+              <th>{% translate "الفرع" %}</th><th>{% translate "الإجمالي" %}</th>
+              <th>{% translate "الفترات" %}</th><th>{% translate "الحالة" %}</th><th></th>
+            </tr></thead>
+            <tbody>
+              {% for prepayment in prepayments %}
+                <tr>
+                  <td>{% if prepayment.number %}<bdi dir="ltr">{{ prepayment.number }}</bdi>{% else %}<span class="muted">{% translate "مسودة" %}</span>{% endif %}</td>
+                  <td>{{ prepayment.description }}</td>
+                  <td>{{ prepayment.branch.code }}</td>
+                  <td><bdi dir="ltr">{{ prepayment.total_amount|money_full }}</bdi></td>
+                  <td><bdi dir="ltr">{{ prepayment.period_count }}</bdi></td>
+                  <td><span class="chip">{{ prepayment.get_status_display }}</span></td>
+                  <td class="cell-actions">
+                    <a class="btn btn--secondary btn--sm" href="{% url 'accounting:prepayment_detail' prepayment.pk %}">{% translate "تفاصيل" %}</a>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="7" class="empty">{% translate "لا مقدمات مسجَّلة." %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card__title">{% translate "أقساط الاستهلاك" %}</h2>
+        <form class="toolbar" method="get"
+              hx-get="{% url 'accounting:deferral_list' %}"
+              hx-target="#accounting-deferrals" hx-swap="outerHTML" hx-push-url="true"
+              hx-trigger="change from:find select">
+          <input type="hidden" name="tab" value="prepayments">
+          <label class="field">
+            <span class="field__label">{% translate "الحالة" %}</span>
+            <select name="due">
+              <option value="">{% translate "الكل" %}</option>
+              <option value="due" {% if selected_due == "due" %}selected{% endif %}>{% translate "مستحق الآن" %}</option>
+              <option value="planned" {% if selected_due == "planned" %}selected{% endif %}>{% translate "مخطَّط" %}</option>
+              <option value="posted" {% if selected_due == "posted" %}selected{% endif %}>{% translate "مُرحَّل" %}</option>
+            </select>
+          </label>
+        </form>
+        <div class="tablewrap">
+          <table class="table" id="schedule-table">
+            <thead><tr>
+              <th>{% translate "المقدَّم" %}</th><th>#</th>
+              <th>{% translate "من" %}</th><th>{% translate "إلى" %}</th>
+              <th>{% translate "المبلغ" %}</th><th>{% translate "الحالة" %}</th>
+            </tr></thead>
+            <tbody>
+              {% for line in schedule_rows %}
+                <tr>
+                  <td><a href="{% url 'accounting:prepayment_detail' line.prepayment.pk %}">{{ line.prepayment.description }}</a></td>
+                  <td><bdi dir="ltr">{{ line.sequence }}</bdi></td>
+                  <td><bdi dir="ltr">{{ line.period_start|date:"Y-m-d" }}</bdi></td>
+                  <td><bdi dir="ltr">{{ line.period_end|date:"Y-m-d" }}</bdi></td>
+                  <td><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td>
+                  <td>
+                    {% if line.status == "POSTED" %}<span class="chip chip--ok">{{ line.get_status_display }}</span>
+                    {% elif line.period_end <= today %}<span class="chip chip--warn">{% translate "مستحق" %}</span>
+                    {% else %}<span class="chip chip--muted">{{ line.get_status_display }}</span>{% endif %}
+                  </td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="6" class="empty">{% translate "لا أقساط." %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% else %}
+      <section class="card">
+        <h2 class="card__title">{% translate "المستحقات" %}</h2>
+        <div class="tablewrap">
+          <table class="table" id="accrual-table">
+            <thead><tr>
+              <th>{% translate "الرقم" %}</th><th>{% translate "الوصف" %}</th>
+              <th>{% translate "الفرع" %}</th><th>{% translate "التاريخ" %}</th>
+              <th>{% translate "المبلغ" %}</th><th>{% translate "الحالة" %}</th>
+              <th>{% translate "عكس تلقائي" %}</th><th></th>
+            </tr></thead>
+            <tbody>
+              {% for accrual in accruals %}
+                <tr>
+                  <td>{% if accrual.number %}<bdi dir="ltr">{{ accrual.number }}</bdi>{% else %}<span class="muted">{% translate "مسودة" %}</span>{% endif %}</td>
+                  <td>{{ accrual.description }}</td>
+                  <td>{{ accrual.branch.code }}</td>
+                  <td><bdi dir="ltr">{{ accrual.business_date|date:"Y-m-d" }}</bdi></td>
+                  <td><bdi dir="ltr">{{ accrual.total_amount|money_full }}</bdi></td>
+                  <td>
+                    {% if accrual.status == "POSTED" %}<span class="chip chip--ok">{{ accrual.get_status_display }}</span>
+                    {% elif accrual.status == "REVERSED" %}<span class="chip chip--warn">{{ accrual.get_status_display }}</span>
+                    {% else %}<span class="chip chip--muted">{{ accrual.get_status_display }}</span>{% endif %}
+                  </td>
+                  <td>{% if accrual.auto_reverse_on %}<bdi dir="ltr">{{ accrual.auto_reverse_on|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}</td>
+                  <td class="cell-actions">
+                    <a class="btn btn--secondary btn--sm" href="{% url 'accounting:accrual_detail' accrual.pk %}">{% translate "تفاصيل" %}</a>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="8" class="empty">{% translate "لا مستحقات مسجَّلة." %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endif %}
+  </div>
+{% endblock %}

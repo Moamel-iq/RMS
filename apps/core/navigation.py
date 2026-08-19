@@ -747,9 +747,19 @@ MODULES: tuple[Module, ...] = (
                 available=True,
                 active_prefixes=("/accounting/expenses/",),
             ),
+            Section(
+                label=_("المستحقات والمقدمات"),
+                url_name="accounting:deferral_list",
+                available=True,
+                active_prefixes=("/accounting/deferrals/",),
+            ),
+            Section(
+                label=_("الفترات المحاسبية"),
+                url_name="accounting:period_list",
+                available=True,
+                active_prefixes=("/accounting/periods/",),
+            ),
             *_sections(
-                _("المستحقات والمقدمات"),
-                _("الفترات المحاسبية"),
                 _("ميزان المراجعة"),
                 _("دفتر الأستاذ"),
                 _("قائمة الدخل"),

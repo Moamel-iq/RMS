@@ -1,0 +1,114 @@
+{# One accounting period: its state, what it carries, and its blockers.      #}
+{#                                                                           #}
+{# The pre-close check is its own htmx panel because it is the expensive     #}
+{# part: it runs every registered domain guard and counts documents across   #}
+{# four modules. The period's own state renders instantly regardless.        #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-period-detail">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'accounting:period_list' %}">{% translate "الفترات المحاسبية" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page"><bdi dir="ltr">{{ period }}</bdi></span>
+    </nav>
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        {% if period.state == "OPEN" and may_soft_close %}
+          <form method="post" action="{% url 'accounting:period_soft_close' period.pk %}" class="inline-form">
+            {% csrf_token %}
+            <input class="field__input" type="text" name="reason" placeholder="{% translate 'السبب' %}" dir="auto">
+            <button class="btn btn--secondary" type="submit">{% translate "إغلاق مبدئي" %}</button>
+          </form>
+        {% endif %}
+        {% if period.state != "CLOSED" and may_close %}
+          <form method="post" action="{% url 'accounting:period_close' period.pk %}" class="inline-form">
+            {% csrf_token %}
+            <input class="field__input" type="text" name="reason" placeholder="{% translate 'السبب' %}" dir="auto">
+            <button class="btn btn--primary" type="submit">{% translate "إقفال" %}</button>
+          </form>
+        {% endif %}
+        {% if period.state != "OPEN" and may_reopen %}
+          <form method="post" action="{% url 'accounting:period_reopen' period.pk %}" class="inline-form">
+            {% csrf_token %}
+            <input class="field__input" type="text" name="reason" placeholder="{% translate 'سبب إعادة الفتح — مطلوب' %}" dir="auto" required>
+            <button class="btn btn--secondary" type="submit">{% translate "إعادة الفتح" %}</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "حالة الفترة" %}</h2>
+      <dl class="datalist">
+        <div><dt>{% translate "المؤسسة" %}</dt><dd>{{ period.fiscal_year.organization.code }}</dd></div>
+        <div><dt>{% translate "السنة المالية" %}</dt><dd><bdi dir="ltr">{{ period.fiscal_year.year }}</bdi></dd></div>
+        <div><dt>{% translate "رقم الفترة" %}</dt><dd><bdi dir="ltr">{{ period.period_number }}</bdi></dd></div>
+        <div><dt>{% translate "من" %}</dt><dd><bdi dir="ltr">{{ period.start_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div><dt>{% translate "إلى" %}</dt><dd><bdi dir="ltr">{{ period.end_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div>
+          <dt>{% translate "الحالة" %}</dt>
+          <dd>
+            {% if period.state == "OPEN" %}<span class="chip chip--ok">{{ period.get_state_display }}</span>
+            {% elif period.state == "SOFT_CLOSED" %}<span class="chip chip--warn">{{ period.get_state_display }}</span>
+            {% else %}<span class="chip chip--muted">{{ period.get_state_display }}</span>{% endif %}
+          </dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "حركة الفترة" %}</h2>
+      <div class="summary-row">
+        <div class="summary-row__item">
+          <span class="summary-row__label">{% translate "قيود مُرحَّلة" %}</span>
+          <span class="summary-row__value"><bdi dir="ltr">{{ activity.posted_entries }}</bdi></span>
+        </div>
+        <div class="summary-row__item">
+          <span class="summary-row__label">{% translate "مسودات" %}</span>
+          <span class="summary-row__value"><bdi dir="ltr">{{ activity.draft_entries }}</bdi></span>
+        </div>
+        <div class="summary-row__item">
+          <span class="summary-row__label">{% translate "مدين" %}</span>
+          <span class="summary-row__value"><bdi dir="ltr">{{ activity.debits|money_full }}</bdi></span>
+        </div>
+        <div class="summary-row__item">
+          <span class="summary-row__label">{% translate "دائن" %}</span>
+          <span class="summary-row__value"><bdi dir="ltr">{{ activity.credits|money_full }}</bdi></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="period-blockers"
+             hx-get="{% url 'accounting:period_precheck' period.pk %}"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+      <h2 class="card__title">{% translate "فحص ما قبل الإغلاق" %}</h2>
+      <p class="card__hint muted" aria-live="polite">{% translate "جارٍ جمع المعوّقات…" %}</p>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "سجل الأحداث" %}</h2>
+      <ul class="timeline">
+        {% for event in timeline %}
+          <li class="timeline__item">
+            <span class="timeline__when"><bdi dir="ltr">{{ event.occurred_at|date:"Y-m-d H:i" }}</bdi></span>
+            <span class="timeline__what">{{ event.get_action_display }}</span>
+            <span class="timeline__who">{{ event.actor_label|default:_("النظام") }}</span>
+            {% if event.reason %}<span class="timeline__why">{{ event.reason }}</span>{% endif %}
+          </li>
+        {% empty %}
+          <li class="timeline__item muted">{% translate "لا أحداث مسجَّلة." %}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+{% endblock %}

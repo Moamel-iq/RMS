@@ -1,0 +1,42 @@
+{# فحص ما قبل الإغلاق — every blocker at once.                               #}
+{#                                                                           #}
+{# All of them, not the first one. An accountant told one thing at a time    #}
+{# closes a month in six attempts across three days.                         #}
+{#                                                                           #}
+{# There is no repair control here and there will not be one: every blocker  #}
+{# is somebody else's document, and clearing it from this side would decide  #}
+{# something that is not this module's to decide.                            #}
+{% load i18n %}
+
+<h2 class="card__title">
+  {% translate "فحص ما قبل الإغلاق" %}
+  {% if blocking_count %}
+    <span class="chip chip--warn">{{ blocking_count }}</span>
+  {% else %}
+    <span class="chip chip--ok">{% translate "جاهزة" %}</span>
+  {% endif %}
+</h2>
+
+{% if blockers %}
+  <ul class="blocker-list" id="period-blocker-list">
+    {% for blocker in blockers %}
+      <li class="blocker blocker--{% if blocker.is_blocking %}blocking{% else %}advisory{% endif %}">
+        <span class="chip {% if blocker.is_blocking %}chip--warn{% else %}chip--muted{% endif %}">
+          {% if blocker.is_blocking %}{% translate "مانع" %}{% else %}{% translate "تنبيه" %}{% endif %}
+        </span>
+        <span class="blocker__message">{{ blocker.message }}</span>
+        {% if blocker.count %}<bdi dir="ltr" class="blocker__count">{{ blocker.count }}</bdi>{% endif %}
+        {% if blocker.url_name %}
+          <a class="blocker__link" href="{% url blocker.url_name %}">{% translate "فتح" %}</a>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+  <p class="card__hint">
+    {% translate "تُعرض المعوّقات ولا تُصلَح من هنا: كل واحد منها مستند تملكه وحدة أخرى." %}
+  </p>
+{% else %}
+  <p class="card__hint">
+    {% translate "لا معوّقات. الفترة جاهزة للإقفال." %}
+  </p>
+{% endif %}

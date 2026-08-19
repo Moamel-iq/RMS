@@ -26,15 +26,19 @@ from typing import Any
 from django.utils import timezone
 
 from apps.accounting.cash_services import create_bank_account, create_cashbox
+from apps.accounting.deferral_services import add_accrual_line, build_schedule
 from apps.accounting.expense_services import add_expense_line
 from apps.accounting.models import (
     Account,
     AccountClass,
+    AccrualDocument,
+    AmortizationFrequency,
     BankAccount,
     Cashbox,
     CostCenter,
     ExpenseVoucher,
     PaymentSource,
+    Prepayment,
 )
 from apps.core.context import get_actor
 from apps.organizations.models import Branch, Organization
@@ -184,6 +188,101 @@ def seed_expense_vouchers(result: AccountingDemo) -> None:
     result.note(made=True, what="expense voucher DEMO-EXP-0001")
 
 
+def seed_deferrals(result: AccountingDemo) -> None:
+    """
+    One accrual and one three-period prepayment, both as drafts with their
+    lines and schedule built by the real services.
+
+    Left at DRAFT for the same reason the expense voucher is: approval is
+    maker-checker, and a seed that quietly invented a second actor would model
+    the control as a formality. The schedule is real either way — it is built
+    by `build_schedule`, so the demo proves the allocator sums exactly.
+    """
+    organization = result.organization
+    if organization is None:  # pragma: no cover - the caller always sets it
+        raise DemoPreconditionError("the demo run has no organization")
+    branch = Branch.objects.filter(organization=organization).order_by("code").first()
+    if branch is None:
+        raise DemoPreconditionError("the demo organization has no branch")
+
+    today = timezone.localdate()
+    accrual = AccrualDocument.objects.filter(
+        organization=organization, evidence_reference="DEMO-ACR-0001"
+    ).first()
+    if accrual is None:
+        accrual = AccrualDocument(
+            organization=organization,
+            branch=branch,
+            business_date=today,
+            description="إيجار الفرع — مستحق ولم تصل الفاتورة",
+            reason=DEMO_BANNER,
+            auto_reverse_on=_first_of_next_month(today),
+            evidence_reference="DEMO-ACR-0001",
+            created_by=get_actor(),
+        )
+        accrual.full_clean()
+        accrual.save()
+        add_accrual_line(
+            accrual=accrual,
+            account=_expense_account(organization),
+            amount=Decimal("450000"),
+            cost_center=_cost_center(organization),
+            description="إيجار شهر تجريبي",
+        )
+        result.note(made=True, what="accrual DEMO-ACR-0001")
+    else:
+        result.note(made=False, what="accrual DEMO-ACR-0001")
+
+    prepaid = Account.objects.filter(
+        organization=organization, code="1-04-02-001", is_postable=True
+    ).first()
+    cashbox = Cashbox.objects.filter(organization=organization, code="DEMO-CASH-1").first()
+    if prepaid is None or cashbox is None:
+        raise DemoPreconditionError("seed the chart and the demo cashbox first")
+
+    prepayment = Prepayment.objects.filter(
+        organization=organization, source_reference="DEMO-PRE-0001"
+    ).first()
+    if prepayment is None:
+        start = today.replace(day=1)
+        prepayment = Prepayment(
+            organization=organization,
+            branch=branch,
+            business_date=today,
+            description="تأمين تجريبي — ثلاثة أشهر",
+            total_amount=Decimal("1000000"),
+            start_date=start,
+            end_date=_add_months(start, 3) - datetime.timedelta(days=1),
+            frequency=AmortizationFrequency.MONTHLY,
+            period_count=3,
+            expense_account=_expense_account(organization),
+            prepaid_account=prepaid,
+            cost_center=_cost_center(organization),
+            payment_source=PaymentSource.CASHBOX,
+            cashbox=cashbox,
+            source_reference="DEMO-PRE-0001",
+            created_by=get_actor(),
+        )
+        prepayment.full_clean()
+        prepayment.save()
+        # 1,000,000 over three months is the exact case the allocator exists
+        # for: a plain division leaves 999,999.999 and a thousandth of a dinar
+        # the prepaid account can never shed.
+        build_schedule(prepayment=prepayment)
+        result.note(made=True, what="prepayment DEMO-PRE-0001")
+    else:
+        result.note(made=False, what="prepayment DEMO-PRE-0001")
+
+
+def _first_of_next_month(day: datetime.date) -> datetime.date:
+    return _add_months(day.replace(day=1), 1)
+
+
+def _add_months(day: datetime.date, months: int) -> datetime.date:
+    total = day.month - 1 + months
+    return datetime.date(day.year + total // 12, total % 12 + 1, 1)
+
+
 def _expense_account(organization: Organization) -> Account:
     """The first postable operating-expense account in the seeded chart."""
     account = (
@@ -230,6 +329,7 @@ def seed_accounting_demo(**_options: Any) -> AccountingDemo:
     result = AccountingDemo(organization=organization)
     seed_cash_records(result)
     seed_expense_vouchers(result)
+    seed_deferrals(result)
     return result
 
 
@@ -240,5 +340,6 @@ __all__ = [
     "DemoPreconditionError",
     "seed_accounting_demo",
     "seed_cash_records",
+    "seed_deferrals",
     "seed_expense_vouchers",
 ]

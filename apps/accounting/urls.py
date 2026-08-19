@@ -13,8 +13,10 @@ from apps.accounting import (
     cash_views,
     chart_views,
     dashboard_views,
+    deferral_views,
     expense_views,
     journal_views,
+    period_views,
     subledger_views,
     views,
 )
@@ -217,6 +219,91 @@ urlpatterns = [
         "expenses/<int:pk>/discard/",
         expense_views.ExpenseTransitionView.as_view(action="discard"),
         name="expense_discard",
+    ),
+    # --- المستحقات والمقدمات -------------------------------------------------
+    path("deferrals/", deferral_views.DeferralLandingView.as_view(), name="deferral_list"),
+    path(
+        "deferrals/accruals/new/",
+        deferral_views.AccrualCreateView.as_view(),
+        name="accrual_create",
+    ),
+    path(
+        "deferrals/accruals/<int:pk>/",
+        deferral_views.AccrualDetailView.as_view(),
+        name="accrual_detail",
+    ),
+    path(
+        "deferrals/accrual-lines/<int:pk>/delete/",
+        deferral_views.AccrualLineDeleteView.as_view(),
+        name="accrual_line_delete",
+    ),
+    path(
+        "deferrals/accruals/<int:pk>/approve/",
+        deferral_views.AccrualTransitionView.as_view(action="approve"),
+        name="accrual_approve",
+    ),
+    path(
+        "deferrals/accruals/<int:pk>/post/",
+        deferral_views.AccrualTransitionView.as_view(action="post"),
+        name="accrual_post",
+    ),
+    path(
+        "deferrals/accruals/<int:pk>/reverse/",
+        deferral_views.AccrualTransitionView.as_view(action="reverse"),
+        name="accrual_reverse",
+    ),
+    path(
+        "deferrals/prepayments/new/",
+        deferral_views.PrepaymentCreateView.as_view(),
+        name="prepayment_create",
+    ),
+    path(
+        "deferrals/prepayments/<int:pk>/",
+        deferral_views.PrepaymentDetailView.as_view(),
+        name="prepayment_detail",
+    ),
+    path(
+        "deferrals/prepayments/<int:pk>/approve/",
+        deferral_views.PrepaymentTransitionView.as_view(action="approve"),
+        name="prepayment_approve",
+    ),
+    path(
+        "deferrals/prepayments/<int:pk>/post/",
+        deferral_views.PrepaymentTransitionView.as_view(action="post"),
+        name="prepayment_post",
+    ),
+    path(
+        "deferrals/schedule-lines/<int:pk>/post/",
+        deferral_views.ScheduleLineActionView.as_view(action="post"),
+        name="schedule_line_post",
+    ),
+    path(
+        "deferrals/schedule-lines/<int:pk>/reverse/",
+        deferral_views.ScheduleLineActionView.as_view(action="reverse"),
+        name="schedule_line_reverse",
+    ),
+    # --- الفترات المحاسبية ----------------------------------------------------
+    path("periods/", period_views.PeriodListView.as_view(), name="period_list"),
+    path("periods/<int:pk>/", period_views.PeriodDetailView.as_view(), name="period_detail"),
+    path(
+        "periods/<int:pk>/precheck/",
+        period_views.PeriodPrecheckView.as_view(),
+        name="period_precheck",
+    ),
+    path(
+        "periods/<int:pk>/soft-close/",
+        period_views.PeriodTransitionView.as_view(action="soft_close"),
+        name="period_soft_close",
+    ),
+    path(
+        "periods/<int:pk>/close/",
+        period_views.PeriodTransitionView.as_view(action="close"),
+        name="period_close",
+    ),
+    path(
+        "periods/<int:pk>/reopen/",
+        period_views.PeriodTransitionView.as_view(action="reopen"),
+        name="period_reopen",
     ),
     # --- ذمم التطبيقات -------------------------------------------------------
     path(

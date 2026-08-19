@@ -1,0 +1,137 @@
+{# One prepayment and its schedule.                                          #}
+{#                                                                           #}
+{# The "مجموع الجدول" row is shown rather than assumed. If it ever stops     #}
+{# equalling the total, the page says so before anybody tries to approve it  #}
+{# — that residual is what would keep the prepaid account off zero forever.  #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-prepayment-detail">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'accounting:deferral_list' %}?tab=prepayments">{% translate "المستحقات والمقدمات" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ page_title }}</span>
+    </nav>
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ prepayment.description }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        {% if may_approve %}
+          <form method="post" action="{% url 'accounting:prepayment_approve' prepayment.pk %}" class="inline-form">
+            {% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "اعتماد" %}</button>
+          </form>
+        {% endif %}
+        {% if may_post %}
+          <form method="post" action="{% url 'accounting:prepayment_post' prepayment.pk %}" class="inline-form">
+            {% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "ترحيل الدفعة" %}</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if is_own_draft and prepayment.status == "DRAFT" %}
+      <p class="chip chip--muted">{% translate "أنت من أنشأ هذا المقدَّم، فالاعتماد لشخص آخر." %}</p>
+    {% endif %}
+
+    <section class="card {% if not schedule_matches %}card--warn{% endif %}">
+      <h2 class="card__title">{% translate "بيانات المقدَّم" %}</h2>
+      <dl class="datalist">
+        <div><dt>{% translate "الفرع" %}</dt><dd>{{ prepayment.branch.code }}</dd></div>
+        <div><dt>{% translate "الحالة" %}</dt><dd>{{ prepayment.get_status_display }}</dd></div>
+        <div><dt>{% translate "الإجمالي" %}</dt><dd><bdi dir="ltr">{{ prepayment.total_amount|money_full }}</bdi></dd></div>
+        <div><dt>{% translate "مجموع الجدول" %}</dt><dd><bdi dir="ltr">{{ scheduled_total|money_full }}</bdi></dd></div>
+        <div>
+          <dt>{% translate "المطابقة" %}</dt>
+          <dd>
+            {% if schedule_matches %}
+              <span class="chip chip--ok">{% translate "الجدول يساوي الإجمالي تماماً" %}</span>
+            {% else %}
+              <span class="chip chip--warn">{% translate "الجدول لا يساوي الإجمالي — لا يُعتمد" %}</span>
+            {% endif %}
+          </dd>
+        </div>
+        <div><dt>{% translate "من" %}</dt><dd><bdi dir="ltr">{{ prepayment.start_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div><dt>{% translate "إلى" %}</dt><dd><bdi dir="ltr">{{ prepayment.end_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div><dt>{% translate "التواتر" %}</dt><dd>{{ prepayment.get_frequency_display }}</dd></div>
+        <div><dt>{% translate "عدد الفترات" %}</dt><dd><bdi dir="ltr">{{ prepayment.period_count }}</bdi></dd></div>
+        <div><dt>{% translate "حساب المصروف" %}</dt><dd><code dir="ltr">{{ prepayment.expense_account.code }}</code> {{ prepayment.expense_account.name_ar }}</dd></div>
+        <div><dt>{% translate "حساب المقدَّم" %}</dt><dd><code dir="ltr">{{ prepayment.prepaid_account.code }}</code> {{ prepayment.prepaid_account.name_ar }}</dd></div>
+        <div>
+          <dt>{% translate "مصدر الدفع" %}</dt>
+          <dd>
+            {% if prepayment.cashbox %}{{ prepayment.cashbox.name_ar }}
+            {% elif prepayment.bank_account %}{{ prepayment.bank_account.name_ar }}
+            {% else %}—{% endif %}
+          </dd>
+        </div>
+        {% if prepayment.journal_entry %}
+          <div><dt>{% translate "قيد الدفعة" %}</dt><dd><a href="{% url 'accounting:journal_detail' prepayment.journal_entry.pk %}"><bdi dir="ltr">{{ prepayment.journal_entry.entry_number }}</bdi></a></dd></div>
+        {% endif %}
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "جدول الاستهلاك" %}</h2>
+      <div class="tablewrap">
+        <table class="table" id="prepayment-schedule">
+          <thead><tr>
+            <th>#</th><th>{% translate "من" %}</th><th>{% translate "إلى" %}</th>
+            <th>{% translate "المبلغ" %}</th><th>{% translate "الحالة" %}</th>
+            <th>{% translate "القيد" %}</th>{% if may_manage %}<th></th>{% endif %}
+          </tr></thead>
+          <tbody>
+            {% for line in lines %}
+              <tr>
+                <td><bdi dir="ltr">{{ line.sequence }}</bdi></td>
+                <td><bdi dir="ltr">{{ line.period_start|date:"Y-m-d" }}</bdi></td>
+                <td><bdi dir="ltr">{{ line.period_end|date:"Y-m-d" }}</bdi></td>
+                <td><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td>
+                <td>
+                  {% if line.status == "POSTED" %}<span class="chip chip--ok">{{ line.get_status_display }}</span>
+                  {% elif line.status == "REVERSED" %}<span class="chip chip--warn">{{ line.get_status_display }}</span>
+                  {% elif line.period_end <= today %}<span class="chip chip--warn">{% translate "مستحق" %}</span>
+                  {% else %}<span class="chip chip--muted">{{ line.get_status_display }}</span>{% endif %}
+                </td>
+                <td>
+                  {% if line.journal_entry %}
+                    <a href="{% url 'accounting:journal_detail' line.journal_entry.pk %}"><bdi dir="ltr">{{ line.journal_entry.entry_number }}</bdi></a>
+                  {% else %}—{% endif %}
+                </td>
+                {% if may_manage %}
+                  <td class="cell-actions">
+                    {% if line.status == "PLANNED" and prepayment.status == "POSTED" %}
+                      <form method="post" action="{% url 'accounting:schedule_line_post' line.pk %}" class="inline-form">
+                        {% csrf_token %}<button class="btn btn--primary btn--sm" type="submit">{% translate "ترحيل القسط" %}</button>
+                      </form>
+                    {% elif line.status == "POSTED" %}
+                      <form method="post" action="{% url 'accounting:schedule_line_reverse' line.pk %}" class="inline-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="reason" value="{% translate 'عكس القسط' %}">
+                        <button class="btn btn--secondary btn--sm" type="submit">{% translate "عكس" %}</button>
+                      </form>
+                    {% endif %}
+                  </td>
+                {% endif %}
+              </tr>
+            {% empty %}
+              <tr><td colspan="7" class="empty">{% translate "لا جدول." %}</td></tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th colspan="3">{% translate "مجموع الجدول" %}</th>
+              <th><bdi dir="ltr">{{ scheduled_total|money_full }}</bdi></th>
+              <th colspan="{% if may_manage %}3{% else %}2{% endif %}"></th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}
