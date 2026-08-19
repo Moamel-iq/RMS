@@ -49,14 +49,16 @@ class TestThePermissionsExist:
         for permission in ALL_PERMISSIONS:
             assert permission.split(".", 1)[1] in codenames, permission
 
-    def test_there_are_exactly_twenty_one(self) -> None:
+    def test_there_are_exactly_twenty_six(self) -> None:
         # Twelve from Task 0.7, plus `manage_account_mappings` (Task 1.3), plus
-        # eight from Phase 5: the chart read and write, the financial-statement
-        # mapping, the authority to post a manual line onto a RESTRICTED
-        # control account (ADR-029 §2), cashbox and bank-account management,
-        # and the two read-only reconciliation workspaces.
-        assert len(ALL_PERMISSIONS) == 21
-        assert len(set(ALL_PERMISSIONS)) == 21
+        # thirteen from Phase 5: the chart read and write, the
+        # financial-statement mapping, the authority to post a manual line onto
+        # a RESTRICTED control account (ADR-029 §2), cashbox and bank-account
+        # management, the two read-only reconciliation workspaces, writing and
+        # approving an expense voucher as **separate** authorities, accruals,
+        # prepayments, and closing a fiscal year.
+        assert len(ALL_PERMISSIONS) == 26
+        assert len(set(ALL_PERMISSIONS)) == 26
 
     def test_every_permission_declares_a_scope(self) -> None:
         assert set(PERMISSION_SCOPE) == set(ALL_PERMISSIONS)
@@ -148,6 +150,10 @@ class TestRoleMapping:
                 "accounting.view_chart_of_accounts",
                 "accounting.view_supplier_liabilities",
                 "accounting.view_application_receivables",
+                # Writes a voucher; does not release it. Approval is
+                # ACCOUNTING_MANAGER and OWNER authority, and the service
+                # refuses a self-approval on top of whoever holds it.
+                "accounting.manage_expense_vouchers",
             }
         )
 

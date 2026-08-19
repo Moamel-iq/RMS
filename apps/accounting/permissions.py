@@ -72,6 +72,15 @@ MANAGE_BANK_ACCOUNTS = f"{APP_LABEL}.manage_bank_accounts"
 #: other.
 VIEW_SUPPLIER_LIABILITIES = f"{APP_LABEL}.view_supplier_liabilities"
 VIEW_APPLICATION_RECEIVABLES = f"{APP_LABEL}.view_application_receivables"
+#: Writing a voucher and releasing it are separate authorities on purpose:
+#: this is the one document that spends the organization's cash with no
+#: supplier invoice behind it, so one person doing both halves is the control
+#: that matters most (ADR-030 section 3).
+MANAGE_EXPENSE_VOUCHERS = f"{APP_LABEL}.manage_expense_vouchers"
+APPROVE_EXPENSE_VOUCHERS = f"{APP_LABEL}.approve_expense_vouchers"
+MANAGE_ACCRUALS = f"{APP_LABEL}.manage_accruals"
+MANAGE_PREPAYMENTS = f"{APP_LABEL}.manage_prepayments"
+CLOSE_FISCAL_YEAR = f"{APP_LABEL}.close_fiscal_year"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_JOURNAL,
@@ -95,6 +104,11 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     MANAGE_BANK_ACCOUNTS,
     VIEW_SUPPLIER_LIABILITIES,
     VIEW_APPLICATION_RECEIVABLES,
+    MANAGE_EXPENSE_VOUCHERS,
+    APPROVE_EXPENSE_VOUCHERS,
+    MANAGE_ACCRUALS,
+    MANAGE_PREPAYMENTS,
+    CLOSE_FISCAL_YEAR,
 )
 
 
@@ -147,6 +161,17 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # supplier balance that is real but is not the balance.
     VIEW_SUPPLIER_LIABILITIES: PermissionScope.ORGANIZATION,
     VIEW_APPLICATION_RECEIVABLES: PermissionScope.ORGANIZATION,
+    # A voucher names a branch and spends that branch's drawer, so writing one
+    # is branch authority. Approving it is not: releasing cash is the decision
+    # the organization answers for, and a branch that could approve its own
+    # spending would have no separation at all.
+    MANAGE_EXPENSE_VOUCHERS: PermissionScope.BRANCH,
+    APPROVE_EXPENSE_VOUCHERS: PermissionScope.ORGANIZATION,
+    MANAGE_ACCRUALS: PermissionScope.ORGANIZATION,
+    MANAGE_PREPAYMENTS: PermissionScope.ORGANIZATION,
+    # The single most consequential act in the module, and the only one that
+    # touches a whole year at once.
+    CLOSE_FISCAL_YEAR: PermissionScope.ORGANIZATION,
 }
 
 
@@ -195,6 +220,10 @@ _ACCOUNTANT = frozenset(
         # is why they can be given without giving anything away.
         VIEW_SUPPLIER_LIABILITIES,
         VIEW_APPLICATION_RECEIVABLES,
+        # Writes a voucher; does not release it. Approval is ACCOUNTING_MANAGER
+        # and OWNER authority, and `approve_expense_voucher` refuses a
+        # self-approval on top of that whoever holds it.
+        MANAGE_EXPENSE_VOUCHERS,
     }
 )
 

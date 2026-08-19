@@ -13,6 +13,7 @@ from apps.accounting import (
     cash_views,
     chart_views,
     dashboard_views,
+    expense_views,
     journal_views,
     subledger_views,
     views,
@@ -179,6 +180,43 @@ urlpatterns = [
         "supplier-liabilities/<int:pk>/",
         subledger_views.SupplierLiabilityDetailView.as_view(),
         name="supplier_liability_detail",
+    ),
+    # --- المصروفات -----------------------------------------------------------
+    path("expenses/", expense_views.ExpenseVoucherListView.as_view(), name="expense_list"),
+    path(
+        "expenses/new/",
+        expense_views.ExpenseVoucherCreateView.as_view(),
+        name="expense_create",
+    ),
+    path(
+        "expenses/<int:pk>/",
+        expense_views.ExpenseVoucherDetailView.as_view(),
+        name="expense_detail",
+    ),
+    path(
+        "expenses/lines/<int:pk>/delete/",
+        expense_views.ExpenseLineDeleteView.as_view(),
+        name="expense_line_delete",
+    ),
+    path(
+        "expenses/<int:pk>/approve/",
+        expense_views.ExpenseTransitionView.as_view(action="approve"),
+        name="expense_approve",
+    ),
+    path(
+        "expenses/<int:pk>/post/",
+        expense_views.ExpenseTransitionView.as_view(action="post"),
+        name="expense_post",
+    ),
+    path(
+        "expenses/<int:pk>/reverse/",
+        expense_views.ExpenseTransitionView.as_view(action="reverse"),
+        name="expense_reverse",
+    ),
+    path(
+        "expenses/<int:pk>/discard/",
+        expense_views.ExpenseTransitionView.as_view(action="discard"),
+        name="expense_discard",
     ),
     # --- ذمم التطبيقات -------------------------------------------------------
     path(

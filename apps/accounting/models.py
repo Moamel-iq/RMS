@@ -1722,3 +1722,851 @@ class BankAccount(CashAccountBase):
                 name="bank_account_archived_at_matches_state",
             ),
         ]
+
+
+# ---------------------------------------------------------------------------
+# Expense vouchers (ADR-030 §3)
+# ---------------------------------------------------------------------------
+
+
+class FinancialDocumentStatus(models.TextChoices):
+    """
+    The lifecycle every Phase 5 financial document shares.
+
+    One vocabulary rather than three near-identical ones, because the three
+    documents genuinely move through the same states for the same reasons and a
+    per-document copy would drift in exactly the place — what "posted" means —
+    where drift is least visible.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    APPROVED = "APPROVED", _("معتمد")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class PaymentSource(models.TextChoices):
+    """Where the money leaves from. Exactly one of the two, never both."""
+
+    CASHBOX = "CASHBOX", _("صندوق")
+    BANK = "BANK", _("حساب بنكي")
+
+
+class ExpenseVoucher(TimeStampedModel):
+    """
+    A non-supplier operational expense, paid immediately.
+
+    The electricity bill, a taxi, a municipal fee, a repair paid in cash — what
+    Procurement is *not* for. Two model decisions enforce that boundary rather
+    than merely stating it (ADR-030 §3):
+
+    **No supplier foreign key.** The moment this can name a supplier it becomes
+    a supplier invoice with no three-way match, no GRNI clearing, no purchase
+    price variance and no credit-note path — and it will be used as one,
+    because it is faster.
+
+    **No tax field.** Release 1 has no approved Iraqi tax policy, and a field
+    labelled "ضريبة" would invite one to be invented per voucher by whoever
+    filled it in.
+
+    An **unpaid** expense is not one of these. It is an accrual. Letting a
+    voucher post to a generic payable would create a supplier subledger with no
+    supplier — an unaged, unallocatable liability nobody can reconcile.
+    """
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="expense_vouchers",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="expense_vouchers",
+        verbose_name=_("branch"),
+    )
+    number = models.CharField(_("number"), max_length=32, blank=True)
+    #: The date the ledger records. Entered, never derived from a timestamp —
+    #: an expense paid at 00:30 belongs to the business day that just ended.
+    business_date = models.DateField(_("business date"))
+    expense_date = models.DateField(_("expense date"))
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=FinancialDocumentStatus.choices,
+        default=FinancialDocumentStatus.DRAFT,
+    )
+
+    payment_source = models.CharField(_("paid from"), max_length=10, choices=PaymentSource.choices)
+    cashbox = models.ForeignKey(
+        Cashbox,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="expense_vouchers",
+        verbose_name=_("cashbox"),
+    )
+    bank_account = models.ForeignKey(
+        BankAccount,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="expense_vouchers",
+        verbose_name=_("bank account"),
+    )
+
+    beneficiary = models.CharField(_("beneficiary"), max_length=200)
+    reason = models.TextField(_("reason"))
+    evidence_reference = models.CharField(_("evidence"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    #: The sum of the posted lines, recomputed on every line change. Never
+    #: rounded independently of them (CLAUDE.md): a total that was rounded on
+    #: its own would disagree with the journal it produces by a rounding unit,
+    #: and the journal would then refuse to balance.
+    total_amount = models.DecimalField(
+        _("total"),
+        max_digits=AMOUNT_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_expense_vouchers",
+        verbose_name=_("created by"),
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_expense_vouchers",
+        verbose_name=_("approved by"),
+    )
+    approved_at = models.DateTimeField(_("approved at"), null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_expense_vouchers",
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+
+    journal_entry = models.ForeignKey(
+        JournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="expense_vouchers",
+        verbose_name=_("journal entry"),
+    )
+    reversal_entry = models.ForeignKey(
+        JournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_expense_vouchers",
+        verbose_name=_("reversal entry"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("expense voucher")
+        verbose_name_plural = _("expense vouchers")
+        ordering = ["-business_date", "-id"]
+        permissions = [
+            ("manage_expense_vouchers", _("Can create and edit expense vouchers")),
+            ("approve_expense_vouchers", _("Can approve and post expense vouchers")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="expense_voucher_number_unique_per_organization",
+            ),
+            # Numbered once it leaves draft, like a journal: an abandoned draft
+            # must not burn a number out of a gapless sequence.
+            models.CheckConstraint(
+                condition=Q(status=FinancialDocumentStatus.DRAFT) | ~Q(number=""),
+                name="expense_voucher_numbered_once_approved",
+            ),
+            # Exactly one payment source, and it must match the declared kind.
+            # Two would make the credit side ambiguous; zero would make it
+            # absent, and the voucher would post a one-sided journal.
+            models.CheckConstraint(
+                condition=(
+                    (
+                        Q(payment_source=PaymentSource.CASHBOX)
+                        & Q(cashbox__isnull=False)
+                        & Q(bank_account__isnull=True)
+                    )
+                    | (
+                        Q(payment_source=PaymentSource.BANK)
+                        & Q(bank_account__isnull=False)
+                        & Q(cashbox__isnull=True)
+                    )
+                ),
+                name="expense_voucher_exactly_one_payment_source",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_amount__gte=Decimal("0")),
+                name="expense_voucher_total_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=FinancialDocumentStatus.POSTED)
+                | (Q(posted_at__isnull=False) & Q(journal_entry__isnull=False)),
+                name="expense_voucher_posted_carries_its_journal",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=FinancialDocumentStatus.APPROVED)
+                | Q(approved_at__isnull=False),
+                name="expense_voucher_approved_records_when",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "status", "business_date"],
+                name="expense_voucher_status_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"draft expense #{self.pk}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == FinancialDocumentStatus.DRAFT
+
+    @property
+    def payment_account(self) -> Account | None:
+        """The GL account the credit side lands in, whichever source was chosen."""
+        if self.cashbox is not None:
+            return self.cashbox.account
+        if self.bank_account is not None:
+            return self.bank_account.account
+        return None
+
+
+class ExpenseVoucherLine(models.Model):
+    """
+    One expense account and what was spent on it.
+
+    Deterministic order by `sequence`, which is also the allocation tie-break
+    key — the same discipline every other line model in this project follows,
+    so a total split across lines is reproducible rather than dependent on
+    queryset order.
+    """
+
+    voucher = models.ForeignKey(
+        ExpenseVoucher,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("voucher"),
+    )
+    sequence = models.PositiveIntegerField(_("sequence"))
+    account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        related_name="expense_voucher_lines",
+        verbose_name=_("account"),
+    )
+    cost_center = models.ForeignKey(
+        CostCenter,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="expense_voucher_lines",
+        verbose_name=_("cost center"),
+    )
+    description = models.CharField(_("description"), max_length=255, blank=True)
+    amount = models.DecimalField(
+        _("amount"), max_digits=AMOUNT_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+
+    class Meta:
+        verbose_name = _("expense voucher line")
+        verbose_name_plural = _("expense voucher lines")
+        ordering = ["voucher_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["voucher", "sequence"], name="expense_line_sequence_unique_per_voucher"
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=Decimal("0")), name="expense_line_amount_is_positive"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.account.code} {self.amount}"
+
+
+# ---------------------------------------------------------------------------
+# Accruals and prepayments (ADR-030 §§4–5)
+# ---------------------------------------------------------------------------
+
+
+class AccrualDocument(TimeStampedModel):
+    """
+    An expense incurred but not yet invoiced or paid.
+
+    `Dr Expense · Cr ACCRUED_EXPENSES_PAYABLE`.
+
+    The hard part is not the posting. It is what happens when the real invoice
+    arrives six weeks later, because both obvious behaviours are wrong: posting
+    the invoice on top recognises the expense twice, and letting the accrual
+    linger overstates the liability forever.
+
+    So this carries an optional link to the `SupplierInvoice` that replaces it,
+    and **linking is not creating** — Accounting never creates a supplier
+    invoice; that document belongs to Procurement and arrives through
+    Procurement. Clearing is then an explicit command that reverses this
+    accrual's own journal, so the expense stands recognised exactly once.
+    """
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="accruals",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="accruals",
+        verbose_name=_("branch"),
+    )
+    number = models.CharField(_("number"), max_length=32, blank=True)
+    business_date = models.DateField(_("business date"))
+    description = models.CharField(_("description"), max_length=255)
+    reason = models.TextField(_("reason"), blank=True)
+    evidence_reference = models.CharField(_("evidence"), max_length=200, blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=FinancialDocumentStatus.choices,
+        default=FinancialDocumentStatus.DRAFT,
+    )
+    total_amount = models.DecimalField(
+        _("total"),
+        max_digits=AMOUNT_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+
+    #: The common month-end case: the accrual exists only to land the cost in
+    #: the right month and is meant to unwind on the first of the next.
+    auto_reverse_on = models.DateField(_("automatic reversal date"), null=True, blank=True)
+
+    #: The invoice that eventually replaced this accrual. A **link**, never a
+    #: creation — Accounting does not write Procurement's documents.
+    settled_by_invoice = models.ForeignKey(
+        "procurement.SupplierInvoice",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="cleared_accruals",
+        verbose_name=_("settled by invoice"),
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_accruals",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_accruals",
+    )
+    approved_at = models.DateTimeField(_("approved at"), null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_accruals",
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+
+    journal_entry = models.ForeignKey(
+        JournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="accruals",
+    )
+    reversal_entry = models.ForeignKey(
+        JournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_accruals",
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("accrual")
+        verbose_name_plural = _("accruals")
+        ordering = ["-business_date", "-id"]
+        permissions = [
+            ("manage_accruals", _("Can create, approve and post accruals")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="accrual_number_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=FinancialDocumentStatus.DRAFT) | ~Q(number=""),
+                name="accrual_numbered_once_approved",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_amount__gte=Decimal("0")),
+                name="accrual_total_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=FinancialDocumentStatus.POSTED)
+                | (Q(posted_at__isnull=False) & Q(journal_entry__isnull=False)),
+                name="accrual_posted_carries_its_journal",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"draft accrual #{self.pk}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == FinancialDocumentStatus.DRAFT
+
+
+class AccrualLine(models.Model):
+    """One expense account accrued, and how much."""
+
+    accrual = models.ForeignKey(
+        AccrualDocument,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("accrual"),
+    )
+    sequence = models.PositiveIntegerField(_("sequence"))
+    account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        related_name="accrual_lines",
+        verbose_name=_("expense account"),
+    )
+    cost_center = models.ForeignKey(
+        CostCenter,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="accrual_lines",
+        verbose_name=_("cost center"),
+    )
+    description = models.CharField(_("description"), max_length=255, blank=True)
+    amount = models.DecimalField(
+        _("amount"), max_digits=AMOUNT_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+
+    class Meta:
+        verbose_name = _("accrual line")
+        verbose_name_plural = _("accrual lines")
+        ordering = ["accrual_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["accrual", "sequence"], name="accrual_line_sequence_unique"
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=Decimal("0")), name="accrual_line_amount_is_positive"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.account.code} {self.amount}"
+
+
+class AmortizationFrequency(models.TextChoices):
+    MONTHLY = "MONTHLY", _("شهري")
+    QUARTERLY = "QUARTERLY", _("ربع سنوي")
+
+
+class Prepayment(TimeStampedModel):
+    """
+    Payment before the expense is consumed.
+
+    `Dr PREPAID_EXPENSE · Cr cash/bank` when paid, then one
+    `Dr Expense · Cr PREPAID_EXPENSE` per schedule line as it is consumed.
+
+    The schedule is split with `apps/core/allocation.py` and never by dividing
+    the total by the period count and rounding each period. This is the ADR-006
+    counterexample in a different costume: 1,000,000 over three months at three
+    decimal places is 333,333.333 each, which sums to 999,999.999. The residual
+    is one thousandth of a dinar and it is fatal — the prepaid account never
+    reaches zero, the balance sheet carries a permanent 0.001 asset, and the
+    account cannot be closed at year end without a plug.
+    """
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="prepayments",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="prepayments",
+        verbose_name=_("branch"),
+    )
+    number = models.CharField(_("number"), max_length=32, blank=True)
+    business_date = models.DateField(_("business date"))
+    description = models.CharField(_("description"), max_length=255)
+    source_reference = models.CharField(_("source document"), max_length=200, blank=True)
+    evidence_reference = models.CharField(_("evidence"), max_length=200, blank=True)
+
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=FinancialDocumentStatus.choices,
+        default=FinancialDocumentStatus.DRAFT,
+    )
+
+    total_amount = models.DecimalField(
+        _("total"), max_digits=AMOUNT_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    start_date = models.DateField(_("start date"))
+    end_date = models.DateField(_("end date"))
+    frequency = models.CharField(
+        _("frequency"),
+        max_length=12,
+        choices=AmortizationFrequency.choices,
+        default=AmortizationFrequency.MONTHLY,
+    )
+    period_count = models.PositiveSmallIntegerField(_("number of periods"))
+
+    expense_account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        related_name="prepayment_expense_of",
+        verbose_name=_("expense account"),
+    )
+    prepaid_account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        related_name="prepayment_asset_of",
+        verbose_name=_("prepaid account"),
+    )
+    cost_center = models.ForeignKey(
+        CostCenter,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="prepayments",
+        verbose_name=_("cost center"),
+    )
+
+    payment_source = models.CharField(_("paid from"), max_length=10, choices=PaymentSource.choices)
+    cashbox = models.ForeignKey(
+        Cashbox, on_delete=models.PROTECT, null=True, blank=True, related_name="prepayments"
+    )
+    bank_account = models.ForeignKey(
+        BankAccount, on_delete=models.PROTECT, null=True, blank=True, related_name="prepayments"
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_prepayments",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_prepayments",
+    )
+    approved_at = models.DateTimeField(_("approved at"), null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_prepayments",
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+
+    journal_entry = models.ForeignKey(
+        JournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="prepayments",
+    )
+    reversal_entry = models.ForeignKey(
+        JournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_prepayments",
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("prepayment")
+        verbose_name_plural = _("prepayments")
+        ordering = ["-business_date", "-id"]
+        permissions = [
+            ("manage_prepayments", _("Can create, approve and amortize prepayments")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="prepayment_number_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=FinancialDocumentStatus.DRAFT) | ~Q(number=""),
+                name="prepayment_numbered_once_approved",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_amount__gt=Decimal("0")),
+                name="prepayment_total_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(end_date__gte=models.F("start_date")),
+                name="prepayment_ends_after_it_starts",
+            ),
+            models.CheckConstraint(
+                condition=Q(period_count__gte=1), name="prepayment_has_at_least_one_period"
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (
+                        Q(payment_source=PaymentSource.CASHBOX)
+                        & Q(cashbox__isnull=False)
+                        & Q(bank_account__isnull=True)
+                    )
+                    | (
+                        Q(payment_source=PaymentSource.BANK)
+                        & Q(bank_account__isnull=False)
+                        & Q(cashbox__isnull=True)
+                    )
+                ),
+                name="prepayment_exactly_one_payment_source",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.number or f"draft prepayment #{self.pk}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == FinancialDocumentStatus.DRAFT
+
+    @property
+    def payment_account(self) -> Account | None:
+        if self.cashbox is not None:
+            return self.cashbox.account
+        if self.bank_account is not None:
+            return self.bank_account.account
+        return None
+
+
+class ScheduleLineStatus(models.TextChoices):
+    PLANNED = "PLANNED", _("مخطَّط")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class PrepaymentScheduleLine(models.Model):
+    """
+    One period's share of a prepayment.
+
+    A **posted** line is never rewritten when the master record changes:
+    amending a prepayment re-plans its `PLANNED` lines only. Recomputing the
+    whole schedule would silently disagree with journals already in the ledger.
+    """
+
+    prepayment = models.ForeignKey(
+        Prepayment,
+        on_delete=models.CASCADE,
+        related_name="schedule_lines",
+        verbose_name=_("prepayment"),
+    )
+    sequence = models.PositiveIntegerField(_("sequence"))
+    period_start = models.DateField(_("period start"))
+    period_end = models.DateField(_("period end"))
+    amount = models.DecimalField(
+        _("amount"), max_digits=AMOUNT_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=ScheduleLineStatus.choices,
+        default=ScheduleLineStatus.PLANNED,
+    )
+    journal_entry = models.ForeignKey(
+        JournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="prepayment_schedule_lines",
+    )
+    reversal_entry = models.ForeignKey(
+        JournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_prepayment_schedule_lines",
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("prepayment schedule line")
+        verbose_name_plural = _("prepayment schedule lines")
+        ordering = ["prepayment_id", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["prepayment", "sequence"], name="prepayment_line_sequence_unique"
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=Decimal("0")), name="prepayment_line_amount_is_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(period_end__gte=models.F("period_start")),
+                name="prepayment_line_period_is_ordered",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=ScheduleLineStatus.POSTED)
+                | (Q(journal_entry__isnull=False) & Q(posted_at__isnull=False)),
+                name="prepayment_line_posted_carries_its_journal",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.prepayment} #{self.sequence} {self.amount}"
+
+
+# ---------------------------------------------------------------------------
+# Year-end close (ADR-031 §4)
+# ---------------------------------------------------------------------------
+
+
+class YearEndClose(TimeStampedModel):
+    """
+    The once-only record that a fiscal year was closed.
+
+    Once-only is enforced **twice over**. The closing journal carries a source
+    identity, and ADR-017's per-organization uniqueness on source identity makes
+    a second one impossible at the database. This row additionally carries a
+    partial unique constraint on `(organization, fiscal_year)` where the
+    reversal is null — so a year reopened by exact reversal can be closed again,
+    and a year already closed cannot.
+
+    A **policy version** is recorded, so a year closed under one set of rules
+    stays interpretable after the rules change.
+    """
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="year_end_closes",
+        verbose_name=_("organization"),
+    )
+    fiscal_year = models.ForeignKey(
+        FiscalYear,
+        on_delete=models.PROTECT,
+        related_name="closes",
+        verbose_name=_("fiscal year"),
+    )
+    net_result = models.DecimalField(
+        _("net result"), max_digits=AMOUNT_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    policy_version = models.CharField(_("policy version"), max_length=32)
+    evidence_reference = models.CharField(_("evidence"), max_length=200, blank=True)
+
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="closed_fiscal_years",
+    )
+    closed_at = models.DateTimeField(_("closed at"), auto_now_add=True)
+
+    journal_entry = models.ForeignKey(
+        JournalEntry,
+        on_delete=models.PROTECT,
+        related_name="year_end_closes",
+        verbose_name=_("closing journal"),
+    )
+    reversal_entry = models.ForeignKey(
+        JournalEntry,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_year_end_closes",
+        verbose_name=_("reversal journal"),
+    )
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reopened_fiscal_years",
+    )
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("year-end close")
+        verbose_name_plural = _("year-end closes")
+        ordering = ["-closed_at"]
+        permissions = [
+            ("close_fiscal_year", _("Can close and reopen a fiscal year")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "fiscal_year"],
+                condition=Q(reversal_entry__isnull=True),
+                name="year_end_close_once_while_not_reversed",
+            ),
+            # Reopening leaves both journals in the ledger and records why.
+            # A reversal with no reason is a reversal nobody can explain later,
+            # and this is the single most consequential act in the module.
+            models.CheckConstraint(
+                condition=Q(reversal_entry__isnull=True) | ~Q(reversal_reason=""),
+                name="year_end_close_reversal_states_its_reason",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.organization.code} {self.fiscal_year.year}"
+
+    @property
+    def is_reversed(self) -> bool:
+        return self.reversal_entry_id is not None

@@ -741,8 +741,13 @@ MODULES: tuple[Module, ...] = (
                 available=True,
                 active_prefixes=("/accounting/application-receivables/",),
             ),
+            Section(
+                label=_("المصروفات"),
+                url_name="accounting:expense_list",
+                available=True,
+                active_prefixes=("/accounting/expenses/",),
+            ),
             *_sections(
-                _("المصروفات"),
                 _("المستحقات والمقدمات"),
                 _("الفترات المحاسبية"),
                 _("ميزان المراجعة"),

@@ -20,12 +20,23 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
 from django.utils import timezone
 
 from apps.accounting.cash_services import create_bank_account, create_cashbox
-from apps.accounting.models import Account, BankAccount, Cashbox
+from apps.accounting.expense_services import add_expense_line
+from apps.accounting.models import (
+    Account,
+    AccountClass,
+    BankAccount,
+    Cashbox,
+    CostCenter,
+    ExpenseVoucher,
+    PaymentSource,
+)
+from apps.core.context import get_actor
 from apps.organizations.models import Branch, Organization
 
 #: The demo organization every Phase 1–5 seed shares.
@@ -117,6 +128,87 @@ def seed_cash_records(result: AccountingDemo) -> None:
         result.note(made=False, what="bank account DEMO-BANK-1")
 
 
+def seed_expense_vouchers(result: AccountingDemo) -> None:
+    """
+    One draft expense voucher with a line, so المصروفات opens with something on it.
+
+    Deliberately **not** approved or posted here. Approval is maker-checker —
+    the creator may not approve — so a posted demo voucher needs two demo
+    actors, and inventing a second one silently would model the control as
+    though it were a formality. The lifecycle is exercised by the tests; the
+    seed shows the screen.
+    """
+    organization = result.organization
+    if organization is None:  # pragma: no cover - the caller always sets it
+        raise DemoPreconditionError("the demo run has no organization")
+    branch = Branch.objects.filter(organization=organization).order_by("code").first()
+    if branch is None:
+        raise DemoPreconditionError("the demo organization has no branch")
+
+    cashbox = Cashbox.objects.filter(organization=organization, code="DEMO-CASH-1").first()
+    if cashbox is None:
+        raise DemoPreconditionError("seed the demo cashbox first")
+
+    voucher = ExpenseVoucher.objects.filter(
+        organization=organization, evidence_reference="DEMO-EXP-0001"
+    ).first()
+    if voucher is not None:
+        result.note(made=False, what="expense voucher DEMO-EXP-0001")
+        return
+
+    today = timezone.localdate()
+    voucher = ExpenseVoucher(
+        organization=organization,
+        branch=branch,
+        business_date=today,
+        expense_date=today,
+        payment_source=PaymentSource.CASHBOX,
+        cashbox=cashbox,
+        beneficiary="شركة الكهرباء التجريبية",
+        reason="فاتورة كهرباء الفرع",
+        evidence_reference="DEMO-EXP-0001",
+        notes=DEMO_BANNER,
+        created_by=get_actor(),
+    )
+    voucher.full_clean()
+    voucher.save()
+
+    account = _expense_account(organization)
+    add_expense_line(
+        voucher=voucher,
+        account=account,
+        amount=Decimal("125000"),
+        cost_center=_cost_center(organization),
+        description="كهرباء — شهر تجريبي",
+    )
+    result.note(made=True, what="expense voucher DEMO-EXP-0001")
+
+
+def _expense_account(organization: Organization) -> Account:
+    """The first postable operating-expense account in the seeded chart."""
+    account = (
+        Account.objects.filter(
+            organization=organization,
+            is_postable=True,
+            is_active=True,
+            account_class=AccountClass.OPERATING_EXPENSE,
+        )
+        .order_by("code")
+        .first()
+    )
+    if account is None:
+        raise DemoPreconditionError("no operating-expense account in the chart")
+    return account
+
+
+def _cost_center(organization: Organization) -> CostCenter | None:
+    return (
+        CostCenter.objects.filter(organization=organization, is_active=True)
+        .order_by("code")
+        .first()
+    )
+
+
 def _start_of_year() -> datetime.date:
     today = timezone.localdate()
     return datetime.date(today.year, 1, 1)
@@ -137,6 +229,7 @@ def seed_accounting_demo(**_options: Any) -> AccountingDemo:
 
     result = AccountingDemo(organization=organization)
     seed_cash_records(result)
+    seed_expense_vouchers(result)
     return result
 
 
@@ -146,4 +239,6 @@ __all__ = [
     "AccountingDemo",
     "DemoPreconditionError",
     "seed_accounting_demo",
+    "seed_cash_records",
+    "seed_expense_vouchers",
 ]
