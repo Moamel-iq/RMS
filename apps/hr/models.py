@@ -948,7 +948,7 @@ class EmployeeDeduction(TimeStampedModel):
 
     @property
     def allocated_amount(self) -> Decimal:
-        return sum((row.amount for row in self.allocations.all()), Decimal("0.000"))
+        return sum((row.net_amount for row in self.allocations.all()), Decimal("0.000"))
 
     @property
     def remaining_amount(self) -> Decimal:
@@ -962,6 +962,23 @@ class DeductionAllocation(TimeStampedModel):
     payroll_reference = models.CharField(max_length=120)
     amount = models.DecimalField(max_digits=18, decimal_places=3)
     allocated_at = models.DateTimeField()
+    payroll_run = models.ForeignKey(
+        "PayrollRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="deduction_allocations",
+    )
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payroll_deduction_allocations",
+    )
+    reversal_of = models.OneToOneField(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="reversal"
+    )
 
     class Meta:
         constraints = [
@@ -972,6 +989,10 @@ class DeductionAllocation(TimeStampedModel):
                 condition=Q(amount__gt=0), name="hr_deduction_allocation_positive"
             ),
         ]
+
+    @property
+    def net_amount(self) -> Decimal:
+        return -self.amount if self.reversal_of_id else self.amount
 
 
 class AdvanceType(models.TextChoices):
@@ -1055,7 +1076,7 @@ class EmployeeAdvance(TimeStampedModel):
 
     @property
     def recovered_amount(self) -> Decimal:
-        return sum((row.amount for row in self.recoveries.all()), Decimal("0.000"))
+        return sum((row.net_amount for row in self.recoveries.all()), Decimal("0.000"))
 
     @property
     def outstanding_amount(self) -> Decimal:
@@ -1112,6 +1133,16 @@ class AdvanceRecoveryAllocation(TimeStampedModel):
         blank=True,
         related_name="advance_recoveries",
     )
+    payroll_run = models.ForeignKey(
+        "PayrollRun",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="advance_recovery_allocations",
+    )
+    reversal_of = models.OneToOneField(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="reversal"
+    )
 
     class Meta:
         constraints = [
@@ -1120,6 +1151,10 @@ class AdvanceRecoveryAllocation(TimeStampedModel):
             ),
             models.CheckConstraint(condition=Q(amount__gt=0), name="hr_advance_recovery_positive"),
         ]
+
+    @property
+    def net_amount(self) -> Decimal:
+        return -self.amount if self.reversal_of_id else self.amount
 
 
 class PayrollRunStatus(models.TextChoices):
@@ -1204,6 +1239,7 @@ class PayrollRun(TimeStampedModel):
         related_name="released_payroll_runs",
     )
     released_at = models.DateTimeField(null=True, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
     rejection_reason = models.TextField(blank=True)
     notes = models.TextField(blank=True)
     accrual_journal = models.ForeignKey(
@@ -1427,6 +1463,7 @@ class PayrollPayment(TimeStampedModel):
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_payroll_payments"
     )
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["-payment_date", "-id"]

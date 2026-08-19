@@ -854,7 +854,13 @@ MODULES: tuple[Module, ...] = (
                 label=_("احتساب الرواتب"),
                 url_name="hr:payroll_list",
                 available=True,
-                active_prefixes=("hr:payroll_",),
+                active_prefixes=(
+                    "hr:payroll_list",
+                    "hr:payroll_create",
+                    "hr:payroll_detail",
+                    "hr:payroll_line",
+                    "hr:payroll_command",
+                ),
             ),
             Section(
                 label=_("اعتماد الرواتب"),
@@ -862,7 +868,12 @@ MODULES: tuple[Module, ...] = (
                 available=True,
                 active_prefixes=("hr:payroll_approvals",),
             ),
-            Section(label=_("صرف الرواتب")),
+            Section(
+                label=_("صرف الرواتب"),
+                url_name="hr:payroll_payments",
+                available=True,
+                active_prefixes=("hr:payroll_payment", "hr:payroll_payments"),
+            ),
             Section(label=_("كشوف الموظفين")),
         ),
     ),

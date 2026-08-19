@@ -10,10 +10,28 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.db import DatabaseError, transaction
 from django.test import Client
 from django.urls import reverse
 
+from apps.accounting.models import (
+    EMPLOYEE_RECEIVABLE,
+    PAYROLL_ALLOWANCE_EXPENSE,
+    PAYROLL_BANK,
+    PAYROLL_CASH,
+    PAYROLL_OTHER_LIABILITY,
+    PAYROLL_OVERTIME_EXPENSE,
+    PAYROLL_PAYABLE,
+    PAYROLL_SALARY_EXPENSE,
+    Account,
+    AccountRole,
+)
+from apps.accounting.services import (
+    configure_accounting,
+    create_account_mapping,
+    open_fiscal_year,
+)
 from apps.hr.models import (
     AdvanceDisbursement,
     AdvanceType,
@@ -25,6 +43,7 @@ from apps.hr.models import (
     EmployeeContract,
     EmployeePaymentMethod,
     OvertimeSource,
+    PayrollPayment,
     PayrollPolicy,
     PayrollRun,
     PayrollRunStatus,
@@ -36,7 +55,12 @@ from apps.hr.models import (
 from apps.hr.payroll import (
     approve_payroll_run,
     calculate_payroll_run,
+    create_payroll_payment,
     create_payroll_run,
+    post_payroll_run,
+    release_payroll_run,
+    reverse_payroll_payment,
+    reverse_payroll_run,
     review_payroll_run,
 )
 from apps.hr.services import (
@@ -75,7 +99,10 @@ BAGHDAD = ZoneInfo("Asia/Baghdad")
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM-PAY", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM-PAY", name_ar="خان مندي", name_en="Khan Mandi")
+    configure_accounting(organization=organization, fiscal_year_start_month=1)
+    open_fiscal_year(organization=organization, year=DAY.year)
+    return organization
 
 
 @pytest.fixture
@@ -93,6 +120,34 @@ def branch(organization: Organization) -> Branch:
         timezone="Asia/Baghdad",
         business_day_start_time=time(9),
     )
+
+
+@pytest.fixture
+def payroll_account_mappings(organization: Organization) -> None:
+    call_command("seed_chart_of_accounts", organization=organization.code, verbosity=0)
+    role_accounts = {
+        PAYROLL_SALARY_EXPENSE: "6-01-01-001",
+        PAYROLL_ALLOWANCE_EXPENSE: "6-01-01-001",
+        PAYROLL_OVERTIME_EXPENSE: "6-01-01-001",
+        PAYROLL_PAYABLE: "2-02-01-001",
+        EMPLOYEE_RECEIVABLE: "1-04-02-001",
+        PAYROLL_OTHER_LIABILITY: "2-02-01-001",
+        PAYROLL_CASH: "1-01-01-001",
+        PAYROLL_BANK: "1-01-02-001",
+    }
+    accounts = {
+        account.code: account
+        for account in Account.objects.filter(
+            organization=organization, code__in=set(role_accounts.values())
+        )
+    }
+    for role_code, account_code in role_accounts.items():
+        create_account_mapping(
+            organization=organization,
+            account_role=AccountRole.objects.get(code=role_code),
+            account=accounts[account_code],
+            effective_from=datetime.date(DAY.year, 1, 1),
+        )
 
 
 def _actor(username: str, organization: Organization, role: Role) -> User:
@@ -271,6 +326,8 @@ def test_calculation_snapshots_approved_inputs_and_is_idempotent(
     maker: User,
     reviewer: User,
     checker: User,
+    payroll_account_mappings: None,
+    client_for: Callable[[User], Client],
 ) -> None:
     _approve_day(employee, branch, maker, reviewer)
     overtime = create_overtime_request(
@@ -350,6 +407,104 @@ def test_calculation_snapshots_approved_inputs_and_is_idempotent(
     with pytest.raises(DatabaseError), transaction.atomic():
         approved.employee_lines.update(net_pay=Decimal("1.000"))
 
+    posted = post_payroll_run(payroll_run=approved, actor=checker)
+    assert posted.status == PayrollRunStatus.POSTED
+    assert posted.accrual_journal is not None
+    assert sum((row.debit for row in posted.accrual_journal.lines.all()), Decimal("0")) == Decimal(
+        "1237500.000"
+    )
+    assert sum((row.credit for row in posted.accrual_journal.lines.all()), Decimal("0")) == Decimal(
+        "1237500.000"
+    )
+    assert posted.deduction_allocations.count() == 1
+    assert posted.advance_recovery_allocations.count() == 1
+    deduction.refresh_from_db()
+    advance.refresh_from_db()
+    overtime.refresh_from_db()
+    assert deduction.remaining_amount == Decimal("0.000")
+    assert advance.outstanding_amount == Decimal("150000.000")
+    assert overtime.payroll_inclusion_reference == str(posted.public_id)
+
+    released = release_payroll_run(payroll_run=posted, actor=checker)
+    assert released.status == PayrollRunStatus.RELEASED
+    payment_form = client_for(checker).get(
+        reverse("hr:payroll_payment_create", args=[released.pk]), HTTP_HX_REQUEST="true"
+    )
+    assert payment_form.status_code == 200
+    assert "<html" not in payment_form.content.decode().lower()
+    assert "تخصيص الموظفين" in payment_form.content.decode()
+    employee_line = released.employee_lines.get(employee=employee)
+    payment_date = datetime.date(2026, 8, 20)
+    partial = create_payroll_payment(
+        payroll_run=released,
+        payment_date=payment_date,
+        method=EmployeePaymentMethod.CASH,
+        reference="CASH-PAY-1",
+        reason="صرف جزئي",
+        allocations=[(employee_line, Decimal("400000.000"))],
+        idempotency_key="payroll-partial-1",
+        actor=checker,
+    )
+    released.refresh_from_db()
+    assert released.status == PayrollRunStatus.PARTIALLY_PAID
+    assert released.paid_total == Decimal("400000.000")
+    replay = create_payroll_payment(
+        payroll_run=released,
+        payment_date=payment_date,
+        method=EmployeePaymentMethod.CASH,
+        reference="CASH-PAY-1",
+        reason="صرف جزئي",
+        allocations=[(employee_line, Decimal("400000.000"))],
+        idempotency_key="payroll-partial-1",
+        actor=checker,
+    )
+    assert replay.pk == partial.pk
+
+    final = create_payroll_payment(
+        payroll_run=released,
+        payment_date=payment_date,
+        method=EmployeePaymentMethod.BANK,
+        reference="BANK-PAY-1",
+        reason="إكمال الصرف",
+        allocations=[(employee_line, Decimal("687500.000"))],
+        idempotency_key="payroll-final-1",
+        actor=checker,
+    )
+    released.refresh_from_db()
+    assert released.status == PayrollRunStatus.PAID
+    assert released.outstanding_total == Decimal("0.000")
+    assert PayrollPayment.objects.filter(payroll_run=released).count() == 2
+
+    reverse_payroll_payment(
+        payment=final,
+        reversal_date=payment_date,
+        reason="اختبار عكس التحويل",
+        actor=checker,
+    )
+    reverse_payroll_payment(
+        payment=partial,
+        reversal_date=payment_date,
+        reason="اختبار عكس النقد",
+        actor=checker,
+    )
+    released.refresh_from_db()
+    assert released.status == PayrollRunStatus.RELEASED
+    assert released.paid_total == Decimal("0.000")
+
+    reversed_run = reverse_payroll_run(
+        payroll_run=released,
+        reversal_date=payment_date,
+        reason="تصحيح تشغيل الرواتب",
+        actor=checker,
+    )
+    assert reversed_run.status == PayrollRunStatus.REVERSED
+    deduction.refresh_from_db()
+    advance.refresh_from_db()
+    overtime.refresh_from_db()
+    assert deduction.remaining_amount == Decimal("100000.000")
+    assert advance.outstanding_amount == Decimal("200000.000")
+    assert overtime.payroll_inclusion_reference == ""
+
 
 def test_unapproved_attendance_is_a_blocker_at_approval(
     employee: Employee,
@@ -379,10 +534,13 @@ def test_payroll_workspaces_are_scope_safe_arabic_and_htmx_enabled(
     run = _run(branch, policy, maker)
     client = client_for(maker)
     listing = client.get(reverse("hr:payroll_list"))
+    payment_listing = client.get(reverse("hr:payroll_payments"))
     form = client.get(reverse("hr:payroll_create"), HTTP_HX_REQUEST="true")
     detail = client.get(reverse("hr:payroll_detail", args=[run.pk]))
     assert listing.status_code == 200
     assert "احتساب الرواتب" in listing.content.decode()
+    assert payment_listing.status_code == 200
+    assert "صرف الرواتب" in payment_listing.content.decode()
     assert detail.status_code == 200
     assert run.run_number in detail.content.decode()
     assert form.status_code == 200

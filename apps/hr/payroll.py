@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime
+import uuid
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
@@ -12,24 +14,50 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from apps.accounting.models import (
+    EMPLOYEE_RECEIVABLE,
+    PAYROLL_ALLOWANCE_EXPENSE,
+    PAYROLL_BANK,
+    PAYROLL_CASH,
+    PAYROLL_OTHER_LIABILITY,
+    PAYROLL_OVERTIME_EXPENSE,
+    PAYROLL_PAYABLE,
+    PAYROLL_SALARY_EXPENSE,
+    CostCenter,
+    SourceEvent,
+)
+from apps.accounting.services import (
+    post_entry,
+    resolve_default_account,
+    resolve_period,
+    reverse_entry,
+)
+from apps.accounting.validators import PostingLine, validate_period_accepts_postings
+from apps.core.locks import lock_account_mappings_shared
 from apps.core.models import AuditAction
 from apps.core.money import quantize_money
 from apps.core.services import record_audit_event, snapshot
 from apps.hr.attendance import assignment_for, calculate_attendance_day
 from apps.hr.models import (
+    AdvanceRecoveryAllocation,
     AdvanceStatus,
     AttendanceApprovalStatus,
     AttendanceDayApproval,
     ContractStatus,
+    DeductionAllocation,
     DeductionType,
     Employee,
     EmployeeAdvance,
     EmployeeContract,
     EmployeeDeduction,
+    EmployeePaymentMethod,
     OvertimeRequest,
     PayrollComponentKind,
     PayrollComponentLine,
     PayrollEmployeeLine,
+    PayrollPayment,
+    PayrollPaymentAllocation,
+    PayrollPaymentStatus,
     PayrollPolicy,
     PayrollRun,
     PayrollRunStatus,
@@ -38,7 +66,13 @@ from apps.hr.models import (
     RequestStatus,
     WageBasis,
 )
-from apps.hr.permissions import APPROVE_PAYROLL, CALCULATE_PAYROLL, REVIEW_PAYROLL
+from apps.hr.permissions import (
+    APPROVE_PAYROLL,
+    CALCULATE_PAYROLL,
+    PAY_PAYROLL,
+    POST_PAYROLL,
+    REVIEW_PAYROLL,
+)
 from apps.organizations.authorization import require_organization_permission
 from apps.organizations.models import Branch, Organization
 from apps.users.models import User
@@ -692,6 +726,8 @@ def approve_payroll_run(*, payroll_run: PayrollRun, actor: User) -> PayrollRun:
         raise ValidationError(_("Payroll net total does not match employee lines."))
     if run.gross_total - run.deduction_total != run.net_total:
         raise ValidationError(_("Payroll gross minus deductions does not equal net."))
+    period = resolve_period(organization=run.organization, accounting_date=run.accounting_date)
+    validate_period_accepts_postings(period)
     previous = snapshot(run)
     run.status = PayrollRunStatus.APPROVED
     run.approved_by = actor
@@ -704,5 +740,709 @@ def approve_payroll_run(*, payroll_run: PayrollRun, actor: User) -> PayrollRun:
         branch=run.branch,
         previous_state=previous,
         new_state=snapshot(run),
+    )
+    return run
+
+
+# ---------------------------------------------------------------------------
+# Payroll accounting, release, payment, and reversal
+# ---------------------------------------------------------------------------
+
+
+PAYROLL_RUN_SOURCE = "HR_PAYROLL_RUN"
+PAYROLL_PAYMENT_SOURCE = "HR_PAYROLL_PAYMENT"
+PAYROLL_ACCRUAL_RULE = "hr-payroll-accrual-v1"
+PAYROLL_PAYMENT_RULE = "hr-payroll-payment-v1"
+
+PAYMENT_METHOD_ROLES: dict[str, str] = {
+    EmployeePaymentMethod.CASH: PAYROLL_CASH,
+    EmployeePaymentMethod.BANK: PAYROLL_BANK,
+}
+
+
+def _mapped_account(run: PayrollRun, role: str, on_date: datetime.date) -> Any:
+    return resolve_default_account(
+        organization=run.organization, account_role=role, on_date=on_date
+    ).account
+
+
+def _line_total(run: PayrollRun, *fields: str) -> Decimal:
+    total = ZERO
+    for line in run.employee_lines.all():
+        total += sum((getattr(line, field) for field in fields), ZERO)
+    return quantize_money(total)
+
+
+def _payroll_posting_lines(run: PayrollRun) -> list[PostingLine]:
+    attendance_reductions = _line_total(
+        run, "absence_deduction", "lateness_deduction", "early_departure_deduction"
+    )
+    advance_recovery = _line_total(run, "advance_recovery")
+    other_liability = _line_total(run, "administrative_deduction", "other_deductions")
+    salary_expense = quantize_money(run.basic_pay_total - attendance_reductions)
+    allowance_expense = quantize_money(run.allowance_total + run.reward_total)
+
+    roles: dict[str, Any] = {}
+    amounts_by_role = {
+        PAYROLL_SALARY_EXPENSE: salary_expense,
+        PAYROLL_ALLOWANCE_EXPENSE: allowance_expense,
+        PAYROLL_OVERTIME_EXPENSE: run.overtime_total,
+        PAYROLL_PAYABLE: run.net_total,
+        EMPLOYEE_RECEIVABLE: advance_recovery,
+        PAYROLL_OTHER_LIABILITY: other_liability,
+    }
+    for role, amount in amounts_by_role.items():
+        if amount > ZERO:
+            roles[role] = _mapped_account(run, role, run.accounting_date)
+    needs_cost_center = any(
+        account.requires_cost_center
+        for role, account in roles.items()
+        if role
+        in {
+            PAYROLL_SALARY_EXPENSE,
+            PAYROLL_ALLOWANCE_EXPENSE,
+            PAYROLL_OVERTIME_EXPENSE,
+        }
+    )
+    cost_center = None
+    if needs_cost_center:
+        cost_center = CostCenter.objects.filter(
+            organization=run.organization, code="HR", is_active=True
+        ).first()
+        if cost_center is None:
+            raise ValidationError(
+                _("The organization needs an active HR cost center before payroll posting."),
+                code="payroll_cost_center_missing",
+            )
+
+    lines: list[PostingLine] = []
+    for role, amount in (
+        (PAYROLL_SALARY_EXPENSE, salary_expense),
+        (PAYROLL_ALLOWANCE_EXPENSE, allowance_expense),
+        (PAYROLL_OVERTIME_EXPENSE, run.overtime_total),
+    ):
+        if amount > ZERO:
+            lines.append(
+                PostingLine(
+                    account=roles[role],
+                    branch=run.branch,
+                    cost_center=cost_center if roles[role].requires_cost_center else None,
+                    debit=amount,
+                    narration=str(_("استحقاق رواتب %(run)s") % {"run": run.run_number}),
+                )
+            )
+    for role, amount in (
+        (PAYROLL_PAYABLE, run.net_total),
+        (EMPLOYEE_RECEIVABLE, advance_recovery),
+        (PAYROLL_OTHER_LIABILITY, other_liability),
+    ):
+        if amount > ZERO:
+            lines.append(
+                PostingLine(
+                    account=roles[role],
+                    branch=run.branch,
+                    credit=amount,
+                    narration=str(_("استحقاق رواتب %(run)s") % {"run": run.run_number}),
+                )
+            )
+    debit = quantize_money(sum((line.debit for line in lines), ZERO))
+    credit = quantize_money(sum((line.credit for line in lines), ZERO))
+    if debit != credit:
+        raise ValidationError(
+            _("Payroll accounting lines do not reconcile."), code="payroll_posting_unbalanced"
+        )
+    return lines
+
+
+def _allocate_posted_inputs(*, run: PayrollRun, journal: Any) -> None:
+    reference_prefix = str(run.public_id)
+    components = run.employee_lines.all().prefetch_related("components")
+    now = timezone.now()
+    for employee_line in components:
+        for component in employee_line.components.all():
+            if component.amount <= ZERO or not component.source_id:
+                continue
+            reference = f"{reference_prefix}:{component.pk}"
+            if component.source_type == "EmployeeDeduction":
+                deduction = (
+                    EmployeeDeduction.objects.select_for_update()
+                    .filter(
+                        public_id=component.source_id,
+                        employee_id=employee_line.employee_id,
+                        organization=run.organization,
+                        status=RequestStatus.APPROVED,
+                    )
+                    .first()
+                )
+                if deduction is None:
+                    raise ValidationError(
+                        _("A frozen payroll deduction source is no longer valid."),
+                        code="payroll_deduction_source_invalid",
+                    )
+                deduction_allocation = DeductionAllocation.objects.create(
+                    deduction=deduction,
+                    payroll_reference=reference,
+                    amount=component.amount,
+                    allocated_at=now,
+                    payroll_run=run,
+                    journal_entry=journal,
+                )
+                record_audit_event(
+                    action=AuditAction.POSTED,
+                    target=deduction_allocation,
+                    branch=run.branch,
+                    new_state=snapshot(deduction_allocation),
+                )
+            elif component.source_type == "EmployeeAdvance":
+                advance = (
+                    EmployeeAdvance.objects.select_for_update()
+                    .filter(
+                        public_id=component.source_id,
+                        employee_id=employee_line.employee_id,
+                        organization=run.organization,
+                    )
+                    .first()
+                )
+                if advance is None:
+                    raise ValidationError(
+                        _("A frozen payroll advance source is no longer valid."),
+                        code="payroll_advance_source_invalid",
+                    )
+                advance_allocation = AdvanceRecoveryAllocation.objects.create(
+                    advance=advance,
+                    payroll_reference=reference,
+                    amount=component.amount,
+                    recovered_at=now,
+                    payroll_run=run,
+                    journal_entry=journal,
+                )
+                record_audit_event(
+                    action=AuditAction.POSTED,
+                    target=advance_allocation,
+                    branch=run.branch,
+                    new_state=snapshot(advance_allocation),
+                )
+            elif component.source_type == "OvertimeRequest":
+                overtime = (
+                    OvertimeRequest.objects.select_for_update()
+                    .filter(
+                        public_id=component.source_id,
+                        employee_id=employee_line.employee_id,
+                        status=RequestStatus.APPROVED,
+                    )
+                    .first()
+                )
+                if overtime is None or overtime.payroll_inclusion_reference not in {
+                    "",
+                    reference_prefix,
+                }:
+                    raise ValidationError(
+                        _("A frozen overtime source has already been included elsewhere."),
+                        code="payroll_overtime_source_invalid",
+                    )
+                previous = snapshot(overtime)
+                overtime.payroll_inclusion_reference = reference_prefix
+                overtime.included_at = now
+                overtime.save(
+                    update_fields=["payroll_inclusion_reference", "included_at", "updated_at"]
+                )
+                record_audit_event(
+                    action=AuditAction.POSTED,
+                    target=overtime,
+                    branch=run.branch,
+                    previous_state=previous,
+                    new_state=snapshot(overtime),
+                )
+
+
+@transaction.atomic
+def post_payroll_run(*, payroll_run: PayrollRun, actor: User) -> PayrollRun:
+    run = (
+        PayrollRun.objects.select_for_update()
+        .select_related("organization", "branch")
+        .prefetch_related("employee_lines", "employee_lines__components")
+        .get(pk=payroll_run.pk)
+    )
+    require_organization_permission(actor, POST_PAYROLL, run.organization)
+    if run.status != PayrollRunStatus.APPROVED:
+        raise ValidationError(
+            _("Only an approved payroll can be posted."), code="payroll_not_approved"
+        )
+    period = resolve_period(organization=run.organization, accounting_date=run.accounting_date)
+    validate_period_accepts_postings(period)
+    lock_account_mappings_shared(run.organization_id)
+    posting_lines = _payroll_posting_lines(run)
+    journal = post_entry(
+        organization=run.organization,
+        accounting_date=run.accounting_date,
+        document_date=run.period_end,
+        lines=posting_lines,
+        idempotency_key=f"hr-payroll-run:{run.public_id}:post",
+        narration=str(_("استحقاق الرواتب %(run)s") % {"run": run.run_number}),
+        source_document_type=PAYROLL_RUN_SOURCE,
+        source_document_id=str(run.public_id),
+        source_event=SourceEvent.POSTED,
+        posting_rule_version=PAYROLL_ACCRUAL_RULE,
+    )
+    _allocate_posted_inputs(run=run, journal=journal)
+    previous = snapshot(run)
+    run.status = PayrollRunStatus.POSTED
+    run.accrual_journal = journal
+    run.posted_by = actor
+    run.posted_at = timezone.now()
+    run.save(
+        update_fields=[
+            "status",
+            "accrual_journal",
+            "posted_by",
+            "posted_at",
+            "updated_at",
+        ]
+    )
+    record_audit_event(
+        action=AuditAction.POSTED,
+        target=run,
+        branch=run.branch,
+        previous_state=previous,
+        new_state=snapshot(run),
+        source_document_type=PAYROLL_RUN_SOURCE,
+        source_document_id=str(run.public_id),
+        metadata={"journal_entry": journal.entry_number},
+    )
+    return run
+
+
+@transaction.atomic
+def release_payroll_run(*, payroll_run: PayrollRun, actor: User) -> PayrollRun:
+    run = (
+        PayrollRun.objects.select_for_update().select_related("organization").get(pk=payroll_run.pk)
+    )
+    require_organization_permission(actor, POST_PAYROLL, run.organization)
+    if run.status != PayrollRunStatus.POSTED or run.accrual_journal_id is None:
+        raise ValidationError(
+            _("Only a posted payroll can be released for payment."),
+            code="payroll_not_posted",
+        )
+    previous = snapshot(run)
+    run.status = PayrollRunStatus.RELEASED
+    run.released_by = actor
+    run.released_at = timezone.now()
+    run.save(update_fields=["status", "released_by", "released_at", "updated_at"])
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=run,
+        branch=run.branch,
+        previous_state=previous,
+        new_state=snapshot(run),
+        reason=str(_("Payroll released for payment")),
+    )
+    return run
+
+
+def _allocation_signature(
+    allocations: Sequence[tuple[PayrollEmployeeLine, Decimal]],
+) -> dict[int, Decimal]:
+    signature: dict[int, Decimal] = {}
+    for line, requested in allocations:
+        amount = quantize_money(requested)
+        if amount <= ZERO:
+            raise ValidationError(
+                _("Every payroll payment allocation must be greater than zero."),
+                code="payment_allocation_not_positive",
+            )
+        signature[line.pk] = quantize_money(signature.get(line.pk, ZERO) + amount)
+    if not signature:
+        raise ValidationError(
+            _("A payroll payment needs at least one employee allocation."),
+            code="payment_allocations_required",
+        )
+    return signature
+
+
+def _locked_payment_lines(
+    *, run: PayrollRun, signature: dict[int, Decimal]
+) -> list[tuple[PayrollEmployeeLine, Decimal]]:
+    locked = {
+        line.pk: line
+        for line in PayrollEmployeeLine.objects.select_for_update()
+        .filter(payroll_run=run, pk__in=signature)
+        .order_by("pk")
+    }
+    if set(locked) != set(signature):
+        raise ValidationError(
+            _("A payment allocation belongs to another payroll run."),
+            code="payment_allocation_crosses_run",
+        )
+    result: list[tuple[PayrollEmployeeLine, Decimal]] = []
+    for line_id in sorted(signature):
+        line = locked[line_id]
+        amount = signature[line_id]
+        outstanding = line.outstanding_amount
+        if amount > outstanding:
+            raise ValidationError(
+                _("The payment exceeds the employee's outstanding net pay."),
+                code="payment_over_employee",
+            )
+        result.append((line, amount))
+    return result
+
+
+def _refresh_run_payment_status(run: PayrollRun) -> PayrollRun:
+    paid = quantize_money(run.paid_total)
+    if paid < ZERO or paid > run.net_total:
+        raise ValidationError(
+            _("Payroll payment allocations do not reconcile to approved net pay."),
+            code="payroll_payment_reconciliation",
+        )
+    if paid == run.net_total:
+        run.status = PayrollRunStatus.PAID
+        run.paid_at = timezone.now()
+    elif paid > ZERO:
+        run.status = PayrollRunStatus.PARTIALLY_PAID
+        run.paid_at = None
+    else:
+        run.status = PayrollRunStatus.RELEASED
+        run.paid_at = None
+    run.save(update_fields=["status", "paid_at", "updated_at"])
+    return run
+
+
+def _next_payment_number(*, organization: Organization, payment_date: datetime.date) -> str:
+    sequence = (
+        PayrollPayment.objects.filter(
+            organization=organization, payment_date__year=payment_date.year
+        ).count()
+        + 1
+    )
+    return f"SAL-{payment_date.year}-{sequence:06d}"
+
+
+@transaction.atomic
+def create_payroll_payment(
+    *,
+    payroll_run: PayrollRun,
+    payment_date: datetime.date,
+    method: str,
+    reference: str,
+    reason: str,
+    allocations: Sequence[tuple[PayrollEmployeeLine, Decimal]],
+    idempotency_key: str,
+    actor: User,
+) -> PayrollPayment:
+    organization = Organization.objects.select_for_update().get(pk=payroll_run.organization_id)
+    run = (
+        PayrollRun.objects.select_for_update()
+        .select_related("branch", "organization")
+        .get(pk=payroll_run.pk)
+    )
+    require_organization_permission(actor, PAY_PAYROLL, organization)
+    key = idempotency_key.strip()
+    if not key:
+        raise ValidationError(_("A payment idempotency key is required."))
+    signature = _allocation_signature(allocations)
+    existing = (
+        PayrollPayment.objects.filter(organization=organization, idempotency_key=key)
+        .prefetch_related("allocations")
+        .first()
+    )
+    if existing is not None:
+        existing_signature = {
+            row.employee_line_id: row.amount for row in existing.allocations.all()
+        }
+        if (
+            existing.payroll_run_id != run.pk
+            or existing.payment_date != payment_date
+            or existing.method != method
+            or existing.reference != reference.strip()
+            or existing_signature != signature
+        ):
+            raise ValidationError(
+                _("The payroll payment idempotency key was reused for another request."),
+                code="payment_idempotency_conflict",
+            )
+        return existing
+    if run.status not in {PayrollRunStatus.RELEASED, PayrollRunStatus.PARTIALLY_PAID}:
+        raise ValidationError(
+            _("Only a released payroll with an outstanding balance can be paid."),
+            code="payroll_not_released",
+        )
+    if method not in PAYMENT_METHOD_ROLES:
+        raise ValidationError(_("Unknown payroll payment method."), code="unknown_method")
+    if not reference.strip():
+        raise ValidationError(
+            _("A payroll payment reference is required."), code="reference_required"
+        )
+    if run.released_at and payment_date < run.released_at.date():
+        raise ValidationError(
+            _("The payment date cannot precede payroll release."), code="payment_before_release"
+        )
+    locked_allocations = _locked_payment_lines(run=run, signature=signature)
+    amount = quantize_money(sum((value for _line, value in locked_allocations), ZERO))
+    period = resolve_period(organization=organization, accounting_date=payment_date)
+    validate_period_accepts_postings(period)
+    lock_account_mappings_shared(organization.pk)
+    payable = _mapped_account(run, PAYROLL_PAYABLE, payment_date)
+    source = _mapped_account(run, PAYMENT_METHOD_ROLES[method], payment_date)
+    public_id = uuid.uuid4()
+    journal = post_entry(
+        organization=organization,
+        accounting_date=payment_date,
+        document_date=payment_date,
+        lines=[
+            PostingLine(account=payable, branch=run.branch, debit=amount),
+            PostingLine(account=source, branch=run.branch, credit=amount),
+        ],
+        idempotency_key=f"hr-payroll-payment:{public_id}:post",
+        narration=reason.strip() or str(_("صرف رواتب %(run)s") % {"run": run.run_number}),
+        source_document_type=PAYROLL_PAYMENT_SOURCE,
+        source_document_id=str(public_id),
+        source_event=SourceEvent.POSTED,
+        posting_rule_version=PAYROLL_PAYMENT_RULE,
+    )
+    payment = PayrollPayment(
+        public_id=public_id,
+        payroll_run=run,
+        organization=organization,
+        branch=run.branch,
+        payment_number=_next_payment_number(organization=organization, payment_date=payment_date),
+        payment_date=payment_date,
+        method=method,
+        amount=amount,
+        reference=reference.strip(),
+        reason=reason.strip(),
+        idempotency_key=key,
+        journal_entry=journal,
+        created_by=actor,
+    )
+    payment.full_clean()
+    payment.save()
+    PayrollPaymentAllocation.objects.bulk_create(
+        [
+            PayrollPaymentAllocation(payment=payment, employee_line=line, amount=value)
+            for line, value in locked_allocations
+        ]
+    )
+    previous = snapshot(run)
+    _refresh_run_payment_status(run)
+    record_audit_event(
+        action=AuditAction.POSTED,
+        target=payment,
+        branch=run.branch,
+        new_state=snapshot(payment),
+        source_document_type=PAYROLL_PAYMENT_SOURCE,
+        source_document_id=str(payment.public_id),
+        metadata={
+            "journal_entry": journal.entry_number,
+            "allocation_count": len(locked_allocations),
+        },
+    )
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=run,
+        branch=run.branch,
+        previous_state=previous,
+        new_state=snapshot(run),
+        reason=str(_("Payroll payment posted")),
+    )
+    return payment
+
+
+@transaction.atomic
+def reverse_payroll_payment(
+    *,
+    payment: PayrollPayment,
+    reversal_date: datetime.date,
+    reason: str,
+    actor: User,
+) -> PayrollPayment:
+    organization = Organization.objects.select_for_update().get(pk=payment.organization_id)
+    run = (
+        PayrollRun.objects.select_for_update()
+        .select_related("branch", "organization")
+        .get(pk=payment.payroll_run_id)
+    )
+    locked = (
+        PayrollPayment.objects.select_for_update()
+        .select_related("journal_entry")
+        .prefetch_related("allocations")
+        .get(pk=payment.pk)
+    )
+    require_organization_permission(actor, PAY_PAYROLL, organization)
+    if not reason.strip():
+        raise ValidationError(_("A payroll payment reversal requires a reason."))
+    if locked.reversal_of_id is not None:
+        raise ValidationError(_("A reversal payment cannot itself be reversed."))
+    if locked.status != PayrollPaymentStatus.POSTED or hasattr(locked, "reversal"):
+        raise ValidationError(
+            _("This payroll payment is already reversed."), code="payment_already_reversed"
+        )
+    reversal_journal = reverse_entry(
+        entry=locked.journal_entry,
+        idempotency_key=f"hr-payroll-payment:{locked.public_id}:reverse",
+        reason=reason.strip(),
+        accounting_date=reversal_date,
+    )
+    reversal = PayrollPayment.objects.create(
+        payroll_run=run,
+        organization=organization,
+        branch=run.branch,
+        payment_number=_next_payment_number(organization=organization, payment_date=reversal_date),
+        payment_date=reversal_date,
+        method=locked.method,
+        amount=locked.amount,
+        reference=f"REV-{locked.reference}"[:200],
+        reason=reason.strip(),
+        idempotency_key=f"reverse:{locked.public_id}",
+        journal_entry=reversal_journal,
+        reversal_of=locked,
+        created_by=actor,
+    )
+    PayrollPaymentAllocation.objects.bulk_create(
+        [
+            PayrollPaymentAllocation(
+                payment=reversal,
+                employee_line_id=allocation.employee_line_id,
+                amount=allocation.amount,
+            )
+            for allocation in locked.allocations.all()
+        ]
+    )
+    locked.status = PayrollPaymentStatus.REVERSED
+    locked.save(update_fields=["status", "updated_at"])
+    previous = snapshot(run)
+    _refresh_run_payment_status(run)
+    record_audit_event(
+        action=AuditAction.REVERSED,
+        target=locked,
+        branch=run.branch,
+        new_state=snapshot(locked),
+        reason=reason.strip(),
+        source_document_type=PAYROLL_PAYMENT_SOURCE,
+        source_document_id=str(locked.public_id),
+        metadata={"reversal_payment": str(reversal.public_id)},
+    )
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=run,
+        branch=run.branch,
+        previous_state=previous,
+        new_state=snapshot(run),
+        reason=reason.strip(),
+    )
+    return reversal
+
+
+@transaction.atomic
+def reverse_payroll_run(
+    *,
+    payroll_run: PayrollRun,
+    reversal_date: datetime.date,
+    reason: str,
+    actor: User,
+) -> PayrollRun:
+    organization = Organization.objects.select_for_update().get(pk=payroll_run.organization_id)
+    run = (
+        PayrollRun.objects.select_for_update()
+        .select_related("branch")
+        .prefetch_related("employee_lines__components")
+        .get(pk=payroll_run.pk)
+    )
+    require_organization_permission(actor, POST_PAYROLL, organization)
+    if not reason.strip():
+        raise ValidationError(_("A payroll reversal requires a reason."))
+    if run.status not in {PayrollRunStatus.POSTED, PayrollRunStatus.RELEASED}:
+        raise ValidationError(
+            _("Reverse all salary payments before reversing payroll accrual."),
+            code="payroll_has_payments",
+        )
+    if run.payments.filter(status=PayrollPaymentStatus.POSTED, reversal_of__isnull=True).exists():
+        raise ValidationError(
+            _("Reverse all salary payments before reversing payroll accrual."),
+            code="payroll_has_payments",
+        )
+    if run.accrual_journal_id is None:
+        raise ValidationError(_("The payroll accrual journal is missing."))
+    accrual_journal = run.accrual_journal
+    assert accrual_journal is not None  # noqa: S101 - guarded by accrual_journal_id above
+    reversal_journal = reverse_entry(
+        entry=accrual_journal,
+        idempotency_key=f"hr-payroll-run:{run.public_id}:reverse",
+        reason=reason.strip(),
+        accounting_date=reversal_date,
+    )
+    now = timezone.now()
+    for original in run.deduction_allocations.select_for_update().filter(reversal_of__isnull=True):
+        deduction_reversal = DeductionAllocation.objects.create(
+            deduction=original.deduction,
+            payroll_reference=f"{original.payroll_reference}:REV",
+            amount=original.amount,
+            allocated_at=now,
+            payroll_run=run,
+            journal_entry=reversal_journal,
+            reversal_of=original,
+        )
+        record_audit_event(
+            action=AuditAction.REVERSED,
+            target=deduction_reversal,
+            branch=run.branch,
+            new_state=snapshot(deduction_reversal),
+            reason=reason.strip(),
+        )
+    for advance_original in run.advance_recovery_allocations.select_for_update().filter(
+        reversal_of__isnull=True
+    ):
+        advance_reversal = AdvanceRecoveryAllocation.objects.create(
+            advance=advance_original.advance,
+            payroll_reference=f"{advance_original.payroll_reference}:REV",
+            amount=advance_original.amount,
+            recovered_at=now,
+            payroll_run=run,
+            journal_entry=reversal_journal,
+            reversal_of=advance_original,
+        )
+        record_audit_event(
+            action=AuditAction.REVERSED,
+            target=advance_reversal,
+            branch=run.branch,
+            new_state=snapshot(advance_reversal),
+            reason=reason.strip(),
+        )
+    overtime_ids = {
+        component.source_id
+        for employee_line in run.employee_lines.all()
+        for component in employee_line.components.all()
+        if component.source_type == "OvertimeRequest" and component.source_id
+    }
+    for overtime in OvertimeRequest.objects.select_for_update().filter(
+        public_id__in=overtime_ids,
+        payroll_inclusion_reference=str(run.public_id),
+    ):
+        previous_overtime = snapshot(overtime)
+        overtime.payroll_inclusion_reference = ""
+        overtime.included_at = None
+        overtime.save(update_fields=["payroll_inclusion_reference", "included_at", "updated_at"])
+        record_audit_event(
+            action=AuditAction.REVERSED,
+            target=overtime,
+            branch=run.branch,
+            previous_state=previous_overtime,
+            new_state=snapshot(overtime),
+            reason=reason.strip(),
+        )
+    previous = snapshot(run)
+    run.status = PayrollRunStatus.REVERSED
+    run.reversal_journal = reversal_journal
+    run.paid_at = None
+    run.save(update_fields=["status", "reversal_journal", "paid_at", "updated_at"])
+    record_audit_event(
+        action=AuditAction.REVERSED,
+        target=run,
+        branch=run.branch,
+        previous_state=previous,
+        new_state=snapshot(run),
+        reason=reason.strip(),
+        source_document_type=PAYROLL_RUN_SOURCE,
+        source_document_id=str(run.public_id),
+        metadata={"reversal_journal": reversal_journal.entry_number},
     )
     return run

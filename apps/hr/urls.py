@@ -154,6 +154,21 @@ urlpatterns = [
         name="payroll_approvals",
     ),
     path(
+        "payroll/payments/",
+        payroll_views.PayrollPaymentListView.as_view(),
+        name="payroll_payments",
+    ),
+    path(
+        "payroll/payments/<int:pk>/reverse/",
+        payroll_views.PayrollPaymentReverseView.as_view(),
+        name="payroll_payment_reverse",
+    ),
+    path(
+        "payroll/<int:pk>/pay/",
+        payroll_views.PayrollPaymentCreateView.as_view(),
+        name="payroll_payment_create",
+    ),
+    path(
         "payroll/<int:pk>/",
         payroll_views.PayrollRunDetailView.as_view(),
         name="payroll_detail",

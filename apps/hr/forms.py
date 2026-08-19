@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+from decimal import Decimal
 from typing import Any, cast
 
 from django import forms
@@ -17,10 +19,12 @@ from apps.hr.models import (
     EmployeeContract,
     EmployeeDeduction,
     EmployeeDocument,
+    EmployeePaymentMethod,
     EmployeeStatus,
     LeaveRequest,
     LeaveType,
     OvertimeRequest,
+    PayrollEmployeeLine,
     PayrollPolicy,
     PayrollRun,
     Shift,
@@ -654,3 +658,95 @@ class PayrollRunForm(forms.ModelForm):  # type: ignore[type-arg]
         ).queryset = PayrollPolicy.objects.filter(
             organization__in=organizations, is_active=True
         ).order_by("organization__code", "code", "-version")
+
+
+class PayrollPaymentForm(forms.Form):
+    MODE_FULL = "FULL"
+    MODE_CUSTOM = "CUSTOM"
+    mode = forms.ChoiceField(
+        label=_("نطاق الصرف"),
+        choices=(
+            (MODE_FULL, _("صرف كامل الرصيد المستحق")),
+            (MODE_CUSTOM, _("صرف جزئي أو لموظف محدد")),
+        ),
+    )
+    payment_date = forms.DateField(label=_("تاريخ الصرف"), widget=DATE_WIDGET)
+    method = forms.ChoiceField(label=_("طريقة الصرف"), choices=EmployeePaymentMethod.choices)
+    reference = forms.CharField(label=_("مرجع الصرف"), max_length=200)
+    reason = forms.CharField(
+        label=_("البيان"), required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
+    idempotency_key = forms.CharField(widget=forms.HiddenInput())
+
+    def __init__(self, *, payroll_run: PayrollRun, **kwargs: Any) -> None:
+        self.payroll_run = payroll_run
+        super().__init__(**kwargs)
+        if not self.is_bound:
+            self.initial.update(
+                {
+                    "payment_date": payroll_run.released_at.date()
+                    if payroll_run.released_at
+                    else payroll_run.period_end,
+                    "mode": self.MODE_FULL,
+                    "idempotency_key": str(uuid.uuid4()),
+                }
+            )
+        self.payment_lines = [
+            line
+            for line in payroll_run.employee_lines.select_related("employee").order_by(
+                "employee_code"
+            )
+            if line.outstanding_amount > Decimal("0.000")
+        ]
+        for line in self.payment_lines:
+            self.fields[self._field_name(line)] = forms.DecimalField(
+                label=f"{line.employee_code} — {line.employee_name_ar}",
+                min_value=Decimal("0.000"),
+                max_digits=18,
+                decimal_places=3,
+                required=False,
+                initial=line.outstanding_amount,
+                help_text=_("المستحق: %(amount)s IQD") % {"amount": line.outstanding_amount},
+            )
+
+    @staticmethod
+    def _field_name(line: PayrollEmployeeLine) -> str:
+        return f"employee_{line.pk}"
+
+    def allocation_fields(self) -> list[tuple[PayrollEmployeeLine, forms.BoundField]]:
+        return [(line, self[self._field_name(line)]) for line in self.payment_lines]
+
+    def payment_allocations(self) -> list[tuple[PayrollEmployeeLine, Decimal]]:
+        if not self.is_valid():
+            raise ValueError("payment_allocations requires a valid form")
+        if self.cleaned_data["mode"] == self.MODE_FULL:
+            return [(line, line.outstanding_amount) for line in self.payment_lines]
+        return [
+            (line, amount)
+            for line in self.payment_lines
+            if (amount := self.cleaned_data.get(self._field_name(line)))
+            and amount > Decimal("0.000")
+        ]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        if not self.payment_lines:
+            raise ValidationError(_("لا يوجد رصيد رواتب مستحق للصرف."))
+        if cleaned.get("mode") == self.MODE_CUSTOM:
+            selected = [
+                cleaned.get(self._field_name(line), Decimal("0.000")) for line in self.payment_lines
+            ]
+            if not any(amount and amount > Decimal("0.000") for amount in selected):
+                raise ValidationError(_("أدخل مبلغاً لموظف واحد على الأقل."))
+            for line, amount in zip(self.payment_lines, selected, strict=True):
+                if amount and amount > line.outstanding_amount:
+                    self.add_error(
+                        self._field_name(line),
+                        _("المبلغ يتجاوز صافي الراتب المستحق."),
+                    )
+        return cleaned
+
+
+class PayrollReversalForm(forms.Form):
+    reversal_date = forms.DateField(label=_("تاريخ العكس"), widget=DATE_WIDGET)
+    reason = forms.CharField(label=_("سبب العكس"), widget=forms.Textarea(attrs={"rows": 2}))
