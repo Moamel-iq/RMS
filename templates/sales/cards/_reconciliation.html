@@ -1,0 +1,77 @@
+{# حالة المطابقة اليومية, counted rather than listed.                          #}
+{#                                                                           #}
+{# Composed from the same `reconcile_range` the report itself uses, so the    #}
+{# two screens cannot disagree about whether a day is clean. There is no      #}
+{# acknowledge control here either — the only honest response to a finding is #}
+{# to change a document through its own service.                              #}
+{% load i18n %}
+<h2 class="section-title">{{ card.label }}</h2>
+<div class="statrow">
+  <div class="stat">
+    <span class="stat__label">{% translate "أيام مفحوصة" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.days }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "أيام مطابقة" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.clean }}</code></bdi></span>
+    <span class="stat__hint"><bdi dir="ltr"><code>{{ summary.clean_share }}%</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "أخطاء" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.errors }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "ملاحظات" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.advisories }}</code></bdi></span>
+  </div>
+  {# Not a failure: a branch that has not counted its drawer yet has done      #}
+  {# nothing wrong, and colouring it red would make the card red every         #}
+  {# morning until somebody approved a shift.                                  #}
+  <div class="stat">
+    <span class="stat__label">{% translate "حدود التغطية" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.limitations }}</code></bdi></span>
+  </div>
+</div>
+
+{% if summary.dirty_days %}
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">{% translate "التاريخ" %}</th>
+          <th scope="col">{% translate "الفرع" %}</th>
+          <th scope="col">{% translate "فرق الصندوق" %}</th>
+          <th scope="col">{% translate "النتائج" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in summary.dirty_days %}
+          <tr>
+            <td data-label="{% translate 'التاريخ' %}"><bdi dir="ltr"><code>{{ row.business_date|date:"Y-m-d" }}</code></bdi></td>
+            <td data-label="{% translate 'الفرع' %}">
+              <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name_ar }}
+            </td>
+            <td data-label="{% translate 'فرق الصندوق' %}">
+              {% if row.cash_variance is None %}<span class="muted">—</span>
+              {% else %}<bdi dir="ltr"><code>{{ row.cash_variance }}</code></bdi>{% endif %}
+            </td>
+            <td data-label="{% translate 'النتائج' %}">
+              {% for finding in row.findings %}
+                <bdi dir="ltr"><code>{{ finding.code }}</code></bdi>{% if not forloop.last %} · {% endif %}
+              {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="pagehead__hint">
+    <a href="{% url 'sales:report_daily_reconciliation' %}?from={{ scope.date_from|date:'Y-m-d' }}&amp;to={{ scope.date_to|date:'Y-m-d' }}&amp;dirty=1">
+      {% translate "فتح المطابقة اليومية" %}
+    </a>
+  </p>
+{% elif summary.days %}
+  <p class="empty">{% translate "كل أيام المدة مطابقة." %}</p>
+{% else %}
+  <p class="empty">{% translate "لا توجد أيام في هذه المدة." %}</p>
+{% endif %}

@@ -1,0 +1,4 @@
+{# مزيج التطبيقات — application lines only. A hall sale has no application. #}
+{% load i18n %}
+{% translate "التطبيق" as mix_label %}
+{% include "sales/cards/_mix_table.html" with mix_label=mix_label %}

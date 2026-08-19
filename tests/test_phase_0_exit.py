@@ -129,7 +129,13 @@ class TestTheFoundationsCooperate:
         # plus Task 2.13's supplier return clearing (8-01-04…) and purchase
         # return variance (7-09-04…) leaves and their groups, plus Task
         # 2.15's supplier advance branch (1-04…).
-        assert Account.objects.filter(organization=organization).count() == 77
+        # Phase 4 added seventeen more: the returns, card-clearing,
+        # delivery-receivable, commission, other-fee, settlement-bank,
+        # settlement-variance and cash-over-short leaves the eleven Sales roles
+        # map to, and their groups. Task 4.0 put them in seed_chart_of_accounts
+        # and left this count behind, so this gate has been red since — which is
+        # the only way anybody was ever going to find out.
+        assert Account.objects.filter(organization=organization).count() == 94
         assert CostCenter.objects.filter(organization=organization).count() == 6
         assert AccountingPeriod.objects.filter(fiscal_year__organization=organization).count() == 12
 

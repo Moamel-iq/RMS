@@ -564,24 +564,24 @@ MODULES: tuple[Module, ...] = (
         label=_("المبيعات"),
         icon_name="receipt",
         phase=_("المرحلة ٤"),
-        # Reachable for the Task 4.0 checkpoint-1 screens. The module's own
-        # landing page is لوحة المبيعات, which arrives with checkpoint 7; until
-        # then the module opens on the menu, which is the master everything
-        # else in Phase 4 is built on.
-        url_name="sales:menu_item_list",
+        # Checkpoint 7 — the module now opens on its own dashboard rather than
+        # on the menu. Until لوحة المبيعات existed the menu was the honest
+        # landing page, being the master everything else in Phase 4 is built
+        # on; a module whose landing page is a summary of its own documents is
+        # the shape every other module here has.
+        url_name="sales:dashboard",
         available=True,
         sections=(
-            # Checkpoint 1 — exactly two entries promoted, and only two. Each
-            # leads to a screen that exists, renders as a full page and as an
-            # htmx fragment, and is populated. The other ten stay inert until
-            # their own checkpoint builds them, because an active entry that
-            # 404s is worse than an obviously unfinished one.
-            #
-            # After checkpoint 6 this tail is one entry long: لوحة المبيعات
-            # arrives with checkpoint 7, together with the module's own landing
-            # page, and `_sections(...)` empties then.
-            *_sections(
-                _("لوحة المبيعات"),
+            # Checkpoint 7 — the twelfth and last entry. `_sections(...)` is
+            # empty for this module now: every section in the sidebar leads to
+            # a screen that exists, renders as a full page and as an htmx
+            # fragment, and is populated. There is no قريباً badge left in
+            # Sales.
+            Section(
+                label=_("لوحة المبيعات"),
+                url_name="sales:dashboard",
+                available=True,
+                active_prefixes=("/sales/dashboard/",),
             ),
             # Checkpoint 3 — the module's operational centre. One document per
             # branch per business date, and the first Sales screen that reaches

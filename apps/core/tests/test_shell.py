@@ -103,11 +103,42 @@ class TestShellRendering:
         assert "is-unavailable" in body
 
     def test_unbuilt_sections_are_inert(self, client: Client, user: User) -> None:
-        """Sections without an implementation must not be clickable."""
+        """
+        Sections without an implementation must not be clickable.
+
+        Asked of a module that **currently** has unbuilt sections rather than of
+        a fixed one. This test used to name Sales; Phase 4 finished it, and a
+        test naming a specific module goes stale the day that module lands —
+        which is exactly what happened here. Reading the module out of the
+        navigation data keeps the assertion about the *rule* rather than about
+        one phase's progress.
+        """
         client.force_login(user)
-        body = client.get(reverse("users:home"), {"module": "sales"}).content.decode()
+        unfinished = next(
+            module
+            for module in MODULES
+            if any(not section.available for section in module.sections)
+        )
+        body = client.get(reverse("users:home"), {"module": unfinished.key}).content.decode()
         assert 'aria-disabled="true"' in body
         assert "قريباً" in body
+
+    def test_a_finished_module_has_no_inert_section_left(self, client: Client, user: User) -> None:
+        """
+        Sales is complete: twelve sections, twelve routes, no قريباً badge.
+
+        The other half of the rule above, and the half that would otherwise go
+        untested — an entry that stays muted after its screen exists is as
+        misleading as one that 404s, and nothing else would notice.
+        """
+        client.force_login(user)
+        sales = next(module for module in MODULES if module.key == "sales")
+        assert len(sales.sections) == 12
+        assert all(section.available for section in sales.sections)
+        assert all(section.url_name for section in sales.sections)
+
+        body = client.get(reverse("users:home"), {"module": "sales"}).content.decode()
+        assert "قريباً" not in body
 
     def test_active_module_is_marked(self, client: Client, user: User) -> None:
         client.force_login(user)

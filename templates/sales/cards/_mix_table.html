@@ -1,0 +1,37 @@
+{# One mix table, shared by القنوات, التطبيقات and الأصناف.                    #}
+{#                                                                           #}
+{# Three cards, one table: the columns are identical and three copies would   #}
+{# be three chances for one of them to drift. `mix_label` names the first     #}
+{# column so the header still reads as the thing it lists.                    #}
+{% load i18n %}
+<h2 class="section-title">{{ card.label }}</h2>
+{% if rows %}
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">{{ mix_label }}</th>
+          <th scope="col">{% translate "الإجمالي" %}</th>
+          <th scope="col">{% translate "الصافي" %}</th>
+          <th scope="col">{% translate "الكمية" %}</th>
+          <th scope="col">{% translate "الحصة" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td data-label="{{ mix_label }}">
+              <bdi dir="ltr"><code>{{ row.code }}</code></bdi> {{ row.label }}
+            </td>
+            <td data-label="{% translate 'الإجمالي' %}"><bdi dir="ltr"><code>{{ row.gross }}</code></bdi></td>
+            <td data-label="{% translate 'الصافي' %}"><bdi dir="ltr"><code>{{ row.net }}</code></bdi></td>
+            <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ row.quantity }}</code></bdi></td>
+            <td data-label="{% translate 'الحصة' %}"><bdi dir="ltr"><code>{{ row.share }}%</code></bdi></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="empty">{% translate "لا توجد سطور مرحّلة في هذه المدة." %}</p>
+{% endif %}

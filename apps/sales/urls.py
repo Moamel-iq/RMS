@@ -20,6 +20,10 @@ Checkpoint 5: ذمم التطبيقات — read-only over the append-only ledge
 
 Checkpoint 6: إقفال الكاشير with its four transitions, and المطابقة اليومية,
 which is GET-only because it records nothing at all.
+
+Checkpoint 7: لوحة المبيعات at the module root, and one card route beneath it.
+With it the twelfth section is active and `_sections(...)` is empty for this
+module — every entry in the sidebar now leads to a screen that exists.
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from django.urls import URLPattern, path
 
 from apps.sales import (
     adjustment_views,
+    dashboard_views,
     day_views,
     receivable_views,
     report_views,
@@ -39,6 +44,23 @@ from apps.sales import (
 app_name = "sales"
 
 urlpatterns: list[URLPattern] = [
+    # --- لوحة المبيعات -------------------------------------------------------
+    #
+    # The module's landing page, at `/sales/` itself. Two routes rather than
+    # nine: the dashboard renders the filter and the headline, and every card
+    # under it fetches itself by slug through `dashboard.CARDS`. Nine view
+    # classes would be nine chances to check the wrong permission, and the
+    # registry is what keeps the route, the template and the fetch in step.
+    #
+    # GET only, both. There is nothing here to write: every figure is read back
+    # out of a document that already posted, and a control that changed one
+    # would be changing it in the wrong place.
+    path("", dashboard_views.SalesDashboardView.as_view(), name="dashboard"),
+    path(
+        "dashboard/cards/<slug:slug>/",
+        dashboard_views.SalesDashboardCardView.as_view(),
+        name="dashboard_card",
+    ),
     # --- أصناف المنيو ------------------------------------------------------
     path("menu-items/", views.MenuItemListView.as_view(), name="menu_item_list"),
     path("menu-items/new/", views.MenuItemCreateView.as_view(), name="menu_item_create"),
