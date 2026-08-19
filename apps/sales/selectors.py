@@ -22,6 +22,7 @@ from apps.organizations.authorization import OutOfScope
 from apps.organizations.selectors import accessible_branches
 from apps.sales.models import (
     ApplicationReceivableEntry,
+    CashierShift,
     DeliveryAgreement,
     DeliveryApplication,
     DeliveryApplicationSettlement,
@@ -426,11 +427,38 @@ def resolve_receivable_entry(user: User, entry_id: int) -> ApplicationReceivable
     return entry
 
 
+# ---------------------------------------------------------------------------
+# Cashier shifts — checkpoint 6
+# ---------------------------------------------------------------------------
+
+
+def visible_cashier_shifts(user: User) -> QuerySet[CashierShift]:
+    """
+    Every till at a branch the caller reaches.
+
+    Branch-scoped, and here the scope and the permission finally agree: a shift
+    is one branch's drawer, `close_cashier_shift` and `approve_cashier_closing`
+    are both `BRANCH`, and there is no sense in which reaching the organization
+    through some other branch is a reason to read a count nobody there made.
+    """
+    return CashierShift.objects.filter(branch__in=accessible_branches(user)).select_related(
+        "organization", "branch", "cashier", "sales_day", "closed_by", "approved_by"
+    )
+
+
+def resolve_cashier_shift(user: User, shift_id: int) -> CashierShift:
+    shift = visible_cashier_shifts(user).filter(pk=shift_id).first()
+    if shift is None:
+        raise OutOfScope(_("Cashier shift %(id)s does not exist.") % {"id": shift_id})
+    return shift
+
+
 __all__ = [
     "application_is_live_at",
     "effective_prices",
     "is_available_at",
     "resolve_agreement_row",
+    "resolve_cashier_shift",
     "resolve_delivery_application",
     "resolve_discount_program",
     "resolve_menu_item",
@@ -440,6 +468,7 @@ __all__ = [
     "resolve_sales_channel",
     "resolve_sales_day_line",
     "resolve_settlement",
+    "visible_cashier_shifts",
     "visible_sales_adjustments",
     "visible_settlements",
     "visible_sales_days",

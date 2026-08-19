@@ -17,6 +17,9 @@ Checkpoint 4: المرتجعات والإلغاءات, and the two transitions b
 
 Checkpoint 5: ذمم التطبيقات — read-only over the append-only ledger — and
 تسويات التطبيقات with its four transitions.
+
+Checkpoint 6: إقفال الكاشير with its four transitions, and المطابقة اليومية,
+which is GET-only because it records nothing at all.
 """
 
 from __future__ import annotations
@@ -27,7 +30,9 @@ from apps.sales import (
     adjustment_views,
     day_views,
     receivable_views,
+    report_views,
     settlement_views,
+    shift_views,
     views,
 )
 
@@ -269,5 +274,52 @@ urlpatterns: list[URLPattern] = [
         "settlement-adjustments/<int:pk>/delete/",
         settlement_views.SettlementAdjustmentDeleteView.as_view(),
         name="settlement_adjustment_delete",
+    ),
+    # --- إقفال الكاشير -------------------------------------------------------
+    #
+    # No edit route on a closed shift and no delete route on one at all. A
+    # closed shift is the cashier's declaration of what was in the drawer and an
+    # approved one has reached the ledger; the ways back are `reopen` and
+    # `reverse`, each of which adds a record rather than removing one.
+    #
+    # Four transitions on one view, as `day_views` and `settlement_views` do —
+    # and here the three permissions behind them genuinely differ, which is
+    # exactly why four copies would be four chances to check the wrong one.
+    path("cashier-shifts/", shift_views.CashierShiftListView.as_view(), name="shift_list"),
+    path("cashier-shifts/new/", shift_views.CashierShiftCreateView.as_view(), name="shift_create"),
+    path(
+        "cashier-shifts/<int:pk>/",
+        shift_views.CashierShiftDetailView.as_view(),
+        name="shift_detail",
+    ),
+    path(
+        "cashier-shifts/<int:pk>/close/",
+        shift_views.CashierShiftTransitionView.as_view(action="close"),
+        name="shift_close",
+    ),
+    path(
+        "cashier-shifts/<int:pk>/reopen/",
+        shift_views.CashierShiftTransitionView.as_view(action="reopen"),
+        name="shift_reopen",
+    ),
+    path(
+        "cashier-shifts/<int:pk>/approve/",
+        shift_views.CashierShiftTransitionView.as_view(action="approve"),
+        name="shift_approve",
+    ),
+    path(
+        "cashier-shifts/<int:pk>/reverse/",
+        shift_views.CashierShiftTransitionView.as_view(action="reverse"),
+        name="shift_reverse",
+    ),
+    # --- المطابقة اليومية ----------------------------------------------------
+    #
+    # One route, GET only, and no POST anywhere under it. The report records
+    # nothing — there is no status to set and no finding to acknowledge — so a
+    # writable path here would be a writer with no document behind it.
+    path(
+        "reports/daily-reconciliation/",
+        report_views.DailyReconciliationView.as_view(),
+        name="report_daily_reconciliation",
     ),
 ]

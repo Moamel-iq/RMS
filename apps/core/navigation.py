@@ -576,6 +576,10 @@ MODULES: tuple[Module, ...] = (
             # htmx fragment, and is populated. The other ten stay inert until
             # their own checkpoint builds them, because an active entry that
             # 404s is worse than an obviously unfinished one.
+            #
+            # After checkpoint 6 this tail is one entry long: لوحة المبيعات
+            # arrives with checkpoint 7, together with the module's own landing
+            # page, and `_sections(...)` empties then.
             *_sections(
                 _("لوحة المبيعات"),
             ),
@@ -660,9 +664,23 @@ MODULES: tuple[Module, ...] = (
                     "/sales/settlement-adjustments/",
                 ),
             ),
-            *_sections(
-                _("إقفال الكاشير"),
-                _("المطابقة اليومية"),
+            # Checkpoint 6 — the till and the report that reads everything the
+            # module has produced. Two entries rather than one, because closing
+            # a drawer and reading a reconciliation are different acts held by
+            # different permissions: the closing is `close_cashier_shift` /
+            # `approve_cashier_closing` at the branch, and the report is
+            # `view_sales_reports` and records nothing at all.
+            Section(
+                label=_("إقفال الكاشير"),
+                url_name="sales:shift_list",
+                available=True,
+                active_prefixes=("/sales/cashier-shifts/",),
+            ),
+            Section(
+                label=_("المطابقة اليومية"),
+                url_name="sales:report_daily_reconciliation",
+                available=True,
+                active_prefixes=("/sales/reports/daily-reconciliation/",),
             ),
         ),
     ),

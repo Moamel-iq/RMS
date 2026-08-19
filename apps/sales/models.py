@@ -2576,6 +2576,362 @@ class DeliveryApplicationSettlementAdjustment(TimeStampedModel):
         return self.reason == SettlementAdjustmentReason.UNEXPLAINED_APPROVED
 
 
+# ---------------------------------------------------------------------------
+# The cashier shift — checkpoint 6
+# ---------------------------------------------------------------------------
+
+
+class CashierShiftStatus(models.TextChoices):
+    """
+    The lifecycle of one till.
+
+    `CLOSED` is the cashier saying "this is what was in the drawer", and
+    `APPROVED` is somebody else agreeing it may reach the ledger. The two are
+    separate states rather than one act because maker-checker here is enforced
+    on the **actor** — `closed_by` and `approved_by` must differ — and an actor
+    comparison needs two recorded actors to compare (ADR-027 §8).
+
+    A shift reaches `APPROVED` whether or not it moved money: a drawer that
+    counted exactly right still produced a document, and the absence of a
+    journal is the finding rather than the failure.
+    """
+
+    OPEN = "OPEN", _("مفتوح")
+    CLOSED = "CLOSED", _("مُغلق")
+    APPROVED = "APPROVED", _("معتمد")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class CashierShift(TimeStampedModel):
+    """
+    One branch's till on one business date: what was expected, and what was there.
+
+    **The only thing this document posts is the approved cash over/short
+    variance.** Not the day's takings, not the opening float, not the card
+    takings. The sale already recognised the revenue and already debited
+    `SALES_CASH_ON_HAND` when the day posted; a closing that posted takings
+    again would double every cash sales figure in the system, and the
+    duplication would be invisible because both entries would be individually
+    defensible and both would name a real document (ADR-027 §8). That is the
+    intuitive design, it looks right on screen, and it is wrong.
+
+    **One shift per branch per business date in Release 1**, and that is a
+    decision rather than an omission. The sales granularity in this release is a
+    *day*, so a second shift would have no principled share of the day's cash,
+    and inventing an apportionment would make the variance — the only number
+    this document exists to produce — meaningless. When shift-level sales
+    arrive, the unique constraint is what gets relaxed, and the relaxation will
+    be visible in a migration rather than assumed.
+
+    **The expected figures are stamped, not derived at read time.** They are
+    evidence of what was expected at the moment the drawer was counted. A
+    figure recomputed on every page load would make an old variance change
+    whenever a later document did, and a variance that moves after it was
+    approved is not evidence of anything.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="cashier_shifts",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="cashier_shifts",
+        verbose_name=_("branch"),
+    )
+    #: Entered, never `date(now())`. Which day a till belongs to depends on the
+    #: branch's own business-day start, exactly as it does for a sales day.
+    business_date = models.DateField(_("business date"))
+
+    #: The posted day this closing reconciles against. Null while the shift is
+    #: still open — the day may not have posted yet — and mandatory from
+    #: `CLOSED` onwards, which a check constraint enforces.
+    sales_day = models.ForeignKey(
+        SalesDay,
+        on_delete=models.PROTECT,
+        related_name="cashier_shifts",
+        null=True,
+        blank=True,
+        verbose_name=_("sales day"),
+    )
+    #: Whose till it is. Separate from `opened_by` because a supervisor
+    #: legitimately opens a drawer for somebody else, and the person who is
+    #: answerable for the count is the one named here.
+    cashier = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cashier_shifts",
+        verbose_name=_("cashier"),
+    )
+
+    status = models.CharField(
+        _("status"),
+        max_length=12,
+        choices=CashierShiftStatus.choices,
+        default=CashierShiftStatus.OPEN,
+    )
+    #: Assigned at approval and never before, for the reason a sales day's is
+    #: assigned at posting: a number on an unapproved document is a gap in the
+    #: sequence waiting to happen.
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    #: The change the drawer started with. **Not revenue and never posted** — it
+    #: is the restaurant's own money moved from one place to another, and no
+    #: economic event happened when it was put in the till. It raises the
+    #: expected count and nothing else.
+    opening_float = models.DecimalField(
+        _("opening float"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    #: Derived at close and **stamped**. See the class docstring.
+    expected_cash = models.DecimalField(
+        _("expected cash"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    counted_cash = models.DecimalField(
+        _("counted cash"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    #: `counted_cash − expected_cash`, **signed**: negative is a shortage,
+    #: positive is an overage. Stored rather than derived because it is the
+    #: figure the journal recognises, and the journal must not be able to
+    #: disagree with the document it names.
+    variance_amount = models.DecimalField(
+        _("variance"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+
+    opened_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cashier_shifts_opened",
+        verbose_name=_("opened by"),
+    )
+    opened_at = models.DateTimeField(_("opened at"))
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cashier_shifts_closed",
+        null=True,
+        blank=True,
+        verbose_name=_("closed by"),
+    )
+    closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cashier_shifts_approved",
+        null=True,
+        blank=True,
+        verbose_name=_("approved by"),
+    )
+    approved_at = models.DateTimeField(_("approved at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cashier_shifts_reversed",
+        null=True,
+        blank=True,
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    notes = models.TextField(_("notes"), blank=True)
+    #: Optional, unlike every other document in this module. A counted drawer is
+    #: its own evidence — the count *is* the primary record — where a return or
+    #: a settlement is a claim about a document somebody else holds.
+    evidence_reference = models.CharField(_("evidence"), max_length=200, blank=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    idempotency_key = models.CharField(_("idempotency key"), max_length=128, blank=True)
+    request_fingerprint = models.CharField(_("request fingerprint"), max_length=128, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("cashier shift")
+        verbose_name_plural = _("cashier shifts")
+        ordering = ["-business_date", "branch__code"]
+        # **No `permissions`.** `close_cashier_shift` and
+        # `approve_cashier_closing` are already declared on `SalesDay` and
+        # migrated by `0005`; declaring them again would create a duplicate
+        # codename and a migration nobody wants.
+        constraints = [
+            # One till per branch per day in Release 1. See the class docstring
+            # for why this is a decision and what relaxing it would need.
+            models.UniqueConstraint(
+                fields=["branch", "business_date"],
+                name="sales_shift_unique_per_branch_and_date",
+            ),
+            # Maker-checker, at the database as well as in the service. The
+            # same shape `procurement_request_approver_is_not_the_submitter`
+            # already uses, and it is here for the reason that one is: a control
+            # that lives only in application code is a control a management
+            # command walks around at two in the morning.
+            models.CheckConstraint(
+                condition=Q(approved_by__isnull=True) | ~Q(approved_by=models.F("closed_by")),
+                name="sales_shift_approver_is_not_the_closer",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(closed_by__isnull=True, closed_at__isnull=True)
+                    | Q(closed_by__isnull=False, closed_at__isnull=False)
+                ),
+                name="sales_shift_closing_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(approved_by__isnull=True, approved_at__isnull=True)
+                    | Q(approved_by__isnull=False, approved_at__isnull=False)
+                ),
+                name="sales_shift_approval_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(status="REVERSED", reversed_at__isnull=False)
+                    | (~Q(status="REVERSED") & Q(reversed_at__isnull=True))
+                ),
+                name="sales_shift_reversal_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="REVERSED") | ~Q(reversal_reason=""),
+                name="sales_shift_reversal_has_a_reason",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(status__in=["OPEN", "CLOSED"], number="")
+                    | (Q(status__in=["APPROVED", "REVERSED"]) & ~Q(number=""))
+                ),
+                name="sales_shift_number_iff_approved",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="sales_shift_number_unique_per_organization",
+            ),
+            # The three counts are magnitudes. `variance_amount` is
+            # deliberately **excluded**: a till that is over is not negative
+            # spending, and forcing it positive would lose the direction that
+            # decides which way the journal goes.
+            models.CheckConstraint(
+                condition=(
+                    Q(opening_float__gte=Decimal("0"))
+                    & Q(expected_cash__gte=Decimal("0"))
+                    & Q(counted_cash__gte=Decimal("0"))
+                ),
+                name="sales_shift_amounts_are_not_negative",
+            ),
+            # A closed shift names the day it reconciles. Without this the
+            # expected figure would be a number with no document behind it.
+            models.CheckConstraint(
+                condition=Q(status="OPEN") | Q(sales_day__isnull=False),
+                name="sales_shift_closed_names_its_day",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.branch.code} {self.business_date.isoformat()} ({self.get_status_display()})"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == CashierShiftStatus.OPEN
+
+    @property
+    def is_approved(self) -> bool:
+        return self.status == CashierShiftStatus.APPROVED
+
+    @property
+    def is_short(self) -> bool:
+        """Less in the drawer than expected."""
+        return self.variance_amount < Decimal("0")
+
+    @property
+    def is_over(self) -> bool:
+        return self.variance_amount > Decimal("0")
+
+
+class CashierTenderCount(TimeStampedModel):
+    """
+    One tender, as expected and as counted, on one shift.
+
+    Card is counted as well as cash, and only cash reaches a journal. The
+    reason both are here is that a card total that disagrees with the terminal's
+    own is a real finding — it is how a mis-keyed refund surfaces the same day —
+    but it is a finding about a *clearing* balance the acquirer has not remitted
+    yet, and recognising a difference in it would be recognising a variance
+    against money nobody has counted.
+
+    `APPLICATION_RECEIVABLE` is refused outright by a check constraint. A
+    delivery application's debt is not in a drawer; it is cleared by a
+    settlement, and offering a box to count it in would invite somebody to.
+    """
+
+    shift = models.ForeignKey(
+        CashierShift,
+        on_delete=models.CASCADE,
+        related_name="tender_counts",
+        verbose_name=_("shift"),
+    )
+    tender = models.CharField(_("tender"), max_length=24, choices=TenderDestination.choices)
+    #: Derived at close and stamped beside the shift's own figure, for the same
+    #: reason: it is evidence of what was expected then.
+    expected_amount = models.DecimalField(
+        _("expected amount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    counted_amount = models.DecimalField(
+        _("counted amount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    notes = models.TextField(_("notes"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("cashier tender count")
+        verbose_name_plural = _("cashier tender counts")
+        ordering = ["shift", "tender"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["shift", "tender"], name="sales_shift_tender_unique_per_shift"
+            ),
+            models.CheckConstraint(
+                condition=Q(expected_amount__gte=Decimal("0"))
+                & Q(counted_amount__gte=Decimal("0")),
+                name="sales_shift_tender_amounts_are_not_negative",
+            ),
+            # See the class docstring. A receivable is not countable.
+            models.CheckConstraint(
+                condition=~Q(tender="APPLICATION_RECEIVABLE"),
+                name="sales_shift_tender_is_countable",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.shift} · {self.get_tender_display()}"
+
+    @property
+    def variance_amount(self) -> Decimal:
+        """Counted less expected, signed. Derived — only the cash one is stored."""
+        return self.counted_amount - self.expected_amount
+
+
 __all__ = [
     "CALCULATION_MAX_DIGITS",
     "CODE_PATTERN",
@@ -2587,6 +2943,9 @@ __all__ = [
     "UNIT_PRICE_MAX_DIGITS",
     "ZERO_RATE",
     "ApplicationReceivableEntry",
+    "CashierShift",
+    "CashierShiftStatus",
+    "CashierTenderCount",
     "CommissionBasis",
     "DeliveryAgreement",
     "DeliveryApplication",

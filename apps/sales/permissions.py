@@ -303,6 +303,47 @@ _TABLE: tuple[_Declared, ...] = (
         PermissionScope.ORGANIZATION_AUTHORITY,
         frozenset({_OWNER, _ACCOUNTING_MANAGER}),
     ),
+    # --- Checkpoint 6 -----------------------------------------------------
+    #
+    # Counting is separated from approving, and `MANAGER` holds **both** rows.
+    # That looks like a hole and is the opposite of one.
+    #
+    # Maker-checker here is enforced on the **actor**, not on the permission:
+    # `CashierShift` carries `sales_shift_approver_is_not_the_closer` as a check
+    # constraint and `approve_cashier_shift` re-checks it under the row lock, so
+    # what a manager may not do is close and approve the *same* shift —
+    # regardless of what they hold. Encoding the control as "only some other
+    # role may approve" would break the first branch that has one manager, and
+    # would be a *weaker* control besides: a second manager could then approve
+    # their colleague's shift and their own, and nothing would notice.
+    #
+    # `BRANCH` on both, because a till is one branch's, and reaching the
+    # organization through some other branch is not a reason to approve a
+    # drawer nobody there counted.
+    _Declared(
+        CLOSE_CASHIER_SHIFT,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER, _ACCOUNTANT, _CASHIER}),
+    ),
+    # **Not the cashier.** The whole point of the second state is that somebody
+    # other than the person who counted agrees the count, and a till that could
+    # approve its own shortage would make the over/short account a place
+    # differences go to be forgotten.
+    _Declared(
+        APPROVE_CASHIER_CLOSING,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
+    ),
+    # **Reversing** an approved shift is not here. It requires
+    # `REVERSE_DAILY_SALES`, read off the already-migrated labels exactly as the
+    # adjustment's reversal is: `close_cashier_shift` reads "Can open and close
+    # a cashier shift", `approve_cashier_closing` reads "Can approve a cashier
+    # closing", and neither says reverse.
+    #
+    # المطابقة اليومية gets **no permission of its own** and is guarded by
+    # `VIEW_SALES_REPORTS`. It records nothing: it is a report over documents
+    # the caller may already read, and a permission for it would be a grant
+    # that protects no state.
 )
 
 
