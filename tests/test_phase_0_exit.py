@@ -24,6 +24,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import Client
 
@@ -160,11 +161,21 @@ class TestTheFoundationsCooperate:
         # A draft consumes no journal number: numbering is gapless.
         assert draft.entry_number == ""
 
-        # --- 3. Posted --------------------------------------------------
-        posted = post_journal_entry(actor=accountant, entry_id=draft.pk)
+        # --- 3. Posted, by somebody other than its author -----------------
+        #
+        # The manager posts what the accountant wrote. Phase 5 made
+        # maker-checker a kernel rule for manual journals, so the two halves
+        # cannot be the same person whatever permissions they hold — and a
+        # foundation gate that still posted its own draft would be asserting
+        # that the control is absent.
+        with pytest.raises(ValidationError) as refused:
+            post_journal_entry(actor=accountant, entry_id=draft.pk)
+        assert refused.value.code == "manual_journal_self_posted"
+
+        posted = post_journal_entry(actor=manager, entry_id=draft.pk)
         assert posted.status == JournalEntryStatus.POSTED
         assert posted.entry_number == f"JE-{YEAR}-000001"
-        assert posted.posted_by_id == accountant.pk
+        assert posted.posted_by_id == manager.pk
 
         # --- 4. Stored amounts are exact Decimals -------------------------
         lines = list(posted.lines.order_by("line_number"))
@@ -178,7 +189,7 @@ class TestTheFoundationsCooperate:
         event = AuditEvent.objects.filter(
             action=AuditAction.POSTED, target_id=str(posted.pk)
         ).latest("occurred_at")
-        assert event.actor_id == accountant.pk
+        assert event.actor_id == manager.pk
         assert event.branch_id == branch.pk
         assert event.new_state is not None
         # Decimals reach the audit trail as strings, never as floats.
@@ -279,12 +290,25 @@ class TestTheFoundationsCooperate:
         assert created.status_code == 201
         entry_id = created.json()["id"]
 
-        posted = client.post(
+        # The author is refused over HTTP for the same reason and with the
+        # same kernel error the command layer raises: maker-checker is not a
+        # property of the endpoint.
+        refused = client.post(
             f"/api/v1/journal-entries/{entry_id}/post/",
             data=json.dumps({}),
             content_type="application/json",
         )
-        assert posted.status_code == 200
+        assert refused.status_code == 422
+        assert refused.json()["code"] == "manual_journal_self_posted"
+
+        poster = Client()
+        poster.force_login(foundation["manager"])
+        posted = poster.post(
+            f"/api/v1/journal-entries/{entry_id}/post/",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert posted.status_code == 200, posted.content
         body = posted.json()
         assert body["status"] == JournalEntryStatus.POSTED
 
