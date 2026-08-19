@@ -1,0 +1,89 @@
+{# العمولات والاتفاقيات — what each application charges each branch.          #}
+{#                                                                            #}
+{# Every live row carries a **worked example**. A percentage and a fixed fee  #}
+{# read as harmless separately; 15% of 25,000 plus 500 an order does not, and #}
+{# somebody approving a contract should see the money rather than the rate.   #}
+{#                                                                            #}
+{# There is no edit action, and the absence is deliberate: a rate that has    #}
+{# accrued a commission is evidence. Correcting it in place would restate an  #}
+{# expense that already posted, so the only correction is ending it.          #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="field field--check">
+    <input type="checkbox" name="current" value="1" {% if only_current == "1" %}checked{% endif %}>
+    <span>{% translate "السارية اليوم فقط" %}</span>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "التطبيق" %}</th>
+  <th>{% translate "الفرع" %}</th>
+  <th>{% translate "النسبة" %}</th>
+  <th>{% translate "رسم لكل طلب" %}</th>
+  <th>{% translate "أساس الاحتساب" %}</th>
+  <th>{% translate "من" %}</th>
+  <th>{% translate "حتى" %}</th>
+  <th>{% translate "مثال محتسب" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for agreement in agreements %}
+    <tr>
+      <td data-label="{% translate 'التطبيق' %}">
+        <a href="{% url 'sales:application_detail' agreement.delivery_application_id %}">
+          {{ agreement.delivery_application.name_ar }}
+        </a>
+      </td>
+      <td data-label="{% translate 'الفرع' %}"><bdi dir="ltr"><code>{{ agreement.branch.code }}</code></bdi></td>
+      <td data-label="{% translate 'النسبة' %}"><bdi dir="ltr"><code>{{ agreement.percent_display }}%</code></bdi></td>
+      <td data-label="{% translate 'رسم لكل طلب' %}"><bdi dir="ltr"><code>{{ agreement.fixed_fee_per_order }}</code></bdi></td>
+      <td data-label="{% translate 'أساس الاحتساب' %}">
+        <span class="chip">{{ agreement.get_commission_basis_display }}</span>
+      </td>
+      <td data-label="{% translate 'من' %}"><bdi dir="ltr"><code>{{ agreement.effective_from|date:"Y-m-d" }}</code></bdi></td>
+      <td data-label="{% translate 'حتى' %}">
+        {% if agreement.effective_to %}
+          <bdi dir="ltr"><code>{{ agreement.effective_to|date:"Y-m-d" }}</code></bdi>
+        {% else %}
+          <span class="muted">{% translate "مفتوحة" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'مثال محتسب' %}">
+        <span class="muted">
+          {% blocktranslate with base=preview_amount %}على {{ base }}{% endblocktranslate %}
+        </span>
+        <bdi dir="ltr"><code>{{ agreement.preview.result.total }}</code></bdi>
+      </td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if not agreement.is_active %}
+          <span class="chip chip--off">{% translate "ملغاة" %}</span>
+        {% elif agreement.effective_to and agreement.effective_to < today %}
+          <span class="chip">{% translate "منتهية" %}</span>
+        {% elif agreement.effective_from > today %}
+          <span class="chip">{% translate "مستقبلية" %}</span>
+        {% else %}
+          <span class="chip chip--on">{% translate "سارية" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        <div class="rowactions">
+          {% if agreement.branch_id in manageable_ids and agreement.is_active and not agreement.effective_to %}
+            <a class="btn btn--quiet btn--sm" href="{% url 'sales:agreement_close' agreement.pk %}">{% translate "إنهاء" %}</a>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="10">
+        {% translate "لا توجد اتفاقيات بعد. بدون اتفاقية سارية لا يمكن ترحيل مبيعات التطبيق — العمولة تُستحق عند البيع." %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endblock %}

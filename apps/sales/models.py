@@ -42,7 +42,7 @@ from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
 from apps.core.models import TimeStampedModel
-from apps.core.money import MONEY_PLACES, UNIT_PRICE_PLACES
+from apps.core.money import MONEY_PLACES, RATE_PLACES, UNIT_PRICE_PLACES
 from apps.core.quantity import CALCULATION_PLACES, QUANTITY_PLACES
 
 #: Codes are the same shape every other master in this system uses, and are
@@ -55,6 +55,14 @@ MONEY_MAX_DIGITS = MONEY_PLACES + 18
 UNIT_PRICE_MAX_DIGITS = UNIT_PRICE_PLACES + 15
 QUANTITY_MAX_DIGITS = QUANTITY_PLACES + 15
 CALCULATION_MAX_DIGITS = CALCULATION_PLACES + 15
+#: A commission percentage. Six places because a contract can state 15.75% and
+#: a basis point matters on a month of orders.
+RATE_MAX_DIGITS = RATE_PLACES + 6
+
+#: A rate zero, named so a comparison never silently compares a `Decimal`
+#: against a bare `int`.
+ZERO_RATE = Decimal("0")
+
 #: Demo rows are prefixed and labelled, never silently mixed with real data.
 DEMO_CODE_PREFIX = "DEMO-"
 DEMO_NOTICE = _("تجريبي — غير معتمد للإنتاج")
@@ -553,6 +561,19 @@ class MenuPriceVersion(TimeStampedModel):
         blank=True,
         verbose_name=_("channel"),
     )
+    #: Checkpoint 2. An application-scoped price is the narrowest answer there
+    #: is, and it exists because the delivery companies genuinely charge
+    #: differently: the same plate is listed higher on an application than in
+    #: the hall, and pretending otherwise would understate both the revenue and
+    #: the commission it attracts.
+    delivery_application = models.ForeignKey(
+        "sales.DeliveryApplication",
+        on_delete=models.PROTECT,
+        related_name="menu_prices",
+        null=True,
+        blank=True,
+        verbose_name=_("delivery application"),
+    )
 
     unit_price = models.DecimalField(
         _("unit price"),
@@ -595,12 +616,15 @@ class MenuPriceVersion(TimeStampedModel):
                 ),
                 name="sales_menu_price_channel_matches_scope",
             ),
-            # `APPLICATION` needs the delivery-application master, which
-            # arrives with checkpoint 2. Until it does, the scope is declared
-            # and refused rather than silently accepted and unresolvable.
+            # Checkpoint 2 replaces the "not yet available" refusal with the
+            # real rule: an application-scoped price names an application, and
+            # nothing else does.
             models.CheckConstraint(
-                condition=~Q(scope=PriceScope.APPLICATION),
-                name="sales_menu_price_application_scope_not_yet_available",
+                condition=(
+                    Q(scope=PriceScope.APPLICATION, delivery_application__isnull=False)
+                    | (~Q(scope=PriceScope.APPLICATION) & Q(delivery_application__isnull=True))
+                ),
+                name="sales_menu_price_application_matches_scope",
             ),
         ]
 
@@ -620,6 +644,486 @@ class MenuPriceVersion(TimeStampedModel):
         return f"{self.unit_price:f}"
 
 
+# ---------------------------------------------------------------------------
+# Delivery applications — checkpoint 2
+# ---------------------------------------------------------------------------
+
+
+class DeliveryApplication(TimeStampedModel):
+    """
+    A delivery company the restaurant sells through.
+
+    Separate master data from `SalesChannel`, and the separation is the point.
+    Talabat and Toters both arrive through the one `DELIVERY_APPLICATION`
+    channel; which company took the order is *this*. A channel per company
+    would multiply every report's channel axis by the number of contracts and
+    turn "how much did we sell through apps" into a sum somebody maintains by
+    hand.
+
+    **Carries no balance.** What an application owes is derived from the
+    append-only `ApplicationReceivableEntry` ledger every time it is asked for
+    (ADR-027 §5). A stored balance is a number that can disagree with the
+    entries that produced it, and the disagreement surfaces during a settlement
+    argument — the one moment it cannot be sorted out quietly.
+
+    **Carries no commission rate**, either. Rates are effective-dated contract
+    terms and live on `DeliveryAgreement`; a rate here would be a second answer
+    that no posted sale could be traced to.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="delivery_applications",
+        verbose_name=_("organization"),
+    )
+    code = models.CharField(_("code"), max_length=32)
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+
+    #: How often the company remits. Reported and used to age a receivable; it
+    #: refuses nothing, because a company that settles late is a commercial
+    #: problem rather than a data-entry error.
+    settlement_cycle_days = models.PositiveSmallIntegerField(
+        _("settlement cycle (days)"), default=30
+    )
+    #: Optional override of the organization's `DELIVERY_APP_RECEIVABLE`
+    #: mapping. The chart already carries one account per named company, and an
+    #: organization that wants them separated says so here — accounting never
+    #: learns what a delivery application is (ADR-019).
+    receivable_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        related_name="delivery_application_overrides",
+        null=True,
+        blank=True,
+        verbose_name=_("receivable account override"),
+    )
+
+    contact_name = models.CharField(_("contact person"), max_length=200, blank=True)
+    phone = models.CharField(_("phone"), max_length=20, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("delivery application")
+        verbose_name_plural = _("delivery applications")
+        ordering = ["organization__code", "code"]
+        permissions = [
+            (
+                "manage_delivery_applications",
+                _("Can create, edit and archive delivery applications"),
+            ),
+            ("view_application_receivables", _("Can view delivery application receivables")),
+            (
+                "manage_application_settlements",
+                _("Can create, reconcile, post and reverse application settlements"),
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "code"],
+                name="sales_delivery_application_code_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN),
+                name="sales_delivery_application_code_format",
+            ),
+            models.CheckConstraint(
+                condition=~Q(name_ar=""), name="sales_delivery_application_name_not_empty"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name_ar}"
+
+    @property
+    def is_demo(self) -> bool:
+        return self.code.startswith(DEMO_CODE_PREFIX)
+
+
+class DeliveryApplicationBranchSetting(TimeStampedModel):
+    """
+    Whether one branch trades with one application, and under what store id.
+
+    A missing row means the branch is not live on that application. Same
+    arrangement as `MenuItemBranchSetting`, and for the same reason: absence is
+    unambiguous, and it makes "which apps is this branch on" one join.
+    """
+
+    delivery_application = models.ForeignKey(
+        DeliveryApplication,
+        on_delete=models.CASCADE,
+        related_name="branch_settings",
+        verbose_name=_("delivery application"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="delivery_application_settings",
+        verbose_name=_("branch"),
+    )
+    is_active = models.BooleanField(_("active"), default=True)
+    #: The identifier the application's own dashboard uses for this branch.
+    #: Reconciliation reads it; nothing posts on it.
+    external_store_code = models.CharField(_("store code"), max_length=64, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("delivery application branch setting")
+        verbose_name_plural = _("delivery application branch settings")
+        ordering = ["delivery_application__code", "branch__code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["delivery_application", "branch"],
+                name="sales_delivery_application_branch_unique",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.delivery_application.code} @ {self.branch.code}"
+
+
+class CommissionBasis(models.TextChoices):
+    """
+    What the commission percentage is charged on. A **closed** vocabulary.
+
+    Closed because it decides money. A free-text basis would let a typo —
+    `AFTER_ALL_DISCOUNT` — fall through to a default, and the default would be
+    a pricing error nobody sees for a quarter.
+
+    `AFTER_ALL_DISCOUNTS` and `CUSTOMER_PAID_AMOUNT` are numerically identical
+    in Release 1 and are **still separate values**. They are different
+    contractual claims, and they diverge the moment a delivery fee or a tip
+    enters the model; collapsing them now would mean a later divergence
+    silently restated every historical agreement (ADR-028 §4).
+    """
+
+    GROSS_LIST_AMOUNT = "GROSS_LIST_AMOUNT", _("إجمالي السعر المعلن")
+    AFTER_RESTAURANT_DISCOUNT = "AFTER_RESTAURANT_DISCOUNT", _("بعد خصم المطعم")
+    AFTER_ALL_DISCOUNTS = "AFTER_ALL_DISCOUNTS", _("بعد كل الخصومات")
+    CUSTOMER_PAID_AMOUNT = "CUSTOMER_PAID_AMOUNT", _("المبلغ المدفوع من الزبون")
+
+
+class DeliveryAgreement(TimeStampedModel):
+    """
+    What one application charges one branch, from one date to another.
+
+    Effective-dated and never edited once a sale has snapshotted it — the same
+    rule as a price and a recipe version, and it matters more here because the
+    figure is a *cost*. A sales line stores the agreement identity **and** every
+    calculation field, so a posted commission can be re-derived years later
+    without reading this table at all.
+
+    Scoped to a branch rather than to the organization, because that is how the
+    contracts actually work: a new branch is onboarded at a different rate, and
+    an organization-wide agreement would restate what every other branch pays
+    the moment one of them renegotiated.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="delivery_agreements",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="delivery_agreements",
+        verbose_name=_("branch"),
+    )
+    delivery_application = models.ForeignKey(
+        DeliveryApplication,
+        on_delete=models.PROTECT,
+        related_name="agreements",
+        verbose_name=_("delivery application"),
+    )
+
+    commission_percent = models.DecimalField(
+        _("commission percent"),
+        max_digits=RATE_MAX_DIGITS,
+        decimal_places=RATE_PLACES,
+        default=Decimal("0"),
+    )
+    #: Per order, where the contract states one. Zero is the common case and is
+    #: a real answer rather than a missing one, which is why this is not null.
+    fixed_fee_per_order = models.DecimalField(
+        _("fixed fee per order"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    commission_basis = models.CharField(
+        _("commission basis"),
+        max_length=32,
+        choices=CommissionBasis.choices,
+        default=CommissionBasis.GROSS_LIST_AMOUNT,
+    )
+    #: How long after the sale the company is expected to remit. Reported, and
+    #: used to age the receivable; it blocks nothing.
+    settlement_lag_days = models.PositiveSmallIntegerField(_("settlement lag (days)"), default=30)
+
+    effective_from = models.DateField(_("effective from"))
+    effective_to = models.DateField(_("effective to"), null=True, blank=True)
+
+    evidence_reference = models.CharField(_("evidence"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("delivery agreement")
+        verbose_name_plural = _("delivery agreements")
+        ordering = ["delivery_application__code", "branch__code", "-effective_from"]
+        permissions = [
+            ("manage_sales_agreements", _("Can create and end delivery agreements")),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(commission_percent__gte=Decimal("0"))
+                & Q(commission_percent__lte=Decimal("100")),
+                name="sales_agreement_percent_in_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(fixed_fee_per_order__gte=Decimal("0")),
+                name="sales_agreement_fee_is_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(effective_to__isnull=True)
+                | Q(effective_to__gte=models.F("effective_from")),
+                name="sales_agreement_range_is_ordered",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.delivery_application.code} @ {self.branch.code} from {self.effective_from}"
+
+    @property
+    def percent_display(self) -> str:
+        """A rate as a technical identity: period, never comma."""
+        return f"{self.commission_percent:f}"
+
+
+# ---------------------------------------------------------------------------
+# Discounts — checkpoint 2
+# ---------------------------------------------------------------------------
+
+
+class DiscountProgram(TimeStampedModel):
+    """
+    A discount somebody has to fund, and the record of who funds it.
+
+    **The funding split is the whole model.** A shared discount's restaurant
+    share plus its application share must equal the discount — enforced by a
+    check constraint here and re-checked on every sales line — because the two
+    halves are economically different and neither may impersonate the other:
+
+    * the **restaurant-funded** portion is contra-revenue: the restaurant chose
+      not to collect it;
+    * the **application-funded** portion is reimbursed, so it reduces neither
+      revenue nor what the application owes — it is *part* of what it owes.
+
+    Treating the second as a restaurant discount understates revenue and
+    understates the receivable by the same amount, and both figures look
+    internally consistent. The error then surfaces as a recurring favourable
+    settlement variance, which is exactly the kind of difference that gets
+    normalised into a rounding adjustment and never investigated (ADR-028 §3).
+
+    Exactly one of `discount_percent` and `discount_amount` is set. A programme
+    with both would have two answers; a programme with neither would have none.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="discount_programs",
+        verbose_name=_("organization"),
+    )
+    #: NULL means every branch. A branch-specific programme names one.
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="discount_programs",
+        null=True,
+        blank=True,
+        verbose_name=_("branch"),
+    )
+    code = models.CharField(_("code"), max_length=32)
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+
+    discount_percent = models.DecimalField(
+        _("discount percent"),
+        max_digits=RATE_MAX_DIGITS,
+        decimal_places=RATE_PLACES,
+        null=True,
+        blank=True,
+    )
+    discount_amount = models.DecimalField(
+        _("discount amount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+    #: A ceiling on a percentage programme. NULL means no ceiling, which is a
+    #: different statement from zero.
+    maximum_amount = models.DecimalField(
+        _("maximum amount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    restaurant_funded_share = models.DecimalField(
+        _("restaurant-funded share (%)"),
+        max_digits=RATE_MAX_DIGITS,
+        decimal_places=RATE_PLACES,
+        default=Decimal("100"),
+    )
+    application_funded_share = models.DecimalField(
+        _("application-funded share (%)"),
+        max_digits=RATE_MAX_DIGITS,
+        decimal_places=RATE_PLACES,
+        default=Decimal("0"),
+    )
+
+    #: Applicability. NULL on each means "no restriction on this axis".
+    channel = models.ForeignKey(
+        SalesChannel,
+        on_delete=models.PROTECT,
+        related_name="discount_programs",
+        null=True,
+        blank=True,
+        verbose_name=_("channel"),
+    )
+    delivery_application = models.ForeignKey(
+        DeliveryApplication,
+        on_delete=models.PROTECT,
+        related_name="discount_programs",
+        null=True,
+        blank=True,
+        verbose_name=_("delivery application"),
+    )
+    menu_item = models.ForeignKey(
+        MenuItem,
+        on_delete=models.PROTECT,
+        related_name="discount_programs",
+        null=True,
+        blank=True,
+        verbose_name=_("menu item"),
+    )
+
+    effective_from = models.DateField(_("effective from"))
+    effective_to = models.DateField(_("effective to"), null=True, blank=True)
+
+    evidence_reference = models.CharField(_("evidence"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("discount program")
+        verbose_name_plural = _("discount programs")
+        ordering = ["organization__code", "code"]
+        permissions = [
+            ("manage_sales_discounts", _("Can create and end discount programs")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "code"],
+                name="sales_discount_code_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN), name="sales_discount_code_format"
+            ),
+            models.CheckConstraint(condition=~Q(name_ar=""), name="sales_discount_name_not_empty"),
+            # Exactly one of the two ways to state a discount.
+            models.CheckConstraint(
+                condition=(
+                    Q(discount_percent__isnull=False, discount_amount__isnull=True)
+                    | Q(discount_percent__isnull=True, discount_amount__isnull=False)
+                ),
+                name="sales_discount_percent_xor_amount",
+            ),
+            models.CheckConstraint(
+                condition=Q(discount_percent__isnull=True)
+                | (Q(discount_percent__gt=Decimal("0")) & Q(discount_percent__lte=Decimal("100"))),
+                name="sales_discount_percent_in_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(discount_amount__isnull=True) | Q(discount_amount__gt=Decimal("0")),
+                name="sales_discount_amount_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(maximum_amount__isnull=True) | Q(maximum_amount__gt=Decimal("0")),
+                name="sales_discount_maximum_is_positive",
+            ),
+            # **The funding equality.** The single most important line in this
+            # model: a shared discount whose halves do not close is a discount
+            # somebody is paying for and nobody has recorded.
+            models.CheckConstraint(
+                condition=Q(
+                    restaurant_funded_share=Decimal("100") - models.F("application_funded_share")
+                ),
+                name="sales_discount_funding_shares_close",
+            ),
+            models.CheckConstraint(
+                condition=Q(restaurant_funded_share__gte=Decimal("0"))
+                & Q(restaurant_funded_share__lte=Decimal("100")),
+                name="sales_discount_restaurant_share_in_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(application_funded_share__gte=Decimal("0"))
+                & Q(application_funded_share__lte=Decimal("100")),
+                name="sales_discount_application_share_in_range",
+            ),
+            # An application-funded share is a promise by a delivery company,
+            # so a programme that claims one must name the company that made
+            # it. Without this a "50% funded by the app" promotion could be
+            # applied to a cash sale in the hall, and the receivable it implies
+            # would be owed by nobody.
+            models.CheckConstraint(
+                condition=Q(application_funded_share=Decimal("0"))
+                | Q(delivery_application__isnull=False),
+                name="sales_discount_application_funding_names_an_application",
+            ),
+            models.CheckConstraint(
+                condition=Q(effective_to__isnull=True)
+                | Q(effective_to__gte=models.F("effective_from")),
+                name="sales_discount_range_is_ordered",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name_ar}"
+
+    @property
+    def is_shared(self) -> bool:
+        """Both parties fund part of it."""
+        return (
+            self.application_funded_share > ZERO_RATE and self.restaurant_funded_share > ZERO_RATE
+        )
+
+    @property
+    def percent_display(self) -> str:
+        return f"{self.discount_percent:f}" if self.discount_percent is not None else ""
+
+
 __all__ = [
     "CALCULATION_MAX_DIGITS",
     "CODE_PATTERN",
@@ -627,7 +1131,14 @@ __all__ = [
     "DEMO_NOTICE",
     "MONEY_MAX_DIGITS",
     "QUANTITY_MAX_DIGITS",
+    "RATE_MAX_DIGITS",
     "UNIT_PRICE_MAX_DIGITS",
+    "ZERO_RATE",
+    "CommissionBasis",
+    "DeliveryAgreement",
+    "DeliveryApplication",
+    "DeliveryApplicationBranchSetting",
+    "DiscountProgram",
     "FulfillmentSource",
     "MenuCategory",
     "MenuItem",

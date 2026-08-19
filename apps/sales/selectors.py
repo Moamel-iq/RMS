@@ -20,6 +20,9 @@ from apps.inventory.selectors import reachable_organization_ids
 from apps.organizations.authorization import OutOfScope
 from apps.organizations.selectors import accessible_branches
 from apps.sales.models import (
+    DeliveryAgreement,
+    DeliveryApplication,
+    DiscountProgram,
     MenuCategory,
     MenuItem,
     MenuItemBranchSetting,
@@ -132,6 +135,7 @@ def effective_prices(
     on_date: datetime.date,
     *,
     channel: SalesChannel | None = None,
+    delivery_application: DeliveryApplication | None = None,
 ) -> list[MenuPriceVersion]:
     """
     Every price in force for this item, branch and date, most specific first.
@@ -154,10 +158,15 @@ def effective_prices(
         effective_from__lte=on_date,
     ).filter(Q(effective_to__isnull=True) | Q(effective_to__gte=on_date))
 
+    # Which scopes are even *candidates* depends on what the caller named. A
+    # channel price cannot apply to a read that did not name a channel, and an
+    # application price cannot apply to a sale that no application took.
+    candidates = Q(scope=PriceScope.BRANCH_DEFAULT)
     if channel is not None:
-        rows = rows.filter(Q(scope=PriceScope.BRANCH_DEFAULT) | Q(channel=channel))
-    else:
-        rows = rows.filter(scope=PriceScope.BRANCH_DEFAULT)
+        candidates |= Q(scope=PriceScope.CHANNEL, channel=channel)
+    if delivery_application is not None:
+        candidates |= Q(scope=PriceScope.APPLICATION, delivery_application=delivery_application)
+    rows = rows.filter(candidates)
 
     #: Most specific wins. The rank is explicit rather than derived from the
     #: enum's declaration order, because reordering a `TextChoices` for display
@@ -174,6 +183,7 @@ def resolve_price(
     on_date: datetime.date,
     *,
     channel: SalesChannel | None = None,
+    delivery_application: DeliveryApplication | None = None,
 ) -> MenuPriceVersion | None:
     """
     The one price that applies, or `None` when nothing does.
@@ -184,17 +194,101 @@ def resolve_price(
     the item somebody opened the screen to fix. The *sale* refuses a line with
     no price; the read reports the absence.
     """
-    rows = effective_prices(menu_item, branch, on_date, channel=channel)
+    rows = effective_prices(
+        menu_item, branch, on_date, channel=channel, delivery_application=delivery_application
+    )
     return rows[0] if rows else None
 
 
+# ---------------------------------------------------------------------------
+# Delivery applications, agreements and discounts — checkpoint 2
+# ---------------------------------------------------------------------------
+
+
+def visible_delivery_applications(user: User) -> QuerySet[DeliveryApplication]:
+    """
+    Every delivery application in an organization the caller reaches.
+
+    Archived ones included, for the reason archived suppliers are: their code
+    is still reserved, every posted receivable entry still points at them, and
+    a screen that hid them would make a taken code look free.
+    """
+    return DeliveryApplication.objects.filter(
+        organization_id__in=reachable_organization_ids(user)
+    ).select_related("organization", "receivable_account")
+
+
+def resolve_delivery_application(user: User, application_id: int) -> DeliveryApplication:
+    application = visible_delivery_applications(user).filter(pk=application_id).first()
+    if application is None:
+        raise OutOfScope(_("Delivery application %(id)s does not exist.") % {"id": application_id})
+    return application
+
+
+def visible_agreements(user: User) -> QuerySet[DeliveryAgreement]:
+    """
+    Every agreement for a branch the caller reaches.
+
+    Scoped on the **branch**, not on the organization, because an agreement is
+    what one branch pays one company. A caller who reaches the organization but
+    not the branch has no business reading its commercial terms.
+    """
+    return DeliveryAgreement.objects.filter(branch__in=accessible_branches(user)).select_related(
+        "branch", "delivery_application", "organization"
+    )
+
+
+def resolve_agreement_row(user: User, agreement_id: int) -> DeliveryAgreement:
+    agreement = visible_agreements(user).filter(pk=agreement_id).first()
+    if agreement is None:
+        raise OutOfScope(_("Delivery agreement %(id)s does not exist.") % {"id": agreement_id})
+    return agreement
+
+
+def visible_discount_programs(user: User) -> QuerySet[DiscountProgram]:
+    """
+    Every discount programme in an organization the caller reaches.
+
+    Organization-scoped even though a programme may name a branch, because an
+    organization-wide promotion has no branch to scope by and filtering those
+    out would hide exactly the programmes that affect everybody.
+    """
+    return DiscountProgram.objects.filter(
+        organization_id__in=reachable_organization_ids(user)
+    ).select_related("organization", "branch", "channel", "delivery_application", "menu_item")
+
+
+def resolve_discount_program(user: User, program_id: int) -> DiscountProgram:
+    program = visible_discount_programs(user).filter(pk=program_id).first()
+    if program is None:
+        raise OutOfScope(_("Discount program %(id)s does not exist.") % {"id": program_id})
+    return program
+
+
+def application_is_live_at(application: DeliveryApplication, branch: Branch) -> bool:
+    """Whether this branch trades with this application. Absence means no."""
+    from apps.sales.models import DeliveryApplicationBranchSetting
+
+    setting = DeliveryApplicationBranchSetting.objects.filter(
+        delivery_application=application, branch=branch
+    ).first()
+    return setting is not None and setting.is_active
+
+
 __all__ = [
+    "application_is_live_at",
     "effective_prices",
     "is_available_at",
+    "resolve_agreement_row",
+    "resolve_delivery_application",
+    "resolve_discount_program",
     "resolve_menu_item",
     "resolve_price",
     "resolve_sales_channel",
+    "visible_agreements",
     "visible_branch_settings",
+    "visible_delivery_applications",
+    "visible_discount_programs",
     "visible_menu_categories",
     "visible_menu_items",
     "visible_menu_prices",

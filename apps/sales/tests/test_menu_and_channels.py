@@ -394,9 +394,16 @@ class TestPriceResolution:
         )
         assert overlapping.pk is not None
 
-    def test_the_application_scope_is_refused_until_its_master_exists(
+    def test_an_application_scoped_price_must_name_an_application(
         self, menu_item: MenuItem, branch: Branch
     ) -> None:
+        """
+        Checkpoint 2 replaced the "not yet available" refusal with the real
+        rule. The scope was declared in checkpoint 1 and refused outright,
+        because its master did not exist; now it exists and the scope means
+        something, so what is refused is a price that claims the scope and
+        names nobody.
+        """
         with pytest.raises(ValidationError) as caught:
             create_menu_price(
                 menu_item=menu_item,
@@ -405,7 +412,45 @@ class TestPriceResolution:
                 effective_from=datetime.date(2026, 1, 1),
                 scope=PriceScope.APPLICATION,
             )
-        assert caught.value.code == "application_scope_not_available"
+        assert caught.value.code == "application_required"
+
+    def test_the_narrowest_scope_is_the_application(
+        self, menu_item: MenuItem, branch: Branch, dine_in: SalesChannel
+    ) -> None:
+        """
+        Application beats channel beats branch default. All three are in force
+        together, and the resolver picks — the same plate is genuinely listed
+        higher on a delivery application than in the hall.
+        """
+        from apps.sales.services import create_delivery_application
+
+        application = create_delivery_application(
+            organization=menu_item.organization, code="DEMO-APPX", name_ar="تطبيق تجريبي"
+        )
+        for scope, price, channel, app in (
+            (PriceScope.BRANCH_DEFAULT, "12000", None, None),
+            (PriceScope.CHANNEL, "13500", dine_in, None),
+            (PriceScope.APPLICATION, "16000", None, application),
+        ):
+            create_menu_price(
+                menu_item=menu_item,
+                branch=branch,
+                unit_price=Decimal(price),
+                effective_from=datetime.date(2026, 1, 1),
+                scope=scope,
+                channel=channel,
+                delivery_application=app,
+            )
+
+        chosen = resolve_price(
+            menu_item, branch, TODAY, channel=dine_in, delivery_application=application
+        )
+        assert chosen is not None
+        assert chosen.unit_price == Decimal("16000.000000")
+        # ...and a read that names no application never sees the app price.
+        without = resolve_price(menu_item, branch, TODAY, channel=dine_in)
+        assert without is not None
+        assert without.unit_price == Decimal("13500.000000")
 
 
 @pytest.mark.django_db
@@ -529,11 +574,17 @@ class TestNavigationIsBackedByRoutes:
             assert section.available is True, f"{label} is still inert"
             assert reverse(section.url_name)
 
-    def test_the_other_ten_are_still_honestly_inert(self) -> None:
+    def test_the_unbuilt_sections_are_still_honestly_inert(self) -> None:
+        """
+        The count moves with each checkpoint, on purpose. An entry becomes
+        active only after its route answers as a page *and* as a fragment, so
+        this number is a record of what is actually reachable rather than of
+        what is planned.
+        """
         from apps.core.navigation import MODULES
 
         sales = next(module for module in MODULES if module.key == "sales")
         inert = [str(row.label) for row in sales.sections if not row.available]
         assert len(sales.sections) == 12
-        assert len(inert) == 10
+        assert len(inert) == 7
         assert "المبيعات اليومية" in inert

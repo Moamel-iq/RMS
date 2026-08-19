@@ -15,6 +15,7 @@ remember to ignore it.
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from django import forms
@@ -23,6 +24,9 @@ from django.utils.translation import gettext_lazy as _
 from apps.organizations.authorization import organizations_with_permission
 from apps.organizations.selectors import accessible_branches
 from apps.sales.models import (
+    CommissionBasis,
+    DeliveryApplication,
+    DiscountProgram,
     MenuCategory,
     MenuItem,
     MenuPriceVersion,
@@ -31,7 +35,13 @@ from apps.sales.models import (
     SalesChannelCategory,
     TenderDestination,
 )
-from apps.sales.permissions import MANAGE_MENU, MANAGE_SALES_CHANNELS
+from apps.sales.permissions import (
+    MANAGE_DELIVERY_APPLICATIONS,
+    MANAGE_MENU,
+    MANAGE_SALES_AGREEMENTS,
+    MANAGE_SALES_CHANNELS,
+    MANAGE_SALES_DISCOUNTS,
+)
 
 if TYPE_CHECKING:
     from apps.organizations.models import Organization
@@ -302,15 +312,15 @@ class MenuPriceForm(forms.Form):
     branch = forms.ModelChoiceField(queryset=MenuItem.objects.none(), label=_("الفرع"))
     scope = forms.ChoiceField(
         label=_("نطاق السعر"),
-        choices=[
-            (PriceScope.BRANCH_DEFAULT.value, PriceScope.BRANCH_DEFAULT.label),
-            (PriceScope.CHANNEL.value, PriceScope.CHANNEL.label),
-        ],
+        choices=PriceScope.choices,
         initial=PriceScope.BRANCH_DEFAULT,
-        help_text=_("الأضيق يفوز: سعر القناة يسبق سعر الفرع الافتراضي."),
+        help_text=_("الأضيق يفوز: سعر التطبيق يسبق سعر القناة، وسعر القناة يسبق سعر الفرع."),
     )
     channel = forms.ModelChoiceField(
         queryset=SalesChannel.objects.none(), label=_("القناة"), required=False
+    )
+    delivery_application = forms.ModelChoiceField(
+        queryset=DeliveryApplication.objects.none(), label=_("تطبيق التوصيل"), required=False
     )
     unit_price = forms.DecimalField(label=_("سعر الوحدة"), min_value=0, decimal_places=6)
     effective_from = forms.DateField(
@@ -345,15 +355,23 @@ class MenuPriceForm(forms.Form):
         self.fields["channel"].queryset = SalesChannel.objects.filter(  # type: ignore[attr-defined]
             organization_id__in=organization_ids, is_active=True
         ).order_by("code")
+        self.fields["delivery_application"].queryset = DeliveryApplication.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=organization_ids, is_active=True
+        ).order_by("code")
 
     def clean(self) -> dict[str, Any]:
         data = super().clean() or {}
         scope = data.get("scope")
         channel = data.get("channel")
+        application = data.get("delivery_application")
         if scope == PriceScope.CHANNEL and channel is None:
             self.add_error("channel", _("سعر القناة يحتاج قناة."))
         if scope != PriceScope.CHANNEL and channel is not None:
-            self.add_error("channel", _("سعر الفرع الافتراضي لا يُربط بقناة."))
+            self.add_error("channel", _("القناة تُذكر في سعر القناة فقط."))
+        if scope == PriceScope.APPLICATION and application is None:
+            self.add_error("delivery_application", _("سعر التطبيق يحتاج تطبيق توصيل."))
+        if scope != PriceScope.APPLICATION and application is not None:
+            self.add_error("delivery_application", _("التطبيق يُذكر في سعر التطبيق فقط."))
 
         starts: datetime.date | None = data.get("effective_from")
         ends: datetime.date | None = data.get("effective_to")
@@ -389,8 +407,382 @@ class BranchAvailabilityForm(forms.Form):
         self.fields["branch"].queryset = branches.order_by("code")  # type: ignore[attr-defined]
 
 
+# ---------------------------------------------------------------------------
+# Delivery applications, agreements and discounts — checkpoint 2
+# ---------------------------------------------------------------------------
+
+
+class DeliveryApplicationForm(forms.Form):
+    """A delivery company. No rate here — rates are dated contract terms."""
+
+    organization = forms.ModelChoiceField(
+        queryset=DeliveryApplication.objects.none(), label=_("المؤسسة")
+    )
+    code = forms.CharField(label=_("الرمز"), max_length=32)
+    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
+    name_en = forms.CharField(label=_("الاسم بالإنكليزية"), max_length=200, required=False)
+    settlement_cycle_days = forms.IntegerField(
+        label=_("دورة التسوية (يوم)"),
+        min_value=0,
+        max_value=365,
+        initial=30,
+        help_text=_("للتقارير وتعمير الذمم. لا يمنع شيئاً — التأخر مشكلة تجارية لا خطأ إدخال."),
+    )
+    receivable_account = forms.ModelChoiceField(
+        queryset=DeliveryApplication.objects.none(),
+        label=_("حساب ذمة خاص"),
+        required=False,
+        help_text=_(
+            "اتركه فارغاً لاستخدام ربط الدور DELIVERY_APP_RECEIVABLE للمؤسسة. "
+            "تغييره لا يحرّك شيئاً مرحّلاً — القيد المرحّل يحمل الحساب الذي استُخدم فعلاً."
+        ),
+    )
+    contact_name = forms.CharField(label=_("جهة الاتصال"), max_length=200, required=False)
+    phone = forms.CharField(label=_("الهاتف"), max_length=20, required=False)
+    notes = forms.CharField(
+        label=_("ملاحظات"), required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
+
+    def __init__(
+        self,
+        *args: Any,
+        actor: User,
+        instance: DeliveryApplication | None = None,
+        **kwargs: Any,
+    ) -> None:
+        from apps.accounting.models import Account
+
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+
+        reachable = organizations_with_permission(actor, MANAGE_DELIVERY_APPLICATIONS)
+        organization_ids = list(reachable.values_list("id", flat=True))
+        if instance is not None:
+            organization_ids = [instance.organization_id]
+            del self.fields["organization"]
+            self.fields["code"].disabled = True
+            self.fields["code"].initial = instance.code
+        else:
+            self.fields["organization"].queryset = reachable.order_by("code")  # type: ignore[attr-defined]
+
+        self.fields["receivable_account"].queryset = Account.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=organization_ids, is_postable=True, is_active=True
+        ).order_by("code")
+
+    def clean_code(self) -> str:
+        code = canonical_code(self.cleaned_data["code"])
+        if not code:
+            raise forms.ValidationError(_("الرمز مطلوب."), code="code_required")
+        if self.instance is not None:
+            return self.instance.code
+        organization_id = self.data.get("organization")
+        if (
+            organization_id
+            and DeliveryApplication.objects.filter(
+                organization_id=organization_id, code=code
+            ).exists()
+        ):
+            raise forms.ValidationError(
+                _("الرمز %(code)s مستخدم في هذه المؤسسة.") % {"code": code}, code="code_taken"
+            )
+        return code
+
+    def selected_organization(self) -> Organization:
+        organization: Organization = self.cleaned_data["organization"]
+        return organization
+
+
+class ApplicationBranchForm(forms.Form):
+    """Whether one branch trades with one application."""
+
+    branch = forms.ModelChoiceField(queryset=DeliveryApplication.objects.none(), label=_("الفرع"))
+    is_active = forms.BooleanField(label=_("مفعّل"), required=False, initial=True)
+    external_store_code = forms.CharField(
+        label=_("رمز الفرع لدى التطبيق"),
+        max_length=64,
+        required=False,
+        help_text=_("يُستخدم في مطابقة كشوف التطبيق. لا يُرحَّل عليه شيء."),
+    )
+    notes = forms.CharField(
+        label=_("ملاحظات"), required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
+
+    def __init__(
+        self, *args: Any, actor: User, application: DeliveryApplication, **kwargs: Any
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.application = application
+        branches = accessible_branches(actor).filter(organization_id=application.organization_id)
+        self.fields["branch"].queryset = branches.order_by("code")  # type: ignore[attr-defined]
+
+
+class DeliveryAgreementForm(forms.Form):
+    """
+    What one application charges one branch, from a date.
+
+    **Evidence is required** and the field is not optional, which no other
+    master in this module insists on. An agreement accrues an expense on every
+    order from the day it starts; an unevidenced rate is a number somebody
+    typed that nobody can check against anything.
+
+    There is no edit form. A rate that has accrued a commission is evidence,
+    and correcting it in place would restate an expense that has already
+    posted — so the only correction is ending it and recording the replacement.
+    """
+
+    branch = forms.ModelChoiceField(queryset=DeliveryApplication.objects.none(), label=_("الفرع"))
+    delivery_application = forms.ModelChoiceField(
+        queryset=DeliveryApplication.objects.none(), label=_("تطبيق التوصيل")
+    )
+    commission_percent = forms.DecimalField(
+        label=_("نسبة العمولة %"), min_value=0, max_value=100, decimal_places=6, initial=0
+    )
+    fixed_fee_per_order = forms.DecimalField(
+        label=_("رسم ثابت لكل طلب"),
+        min_value=0,
+        decimal_places=3,
+        initial=0,
+        help_text=_("صفر إذا لم ينص العقد على رسم ثابت."),
+    )
+    commission_basis = forms.ChoiceField(
+        label=_("أساس احتساب العمولة"),
+        choices=CommissionBasis.choices,
+        initial=CommissionBasis.GROSS_LIST_AMOUNT,
+        help_text=_(
+            "الأساس يقرّر المبلغ الذي تُحتسب عليه النسبة، وهو بند تعاقدي — "
+            "«بعد كل الخصومات» و«المبلغ المدفوع من الزبون» متطابقان رقمياً اليوم ويظلان قيمتين منفصلتين."
+        ),
+    )
+    settlement_lag_days = forms.IntegerField(
+        label=_("مهلة التسوية (يوم)"), min_value=0, max_value=365, initial=30
+    )
+    effective_from = forms.DateField(
+        label=_("ساري من"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    effective_to = forms.DateField(
+        label=_("ساري حتى"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text=_("اتركه فارغاً للاتفاقية المفتوحة."),
+    )
+    evidence_reference = forms.CharField(
+        label=_("العقد أو الموافقة"),
+        max_length=200,
+        help_text=_("إلزامي: الاتفاقية تُحمّل مصروفاً على كل طلب، ولا بد من مستند يُراجع عليه."),
+    )
+    notes = forms.CharField(
+        label=_("ملاحظات"), required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
+
+    def __init__(self, *args: Any, actor: User, instance: None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+
+        organization_ids = list(
+            organizations_with_permission(actor, MANAGE_SALES_AGREEMENTS).values_list(
+                "id", flat=True
+            )
+        )
+        branches = accessible_branches(actor).filter(organization_id__in=organization_ids)
+        self.fields["branch"].queryset = branches.order_by("code")  # type: ignore[attr-defined]
+        self.fields["delivery_application"].queryset = DeliveryApplication.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=organization_ids, is_active=True
+        ).order_by("code")
+
+    def clean(self) -> dict[str, Any]:
+        data = super().clean() or {}
+        starts: datetime.date | None = data.get("effective_from")
+        ends: datetime.date | None = data.get("effective_to")
+        if starts and ends and ends < starts:
+            self.add_error("effective_to", _("تاريخ الانتهاء قبل تاريخ البدء."))
+        percent = data.get("commission_percent")
+        fee = data.get("fixed_fee_per_order")
+        if percent == 0 and fee == 0:
+            self.add_error(
+                "commission_percent",
+                _("اتفاقية بلا نسبة وبلا رسم ثابت لا تحمّل شيئاً. سجّل الشروط الفعلية."),
+            )
+        return data
+
+
+class AgreementCloseForm(forms.Form):
+    """End an agreement on a date. The rate is never touched."""
+
+    effective_to = forms.DateField(
+        label=_("تنتهي في"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    reason = forms.CharField(label=_("السبب"), max_length=300)
+
+
+class DiscountProgramForm(forms.Form):
+    """
+    A discount, and who funds it.
+
+    The funding fields are two, and the form checks that they close before the
+    database does. Both checks exist and do different jobs: the constraint is
+    what makes it true against a raw `INSERT`, and this is what makes it
+    *explainable* on a form instead of a database error nobody can read.
+    """
+
+    organization = forms.ModelChoiceField(
+        queryset=DiscountProgram.objects.none(), label=_("المؤسسة")
+    )
+    code = forms.CharField(label=_("الرمز"), max_length=32)
+    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
+    name_en = forms.CharField(label=_("الاسم بالإنكليزية"), max_length=200, required=False)
+
+    discount_percent = forms.DecimalField(
+        label=_("نسبة الخصم %"), min_value=0, max_value=100, decimal_places=6, required=False
+    )
+    discount_amount = forms.DecimalField(
+        label=_("مبلغ الخصم"), min_value=0, decimal_places=3, required=False
+    )
+    maximum_amount = forms.DecimalField(
+        label=_("حد أقصى للخصم"),
+        min_value=0,
+        decimal_places=3,
+        required=False,
+        help_text=_("اتركه فارغاً إذا لم يكن هناك حد."),
+    )
+
+    restaurant_funded_share = forms.DecimalField(
+        label=_("حصة المطعم من التمويل %"),
+        min_value=0,
+        max_value=100,
+        decimal_places=6,
+        initial=100,
+        help_text=_("يخفض إيراد المطعم — خصم على الإيراد، لا مصروف تسويق."),
+    )
+    application_funded_share = forms.DecimalField(
+        label=_("حصة التطبيق من التمويل %"),
+        min_value=0,
+        max_value=100,
+        decimal_places=6,
+        initial=0,
+        help_text=_(
+            "يُعوَّض من التطبيق: لا يخفض الإيراد ولا يخفض ما يدين به التطبيق — بل هو جزء منه."
+        ),
+    )
+
+    branch = forms.ModelChoiceField(
+        queryset=DiscountProgram.objects.none(),
+        label=_("الفرع"),
+        required=False,
+        help_text=_("اتركه فارغاً ليسري على كل الفروع."),
+    )
+    channel = forms.ModelChoiceField(
+        queryset=SalesChannel.objects.none(), label=_("القناة"), required=False
+    )
+    delivery_application = forms.ModelChoiceField(
+        queryset=DeliveryApplication.objects.none(),
+        label=_("تطبيق التوصيل"),
+        required=False,
+        help_text=_("إلزامي إذا كانت هناك حصة تمويل من التطبيق."),
+    )
+    menu_item = forms.ModelChoiceField(
+        queryset=MenuItem.objects.none(), label=_("صنف محدد"), required=False
+    )
+
+    effective_from = forms.DateField(
+        label=_("ساري من"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    effective_to = forms.DateField(
+        label=_("ساري حتى"), required=False, widget=forms.DateInput(attrs={"type": "date"})
+    )
+    evidence_reference = forms.CharField(label=_("المستند المرجعي"), max_length=200, required=False)
+    notes = forms.CharField(
+        label=_("ملاحظات"), required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
+
+    def __init__(self, *args: Any, actor: User, instance: None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+
+        reachable = organizations_with_permission(actor, MANAGE_SALES_DISCOUNTS)
+        organization_ids = list(reachable.values_list("id", flat=True))
+        self.fields["organization"].queryset = reachable.order_by("code")  # type: ignore[attr-defined]
+        branches = accessible_branches(actor).filter(organization_id__in=organization_ids)
+        self.fields["branch"].queryset = branches.order_by("code")  # type: ignore[attr-defined]
+        self.fields["channel"].queryset = SalesChannel.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=organization_ids, is_active=True
+        ).order_by("code")
+        self.fields["delivery_application"].queryset = DeliveryApplication.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=organization_ids, is_active=True
+        ).order_by("code")
+        self.fields["menu_item"].queryset = MenuItem.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=organization_ids, is_active=True
+        ).order_by("code")
+
+    def clean_code(self) -> str:
+        code = canonical_code(self.cleaned_data["code"])
+        if not code:
+            raise forms.ValidationError(_("الرمز مطلوب."), code="code_required")
+        organization_id = self.data.get("organization")
+        if (
+            organization_id
+            and DiscountProgram.objects.filter(organization_id=organization_id, code=code).exists()
+        ):
+            raise forms.ValidationError(
+                _("الرمز %(code)s مستخدم في هذه المؤسسة.") % {"code": code}, code="code_taken"
+            )
+        return code
+
+    def clean(self) -> dict[str, Any]:
+        data = super().clean() or {}
+        percent = data.get("discount_percent")
+        amount = data.get("discount_amount")
+        if percent is None and amount is None:
+            self.add_error("discount_percent", _("الخصم يحتاج نسبة أو مبلغاً."))
+        if percent is not None and amount is not None:
+            self.add_error("discount_amount", _("الخصم ينص على نسبة أو مبلغ، لا الاثنين معاً."))
+
+        restaurant = data.get("restaurant_funded_share")
+        application = data.get("application_funded_share")
+        if restaurant is not None and application is not None:
+            if restaurant + application != Decimal("100"):
+                self.add_error(
+                    "application_funded_share",
+                    _("حصتا التمويل يجب أن تساويا الخصم كاملاً: %(r)s%% + %(a)s%% ليست ١٠٠%%.")
+                    % {"r": restaurant, "a": application},
+                )
+            elif application > Decimal("0") and data.get("delivery_application") is None:
+                self.add_error(
+                    "delivery_application",
+                    _("خصم يموّله تطبيق يجب أن يسمّي التطبيق الذي يموّله — وإلا فالذمة على لا أحد."),
+                )
+
+        starts: datetime.date | None = data.get("effective_from")
+        ends: datetime.date | None = data.get("effective_to")
+        if starts and ends and ends < starts:
+            self.add_error("effective_to", _("تاريخ الانتهاء قبل تاريخ البدء."))
+        return data
+
+    def selected_organization(self) -> Organization:
+        organization: Organization = self.cleaned_data["organization"]
+        return organization
+
+
+class DiscountCloseForm(forms.Form):
+    """End a programme on a date. Its amounts and shares are never touched."""
+
+    effective_to = forms.DateField(
+        label=_("ينتهي في"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    reason = forms.CharField(label=_("السبب"), max_length=300)
+
+
 __all__ = [
+    "AgreementCloseForm",
+    "ApplicationBranchForm",
     "BranchAvailabilityForm",
+    "DeliveryAgreementForm",
+    "DeliveryApplicationForm",
+    "DiscountCloseForm",
+    "DiscountProgramForm",
     "MenuCategoryForm",
     "MenuItemForm",
     "MenuPriceCloseForm",

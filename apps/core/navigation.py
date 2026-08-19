@@ -596,10 +596,30 @@ MODULES: tuple[Module, ...] = (
                 available=True,
                 active_prefixes=("/sales/channels/",),
             ),
+            # Checkpoint 2 — three more entries promoted. The delivery master
+            # and the two contract screens travel together because they are
+            # useless apart: an application with no agreement refuses every
+            # sale it takes, and a discount that names no application cannot
+            # state who funds it.
+            Section(
+                label=_("تطبيقات التوصيل"),
+                url_name="sales:application_list",
+                available=True,
+                active_prefixes=("/sales/applications/",),
+            ),
+            Section(
+                label=_("العمولات والاتفاقيات"),
+                url_name="sales:agreement_list",
+                available=True,
+                active_prefixes=("/sales/agreements/",),
+            ),
+            Section(
+                label=_("الخصومات"),
+                url_name="sales:discount_list",
+                available=True,
+                active_prefixes=("/sales/discounts/",),
+            ),
             *_sections(
-                _("تطبيقات التوصيل"),
-                _("العمولات والاتفاقيات"),
-                _("الخصومات"),
                 _("المرتجعات والإلغاءات"),
                 _("ذمم التطبيقات"),
                 _("تسويات التطبيقات"),

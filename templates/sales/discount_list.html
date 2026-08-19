@@ -1,0 +1,110 @@
+{# الخصومات — and who funds each one.                                          #}
+{#                                                                            #}
+{# The two funding columns sit beside each other because that is the whole    #}
+{# design. The restaurant's share reduces what the restaurant earns; the      #}
+{# application's share is reimbursed and reduces neither revenue nor what the #}
+{# application owes — it is part of what it owes. A screen showing one        #}
+{# "discount" column would make those two look like the same thing.           #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="field field--check">
+    <input type="checkbox" name="current" value="1" {% if only_current == "1" %}checked{% endif %}>
+    <span>{% translate "السارية اليوم فقط" %}</span>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "التمويل" %}</span>
+    <select name="funding">
+      <option value="">{% translate "كل الخصومات" %}</option>
+      <option value="restaurant" {% if selected_funding == "restaurant" %}selected{% endif %}>{% translate "من المطعم بالكامل" %}</option>
+      <option value="application" {% if selected_funding == "application" %}selected{% endif %}>{% translate "من التطبيق بالكامل" %}</option>
+      <option value="shared" {% if selected_funding == "shared" %}selected{% endif %}>{% translate "مشترك" %}</option>
+    </select>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "الخصم" %}</th>
+  <th>{% translate "حصة المطعم" %}</th>
+  <th>{% translate "حصة التطبيق" %}</th>
+  <th>{% translate "النطاق" %}</th>
+  <th>{% translate "من" %}</th>
+  <th>{% translate "حتى" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for program in programs %}
+    <tr>
+      <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ program.code }}</code></bdi></td>
+      <td data-label="{% translate 'الاسم' %}">{{ program.name_ar }}</td>
+      <td data-label="{% translate 'الخصم' %}">
+        {% if program.discount_percent is not None %}
+          <bdi dir="ltr"><code>{{ program.percent_display }}%</code></bdi>
+        {% else %}
+          <bdi dir="ltr"><code>{{ program.discount_amount }}</code></bdi>
+        {% endif %}
+        {% if program.maximum_amount %}
+          <span class="muted">
+            {% blocktranslate with cap=program.maximum_amount %}بحد أقصى {{ cap }}{% endblocktranslate %}
+          </span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'حصة المطعم' %}">
+        <bdi dir="ltr"><code>{{ program.restaurant_funded_share }}%</code></bdi>
+      </td>
+      <td data-label="{% translate 'حصة التطبيق' %}">
+        <bdi dir="ltr"><code>{{ program.application_funded_share }}%</code></bdi>
+        {% if program.delivery_application %}
+          <span class="muted">{{ program.delivery_application.name_ar }}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'النطاق' %}">
+        {% if program.branch %}<span class="chip">{{ program.branch.code }}</span>{% endif %}
+        {% if program.channel %}<span class="chip">{{ program.channel.name_ar }}</span>{% endif %}
+        {% if program.menu_item %}<span class="chip">{{ program.menu_item.code }}</span>{% endif %}
+        {% if not program.branch and not program.channel and not program.menu_item and not program.delivery_application %}
+          <span class="muted">{% translate "كل المبيعات" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'من' %}"><bdi dir="ltr"><code>{{ program.effective_from|date:"Y-m-d" }}</code></bdi></td>
+      <td data-label="{% translate 'حتى' %}">
+        {% if program.effective_to %}
+          <bdi dir="ltr"><code>{{ program.effective_to|date:"Y-m-d" }}</code></bdi>
+        {% else %}
+          <span class="muted">{% translate "مفتوح" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if not program.is_active %}
+          <span class="chip chip--off">{% translate "ملغى" %}</span>
+        {% elif program.effective_to and program.effective_to < today %}
+          <span class="chip">{% translate "منتهٍ" %}</span>
+        {% elif program.effective_from > today %}
+          <span class="chip">{% translate "مستقبلي" %}</span>
+        {% else %}
+          <span class="chip chip--on">{% translate "ساري" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        <div class="rowactions">
+          {% if program.organization_id in manageable_ids and program.is_active and not program.effective_to %}
+            <a class="btn btn--quiet btn--sm" href="{% url 'sales:discount_close' program.pk %}">{% translate "إنهاء" %}</a>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="10">
+        {% translate "لا توجد برامج خصم بعد. الخصم المشترك يجب أن تساوي حصتا تمويله الخصم كاملاً." %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endblock %}

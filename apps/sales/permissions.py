@@ -175,6 +175,36 @@ _TABLE: tuple[_Declared, ...] = (
     # Deliberately **not** the cashier, and deliberately not the viewer. What a
     # plate costs to make is not information a till needs, and every cost
     # column is omitted rather than blanked.
+    # --- Checkpoint 2 -----------------------------------------------------
+    #
+    # The delivery master and the two contract permissions. The split between
+    # them is the module's first real separation of duties: registering that
+    # the restaurant trades with a company is operational, and agreeing what
+    # that company charges is not.
+    _Declared(
+        MANAGE_DELIVERY_APPLICATIONS,
+        PermissionScope.ORGANIZATION_MASTER_DATA,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
+    ),
+    # `ORGANIZATION_AUTHORITY`, not `ORGANIZATION_MASTER_DATA`, and the
+    # difference is the whole point: an agreement decides what every future
+    # order at that branch is worth to the restaurant, and reaching the
+    # organization through one branch membership is not enough to change a
+    # commercial contract.
+    _Declared(
+        MANAGE_SALES_AGREEMENTS,
+        PermissionScope.ORGANIZATION_AUTHORITY,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
+    ),
+    # Same scope, and deliberately **not** the cashier. A discount that a till
+    # can invent is a discount nobody approved; manual discounts exist and are
+    # a separate, reasoned, audited act on a sales line rather than a new
+    # programme.
+    _Declared(
+        MANAGE_SALES_DISCOUNTS,
+        PermissionScope.ORGANIZATION_AUTHORITY,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
+    ),
     _Declared(
         VIEW_SALES_COST,
         PermissionScope.ORGANIZATION_MASTER_DATA,

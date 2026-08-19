@@ -8,6 +8,8 @@ only after its route answers 200 both as a full page and as an htmx fragment.
 
 Checkpoint 1: أصناف المنيو and قنوات البيع, plus the price and category
 screens they need.
+
+Checkpoint 2: تطبيقات التوصيل, العمولات والاتفاقيات and الخصومات.
 """
 
 from __future__ import annotations
@@ -74,5 +76,52 @@ urlpatterns: list[URLPattern] = [
         "channels/<int:pk>/reactivate/",
         views.SalesChannelActionView.as_view(activate=True),
         name="channel_reactivate",
+    ),
+    # --- تطبيقات التوصيل ---------------------------------------------------
+    path("applications/", views.DeliveryApplicationListView.as_view(), name="application_list"),
+    path(
+        "applications/new/",
+        views.DeliveryApplicationCreateView.as_view(),
+        name="application_create",
+    ),
+    path(
+        "applications/<int:pk>/",
+        views.DeliveryApplicationDetailView.as_view(),
+        name="application_detail",
+    ),
+    path(
+        "applications/<int:pk>/edit/",
+        views.DeliveryApplicationUpdateView.as_view(),
+        name="application_update",
+    ),
+    path(
+        "applications/<int:pk>/archive/",
+        views.DeliveryApplicationActionView.as_view(activate=False),
+        name="application_archive",
+    ),
+    path(
+        "applications/<int:pk>/reactivate/",
+        views.DeliveryApplicationActionView.as_view(activate=True),
+        name="application_reactivate",
+    ),
+    # --- العمولات والاتفاقيات ----------------------------------------------
+    #
+    # No edit route, and its absence is the design: a rate that has accrued a
+    # commission is evidence, so the only correction is ending the agreement
+    # and recording the replacement.
+    path("agreements/", views.DeliveryAgreementListView.as_view(), name="agreement_list"),
+    path("agreements/new/", views.DeliveryAgreementCreateView.as_view(), name="agreement_create"),
+    path(
+        "agreements/<int:pk>/close/",
+        views.DeliveryAgreementCloseView.as_view(),
+        name="agreement_close",
+    ),
+    # --- الخصومات ----------------------------------------------------------
+    path("discounts/", views.DiscountProgramListView.as_view(), name="discount_list"),
+    path("discounts/new/", views.DiscountProgramCreateView.as_view(), name="discount_create"),
+    path(
+        "discounts/<int:pk>/close/",
+        views.DiscountProgramCloseView.as_view(),
+        name="discount_close",
     ),
 ]

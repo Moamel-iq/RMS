@@ -27,6 +27,11 @@ from apps.core.models import AuditAction
 from apps.core.services import record_audit_event, snapshot
 from apps.sales.models import (
     CODE_PATTERN,
+    CommissionBasis,
+    DeliveryAgreement,
+    DeliveryApplication,
+    DeliveryApplicationBranchSetting,
+    DiscountProgram,
     FulfillmentSource,
     MenuCategory,
     MenuItem,
@@ -454,6 +459,7 @@ def create_menu_price(
     effective_from: datetime.date,
     scope: str = PriceScope.BRANCH_DEFAULT,
     channel: SalesChannel | None = None,
+    delivery_application: DeliveryApplication | None = None,
     effective_to: datetime.date | None = None,
     evidence_reference: str = "",
     notes: str = "",
@@ -472,10 +478,23 @@ def create_menu_price(
             _("A price and its menu item must belong to the same organization."),
             code="branch_organization_mismatch",
         )
-    if scope == PriceScope.APPLICATION:
+    if scope == PriceScope.APPLICATION and delivery_application is None:
         raise ValidationError(
-            _("Application-scoped prices arrive with the delivery application master."),
-            code="application_scope_not_available",
+            _("An application-scoped price needs a delivery application."),
+            code="application_required",
+        )
+    if scope != PriceScope.APPLICATION and delivery_application is not None:
+        raise ValidationError(
+            _("Only an application-scoped price may name a delivery application."),
+            code="application_not_allowed",
+        )
+    if (
+        delivery_application is not None
+        and delivery_application.organization_id != menu_item.organization_id
+    ):
+        raise ValidationError(
+            _("A price and its delivery application must belong to the same organization."),
+            code="application_organization_mismatch",
         )
     if scope == PriceScope.CHANNEL and channel is None:
         raise ValidationError(_("A channel-scoped price needs a channel."), code="channel_required")
@@ -494,6 +513,7 @@ def create_menu_price(
         branch=branch,
         scope=scope,
         channel=channel,
+        delivery_application=delivery_application,
         unit_price=unit_price,
         effective_from=effective_from,
         effective_to=effective_to,
@@ -560,6 +580,377 @@ def archive_menu_price(*, price: MenuPriceVersion, reason: str = "") -> MenuPric
     return price
 
 
+# ---------------------------------------------------------------------------
+# Delivery applications — checkpoint 2
+# ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def create_delivery_application(
+    *,
+    organization: Organization,
+    code: str,
+    name_ar: str,
+    name_en: str = "",
+    settlement_cycle_days: int = 30,
+    receivable_account: Account | None = None,
+    contact_name: str = "",
+    phone: str = "",
+    notes: str = "",
+) -> DeliveryApplication:
+    """
+    Register a delivery company.
+
+    No balance is created, because there is no balance field: a new application
+    is owed nothing because nothing has been posted against it, not because a
+    zero was written somewhere that could later disagree with the ledger
+    (ADR-027 §5).
+
+    No commission rate either. Rates are effective-dated contract terms and
+    live on `DeliveryAgreement`; one here would be a second answer that no
+    posted sale could be traced back to.
+    """
+    if receivable_account is not None and receivable_account.organization_id != organization.pk:
+        raise ValidationError(
+            _("An application and its receivable account must belong to the same organization."),
+            code="account_organization_mismatch",
+        )
+    application = DeliveryApplication(
+        organization=organization,
+        code=_require_code(code),
+        name_ar=name_ar.strip(),
+        name_en=name_en.strip(),
+        settlement_cycle_days=settlement_cycle_days,
+        receivable_account=receivable_account,
+        contact_name=contact_name.strip(),
+        phone=phone.strip(),
+        notes=notes.strip(),
+    )
+    application.full_clean()
+    application.save()
+    record_audit_event(
+        action=AuditAction.CREATED, target=application, new_state=snapshot(application)
+    )
+    return application
+
+
+@transaction.atomic
+def update_delivery_application(
+    *,
+    application: DeliveryApplication,
+    name_ar: str,
+    name_en: str = "",
+    settlement_cycle_days: int = 30,
+    receivable_account: Account | None = None,
+    contact_name: str = "",
+    phone: str = "",
+    notes: str = "",
+    is_active: bool = True,
+) -> DeliveryApplication:
+    """
+    Correct an application, or archive one.
+
+    Changing the receivable account **does not** move anything already posted.
+    A posted journal names the account it used; this decides where the next one
+    lands. Screens say so, because the alternative reading — that the balance
+    follows the setting — is the one an operator naturally assumes.
+    """
+    if (
+        receivable_account is not None
+        and receivable_account.organization_id != application.organization_id
+    ):
+        raise ValidationError(
+            _("An application and its receivable account must belong to the same organization."),
+            code="account_organization_mismatch",
+        )
+    previous = snapshot(application)
+    application.name_ar = name_ar.strip()
+    application.name_en = name_en.strip()
+    application.settlement_cycle_days = settlement_cycle_days
+    application.receivable_account = receivable_account
+    application.contact_name = contact_name.strip()
+    application.phone = phone.strip()
+    application.notes = notes.strip()
+    application.is_active = is_active
+    application.full_clean()
+    application.save()
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=application,
+        previous_state=previous,
+        new_state=snapshot(application),
+    )
+    return application
+
+
+@transaction.atomic
+def set_application_branch_setting(
+    *,
+    application: DeliveryApplication,
+    branch: Branch,
+    is_active: bool = True,
+    external_store_code: str = "",
+    notes: str = "",
+) -> DeliveryApplicationBranchSetting:
+    """Say whether one branch trades with one application."""
+    if branch.organization_id != application.organization_id:
+        raise ValidationError(
+            _("An application can only be activated at its own organization's branches."),
+            code="branch_organization_mismatch",
+        )
+    setting = DeliveryApplicationBranchSetting.objects.filter(
+        delivery_application=application, branch=branch
+    ).first()
+    previous = snapshot(setting) if setting is not None else None
+    if setting is None:
+        setting = DeliveryApplicationBranchSetting(delivery_application=application, branch=branch)
+    setting.is_active = is_active
+    setting.external_store_code = external_store_code.strip()
+    setting.notes = notes.strip()
+    setting.full_clean()
+    setting.save()
+    record_audit_event(
+        action=AuditAction.CREATED if previous is None else AuditAction.UPDATED,
+        target=setting,
+        previous_state=previous,
+        new_state=snapshot(setting),
+        branch=branch,
+    )
+    return setting
+
+
+# ---------------------------------------------------------------------------
+# Agreements — checkpoint 2
+# ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def create_delivery_agreement(
+    *,
+    branch: Branch,
+    delivery_application: DeliveryApplication,
+    effective_from: datetime.date,
+    commission_percent: Decimal = Decimal("0"),
+    fixed_fee_per_order: Decimal = Decimal("0"),
+    commission_basis: str = CommissionBasis.GROSS_LIST_AMOUNT,
+    settlement_lag_days: int = 30,
+    effective_to: datetime.date | None = None,
+    evidence_reference: str = "",
+    notes: str = "",
+) -> DeliveryAgreement:
+    """
+    Record what one application charges one branch, from a date.
+
+    **Evidence is required**, and this is the one master in the module that
+    insists on it. An agreement is a claim about a contract with another
+    company, and it accrues an expense on every order from the day it starts;
+    an unevidenced rate is a number somebody typed that nobody can check
+    against anything.
+
+    Overlaps are refused by the exclusion constraint in migration `0003`
+    rather than here, for the reason the price overlap is: two concurrent
+    requests both read a clean table before either writes.
+    """
+    if branch.organization_id != delivery_application.organization_id:
+        raise ValidationError(
+            _("An agreement's branch and application must belong to the same organization."),
+            code="branch_organization_mismatch",
+        )
+    if not evidence_reference.strip():
+        raise ValidationError(
+            _("A commission agreement needs the contract or approval it rests on."),
+            code="evidence_required",
+        )
+    if commission_basis not in CommissionBasis.values:
+        raise ValidationError(
+            _("%(basis)s is not an approved commission basis.") % {"basis": commission_basis},
+            code="unknown_commission_basis",
+        )
+
+    agreement = DeliveryAgreement(
+        organization_id=branch.organization_id,
+        branch=branch,
+        delivery_application=delivery_application,
+        commission_percent=commission_percent,
+        fixed_fee_per_order=fixed_fee_per_order,
+        commission_basis=commission_basis,
+        settlement_lag_days=settlement_lag_days,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        evidence_reference=evidence_reference.strip(),
+        notes=notes.strip(),
+    )
+    agreement.full_clean()
+    agreement.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=agreement,
+        new_state=snapshot(agreement),
+        branch=branch,
+    )
+    return agreement
+
+
+@transaction.atomic
+def close_delivery_agreement(
+    *, agreement: DeliveryAgreement, effective_to: datetime.date, reason: str
+) -> DeliveryAgreement:
+    """
+    End an agreement on a date. **The rate is never edited.**
+
+    A rate that has accrued a commission is evidence, and correcting it in
+    place would restate an expense that has already posted. Ending it and
+    recording the replacement is the only correction, exactly as with a price
+    and a recipe version.
+    """
+    if effective_to < agreement.effective_from:
+        raise ValidationError(
+            _("An agreement cannot end before it started."), code="range_out_of_order"
+        )
+    if not reason.strip():
+        raise ValidationError(_("Ending an agreement needs a reason."), code="reason_required")
+    previous = snapshot(agreement)
+    agreement.effective_to = effective_to
+    agreement.full_clean()
+    agreement.save(update_fields=["effective_to", "updated_at"])
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=agreement,
+        previous_state=previous,
+        new_state=snapshot(agreement),
+        reason=reason.strip(),
+        branch=agreement.branch,
+    )
+    return agreement
+
+
+# ---------------------------------------------------------------------------
+# Discount programmes — checkpoint 2
+# ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def create_discount_program(
+    *,
+    organization: Organization,
+    code: str,
+    name_ar: str,
+    effective_from: datetime.date,
+    discount_percent: Decimal | None = None,
+    discount_amount: Decimal | None = None,
+    restaurant_funded_share: Decimal = Decimal("100"),
+    application_funded_share: Decimal = Decimal("0"),
+    branch: Branch | None = None,
+    channel: SalesChannel | None = None,
+    delivery_application: DeliveryApplication | None = None,
+    menu_item: MenuItem | None = None,
+    maximum_amount: Decimal | None = None,
+    name_en: str = "",
+    effective_to: datetime.date | None = None,
+    evidence_reference: str = "",
+    notes: str = "",
+) -> DiscountProgram:
+    """
+    Create a discount, and record who funds it.
+
+    The funding equality is checked here **and** by a check constraint. Both,
+    because they do different jobs: the constraint is what makes it true even
+    against a raw `INSERT`, and this is what makes it *explainable* on a form
+    before a save fails with a database error nobody can read.
+
+    An application-funded share must name the application that promised it. A
+    "50% funded by the app" promotion with no application attached could be
+    applied to a cash sale in the hall, and the receivable it implies would be
+    owed by nobody.
+    """
+    if discount_percent is None and discount_amount is None:
+        raise ValidationError(
+            _("A discount needs a percentage or an amount."), code="discount_value_required"
+        )
+    if discount_percent is not None and discount_amount is not None:
+        raise ValidationError(
+            _("A discount states a percentage or an amount, never both."),
+            code="discount_value_ambiguous",
+        )
+    if restaurant_funded_share + application_funded_share != Decimal("100"):
+        raise ValidationError(
+            _(
+                "The funding shares must add up to the whole discount: "
+                "%(restaurant)s%% + %(application)s%% is not 100%%."
+            )
+            % {"restaurant": restaurant_funded_share, "application": application_funded_share},
+            code="funding_does_not_close",
+        )
+    if application_funded_share > Decimal("0") and delivery_application is None:
+        raise ValidationError(
+            _("A discount funded by an application must name the application that funds it."),
+            code="application_funding_needs_an_application",
+        )
+    for related, message in (
+        (branch, _("A discount and its branch must belong to the same organization.")),
+        (channel, _("A discount and its channel must belong to the same organization.")),
+        (
+            delivery_application,
+            _("A discount and its application must belong to the same organization."),
+        ),
+        (menu_item, _("A discount and its menu item must belong to the same organization.")),
+    ):
+        if related is not None and related.organization_id != organization.pk:
+            raise ValidationError(message, code="organization_mismatch")
+
+    program = DiscountProgram(
+        organization=organization,
+        branch=branch,
+        code=_require_code(code),
+        name_ar=name_ar.strip(),
+        name_en=name_en.strip(),
+        discount_percent=discount_percent,
+        discount_amount=discount_amount,
+        maximum_amount=maximum_amount,
+        restaurant_funded_share=restaurant_funded_share,
+        application_funded_share=application_funded_share,
+        channel=channel,
+        delivery_application=delivery_application,
+        menu_item=menu_item,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        evidence_reference=evidence_reference.strip(),
+        notes=notes.strip(),
+    )
+    program.full_clean()
+    program.save()
+    record_audit_event(
+        action=AuditAction.CREATED, target=program, new_state=snapshot(program), branch=branch
+    )
+    return program
+
+
+@transaction.atomic
+def close_discount_program(
+    *, program: DiscountProgram, effective_to: datetime.date, reason: str
+) -> DiscountProgram:
+    """End a programme on a date. Its amounts and shares are never edited."""
+    if effective_to < program.effective_from:
+        raise ValidationError(
+            _("A discount cannot end before it started."), code="range_out_of_order"
+        )
+    if not reason.strip():
+        raise ValidationError(_("Ending a discount needs a reason."), code="reason_required")
+    previous = snapshot(program)
+    program.effective_to = effective_to
+    program.full_clean()
+    program.save(update_fields=["effective_to", "updated_at"])
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=program,
+        previous_state=previous,
+        new_state=snapshot(program),
+        reason=reason.strip(),
+        branch=program.branch,
+    )
+    return program
+
+
 __all__ = [
     "archive_menu_price",
     "close_menu_price",
@@ -571,4 +962,12 @@ __all__ = [
     "update_menu_category",
     "update_menu_item",
     "update_sales_channel",
+    # --- checkpoint 2 -----------------------------------------------------
+    "close_delivery_agreement",
+    "close_discount_program",
+    "create_delivery_agreement",
+    "create_delivery_application",
+    "create_discount_program",
+    "set_application_branch_setting",
+    "update_delivery_application",
 ]

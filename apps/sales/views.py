@@ -19,6 +19,7 @@ Inventory's own templates are untouched.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from django.contrib import messages
@@ -40,11 +41,20 @@ from apps.inventory.views import (
 from apps.organizations.authorization import (
     has_organization_permission,
     organizations_with_permission,
+    require_branch_permission,
+    require_organization_permission,
     require_reachable_organization_permission,
 )
 from apps.organizations.selectors import accessible_branches
+from apps.sales.agreements import preview, resolve_agreement
 from apps.sales.forms import (
+    AgreementCloseForm,
+    ApplicationBranchForm,
     BranchAvailabilityForm,
+    DeliveryAgreementForm,
+    DeliveryApplicationForm,
+    DiscountCloseForm,
+    DiscountProgramForm,
     MenuCategoryForm,
     MenuItemForm,
     MenuPriceCloseForm,
@@ -53,14 +63,23 @@ from apps.sales.forms import (
 )
 from apps.sales.models import SalesChannelCategory
 from apps.sales.permissions import (
+    MANAGE_DELIVERY_APPLICATIONS,
     MANAGE_MENU,
+    MANAGE_SALES_AGREEMENTS,
     MANAGE_SALES_CHANNELS,
+    MANAGE_SALES_DISCOUNTS,
     VIEW_SALES,
     VIEW_SALES_COST,
 )
 from apps.sales.selectors import (
     effective_prices,
+    resolve_agreement_row,
+    resolve_delivery_application,
+    resolve_discount_program,
     resolve_menu_item,
+    visible_agreements,
+    visible_delivery_applications,
+    visible_discount_programs,
     visible_menu_categories,
     visible_menu_items,
     visible_menu_prices,
@@ -68,16 +87,28 @@ from apps.sales.selectors import (
 )
 from apps.sales.services import (
     archive_menu_price,
+    close_delivery_agreement,
+    close_discount_program,
     close_menu_price,
+    create_delivery_agreement,
+    create_delivery_application,
+    create_discount_program,
     create_menu_category,
     create_menu_item,
     create_menu_price,
     create_sales_channel,
+    set_application_branch_setting,
     set_branch_availability,
+    update_delivery_application,
     update_menu_category,
     update_menu_item,
     update_sales_channel,
 )
+
+#: A worked example for the agreement preview: one ordinary application
+#: order. A round figure on purpose — the screen is showing what a *rate*
+#: costs, and an odd base would make the reader do arithmetic to check it.
+PREVIEW_AMOUNT = Decimal("25000")
 
 
 class SalesListView(InventoryListView):
@@ -709,7 +740,438 @@ class SalesChannelActionView(SalesActionView):
         )
 
 
+# ---------------------------------------------------------------------------
+# Delivery applications — checkpoint 2
+# ---------------------------------------------------------------------------
+
+
+class DeliveryApplicationListView(SalesListView):
+    template_name = "sales/delivery_application_list.html"
+    context_object_name = "applications"
+    page_title = _("تطبيقات التوصيل")
+    page_hint = _(
+        "شركات التوصيل التي يبيع المطعم عبرها. لا تحمل رصيداً — ما يدين به التطبيق "
+        "يُحتسب من دفتر الذمم غير القابل للتعديل — ولا تحمل نسبة عمولة، فالنسب بنود "
+        "تعاقدية مؤرّخة تعيش في الاتفاقيات."
+    )
+    search_fields = ("code", "name_ar", "name_en", "contact_name")
+    manage_permission = MANAGE_DELIVERY_APPLICATIONS
+    create_url_name = "sales:application_create"
+    create_label = _("تطبيق جديد")
+    result_label = _("تطبيق")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        return visible_delivery_applications(self.actor).order_by("code")
+
+
+class DeliveryApplicationWriteView(SalesWriteView):
+    form_class = DeliveryApplicationForm
+    required_permission = MANAGE_DELIVERY_APPLICATIONS
+    success_url_name = "sales:application_list"
+
+    def _fields(self, form: Any) -> dict[str, Any]:
+        data = form.cleaned_data
+        return {
+            "name_ar": data["name_ar"],
+            "name_en": data.get("name_en", ""),
+            "settlement_cycle_days": data["settlement_cycle_days"],
+            "receivable_account": data.get("receivable_account"),
+            "contact_name": data.get("contact_name", ""),
+            "phone": data.get("phone", ""),
+            "notes": data.get("notes", ""),
+        }
+
+
+class DeliveryApplicationCreateView(DeliveryApplicationWriteView):
+    page_title = _("تطبيق توصيل جديد")
+    page_hint = _("الرمز يُخزَّن بأحرف كبيرة ولا يمكن تغييره بعد الحفظ.")
+    success_message = _("تمت إضافة التطبيق.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_DELIVERY_APPLICATIONS, form.selected_organization()
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        create_delivery_application(
+            organization=form.selected_organization(),
+            code=form.cleaned_data["code"],
+            **self._fields(form),
+        )
+
+
+class DeliveryApplicationUpdateView(DeliveryApplicationWriteView):
+    page_title = _("تعديل تطبيق التوصيل")
+    page_hint = _(
+        "تغيير حساب الذمة يسري على القيود الجديدة فقط. القيد المرحّل يحمل الحساب "
+        "الذي استُخدم فعلاً، والرصيد لا يتبع الإعداد."
+    )
+    success_message = _("تم حفظ التطبيق.")
+
+    def load(self) -> Any:
+        return resolve_delivery_application(self.actor, self.kwargs["pk"])
+
+    def initial_for(self, instance: Any) -> dict[str, Any]:
+        return {
+            "code": instance.code,
+            "name_ar": instance.name_ar,
+            "name_en": instance.name_en,
+            "settlement_cycle_days": instance.settlement_cycle_days,
+            "receivable_account": instance.receivable_account,
+            "contact_name": instance.contact_name,
+            "phone": instance.phone,
+            "notes": instance.notes,
+        }
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_DELIVERY_APPLICATIONS, instance.organization
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        update_delivery_application(
+            application=instance, is_active=instance.is_active, **self._fields(form)
+        )
+
+
+class DeliveryApplicationActionView(SalesActionView):
+    required_permission = MANAGE_DELIVERY_APPLICATIONS
+    success_url_name = "sales:application_list"
+
+    def load(self) -> Any:
+        return resolve_delivery_application(self.actor, self.kwargs["pk"])
+
+    def authorize(self, instance: Any) -> None:
+        require_reachable_organization_permission(
+            self.actor, MANAGE_DELIVERY_APPLICATIONS, instance.organization
+        )
+
+    def perform(self, instance: Any) -> None:
+        update_delivery_application(
+            application=instance,
+            name_ar=instance.name_ar,
+            name_en=instance.name_en,
+            settlement_cycle_days=instance.settlement_cycle_days,
+            receivable_account=instance.receivable_account,
+            contact_name=instance.contact_name,
+            phone=instance.phone,
+            notes=instance.notes,
+            is_active=self.activate,
+        )
+
+
+class DeliveryApplicationDetailView(InventoryViewMixin, View):
+    """
+    One application: which branches trade with it, and on what terms.
+
+    Branch activation and the effective agreements are shown together because
+    that is the pair somebody checks before going live: a branch that is
+    switched on with no agreement will refuse every sale it takes, and the two
+    facts live in different tables.
+    """
+
+    module_key = "sales"
+    required_permission = VIEW_SALES
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        application = resolve_delivery_application(self.actor, kwargs["pk"])
+        today = timezone.localdate()
+
+        branches = (
+            accessible_branches(self.actor)
+            .filter(organization_id=application.organization_id)
+            .order_by("code")
+        )
+        settings_by_branch = {
+            row.branch_id: row for row in application.branch_settings.select_related("branch")
+        }
+        rows = [
+            {
+                "branch": branch,
+                "setting": settings_by_branch.get(branch.pk),
+                "live": (
+                    branch.pk in settings_by_branch and settings_by_branch[branch.pk].is_active
+                ),
+                "agreement": resolve_agreement(
+                    branch_id=branch.pk,
+                    delivery_application_id=application.pk,
+                    on_date=today,
+                ),
+            }
+            for branch in branches
+        ]
+
+        may_manage = has_organization_permission(
+            self.actor, MANAGE_DELIVERY_APPLICATIONS, application.organization
+        )
+        context = {
+            "application": application,
+            "rows": rows,
+            "today": today,
+            "may_manage": may_manage,
+            "branch_form": (
+                ApplicationBranchForm(actor=self.actor, application=application)
+                if may_manage
+                else None
+            ),
+            "page_title": application.name_ar,
+            "page_hint": _("الفروع المفعّلة مع هذا التطبيق، والاتفاقية السارية اليوم لكل فرع."),
+            "list_base_template": (
+                "settings/_list_fragment.html"
+                if request.headers.get("HX-Request") == "true"
+                else "shell.html"
+            ),
+        }
+        return render(request, "sales/delivery_application_detail.html", context)
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        application = resolve_delivery_application(self.actor, kwargs["pk"])
+        require_reachable_organization_permission(
+            self.actor, MANAGE_DELIVERY_APPLICATIONS, application.organization
+        )
+        form = ApplicationBranchForm(request.POST, actor=self.actor, application=application)
+        if form.is_valid():
+            try:
+                set_application_branch_setting(
+                    application=application,
+                    branch=form.cleaned_data["branch"],
+                    is_active=form.cleaned_data["is_active"],
+                    external_store_code=form.cleaned_data.get("external_store_code", ""),
+                    notes=form.cleaned_data.get("notes", ""),
+                )
+            except ValidationError as error:
+                messages.error(request, "؛ ".join(str(message) for message in error.messages))
+            else:
+                messages.success(request, _("تم تحديث تفعيل الفرع."))
+        else:
+            messages.error(request, _("تعذّر حفظ التفعيل. راجع الحقول."))
+        return HttpResponseRedirect(reverse("sales:application_detail", args=[application.pk]))
+
+
+# ---------------------------------------------------------------------------
+# Agreements — checkpoint 2
+# ---------------------------------------------------------------------------
+
+
+class DeliveryAgreementListView(SalesListView):
+    template_name = "sales/agreement_list.html"
+    context_object_name = "agreements"
+    page_title = _("العمولات والاتفاقيات")
+    page_hint = _(
+        "العمولة تُستحق عند البيع من الاتفاقية السارية، لا عند التسوية: النسبة معروفة "
+        "يوم استلام الطلب، وانتظار الكشف يجعل هامش الشهر مجهولاً حتى الشهر التالي."
+    )
+    search_fields = (
+        "delivery_application__code",
+        "delivery_application__name_ar",
+        "branch__code",
+        "evidence_reference",
+    )
+    manage_permission = MANAGE_SALES_AGREEMENTS
+    manage_scope = "branch"
+    create_url_name = "sales:agreement_create"
+    create_label = _("اتفاقية جديدة")
+    result_label = _("اتفاقية")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_agreements(self.actor)
+        if self.request.GET.get("current", "").strip() == "1":
+            today = timezone.localdate()
+            queryset = queryset.filter(is_active=True, effective_from__lte=today).filter(
+                Q(effective_to__isnull=True) | Q(effective_to__gte=today)
+            )
+        return queryset.order_by("delivery_application__code", "branch__code", "-effective_from")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["only_current"] = self.request.GET.get("current", "")
+        context["today"] = timezone.localdate()
+        # A worked example beside every agreement. A percentage and a fixed fee
+        # read as harmless separately; the money does not. Attached to the row
+        # rather than passed as a parallel mapping, so the template reads
+        # `agreement.preview` instead of looking a key up inside a loop.
+        context["preview_amount"] = PREVIEW_AMOUNT
+        for row in context.get("agreements", []):
+            row.preview = preview(row, gross_amount=PREVIEW_AMOUNT, order_count=1)
+        return context
+
+
+class DeliveryAgreementCreateView(SalesWriteView):
+    form_class = DeliveryAgreementForm
+    required_permission = MANAGE_SALES_AGREEMENTS
+    success_url_name = "sales:agreement_list"
+    page_title = _("اتفاقية عمولة جديدة")
+    page_hint = _(
+        "لا يوجد تعديل لاتفاقية: النسبة التي استُحقت عليها عمولة صارت مستنداً، "
+        "وتصحيحها في مكانها يعيد صياغة مصروف مرحّل. التصحيح هو إنهاؤها وتسجيل البديلة."
+    )
+    success_message = _("تمت إضافة الاتفاقية.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_branch_permission(self.actor, MANAGE_SALES_AGREEMENTS, form.cleaned_data["branch"])
+
+    def perform(self, instance: Any, form: Any) -> None:
+        data = form.cleaned_data
+        create_delivery_agreement(
+            branch=data["branch"],
+            delivery_application=data["delivery_application"],
+            effective_from=data["effective_from"],
+            commission_percent=data["commission_percent"],
+            fixed_fee_per_order=data["fixed_fee_per_order"],
+            commission_basis=data["commission_basis"],
+            settlement_lag_days=data["settlement_lag_days"],
+            effective_to=data.get("effective_to"),
+            evidence_reference=data["evidence_reference"],
+            notes=data.get("notes", ""),
+        )
+
+
+class DeliveryAgreementCloseView(SalesWriteView):
+    form_class = AgreementCloseForm
+    required_permission = MANAGE_SALES_AGREEMENTS
+    success_url_name = "sales:agreement_list"
+    page_title = _("إنهاء اتفاقية")
+    page_hint = _("النسبة والرسم لا يُعدَّلان. تُنهى الاتفاقية بتاريخ، وتُسجَّل البديلة.")
+    success_message = _("تم إنهاء الاتفاقية.")
+
+    def build_form(self, instance: Any, data: Any = None) -> Any:
+        return self.form_class(**({"data": data} if data is not None else {}))
+
+    def load(self) -> Any:
+        return resolve_agreement_row(self.actor, self.kwargs["pk"])
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_branch_permission(self.actor, MANAGE_SALES_AGREEMENTS, instance.branch)
+
+    def perform(self, instance: Any, form: Any) -> None:
+        close_delivery_agreement(
+            agreement=instance,
+            effective_to=form.cleaned_data["effective_to"],
+            reason=form.cleaned_data["reason"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Discounts — checkpoint 2
+# ---------------------------------------------------------------------------
+
+
+class DiscountProgramListView(SalesListView):
+    template_name = "sales/discount_list.html"
+    context_object_name = "programs"
+    page_title = _("الخصومات")
+    page_hint = _(
+        "الخصم مال لم يُحصَّل، والتصميم كله يقوم على تسجيل مَن تحمّله: حصة المطعم "
+        "تخفض إيراده، وحصة التطبيق تُعوَّض ولا تخفض شيئاً — بل هي جزء مما يدين به التطبيق."
+    )
+    search_fields = ("code", "name_ar", "name_en")
+    manage_permission = MANAGE_SALES_DISCOUNTS
+    create_url_name = "sales:discount_create"
+    create_label = _("خصم جديد")
+    result_label = _("برنامج خصم")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_discount_programs(self.actor)
+        if self.request.GET.get("current", "").strip() == "1":
+            today = timezone.localdate()
+            queryset = queryset.filter(is_active=True, effective_from__lte=today).filter(
+                Q(effective_to__isnull=True) | Q(effective_to__gte=today)
+            )
+        funding = self.request.GET.get("funding", "").strip()
+        if funding == "restaurant":
+            queryset = queryset.filter(application_funded_share=0)
+        elif funding == "application":
+            queryset = queryset.filter(restaurant_funded_share=0)
+        elif funding == "shared":
+            queryset = queryset.filter(
+                application_funded_share__gt=0, restaurant_funded_share__gt=0
+            )
+        return queryset.order_by("code")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["only_current"] = self.request.GET.get("current", "")
+        context["selected_funding"] = self.request.GET.get("funding", "")
+        context["today"] = timezone.localdate()
+        return context
+
+
+class DiscountProgramCreateView(SalesWriteView):
+    form_class = DiscountProgramForm
+    required_permission = MANAGE_SALES_DISCOUNTS
+    success_url_name = "sales:discount_list"
+    page_title = _("برنامج خصم جديد")
+    page_hint = _(
+        "حصتا التمويل يجب أن تساويا الخصم كاملاً. خصم يموّله تطبيق يجب أن يسمّي "
+        "التطبيق: وإلا فالذمة التي يفترضها على لا أحد."
+    )
+    success_message = _("تمت إضافة الخصم.")
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_organization_permission(
+            self.actor, MANAGE_SALES_DISCOUNTS, form.selected_organization()
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        data = form.cleaned_data
+        create_discount_program(
+            organization=form.selected_organization(),
+            code=data["code"],
+            name_ar=data["name_ar"],
+            name_en=data.get("name_en", ""),
+            effective_from=data["effective_from"],
+            discount_percent=data.get("discount_percent"),
+            discount_amount=data.get("discount_amount"),
+            maximum_amount=data.get("maximum_amount"),
+            restaurant_funded_share=data["restaurant_funded_share"],
+            application_funded_share=data["application_funded_share"],
+            branch=data.get("branch"),
+            channel=data.get("channel"),
+            delivery_application=data.get("delivery_application"),
+            menu_item=data.get("menu_item"),
+            effective_to=data.get("effective_to"),
+            evidence_reference=data.get("evidence_reference", ""),
+            notes=data.get("notes", ""),
+        )
+
+
+class DiscountProgramCloseView(SalesWriteView):
+    form_class = DiscountCloseForm
+    required_permission = MANAGE_SALES_DISCOUNTS
+    success_url_name = "sales:discount_list"
+    page_title = _("إنهاء برنامج خصم")
+    page_hint = _("المبالغ وحصص التمويل لا تُعدَّل. يُنهى البرنامج بتاريخ.")
+    success_message = _("تم إنهاء البرنامج.")
+
+    def build_form(self, instance: Any, data: Any = None) -> Any:
+        return self.form_class(**({"data": data} if data is not None else {}))
+
+    def load(self) -> Any:
+        return resolve_discount_program(self.actor, self.kwargs["pk"])
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_organization_permission(self.actor, MANAGE_SALES_DISCOUNTS, instance.organization)
+
+    def perform(self, instance: Any, form: Any) -> None:
+        close_discount_program(
+            program=instance,
+            effective_to=form.cleaned_data["effective_to"],
+            reason=form.cleaned_data["reason"],
+        )
+
+
 __all__ = [
+    "DeliveryAgreementCloseView",
+    "DeliveryAgreementCreateView",
+    "DeliveryAgreementListView",
+    "DeliveryApplicationActionView",
+    "DeliveryApplicationCreateView",
+    "DeliveryApplicationDetailView",
+    "DeliveryApplicationListView",
+    "DeliveryApplicationUpdateView",
+    "DiscountProgramCloseView",
+    "DiscountProgramCreateView",
+    "DiscountProgramListView",
     "MenuCategoryCreateView",
     "MenuCategoryListView",
     "MenuCategoryUpdateView",
