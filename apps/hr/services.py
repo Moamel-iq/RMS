@@ -15,25 +15,43 @@ from django.utils.translation import gettext_lazy as _
 from apps.core.models import AuditAction
 from apps.core.services import record_audit_event, snapshot
 from apps.hr.models import (
+    AbsenceClassification,
+    AbsenceRecord,
+    AdvanceStatus,
     AttendanceApprovalStatus,
     AttendanceDayApproval,
     AttendanceEvent,
     AttendanceEventSource,
     ContractStatus,
     Employee,
+    EmployeeAdvance,
     EmployeeContract,
+    EmployeeDeduction,
     EmployeeDocument,
     EmployeeStatus,
+    LeaveRequest,
+    LeaveType,
+    OvertimeRequest,
     PayrollPolicy,
+    RequestStatus,
     Shift,
     ShiftAssignment,
 )
 from apps.hr.permissions import (
+    APPROVE_ADVANCE,
     APPROVE_ATTENDANCE,
+    APPROVE_DEDUCTION,
+    APPROVE_LEAVE,
+    APPROVE_OVERTIME,
     ASSIGN_SHIFT,
+    CLASSIFY_ABSENCE,
     CORRECT_ATTENDANCE,
+    MANAGE_ADVANCE,
+    MANAGE_DEDUCTION,
+    MANAGE_OVERTIME,
     MANAGE_SHIFT,
     RECORD_ATTENDANCE,
+    REQUEST_LEAVE,
 )
 from apps.organizations.authorization import require_organization_permission
 from apps.organizations.business_dates import business_date_for
@@ -780,3 +798,498 @@ def reopen_attendance_day(
         reason=reason.strip(),
     )
     return approval
+
+
+@transaction.atomic
+def create_leave_request(
+    *,
+    employee: Employee,
+    leave_type: LeaveType,
+    start_at: datetime.datetime,
+    end_at: datetime.datetime,
+    reason: str,
+    evidence_reference: str,
+    evidence_file: Any,
+    actor: User,
+) -> LeaveRequest:
+    locked_employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    require_organization_permission(actor, REQUEST_LEAVE, locked_employee.organization)
+    if end_at <= start_at:
+        raise ValidationError(_("Leave end must follow its start."))
+    requested_minutes = int((end_at - start_at).total_seconds() // 60)
+    request = LeaveRequest(
+        organization=locked_employee.organization,
+        employee=locked_employee,
+        leave_type=leave_type,
+        start_at=start_at,
+        end_at=end_at,
+        requested_minutes=requested_minutes,
+        paid_treatment=leave_type.paid_treatment,
+        reason=reason.strip(),
+        evidence_reference=evidence_reference.strip(),
+        evidence_file=evidence_file,
+        requested_by=actor,
+    )
+    _validate(request)
+    request.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=request,
+        branch=locked_employee.branch,
+        new_state=snapshot(request),
+    )
+    return request
+
+
+@transaction.atomic
+def create_leave_type(*, organization: Organization, actor: User, **values: Any) -> LeaveType:
+    require_organization_permission(actor, REQUEST_LEAVE, organization)
+    leave_type = LeaveType(organization=organization, created_by=actor, **values)
+    leave_type.code = leave_type.code.strip().upper()
+    _validate(leave_type)
+    leave_type.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=leave_type,
+        new_state=snapshot(leave_type),
+    )
+    return leave_type
+
+
+@transaction.atomic
+def submit_leave_request(*, request: LeaveRequest, actor: User) -> LeaveRequest:
+    locked = LeaveRequest.objects.select_for_update().get(pk=request.pk)
+    require_organization_permission(actor, REQUEST_LEAVE, locked.organization)
+    if locked.status != RequestStatus.DRAFT:
+        raise ValidationError(_("Only a draft leave request can be submitted."))
+    previous = snapshot(locked)
+    locked.status = RequestStatus.SUBMITTED
+    locked.save(update_fields=["status", "updated_at"])
+    record_audit_event(
+        action=AuditAction.SUBMITTED,
+        target=locked,
+        branch=locked.employee.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def decide_leave_request(
+    *, request: LeaveRequest, approve: bool, reason: str, actor: User
+) -> LeaveRequest:
+    locked = LeaveRequest.objects.select_for_update().get(pk=request.pk)
+    require_organization_permission(actor, APPROVE_LEAVE, locked.organization)
+    if locked.status != RequestStatus.SUBMITTED:
+        raise ValidationError(_("Only a submitted leave request can be decided."))
+    if locked.requested_by_id == actor.pk:
+        raise ValidationError(_("The request creator cannot approve it."), code="maker_checker")
+    previous = snapshot(locked)
+    if approve:
+        overlaps = LeaveRequest.objects.select_for_update().filter(
+            employee=locked.employee,
+            status=RequestStatus.APPROVED,
+            start_at__lt=locked.end_at,
+            end_at__gt=locked.start_at,
+        )
+        if overlaps.exists():
+            raise ValidationError(_("Approved leave periods may not overlap."))
+        locked.status = RequestStatus.APPROVED
+        locked.approved_by = actor
+        locked.approved_at = timezone.now()
+        locked.rejection_reason = ""
+        action = AuditAction.APPROVED
+    else:
+        if not reason.strip():
+            raise ValidationError(_("Leave rejection requires a reason."))
+        locked.status = RequestStatus.REJECTED
+        locked.rejection_reason = reason.strip()
+        action = AuditAction.REJECTED
+    _validate(locked)
+    locked.save()
+    record_audit_event(
+        action=action,
+        target=locked,
+        branch=locked.employee.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+        reason=reason.strip(),
+    )
+    return locked
+
+
+@transaction.atomic
+def cancel_leave_request(*, request: LeaveRequest, reason: str, actor: User) -> LeaveRequest:
+    if not reason.strip():
+        raise ValidationError(_("Leave cancellation requires a reason."))
+    locked = LeaveRequest.objects.select_for_update().get(pk=request.pk)
+    require_organization_permission(actor, REQUEST_LEAVE, locked.organization)
+    if locked.status not in {
+        RequestStatus.DRAFT,
+        RequestStatus.SUBMITTED,
+        RequestStatus.APPROVED,
+    }:
+        raise ValidationError(_("This leave request cannot be cancelled."))
+    previous = snapshot(locked)
+    locked.status = RequestStatus.CANCELLED
+    locked.save(update_fields=["status", "updated_at"])
+    record_audit_event(
+        action=AuditAction.CANCELLED,
+        target=locked,
+        branch=locked.employee.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+        reason=reason.strip(),
+    )
+    return locked
+
+
+@transaction.atomic
+def classify_absence(
+    *,
+    employee: Employee,
+    business_date: datetime.date,
+    classification: str,
+    reason: str,
+    actor: User,
+) -> AbsenceRecord:
+    from apps.hr.attendance import calculate_attendance_day
+
+    locked_employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    require_organization_permission(actor, CLASSIFY_ABSENCE, locked_employee.organization)
+    result = calculate_attendance_day(employee=locked_employee, business_date=business_date)
+    if not result.absence_candidate:
+        raise ValidationError(_("Only an attendance absence candidate can be classified."))
+    if classification not in AbsenceClassification.values:
+        raise ValidationError(_("Choose a valid absence classification."))
+    if not reason.strip():
+        raise ValidationError(_("Absence classification requires a reason."))
+    day_start = timezone.make_aware(datetime.datetime.combine(business_date, datetime.time.min))
+    day_end = day_start + datetime.timedelta(days=1)
+    leave = LeaveRequest.objects.filter(
+        employee=locked_employee,
+        status=RequestStatus.APPROVED,
+        start_at__lt=day_end,
+        end_at__gt=day_start,
+    ).first()
+    if leave is not None:
+        classification = (
+            AbsenceClassification.APPROVED_UNPAID_LEAVE
+            if leave.paid_treatment == "UNPAID"
+            else AbsenceClassification.APPROVED_PAID_LEAVE
+        )
+    record = (
+        AbsenceRecord.objects.select_for_update()
+        .filter(
+            employee=locked_employee,
+            business_date=business_date,
+        )
+        .first()
+    )
+    created = record is None
+    if record is None:
+        record = AbsenceRecord(
+            organization=locked_employee.organization,
+            employee=locked_employee,
+            branch=locked_employee.branch,
+            business_date=business_date,
+            classification=classification,
+            leave_request=leave,
+            reason=reason.strip(),
+            created_by=actor,
+        )
+        previous = None
+    else:
+        previous = snapshot(record)
+        record.classification = classification
+        record.leave_request = leave
+        record.reason = reason.strip()
+        record.created_by = actor
+    _validate(record)
+    record.save()
+    record_audit_event(
+        action=AuditAction.CREATED if created else AuditAction.UPDATED,
+        target=record,
+        branch=record.branch,
+        previous_state=previous,
+        new_state=snapshot(record),
+        reason=reason.strip(),
+    )
+    return record
+
+
+def _policy_for(employee: Employee, business_date: datetime.date) -> PayrollPolicy:
+    contract = (
+        EmployeeContract.objects.select_related("payroll_policy")
+        .filter(
+            employee=employee,
+            status__in=[ContractStatus.APPROVED, ContractStatus.SUPERSEDED, ContractStatus.CLOSED],
+            start_date__lte=business_date,
+        )
+        .filter(Q(end_date__isnull=True) | Q(end_date__gte=business_date))
+        .order_by("-start_date", "-version")
+        .first()
+    )
+    if contract is None:
+        raise ValidationError(_("No approved contract covers this business date."))
+    return contract.payroll_policy
+
+
+@transaction.atomic
+def create_overtime_request(
+    *,
+    employee: Employee,
+    business_date: datetime.date,
+    requested_minutes: int,
+    source: str,
+    classification: str,
+    reason: str,
+    evidence_reference: str,
+    evidence_file: Any,
+    actor: User,
+) -> OvertimeRequest:
+    from apps.hr.attendance import assignment_for
+
+    locked_employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    require_organization_permission(actor, MANAGE_OVERTIME, locked_employee.organization)
+    assignment = assignment_for(locked_employee, business_date)
+    if assignment is None:
+        raise ValidationError(_("No shift assignment covers this business date."))
+    policy = _policy_for(locked_employee, business_date)
+    if policy.max_overtime_minutes and requested_minutes > policy.max_overtime_minutes:
+        raise ValidationError(_("Requested overtime exceeds the configured policy maximum."))
+    overtime = OvertimeRequest(
+        organization=locked_employee.organization,
+        employee=locked_employee,
+        business_date=business_date,
+        shift=assignment.shift,
+        requested_minutes=requested_minutes,
+        source=source,
+        multiplier=policy.overtime_multiplier,
+        classification=classification.strip(),
+        reason=reason.strip(),
+        evidence_reference=evidence_reference.strip(),
+        evidence_file=evidence_file,
+        created_by=actor,
+    )
+    _validate(overtime)
+    overtime.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=overtime,
+        branch=locked_employee.branch,
+        new_state=snapshot(overtime),
+    )
+    return overtime
+
+
+@transaction.atomic
+def submit_overtime_request(*, overtime: OvertimeRequest, actor: User) -> OvertimeRequest:
+    locked = OvertimeRequest.objects.select_for_update().get(pk=overtime.pk)
+    require_organization_permission(actor, MANAGE_OVERTIME, locked.organization)
+    if locked.status != RequestStatus.DRAFT:
+        raise ValidationError(_("Only draft overtime can be submitted."))
+    previous = snapshot(locked)
+    locked.status = RequestStatus.SUBMITTED
+    locked.save(update_fields=["status", "updated_at"])
+    record_audit_event(
+        action=AuditAction.SUBMITTED,
+        target=locked,
+        branch=locked.employee.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def approve_overtime_request(
+    *, overtime: OvertimeRequest, approved_minutes: int, actor: User
+) -> OvertimeRequest:
+    locked = OvertimeRequest.objects.select_for_update().get(pk=overtime.pk)
+    require_organization_permission(actor, APPROVE_OVERTIME, locked.organization)
+    if locked.status != RequestStatus.SUBMITTED:
+        raise ValidationError(_("Only submitted overtime can be approved."))
+    if locked.created_by_id == actor.pk:
+        raise ValidationError(_("The request creator cannot approve it."), code="maker_checker")
+    policy = _policy_for(locked.employee, locked.business_date)
+    if approved_minutes <= 0 or approved_minutes > locked.requested_minutes:
+        raise ValidationError(_("Approved overtime must be positive and within the request."))
+    if policy.max_overtime_minutes and approved_minutes > policy.max_overtime_minutes:
+        raise ValidationError(_("Approved overtime exceeds the configured policy maximum."))
+    previous = snapshot(locked)
+    locked.status = RequestStatus.APPROVED
+    locked.approved_minutes = approved_minutes
+    locked.multiplier = policy.overtime_multiplier
+    locked.approved_by = actor
+    locked.approved_at = timezone.now()
+    _validate(locked)
+    locked.save()
+    record_audit_event(
+        action=AuditAction.APPROVED,
+        target=locked,
+        branch=locked.employee.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def create_deduction(
+    *,
+    employee: Employee,
+    deduction_type: str,
+    original_amount: Decimal,
+    effective_period: datetime.date,
+    recovery_mode: str,
+    instalment_count: int,
+    evidence_reference: str,
+    evidence_file: Any,
+    reason: str,
+    actor: User,
+) -> EmployeeDeduction:
+    locked_employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    require_organization_permission(actor, MANAGE_DEDUCTION, locked_employee.organization)
+    if not reason.strip() or not evidence_reference.strip():
+        raise ValidationError(_("A deduction requires both evidence and a reason."))
+    deduction = EmployeeDeduction(
+        organization=locked_employee.organization,
+        employee=locked_employee,
+        deduction_type=deduction_type,
+        original_amount=original_amount,
+        effective_period=effective_period,
+        recovery_mode=recovery_mode,
+        instalment_count=instalment_count,
+        evidence_reference=evidence_reference.strip(),
+        evidence_file=evidence_file,
+        reason=reason.strip(),
+        created_by=actor,
+    )
+    _validate(deduction)
+    deduction.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=deduction,
+        branch=locked_employee.branch,
+        new_state=snapshot(deduction),
+    )
+    return deduction
+
+
+@transaction.atomic
+def submit_deduction(*, deduction: EmployeeDeduction, actor: User) -> EmployeeDeduction:
+    locked = EmployeeDeduction.objects.select_for_update().get(pk=deduction.pk)
+    require_organization_permission(actor, MANAGE_DEDUCTION, locked.organization)
+    if locked.status != RequestStatus.DRAFT:
+        raise ValidationError(_("Only a draft deduction can be submitted."))
+    previous = snapshot(locked)
+    locked.status = RequestStatus.SUBMITTED
+    locked.save(update_fields=["status", "updated_at"])
+    record_audit_event(
+        action=AuditAction.SUBMITTED,
+        target=locked,
+        branch=locked.employee.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def approve_deduction(
+    *, deduction: EmployeeDeduction, approved_amount: Decimal, actor: User
+) -> EmployeeDeduction:
+    locked = EmployeeDeduction.objects.select_for_update().get(pk=deduction.pk)
+    require_organization_permission(actor, APPROVE_DEDUCTION, locked.organization)
+    if locked.status != RequestStatus.SUBMITTED:
+        raise ValidationError(_("Only a submitted deduction can be approved."))
+    if locked.created_by_id == actor.pk:
+        raise ValidationError(_("The deduction creator cannot approve it."), code="maker_checker")
+    if approved_amount <= 0 or approved_amount > locked.original_amount:
+        raise ValidationError(_("Approved amount must be positive and within the original amount."))
+    previous = snapshot(locked)
+    locked.status = RequestStatus.APPROVED
+    locked.approved_amount = approved_amount
+    locked.approved_by = actor
+    locked.approved_at = timezone.now()
+    _validate(locked)
+    locked.save()
+    record_audit_event(
+        action=AuditAction.APPROVED,
+        target=locked,
+        branch=locked.employee.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def create_advance(*, employee: Employee, actor: User, **values: Any) -> EmployeeAdvance:
+    locked_employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    require_organization_permission(actor, MANAGE_ADVANCE, locked_employee.organization)
+    if (
+        not str(values.get("reason", "")).strip()
+        or not str(values.get("evidence_reference", "")).strip()
+    ):
+        raise ValidationError(_("An advance requires both evidence and a reason."))
+    advance = EmployeeAdvance(
+        organization=locked_employee.organization,
+        employee=locked_employee,
+        created_by=actor,
+        **values,
+    )
+    _validate(advance)
+    advance.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=advance,
+        branch=locked_employee.branch,
+        new_state=snapshot(advance),
+    )
+    return advance
+
+
+@transaction.atomic
+def submit_advance(*, advance: EmployeeAdvance, actor: User) -> EmployeeAdvance:
+    locked = EmployeeAdvance.objects.select_for_update().get(pk=advance.pk)
+    require_organization_permission(actor, MANAGE_ADVANCE, locked.organization)
+    if locked.status != AdvanceStatus.DRAFT:
+        raise ValidationError(_("Only a draft advance can be submitted."))
+    previous = snapshot(locked)
+    locked.status = AdvanceStatus.SUBMITTED
+    locked.save(update_fields=["status", "updated_at"])
+    record_audit_event(
+        action=AuditAction.SUBMITTED,
+        target=locked,
+        branch=locked.employee.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def approve_advance(*, advance: EmployeeAdvance, actor: User) -> EmployeeAdvance:
+    locked = EmployeeAdvance.objects.select_for_update().get(pk=advance.pk)
+    require_organization_permission(actor, APPROVE_ADVANCE, locked.organization)
+    if locked.status != AdvanceStatus.SUBMITTED:
+        raise ValidationError(_("Only a submitted advance can be approved."))
+    if locked.created_by_id == actor.pk:
+        raise ValidationError(_("The advance creator cannot approve it."), code="maker_checker")
+    previous = snapshot(locked)
+    locked.status = AdvanceStatus.APPROVED
+    locked.approved_by = actor
+    locked.approved_at = timezone.now()
+    _validate(locked)
+    locked.save()
+    record_audit_event(
+        action=AuditAction.APPROVED,
+        target=locked,
+        branch=locked.employee.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked

@@ -390,6 +390,20 @@ def test_every_hr_permission_is_scoped_and_the_role_matrix_separates_sensitive_d
         "hr.record_attendance",
         "hr.correct_attendance",
         "hr.approve_attendance",
+        "hr.view_leave_workspace",
+        "hr.request_leave",
+        "hr.approve_leave",
+        "hr.classify_absence",
+        "hr.view_overtime_workspace",
+        "hr.manage_overtime",
+        "hr.approve_overtime",
+        "hr.view_deduction_workspace",
+        "hr.manage_deduction",
+        "hr.approve_deduction",
+        "hr.view_advance_workspace",
+        "hr.manage_advance",
+        "hr.approve_advance",
+        "hr.disburse_advance",
     }
     assert all(
         scope_of(permission) is PermissionScope.ORGANIZATION_AUTHORITY

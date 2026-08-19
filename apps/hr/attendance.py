@@ -13,6 +13,9 @@ from apps.hr.models import (
     AttendanceEvent,
     AttendanceEventType,
     Employee,
+    LeaveRequest,
+    PaidTreatment,
+    RequestStatus,
     Shift,
     ShiftAssignment,
 )
@@ -147,7 +150,25 @@ def calculate_attendance_day(
 
     absence_candidate = not events
     missing_punch = bool(events) and (first_check_in is None or last_check_out is None)
+    approved_leave = None
     if absence_candidate:
+        timezone = zoneinfo.ZoneInfo(employee.branch.timezone)
+        day_start = datetime.datetime.combine(business_date, datetime.time.min, timezone)
+        day_end = day_start + datetime.timedelta(days=1)
+        approved_leave = LeaveRequest.objects.filter(
+            employee=employee,
+            status=RequestStatus.APPROVED,
+            start_at__lt=day_end,
+            end_at__gt=day_start,
+        ).first()
+    if approved_leave is not None:
+        absence_candidate = False
+        status = (
+            "APPROVED_UNPAID_LEAVE"
+            if approved_leave.paid_treatment == PaidTreatment.UNPAID
+            else "APPROVED_PAID_LEAVE"
+        )
+    elif absence_candidate:
         status = "ABSENCE_CANDIDATE"
     elif missing_punch:
         status = "MISSING_PUNCH"

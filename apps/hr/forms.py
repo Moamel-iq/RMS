@@ -13,9 +13,14 @@ from apps.hr.models import (
     AttendanceEventSource,
     AttendanceEventType,
     Employee,
+    EmployeeAdvance,
     EmployeeContract,
+    EmployeeDeduction,
     EmployeeDocument,
     EmployeeStatus,
+    LeaveRequest,
+    LeaveType,
+    OvertimeRequest,
     PayrollPolicy,
     Shift,
     ShiftAssignment,
@@ -23,10 +28,14 @@ from apps.hr.models import (
 from apps.hr.permissions import (
     ASSIGN_SHIFT,
     CORRECT_ATTENDANCE,
+    MANAGE_ADVANCE,
     MANAGE_CONTRACT,
+    MANAGE_DEDUCTION,
     MANAGE_EMPLOYEE,
+    MANAGE_OVERTIME,
     MANAGE_SHIFT,
     RECORD_ATTENDANCE,
+    REQUEST_LEAVE,
 )
 from apps.hr.services import allowances_as_text, parse_fixed_allowances
 from apps.organizations.authorization import organizations_with_permission
@@ -415,3 +424,192 @@ class AttendanceCorrectionForm(forms.Form):
         self.fields["occurred_at"].initial = event.occurred_at
         self.fields["business_date"].initial = event.business_date
         self.fields["event_type"].initial = event.event_type
+
+
+class LeaveTypeForm(forms.ModelForm):  # type: ignore[type-arg]
+    class Meta:
+        model = LeaveType
+        fields = (
+            "organization",
+            "code",
+            "name_ar",
+            "name_en",
+            "paid_treatment",
+            "requires_evidence",
+            "is_active",
+            "notes",
+        )
+        labels = {
+            "organization": _("المؤسسة"),
+            "code": _("رمز نوع الإجازة"),
+            "name_ar": _("الاسم بالعربية"),
+            "name_en": _("الاسم بالإنجليزية"),
+            "paid_treatment": _("معالجة الأجر"),
+            "requires_evidence": _("يتطلب مستنداً"),
+            "is_active": _("نشط"),
+            "notes": _("ملاحظات"),
+        }
+        widgets = {"notes": forms.Textarea(attrs={"rows": 2})}
+
+    def __init__(self, *, actor: User, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        cast(
+            "forms.ModelChoiceField[Organization]", self.fields["organization"]
+        ).queryset = organizations_with_permission(actor, REQUEST_LEAVE)
+
+
+class LeaveRequestForm(forms.ModelForm):  # type: ignore[type-arg]
+    class Meta:
+        model = LeaveRequest
+        fields = (
+            "employee",
+            "leave_type",
+            "start_at",
+            "end_at",
+            "reason",
+            "evidence_reference",
+            "evidence_file",
+        )
+        widgets = {
+            "start_at": forms.DateTimeInput(attrs={"type": "datetime-local"}),
+            "end_at": forms.DateTimeInput(attrs={"type": "datetime-local"}),
+            "reason": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "employee": _("الموظف"),
+            "leave_type": _("نوع الإجازة"),
+            "start_at": _("البداية"),
+            "end_at": _("النهاية"),
+            "reason": _("السبب"),
+            "evidence_reference": _("مرجع المستند"),
+            "evidence_file": _("ملف الإثبات"),
+        }
+
+    def __init__(self, *, actor: User, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        organizations = organizations_with_permission(actor, REQUEST_LEAVE)
+        cast(
+            "forms.ModelChoiceField[Employee]", self.fields["employee"]
+        ).queryset = Employee.objects.filter(organization__in=organizations).select_related(
+            "branch"
+        )
+        cast(
+            "forms.ModelChoiceField[LeaveType]", self.fields["leave_type"]
+        ).queryset = LeaveType.objects.filter(organization__in=organizations, is_active=True)
+
+
+class OvertimeRequestForm(forms.ModelForm):  # type: ignore[type-arg]
+    class Meta:
+        model = OvertimeRequest
+        fields = (
+            "employee",
+            "business_date",
+            "requested_minutes",
+            "source",
+            "classification",
+            "reason",
+            "evidence_reference",
+            "evidence_file",
+        )
+        widgets = {
+            "business_date": DATE_WIDGET,
+            "reason": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "employee": _("الموظف"),
+            "business_date": _("يوم العمل"),
+            "requested_minutes": _("الدقائق المطلوبة"),
+            "source": _("المصدر"),
+            "classification": _("تصنيف اليوم / العطلة"),
+            "reason": _("السبب"),
+            "evidence_reference": _("مرجع الإثبات"),
+            "evidence_file": _("ملف الإثبات"),
+        }
+
+    def __init__(self, *, actor: User, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        organizations = organizations_with_permission(actor, MANAGE_OVERTIME)
+        cast(
+            "forms.ModelChoiceField[Employee]", self.fields["employee"]
+        ).queryset = Employee.objects.filter(organization__in=organizations)
+
+
+class DeductionForm(forms.ModelForm):  # type: ignore[type-arg]
+    class Meta:
+        model = EmployeeDeduction
+        fields = (
+            "employee",
+            "deduction_type",
+            "original_amount",
+            "effective_period",
+            "recovery_mode",
+            "instalment_count",
+            "evidence_reference",
+            "evidence_file",
+            "reason",
+        )
+        widgets = {
+            "effective_period": DATE_WIDGET,
+            "reason": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "employee": _("الموظف"),
+            "deduction_type": _("نوع الاستقطاع"),
+            "original_amount": _("المبلغ الأصلي"),
+            "effective_period": _("فترة الرواتب"),
+            "recovery_mode": _("طريقة الاستقطاع"),
+            "instalment_count": _("عدد الأقساط"),
+            "evidence_reference": _("مرجع الإثبات"),
+            "evidence_file": _("ملف الإثبات"),
+            "reason": _("السبب"),
+        }
+
+    def __init__(self, *, actor: User, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        organizations = organizations_with_permission(actor, MANAGE_DEDUCTION)
+        cast(
+            "forms.ModelChoiceField[Employee]", self.fields["employee"]
+        ).queryset = Employee.objects.filter(organization__in=organizations)
+
+
+class AdvanceForm(forms.ModelForm):  # type: ignore[type-arg]
+    class Meta:
+        model = EmployeeAdvance
+        fields = (
+            "employee",
+            "advance_type",
+            "principal_amount",
+            "request_date",
+            "recovery_mode",
+            "instalment_amount",
+            "instalment_count",
+            "first_recovery_period",
+            "payment_method",
+            "evidence_reference",
+            "reason",
+        )
+        widgets = {
+            "request_date": DATE_WIDGET,
+            "first_recovery_period": DATE_WIDGET,
+            "reason": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "employee": _("الموظف"),
+            "advance_type": _("نوع السلفة / الذمة"),
+            "principal_amount": _("المبلغ الأصلي"),
+            "request_date": _("تاريخ الطلب"),
+            "recovery_mode": _("طريقة الاسترداد"),
+            "instalment_amount": _("قيمة القسط"),
+            "instalment_count": _("عدد الأقساط"),
+            "first_recovery_period": _("أول فترة استرداد"),
+            "payment_method": _("طريقة الصرف"),
+            "evidence_reference": _("مرجع الإثبات"),
+            "reason": _("السبب"),
+        }
+
+    def __init__(self, *, actor: User, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        organizations = organizations_with_permission(actor, MANAGE_ADVANCE)
+        cast(
+            "forms.ModelChoiceField[Employee]", self.fields["employee"]
+        ).queryset = Employee.objects.filter(organization__in=organizations)

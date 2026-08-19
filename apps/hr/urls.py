@@ -1,6 +1,7 @@
 from django.urls import path
 
-from apps.hr import attendance_views, shift_views, views
+from apps.hr import attendance_views, operation_views, shift_views, views
+from apps.hr.permissions import VIEW_ADVANCE, VIEW_DEDUCTION, VIEW_LEAVE, VIEW_OVERTIME
 
 app_name = "hr"
 
@@ -89,5 +90,60 @@ urlpatterns = [
         "attendance/employees/<int:pk>/<str:business_date>/reopen/",
         attendance_views.AttendanceReopenView.as_view(),
         name="attendance_reopen",
+    ),
+    path("leaves/", operation_views.LeaveListView.as_view(), name="leave_list"),
+    path("leaves/new/", operation_views.LeaveCreateView.as_view(), name="leave_create"),
+    path(
+        "leaves/approvals/", operation_views.LeaveApprovalListView.as_view(), name="leave_approvals"
+    ),
+    path("leaves/calendar/", operation_views.LeaveCalendarView.as_view(), name="leave_calendar"),
+    path("leaves/types/", operation_views.LeaveTypeWorkspace.as_view(), name="leave_types"),
+    path("leaves/<int:pk>/", operation_views.LeaveDetailView.as_view(), name="leave_detail"),
+    path(
+        "leaves/<int:pk>/<str:action>/",
+        operation_views.OperationCommandView.as_view(kind="leave", required_permission=VIEW_LEAVE),
+        name="leave_command",
+    ),
+    path("absences/", operation_views.AbsenceWorkspace.as_view(), name="absence_list"),
+    path(
+        "absences/<int:pk>/<str:business_date>/classify/",
+        operation_views.AbsenceClassifyView.as_view(),
+        name="absence_classify",
+    ),
+    path("overtime/", operation_views.OvertimeListView.as_view(), name="overtime_list"),
+    path("overtime/new/", operation_views.OvertimeCreateView.as_view(), name="overtime_create"),
+    path(
+        "overtime/<int:pk>/", operation_views.OvertimeDetailView.as_view(), name="overtime_detail"
+    ),
+    path(
+        "overtime/<int:pk>/<str:action>/",
+        operation_views.OperationCommandView.as_view(
+            kind="overtime", required_permission=VIEW_OVERTIME
+        ),
+        name="overtime_command",
+    ),
+    path("deductions/", operation_views.DeductionListView.as_view(), name="deduction_list"),
+    path("deductions/new/", operation_views.DeductionCreateView.as_view(), name="deduction_create"),
+    path(
+        "deductions/<int:pk>/",
+        operation_views.DeductionDetailView.as_view(),
+        name="deduction_detail",
+    ),
+    path(
+        "deductions/<int:pk>/<str:action>/",
+        operation_views.OperationCommandView.as_view(
+            kind="deduction", required_permission=VIEW_DEDUCTION
+        ),
+        name="deduction_command",
+    ),
+    path("advances/", operation_views.AdvanceListView.as_view(), name="advance_list"),
+    path("advances/new/", operation_views.AdvanceCreateView.as_view(), name="advance_create"),
+    path("advances/<int:pk>/", operation_views.AdvanceDetailView.as_view(), name="advance_detail"),
+    path(
+        "advances/<int:pk>/<str:action>/",
+        operation_views.OperationCommandView.as_view(
+            kind="advance", required_permission=VIEW_ADVANCE
+        ),
+        name="advance_command",
     ),
 ]

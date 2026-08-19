@@ -31,6 +31,20 @@ VIEW_ATTENDANCE = f"{APP_LABEL}.view_attendance_workspace"
 RECORD_ATTENDANCE = f"{APP_LABEL}.record_attendance"
 CORRECT_ATTENDANCE = f"{APP_LABEL}.correct_attendance"
 APPROVE_ATTENDANCE = f"{APP_LABEL}.approve_attendance"
+VIEW_LEAVE = f"{APP_LABEL}.view_leave_workspace"
+REQUEST_LEAVE = f"{APP_LABEL}.request_leave"
+APPROVE_LEAVE = f"{APP_LABEL}.approve_leave"
+CLASSIFY_ABSENCE = f"{APP_LABEL}.classify_absence"
+VIEW_OVERTIME = f"{APP_LABEL}.view_overtime_workspace"
+MANAGE_OVERTIME = f"{APP_LABEL}.manage_overtime"
+APPROVE_OVERTIME = f"{APP_LABEL}.approve_overtime"
+VIEW_DEDUCTION = f"{APP_LABEL}.view_deduction_workspace"
+MANAGE_DEDUCTION = f"{APP_LABEL}.manage_deduction"
+APPROVE_DEDUCTION = f"{APP_LABEL}.approve_deduction"
+VIEW_ADVANCE = f"{APP_LABEL}.view_advance_workspace"
+MANAGE_ADVANCE = f"{APP_LABEL}.manage_advance"
+APPROVE_ADVANCE = f"{APP_LABEL}.approve_advance"
+DISBURSE_ADVANCE = f"{APP_LABEL}.disburse_advance"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_EMPLOYEE,
@@ -48,6 +62,20 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     RECORD_ATTENDANCE,
     CORRECT_ATTENDANCE,
     APPROVE_ATTENDANCE,
+    VIEW_LEAVE,
+    REQUEST_LEAVE,
+    APPROVE_LEAVE,
+    CLASSIFY_ABSENCE,
+    VIEW_OVERTIME,
+    MANAGE_OVERTIME,
+    APPROVE_OVERTIME,
+    VIEW_DEDUCTION,
+    MANAGE_DEDUCTION,
+    APPROVE_DEDUCTION,
+    VIEW_ADVANCE,
+    MANAGE_ADVANCE,
+    APPROVE_ADVANCE,
+    DISBURSE_ADVANCE,
 )
 
 PERMISSION_SCOPE = dict.fromkeys(ALL_PERMISSIONS, PermissionScope.ORGANIZATION_AUTHORITY)
@@ -70,6 +98,20 @@ _MANAGER = frozenset(
         RECORD_ATTENDANCE,
         CORRECT_ATTENDANCE,
         APPROVE_ATTENDANCE,
+        VIEW_LEAVE,
+        REQUEST_LEAVE,
+        APPROVE_LEAVE,
+        CLASSIFY_ABSENCE,
+        VIEW_OVERTIME,
+        MANAGE_OVERTIME,
+        APPROVE_OVERTIME,
+        VIEW_DEDUCTION,
+        MANAGE_DEDUCTION,
+        APPROVE_DEDUCTION,
+        VIEW_ADVANCE,
+        MANAGE_ADVANCE,
+        APPROVE_ADVANCE,
+        DISBURSE_ADVANCE,
     }
 )
 _ACCOUNTING_MANAGER = frozenset(
@@ -80,10 +122,27 @@ _ACCOUNTING_MANAGER = frozenset(
         APPROVE_CONTRACT,
         VIEW_SHIFT,
         VIEW_ATTENDANCE,
+        VIEW_LEAVE,
+        VIEW_OVERTIME,
+        VIEW_DEDUCTION,
+        APPROVE_DEDUCTION,
+        VIEW_ADVANCE,
+        APPROVE_ADVANCE,
+        DISBURSE_ADVANCE,
     }
 )
 _ACCOUNTANT = frozenset(
-    {VIEW_EMPLOYEE, VIEW_EMPLOYEE_SALARY, VIEW_CONTRACT, VIEW_SHIFT, VIEW_ATTENDANCE}
+    {
+        VIEW_EMPLOYEE,
+        VIEW_EMPLOYEE_SALARY,
+        VIEW_CONTRACT,
+        VIEW_SHIFT,
+        VIEW_ATTENDANCE,
+        VIEW_LEAVE,
+        VIEW_OVERTIME,
+        VIEW_DEDUCTION,
+        VIEW_ADVANCE,
+    }
 )
 _VIEWER = frozenset({VIEW_EMPLOYEE})
 

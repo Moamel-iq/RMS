@@ -617,3 +617,496 @@ class AttendanceDayApproval(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.employee.code} · {self.business_date} · {self.status}"
+
+
+class PaidTreatment(models.TextChoices):
+    PAID = "PAID", _("مدفوعة")
+    UNPAID = "UNPAID", _("غير مدفوعة")
+    POLICY = "POLICY", _("وفق السياسة")
+
+
+class LeaveType(TimeStampedModel):
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="leave_types"
+    )
+    code = models.CharField(max_length=40)
+    name_ar = models.CharField(max_length=160)
+    name_en = models.CharField(max_length=160, blank=True)
+    paid_treatment = models.CharField(max_length=12, choices=PaidTreatment.choices)
+    requires_evidence = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_leave_types",
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["organization__code", "code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "code"], name="hr_leave_type_code_unique"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name_ar}"
+
+
+class RequestStatus(models.TextChoices):
+    DRAFT = "DRAFT", _("مسودة")
+    SUBMITTED = "SUBMITTED", _("مقدم")
+    APPROVED = "APPROVED", _("معتمد")
+    REJECTED = "REJECTED", _("مرفوض")
+    CANCELLED = "CANCELLED", _("ملغى")
+
+
+class LeaveRequest(TimeStampedModel):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="leave_requests"
+    )
+    employee = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="leave_requests")
+    leave_type = models.ForeignKey(LeaveType, on_delete=models.PROTECT, related_name="requests")
+    start_at = models.DateTimeField()
+    end_at = models.DateTimeField()
+    requested_minutes = models.PositiveIntegerField()
+    paid_treatment = models.CharField(max_length=12, choices=PaidTreatment.choices)
+    reason = models.TextField()
+    evidence_reference = models.CharField(max_length=200, blank=True)
+    evidence_file = models.FileField(upload_to="hr/leave-evidence/%Y/%m/", blank=True)
+    status = models.CharField(
+        max_length=12, choices=RequestStatus.choices, default=RequestStatus.DRAFT
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="requested_leave",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_leave",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["-start_at", "employee__code"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(end_at__gt=models.F("start_at")), name="hr_leave_dates_valid"
+            ),
+            models.CheckConstraint(
+                condition=Q(requested_minutes__gt=0), name="hr_leave_minutes_positive"
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=RequestStatus.APPROVED)
+                | (Q(approved_by__isnull=False) & Q(approved_at__isnull=False)),
+                name="hr_approved_leave_has_evidence",
+            ),
+        ]
+        permissions = [
+            ("view_leave_workspace", "Can view leave workspace"),
+            ("request_leave", "Can create leave requests"),
+            ("approve_leave", "Can approve leave requests"),
+            ("classify_absence", "Can classify employee absences"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        errors: dict[str, str] = {}
+        if self.employee_id and self.organization_id:
+            if self.employee.organization_id != self.organization_id:
+                errors["employee"] = str(_("The employee belongs to another organization."))
+        if self.leave_type_id and self.organization_id:
+            if self.leave_type.organization_id != self.organization_id:
+                errors["leave_type"] = str(_("The leave type belongs to another organization."))
+            if (
+                self.leave_type.requires_evidence
+                and not self.evidence_reference
+                and not self.evidence_file
+            ):
+                errors["evidence_reference"] = str(_("This leave type requires evidence."))
+        if self.requested_by_id and self.approved_by_id == self.requested_by_id:
+            errors["approved_by"] = str(_("The request creator cannot approve it."))
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self) -> str:
+        return f"{self.employee.code} · {self.leave_type.code} · {self.start_at.date()}"
+
+
+class AbsenceClassification(models.TextChoices):
+    ABSENT = "ABSENT", _("غياب غير مبرر")
+    APPROVED_PAID_LEAVE = "APPROVED_PAID_LEAVE", _("إجازة مدفوعة معتمدة")
+    APPROVED_UNPAID_LEAVE = "APPROVED_UNPAID_LEAVE", _("إجازة غير مدفوعة معتمدة")
+    EXCUSED = "EXCUSED", _("غياب بعذر")
+    NOT_SCHEDULED = "NOT_SCHEDULED", _("غير مجدول")
+
+
+class AbsenceRecord(TimeStampedModel):
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="absence_records"
+    )
+    employee = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="absence_records")
+    branch = models.ForeignKey(
+        "organizations.Branch", on_delete=models.PROTECT, related_name="absence_records"
+    )
+    business_date = models.DateField()
+    classification = models.CharField(max_length=32, choices=AbsenceClassification.choices)
+    leave_request = models.ForeignKey(
+        LeaveRequest,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="absence_records",
+    )
+    reason = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="classified_absences"
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["-business_date", "employee__code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["employee", "business_date"], name="hr_absence_employee_day_unique"
+            )
+        ]
+
+
+class OvertimeSource(models.TextChoices):
+    REQUESTED = "REQUESTED", _("مطلوب مسبقاً")
+    ATTENDANCE_DERIVED = "ATTENDANCE_DERIVED", _("مشتق من الحضور")
+    MANUAL_CORRECTION = "MANUAL_CORRECTION", _("تصحيح يدوي")
+
+
+class OvertimeRequest(TimeStampedModel):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="overtime_requests"
+    )
+    employee = models.ForeignKey(
+        Employee, on_delete=models.PROTECT, related_name="overtime_requests"
+    )
+    business_date = models.DateField()
+    shift = models.ForeignKey(Shift, on_delete=models.PROTECT, related_name="overtime_requests")
+    requested_minutes = models.PositiveIntegerField()
+    approved_minutes = models.PositiveIntegerField(default=0)
+    source = models.CharField(max_length=24, choices=OvertimeSource.choices)
+    multiplier = models.DecimalField(max_digits=8, decimal_places=3)
+    classification = models.CharField(max_length=40, blank=True)
+    reason = models.TextField()
+    evidence_reference = models.CharField(max_length=200, blank=True)
+    evidence_file = models.FileField(upload_to="hr/overtime-evidence/%Y/%m/", blank=True)
+    status = models.CharField(
+        max_length=12, choices=RequestStatus.choices, default=RequestStatus.DRAFT
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_overtime"
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_overtime",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    payroll_inclusion_reference = models.CharField(max_length=120, blank=True)
+    included_at = models.DateTimeField(null=True, blank=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["-business_date", "employee__code"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(requested_minutes__gt=0), name="hr_overtime_minutes_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(approved_minutes__lte=models.F("requested_minutes")),
+                name="hr_overtime_approved_within_request",
+            ),
+            models.CheckConstraint(
+                condition=Q(multiplier__gte=0), name="hr_overtime_multiplier_nonnegative"
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=RequestStatus.APPROVED)
+                | (
+                    Q(approved_by__isnull=False)
+                    & Q(approved_at__isnull=False)
+                    & Q(approved_minutes__gt=0)
+                ),
+                name="hr_approved_overtime_has_evidence",
+            ),
+        ]
+        permissions = [
+            ("view_overtime_workspace", "Can view overtime workspace"),
+            ("manage_overtime", "Can create overtime requests"),
+            ("approve_overtime", "Can approve overtime requests"),
+        ]
+
+    @property
+    def is_included(self) -> bool:
+        return bool(self.payroll_inclusion_reference)
+
+
+class DeductionType(models.TextChoices):
+    ABSENCE = "ABSENCE", _("غياب")
+    LATENESS = "LATENESS", _("تأخر")
+    EARLY_DEPARTURE = "EARLY_DEPARTURE", _("انصراف مبكر")
+    ADMINISTRATIVE = "ADMINISTRATIVE", _("استقطاع إداري")
+    DAMAGE = "DAMAGE", _("ضرر مثبت")
+    CASH_SHORTAGE = "CASH_SHORTAGE", _("عجز صندوق")
+    EQUIPMENT = "EQUIPMENT", _("زي أو معدات")
+    OTHER = "OTHER", _("أخرى")
+
+
+class RecoveryMode(models.TextChoices):
+    ONE_TIME = "ONE_TIME", _("دفعة واحدة")
+    INSTALMENTS = "INSTALMENTS", _("أقساط")
+
+
+class EmployeeDeduction(TimeStampedModel):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="employee_deductions"
+    )
+    employee = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="deductions")
+    deduction_type = models.CharField(max_length=24, choices=DeductionType.choices)
+    original_amount = models.DecimalField(max_digits=18, decimal_places=3)
+    approved_amount = models.DecimalField(max_digits=18, decimal_places=3, default=Decimal("0.000"))
+    effective_period = models.DateField()
+    recovery_mode = models.CharField(max_length=16, choices=RecoveryMode.choices)
+    instalment_count = models.PositiveIntegerField(default=1)
+    evidence_reference = models.CharField(max_length=200)
+    evidence_file = models.FileField(upload_to="hr/deduction-evidence/%Y/%m/", blank=True)
+    reason = models.TextField()
+    status = models.CharField(
+        max_length=12, choices=RequestStatus.choices, default=RequestStatus.DRAFT
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_deductions"
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_deductions",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    replaces = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="replacements"
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["-effective_period", "employee__code"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(original_amount__gt=0)
+                & Q(approved_amount__gte=0)
+                & Q(approved_amount__lte=models.F("original_amount")),
+                name="hr_deduction_amounts_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(instalment_count__gt=0), name="hr_deduction_instalments_positive"
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=RequestStatus.APPROVED)
+                | (
+                    Q(approved_by__isnull=False)
+                    & Q(approved_at__isnull=False)
+                    & Q(approved_amount__gt=0)
+                ),
+                name="hr_approved_deduction_has_evidence",
+            ),
+        ]
+        permissions = [
+            ("view_deduction_workspace", "Can view deduction workspace"),
+            ("manage_deduction", "Can manage employee deductions"),
+            ("approve_deduction", "Can approve employee deductions"),
+        ]
+
+    @property
+    def allocated_amount(self) -> Decimal:
+        return sum((row.amount for row in self.allocations.all()), Decimal("0.000"))
+
+    @property
+    def remaining_amount(self) -> Decimal:
+        return self.approved_amount - self.allocated_amount
+
+
+class DeductionAllocation(TimeStampedModel):
+    deduction = models.ForeignKey(
+        EmployeeDeduction, on_delete=models.PROTECT, related_name="allocations"
+    )
+    payroll_reference = models.CharField(max_length=120)
+    amount = models.DecimalField(max_digits=18, decimal_places=3)
+    allocated_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["deduction", "payroll_reference"], name="hr_deduction_payroll_unique"
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=0), name="hr_deduction_allocation_positive"
+            ),
+        ]
+
+
+class AdvanceType(models.TextChoices):
+    SALARY_ADVANCE = "SALARY_ADVANCE", _("سلفة راتب")
+    EMPLOYEE_LOAN = "EMPLOYEE_LOAN", _("قرض موظف")
+    CASH_SHORTAGE = "CASH_SHORTAGE", _("عجز صندوق مستحق")
+    DAMAGE = "DAMAGE", _("ضرر مثبت مستحق")
+    OTHER = "OTHER", _("ذمة موظف أخرى")
+
+
+class AdvanceStatus(models.TextChoices):
+    DRAFT = "DRAFT", _("مسودة")
+    SUBMITTED = "SUBMITTED", _("مقدم")
+    APPROVED = "APPROVED", _("معتمد")
+    PARTIALLY_DISBURSED = "PARTIALLY_DISBURSED", _("مصروف جزئياً")
+    DISBURSED = "DISBURSED", _("مصروف")
+    CLOSED = "CLOSED", _("مسدد")
+    CANCELLED = "CANCELLED", _("ملغى")
+
+
+class EmployeeAdvance(TimeStampedModel):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="employee_advances"
+    )
+    employee = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="advances")
+    advance_type = models.CharField(max_length=24, choices=AdvanceType.choices)
+    principal_amount = models.DecimalField(max_digits=18, decimal_places=3)
+    request_date = models.DateField()
+    status = models.CharField(
+        max_length=24, choices=AdvanceStatus.choices, default=AdvanceStatus.DRAFT
+    )
+    recovery_mode = models.CharField(max_length=16, choices=RecoveryMode.choices)
+    instalment_amount = models.DecimalField(
+        max_digits=18, decimal_places=3, default=Decimal("0.000")
+    )
+    instalment_count = models.PositiveIntegerField(default=1)
+    first_recovery_period = models.DateField()
+    payment_method = models.CharField(max_length=12, choices=EmployeePaymentMethod.choices)
+    evidence_reference = models.CharField(max_length=200)
+    reason = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_advances"
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_advances",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["-request_date", "employee__code"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(principal_amount__gt=0)
+                & Q(instalment_amount__gte=0)
+                & Q(instalment_amount__lte=models.F("principal_amount"))
+                & Q(instalment_count__gt=0),
+                name="hr_advance_values_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status=AdvanceStatus.APPROVED)
+                | (Q(approved_by__isnull=False) & Q(approved_at__isnull=False)),
+                name="hr_approved_advance_has_evidence",
+            ),
+        ]
+        permissions = [
+            ("view_advance_workspace", "Can view employee advances"),
+            ("manage_advance", "Can manage employee advances"),
+            ("approve_advance", "Can approve employee advances"),
+            ("disburse_advance", "Can disburse employee advances"),
+        ]
+
+    @property
+    def disbursed_amount(self) -> Decimal:
+        return sum((row.net_amount for row in self.disbursements.all()), Decimal("0.000"))
+
+    @property
+    def recovered_amount(self) -> Decimal:
+        return sum((row.amount for row in self.recoveries.all()), Decimal("0.000"))
+
+    @property
+    def outstanding_amount(self) -> Decimal:
+        return self.disbursed_amount - self.recovered_amount
+
+
+class AdvanceDisbursement(TimeStampedModel):
+    advance = models.ForeignKey(
+        EmployeeAdvance, on_delete=models.PROTECT, related_name="disbursements"
+    )
+    amount = models.DecimalField(max_digits=18, decimal_places=3)
+    disbursement_date = models.DateField()
+    payment_method = models.CharField(max_length=12, choices=EmployeePaymentMethod.choices)
+    evidence_reference = models.CharField(max_length=200)
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="advance_disbursements",
+    )
+    reversal_of = models.OneToOneField(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="reversal"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_advance_disbursements",
+    )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0), name="hr_advance_disbursement_positive"
+            )
+        ]
+
+    @property
+    def net_amount(self) -> Decimal:
+        return -self.amount if self.reversal_of_id else self.amount
+
+
+class AdvanceRecoveryAllocation(TimeStampedModel):
+    advance = models.ForeignKey(
+        EmployeeAdvance, on_delete=models.PROTECT, related_name="recoveries"
+    )
+    payroll_reference = models.CharField(max_length=120)
+    amount = models.DecimalField(max_digits=18, decimal_places=3)
+    recovered_at = models.DateTimeField()
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="advance_recoveries",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["advance", "payroll_reference"], name="hr_advance_payroll_unique"
+            ),
+            models.CheckConstraint(condition=Q(amount__gt=0), name="hr_advance_recovery_positive"),
+        ]
