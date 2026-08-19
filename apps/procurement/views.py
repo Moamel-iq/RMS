@@ -48,6 +48,13 @@ from apps.organizations.authorization import (
     require_reachable_organization_permission,
     require_warehouse_permission,
 )
+from apps.procurement.additional_costs import (
+    create_charge,
+    delete_charge,
+    preview_charge_allocations,
+    save_manual_shares,
+    update_charge,
+)
 from apps.procurement.comparison import award_quotation, comparison_for_request
 from apps.procurement.credit_notes import (
     add_credit_allocation,
@@ -84,6 +91,7 @@ from apps.procurement.forms import (
     SupplierCreditNoteForm,
     SupplierCreditTermForm,
     SupplierForm,
+    SupplierInvoiceChargeForm,
     SupplierInvoiceForm,
     SupplierItemForm,
     SupplierPaymentForm,
@@ -125,6 +133,10 @@ from apps.procurement.models import (
     SupplierCreditAllocation,
     SupplierCreditNoteStatus,
     SupplierCreditTermStatus,
+    SupplierInvoiceCharge,
+    SupplierInvoiceChargeAllocationBasis,
+    SupplierInvoiceChargeManualShare,
+    SupplierInvoiceChargeTreatment,
     SupplierInvoiceLine,
     SupplierInvoicePosting,
     SupplierInvoiceStatus,
@@ -161,6 +173,7 @@ from apps.procurement.permissions import (
     INSPECT_GOODS_RECEIPT,
     ISSUE_PURCHASE_ORDER,
     MANAGE_QUOTATIONS,
+    MANAGE_SUPPLIER_INVOICE_CHARGES,
     MANAGE_SUPPLIER_ITEMS,
     MANAGE_SUPPLIERS,
     MATCH_SUPPLIER_INVOICE,
@@ -2037,6 +2050,9 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
         may_edit = has_organization_permission(
             self.actor, CREATE_SUPPLIER_INVOICE, invoice.organization
         )
+        may_manage_charges = has_organization_permission(
+            self.actor, MANAGE_SUPPLIER_INVOICE_CHARGES, invoice.organization
+        )
         may_see_cost = self.actor.has_perm(VIEW_SUPPLIER_COST)
         allocations = list(
             PurchaseMatchAllocation.objects.filter(match__supplier_invoice=invoice)
@@ -2080,11 +2096,15 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
             "lines": invoice.lines.select_related(
                 "item", "account", "cost_center", "receipt_line", "receipt_line__receipt"
             ).order_by("sequence"),
+            "charges": invoice.charges.select_related(
+                "direct_account", "cost_center", "created_by"
+            ).order_by("line_order"),
             "item_form": item_form or InvoiceInventoryLineForm(actor=self.actor, invoice=invoice),
             "account_form": account_form
             or InvoiceAccountLineForm(actor=self.actor, invoice=invoice),
             "page_title": invoice.number or invoice.supplier_invoice_number,
             "may_edit": may_edit and invoice.is_editable,
+            "may_manage_charges": may_manage_charges and invoice.is_editable,
             "may_approve": has_organization_permission(
                 self.actor, APPROVE_SUPPLIER_INVOICE, invoice.organization
             )
@@ -2280,6 +2300,332 @@ class SupplierInvoiceTransitionView(InventoryViewMixin, View):
         else:
             reverse_supplier_invoice(invoice=invoice, actor=self.actor, reason=reason)
             messages.success(request, _("تم عكس الفاتورة وعُكست الذمة معها."))
+
+
+# ---------------------------------------------------------------------------
+# Supplier invoice additional costs
+# ---------------------------------------------------------------------------
+
+
+def _charge_for_actor(actor: Any, charge_id: int) -> SupplierInvoiceCharge:
+    """Resolve a charge only through invoices the caller may see."""
+    try:
+        return SupplierInvoiceCharge.objects.select_related(
+            "invoice",
+            "invoice__organization",
+            "invoice__branch",
+            "invoice__supplier",
+            "direct_account",
+            "cost_center",
+        ).get(pk=charge_id, invoice__in=visible_supplier_invoices(actor))
+    except SupplierInvoiceCharge.DoesNotExist as error:
+        raise Http404 from error
+
+
+def _require_cost_visibility(actor: Any) -> None:
+    if not actor.has_perm(VIEW_SUPPLIER_COST):
+        raise Http404
+
+
+class SupplierInvoiceChargeListView(InventoryListView):
+    """All actual costs, with the operational queues required for posting."""
+
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_INVOICE
+    template_name = "procurement/supplier_invoice_charge_list.html"
+    context_object_name = "charges"
+    page_title = _("التكاليف الإضافية")
+    page_hint = _(
+        "تكاليف فعلية على فواتير الموردين. التكلفة المباشرة تُرحّل إلى حسابها، "
+        "والتكلفة الواصلة تزيد قيمة مواضع المخزون المطابقة من دون تحريك الكمية."
+    )
+    search_fields = (
+        "description",
+        "evidence_reference",
+        "invoice__number",
+        "invoice__supplier_invoice_number",
+        "invoice__supplier__code",
+        "invoice__supplier__name_ar",
+    )
+
+    STATE_CHOICES = (
+        ("DIRECT", _("تكاليف مباشرة")),
+        ("LANDED", _("تكاليف واصلة")),
+        ("WAITING", _("بانتظار التوزيع")),
+        ("POSTED", _("مرحّلة")),
+        ("REVERSED", _("معكوسة")),
+    )
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        _require_cost_visibility(self.actor)
+        ready = PurchaseMatch.objects.filter(
+            supplier_invoice_id=OuterRef("invoice_id"), status=PurchaseMatchStatus.READY
+        )
+        manual = SupplierInvoiceChargeManualShare.objects.filter(charge_id=OuterRef("pk"))
+        queryset = SupplierInvoiceCharge.objects.filter(
+            invoice__in=visible_supplier_invoices(self.actor)
+        ).annotate(has_ready_match=Exists(ready), has_manual_shares=Exists(manual))
+        state = self.request.GET.get("state", "").strip().upper()
+        if state == "DIRECT":
+            queryset = queryset.filter(treatment=SupplierInvoiceChargeTreatment.DIRECT_EXPENSE)
+        elif state == "LANDED":
+            queryset = queryset.filter(treatment=SupplierInvoiceChargeTreatment.LANDED_COST)
+        elif state == "WAITING":
+            queryset = queryset.filter(
+                Q(treatment=SupplierInvoiceChargeTreatment.LANDED_COST)
+                & (
+                    Q(has_ready_match=False)
+                    | Q(
+                        allocation_basis=SupplierInvoiceChargeAllocationBasis.MANUAL,
+                        has_manual_shares=False,
+                    )
+                )
+            )
+        elif state == "POSTED":
+            queryset = queryset.filter(invoice__status=SupplierInvoiceStatus.POSTED)
+        elif state == "REVERSED":
+            queryset = queryset.filter(invoice__status=SupplierInvoiceStatus.REVERSED)
+        return queryset.select_related(
+            "invoice", "invoice__supplier", "invoice__branch", "direct_account", "cost_center"
+        ).order_by("-invoice_id", "line_order")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["state_choices"] = self.STATE_CHOICES
+        context["selected_state"] = self.request.GET.get("state", "")
+        return context
+
+
+class SupplierInvoiceChargeCreateView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = MANAGE_SUPPLIER_INVOICE_CHARGES
+    template_name = "procurement/supplier_invoice_charge_form.html"
+
+    def load_invoice(self) -> Any:
+        _require_cost_visibility(self.actor)
+        invoice = resolve_supplier_invoice(self.actor, self.kwargs["pk"])
+        if invoice.status != SupplierInvoiceStatus.DRAFT:
+            raise Http404
+        return invoice
+
+    def context(self, invoice: Any, form: Any = None) -> dict[str, Any]:
+        return {
+            "invoice": invoice,
+            "form": form or SupplierInvoiceChargeForm(actor=self.actor, invoice=invoice),
+            "page_title": _("إضافة تكلفة فعلية"),
+            "page_hint": _(
+                "اختر معالجة مباشرة أو واصلة. الشحن من مورد آخر يُسجّل تكلفة مباشرة في الإصدار الأول."
+            ),
+            "base_template": "settings/_form_fragment.html" if self.is_htmx() else "shell.html",
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return render(request, self.template_name, self.context(self.load_invoice()))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        invoice = self.load_invoice()
+        require_organization_permission(
+            self.actor, MANAGE_SUPPLIER_INVOICE_CHARGES, invoice.organization
+        )
+        form = SupplierInvoiceChargeForm(actor=self.actor, invoice=invoice, data=request.POST)
+        if form.is_valid():
+            try:
+                create_charge(invoice=invoice, actor=self.actor, **form.cleaned_data)
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تمت إضافة التكلفة الفعلية إلى الفاتورة."))
+                return HttpResponseRedirect(
+                    reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
+                )
+        return render(request, self.template_name, self.context(invoice, form=form))
+
+
+class SupplierInvoiceChargeDetailView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_INVOICE
+    template_name = "procurement/supplier_invoice_charge_detail.html"
+
+    def context(self, charge: SupplierInvoiceCharge) -> dict[str, Any]:
+        _require_cost_visibility(self.actor)
+        invoice = charge.invoice
+        allocations = charge.allocations.select_related(
+            "posting",
+            "match_allocation",
+            "receipt_line",
+            "receipt_line__receipt",
+            "item",
+            "warehouse",
+            "lot",
+            "control_account",
+            "inventory_movement",
+        ).order_by("posting__generation", "sequence")
+        return {
+            "charge": charge,
+            "invoice": invoice,
+            "allocations": allocations,
+            "page_title": charge.description,
+            "may_edit": invoice.status == SupplierInvoiceStatus.DRAFT
+            and has_organization_permission(
+                self.actor, MANAGE_SUPPLIER_INVOICE_CHARGES, invoice.organization
+            ),
+            "may_preview": charge.treatment == SupplierInvoiceChargeTreatment.LANDED_COST,
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return render(
+            request,
+            self.template_name,
+            self.context(_charge_for_actor(self.actor, self.kwargs["pk"])),
+        )
+
+
+class SupplierInvoiceChargeUpdateView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = MANAGE_SUPPLIER_INVOICE_CHARGES
+    template_name = "procurement/supplier_invoice_charge_form.html"
+
+    def load(self) -> SupplierInvoiceCharge:
+        _require_cost_visibility(self.actor)
+        charge = _charge_for_actor(self.actor, self.kwargs["pk"])
+        if charge.invoice.status != SupplierInvoiceStatus.DRAFT:
+            raise Http404
+        return charge
+
+    def context(self, charge: SupplierInvoiceCharge, form: Any = None) -> dict[str, Any]:
+        return {
+            "charge": charge,
+            "invoice": charge.invoice,
+            "form": form
+            or SupplierInvoiceChargeForm(actor=self.actor, invoice=charge.invoice, instance=charge),
+            "page_title": _("تعديل التكلفة الفعلية"),
+            "page_hint": _("يمكن تعديل التكلفة ما دامت الفاتورة مسودة فقط."),
+            "base_template": "settings/_form_fragment.html" if self.is_htmx() else "shell.html",
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        charge = self.load()
+        return render(request, self.template_name, self.context(charge))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        charge = self.load()
+        require_organization_permission(
+            self.actor, MANAGE_SUPPLIER_INVOICE_CHARGES, charge.invoice.organization
+        )
+        form = SupplierInvoiceChargeForm(
+            actor=self.actor, invoice=charge.invoice, instance=charge, data=request.POST
+        )
+        if form.is_valid():
+            try:
+                update_charge(charge=charge, **form.cleaned_data)
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تم تحديث التكلفة الفعلية."))
+                return HttpResponseRedirect(
+                    reverse("procurement:supplier_invoice_charge_detail", args=[charge.pk])
+                )
+        return render(request, self.template_name, self.context(charge, form=form))
+
+
+class SupplierInvoiceChargeDeleteView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = MANAGE_SUPPLIER_INVOICE_CHARGES
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        charge = _charge_for_actor(self.actor, self.kwargs["pk"])
+        invoice = charge.invoice
+        require_organization_permission(
+            self.actor, MANAGE_SUPPLIER_INVOICE_CHARGES, invoice.organization
+        )
+        try:
+            delete_charge(charge=charge)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(message) for message in error.messages))
+        else:
+            messages.success(request, _("تم حذف التكلفة من المسودة."))
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
+        )
+
+
+class SupplierInvoiceChargeAllocationView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_INVOICE
+    template_name = "procurement/supplier_invoice_charge_allocation.html"
+
+    def context(self, charge: SupplierInvoiceCharge) -> dict[str, Any]:
+        _require_cost_visibility(self.actor)
+        targets = list(
+            PurchaseMatchAllocation.objects.filter(
+                match__supplier_invoice=charge.invoice,
+                match__status=PurchaseMatchStatus.READY,
+            )
+            .select_related(
+                "goods_receipt_line",
+                "goods_receipt_line__receipt",
+                "goods_receipt_line__item",
+                "goods_receipt_line__item__base_unit",
+            )
+            .order_by("sequence")
+        )
+        preview: list[Any] = []
+        preview_error = ""
+        try:
+            preview = preview_charge_allocations(charge)
+        except ValidationError as error:
+            preview_error = "؛ ".join(str(message) for message in error.messages)
+        manual_values = {row.match_allocation_id: row.amount for row in charge.manual_shares.all()}
+        for target in targets:
+            target.manual_value = manual_values.get(target.pk, "")  # type: ignore[attr-defined]
+        return {
+            "charge": charge,
+            "invoice": charge.invoice,
+            "targets": targets,
+            "preview": preview,
+            "preview_error": preview_error,
+            "is_manual": charge.allocation_basis == SupplierInvoiceChargeAllocationBasis.MANUAL,
+            "may_allocate": charge.invoice.status == SupplierInvoiceStatus.APPROVED
+            and has_organization_permission(
+                self.actor, MATCH_SUPPLIER_INVOICE, charge.invoice.organization
+            ),
+            "page_title": _("معاينة توزيع التكلفة الواصلة"),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        charge = _charge_for_actor(self.actor, self.kwargs["pk"])
+        if charge.treatment != SupplierInvoiceChargeTreatment.LANDED_COST:
+            raise Http404
+        return render(request, self.template_name, self.context(charge))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        charge = _charge_for_actor(self.actor, self.kwargs["pk"])
+        require_organization_permission(
+            self.actor, MATCH_SUPPLIER_INVOICE, charge.invoice.organization
+        )
+        targets = PurchaseMatchAllocation.objects.filter(
+            match__supplier_invoice=charge.invoice, match__status=PurchaseMatchStatus.READY
+        )
+        shares: dict[int, Decimal] = {}
+        try:
+            for target_id in targets.values_list("pk", flat=True):
+                raw = request.POST.get(f"share_{target_id}", "").strip()
+                if raw:
+                    shares[target_id] = Decimal(raw)
+            save_manual_shares(charge=charge, actor=self.actor, shares=shares)
+        except (InvalidOperation, ValidationError) as error:
+            if isinstance(error, ValidationError):
+                message = "؛ ".join(str(item) for item in error.messages)
+            else:
+                message = str(_("أدخل مبالغ صحيحة للتوزيع."))
+            messages.error(request, message)
+        else:
+            messages.success(request, _("حُفظ التوزيع اليدوي المطابق تماماً للمبلغ."))
+        return render(
+            request, self.template_name, self.context(_charge_for_actor(self.actor, charge.pk))
+        )
 
 
 # ---------------------------------------------------------------------------

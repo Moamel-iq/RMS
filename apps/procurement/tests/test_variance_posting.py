@@ -12,9 +12,9 @@ in the one shape Task 2.0 §9 and ADR-022 specify:
 with the difference on the other side when the invoice is cheaper, and the line
 **absent** when the two agree.
 
-`TestTheStepFifteenBoundary` is the negative half: no stock moves, no average
-changes, no revaluation exists. PRC-044 is deferred and not elected, and these
-assertions are what keep it that way until it is specified.
+`TestTheStepFifteenBoundary` is the negative half: ordinary invoice goods lines
+do not move stock or revalue it. Structured landed-cost charges are the narrow,
+explicit zero-quantity value-only route tested at the end of this module.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import datetime
 from decimal import Decimal
 
 import pytest
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
@@ -48,9 +49,11 @@ from apps.accounting.services import (
     create_account_mapping,
     open_fiscal_year,
 )
+from apps.inventory.ledger import MovementInput, post_stock_entry
 from apps.inventory.models import (
     InventoryItem,
     ItemType,
+    MovementType,
     StockBalance,
     StockLocationMovement,
     StockMovement,
@@ -58,6 +61,11 @@ from apps.inventory.models import (
 )
 from apps.organizations.models import Branch, Organization, Role
 from apps.organizations.services import grant_branch_access, grant_organization_access
+from apps.procurement.additional_costs import (
+    create_charge,
+    preview_charge_allocations,
+    save_manual_shares,
+)
 from apps.procurement.invoices import (
     add_account_line,
     add_inventory_line,
@@ -80,12 +88,15 @@ from apps.procurement.models import (
     PurchaseMatchStatus,
     Supplier,
     SupplierInvoice,
+    SupplierInvoiceChargeAllocationBasis,
+    SupplierInvoiceChargeCategory,
+    SupplierInvoiceChargeTreatment,
     SupplierInvoicePosting,
     SupplierInvoicePostingStatus,
     SupplierInvoiceStatus,
 )
 from apps.procurement.posting import post_goods_receipt, reverse_goods_receipt
-from apps.procurement.reconciliation import verify_procurement
+from apps.procurement.reconciliation import verify_invoice_charges, verify_procurement
 from apps.procurement.services import (
     add_receipt_line,
     create_goods_receipt,
@@ -1600,3 +1611,301 @@ class TestSurface:
         assert registered.has_add_permission(None) is False  # type: ignore[arg-type]
         assert registered.has_change_permission(None) is False  # type: ignore[arg-type]
         assert registered.has_delete_permission(None) is False  # type: ignore[arg-type]
+
+
+class TestStructuredAdditionalCosts:
+    """Actual costs keep their own evidence and one exact accounting route."""
+
+    def _draft_goods_invoice(
+        self,
+        *,
+        grocery: Supplier,
+        branch: Branch,
+        clerk: User,
+        rice: InventoryItem,
+        reference: str,
+    ) -> SupplierInvoice:
+        invoice = create_supplier_invoice(
+            supplier=grocery,
+            branch=branch,
+            created_by=clerk,
+            supplier_invoice_number=reference,
+            invoice_date=INVOICED,
+            business_date=INVOICED,
+        )
+        add_inventory_line(
+            invoice=invoice,
+            item=rice,
+            base_quantity=Decimal("50.000"),
+            unit_price=Decimal("1450.000000"),
+        )
+        return invoice
+
+    def test_landed_cost_posts_value_without_quantity_and_reverses_exactly(
+        self,
+        receipt: GoodsReceipt,
+        grocery: Supplier,
+        branch: Branch,
+        store: Warehouse,
+        rice: InventoryItem,
+        clerk: User,
+        controller: User,
+    ) -> None:
+        invoice = self._draft_goods_invoice(
+            grocery=grocery,
+            branch=branch,
+            clerk=clerk,
+            rice=rice,
+            reference="INV-LANDED-1",
+        )
+        charge = create_charge(
+            invoice=invoice,
+            actor=clerk,
+            category=SupplierInvoiceChargeCategory.FREIGHT,
+            treatment=SupplierInvoiceChargeTreatment.LANDED_COST,
+            description="شحن محلي",
+            amount=Decimal("1000.000"),
+            allocation_basis=SupplierInvoiceChargeAllocationBasis.RECEIPT_VALUE,
+            evidence_reference="FRT-1",
+        )
+        approve_supplier_invoice(invoice=invoice, actor=controller)
+        _matched(invoice=invoice, receipt=receipt, clerk=clerk)
+
+        before = StockBalance.objects.get(warehouse=store, item=rice, lot=None)
+        before_quantity, before_value = before.quantity, before.value
+        preview = preview_charge_allocations(charge)
+        assert [row.allocated_amount for row in preview] == [Decimal("1000.000")]
+
+        posted = post_supplier_invoice(invoice=invoice, actor=controller)
+        posting = posted.postings.get(status=SupplierInvoicePostingStatus.LIVE)
+        after = StockBalance.objects.get(warehouse=store, item=rice, lot=None)
+        assert after.quantity == before_quantity
+        assert after.value == before_value + Decimal("1000.000")
+        assert posting.landed_cost_value == Decimal("1000.000")
+        assert posting.stock_entry is not None
+        movement = posting.stock_entry.movements.get()
+        assert movement.base_quantity == Decimal("0.000")
+        assert movement.inventory_value == Decimal("1000.000")
+        allocation = posting.landed_cost_allocations.get()
+        assert allocation.allocated_amount == charge.amount
+        assert allocation.inventory_movement == movement
+        assert _lines(posting.journal_entry)["1-03-01-001"] == Decimal("1000.000")
+        assert posting.payable_value == posted.total_amount == Decimal("73500.000")
+        assert verify_invoice_charges(invoice.organization) == []
+
+        reverse_supplier_invoice(invoice=posted, actor=controller, reason="تصحيح")
+        posting.refresh_from_db()
+        restored = StockBalance.objects.get(warehouse=store, item=rice, lot=None)
+        assert restored.quantity == before_quantity
+        assert restored.value == before_value
+        assert posting.reversal_stock_entry is not None
+        reverse_movement = posting.reversal_stock_entry.movements.get()
+        assert reverse_movement.base_quantity == Decimal("0.000")
+        assert reverse_movement.inventory_value == Decimal("-1000.000")
+        assert reverse_movement.reverses == movement
+
+    def test_downstream_outbound_refuses_capitalisation(
+        self,
+        receipt: GoodsReceipt,
+        grocery: Supplier,
+        branch: Branch,
+        store: Warehouse,
+        rice: InventoryItem,
+        clerk: User,
+        controller: User,
+        organization: Organization,
+    ) -> None:
+        invoice = self._draft_goods_invoice(
+            grocery=grocery,
+            branch=branch,
+            clerk=clerk,
+            rice=rice,
+            reference="INV-LANDED-OUT",
+        )
+        charge = create_charge(
+            invoice=invoice,
+            actor=clerk,
+            category=SupplierInvoiceChargeCategory.HANDLING,
+            treatment=SupplierInvoiceChargeTreatment.LANDED_COST,
+            description="مناولة",
+            amount=Decimal("500.000"),
+        )
+        approve_supplier_invoice(invoice=invoice, actor=controller)
+        _matched(invoice=invoice, receipt=receipt, clerk=clerk)
+        post_stock_entry(
+            organization=organization,
+            effects=[
+                MovementInput(
+                    warehouse=store,
+                    item=rice,
+                    movement_type=MovementType.ISSUE,
+                    quantity=Decimal("1.000"),
+                    effect_key="downstream-issue",
+                )
+            ],
+            idempotency_key="downstream-after-receipt",
+            business_date=INVOICED,
+            reason="صرف بعد الاستلام",
+        )
+
+        with pytest.raises(ValidationError) as refused:
+            preview_charge_allocations(charge)
+        assert refused.value.code == "landed_cost_has_downstream_outbound"
+        with pytest.raises(ValidationError) as posting_refused:
+            post_supplier_invoice(invoice=invoice, actor=controller)
+        assert posting_refused.value.code == "landed_cost_has_downstream_outbound"
+        invoice.refresh_from_db()
+        assert invoice.status == SupplierInvoiceStatus.APPROVED
+        assert invoice.journal_entry_id is None
+
+    def test_manual_shares_must_equal_the_charge(
+        self,
+        receipt: GoodsReceipt,
+        grocery: Supplier,
+        branch: Branch,
+        rice: InventoryItem,
+        clerk: User,
+        controller: User,
+    ) -> None:
+        invoice = self._draft_goods_invoice(
+            grocery=grocery,
+            branch=branch,
+            clerk=clerk,
+            rice=rice,
+            reference="INV-LANDED-MANUAL",
+        )
+        charge = create_charge(
+            invoice=invoice,
+            actor=clerk,
+            category=SupplierInvoiceChargeCategory.INSURANCE,
+            treatment=SupplierInvoiceChargeTreatment.LANDED_COST,
+            description="تأمين",
+            amount=Decimal("750.000"),
+            allocation_basis=SupplierInvoiceChargeAllocationBasis.MANUAL,
+        )
+        approve_supplier_invoice(invoice=invoice, actor=controller)
+        match = _matched(invoice=invoice, receipt=receipt, clerk=clerk)
+        target = match.allocations.get()
+
+        with pytest.raises(ValidationError) as refused:
+            save_manual_shares(
+                charge=charge,
+                actor=clerk,
+                shares={target.pk: Decimal("749.999")},
+            )
+        assert refused.value.code == "manual_shares_do_not_balance"
+        save_manual_shares(
+            charge=charge,
+            actor=clerk,
+            shares={target.pk: Decimal("750.000")},
+        )
+        assert preview_charge_allocations(charge)[0].allocated_amount == Decimal("750.000")
+
+    def test_direct_charge_posts_to_its_account_and_cost_center(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        clerk: User,
+        controller: User,
+        organization: Organization,
+        mapped: None,
+    ) -> None:
+        invoice = create_supplier_invoice(
+            supplier=grocery,
+            branch=branch,
+            created_by=clerk,
+            supplier_invoice_number="INV-DIRECT-COST",
+            invoice_date=INVOICED,
+            business_date=INVOICED,
+        )
+        account = Account.objects.get(organization=organization, code=EXPENSE_CODE)
+        center = CostCenter.objects.create(
+            organization=organization,
+            code="PROC",
+            name_ar="المشتريات",
+            name_en="Procurement",
+        )
+        add_account_line(
+            invoice=invoice,
+            account=account,
+            cost_center=center,
+            description="خدمة",
+            quantity=Decimal("1.000"),
+            unit_price=Decimal("1000.000000"),
+        )
+        create_charge(
+            invoice=invoice,
+            actor=clerk,
+            category=SupplierInvoiceChargeCategory.DELIVERY,
+            treatment=SupplierInvoiceChargeTreatment.DIRECT_EXPENSE,
+            description="توصيل خارجي",
+            amount=Decimal("250.000"),
+            direct_account=account,
+            cost_center=center,
+        )
+        approve_supplier_invoice(invoice=invoice, actor=controller)
+        posted = post_supplier_invoice(invoice=invoice, actor=controller)
+        posting = posted.postings.get()
+        assert posting.stock_entry_id is None
+        assert posting.direct_charge_value == Decimal("1250.000")
+        expense_line = posting.journal_entry.lines.get(account=account)
+        assert expense_line.debit == Decimal("1250.000")
+        assert expense_line.cost_center == center
+
+    def test_additional_cost_workspace_is_rtl_and_htmx_ready(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        clerk: User,
+        controller: User,
+        organization: Organization,
+        mapped: None,
+        client: Client,
+    ) -> None:
+        invoice = create_supplier_invoice(
+            supplier=grocery,
+            branch=branch,
+            created_by=clerk,
+            supplier_invoice_number="INV-COST-UI",
+            invoice_date=INVOICED,
+            business_date=INVOICED,
+        )
+        account = Account.objects.get(organization=organization, code=EXPENSE_CODE)
+        center = CostCenter.objects.create(
+            organization=organization,
+            code="UI",
+            name_ar="واجهة",
+            name_en="UI",
+        )
+        add_account_line(
+            invoice=invoice,
+            account=account,
+            cost_center=center,
+            description="خدمة",
+            quantity=Decimal("1.000"),
+            unit_price=Decimal("100.000000"),
+        )
+        charge = create_charge(
+            invoice=invoice,
+            actor=clerk,
+            category=SupplierInvoiceChargeCategory.OTHER,
+            treatment=SupplierInvoiceChargeTreatment.DIRECT_EXPENSE,
+            description="تكلفة اختبار",
+            amount=Decimal("10.000"),
+            direct_account=account,
+            cost_center=center,
+        )
+        client.force_login(clerk)
+        client.cookies[settings.LANGUAGE_COOKIE_NAME] = "ar"
+        list_response = client.get(reverse("procurement:supplier_invoice_charge_list"))
+        html = list_response.content.decode()
+        assert list_response.status_code == 200
+        assert "التكاليف الإضافية" in html
+        assert "تكلفة اختبار" in html
+        detail = client.get(reverse("procurement:supplier_invoice_charge_detail", args=[charge.pk]))
+        assert detail.status_code == 200
+        form = client.get(
+            reverse("procurement:supplier_invoice_charge_update", args=[charge.pk])
+        ).content.decode()
+        assert "hx-post" in form
+        assert 'dir="rtl"' in html

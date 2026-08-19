@@ -67,6 +67,7 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("procurement:purchase_order_list", "أوامر الشراء"),
     ("procurement:goods_receipt_list", "استلام البضاعة"),
     ("procurement:supplier_invoice_list", "فواتير الموردين"),
+    ("procurement:supplier_invoice_charge_list", "التكاليف الإضافية"),
     ("procurement:matching_queue", "قائمة المطابقة"),
     ("procurement:purchase_match_list", "مطابقة المشتريات"),
     ("procurement:supplier_return_list", "مرتجعات الموردين"),

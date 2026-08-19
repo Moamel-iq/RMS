@@ -9,10 +9,12 @@ when it falls due.
     Dr  the account the charge belongs to
         Cr  SUPPLIER_PAYABLE
 
-**It never touches stock** (PRC-038). Not a quantity, not a lot, not a
-movement, not a valuation. A test counts `StockMovement` and
-`StockLocationMovement` either side of a posting and asserts both are
-unchanged, because "we did not mean to" is not an invariant.
+Ordinary invoice goods and account lines never touch stock (PRC-038): the
+receipt already owns their quantity and provisional value. An explicitly
+classified landed-cost charge is the one narrow exception. It posts a
+zero-quantity Inventory value effect through the public Inventory kernel and
+debits that position's resolved Inventory Control account. The invoice, journal
+and value-only stock entry remain one atomic posting.
 
 **The supplier's balance is not stored.** `apps.procurement.selectors
 .supplier_outstanding` derives it from posted invoices, and Tasks 2.14 and 2.15
@@ -115,9 +117,17 @@ from apps.core.models import AuditAction
 from apps.core.money import quantize_money, quantize_unit_price
 from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
+from apps.inventory.ledger import link_journal_entry
 from apps.inventory.models import InventoryAccountMapping, InventoryItem
 from apps.organizations.business_dates import business_date_for, resolve_business_day
 from apps.organizations.models import Branch
+from apps.procurement.additional_costs import (
+    LandedCostPreviewRow,
+    persist_landed_allocations,
+    plan_landed_costs,
+    post_landed_cost_entry,
+    reverse_landed_cost_entry,
+)
 from apps.procurement.credit_terms import resolve_credit_term, term_name_ar
 from apps.procurement.lifecycle import lock_and_require_status
 from apps.procurement.matching import cancel_purchase_match
@@ -130,6 +140,9 @@ from apps.procurement.models import (
     PurchaseOrderLine,
     Supplier,
     SupplierInvoice,
+    SupplierInvoiceCharge,
+    SupplierInvoiceChargeManualShare,
+    SupplierInvoiceChargeTreatment,
     SupplierInvoiceLine,
     SupplierInvoiceLineType,
     SupplierInvoicePosting,
@@ -685,7 +698,9 @@ def _recalculate(invoice: SupplierInvoice) -> SupplierInvoice:
     lines = list(invoice.lines.order_by("sequence"))
     if not lines:
         invoice.lines_total = ZERO
-        invoice.total_amount = quantize_money(invoice.freight_amount - invoice.discount_amount)
+        invoice.total_amount = quantize_money(
+            invoice.freight_amount - invoice.discount_amount + invoice.charges_total
+        )
         invoice.save(update_fields=["lines_total", "total_amount", "updated_at"])
         return invoice
 
@@ -704,7 +719,9 @@ def _recalculate(invoice: SupplierInvoice) -> SupplierInvoice:
         )
 
     invoice.lines_total = lines_total
-    invoice.total_amount = quantize_money(sum((line.net_amount for line in lines), start=ZERO))
+    invoice.total_amount = quantize_money(
+        sum((line.net_amount for line in lines), start=ZERO) + invoice.charges_total
+    )
     invoice.save(update_fields=["lines_total", "total_amount", "updated_at"])
     return invoice
 
@@ -858,6 +875,7 @@ def return_supplier_invoice_to_draft(
             params={"match": standing[0] or str(standing[1])},
         )
     previous = snapshot(locked)
+    SupplierInvoiceChargeManualShare.objects.filter(charge__invoice=locked).delete()
     locked.status = SupplierInvoiceStatus.DRAFT
     locked.approved_by = None
     locked.approved_at = None
@@ -880,7 +898,9 @@ def _require_totals_agree(invoice: SupplierInvoice, lines: list[SupplierInvoiceL
     Checked rather than assumed. `_recalculate` runs on every mutation, but an
     invoice is money and the cost of asserting it again here is one comparison.
     """
-    expected = quantize_money(sum((line.net_amount for line in lines), start=ZERO))
+    expected = quantize_money(
+        sum((line.net_amount for line in lines), start=ZERO) + invoice.charges_total
+    )
     if invoice.total_amount != expected:
         raise ValidationError(  # pragma: no cover - _recalculate keeps these equal
             _("The invoice total %(total)s is not the sum of its lines %(lines)s."),
@@ -904,6 +924,8 @@ class _Plan:
 
     #: Direct-charge lines only: line pk -> (account, cost centre, amount).
     lines: dict[int, tuple[Account, CostCenter | None, Decimal]]
+    #: Structured direct charges: charge pk -> (account, cost centre, amount).
+    charges: dict[int, tuple[Account, CostCenter, Decimal]]
     payable: Account
     payable_mapping: OrganizationAccountMapping
     #: `A` — what the direct charges come to.
@@ -926,11 +948,13 @@ class _Plan:
     #: `D = V - R`, signed.
     variance: Decimal = ZERO
     variance_account: Account | None = None
+    landed_rows: list[LandedCostPreviewRow] = field(default_factory=list)
+    landed_total: Decimal = ZERO
 
     @property
     def payable_total(self) -> Decimal:
-        """`A + V`. The whole invoice, never a re-derivation of its parts."""
-        return quantize_money(self.total + self.invoice_matched)
+        """`A + V + L`. The whole invoice, from stored evidence only."""
+        return quantize_money(self.total + self.invoice_matched + self.landed_total)
 
 
 def _plan(invoice: SupplierInvoice, lines: list[SupplierInvoiceLine]) -> _Plan:
@@ -965,16 +989,58 @@ def _plan(invoice: SupplierInvoice, lines: list[SupplierInvoiceLine]) -> _Plan:
         )
         resolved[line.pk] = (line.account, line.cost_center, line.net_amount)
 
-    total = quantize_money(sum((amount for _a, _c, amount in resolved.values()), start=ZERO))
-    plan = _Plan(lines=resolved, payable=payable, payable_mapping=payable_mapping, total=total)
+    direct_charges: dict[int, tuple[Account, CostCenter, Decimal]] = {}
+    charge_rows = list(
+        SupplierInvoiceCharge.objects.select_for_update(of=("self",))
+        .filter(invoice=invoice)
+        .select_related("direct_account", "cost_center")
+        .order_by("line_order")
+    )
+    for charge in charge_rows:
+        if charge.treatment != SupplierInvoiceChargeTreatment.DIRECT_EXPENSE:
+            continue
+        assert charge.direct_account is not None  # noqa: S101 - database treatment shape
+        assert charge.cost_center is not None  # noqa: S101 - database treatment shape
+        _validate_direct_account(
+            organization_id=invoice.organization_id,
+            account=charge.direct_account,
+            cost_center=charge.cost_center,
+        )
+        direct_charges[charge.pk] = (
+            charge.direct_account,
+            charge.cost_center,
+            charge.amount,
+        )
+
+    total = quantize_money(
+        sum((amount for _a, _c, amount in resolved.values()), start=ZERO)
+        + sum((amount for _a, _c, amount in direct_charges.values()), start=ZERO)
+    )
+    plan = _Plan(
+        lines=resolved,
+        charges=direct_charges,
+        payable=payable,
+        payable_mapping=payable_mapping,
+        total=total,
+    )
 
     goods_lines = [line for line in lines if line.line_type == SupplierInvoiceLineType.INVENTORY]
     if goods_lines:
         _plan_the_goods(invoice, goods_lines, plan=plan)
 
+    plan.landed_rows = plan_landed_costs(invoice, lock=True)
+    plan.landed_total = quantize_money(
+        sum((row.allocated_amount for row in plan.landed_rows), start=ZERO)
+    )
+
     if plan.payable_total <= ZERO:
         raise ValidationError(
             _("An invoice for nothing cannot be posted."), code="total_not_positive"
+        )
+    if plan.payable_total != invoice.total_amount:
+        raise ValidationError(
+            _("The posting plan does not equal the invoice payable."),
+            code="posting_plan_does_not_equal_invoice",
         )
     return plan
 
@@ -1134,6 +1200,19 @@ def _journal_lines(invoice: SupplierInvoice, *, plan: _Plan) -> list[PostingLine
         key = (account.pk, cost_center.pk if cost_center else None)
         debits[key] = debits.get(key, ZERO) + amount
 
+    for account, cost_center, amount in plan.charges.values():
+        accounts[account.pk] = account
+        centers[cost_center.pk] = cost_center
+        key = (account.pk, cost_center.pk)
+        debits[key] = debits.get(key, ZERO) + amount
+
+    for row in plan.landed_rows:
+        account = row.receipt_line.inventory_account
+        assert account is not None  # noqa: S101 - landed preview requires posted evidence
+        accounts[account.pk] = account
+        key = (account.pk, None)
+        debits[key] = debits.get(key, ZERO) + row.allocated_amount
+
     posting_lines = [
         PostingLine(
             account=accounts[account_id],
@@ -1269,6 +1348,16 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
     posted_at = timezone.now()
     posting = _new_posting(locked, plan=plan, actor=actor, posted_at=posted_at)
 
+    # Landed costs are one atomic stock event owned by this posting
+    # generation. The transaction still has no journal or status change at
+    # this point; any later failure rolls this value-only entry back too.
+    stock_entry = post_landed_cost_entry(
+        invoice=locked,
+        posting_public_id=posting.public_id,
+        rows=plan.landed_rows,
+    )
+    posting.stock_entry = stock_entry
+
     # 6. The journal, named by the generation rather than by the invoice. The
     # posting's `public_id` exists before the row does, which is what lets the
     # journal carry it and the row cite the journal without either waiting on
@@ -1285,8 +1374,15 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
         source_event=SourceEvent.POSTED,
         posting_rule_version=POSTING_RULE,
     )
+    if stock_entry is not None:
+        link_journal_entry(entry=stock_entry, journal=journal)
     posting.journal_entry = journal
     posting.save()
+    persist_landed_allocations(
+        posting=posting,
+        rows=plan.landed_rows,
+        stock_entry=stock_entry,
+    )
     record_audit_event(
         action=AuditAction.CREATED,
         target=posting,
@@ -1343,6 +1439,7 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
             "posted_amount": format(plan.payable_total, "f"),
             "goods_cleared": format(plan.goods_cleared, "f"),
             "price_variance": format(plan.variance, "f"),
+            "landed_cost": format(plan.landed_total, "f"),
         },
     )
     return locked
@@ -1409,6 +1506,7 @@ def _new_posting(
         invoice_matched_value=plan.invoice_matched,
         price_variance=plan.variance,
         direct_charge_value=plan.total,
+        landed_cost_value=plan.landed_total,
         payable_value=plan.payable_total,
         posted_by=actor,
         posted_at=posted_at,
@@ -1536,10 +1634,25 @@ def reverse_supplier_invoice(
         accounting_date=reversal_business_date,
     )
 
+    # Mirror the exact stored stock keys and values. Current mappings and a
+    # fresh allocation are deliberately irrelevant to a reversal.
+    reversal_stock_entry = (
+        reverse_landed_cost_entry(
+            posting=posting,
+            reason=reason.strip(),
+            business_date=reversal_business_date,
+        )
+        if posting is not None
+        else None
+    )
+    if reversal_stock_entry is not None:
+        link_journal_entry(entry=reversal_stock_entry, journal=reversal_journal)
+
     # 2. The generation stops being live, which is what unblocks step 3.
     if posting is not None:
         posting.status = SupplierInvoicePostingStatus.REVERSED
         posting.reversal_journal_entry = reversal_journal
+        posting.reversal_stock_entry = reversal_stock_entry
         posting.reversed_by = actor
         posting.reversed_at = now
         posting.reversal_reason = reason.strip()
@@ -1547,6 +1660,7 @@ def reverse_supplier_invoice(
             update_fields=[
                 "status",
                 "reversal_journal_entry",
+                "reversal_stock_entry",
                 "reversed_by",
                 "reversed_at",
                 "reversal_reason",
@@ -1659,7 +1773,7 @@ def _require_no_downstream_dependency(invoice: SupplierInvoice) -> None:
                 params={"relation": name},
             )
 
-    ignored_on_header = {"history", "lines"}
+    ignored_on_header = {"history", "lines", "charges"}
     for relation in invoice._meta.related_objects:
         name = relation.get_accessor_name()
         if not name or name in ignored_on_header:

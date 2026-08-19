@@ -45,6 +45,7 @@ from apps.inventory.models import (
     Warehouse,
 )
 from apps.organizations.models import Branch, Organization
+from apps.procurement.additional_costs import create_charge
 from apps.procurement.comparison import award_quotation
 from apps.procurement.credit_notes import (
     add_return_allocation,
@@ -78,6 +79,9 @@ from apps.procurement.models import (
     SupplierCreditNote,
     SupplierCreditNoteStatus,
     SupplierInvoice,
+    SupplierInvoiceChargeAllocationBasis,
+    SupplierInvoiceChargeCategory,
+    SupplierInvoiceChargeTreatment,
     SupplierInvoiceLineType,
     SupplierInvoiceStatus,
     SupplierItem,
@@ -1130,6 +1134,17 @@ def _demo_expense_invoice(
             quantity=Decimal("1.000"),
             unit_price=Decimal("75000.000000"),
         )
+        create_charge(
+            invoice=invoice,
+            actor=recorder,
+            category=SupplierInvoiceChargeCategory.DELIVERY,
+            treatment=SupplierInvoiceChargeTreatment.DIRECT_EXPENSE,
+            description="مناولة وتسليم فعلية",
+            amount=Decimal("15000.000"),
+            direct_account=account,
+            cost_center=cost_center,
+            evidence_reference="DEMO-COST-DIRECT-POSTED",
+        )
     return _advance_demo_invoice(invoice, approver=approver, to_status=SupplierInvoiceStatus.POSTED)
 
 
@@ -1178,6 +1193,16 @@ def _demo_goods_invoice(
             receipt_line=receipt_line,
             description="رز — فاتورة المورد",
         )
+        create_charge(
+            invoice=invoice,
+            actor=recorder,
+            category=SupplierInvoiceChargeCategory.FREIGHT,
+            treatment=SupplierInvoiceChargeTreatment.LANDED_COST,
+            description="شحن الرز إلى المخزن",
+            amount=Decimal("6000.000"),
+            allocation_basis=SupplierInvoiceChargeAllocationBasis.RECEIPT_VALUE,
+            evidence_reference="DEMO-COST-LANDED-POSTED",
+        )
     # Approves and stops. `post_supplier_invoice` would refuse it with
     # `invoice_awaiting_matching`, which is the state this row is here to show.
     return _advance_demo_invoice(
@@ -1197,28 +1222,58 @@ def _demo_draft_invoice(
 ) -> SupplierInvoice:
     reference = "DEMO-SINV-DRAFT"
     invoice = existing.get(reference)
-    if invoice is not None:
-        return invoice
-    invoice = create_supplier_invoice(
-        supplier=supplier,
-        branch=branch,
-        created_by=recorder,
-        supplier_invoice_number=reference,
-        invoice_date=invoiced_on,
-        business_date=invoiced_on,
-        supplier_reference="مسودة للمراجعة",
-        freight_amount=Decimal("10000.000"),
-        discount_amount=Decimal("3000.000"),
-        notes="مسودة: النقل والخصم موزَّعان على الأسطر بطريقة أكبر باقٍ",
-    )
-    for label, price in (("خدمة تنظيف", "40000.000000"), ("صيانة ثلاجة", "60000.000000")):
-        add_account_line(
+    if invoice is None:
+        invoice = create_supplier_invoice(
+            supplier=supplier,
+            branch=branch,
+            created_by=recorder,
+            supplier_invoice_number=reference,
+            invoice_date=invoiced_on,
+            business_date=invoiced_on,
+            supplier_reference="مسودة للمراجعة",
+            discount_amount=Decimal("3000.000"),
+            notes="مسودة: الخصم على الأسطر والتكلفة الفعلية في مساحتها المنظمة",
+        )
+        for label, price in (
+            ("خدمة تنظيف", "40000.000000"),
+            ("صيانة ثلاجة", "60000.000000"),
+        ):
+            add_account_line(
+                invoice=invoice,
+                account=account,
+                cost_center=cost_center,
+                description=label,
+                quantity=Decimal("1.000"),
+                unit_price=Decimal(price),
+            )
+    if (
+        invoice.status == SupplierInvoiceStatus.DRAFT
+        and not invoice.charges.filter(evidence_reference="DEMO-COST-WAITING").exists()
+    ):
+        create_charge(
             invoice=invoice,
-            account=account,
+            actor=recorder,
+            category=SupplierInvoiceChargeCategory.INSURANCE,
+            treatment=SupplierInvoiceChargeTreatment.LANDED_COST,
+            description="تأمين شحنة بانتظار المطابقة",
+            amount=Decimal("4500.000"),
+            allocation_basis=SupplierInvoiceChargeAllocationBasis.MANUAL,
+            evidence_reference="DEMO-COST-WAITING",
+        )
+    if (
+        invoice.status == SupplierInvoiceStatus.DRAFT
+        and not invoice.charges.filter(evidence_reference="DEMO-COST-DIRECT-DRAFT").exists()
+    ):
+        create_charge(
+            invoice=invoice,
+            actor=recorder,
+            category=SupplierInvoiceChargeCategory.HANDLING,
+            treatment=SupplierInvoiceChargeTreatment.DIRECT_EXPENSE,
+            description="مناولة مباشرة في المسودة",
+            amount=Decimal("3500.000"),
+            direct_account=account,
             cost_center=cost_center,
-            description=label,
-            quantity=Decimal("1.000"),
-            unit_price=Decimal(price),
+            evidence_reference="DEMO-COST-DIRECT-DRAFT",
         )
     return SupplierInvoice.objects.get(pk=invoice.pk)
 
@@ -1253,6 +1308,17 @@ def _demo_reversed_invoice(
             description="رسوم إدارية",
             quantity=Decimal("1.000"),
             unit_price=Decimal("25000.000000"),
+        )
+        create_charge(
+            invoice=invoice,
+            actor=recorder,
+            category=SupplierInvoiceChargeCategory.OTHER,
+            treatment=SupplierInvoiceChargeTreatment.DIRECT_EXPENSE,
+            description="رسم مباشر معكوس",
+            amount=Decimal("2500.000"),
+            direct_account=account,
+            cost_center=cost_center,
+            evidence_reference="DEMO-COST-DIRECT-REVERSED",
         )
     invoice = _advance_demo_invoice(
         invoice, approver=approver, to_status=SupplierInvoiceStatus.POSTED

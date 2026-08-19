@@ -135,6 +135,7 @@ MATCH_SUPPLIER_INVOICE = f"{APP_LABEL}.match_supplier_invoice"
 CANCEL_PURCHASE_MATCH = f"{APP_LABEL}.cancel_purchase_match"
 VIEW_SUPPLIER_INVOICE = f"{APP_LABEL}.view_supplierinvoice"
 CREATE_SUPPLIER_INVOICE = f"{APP_LABEL}.create_supplier_invoice"
+MANAGE_SUPPLIER_INVOICE_CHARGES = f"{APP_LABEL}.manage_supplier_invoice_charges"
 APPROVE_SUPPLIER_INVOICE = f"{APP_LABEL}.approve_supplier_invoice"
 POST_SUPPLIER_INVOICE = f"{APP_LABEL}.post_supplier_invoice"
 REVERSE_SUPPLIER_INVOICE = f"{APP_LABEL}.reverse_supplier_invoice"
@@ -200,6 +201,7 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     REVERSE_SUPPLIER_RETURN,
     VIEW_SUPPLIER_INVOICE,
     CREATE_SUPPLIER_INVOICE,
+    MANAGE_SUPPLIER_INVOICE_CHARGES,
     APPROVE_SUPPLIER_INVOICE,
     POST_SUPPLIER_INVOICE,
     REVERSE_SUPPLIER_INVOICE,
@@ -265,6 +267,7 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # enough to commit the organization to paying somebody.
     VIEW_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
     CREATE_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
+    MANAGE_SUPPLIER_INVOICE_CHARGES: PermissionScope.ORGANIZATION_AUTHORITY,
     APPROVE_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
     POST_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
     REVERSE_SUPPLIER_INVOICE: PermissionScope.ORGANIZATION_AUTHORITY,
@@ -449,6 +452,7 @@ _ACCOUNTANT = frozenset(
         # the document that actually commits money.
         VIEW_SUPPLIER_INVOICE,
         CREATE_SUPPLIER_INVOICE,
+        MANAGE_SUPPLIER_INVOICE_CHARGES,
         # Does the reconciling. Matching is clerical work over evidence and
         # reaches no ledger, so it belongs here rather than with approval —
         # and withdrawing an agreed match deliberately does not.

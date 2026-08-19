@@ -376,9 +376,12 @@ MODULES: tuple[Module, ...] = (
                 available=True,
                 active_prefixes=("/procurement/invoices/",),
             ),
-            # Landed-cost allocation is promoted only when its own posting and
-            # inventory-capitalisation rules are present.
-            *_sections(_("التكاليف الإضافية")),
+            Section(
+                label=_("التكاليف الإضافية"),
+                url_name="procurement:supplier_invoice_charge_list",
+                available=True,
+                active_prefixes=("/procurement/additional-costs/",),
+            ),
             # Task 2.13 — supplier returns. Built and reachable; the entry the
             # inventory module gave up ("returns belong to Procurement, where
             # they reconcile against an invoice and a credit note") lands here.

@@ -1,0 +1,26 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="filter-field"><span class="filter-field__label">{% translate "مسار العمل" %}</span><select name="state"><option value="">{% translate "كل التكاليف" %}</option>{% for value, label in state_choices %}<option value="{{ value }}"{% if selected_state == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+{% endblock %}
+
+{% block active_filter_chips %}{% if selected_state %}<span class="filter-chip">{% translate "المسار" %}: {{ selected_state }}</span>{% endif %}{% endblock %}
+
+{% block columns %}
+  <th scope="col">{% translate "الفاتورة" %}</th><th scope="col">{% translate "المورد والفرع" %}</th><th scope="col">{% translate "التكلفة" %}</th><th scope="col">{% translate "المعالجة" %}</th><th scope="col">{% translate "التوزيع / الحساب" %}</th><th scope="col">{% translate "الحالة" %}</th><th scope="col">{% translate "إجراء" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for row in charges %}
+    <tr>
+      <td data-label="{% translate 'الفاتورة' %}"><a href="{% url 'procurement:supplier_invoice_detail' row.invoice_id %}"><strong><bdi dir="ltr">{{ row.invoice.number|default:row.invoice.supplier_invoice_number }}</bdi></strong></a><br><span class="muted"><bdi dir="ltr">{{ row.invoice.invoice_date|date:"Y-m-d" }}</bdi></span></td>
+      <td data-label="{% translate 'المورد والفرع' %}">{{ row.invoice.supplier.code }} — {{ row.invoice.supplier.name_ar }}<br><span class="muted">{{ row.invoice.branch.code }} — {{ row.invoice.branch.name_ar }}</span></td>
+      <td data-label="{% translate 'التكلفة' %}"><strong>{{ row.description }}</strong><br><span class="muted">{{ row.get_category_display }}</span><br><bdi dir="ltr">{{ row.amount|stringformat:"f" }} {{ row.invoice.currency_code }}</bdi></td>
+      <td data-label="{% translate 'المعالجة' %}">{% if row.treatment == "LANDED_COST" %}<span class="chip">{{ row.get_treatment_display }}</span>{% else %}<span class="chip chip--on">{{ row.get_treatment_display }}</span>{% endif %}</td>
+      <td data-label="{% translate 'التوزيع / الحساب' %}">{% if row.treatment == "LANDED_COST" %}{{ row.get_allocation_basis_display }}{% if not row.has_ready_match or row.allocation_basis == "MANUAL" and not row.has_manual_shares %}<br><span class="chip chip--off">{% translate "بانتظار التوزيع" %}</span>{% endif %}{% else %}<bdi dir="ltr">{{ row.direct_account.code }}</bdi> — {{ row.direct_account.name_ar }}<br><span class="muted">{{ row.cost_center.code }}</span>{% endif %}</td>
+      <td data-label="{% translate 'الحالة' %}">{% if row.invoice.status == "POSTED" %}<span class="chip chip--on">{{ row.invoice.get_status_display }}</span>{% elif row.invoice.status == "REVERSED" %}<span class="chip chip--off">{{ row.invoice.get_status_display }}</span>{% else %}<span class="chip">{{ row.invoice.get_status_display }}</span>{% endif %}</td>
+      <td data-label="{% translate 'إجراء' %}"><a class="btn btn--secondary btn--sm" href="{% url 'procurement:supplier_invoice_charge_detail' row.pk %}">{% translate "فتح" %}</a></td>
+    </tr>
+  {% empty %}<tr><td colspan="7" data-empty-state><div class="empty-state"><strong>{% translate "لا توجد تكاليف في هذا المسار." %}</strong><span>{% translate "تُضاف التكلفة من مسودة فاتورة المورد." %}</span></div></td></tr>{% endfor %}
+{% endblock %}

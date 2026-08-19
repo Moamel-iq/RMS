@@ -282,6 +282,37 @@ urlpatterns = [
         views.SupplierInvoiceTransitionView.as_view(transition="reverse"),
         name="supplier_invoice_reverse",
     ),
+    # --- structured invoice additional costs -----------------------------
+    path(
+        "additional-costs/",
+        views.SupplierInvoiceChargeListView.as_view(),
+        name="supplier_invoice_charge_list",
+    ),
+    path(
+        "invoices/<int:pk>/additional-costs/new/",
+        views.SupplierInvoiceChargeCreateView.as_view(),
+        name="supplier_invoice_charge_create",
+    ),
+    path(
+        "additional-costs/<int:pk>/",
+        views.SupplierInvoiceChargeDetailView.as_view(),
+        name="supplier_invoice_charge_detail",
+    ),
+    path(
+        "additional-costs/<int:pk>/edit/",
+        views.SupplierInvoiceChargeUpdateView.as_view(),
+        name="supplier_invoice_charge_update",
+    ),
+    path(
+        "additional-costs/<int:pk>/delete/",
+        views.SupplierInvoiceChargeDeleteView.as_view(),
+        name="supplier_invoice_charge_delete",
+    ),
+    path(
+        "additional-costs/<int:pk>/allocation/",
+        views.SupplierInvoiceChargeAllocationView.as_view(),
+        name="supplier_invoice_charge_allocation",
+    ),
     # --- three-way matching ------------------------------------------------
     path("matching/", views.MatchingQueueView.as_view(), name="matching_queue"),
     path("matches/", views.PurchaseMatchListView.as_view(), name="purchase_match_list"),

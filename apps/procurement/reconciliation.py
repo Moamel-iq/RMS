@@ -24,6 +24,8 @@ Five equalities, each catching a different failure:
                           reversed receipts
     GRNI outstanding   == posted receipt value not yet cleared by an invoice
                           (zero until Task 2.12 posts one)
+    landed-cost value  == its zero-quantity inventory value effects
+                       == its inventory-control journal debits
 """
 
 from __future__ import annotations
@@ -363,12 +365,14 @@ def verify_supplier_invoice(invoice: SupplierInvoice) -> list[Discrepancy]:
     """
     One posted invoice, across every representation of what it did.
 
-        posted amount     == sum of stored line net amounts
+        posted amount     == lines plus structured charges
         payable credit    == the same figure, on `SUPPLIER_PAYABLE` alone
         GRNI debit        == what the deliveries posted
         variance movement == the difference, signed
 
-    and, separately from all of those, that it moved no stock at all.
+    and, separately, that the ordinary invoice source moved no stock. Explicit
+    landed-cost value-only effects use their own source identity and are
+    reconciled by `verify_invoice_charges`.
 
     **Account-aware, and it has to be.** Task 2.10 compared the journal's total
     debits and total credits against the line total, which was right while the
@@ -390,21 +394,22 @@ def verify_supplier_invoice(invoice: SupplierInvoice) -> list[Discrepancy]:
     lines = list(invoice.lines.order_by("sequence"))
 
     line_total = sum((line.net_amount for line in lines), ZERO)
-    if invoice.total_amount != line_total:
+    payable_total = line_total + invoice.charges_total
+    if invoice.total_amount != payable_total:
         problems.append(
             Discrepancy(
                 scope=label,
                 field="document_total",
-                expected=line_total,
+                expected=payable_total,
                 actual=invoice.total_amount,
             )
         )
-    if invoice.posted_amount != line_total:
+    if invoice.posted_amount != payable_total:
         problems.append(
             Discrepancy(
                 scope=label,
                 field="posted_amount",
-                expected=line_total,
+                expected=payable_total,
                 actual=invoice.posted_amount if invoice.posted_amount is not None else "missing",
             )
         )
@@ -423,10 +428,13 @@ def verify_supplier_invoice(invoice: SupplierInvoice) -> list[Discrepancy]:
         (row.credit - row.debit for row in journal_lines if row.account_id == payable_account),
         ZERO,
     )
-    if payable_credit != line_total:
+    if payable_credit != payable_total:
         problems.append(
             Discrepancy(
-                scope=label, field="payable_credit", expected=line_total, actual=payable_credit
+                scope=label,
+                field="payable_credit",
+                expected=payable_total,
+                actual=payable_credit,
             )
         )
 
@@ -511,42 +519,143 @@ def _role_account(organization_id: int, role_code: str) -> int | None:
 
 def verify_invoice_charges(organization: Organization) -> list[Discrepancy]:
     """
-    Every document-level charge is fully allocated across its own lines.
+    Legacy header allocations and structured actual charges agree everywhere.
 
-    `allocate` guarantees the parts sum to the whole, so this checks the
-    guarantee held rather than re-deriving it — a residual that went missing
-    between allocation and storage is exactly the drift a reconciliation exists
-    to surface (PRC-039).
+    For landed cost this proves the stored final allocations, zero-quantity
+    Inventory value effects and Inventory Control journal debits carry one
+    exact figure. A residual that went missing between allocation and storage
+    is exactly the drift a reconciliation exists to surface (PRC-039).
     """
     problems: list[Discrepancy] = []
-    invoices = SupplierInvoice.objects.filter(organization=organization).exclude(
-        status=SupplierInvoiceStatus.DRAFT
-    )
+    invoices = SupplierInvoice.objects.filter(organization=organization)
     for invoice in invoices:
         lines = list(invoice.lines.all())
-        if not lines:
-            continue
-        freight = sum((line.allocated_freight for line in lines), ZERO)
-        discount = sum((line.allocated_discount for line in lines), ZERO)
         label = invoice.number or str(invoice.public_id)
-        if freight != invoice.freight_amount:
+        if lines:
+            freight = sum((line.allocated_freight for line in lines), ZERO)
+            discount = sum((line.allocated_discount for line in lines), ZERO)
+            if freight != invoice.freight_amount:
+                problems.append(
+                    Discrepancy(
+                        scope=label,
+                        field="allocated_freight",
+                        expected=invoice.freight_amount,
+                        actual=freight,
+                    )
+                )
+            if discount != invoice.discount_amount:
+                problems.append(
+                    Discrepancy(
+                        scope=label,
+                        field="allocated_discount",
+                        expected=invoice.discount_amount,
+                        actual=discount,
+                    )
+                )
+
+        structured = sum(invoice.charges.values_list("amount", flat=True), ZERO)
+        if structured != invoice.charges_total:
             problems.append(
                 Discrepancy(
                     scope=label,
-                    field="allocated_freight",
-                    expected=invoice.freight_amount,
-                    actual=freight,
+                    field="structured_charge_total",
+                    expected=structured,
+                    actual=invoice.charges_total,
                 )
             )
-        if discount != invoice.discount_amount:
+
+    postings = SupplierInvoicePosting.objects.filter(organization=organization).select_related(
+        "supplier_invoice", "stock_entry", "journal_entry", "reversal_stock_entry"
+    )
+    for posting in postings:
+        label = f"{posting.supplier_invoice.number or posting.supplier_invoice.public_id}#{posting.generation}"
+        allocations = list(
+            posting.landed_cost_allocations.select_related("inventory_movement", "control_account")
+        )
+        allocated = sum((row.allocated_amount for row in allocations), ZERO)
+        if allocated != posting.landed_cost_value:
             problems.append(
                 Discrepancy(
                     scope=label,
-                    field="allocated_discount",
-                    expected=invoice.discount_amount,
-                    actual=discount,
+                    field="landed_allocations",
+                    expected=posting.landed_cost_value,
+                    actual=allocated,
                 )
             )
+        if posting.landed_cost_value == ZERO:
+            if posting.stock_entry_id is not None or allocations:
+                problems.append(
+                    Discrepancy(
+                        scope=label,
+                        field="unexpected_landed_stock_entry",
+                        expected="none",
+                        actual=posting.stock_entry_id or len(allocations),
+                    )
+                )
+            continue
+        if posting.stock_entry is None:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="landed_stock_entry",
+                    expected="present",
+                    actual="missing",
+                )
+            )
+            continue
+        movements = list(posting.stock_entry.movements.all())
+        moved_quantity = sum((abs(row.base_quantity) for row in movements), ZERO)
+        moved_value = sum((row.inventory_value for row in movements), ZERO)
+        if moved_quantity != ZERO:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="landed_cost_moved_quantity",
+                    expected=ZERO,
+                    actual=moved_quantity,
+                )
+            )
+        if moved_value != posting.landed_cost_value:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="landed_stock_value",
+                    expected=posting.landed_cost_value,
+                    actual=moved_value,
+                )
+            )
+        if posting.stock_entry.journal_entry_id != posting.journal_entry_id:
+            problems.append(
+                Discrepancy(
+                    scope=label,
+                    field="landed_stock_journal_link",
+                    expected=posting.journal_entry_id,
+                    actual=posting.stock_entry.journal_entry_id or "missing",
+                )
+            )
+        expected_by_account: dict[int, Decimal] = {}
+        for allocation in allocations:
+            expected_by_account[allocation.control_account_id] = (
+                expected_by_account.get(allocation.control_account_id, ZERO)
+                + allocation.allocated_amount
+            )
+        journal_by_account: dict[int, Decimal] = dict(
+            posting.journal_entry.lines.filter(account_id__in=expected_by_account)
+            .values("account_id")
+            .annotate(net_movement=Sum("debit") - Sum("credit"))
+            .values_list("account_id", "net_movement")
+        )
+        for account_id, expected in expected_by_account.items():
+            actual = journal_by_account.get(account_id, ZERO)
+            if actual != expected:
+                problems.append(
+                    Discrepancy(
+                        scope=label,
+                        field=f"landed_inventory_debit:{account_id}",
+                        expected=expected,
+                        actual=actual,
+                    )
+                )
     return problems
 
 

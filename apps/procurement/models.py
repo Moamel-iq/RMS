@@ -19,6 +19,7 @@ import uuid
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
@@ -2189,6 +2190,32 @@ class SupplierInvoiceLineType(models.TextChoices):
     ACCOUNT = "ACCOUNT", _("مصروف أو حساب مباشر")
 
 
+class SupplierInvoiceChargeCategory(models.TextChoices):
+    """The closed commercial vocabulary for invoice-level actual costs."""
+
+    FREIGHT = "FREIGHT", _("شحن")
+    DELIVERY = "DELIVERY", _("توصيل")
+    HANDLING = "HANDLING", _("مناولة")
+    INSURANCE = "INSURANCE", _("تأمين")
+    CUSTOMS = "CUSTOMS", _("جمارك")
+    OTHER = "OTHER", _("أخرى")
+
+
+class SupplierInvoiceChargeTreatment(models.TextChoices):
+    """Whether an actual cost is expensed directly or capitalised into stock."""
+
+    DIRECT_EXPENSE = "DIRECT_EXPENSE", _("تكلفة مباشرة")
+    LANDED_COST = "LANDED_COST", _("تكلفة واصلة للمخزون")
+
+
+class SupplierInvoiceChargeAllocationBasis(models.TextChoices):
+    """How one landed cost is divided over the matched receipt evidence."""
+
+    RECEIPT_VALUE = "RECEIPT_VALUE", _("قيمة الاستلام")
+    BASE_QUANTITY = "BASE_QUANTITY", _("الكمية الأساسية")
+    MANUAL = "MANUAL", _("توزيع يدوي")
+
+
 class SupplierInvoice(TimeStampedModel):
     """
     What the supplier says is owed, and for what.
@@ -2307,14 +2334,24 @@ class SupplierInvoice(TimeStampedModel):
         decimal_places=MONEY_PLACES,
         default=Decimal("0.000"),
     )
+    #: Actual invoice-level costs recorded as structured charge rows. The
+    #: legacy `freight_amount` remains the pre-charge-workspace header value;
+    #: new freight is a charge and never hides inside a goods-line match.
+    charges_total = models.DecimalField(
+        _("additional costs"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
+    )
     discount_amount = models.DecimalField(
         _("discount"),
         max_digits=MONEY_MAX_DIGITS,
         decimal_places=MONEY_PLACES,
         default=Decimal("0.000"),
     )
-    #: `lines_total + freight - discount`, and equal to the sum of the stored
-    #: line net amounts. Never rounded independently of its lines (ADR-012).
+    #: `sum(line.net_amount) + charges_total`. Legacy freight/discount remain
+    #: allocated into the lines; structured charges retain their own posting
+    #: route and therefore never pass through GRNI or purchase-price variance.
     total_amount = models.DecimalField(
         _("total"),
         max_digits=MONEY_MAX_DIGITS,
@@ -2442,7 +2479,9 @@ class SupplierInvoice(TimeStampedModel):
                 name="procurement_invoice_credit_term_snapshot_complete",
             ),
             models.CheckConstraint(
-                condition=Q(freight_amount__gte=0) & Q(discount_amount__gte=0),
+                condition=Q(freight_amount__gte=0)
+                & Q(discount_amount__gte=0)
+                & Q(charges_total__gte=0),
                 name="procurement_invoice_charges_not_negative",
             ),
             models.CheckConstraint(
@@ -2529,8 +2568,24 @@ class SupplierInvoice(TimeStampedModel):
         2.12 nothing to recognise — so the invoice waits in `APPROVED` and says
         why, rather than posting an entry that is merely balanced.
         """
+        lines = list(
+            self.lines.filter(line_type=SupplierInvoiceLineType.INVENTORY).order_by("sequence")
+        )
+        if not lines:
+            return []
+        covered = {
+            row["supplier_invoice_line_id"]: row["quantity"]
+            for row in PurchaseMatchAllocation.objects.filter(
+                match__supplier_invoice=self,
+                match__status=PurchaseMatchStatus.READY,
+            )
+            .values("supplier_invoice_line_id")
+            .annotate(quantity=models.Sum("matched_base_quantity"))
+        }
         return [
-            line for line in self.lines.all() if line.line_type == SupplierInvoiceLineType.INVENTORY
+            line
+            for line in lines
+            if covered.get(line.pk, Decimal("0.000")) != (line.base_quantity or Decimal("0.000"))
         ]
 
     @property
@@ -2544,7 +2599,16 @@ class SupplierInvoice(TimeStampedModel):
         lines = list(self.lines.all())
         if self.status != SupplierInvoiceStatus.APPROVED or not lines:
             return False
-        return not self.blocking_lines
+        if self.blocking_lines:
+            return False
+        from apps.procurement.additional_costs import preview_charge_allocations
+
+        try:
+            for charge in self.charges.filter(treatment=SupplierInvoiceChargeTreatment.LANDED_COST):
+                preview_charge_allocations(charge)
+        except ValidationError:
+            return False
+        return True
 
 
 class SupplierInvoiceLine(TimeStampedModel):
@@ -2759,6 +2823,253 @@ class SupplierInvoiceLine(TimeStampedModel):
         if self.account is not None:
             return f"{self.account.code} — {self.account.name_ar}"
         return self.description  # pragma: no cover - a constraint refuses this row
+
+
+class SupplierInvoiceCharge(TimeStampedModel):
+    """
+    One structured actual cost on a supplier invoice.
+
+    Charges are part of the invoice aggregate and may be changed only while
+    the invoice is a draft. Direct costs name their eligible debit account and
+    cost centre. Landed costs name no free-form stock target: their targets are
+    the invoice's own frozen match allocations and are snapshotted separately
+    when the invoice posts.
+    """
+
+    invoice = models.ForeignKey(
+        SupplierInvoice,
+        on_delete=models.CASCADE,
+        related_name="charges",
+        verbose_name=_("invoice"),
+    )
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    line_order = models.PositiveIntegerField(_("line order"))
+    category = models.CharField(
+        _("category"), max_length=16, choices=SupplierInvoiceChargeCategory.choices
+    )
+    treatment = models.CharField(
+        _("treatment"), max_length=16, choices=SupplierInvoiceChargeTreatment.choices
+    )
+    description = models.CharField(_("description"), max_length=200)
+    amount = models.DecimalField(
+        _("amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    direct_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_invoice_charges",
+        verbose_name=_("direct account"),
+    )
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_invoice_charges",
+        verbose_name=_("cost center"),
+    )
+    allocation_basis = models.CharField(
+        _("allocation basis"),
+        max_length=16,
+        choices=SupplierInvoiceChargeAllocationBasis.choices,
+        default=SupplierInvoiceChargeAllocationBasis.RECEIPT_VALUE,
+    )
+    evidence_reference = models.CharField(_("evidence reference"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_supplier_invoice_charges",
+        verbose_name=_("created by"),
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier invoice charge")
+        verbose_name_plural = _("supplier invoice charges")
+        ordering = ["invoice", "line_order"]
+        permissions = [
+            ("manage_supplier_invoice_charges", _("Can manage supplier invoice charges")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["invoice", "line_order"],
+                name="procurement_invoice_charge_order_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="procurement_invoice_charge_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        treatment="DIRECT_EXPENSE",
+                        direct_account__isnull=False,
+                        cost_center__isnull=False,
+                    )
+                    | Q(
+                        treatment="LANDED_COST",
+                        direct_account__isnull=True,
+                        cost_center__isnull=True,
+                    )
+                ),
+                name="procurement_invoice_charge_treatment_shape",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["invoice", "treatment"], name="sinv_charge_treatment_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.invoice} · {self.line_order} · {self.description}"
+
+
+class SupplierInvoiceChargeManualShare(TimeStampedModel):
+    """An operator-entered manual share against one live match allocation."""
+
+    charge = models.ForeignKey(
+        SupplierInvoiceCharge,
+        on_delete=models.CASCADE,
+        related_name="manual_shares",
+        verbose_name=_("charge"),
+    )
+    match_allocation = models.ForeignKey(
+        "PurchaseMatchAllocation",
+        on_delete=models.PROTECT,
+        related_name="charge_manual_shares",
+        verbose_name=_("match allocation"),
+    )
+    amount = models.DecimalField(
+        _("amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_supplier_invoice_charge_shares",
+        verbose_name=_("created by"),
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier invoice charge manual share")
+        verbose_name_plural = _("supplier invoice charge manual shares")
+        ordering = ["charge", "match_allocation__sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["charge", "match_allocation"],
+                name="procurement_charge_manual_target_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="procurement_charge_manual_share_positive",
+            ),
+        ]
+
+
+class SupplierInvoiceChargeAllocation(TimeStampedModel):
+    """The immutable, exact landed-cost target written by invoice posting."""
+
+    posting = models.ForeignKey(
+        "SupplierInvoicePosting",
+        on_delete=models.PROTECT,
+        related_name="landed_cost_allocations",
+        verbose_name=_("invoice posting"),
+    )
+    charge = models.ForeignKey(
+        SupplierInvoiceCharge,
+        on_delete=models.PROTECT,
+        related_name="allocations",
+        verbose_name=_("charge"),
+    )
+    match_allocation = models.ForeignKey(
+        "PurchaseMatchAllocation",
+        on_delete=models.PROTECT,
+        related_name="charge_allocations",
+        verbose_name=_("match allocation"),
+    )
+    sequence = models.PositiveIntegerField(_("sequence"))
+    match_allocation_uid = models.UUIDField(_("match allocation uid"), editable=False)
+    receipt_line = models.ForeignKey(
+        "GoodsReceiptLine",
+        on_delete=models.PROTECT,
+        related_name="charge_allocations",
+        verbose_name=_("receipt line"),
+    )
+    receipt_line_uid = models.UUIDField(_("receipt line uid"), editable=False)
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="supplier_landed_cost_allocations",
+        verbose_name=_("item"),
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="supplier_landed_cost_allocations",
+        verbose_name=_("warehouse"),
+    )
+    lot = models.ForeignKey(
+        "inventory.InventoryLot",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_landed_cost_allocations",
+        verbose_name=_("lot"),
+    )
+    matched_base_quantity = models.DecimalField(
+        _("matched quantity snapshot"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+    receipt_allocated_value = models.DecimalField(
+        _("receipt value snapshot"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+    )
+    allocated_amount = models.DecimalField(
+        _("allocated landed cost"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+    )
+    control_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        related_name="supplier_landed_cost_allocations",
+        verbose_name=_("inventory control account"),
+    )
+    inventory_movement = models.OneToOneField(
+        "inventory.StockMovement",
+        on_delete=models.PROTECT,
+        related_name="supplier_landed_cost_allocation",
+        verbose_name=_("inventory movement"),
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier invoice charge allocation")
+        verbose_name_plural = _("supplier invoice charge allocations")
+        ordering = ["posting", "charge__line_order", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["posting", "charge", "sequence"],
+                name="procurement_landed_allocation_sequence_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["posting", "charge", "match_allocation"],
+                name="procurement_landed_allocation_target_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(matched_base_quantity__gt=0)
+                & Q(receipt_allocated_value__gte=0)
+                & Q(allocated_amount__gt=0),
+                name="procurement_landed_allocation_values_valid",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.charge} · {self.sequence}"
 
 
 # ---------------------------------------------------------------------------
@@ -3239,6 +3550,22 @@ class SupplierInvoicePosting(TimeStampedModel):
         related_name="reversed_supplier_invoice_postings",
         verbose_name=_("reversal journal entry"),
     )
+    stock_entry = models.ForeignKey(
+        "inventory.StockLedgerEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplier_invoice_postings",
+        verbose_name=_("landed-cost stock entry"),
+    )
+    reversal_stock_entry = models.ForeignKey(
+        "inventory.StockLedgerEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_supplier_invoice_postings",
+        verbose_name=_("landed-cost reversal stock entry"),
+    )
 
     #: The allocation set this generation acted on, hashed. Copied from the
     #: match rather than recomputed, so the posting names the exact evidence
@@ -3268,6 +3595,13 @@ class SupplierInvoicePosting(TimeStampedModel):
     #: to their own accounts and have nothing to do with matching.
     direct_charge_value = models.DecimalField(
         _("direct charges"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: Structured costs capitalised into the exact receipt stock positions.
+    landed_cost_value = models.DecimalField(
+        _("landed costs"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
     )
     #: What the supplier is owed: the whole invoice, never a re-derivation.
     payable_value = models.DecimalField(
@@ -3354,6 +3688,7 @@ class SupplierInvoicePosting(TimeStampedModel):
                 condition=Q(
                     payable_value=models.F("direct_charge_value")
                     + models.F("invoice_matched_value")
+                    + models.F("landed_cost_value")
                 ),
                 name="procurement_posting_payable_is_the_whole_invoice",
             ),
@@ -3361,8 +3696,19 @@ class SupplierInvoicePosting(TimeStampedModel):
                 condition=Q(goods_cleared_value__gte=0)
                 & Q(invoice_matched_value__gte=0)
                 & Q(direct_charge_value__gte=0)
+                & Q(landed_cost_value__gte=0)
                 & Q(payable_value__gt=0),
                 name="procurement_posting_values_are_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(landed_cost_value=0, stock_entry__isnull=True)
+                | Q(landed_cost_value__gt=0, stock_entry__isnull=False),
+                name="procurement_posting_landed_cost_names_stock_entry",
+            ),
+            models.CheckConstraint(
+                condition=Q(reversal_stock_entry__isnull=True)
+                | Q(status="REVERSED", stock_entry__isnull=False),
+                name="procurement_posting_reversal_stock_entry_is_reversed",
             ),
             # A reversal is complete or it did not happen.
             models.CheckConstraint(

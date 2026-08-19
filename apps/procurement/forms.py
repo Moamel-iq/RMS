@@ -43,6 +43,10 @@ from apps.procurement.models import (
     SupplierCreditTerm,
     SupplierCreditTermStatus,
     SupplierInvoice,
+    SupplierInvoiceCharge,
+    SupplierInvoiceChargeAllocationBasis,
+    SupplierInvoiceChargeCategory,
+    SupplierInvoiceChargeTreatment,
     SupplierInvoiceLine,
     SupplierItem,
     SupplierPaymentMethod,
@@ -753,6 +757,14 @@ class SupplierInvoiceForm(forms.Form):
             # of the document. Corrections may change only the draft header.
             self.fields["supplier"].disabled = True
             self.fields["branch"].disabled = True
+            self.fields["freight_amount"].disabled = True
+            self.fields["freight_amount"].help_text = _(
+                "قيمة تاريخية فقط. أضف النقل الجديد من مساحة التكاليف الإضافية."
+            )
+        else:
+            # New actual freight is a structured charge with explicit direct
+            # or landed-cost treatment, never an ambiguous header amount.
+            del self.fields["freight_amount"]
 
     def clean(self) -> dict[str, Any]:
         data: dict[str, Any] = super().clean() or {}
@@ -843,6 +855,88 @@ class InvoiceReversalForm(forms.Form):
     """A reversal states why. An unexplained one is a hole in the record."""
 
     reason = forms.CharField(label=_("السبب"), max_length=500)
+
+
+class SupplierInvoiceChargeForm(forms.Form):
+    """One structured actual cost; the service owns every posting rule."""
+
+    category = forms.ChoiceField(
+        label=_("نوع التكلفة"), choices=SupplierInvoiceChargeCategory.choices
+    )
+    treatment = forms.ChoiceField(
+        label=_("المعالجة"), choices=SupplierInvoiceChargeTreatment.choices
+    )
+    description = forms.CharField(label=_("البيان"), max_length=200)
+    amount = forms.DecimalField(label=_("المبلغ"), min_value=Decimal("0.001"))
+    direct_account = forms.ModelChoiceField(
+        queryset=Account.objects.none(), label=_("حساب التكلفة المباشرة"), required=False
+    )
+    cost_center = forms.ModelChoiceField(
+        queryset=CostCenter.objects.none(), label=_("مركز التكلفة"), required=False
+    )
+    allocation_basis = forms.ChoiceField(
+        label=_("أساس التوزيع"),
+        choices=SupplierInvoiceChargeAllocationBasis.choices,
+        initial=SupplierInvoiceChargeAllocationBasis.RECEIPT_VALUE,
+    )
+    evidence_reference = forms.CharField(label=_("مرجع الإثبات"), max_length=200, required=False)
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(
+        self,
+        *args: Any,
+        actor: User,
+        invoice: SupplierInvoice,
+        instance: SupplierInvoiceCharge | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.invoice = invoice
+        self.instance = instance
+        from apps.procurement.invoices import DIRECT_LINE_ACCOUNT_CLASSES
+
+        self.fields["direct_account"].queryset = (  # type: ignore[attr-defined]
+            Account.objects.filter(
+                organization_id=invoice.organization_id,
+                is_active=True,
+                is_postable=True,
+                account_class__in=DIRECT_LINE_ACCOUNT_CLASSES,
+                role_mappings__isnull=True,
+                inventory_mappings__isnull=True,
+            )
+            .order_by("code")
+            .distinct()
+        )
+        self.fields["cost_center"].queryset = CostCenter.objects.filter(  # type: ignore[attr-defined]
+            organization_id=invoice.organization_id, is_active=True
+        ).order_by("code")
+        if instance is not None and not self.is_bound:
+            self.initial.update(
+                {
+                    "category": instance.category,
+                    "treatment": instance.treatment,
+                    "description": instance.description,
+                    "amount": instance.amount,
+                    "direct_account": instance.direct_account_id,
+                    "cost_center": instance.cost_center_id,
+                    "allocation_basis": instance.allocation_basis,
+                    "evidence_reference": instance.evidence_reference,
+                    "notes": instance.notes,
+                }
+            )
+
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean() or {}
+        if data.get("treatment") == SupplierInvoiceChargeTreatment.DIRECT_EXPENSE:
+            if data.get("direct_account") is None:
+                self.add_error("direct_account", _("اختر حساب التكلفة المباشرة."))
+            if data.get("cost_center") is None:
+                self.add_error("cost_center", _("اختر مركز التكلفة."))
+        else:
+            data["direct_account"] = None
+            data["cost_center"] = None
+        return data
 
 
 class MatchAllocationForm(forms.Form):

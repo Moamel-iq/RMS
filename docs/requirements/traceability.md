@@ -26,7 +26,7 @@ reviews.
 | 0.4 | The leading table — `UOM-` | Units of measure and conversion |
 | 0.5 | The leading table — `AUD-` | The audit foundation |
 | 1.0 | — | A specification task. It *produces* the Phase 1 requirements the rows below cite; it has no separate implementation to trace |
-| 2.0 | — | The same, for Phase 2 plus Procurement completion (`PRC-001`..`PRC-075`) |
+| 2.0 | — | The same, for Phase 2 plus Procurement completion (`PRC-001`..`PRC-086`) |
 | 1.7 | Superseded by 1.7A and 1.7B | Split during Phase 1; both halves carry their own rows |
 | 1.8 | `EXIT-` rows plus the Phase 1 gate record | An exit gate verifies other tasks' requirements rather than adding its own |
 | 2.18 | The Phase 2 gate record | The same; see `docs/runbooks/overnight-progress.md` Step 20 |
@@ -644,6 +644,13 @@ see Task 2.0 §0.
 | PRC-077 | Invoice workspaces expose supplier/branch/date/due/matching filters and the complete PO→receipt→match→invoice→journal→credit/payment evidence chain | list/detail read model and HTMX templates | `apps/procurement/tests/test_supplier_invoices.py::TestScopeAndPermissions::test_the_workspace_filters_reference_supplier_branch_and_matching`, `test_a_posted_detail_shows_the_journal_lines` | Procurement completion 1 | | Done |
 | PRC-078 | Direct invoice account choices exclude role-owned system accounts and the service independently rejects protected classes/mappings | `InvoiceAccountLineForm`, `_validate_direct_account`, `_refuse_role_owned_account` | `apps/procurement/tests/test_supplier_invoices.py::TestScopeAndPermissions::test_the_direct_account_selector_omits_role_owned_accounts` plus direct-account domain tests | Procurement completion 1 | | Done |
 | PRC-079 | Restricted invoice HTML and JSON omit monetary fields rather than serializing blank/null placeholders | template cost branches and raw restricted API response | `apps/procurement/tests/test_supplier_invoices.py::TestScopeAndPermissions::test_cost_is_absent_from_restricted_html`, `TestApi::test_cost_fields_are_omitted_from_the_restricted_api` | Procurement completion 1 | | Done |
+| PRC-080 | Actual invoice costs are structured rows with closed categories/treatments and draft-only mutation | `SupplierInvoiceCharge`, services and migration 0035 guard | `apps/procurement/tests/test_variance_posting.py::TestStructuredAdditionalCosts` | Procurement completion 2 | | Done |
+| PRC-081 | Direct costs require an eligible account plus cost centre and post no stock | charge shape constraint and invoice posting planner | `TestStructuredAdditionalCosts::test_direct_charge_posts_to_its_account_and_cost_center` | Procurement completion 2 | | Done |
+| PRC-082 | Landed targets come only from the same invoice's READY match and snapshot receipt/item/warehouse/lot/match identity | `preview_charge_allocations`, `SupplierInvoiceChargeAllocation` | `TestStructuredAdditionalCosts::test_landed_cost_posts_value_without_quantity_and_reverses_exactly` | Procurement completion 2 | | Done |
+| PRC-083 | Allocation bases are receipt value, comparable base quantity or exact manual; every result uses stable largest remainder | core allocator and manual-share service | `TestStructuredAdditionalCosts::test_manual_shares_must_equal_the_charge` | Procurement completion 2 | | Done |
+| PRC-084 | Landed posting makes quantity-zero inventory value exactly equal the inventory-control debit and stored allocation | public inventory kernel plus linked invoice journal | `TestStructuredAdditionalCosts::test_landed_cost_posts_value_without_quantity_and_reverses_exactly` | Procurement completion 2 | | Done |
+| PRC-085 | Any downstream outbound since receipt refuses Release 1 capitalisation with no partial split | stock-sequence policy guard | `TestStructuredAdditionalCosts::test_downstream_outbound_refuses_capitalisation` | Procurement completion 2 | | Done |
+| PRC-086 | Additional-cost list/detail/add/preview and direct/landed/waiting/posted/reversed queues are Arabic RTL and HTMX-enabled | views, routes, navigation and templates | `TestStructuredAdditionalCosts::test_additional_cost_workspace_is_rtl_and_htmx_ready` | Procurement completion 2 | | Done |
 
 ## Phase 3 — Recipes, Kitchen and Production
 

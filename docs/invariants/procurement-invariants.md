@@ -25,10 +25,10 @@ the payable account) and 47 (GRNI equality), which are the phase's proof
 obligation. The "Enforced where" column is the evidence; the traceability
 matrix carries the same citations against requirement IDs.
 
-Procurement completion adds invariants 51–54 for ADR-032. They extend the
+Procurement completion adds invariants 51–64 for ADR-032 and ADR-033. They extend the
 Phase 2 exit contract without weakening any earlier row.
 
-## The fifty-four
+## The sixty-four
 
 | # | Invariant | Enforced where | Delivered by |
 |---|---|---|---|
@@ -115,6 +115,12 @@ Phase 2 exit contract without weakening any earlier row.
 | 56 | Release 1 supplier invoices are explicitly IQD; a database constraint prevents an unsupported currency from entering through any write path | `currency_code`, form/API allowlist and check constraint | Procurement completion 1 |
 | 57 | A goods line can post only through a complete live match to a posted receipt; a direct line can name only an active postable expense/asset-like account not owned by a system posting role | Posting planner, account validator, narrowed form choices and matching coverage tests | Procurement completion 1 |
 | 58 | Invoice monetary fields and line prices are absent from both HTML and raw JSON when `view_supplier_cost` is not held; `null` is not a redaction | Template branches plus restricted `JsonResponse` path and raw-response tests | Procurement completion 1 |
+| 59 | New actual invoice costs are structured charge rows; legacy freight remains compatibility evidence and is not offered on new forms | `SupplierInvoiceCharge`, invoice form and derived `charges_total` | Procurement completion 2 |
+| 60 | A direct charge requires an eligible postable expense/asset account and a cost centre and never creates a stock effect | treatment-shape constraint, `_validate_direct_account`, posting plan and focused tests | Procurement completion 2 |
+| 61 | A landed charge targets only the same invoice's live READY match allocations and retains match, receipt, item, warehouse, lot and control-account identity | target resolver, immutable `SupplierInvoiceChargeAllocation`, migration 0035 trigger | Procurement completion 2 |
+| 62 | Receipt-value, comparable base-quantity and exact manual allocation use Decimal, stable sequence and largest remainder; stored shares equal the charge exactly | `preview_charge_allocations`, core allocator and posting assertion | Procurement completion 2 |
+| 63 | Landed cost moves zero quantity; its value-only stock effects, inventory-control journal debits and allocation total are equal, and no amount reaches GRNI/PPV/return variance/waste | inventory kernel call, posting plan, linked stock/journal entries and tests | Procurement completion 2 |
+| 64 | Release 1 refuses landed capitalisation after any downstream outbound; posting is atomic and reversal mirrors stored stock movements/accounts without re-resolution | downstream sequence guard, one transaction and exact stock reversal | Procurement completion 2 |
 
 ## Rules that carry over unchanged
 
@@ -156,8 +162,10 @@ Things a reader might expect to find here, and the reason each is absent:
   in APPROVED where the invoice-without-receipt report lists it. See ADR-023
   §5 as amended by Task 2.12.
 - **"A supplier balance may be cached."** Deliberately never. See invariant 3.
-- **"Freight is capitalised into inventory value."** Not in Release 1. Task 2.0
-  §16.2 records why, and the fields exist for when it is approved.
+- **"Every freight charge is capitalised into inventory value."** Deliberately
+  false. ADR-033 elects capitalisation only for an explicit `LANDED_COST`
+  charge with same-supplier live match evidence and no downstream outbound.
+  Cross-supplier or ineligible freight is a direct expense.
 - **"A tax amount is recorded."** No tax behaviour is invented where the
   requirements define none. Task 2.0 §16.1.
 - **"Prices are hidden from anyone who cannot see them."** Cost columns are
