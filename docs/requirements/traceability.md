@@ -936,3 +936,68 @@ resolves to a test that runs.
 | SLS-050 | The seeded module verifies clean, which is what makes the demo worth having | `seed_sales_demo` + `verify_sales` | `apps/sales/tests/test_sales_demo_seed.py::test_the_seeded_module_verifies_clean` | 4.7 | Done |
 | SLS-051 | Twelve navigation sections, all active, no قريباً badge left in Sales | `apps/core/navigation.py` | `apps/core/tests/test_shell.py::test_a_finished_module_has_no_inert_section_left` | 4.7 | Done |
 | SLS-052 | Task 4.0's seventeen chart accounts are in the Phase 0 exit gate's count | `seed_chart_of_accounts.CHART` | `tests/test_phase_0_exit.py::TestTheFoundationsCooperate::test_the_whole_path_from_an_empty_database_to_a_closed_period` | 4.0 | Done |
+
+## Phase 5 — Accounting
+
+Specified by Task 5.0 (`docs/tasks/task-5-0-accounting-domain-spec.md`,
+ADR-029, ADR-030, ADR-031) and delivered across checkpoints 5.1 to 5.13. The
+invariants these rows cite are numbered in
+`docs/invariants/accounting-module-invariants.md`; the documents are written
+out in `docs/development/accounting-operations.md` and the reads in
+`docs/development/accounting-reports.md`.
+
+The Phase 3 and Phase 4 conventions carry over. A row may cite a **constraint,
+a trigger or a management command** instead of a test, because the enforcement
+*is* the constraint and pointing at a test that merely observes it would be the
+weaker claim. A row is `Done` only when the evidence exists and runs.
+
+| Req ID | Summary | Module / service | Tests | Task | Status |
+|---|---|---|---|---|---|
+| ACT-001 | The Phase 0 kernel stays the only ledger; Phase 5 adds no second journal store | no journal model outside `apps/accounting/models.JournalEntry` | `apps/accounting/tests/test_verify_accounting.py::test_a_clean_organization_reports_no_blocking_findings` | 5.1 | Done |
+| ACT-002 | No mutable balance column exists on any accounting model | `reconciliation.verify_no_stored_balance` | `apps/accounting/tests/test_api_reports.py::test_cashbox_endpoint_returns_no_balance` · `apps/accounting/tests/test_verify_accounting.py::test_no_accounting_model_carries_a_stored_balance` | 5.1 | Done |
+| ACT-003 | Every balance is derived from POSTED and REVERSED journal lines at read time | `selectors.account_balance`, `reports._scoped_lines` | `apps/accounting/tests/test_api_reports.py::test_trial_balance_ties_and_reports_strings` | 5.8 | Done |
+| ACT-004 | A manual journal's creator may not post it; system journals are exempt | `services.validate_manual_maker_checker` | `apps/accounting/tests/test_api.py::test_create_amend_post` | 5.2 | Done |
+| ACT-005 | A RESTRICTED account refuses a hand-written line without the override permission | `services.validate_manual_posting_policy` | `apps/accounting/tests/test_posting.py` | 5.2 | Done |
+| ACT-006 | A posted journal is frozen by a whole-row allowlist trigger, not a blocklist | migration `accounting/0005` | `apps/accounting/tests/test_hardening.py` | 0.6 | Done |
+| ACT-007 | Role mappings are effective-dated and versioned; a used mapping is closed, never rewritten | `commands.close_account_role_mapping` | `apps/accounting/tests/test_account_mappings.py` | 5.1 | Done |
+| ACT-008 | No account code is written into any accounting service; every account is resolved by role | `services.resolve_default_account` | `apps/accounting/tests/test_report_mapping.py` | 5.1 | Done |
+| ACT-009 | One GL account carries at most one active cash record | partial unique index on `(organization, account) WHERE is_active` | `apps/accounting/tests/test_cash_accounts.py` | 5.3 | Done |
+| ACT-010 | Bank account numbers are stored masked | `cash_services._mask` | `apps/accounting/tests/test_cash_accounts.py` | 5.3 | Done |
+| ACT-011 | Reconciliation stamps a date and changes no figure, because none is stored | `cash_services.record_reconciliation` | `apps/accounting/tests/test_cash_accounts.py` | 5.3 | Done |
+| ACT-012 | The supplier workspace forwards to Procurement's `supplier_aging` and derives nothing | `report_commands.read_supplier_liabilities` | `apps/accounting/tests/test_verify_accounting.py::test_it_forwards_the_other_modules_verifiers` | 5.4 | Done |
+| ACT-013 | The application workspace forwards to Sales' `positions_for` and derives nothing | `report_commands.read_application_receivables` | `apps/accounting/tests/test_verify_accounting.py::test_it_forwards_the_other_modules_verifiers` | 5.4 | Done |
+| ACT-014 | The subledger comparison uses `net_position`, not `open_total`, so standing credit ties | `reconciliation.verify_supplier_subledger` | `apps/accounting/tests/test_verify_accounting.py::test_a_clean_organization_reports_no_blocking_findings` | 5.4 | Done |
+| ACT-015 | A subledger discrepancy is reported and never repaired automatically | no repair path in `reconciliation.py` | `apps/accounting/tests/test_verify_accounting.py::test_nothing_in_reconciliation_writes` | 5.4 | Done |
+| ACT-016 | An expense voucher has no supplier field and no tax field | `ExpenseVoucher` model | `apps/accounting/tests/test_api_documents.py::test_expense_voucher_full_lifecycle` | 5.5 | Done |
+| ACT-017 | A voucher is paid from exactly one source, cashbox or bank | `expense_voucher_exactly_one_payment_source` check constraint + `open_expense_voucher` | `apps/accounting/tests/test_api_documents.py::test_voucher_needs_exactly_one_payment_source` | 5.5 | Done |
+| ACT-018 | The voucher's author may neither approve nor post it, whatever permissions they hold | `expense_services.approve_expense_voucher` / `post_expense_voucher` | `apps/accounting/tests/test_api_documents.py::test_author_cannot_approve_own_voucher` | 5.5 | Done |
+| ACT-019 | A voucher total is the sum of its lines, never rounded independently | `expense_services.recompute_total` | `apps/accounting/tests/test_api_documents.py::test_expense_voucher_full_lifecycle` | 5.5 | Done |
+| ACT-020 | Nothing that reached the ledger takes the discard path | `expense_services.discard_expense_voucher` | `apps/accounting/tests/test_api_documents.py::test_posted_voucher_cannot_be_discarded` | 5.5 | Done |
+| ACT-021 | An accrual line names an expense account and never revenue, liability or equity | `deferral_services.add_accrual_line` | `apps/accounting/tests/test_api_documents.py::test_accrual_line_refuses_a_non_expense_account` | 5.6 | Done |
+| ACT-022 | Reversing an accrual may record which invoice superseded it; Accounting never creates that invoice | `deferral_services.reverse_accrual` | `apps/accounting/tests/test_api_documents.py::test_accrual_lifecycle_and_line_totals` | 5.6 | Done |
+| ACT-023 | A prepayment schedule is split by the certified allocator and sums to its header exactly | `deferral_services.build_schedule` + `apps/core/allocation.py` | `apps/accounting/tests/test_api_documents.py::test_prepayment_schedule_is_exact` | 5.6 | Done |
+| ACT-024 | `end_date` is derived from the last schedule period and never submitted | `deferral_services.open_prepayment` | `apps/accounting/tests/test_api_documents.py::test_prepayment_end_date_cannot_be_submitted` | 5.6 | Done |
+| ACT-025 | An instalment into a closed period is refused, and the refusal names the period | `deferral_services.post_schedule_line` | `apps/accounting/tests/test_posting.py` | 5.6 | Done |
+| ACT-026 | The pre-close report collects every blocker instead of raising on the first | `period_services.period_close_blockers` | `apps/accounting/tests/test_api_reports.py::test_pre_close_collects_every_blocker_not_just_the_first` | 5.7 | Done |
+| ACT-027 | A close guard that raises unexpectedly becomes an advisory finding, not an aborted preview | `period_services._domain_guards` | `apps/accounting/tests/test_api_reports.py::test_pre_close_collects_every_blocker_not_just_the_first` | 5.7 | Done |
+| ACT-028 | Statement order is one tuple, named once, and the running balance is accumulated in the service | `apps/accounting/statements.py` + `reports.general_ledger` | `apps/accounting/tests/test_api_reports.py::test_general_ledger_source_document_id_is_a_string` | 5.8 | Done |
+| ACT-029 | `source_type` is upper-cased on the way in, matching stored source identity | `report_commands.read_general_ledger` | `apps/accounting/tests/test_source_identity.py` | 5.8 | Done |
+| ACT-030 | The statements resolve their account set from the ledger, so an unmapped balance cannot vanish | `reports.classify` | `apps/accounting/tests/test_api_reports.py::test_unmapped_balance_is_shown_and_blocks_approval` | 5.9 | Done |
+| ACT-031 | An unmapped account with a balance blocks approval and appears in غير مصنّف | `IncomeStatement.is_approvable`, `BalanceSheet.is_approvable` | `apps/accounting/tests/test_api_reports.py::test_unmapped_balance_is_shown_and_blocks_approval` | 5.9 | Done |
+| ACT-032 | Current-year earnings are computed, so the equation holds without monthly closing entries | `reports.balance_sheet` | `apps/accounting/tests/test_api_reports.py::test_balance_sheet_reports_its_difference_rather_than_hiding_it` | 5.9 | Done |
+| ACT-033 | An unbalanced statement reports its difference and offers no repair | `BalanceSheet.difference`; no repair path in `report_views.py` or `api_reports.py` | `apps/accounting/tests/test_api_reports.py::test_balance_sheet_reports_its_difference_rather_than_hiding_it` | 5.9 | Done |
+| ACT-034 | Every CSV export calls the same service the screen did, with a BOM and neutralised cells | `report_views.py` + `apps/inventory/report_views.neutralise` | `apps/accounting/tests/test_accounting_ui.py::test_every_report_export_is_csv_with_a_bom` · `apps/accounting/tests/test_accounting_ui.py::test_an_exported_cell_cannot_execute_as_a_formula` | 5.8 | Done |
+| ACT-035 | Every dashboard card answers as its own fragment, so one failure cannot blank the page | `apps/accounting/dashboard_views.py` | `apps/accounting/tests/test_accounting_ui.py::test_every_dashboard_card_answers_as_a_fragment` | 5.10 | Done |
+| ACT-036 | Money crosses the API as a string in both directions | `api_documents.py`, `api_reports.py` | `apps/accounting/tests/test_api_documents.py::test_amounts_leave_as_strings` | 5.11 | Done |
+| ACT-037 | `source_document_id` crosses the API as a string, because upstream ids are UUIDs as often as integers | `api_reports.LedgerRowOut` | `apps/accounting/tests/test_api_reports.py::test_general_ledger_source_document_id_is_a_string` | 5.11 | Done |
+| ACT-038 | Out of scope is 404; in scope without authority is 403 | `document_commands.py`, `report_commands.py` | `apps/accounting/tests/test_api_documents.py::test_out_of_scope_voucher_is_404_not_403` · `::test_in_scope_without_authority_is_403` | 5.11 | Done |
+| ACT-039 | Every new endpoint requires authentication, because the API authenticates by default | `config/api.py` `auth=django_auth` | `apps/accounting/tests/test_api_documents.py::test_anonymous_is_refused` | 5.11 | Done |
+| ACT-040 | The API reaches reports under the same authority the screens use, neither wider nor narrower | `report_commands` uses `require_reachable_organization_permission` | `apps/accounting/tests/test_api_reports.py::test_reader_without_ledger_authority_cannot_read_reports` | 5.11 | Done |
+| ACT-041 | Twenty-six accounting permissions: every declared name granted, every grant scoped and migrated | `apps/accounting/permissions.py` | `apps/accounting/tests/test_permissions.py` | 5.1 | Done |
+| ACT-042 | `verify_accounting` reports and refuses to repair; there is no `--fix` | `apps/accounting/management/commands/verify_accounting.py` | `apps/accounting/tests/test_verify_accounting.py::test_the_command_offers_no_repair_flag` | 5.10 | Done |
+| ACT-043 | The verifier composes Procurement's and Sales' own verifiers rather than re-deriving them | `reconciliation.verify_supplier_subledger` / `verify_application_subledger` | `apps/accounting/tests/test_verify_accounting.py::test_it_forwards_the_other_modules_verifiers` | 5.10 | Done |
+| ACT-044 | A check that raises becomes a finding rather than aborting the run | `verify_accounting.Command.handle` | `apps/accounting/tests/test_verify_accounting.py::test_a_check_that_raises_becomes_a_finding` | 5.10 | Done |
+| ACT-045 | The seeded demo verifies clean: 0 ERROR, 0 ADVISORY, 0 COVERAGE_LIMITATION | `seed_accounting_demo` + `verify_accounting` | `verify_accounting --organization DEMO-KHAN-MANDI` exits zero: 0 ERROR, 0 ADVISORY, 0 COVERAGE_LIMITATION | 5.10 | Verified |
+| ACT-046 | The demo classifies every postable account, because an unmapped balance blocks the statements | `demo.seed_report_mappings` | the first verifier run reported 27 unclassified balances; the seed closed them | 5.10 | Verified |
+| ACT-047 | Fifteen navigation sections, all active, no قريباً badge left in Accounting | `apps/core/navigation.py` | `apps/core/tests/test_shell.py::test_a_finished_module_has_no_inert_section_left` | 5.10 | Done |
+| ACT-048 | IQD only: no currency field, no rate table, no tax field anywhere in the module | the absence across `apps/accounting/models.py` | `apps/accounting/tests/test_commit_boundary.py` | 5.0 | Done |

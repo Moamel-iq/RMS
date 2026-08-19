@@ -1434,3 +1434,93 @@ Two stale Task 3.4 verifier checks were corrected: `production_batch_is_not_draf
 and `production_draft_has_a_posting_event` reported any posted batch as out of
 bounds, which was right when nothing could post and would have reported every
 correct posting forever.
+
+
+## Phase 5 — Accounting (2026-08-19)
+
+Fifteen Arabic sections, all live: الأدوار المحاسبية · ربط الحسابات · دليل
+الحسابات · قيود اليومية · الصناديق · الحسابات البنكية · ذمم الموردين · ذمم
+التطبيقات · المصروفات · المستحقات والمقدمات · الفترات المحاسبية · ميزان
+المراجعة · دفتر الأستاذ · قائمة الدخل · الميزانية العمومية.
+
+Specified by Task 5.0 and decided by ADR-029, ADR-030 and ADR-031. The
+operational reference is `docs/development/accounting-operations.md`; the reads
+are in `docs/development/accounting-reports.md`.
+
+### The decision the whole module rests on
+
+**No mutable balance anywhere.** Every figure — a cashbox position, a supplier
+outstanding, a trial-balance line, a balance-sheet total — is derived from
+posted journal lines at read time. `Cashbox` and `BankAccount` carry no
+`current_balance`; the supplier and application workspaces store nothing at
+all. `reconciliation.verify_no_stored_balance` is the tripwire, and it is the
+one check that takes no organization because it is about the code rather than
+one organization's data.
+
+### Four things the build itself turned up
+
+**27 unclassified balances on the verifier's first run.** Every postable
+account with a balance was unmapped, and both financial statements refused
+approval. That was ADR-031 §2 working exactly as designed: the statement
+services resolve their account set from the *ledger*, not from the mapping
+table, so an unmapped balance becomes a visible غير مصنّف row instead of
+silently vanishing from a report that still ties. Fixed in the demo, not in the
+rule.
+
+**Django's `for` tag cannot take a tuple literal.** `{% for section in a,b %}`
+is a `TemplateSyntaxError`, and it took both statement screens down with a 500
+before either was opened by hand. The section ordering moved into the views,
+which is where it belonged.
+
+**`source_document_id` is not an integer.** Typed as one in the ledger
+endpoint's response schema, it returned a 500 the first time a Sales journal
+reached it — upstream documents identify themselves by UUID as often as by
+primary key. Found by the API smoke asserting on payload shape rather than
+status code.
+
+**The API was briefly stricter than the screens.** The report commands demanded
+`require_organization_permission`, which needs an `OrganizationMembership`,
+while the screens let a branch accountant read their organization's reports.
+Relaxed to `require_reachable_organization_permission` — the same authority the
+chart reads use — so the two surfaces agree.
+
+### Two patch-script incidents worth remembering
+
+A patch inserting a function immediately above `add_accrual_line` and
+`add_expense_line` landed **between the existing `@transaction.atomic` and its
+function**, silently moving the decorator onto the new function and leaving
+both line-adders non-atomic. Caught by auditing every top-level `def` against
+its preceding line, not by any gate — ruff and mypy are both perfectly happy
+with a function that lost its decorator.
+
+The heredoc broke on Arabic content again, exactly as CLAUDE.md warns. Patch
+scripts written with the Write tool, then executed, is the reliable path.
+
+### Verification
+
+* Route sweep: **48 routes, 0 failing, 4 skipped** (POST-only actions with no
+  GET signature). Every screen 200 as a full page *and* as an HTMX fragment
+  carrying real markup, with no nested shell.
+* API smoke: **19 read routes, 0 failing**, each asserted on a field the
+  endpoint exists to produce rather than on status alone.
+* Dashboard: **15 cards, 0 failing**, each an independent fetch.
+* `verify_accounting --organization DEMO-KHAN-MANDI`: **0 ERROR, 0 ADVISORY,
+  0 COVERAGE_LIMITATION** across 51 journals, 106 accounts, 28 role mappings.
+* Navigation: **15 sections, 15 active, no قريباً**.
+
+### Deliberately absent
+
+No second ledger. No FX and no multi-currency — IQD only. No VAT, no sales tax,
+no withholding and no tax filing: there is no approved Iraqi tax policy to
+implement, and inventing one would be worse than the gap. No supplier balance
+table, no second allocation model, no mutable application balance. No payroll —
+that is Phase 6.
+
+### Still open at the end of Phase 5
+
+The **full project suite** was not run in the implementation passes, by owner
+policy: FULL PROJECT SUITE — DEFERRED TO PHASE 5 EXIT GATE. The Phase 5
+certification rebase onto `phase-4-sales-complete` also remains, and that tag
+does not exist yet. The Phase 4 Kitchen debt — 13 stale boundary tests and 20
+demo-fixture errors — is unchanged and remains an owner decision rather than a
+Phase 5 task.
