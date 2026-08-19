@@ -1,4 +1,4 @@
-/* Khan Mandi Inventory — inventory-scoped enterprise components.
+/* Khan Mandi Workspace — shared enterprise components plus inventory screens.
  *
  * All spacing, colour, type, radius and motion values resolve to the shared
  * tokens in app.css. Inline-axis layout uses logical properties throughout.
@@ -15,15 +15,17 @@
   --inventory-table-min: 52rem;
 }
 
-body[data-module="inventory"] .content {
+.content {
   min-inline-size: 0;
 }
 
-.inventory-page {
+.inventory-page,
+.workspace-page {
   min-inline-size: 0;
 }
 
-.inventory-breadcrumb {
+.inventory-breadcrumb,
+.workspace-breadcrumb {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -32,13 +34,15 @@ body[data-module="inventory"] .content {
   font-size: var(--text-xs);
 }
 
-.inventory-breadcrumb a {
+.inventory-breadcrumb a,
+.workspace-breadcrumb a {
   color: var(--ink-muted);
   font-weight: 650;
   text-decoration: none;
 }
 
-.inventory-breadcrumb a:hover {
+.inventory-breadcrumb a:hover,
+.workspace-breadcrumb a:hover {
   color: var(--brand-700);
   text-decoration: underline;
 }
@@ -81,7 +85,7 @@ body[data-module="inventory"] .content {
 }
 
 /* Search and filter toolbar */
-body[data-module="inventory"] form.toolbar[data-inventory-toolbar] {
+form.toolbar[data-workspace-toolbar] {
   position: relative;
   display: grid;
   grid-template-columns: minmax(18rem, 1fr) auto auto;
@@ -95,12 +99,12 @@ body[data-module="inventory"] form.toolbar[data-inventory-toolbar] {
   box-shadow: var(--shadow-xs);
 }
 
-body[data-module="inventory"] .toolbar__search {
+form[data-workspace-toolbar] .toolbar__search {
   position: relative;
   min-inline-size: 0;
 }
 
-body[data-module="inventory"] .toolbar__search input {
+form[data-workspace-toolbar] .toolbar__search input {
   min-block-size: var(--control-height);
   padding-inline-start: 2.75rem;
   padding-inline-end: var(--space-3);
@@ -187,6 +191,10 @@ body[data-module="inventory"] .toolbar__search input {
   display: none;
 }
 
+.filter-disclosure:not(:has(.toolbar__filters > *)) {
+  display: none;
+}
+
 .toolbar__filters :where(select, input) {
   min-inline-size: 0;
   min-block-size: var(--control-height);
@@ -197,7 +205,19 @@ body[data-module="inventory"] .toolbar__search input {
   background: var(--surface);
 }
 
-body[data-module="inventory"].is-enhanced .toolbar__submit {
+.filter-field {
+  min-inline-size: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.filter-field__label {
+  color: var(--ink-subtle);
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
+body.is-enhanced form[data-workspace-toolbar][hx-get] .toolbar__submit {
   display: none;
 }
 
@@ -334,6 +354,51 @@ body[data-module="inventory"].is-enhanced .toolbar__submit {
 
 .inventory-list-page .data-table td {
   white-space: normal;
+}
+
+.inventory-items-table th:nth-child(1) {
+  inline-size: 11rem;
+}
+
+.inventory-items-table th:nth-child(2) {
+  inline-size: 14rem;
+}
+
+.inventory-items-table th:nth-child(5),
+.inventory-items-table th:nth-child(6) {
+  inline-size: 7.5rem;
+}
+
+.inventory-items-table th:last-child {
+  inline-size: 10rem;
+}
+
+.inventory-item-name {
+  min-inline-size: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.inventory-item-name small {
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-type-badge {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 1.75rem;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--ink-subtle);
+  background: var(--surface-muted);
+  font-size: var(--text-xs);
+  font-weight: 750;
 }
 
 .inventory-list-page .data-table tbody tr:focus-within td {
@@ -1126,8 +1191,259 @@ body[data-module="inventory"] .table tfoot td {
   background: var(--success-100);
 }
 
+/* Shared forms */
+.workspace-form-page {
+  inline-size: 100%;
+  max-inline-size: 72rem;
+  margin-inline: auto;
+  padding-block-end: var(--space-8);
+}
+
+.workspace-form-card {
+  max-inline-size: none;
+  padding: clamp(1rem, 2.4vw, 2rem);
+  border-inline-start: 4px solid var(--brand-600);
+  box-shadow: var(--shadow-sm);
+}
+
+.workspace-form-card .formgrid {
+  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+}
+
+.workspace-form-card .formrow--check {
+  align-self: end;
+}
+
+.workspace-form-card .formactions {
+  position: sticky;
+  inset-block-end: 0;
+  z-index: 3;
+  margin-inline: calc(clamp(1rem, 2.4vw, 2rem) * -1);
+  margin-block-end: calc(clamp(1rem, 2.4vw, 2rem) * -1);
+  padding: var(--space-4) clamp(1rem, 2.4vw, 2rem);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -1px 0 var(--line-soft);
+  backdrop-filter: blur(10px);
+}
+
+/* Dashboard, summary and detail primitives shared by Sales and Accounting. */
+#sales-dashboard,
+#accounting-dashboard,
+#kitchen-meal-list {
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.filterbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  align-items: end;
+  gap: var(--space-3);
+  margin-block-end: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.filterbar .field {
+  min-inline-size: 0;
+  margin: 0;
+}
+
+.filterbar .field__label {
+  margin-block-end: var(--space-2);
+  color: var(--ink-subtle);
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
+.filterbar :where(input:not([type="checkbox"]):not([type="radio"]), select) {
+  inline-size: 100%;
+  min-block-size: var(--control-height);
+  padding-inline: var(--space-3);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  background: var(--surface-subtle);
+  font: inherit;
+}
+
+.filterbar :where(input, select):focus {
+  outline: 3px solid var(--info-700);
+  outline-offset: 2px;
+  border-color: var(--brand-500);
+}
+
+.content .card {
+  padding: clamp(1rem, 2.2vw, 1.75rem);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.content :where(.card + .card, .filterbar + .card, .tablewrap + .card, .card + .tablewrap,
+  .formcard + .formcard, .formcard + .tablewrap, .tablewrap + .formcard) {
+  margin-block-start: var(--space-5);
+}
+
+.section-title {
+  margin: 0 0 var(--space-4);
+  color: var(--ink);
+  font-size: var(--text-lg);
+  line-height: 1.4;
+}
+
+.section-title:not(:first-child) {
+  margin-block-start: var(--space-6);
+  padding-block-start: var(--space-5);
+  border-block-start: 1px solid var(--line-soft);
+}
+
+.statrow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(10.5rem, 100%), 1fr));
+  gap: var(--space-3);
+}
+
+.stat {
+  min-inline-size: 0;
+  min-block-size: 6.5rem;
+  display: grid;
+  align-content: center;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+
+.stat--strong {
+  border-color: #e7c3ab;
+  background: var(--brand-50);
+}
+
+.stat__label {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 750;
+}
+
+.stat__value {
+  min-inline-size: 0;
+  color: var(--ink);
+  font-size: clamp(1.1rem, 1.8vw, 1.45rem);
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.stat__value code,
+.card__value code {
+  color: inherit;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.stat__hint {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(17rem, 100%), 1fr));
+  gap: var(--space-4);
+  margin-block-start: var(--space-5);
+}
+
+.card-grid .card {
+  min-inline-size: 0;
+  min-block-size: 10rem;
+}
+
+.card-grid .card + .card {
+  margin-block-start: 0;
+}
+
+.card--metric {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+}
+
+.content .card--metric .card__title {
+  margin: 0;
+  color: var(--ink-subtle);
+  font-size: var(--text-sm);
+  text-align: start;
+}
+
+.card__value {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.5vw, 2rem);
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+
+.card :where(.tablewrap, .table) {
+  min-inline-size: 0;
+}
+
+/* Several document/detail templates intentionally render their audit table
+   directly. Contain those wide ledgers locally instead of widening the shell. */
+.content table.table:not(.responsive-table) {
+  display: block;
+  inline-size: 100%;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+}
+
+.card > .tablewrap {
+  margin-inline: calc(clamp(1rem, 2.2vw, 1.75rem) * -1);
+  border-inline: 0;
+  border-radius: 0;
+}
+
+/* Home workspace */
+body[data-module="home"] .content {
+  max-inline-size: 82rem;
+}
+
+body[data-module="home"] .content > .panel {
+  padding: clamp(1rem, 2.2vw, 1.75rem);
+  border: 1px solid var(--line);
+  border-inline-start: 4px solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+body[data-module="home"] .content > .panel:first-child {
+  border-inline-start-color: var(--brand-600);
+  background: linear-gradient(135deg, var(--surface) 0%, var(--brand-50) 100%);
+}
+
+body[data-module="home"] .content > .panel + .panel {
+  margin-block-start: var(--space-4);
+}
+
+body[data-module="home"] .status {
+  grid-template-columns: repeat(auto-fit, minmax(min(21rem, 100%), 1fr));
+  gap: var(--space-2);
+}
+
+body[data-module="home"] .status__row {
+  border: 1px solid var(--line-soft);
+  background: var(--surface-subtle);
+}
+
 @media (max-width: 900px) {
-  body[data-module="inventory"] form.toolbar[data-inventory-toolbar] {
+  form.toolbar[data-workspace-toolbar] {
     grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
@@ -1136,13 +1452,13 @@ body[data-module="inventory"] .table tfoot td {
   }
 }
 
-@media (max-width: 720px) {
-  body[data-module="inventory"] form.toolbar[data-inventory-toolbar] {
+@media (max-width: 800px) {
+  form.toolbar[data-workspace-toolbar] {
     grid-template-columns: minmax(0, 1fr) auto;
     padding: var(--space-2);
   }
 
-  body[data-module="inventory"] .toolbar__submit {
+  form[data-workspace-toolbar] .toolbar__submit {
     grid-column: 1 / -1;
     inline-size: 100%;
   }
@@ -1315,6 +1631,37 @@ body[data-module="inventory"] .table tfoot td {
     font-weight: 750;
   }
 
+  .inventory-list-page .inventory-items-table .inventory-item-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inventory-list-page .inventory-items-table .inventory-item-row td {
+    min-inline-size: 0;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: var(--space-1);
+    padding: var(--space-3);
+    border-block-start: 0;
+  }
+
+  .inventory-list-page .inventory-items-table .inventory-item-row td:nth-child(n + 3) {
+    border-block-start: 1px solid var(--line-soft);
+  }
+
+  .inventory-list-page .inventory-items-table .inventory-item-row td:nth-child(even) {
+    border-inline-start: 1px solid var(--line-soft);
+  }
+
+  .inventory-list-page .inventory-items-table .inventory-item-row .rowactions-cell {
+    grid-column: 1 / -1;
+    border-inline-start: 0;
+  }
+
+  .inventory-list-page .inventory-items-table .inventory-item-row .rowactions {
+    inline-size: 100%;
+  }
+
   .inventory-list-page .responsive-table td[data-empty-state] {
     display: block;
     padding: 0;
@@ -1340,15 +1687,31 @@ body[data-module="inventory"] .table tfoot td {
     min-block-size: var(--control-height);
     padding-inline: var(--space-3);
   }
+
+  .workspace-form-card .formactions {
+    position: static;
+    margin-inline: 0;
+    margin-block-end: 0;
+    padding-inline: 0;
+    padding-block-end: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .filterbar,
+  .statrow,
+  .card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 420px) {
-  body[data-module="inventory"] form.toolbar[data-inventory-toolbar] {
+  form.toolbar[data-workspace-toolbar] {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .filter-disclosure > summary,
-  body[data-module="inventory"] .toolbar__submit {
+  form[data-workspace-toolbar] .toolbar__submit {
     inline-size: 100%;
     justify-content: center;
   }

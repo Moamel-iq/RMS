@@ -23,6 +23,32 @@
     });
   };
 
+  const initialiseResponsiveTables = (root = document) => {
+    const tables = [];
+    if (root.matches?.("table.responsive-table")) tables.push(root);
+    root.querySelectorAll?.("table.responsive-table").forEach((table) => tables.push(table));
+    tables.forEach((table) => {
+      const headings = [...table.querySelectorAll("thead th")];
+      const labels = headings.map((heading, index) => {
+        const label = heading.textContent.replace(/\s+/g, " ").trim();
+        if (label) return label;
+        return index === headings.length - 1 ? "إجراءات" : "";
+      });
+      table.querySelectorAll("tbody tr").forEach((row) => {
+        const cells = [...row.children].filter((cell) => cell.matches("td"));
+        if (cells.length === 1 && cells[0].hasAttribute("colspan")) {
+          cells[0].dataset.emptyState = "";
+          return;
+        }
+        cells.forEach((cell, index) => {
+          if (!cell.hasAttribute("data-label") && labels[index]) {
+            cell.dataset.label = labels[index];
+          }
+        });
+      });
+    });
+  };
+
   const showToast = (message, variant = "success") => {
     let stack = document.querySelector(".toast-stack");
     if (!stack) {
@@ -68,6 +94,17 @@
     feedback.focus?.();
   };
 
+  document.addEventListener("htmx:configRequest", (event) => {
+    const form = event.detail.elt?.closest?.("[data-prune-empty-params]");
+    if (!form || !event.detail.parameters) return;
+    Object.keys(event.detail.parameters).forEach((name) => {
+      const value = event.detail.parameters[name];
+      if (typeof value === "string" && value.trim() === "") {
+        delete event.detail.parameters[name];
+      }
+    });
+  });
+
   document.addEventListener("htmx:beforeRequest", (event) => {
     setResultsBusy(event.detail.target, true);
     const feedback = document.querySelector("#list-feedback");
@@ -79,6 +116,7 @@
     setResultsBusy(target, false);
     associateFieldMessages(target || document);
     initialiseItemForm(target || document);
+    initialiseResponsiveTables(target || document);
 
     if (target?.matches?.("dialog")) {
       if (!target.open) target.showModal();
@@ -188,4 +226,5 @@
 
   associateFieldMessages();
   initialiseItemForm();
+  initialiseResponsiveTables();
 })();

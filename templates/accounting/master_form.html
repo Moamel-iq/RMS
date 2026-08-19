@@ -15,39 +15,44 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
-    <a href="{% url 'accounting:dashboard' %}">{% translate "المحاسبة" %}</a>
-    <span aria-hidden="true">/</span>
-    <span aria-current="page">{{ page_title }}</span>
-  </nav>
+  <section class="workspace-page workspace-form-page" aria-labelledby="accounting-form-title">
+    <nav class="workspace-breadcrumb sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url active_module.url_name %}">{{ active_module.label }}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ page_title }}</span>
+    </nav>
 
-  <div class="pagehead">
-    <div>
-      <h1 class="pagehead__title">{{ page_title }}</h1>
-      {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
-    </div>
-  </div>
-
-  <form class="formcard" id="accounting-form" method="post" novalidate>
-    {% csrf_token %}
-    {% if form.non_field_errors %}
-      <div class="formcard__errors" role="alert">
-        {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+    <div class="pagehead">
+      <div>
+        <p class="pagehead__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
+        <h1 class="pagehead__title" id="accounting-form-title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
       </div>
-    {% endif %}
-
-    {% for field in form %}
-      <div class="field{% if field.errors %} field--invalid{% endif %}">
-        <label class="field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-        {{ field }}
-        {% if field.help_text %}<p class="field__help">{{ field.help_text }}</p>{% endif %}
-        {% for error in field.errors %}<p class="field__error" role="alert">{{ error }}</p>{% endfor %}
-      </div>
-    {% endfor %}
-
-    <div class="formcard__actions">
-      <button class="btn btn--primary" type="submit">{{ submit_label|default:_("حفظ") }}</button>
-      {% if cancel_url %}<a class="btn btn--secondary" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>{% endif %}
     </div>
-  </form>
+
+    <form class="formcard workspace-form-card" id="accounting-form" method="post" novalidate>
+      {% csrf_token %}
+      {% include "components/form_error_summary.html" with form=form %}
+
+      <div class="formgrid">
+        {% for field in form %}
+          {% if field.field.widget.input_type == "checkbox" %}
+            <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}" data-field>
+              {{ field }}
+              <label class="formrow__label formrow__label--inline" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {% if field.help_text %}<p class="formrow__help" id="{{ field.auto_id }}_helptext" data-field-description>{{ field.help_text }}</p>{% endif %}
+              {% if field.errors %}<div id="{{ field.auto_id }}_error" data-field-description data-field-error>{% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}</div>{% endif %}
+            </div>
+          {% else %}
+            {% include "settings/_field.html" with field=field %}
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="formactions formcard__actions">
+        <button class="btn btn--primary" type="submit">{{ submit_label|default:_("حفظ") }}</button>
+        {% if cancel_url %}<a class="btn btn--secondary" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>{% endif %}
+      </div>
+    </form>
+  </section>
 {% endblock %}

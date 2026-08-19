@@ -1,13 +1,20 @@
 {% extends "settings/base_list.html" %}
 {% load i18n %}
 
+{% block filter_active_indicator %}
+  {% if selected_item_type %}<span class="filter-disclosure__dot" aria-hidden="true"></span>{% endif %}
+{% endblock %}
+
 {% block filters %}
-  <select name="item_type" aria-label="{% translate 'النوع' %}">
-    <option value="">{% translate "كل الأنواع" %}</option>
-    {% for value, label in item_types %}
-      <option value="{{ value }}" {% if value == selected_item_type %}selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
+  <label class="filter-field">
+    <span class="filter-field__label">{% translate "نوع الصنف" %}</span>
+    <select name="item_type" aria-label="{% translate 'نوع الصنف' %}">
+      <option value="">{% translate "كل الأنواع" %}</option>
+      {% for value, label in item_types %}
+        <option value="{{ value }}" {% if value == selected_item_type %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
 {% endblock %}
 
 {% block active_filter_chips %}
@@ -17,6 +24,8 @@
     {% endfor %}
   {% endif %}
 {% endblock %}
+
+{% block table_classes %} inventory-items-table{% endblock %}
 
 {% block columns %}
   <th scope="col">{% translate "الرمز" %}</th>
@@ -34,13 +43,18 @@
   {% translate "لا توجد أصناف بعد" as empty_title %}
   {% translate "أضف أول صنف لبدء إعداد دليل المخزون." as empty_description %}
   {% for item in items %}
-    <tr>
-      <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ item.code }}</code></bdi></td>
-      <td data-label="{% translate 'الاسم' %}"><strong>{{ item.name_ar }}</strong></td>
-      <td data-label="{% translate 'المجموعة' %}">{{ item.category.name_ar }}</td>
-      <td data-label="{% translate 'النوع' %}">{{ item.get_item_type_display }}</td>
-      <td data-label="{% translate 'وحدة الأساس' %}"><bdi dir="ltr"><code>{{ item.base_unit.code }}</code></bdi></td>
-      <td data-label="{% translate 'الحالة' %}">
+    <tr class="inventory-item-row">
+      <td class="inventory-item-code" data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ item.code }}</code></bdi></td>
+      <td class="inventory-item-name-cell" data-label="{% translate 'الاسم' %}">
+        <span class="inventory-item-name">
+          <strong>{{ item.name_ar }}</strong>
+          {% if item.name_en %}<small><bdi dir="ltr">{{ item.name_en }}</bdi></small>{% endif %}
+        </span>
+      </td>
+      <td class="inventory-item-category" data-label="{% translate 'المجموعة' %}">{{ item.category.name_ar }}</td>
+      <td class="inventory-item-type" data-label="{% translate 'النوع' %}"><span class="item-type-badge">{{ item.get_item_type_display }}</span></td>
+      <td class="inventory-item-unit" data-label="{% translate 'وحدة الأساس' %}"><bdi dir="ltr"><code>{{ item.base_unit.code }}</code></bdi></td>
+      <td class="inventory-item-status" data-label="{% translate 'الحالة' %}">
         {% if item.is_active %}
           {% translate "فعّال" as status_label %}
           {% include "components/status_badge.html" with status="ACTIVE" label=status_label %}

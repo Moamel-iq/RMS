@@ -203,6 +203,14 @@ class TestOpeningScreens:
 
 
 class TestMappingScreens:
+    def test_inventory_override_create_screen_renders(
+        self, accounting_manager: User, client_for: Any, accounting: None
+    ) -> None:
+        response = client_for(accounting_manager).get(reverse("inventory:mapping_create"))
+
+        assert response.status_code == 200
+        assert "تخصيص حساب لصنف أو مجموعة" in response.content.decode()
+
     def test_the_role_list_is_read_only_vocabulary(
         self, accounting_manager: User, client_for: Any
     ) -> None:

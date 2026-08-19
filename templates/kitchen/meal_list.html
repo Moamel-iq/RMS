@@ -11,10 +11,21 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="kitchen-meal-list">
+  <div id="kitchen-meal-list" class="workspace-page workspace-list-page inventory-page inventory-list-page">
+    <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url active_module.url_name %}">{{ active_module.label }}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ page_title }}</span>
+    </nav>
     <div class="pagehead">
       <div>
-        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
+        <div class="pagehead__title-row">
+          <h1 class="pagehead__title">{{ page_title }}</h1>
+          <span class="result-count" role="status">
+            {% blocktranslate count total=total_rows %}سجل واحد{% plural %}{{ total }} سجل{% endblocktranslate %}
+          </span>
+        </div>
         <p class="pagehead__hint">{{ meal_statement }}</p>
       </div>
       {% if can_record %}
@@ -24,13 +35,15 @@
       {% endif %}
     </div>
 
-    <form class="toolbar"
+    <form class="filterbar"
           method="get"
           hx-get="{{ request.path }}"
           hx-target="#kitchen-meal-list"
-          hx-swap="outerHTML">
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          data-prune-empty-params>
       <label class="field">
-        <span>{% translate "الحالة" %}</span>
+        <span class="field__label">{% translate "الحالة" %}</span>
         <select name="status">
           <option value="">{% translate "الكل" %}</option>
           {% for value, label in statuses %}
@@ -41,22 +54,19 @@
         </select>
       </label>
       <label class="field">
-        <span>{% translate "من تاريخ" %}</span>
+        <span class="field__label">{% translate "من تاريخ" %}</span>
         <input type="date" name="date_from" value="{{ filters.date_from }}">
       </label>
       <label class="field">
-        <span>{% translate "إلى تاريخ" %}</span>
+        <span class="field__label">{% translate "إلى تاريخ" %}</span>
         <input type="date" name="date_to" value="{{ filters.date_to }}">
       </label>
       <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button>
     </form>
 
-    <p class="muted">
-      {% blocktranslate count total=total_rows %}سجل واحد{% plural %}{{ total }} سجل{% endblocktranslate %}
-    </p>
-
     <div class="tablewrap">
-      <table class="table">
+      <div class="data-table-shell" tabindex="0" role="region" aria-label="{{ page_title }}">
+      <table class="table data-table responsive-table">
         <thead>
           <tr>
             <th scope="col">{% translate "تاريخ الاستهلاك" %}</th>
@@ -98,6 +108,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
     </div>
 
     {% if is_paginated %}

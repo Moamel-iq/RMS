@@ -20,16 +20,14 @@
     </script>
     <title>{% block title %}{% translate "نظام خان مندي" %}{% endblock %}</title>
     {# Keep shell markup and CSS on the same revision during local development. #}
-    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260818-ui-fix-1">
-    {% if active_module.key == "inventory" %}
-      <link rel="stylesheet" href="{% static 'css/inventory.css' %}?v=20260818-ui-fix-1">
-    {% endif %}
+    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260819-golden-all-1">
+    {# Shared workspace components live here; inventory-specific selectors #}
+    {# remain scoped, while lists, forms, reports and dashboards are global. #}
+    <link rel="stylesheet" href="{% static 'css/inventory.css' %}?v=20260819-golden-all-1">
     {# htmx is vendored, not loaded from a CDN: no third-party request on a login page. #}
     <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
-    {% if active_module %}<script src="{% static 'js/app-shell.js' %}?v=20260818-ui-fix-1" defer></script>{% endif %}
-    {% if active_module.key == "inventory" %}
-      <script src="{% static 'js/inventory-htmx.js' %}?v=20260818-ui-fix-1" defer></script>
-    {% endif %}
+    {% if active_module %}<script src="{% static 'js/app-shell.js' %}?v=20260819-golden-all-1" defer></script>{% endif %}
+    {% if active_module %}<script src="{% static 'js/inventory-htmx.js' %}?v=20260819-golden-all-1" defer></script>{% endif %}
     {% block head %}{% endblock %}
   </head>
   <body{% if active_module %} data-module="{{ active_module.key }}"{% endif %}>

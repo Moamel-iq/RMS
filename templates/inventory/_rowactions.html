@@ -12,7 +12,7 @@
 
 {# The flex container sits INSIDE the cell. `display:flex` on a <td> takes it #}
 {# out of the table formatting context and the columns stop lining up.       #}
-<td data-label="{% translate 'إجراءات' %}">
+<td class="rowactions-cell" data-label="{% translate 'إجراءات' %}">
   <div class="rowactions" aria-label="{% translate 'إجراءات السجل' %}: {{ row }}">
     {% if owner_id in manageable_ids %}
       <a class="btn btn--quiet btn--sm" href="{% url edit_url row.pk %}"

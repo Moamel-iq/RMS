@@ -1,28 +1,25 @@
-{# Shared full-page/HTMX list contract. Inventory enhancements are gated by #}
-{# `inventory_ui`; Settings, Accounting, Procurement and Kitchen keep the   #}
-{# same semantic structure and never inherit inventory-only direction rules. #}
+{# Shared full-page/HTMX list contract for every operational module. #}
 {% extends list_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="list-page{% if inventory_ui %} inventory-page inventory-list-page{% endif %}">
-    {% if inventory_ui %}
-      <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
-        <a href="{% url 'inventory:item_list' %}">{% translate "المخزون" %}</a>
-        <span aria-hidden="true">/</span>
-        <span aria-current="page">{{ page_title }}</span>
-      </nav>
-    {% endif %}
+  <div class="list-page workspace-page workspace-list-page inventory-page inventory-list-page">
+    <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url active_module.url_name %}">{{ active_module.label }}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ page_title }}</span>
+    </nav>
 
     <div class="pagehead">
       <div class="pagehead__copy">
-        {% if inventory_ui %}<p class="pagehead__eyebrow">{{ active_nav_group|default:active_module.label }}</p>{% endif %}
+        <p class="pagehead__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
         <div class="pagehead__title-row">
           <h1 class="pagehead__title">{{ page_title }}</h1>
-          {% if page_obj %}
-            <span class="result-count" id="list-result-count" aria-label="{% translate 'عدد النتائج' %}" aria-live="polite">
+          {% if page_obj.paginator %}
+            <span class="result-count" id="list-result-count" role="status"
+                  aria-label="{% translate 'عدد النتائج' %}" aria-live="polite" aria-atomic="true">
               <bdi dir="ltr">{{ page_obj.paginator.count }}</bdi>
               {% if result_label %}{{ result_label }}{% else %}{% translate "سجل" %}{% endif %}
             </span>
@@ -39,7 +36,7 @@
 
     {% translate "ابحث بالرمز أو الاسم…" as default_search_placeholder %}
     {% block toolbar %}
-      <form class="toolbar" method="get"{% if inventory_ui %} data-inventory-toolbar aria-label="{% translate 'البحث والمرشحات' %}"{% endif %}
+      <form class="toolbar" method="get" data-workspace-toolbar data-prune-empty-params aria-label="{% translate 'البحث والمرشحات' %}"
             {% if htmx_list %}
             hx-get="{{ request.path }}"
             hx-target="#list-results"
@@ -56,58 +53,60 @@
                  placeholder="{{ search_placeholder|default:default_search_placeholder }}"
                  autocomplete="off">
         </div>
-        {% if inventory_ui %}
-          <details class="filter-disclosure"{% if filter_query %} open{% endif %}>
-            <summary>
-              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
-              {% translate "مرشحات" %}
+        <details class="filter-disclosure">
+          <summary>
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+            {% translate "مرشحات" %}
+            {% block filter_active_indicator %}
               {% if filter_query %}<span class="filter-disclosure__dot" aria-hidden="true"></span>{% endif %}
-            </summary>
-            <div class="toolbar__filters">
-        {% endif %}
+            {% endblock %}
+          </summary>
+          <div class="toolbar__filters">
               {% block filters %}{% endblock %}
-        {% if inventory_ui %}
-            </div>
-          </details>
-        {% endif %}
+          </div>
+        </details>
         <button class="btn btn--secondary toolbar__submit" type="submit">{% translate "تطبيق" %}</button>
       </form>
     {% endblock %}
 
     {% block results %}
       <div class="tablewrap" id="list-results">
-        {% if inventory_ui %}
-          {% if page_obj %}
-            <span class="sr-only" hx-swap-oob="innerHTML:#list-result-count">
-              <bdi dir="ltr">{{ page_obj.paginator.count }}</bdi>
-              {% if result_label %}{{ result_label }}{% else %}{% translate "سجل" %}{% endif %}
-            </span>
-          {% endif %}
-          <div class="list-statusbar">
-            <div class="active-filters" aria-label="{% translate 'المرشحات النشطة' %}">
-              {% if search %}<span class="filter-chip"><span>{% translate "بحث" %}</span><bdi>{{ search }}</bdi></span>{% endif %}
-              {% block active_filter_chips %}{% endblock %}
-              {% if filter_query %}
-                <a class="filter-reset" href="{{ request.path }}" data-reset-filters>{% translate "مسح المرشحات" %}</a>
-              {% else %}
-                <span class="list-statusbar__hint">{% translate "تُحدَّث النتائج تلقائياً أثناء الكتابة." %}</span>
-              {% endif %}
-            </div>
-            <span class="inventory-loading" id="list-loading" role="status" aria-live="polite">
-              <span class="inventory-loading__spinner" aria-hidden="true"></span>{% translate "جارٍ تحديث النتائج…" %}
-            </span>
-            <p class="list-feedback" id="list-feedback" role="alert" hidden></p>
-          </div>
-          <div class="data-table-shell" tabindex="0" role="region" aria-label="{{ page_title }}">
+        {% if page_obj.paginator %}
+          <span class="sr-only" hx-swap-oob="innerHTML:#list-result-count">
+            <bdi dir="ltr">{{ page_obj.paginator.count }}</bdi>
+            {% if result_label %}{{ result_label }}{% else %}{% translate "سجل" %}{% endif %}
+          </span>
         {% endif %}
-            <table class="table{% if inventory_ui %} data-table responsive-table{% endif %}">
+        <div class="list-statusbar">
+          <div class="active-filters" aria-label="{% translate 'المرشحات النشطة' %}">
+            {% if search %}<span class="filter-chip"><span>{% translate "بحث" %}</span><bdi>{{ search }}</bdi></span>{% endif %}
+            {% block active_filter_chips %}{% endblock %}
+            {% if filter_query %}
+              <a class="filter-reset" href="{{ request.path }}" data-reset-filters>{% translate "مسح المرشحات" %}</a>
+            {% else %}
+              <span class="list-statusbar__hint">
+                {% if htmx_list %}
+                  {% translate "تُحدَّث النتائج تلقائياً أثناء الكتابة." %}
+                {% else %}
+                  {% translate "اكتب عبارة البحث ثم اختر تطبيق." %}
+                {% endif %}
+              </span>
+            {% endif %}
+          </div>
+          <span class="inventory-loading" id="list-loading" role="status" aria-live="polite">
+            <span class="inventory-loading__spinner" aria-hidden="true"></span>{% translate "جارٍ تحديث النتائج…" %}
+          </span>
+          <p class="list-feedback" id="list-feedback" role="alert" hidden></p>
+        </div>
+        <div class="data-table-shell" tabindex="0" role="region" aria-label="{{ page_title }}">
+            <table class="table data-table responsive-table{% block table_classes %}{% endblock %}">
               <thead><tr>{% block columns %}{% endblock %}</tr></thead>
               <tbody>{% block rows %}{% endblock %}</tbody>
             </table>
-        {% if inventory_ui %}</div>{% endif %}
+        </div>
 
         {% if is_paginated %}
-          <nav class="pagination{% if inventory_ui %} inventory-pagination{% endif %}" aria-label="{% translate 'ترقيم الصفحات' %}">
+          <nav class="pagination inventory-pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
             <div class="pagination__edge">
               {% if page_obj.has_previous %}
                 <a class="btn btn--secondary btn--sm" href="?{{ filter_query }}page=1"

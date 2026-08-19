@@ -14,20 +14,22 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
-    <a href="{% url 'sales:menu_item_list' %}">{% translate "المبيعات" %}</a>
-    <span aria-hidden="true">/</span>
-    <span aria-current="page">{{ page_title }}</span>
-  </nav>
+  <section class="workspace-page workspace-form-page" aria-labelledby="sales-form-title">
+    <nav class="workspace-breadcrumb sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url active_module.url_name %}">{{ active_module.label }}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ page_title }}</span>
+    </nav>
 
-  <div class="pagehead">
-    <div>
-      <h1 class="pagehead__title">{{ page_title }}</h1>
-      {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+    <div class="pagehead">
+      <div>
+        <p class="pagehead__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
+        <h1 class="pagehead__title" id="sales-form-title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+      </div>
     </div>
-  </div>
 
-  <form class="formcard" method="post" novalidate>
+    <form class="formcard workspace-form-card" method="post" novalidate>
     {% csrf_token %}
     {% include "components/form_error_summary.html" with form=form %}
 
@@ -52,5 +54,6 @@
       <button class="btn btn--primary" type="submit">{% translate "حفظ" %}</button>
       <a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
     </div>
-  </form>
+    </form>
+  </section>
 {% endblock %}

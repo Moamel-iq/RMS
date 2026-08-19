@@ -77,6 +77,49 @@ def test_item_list_search_loading_and_table_region_have_accessible_names(
     assert table_regions[0].get("aria-label")
 
 
+def test_item_list_announces_swapped_results_and_marks_empty_params_for_pruning(
+    manager: User, client_for: Callable[[User], Client]
+) -> None:
+    body = client_for(manager).get(reverse("inventory:item_list")).content.decode()
+
+    toolbars = [tag for tag in _tags(body, "form") if "toolbar" in _class_tokens(tag)]
+    counters = [tag for tag in _tags(body, "span") if tag.get("id") == "list-result-count"]
+
+    assert len(toolbars) == 1
+    assert "data-prune-empty-params" in toolbars[0]
+    assert len(counters) == 1
+    assert counters[0].get("role") == "status"
+    assert counters[0].get("aria-live") == "polite"
+    assert counters[0].get("aria-atomic") == "true"
+
+
+def test_search_does_not_force_the_additional_filter_panel_open(
+    manager: User, client_for: Callable[[User], Client]
+) -> None:
+    body = client_for(manager).get(reverse("inventory:item_list"), {"q": "RICE"}).content.decode()
+    disclosures = [
+        tag for tag in _tags(body, "details") if "filter-disclosure" in _class_tokens(tag)
+    ]
+
+    assert len(disclosures) == 1
+    assert "open" not in disclosures[0]
+
+
+def test_item_list_exposes_the_golden_screen_table_and_compact_card_hooks(
+    manager: User, client_for: Callable[[User], Client], rice: object
+) -> None:
+    body = client_for(manager).get(reverse("inventory:item_list")).content.decode()
+    tables = [tag for tag in _tags(body, "table") if "inventory-items-table" in _class_tokens(tag)]
+    rows = [tag for tag in _tags(body, "tr") if "inventory-item-row" in _class_tokens(tag)]
+    filter_labels = [
+        tag for tag in _tags(body, "span") if "filter-field__label" in _class_tokens(tag)
+    ]
+
+    assert len(tables) == 1
+    assert rows
+    assert filter_labels
+
+
 def test_item_list_exposes_active_filters_and_a_reset_destination(
     manager: User, client_for: Callable[[User], Client]
 ) -> None:
@@ -129,3 +172,13 @@ def test_inventory_forms_prevent_duplicates_and_warn_about_unsaved_work() -> Non
     assert 'form.dataset.submitting === "true"' in script
     assert "(!form.noValidate && !form.checkValidity())" in script
     assert 'window.addEventListener("beforeunload"' in script
+
+
+def test_inventory_htmx_prunes_empty_get_parameters_before_push_url() -> None:
+    script = (
+        Path(__file__).resolve().parents[3] / "static" / "js" / "inventory-htmx.js"
+    ).read_text(encoding="utf-8")
+
+    assert 'document.addEventListener("htmx:configRequest"' in script
+    assert "[data-prune-empty-params]" in script
+    assert "delete event.detail.parameters[name]" in script

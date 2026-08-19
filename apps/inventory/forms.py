@@ -544,8 +544,9 @@ class InventoryMappingForm(ScopedForm):
         help_text=_("اتركه فارغاً إذا كان سارياً حتى إشعار آخر."),
     )
 
-    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
         super().__init__(*args, actor=actor, **kwargs)
+        self.instance = instance
         from apps.accounting.models import AccountRoleMappingScope
         from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
 
