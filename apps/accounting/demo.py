@@ -31,6 +31,7 @@ from apps.accounting.expense_services import add_expense_line
 from apps.accounting.models import (
     Account,
     AccountClass,
+    AccountReportMapping,
     AccrualDocument,
     AmortizationFrequency,
     BankAccount,
@@ -40,6 +41,8 @@ from apps.accounting.models import (
     PaymentSource,
     Prepayment,
 )
+from apps.accounting.reports import default_report_group
+from apps.accounting.services import set_report_mapping
 from apps.core.context import get_actor
 from apps.organizations.models import Branch, Organization
 
@@ -77,6 +80,49 @@ def _account(organization: Organization, code: str) -> Account:
     if account is None:
         raise DemoPreconditionError(f"account {code} is missing — run seed_chart_of_accounts first")
     return account
+
+
+def seed_report_mappings(result: AccountingDemo) -> None:
+    """
+    Give every postable account a statement group.
+
+    Seeded from `default_report_group`, which reads the account class — and
+    that is the *only* place a class is allowed to decide a statement group.
+    At report time the mapping is authoritative and the class is not, because
+    class 7 is "other income AND expense" and class 1 does not distinguish
+    current from non-current (ADR-031 §1).
+
+    Every account gets one, including the zero-balance ones. An unmapped
+    account is invisible until somebody posts to it, and then it appears in
+    غير مصنّف and blocks the statements — at month end, which is the worst
+    moment to discover it.
+    """
+    organization = result.organization
+    if organization is None:  # pragma: no cover - the caller always sets it
+        raise DemoPreconditionError("the demo run has no organization")
+
+    made = 0
+    reused = 0
+    for account in Account.objects.filter(
+        organization=organization, is_postable=True, is_active=True
+    ).order_by("code"):
+        if AccountReportMapping.objects.filter(organization=organization, account=account).exists():
+            reused += 1
+            continue
+        group, section = default_report_group(account)
+        set_report_mapping(
+            organization=organization,
+            account=account,
+            statement_group=group,
+            presentation_section=section,
+            display_order=0,
+        )
+        made += 1
+
+    if made:
+        result.note(made=True, what=f"{made} statement mappings")
+    if reused:
+        result.note(made=False, what=f"{reused} statement mappings")
 
 
 def seed_cash_records(result: AccountingDemo) -> None:
@@ -327,6 +373,7 @@ def seed_accounting_demo(**_options: Any) -> AccountingDemo:
         )
 
     result = AccountingDemo(organization=organization)
+    seed_report_mappings(result)
     seed_cash_records(result)
     seed_expense_vouchers(result)
     seed_deferrals(result)
@@ -341,5 +388,6 @@ __all__ = [
     "seed_accounting_demo",
     "seed_cash_records",
     "seed_deferrals",
+    "seed_report_mappings",
     "seed_expense_vouchers",
 ]

@@ -31,13 +31,26 @@ from apps.accounting.models import (
     Account,
     AccountingPeriod,
     AccountReportMapping,
+    AccrualDocument,
+    BankAccount,
+    Cashbox,
+    ExpenseVoucher,
+    FinancialDocumentStatus,
     JournalEntry,
     JournalEntryStatus,
     PeriodState,
+    PrepaymentScheduleLine,
+    ScheduleLineStatus,
 )
 from apps.accounting.permissions import VIEW_CHART_OF_ACCOUNTS, VIEW_JOURNAL
-from apps.accounting.selectors import role_usage, trial_balance_totals
+from apps.accounting.reports import ReportFilters, balance_sheet, income_statement
+from apps.accounting.selectors import (
+    account_balance,
+    role_usage,
+    trial_balance_totals,
+)
 from apps.accounting.views import AccountingViewMixin
+from apps.core.money import money_audit
 from apps.organizations.authorization import organizations_with_permission
 from apps.organizations.models import Organization
 
@@ -139,6 +152,145 @@ def _posted_journals(organization: Organization) -> dict[str, Any]:
     return {"value": str(count), "hint": _("قيود في دفتر الأستاذ"), "state": "ok"}
 
 
+def _cash_balance(organization: Organization) -> dict[str, Any]:
+    total = sum(
+        (
+            account_balance(account=cashbox.account, branch=cashbox.branch)
+            for cashbox in Cashbox.objects.filter(
+                organization=organization, is_active=True
+            ).select_related("account", "branch")
+        ),
+        Decimal("0"),
+    )
+    return {"value": money_audit(total), "hint": _("مجموع أرصدة الصناديق"), "state": "ok"}
+
+
+def _bank_balance(organization: Organization) -> dict[str, Any]:
+    total = sum(
+        (
+            account_balance(account=bank.account)
+            for bank in BankAccount.objects.filter(
+                organization=organization, is_active=True
+            ).select_related("account")
+        ),
+        Decimal("0"),
+    )
+    return {"value": money_audit(total), "hint": _("مجموع الأرصدة البنكية"), "state": "ok"}
+
+
+def _system_reader() -> Any:
+    """
+    A caller for the source modules' own scoped report services.
+
+    The dashboard has already resolved the organization against the signed-in
+    user's scope before any card runs, so the figure shown is one they are
+    entitled to. The procurement and sales services take a user for *their*
+    scoping, and handing them a superuser stops a card silently under-reporting
+    because the reader happens to hold no procurement post. What the card shows
+    is still only the organization the caller reached.
+    """
+    from apps.users.models import User
+
+    return User.objects.filter(is_superuser=True, is_active=True).order_by("pk").first()
+
+
+def _supplier_liabilities(organization: Organization) -> dict[str, Any]:
+    from apps.procurement.reports import ProcurementReportFilters, supplier_aging
+
+    rows = supplier_aging(
+        _system_reader(),
+        ProcurementReportFilters(organization_id=organization.pk),
+        include_cost=True,
+    )
+    total = sum((row.get("net_position") or Decimal("0") for row in rows), Decimal("0"))
+    return {
+        "value": money_audit(total),
+        "hint": _("مشتقّة من مستندات المشتريات — لا جدول أرصدة"),
+        "state": "ok",
+    }
+
+
+def _application_receivables(organization: Organization) -> dict[str, Any]:
+    from apps.sales.receivables import positions_for
+
+    positions = positions_for(
+        _system_reader(), organization_id=organization.pk, as_of=timezone.localdate()
+    )
+    total = sum((position.balance for position in positions), Decimal("0"))
+    return {
+        "value": money_audit(total),
+        "hint": _("من سجل ذمم المبيعات المُلحَق"),
+        "state": "ok",
+    }
+
+
+def _unposted_expenses(organization: Organization) -> dict[str, Any]:
+    count = ExpenseVoucher.objects.filter(
+        organization=organization,
+        status__in=[FinancialDocumentStatus.DRAFT, FinancialDocumentStatus.APPROVED],
+    ).count()
+    return {
+        "value": str(count),
+        "hint": _("سندات مصروف لم تُرحَّل"),
+        "state": "warn" if count else "ok",
+    }
+
+
+def _active_accruals(organization: Organization) -> dict[str, Any]:
+    count = AccrualDocument.objects.filter(
+        organization=organization, status=FinancialDocumentStatus.POSTED
+    ).count()
+    return {"value": str(count), "hint": _("مستحقات قائمة لم تُعكس"), "state": "ok"}
+
+
+def _prepayments_due(organization: Organization) -> dict[str, Any]:
+    count = PrepaymentScheduleLine.objects.filter(
+        prepayment__organization=organization,
+        prepayment__status=FinancialDocumentStatus.POSTED,
+        status=ScheduleLineStatus.PLANNED,
+        period_end__lte=timezone.localdate(),
+    ).count()
+    return {
+        "value": str(count),
+        "hint": _("أقساط مقدمات مستحقة الترحيل"),
+        "state": "warn" if count else "ok",
+    }
+
+
+def _net_profit(organization: Organization) -> dict[str, Any]:
+    today = timezone.localdate()
+    report = income_statement(
+        ReportFilters(organization=organization),
+        date_from=today.replace(month=1, day=1),
+        date_to=today,
+    )
+    return {
+        "value": money_audit(report.net_profit),
+        "hint": _("من بداية السنة حتى تاريخه"),
+        "state": "ok" if report.is_approvable else "warn",
+    }
+
+
+def _balance_sheet_state(organization: Organization) -> dict[str, Any]:
+    today = timezone.localdate()
+    report = balance_sheet(
+        ReportFilters(organization=organization),
+        as_of=today,
+        year_start=today.replace(month=1, day=1),
+    )
+    if report.is_balanced:
+        return {
+            "value": _("متوازنة"),
+            "hint": _("الأصول = المطلوبات + حقوق الملكية"),
+            "state": "ok",
+        }
+    return {
+        "value": _("غير متوازنة"),
+        "hint": _("الفرق: %(amount)s") % {"amount": money_audit(report.difference)},
+        "state": "warn",
+    }
+
+
 #: The cards this checkpoint can compute. Later checkpoints append their own —
 #: cash, bank, supplier liabilities, application receivables, expense vouchers,
 #: accruals, prepayments, net profit, balance-sheet status — and each appears
@@ -162,6 +314,30 @@ CARDS: tuple[Card, ...] = (
     ),
     Card("drafts", _("مسودات القيود"), _draft_journals, "accounting:journal_list"),
     Card("posted", _("قيود مُرحَّلة"), _posted_journals, "accounting:journal_list"),
+    Card("cash", _("رصيد الصناديق"), _cash_balance, "accounting:cashbox_list"),
+    Card("bank", _("الرصيد البنكي"), _bank_balance, "accounting:bank_account_list"),
+    Card(
+        "supplier_liabilities",
+        _("ذمم الموردين"),
+        _supplier_liabilities,
+        "accounting:supplier_liability_list",
+    ),
+    Card(
+        "application_receivables",
+        _("ذمم التطبيقات"),
+        _application_receivables,
+        "accounting:application_receivable_list",
+    ),
+    Card("expenses", _("مصروفات لم تُرحَّل"), _unposted_expenses, "accounting:expense_list"),
+    Card("accruals", _("مستحقات قائمة"), _active_accruals, "accounting:deferral_list"),
+    Card("prepayments", _("أقساط مستحقة"), _prepayments_due, "accounting:deferral_list"),
+    Card("net_profit", _("صافي الربح"), _net_profit, "accounting:income_statement"),
+    Card(
+        "balance_sheet",
+        _("الميزانية العمومية"),
+        _balance_sheet_state,
+        "accounting:balance_sheet",
+    ),
 )
 
 CARDS_BY_KEY = {card.key: card for card in CARDS}
