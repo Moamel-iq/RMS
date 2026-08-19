@@ -11,15 +11,17 @@ indistinguishable from outside (ADR-016).
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from django.db.models import Q, QuerySet
+from django.db.models import Q, QuerySet, Sum
 from django.utils.translation import gettext_lazy as _
 
 from apps.inventory.selectors import reachable_organization_ids
 from apps.organizations.authorization import OutOfScope
 from apps.organizations.selectors import accessible_branches
 from apps.sales.models import (
+    ApplicationReceivableEntry,
     DeliveryAgreement,
     DeliveryApplication,
     DiscountProgram,
@@ -29,7 +31,11 @@ from apps.sales.models import (
     MenuPriceVersion,
     PriceScope,
     SalesChannel,
+    SalesDay,
 )
+
+ZERO = Decimal("0")
+
 
 if TYPE_CHECKING:
     from apps.organizations.models import Branch
@@ -275,6 +281,67 @@ def application_is_live_at(application: DeliveryApplication, branch: Branch) -> 
     return setting is not None and setting.is_active
 
 
+# ---------------------------------------------------------------------------
+# The daily document — checkpoint 3
+# ---------------------------------------------------------------------------
+
+
+def visible_sales_days(user: User) -> QuerySet[SalesDay]:
+    """
+    Every sales day at a branch the caller reaches.
+
+    Branch-scoped rather than organization-scoped, and that is the tighter of
+    the two on purpose: a day of trading is one branch's takings, and reaching
+    the organization through some other branch is not a reason to read them.
+    """
+    return SalesDay.objects.filter(branch__in=accessible_branches(user)).select_related(
+        "organization", "branch"
+    )
+
+
+def resolve_sales_day(user: User, day_id: int) -> SalesDay:
+    day = visible_sales_days(user).filter(pk=day_id).first()
+    if day is None:
+        raise OutOfScope(_("Sales day %(id)s does not exist.") % {"id": day_id})
+    return day
+
+
+def visible_receivable_entries(user: User) -> QuerySet[ApplicationReceivableEntry]:
+    """
+    Every receivable movement at a branch the caller reaches.
+
+    The ledger is append-only, so this is the only way to read it — there is no
+    balance field to look at instead, which is the entire design (ADR-027 §5).
+    """
+    return ApplicationReceivableEntry.objects.filter(
+        branch__in=accessible_branches(user)
+    ).select_related("delivery_application", "branch")
+
+
+def receivable_balance(
+    *,
+    delivery_application_id: int,
+    organization_id: int,
+    as_of: datetime.date | None = None,
+) -> Decimal:
+    """
+    What an application owes, computed from the entries every time.
+
+    One aggregate query over an index. If this ever stops being fast enough the
+    answer is a *derived and rebuildable* period summary, never an
+    incrementally-maintained field — because the field is the thing that can
+    disagree with the entries, and the disagreement always surfaces mid-
+    argument.
+    """
+    rows = ApplicationReceivableEntry.objects.filter(
+        organization_id=organization_id, delivery_application_id=delivery_application_id
+    )
+    if as_of is not None:
+        rows = rows.filter(business_date__lte=as_of)
+    totals = rows.aggregate(debit=Sum("debit"), credit=Sum("credit"))
+    return (totals["debit"] or ZERO) - (totals["credit"] or ZERO)
+
+
 __all__ = [
     "application_is_live_at",
     "effective_prices",
@@ -285,6 +352,10 @@ __all__ = [
     "resolve_menu_item",
     "resolve_price",
     "resolve_sales_channel",
+    "visible_sales_days",
+    "visible_receivable_entries",
+    "resolve_sales_day",
+    "receivable_balance",
     "visible_agreements",
     "visible_branch_settings",
     "visible_delivery_applications",

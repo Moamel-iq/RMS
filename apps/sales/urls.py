@@ -10,13 +10,15 @@ Checkpoint 1: أصناف المنيو and قنوات البيع, plus the price 
 screens they need.
 
 Checkpoint 2: تطبيقات التوصيل, العمولات والاتفاقيات and الخصومات.
+
+Checkpoint 3: المبيعات اليومية, and the four lifecycle transitions behind it.
 """
 
 from __future__ import annotations
 
 from django.urls import URLPattern, path
 
-from apps.sales import views
+from apps.sales import day_views, views
 
 app_name = "sales"
 
@@ -123,5 +125,38 @@ urlpatterns: list[URLPattern] = [
         "discounts/<int:pk>/close/",
         views.DiscountProgramCloseView.as_view(),
         name="discount_close",
+    ),
+    # --- المبيعات اليومية ---------------------------------------------------
+    #
+    # Four transitions on one view rather than four views: the shape is
+    # identical and four copies would be four chances to check the wrong
+    # permission.
+    path("days/", day_views.SalesDayListView.as_view(), name="day_list"),
+    path("days/new/", day_views.SalesDayCreateView.as_view(), name="day_create"),
+    path("days/<int:pk>/", day_views.SalesDayDetailView.as_view(), name="day_detail"),
+    path(
+        "days/<int:pk>/submit/",
+        day_views.SalesDayTransitionView.as_view(action="submit"),
+        name="day_submit",
+    ),
+    path(
+        "days/<int:pk>/return/",
+        day_views.SalesDayTransitionView.as_view(action="return"),
+        name="day_return",
+    ),
+    path(
+        "days/<int:pk>/post/",
+        day_views.SalesDayTransitionView.as_view(action="post"),
+        name="day_post",
+    ),
+    path(
+        "days/<int:pk>/reverse/",
+        day_views.SalesDayTransitionView.as_view(action="reverse"),
+        name="day_reverse",
+    ),
+    path(
+        "day-lines/<int:pk>/delete/",
+        day_views.SalesDayLineDeleteView.as_view(),
+        name="day_line_delete",
     ),
 ]

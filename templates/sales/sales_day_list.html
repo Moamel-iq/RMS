@@ -1,0 +1,74 @@
+{# المبيعات اليومية — one document per branch per business date.             #}
+{#                                                                           #}
+{# No cost or margin column. Those are `view_sales_cost` and live on the     #}
+{# dashboard; a list that blanked them for most readers would be telling     #}
+{# every cashier that a number exists and they are not trusted with it.      #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="field">
+    <span class="field__label">{% translate "الحالة" %}</span>
+    <select name="status">
+      <option value="">{% translate "كل الحالات" %}</option>
+      {% for value, label in statuses %}
+        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "تاريخ العمل" %}</th>
+  <th>{% translate "الفرع" %}</th>
+  <th>{% translate "الرقم" %}</th>
+  <th>{% translate "عدد السطور" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for day in days %}
+    <tr>
+      <td data-label="{% translate 'تاريخ العمل' %}">
+        <a href="{% url 'sales:day_detail' day.pk %}">
+          <bdi dir="ltr"><code>{{ day.business_date|date:"Y-m-d" }}</code></bdi>
+        </a>
+      </td>
+      <td data-label="{% translate 'الفرع' %}">
+        <bdi dir="ltr"><code>{{ day.branch.code }}</code></bdi> {{ day.branch.name_ar }}
+      </td>
+      <td data-label="{% translate 'الرقم' %}">
+        {% if day.number %}
+          <bdi dir="ltr"><code>{{ day.number }}</code></bdi>
+        {% else %}
+          {# A number exists exactly when the day has reached the ledger. #}
+          <span class="muted">{% translate "لم يُرحَّل" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'عدد السطور' %}"><bdi dir="ltr">{{ day.lines.count }}</bdi></td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if day.status == "POSTED" %}
+          <span class="chip chip--ok">{{ day.get_status_display }}</span>
+        {% elif day.status == "REVERSED" %}
+          <span class="chip chip--bad">{{ day.get_status_display }}</span>
+        {% else %}
+          <span class="chip">{{ day.get_status_display }}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        <div class="rowactions">
+          <a class="btn btn--quiet btn--sm" href="{% url 'sales:day_detail' day.pk %}">
+            {% translate "فتح" %}
+          </a>
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="6">
+        {% translate "لا توجد أيام مبيعات بعد. تاريخ العمل يُدخَل ولا يُشتق من وقت الإدخال." %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endblock %}

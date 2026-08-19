@@ -205,6 +205,37 @@ _TABLE: tuple[_Declared, ...] = (
         PermissionScope.ORGANIZATION_AUTHORITY,
         frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
     ),
+    # --- Checkpoint 3 -----------------------------------------------------
+    #
+    # Entering is separated from posting, and posting from reversing. A draft
+    # moves no money; posting writes a journal, an application receivable and a
+    # theoretical-consumption contribution, and correcting it afterwards is a
+    # reversal that stays on the record forever.
+    _Declared(
+        CREATE_DAILY_SALES,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER, _ACCOUNTANT, _CASHIER}),
+    ),
+    _Declared(
+        SUBMIT_DAILY_SALES,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER, _ACCOUNTANT, _CASHIER}),
+    ),
+    # **Not the cashier.** A till that could commit its own takings to the
+    # ledger has no second pair of eyes on the one step that reaches it.
+    _Declared(
+        POST_DAILY_SALES,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
+    ),
+    # Elevated, and organization-wide: undoing a posted economic event is
+    # supervisory, exactly as the goods-receipt reversal is, and the person who
+    # posted should not be the only one who can make it disappear.
+    _Declared(
+        REVERSE_DAILY_SALES,
+        PermissionScope.ORGANIZATION_AUTHORITY,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER}),
+    ),
     _Declared(
         VIEW_SALES_COST,
         PermissionScope.ORGANIZATION_MASTER_DATA,

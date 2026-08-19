@@ -578,7 +578,15 @@ MODULES: tuple[Module, ...] = (
             # 404s is worse than an obviously unfinished one.
             *_sections(
                 _("لوحة المبيعات"),
-                _("المبيعات اليومية"),
+            ),
+            # Checkpoint 3 — the module's operational centre. One document per
+            # branch per business date, and the first Sales screen that reaches
+            # the ledger.
+            Section(
+                label=_("المبيعات اليومية"),
+                url_name="sales:day_list",
+                available=True,
+                active_prefixes=("/sales/days/", "/sales/day-lines/"),
             ),
             Section(
                 label=_("أصناف المنيو"),

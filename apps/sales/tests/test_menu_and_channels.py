@@ -574,17 +574,26 @@ class TestNavigationIsBackedByRoutes:
             assert section.available is True, f"{label} is still inert"
             assert reverse(section.url_name)
 
-    def test_the_unbuilt_sections_are_still_honestly_inert(self) -> None:
+    def test_every_active_entry_reverses_and_every_inert_one_names_no_route(self) -> None:
         """
-        The count moves with each checkpoint, on purpose. An entry becomes
-        active only after its route answers as a page *and* as a fragment, so
-        this number is a record of what is actually reachable rather than of
-        what is planned.
+        The invariant, rather than a count.
+
+        Earlier versions of this test asserted how many sections were still
+        inert, which was true for exactly one checkpoint at a time and had to
+        be edited by every subsequent one — a maintenance tax that taught
+        nobody anything. What actually matters never changes: an active entry
+        leads somewhere, and an inert entry does not pretend to.
         """
+        from django.urls import reverse
+
         from apps.core.navigation import MODULES
 
         sales = next(module for module in MODULES if module.key == "sales")
-        inert = [str(row.label) for row in sales.sections if not row.available]
         assert len(sales.sections) == 12
-        assert len(inert) == 7
-        assert "المبيعات اليومية" in inert
+
+        for section in sales.sections:
+            if section.available:
+                assert section.url_name, f"{section.label} is active with no route"
+                assert reverse(section.url_name)
+            else:
+                assert section.url_name is None, f"{section.label} is inert but names a route"

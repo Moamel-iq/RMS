@@ -36,6 +36,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
@@ -1124,6 +1125,623 @@ class DiscountProgram(TimeStampedModel):
         return f"{self.discount_percent:f}" if self.discount_percent is not None else ""
 
 
+# ---------------------------------------------------------------------------
+# The daily sales document — checkpoint 3
+# ---------------------------------------------------------------------------
+
+
+class SalesDocumentSequence(models.Model):
+    """
+    The gapless per-organization, per-type, per-year counter.
+
+    A fourth sequence table beside inventory's, procurement's and kitchen's,
+    for the reason kitchen's docstring records: a sales day is not an inventory
+    document, and keying it into another module's type enum would make that
+    enum a statement about documents the module does not own. The counting
+    *rule* is four lines under a row lock and is deliberately identical — what
+    must never be shared is a sequence two documents could draw from.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="sales_sequences",
+        verbose_name=_("organization"),
+    )
+    document_type = models.CharField(_("document type"), max_length=32)
+    year = models.PositiveSmallIntegerField(_("year"))
+    last_number = models.PositiveIntegerField(_("last number"), default=0)
+
+    class Meta:
+        verbose_name = _("sales document sequence")
+        verbose_name_plural = _("sales document sequences")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "document_type", "year"],
+                name="sales_sequence_unique_per_type_and_year",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.organization.code} {self.document_type} {self.year}: {self.last_number}"
+
+
+class SalesDayStatus(models.TextChoices):
+    """
+    The lifecycle of one branch's trading day.
+
+    `SUBMITTED` exists here even though the supplier invoice has no such state,
+    and the comparison is worth stating because it looks inconsistent. A
+    supplier invoice arrives as a document somebody *else* authored, so
+    approving it is itself the second pair of eyes. A sales day is authored
+    in-house by the person whose till it describes, so the second pair of eyes
+    has to come after the authoring is finished: `SUBMITTED` is the cashier
+    saying "this is what I counted", and `POSTED` is somebody else agreeing it
+    may reach the ledger (ADR-027 §3).
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    SUBMITTED = "SUBMITTED", _("مُرسل")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class SalesDay(TimeStampedModel):
+    """
+    One branch's trading on one business date.
+
+    **A day rather than an order**, and that is a decision about evidence
+    rather than about convenience. Release 1 has no point-of-sale integration;
+    takings arrive as a till report and three application dashboards. Modelling
+    an individual order would mean inventing order identity the restaurant does
+    not have, and every report would then rest on fabricated granularity.
+    `SalesDayLine.order_count` records how many orders produced a quantity
+    without pretending to identify them.
+
+    **A posted day is never edited.** Correction is reversal plus a replacement
+    day, or a `SalesAdjustment` where the correction concerns one line. The
+    freeze is a database trigger, not application code.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="sales_days",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="sales_days",
+        verbose_name=_("branch"),
+    )
+    #: Entered, never derived from a timestamp. Which day a sale belongs to
+    #: depends on the branch's own business-day start, and `date(timestamp)`
+    #: would file a 01:30 sale under the wrong day every night.
+    business_date = models.DateField(_("business date"))
+
+    status = models.CharField(
+        _("status"), max_length=12, choices=SalesDayStatus.choices, default=SalesDayStatus.DRAFT
+    )
+    #: Assigned at successful posting and never before. A number on a draft is
+    #: a gap in the sequence waiting to happen.
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    notes = models.TextField(_("notes"), blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sales_days_created",
+        null=True,
+        blank=True,
+        verbose_name=_("created by"),
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sales_days_submitted",
+        null=True,
+        blank=True,
+        verbose_name=_("submitted by"),
+    )
+    submitted_at = models.DateTimeField(_("submitted at"), null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sales_days_posted",
+        null=True,
+        blank=True,
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sales_days_reversed",
+        null=True,
+        blank=True,
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    #: The identity every journal, receivable entry and consumption
+    #: contribution points at. Immutable, and deliberately not the primary key.
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    #: Derived from `public_id` at posting rather than accepted from a caller:
+    #: posting *this day* is the command, the day is the payload, and a posted
+    #: day is frozen — so a retry cannot present the same key with a different
+    #: payload. The same arrangement `post_goods_receipt` uses.
+    idempotency_key = models.CharField(_("idempotency key"), max_length=128, blank=True)
+    request_fingerprint = models.CharField(_("request fingerprint"), max_length=128, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("sales day")
+        verbose_name_plural = _("sales days")
+        ordering = ["-business_date", "branch__code"]
+        permissions = [
+            ("create_daily_sales", _("Can create and edit a draft sales day")),
+            ("submit_daily_sales", _("Can submit a sales day for posting")),
+            ("post_daily_sales", _("Can post a sales day to the ledger")),
+            ("reverse_daily_sales", _("Can reverse a posted sales day")),
+            ("manage_sales_adjustments", _("Can record returns and cancellations")),
+            ("close_cashier_shift", _("Can open and close a cashier shift")),
+            ("approve_cashier_closing", _("Can approve a cashier closing")),
+        ]
+        constraints = [
+            # One document per branch per day. Two would each be a partial
+            # truth, and every report would have to know to add them.
+            models.UniqueConstraint(
+                fields=["branch", "business_date"],
+                name="sales_day_unique_per_branch_and_date",
+            ),
+            # A number exists exactly when the day has reached the ledger.
+            models.CheckConstraint(
+                condition=(
+                    Q(status__in=["DRAFT", "SUBMITTED"], number="")
+                    | (Q(status__in=["POSTED", "REVERSED"]) & ~Q(number=""))
+                ),
+                name="sales_day_number_iff_posted",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(status="REVERSED", reversed_at__isnull=False)
+                    | (~Q(status="REVERSED") & Q(reversed_at__isnull=True))
+                ),
+                name="sales_day_reversal_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="REVERSED") | ~Q(reversal_reason=""),
+                name="sales_day_reversal_has_a_reason",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.branch.code} {self.business_date.isoformat()} ({self.get_status_display()})"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == SalesDayStatus.DRAFT
+
+    @property
+    def is_posted(self) -> bool:
+        return self.status == SalesDayStatus.POSTED
+
+
+class SalesDayLine(TimeStampedModel):
+    """
+    One menu item, sold through one channel, on one day.
+
+    **Every resolved identity is stored, not re-derivable.** The recipe, the
+    exact version, the serving, the price version, the agreement and every
+    field its commission used are all snapshotted here. That is the charter's
+    absolute rule (ADR-024) and Phase 4 is where it would be easiest to break:
+    a recipe changed in September must not restate what August consumed, and a
+    price changed on Monday must not restate Sunday's revenue.
+
+    The redundancy is the point. A three-year-old line explains itself without
+    reading the menu, the price table or the agreement — none of which is
+    guaranteed to still contain the row it used.
+    """
+
+    sales_day = models.ForeignKey(
+        SalesDay, on_delete=models.CASCADE, related_name="lines", verbose_name=_("sales day")
+    )
+    sequence = models.PositiveIntegerField(_("sequence"))
+
+    menu_item = models.ForeignKey(
+        MenuItem, on_delete=models.PROTECT, related_name="sales_lines", verbose_name=_("menu item")
+    )
+    channel = models.ForeignKey(
+        SalesChannel,
+        on_delete=models.PROTECT,
+        related_name="sales_lines",
+        verbose_name=_("channel"),
+    )
+    delivery_application = models.ForeignKey(
+        DeliveryApplication,
+        on_delete=models.PROTECT,
+        related_name="sales_lines",
+        null=True,
+        blank=True,
+        verbose_name=_("delivery application"),
+    )
+
+    # --- the snapshots ----------------------------------------------------
+    recipe = models.ForeignKey(
+        "kitchen.Recipe",
+        on_delete=models.PROTECT,
+        related_name="sales_lines",
+        verbose_name=_("recipe"),
+    )
+    #: The **exact** version in force on this line's business date, resolved
+    #: once and never re-resolved. Everything the kitchen computes from this
+    #: line walks this row.
+    recipe_version = models.ForeignKey(
+        "kitchen.RecipeVersion",
+        on_delete=models.PROTECT,
+        related_name="sales_lines",
+        verbose_name=_("recipe version"),
+    )
+    serving = models.ForeignKey(
+        "kitchen.RecipeServing",
+        on_delete=models.PROTECT,
+        related_name="sales_lines",
+        verbose_name=_("serving"),
+    )
+    price_version = models.ForeignKey(
+        MenuPriceVersion,
+        on_delete=models.PROTECT,
+        related_name="sales_lines",
+        null=True,
+        blank=True,
+        verbose_name=_("price version"),
+    )
+    agreement = models.ForeignKey(
+        DeliveryAgreement,
+        on_delete=models.PROTECT,
+        related_name="sales_lines",
+        null=True,
+        blank=True,
+        verbose_name=_("delivery agreement"),
+    )
+    discount_program = models.ForeignKey(
+        DiscountProgram,
+        on_delete=models.PROTECT,
+        related_name="sales_lines",
+        null=True,
+        blank=True,
+        verbose_name=_("discount program"),
+    )
+
+    unit_price = models.DecimalField(
+        _("unit price"), max_digits=UNIT_PRICE_MAX_DIGITS, decimal_places=UNIT_PRICE_PLACES
+    )
+    #: Decimal, and `0.500` is an ordinary value. Nothing anywhere special-cases
+    #: a half: the serving row carries the fraction, and no code names a
+    #: chicken (RCP-082).
+    quantity = models.DecimalField(
+        _("quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    #: How many orders produced that quantity. Entered where the till reports
+    #: it; zero means not stated, which is different from one order.
+    order_count = models.PositiveIntegerField(_("order count"), default=0)
+
+    gross_amount = models.DecimalField(
+        _("gross amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    restaurant_discount = models.DecimalField(
+        _("restaurant-funded discount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    application_discount = models.DecimalField(
+        _("application-funded discount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    #: A manual discount needs a reason, and the constraint below enforces the
+    #: pair. A silent override is the thing this field exists to prevent.
+    manual_discount_reason = models.CharField(
+        _("manual discount reason"), max_length=300, blank=True
+    )
+
+    # --- the agreement's own terms, frozen --------------------------------
+    commission_basis = models.CharField(
+        _("commission basis"), max_length=32, choices=CommissionBasis.choices, blank=True
+    )
+    commission_percent = models.DecimalField(
+        _("commission percent"),
+        max_digits=RATE_MAX_DIGITS,
+        decimal_places=RATE_PLACES,
+        default=Decimal("0"),
+    )
+    commission_fixed_fee = models.DecimalField(
+        _("fixed fee per order"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    commission_amount = models.DecimalField(
+        _("commission amount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    other_fee_amount = models.DecimalField(
+        _("other application fees"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+
+    #: What the customer handed over, and what the application owes. Both are
+    #: stored rather than derived at read time, because both are what a
+    #: reconciliation argues with.
+    customer_charge = models.DecimalField(
+        _("customer charge"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    net_amount = models.DecimalField(
+        _("net amount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        help_text=_("Cash or card takings, or the expected application receivable."),
+    )
+
+    notes = models.TextField(_("notes"), blank=True)
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("sales day line")
+        verbose_name_plural = _("sales day lines")
+        ordering = ["sales_day", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sales_day", "sequence"], name="sales_day_line_sequence_unique"
+            ),
+            models.CheckConstraint(
+                condition=Q(quantity__gt=Decimal("0")), name="sales_line_quantity_is_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_price__gte=Decimal("0")), name="sales_line_price_is_not_negative"
+            ),
+            models.CheckConstraint(
+                condition=Q(gross_amount__gte=Decimal("0")),
+                name="sales_line_gross_is_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(restaurant_discount__gte=Decimal("0"))
+                & Q(application_discount__gte=Decimal("0")),
+                name="sales_line_discounts_are_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(commission_amount__gte=Decimal("0"))
+                & Q(other_fee_amount__gte=Decimal("0")),
+                name="sales_line_fees_are_not_negative",
+            ),
+            # An application line names an application; a hall line does not.
+            # Without this a cash sale could accrue a receivable owed by
+            # nobody, and an application sale could post as cash.
+            models.CheckConstraint(
+                condition=(
+                    Q(delivery_application__isnull=False, agreement__isnull=False)
+                    | Q(delivery_application__isnull=True, agreement__isnull=True)
+                ),
+                name="sales_line_application_and_agreement_travel_together",
+            ),
+            # An application-funded discount is a promise by a delivery
+            # company. A line with no application cannot carry one.
+            models.CheckConstraint(
+                condition=Q(application_discount=Decimal("0"))
+                | Q(delivery_application__isnull=False),
+                name="sales_line_application_discount_needs_an_application",
+            ),
+            # A manual discount and its reason travel together. A discount
+            # nobody explained is exactly the silent override the design
+            # refuses.
+            models.CheckConstraint(
+                condition=(
+                    Q(discount_program__isnull=False)
+                    | Q(restaurant_discount=Decimal("0"), application_discount=Decimal("0"))
+                    | ~Q(manual_discount_reason="")
+                ),
+                name="sales_line_manual_discount_has_a_reason",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.sales_day} · {self.menu_item.code} × {self.quantity:f}"
+
+    @property
+    def quantity_display(self) -> str:
+        """The quantity as a technical identity: period, never comma."""
+        return f"{self.quantity:f}"
+
+    @property
+    def is_application_sale(self) -> bool:
+        return self.delivery_application_id is not None
+
+
+class SalesTenderSummary(TimeStampedModel):
+    """
+    What the day's takings were **declared** to be, per tender.
+
+    Entered rather than derived, and the difference is the whole reason this
+    table exists: the derived figure is what the lines say, and this is what
+    the operator says. A cashier closing reconciles a *counted* drawer against
+    the derived expectation, and a day whose declared and derived cash disagree
+    is a day worth looking at before it posts.
+    """
+
+    sales_day = models.ForeignKey(
+        SalesDay,
+        on_delete=models.CASCADE,
+        related_name="tender_summaries",
+        verbose_name=_("sales day"),
+    )
+    tender = models.CharField(_("tender"), max_length=24, choices=TenderDestination.choices)
+    declared_amount = models.DecimalField(
+        _("declared amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    notes = models.TextField(_("notes"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("sales tender summary")
+        verbose_name_plural = _("sales tender summaries")
+        ordering = ["sales_day", "tender"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sales_day", "tender"], name="sales_tender_unique_per_day"
+            ),
+            models.CheckConstraint(
+                condition=Q(declared_amount__gte=Decimal("0")),
+                name="sales_tender_is_not_negative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.sales_day} · {self.get_tender_display()}"
+
+
+# ---------------------------------------------------------------------------
+# The application receivable ledger — checkpoint 3 writes it, 5 reads it
+# ---------------------------------------------------------------------------
+
+
+class ReceivableSource(models.TextChoices):
+    """
+    Why a receivable entry exists. A closed set, extended with code and tests.
+
+    Deliberately mirrors `accounting.SourceEvent`'s reasoning: the source
+    identity is what stops a retried posting writing a second entry, and a
+    free-text field would let one typo slip past the uniqueness guarantee whose
+    whole job is to catch that retry.
+    """
+
+    SALE_POSTED = "SALE_POSTED", _("ترحيل مبيعات")
+    SALE_REVERSED = "SALE_REVERSED", _("عكس مبيعات")
+    SETTLEMENT = "SETTLEMENT", _("تسوية")
+    SETTLEMENT_REVERSED = "SETTLEMENT_REVERSED", _("عكس تسوية")
+    AUTHORIZED_ADJUSTMENT = "AUTHORIZED_ADJUSTMENT", _("تسوية معتمدة")
+
+
+class ApplicationReceivableEntry(models.Model):
+    """
+    One movement in what a delivery application owes. **Append-only.**
+
+    There is no balance field anywhere in this module, and this table is why.
+    The balance is `SUM(debit) - SUM(credit)` over these rows, computed every
+    time it is asked for. A stored balance is a number that can disagree with
+    the entries that produced it, and the disagreement is discovered during a
+    settlement argument — the worst possible moment, because the counterparty
+    has their own figure and the restaurant can no longer explain its own
+    (ADR-027 §5).
+
+    The performance objection is real and answered rather than dismissed: the
+    rows are indexed on `(organization, delivery_application, business_date)`
+    and a period balance is one aggregate query. If that ever stops being
+    enough the answer is a *derived and rebuildable* period summary, never an
+    incrementally-maintained field.
+
+    No `TimeStampedModel`: an append-only row has no `updated_at`, and offering
+    one would invite something to write it.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="application_receivable_entries",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="application_receivable_entries",
+        verbose_name=_("branch"),
+    )
+    delivery_application = models.ForeignKey(
+        DeliveryApplication,
+        on_delete=models.PROTECT,
+        related_name="receivable_entries",
+        verbose_name=_("delivery application"),
+    )
+    business_date = models.DateField(_("business date"))
+
+    source = models.CharField(_("source"), max_length=24, choices=ReceivableSource.choices)
+    #: `sales.SalesDay`, `sales.DeliveryApplicationSettlement`, and so on —
+    #: the same shape the journal's own source identity uses (ADR-017).
+    source_document_type = models.CharField(_("source document type"), max_length=100)
+    source_document_id = models.CharField(_("source document id"), max_length=64)
+
+    debit = models.DecimalField(
+        _("debit"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    credit = models.DecimalField(
+        _("credit"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    narration = models.CharField(_("narration"), max_length=300, blank=True)
+
+    created_at = models.DateTimeField(_("created at"), auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("application receivable entry")
+        verbose_name_plural = _("application receivable entries")
+        ordering = ["business_date", "pk"]
+        indexes = [
+            models.Index(
+                fields=["organization", "delivery_application", "business_date"],
+                name="sales_receivable_scope_idx",
+            ),
+        ]
+        constraints = [
+            # Exactly one side, and it is positive. A row with both would be
+            # two facts, and a row with neither would be a fact about nothing.
+            models.CheckConstraint(
+                condition=(
+                    Q(debit__gt=Decimal("0"), credit=Decimal("0"))
+                    | Q(debit=Decimal("0"), credit__gt=Decimal("0"))
+                ),
+                name="sales_receivable_exactly_one_side",
+            ),
+            # One entry per economic event. This is what makes a retried
+            # posting idempotent at the ledger rather than only at the journal.
+            models.UniqueConstraint(
+                fields=[
+                    "organization",
+                    "delivery_application",
+                    "source",
+                    "source_document_type",
+                    "source_document_id",
+                ],
+                name="sales_receivable_one_entry_per_event",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        side = f"Dr {self.debit}" if self.debit else f"Cr {self.credit}"
+        return f"{self.delivery_application.code} {self.business_date.isoformat()} {side}"
+
+    @property
+    def signed_amount(self) -> Decimal:
+        """Positive increases what the application owes."""
+        return self.debit - self.credit
+
+
 __all__ = [
     "CALCULATION_MAX_DIGITS",
     "CODE_PATTERN",
@@ -1134,6 +1752,7 @@ __all__ = [
     "RATE_MAX_DIGITS",
     "UNIT_PRICE_MAX_DIGITS",
     "ZERO_RATE",
+    "ApplicationReceivableEntry",
     "CommissionBasis",
     "DeliveryAgreement",
     "DeliveryApplication",
@@ -1145,7 +1764,13 @@ __all__ = [
     "MenuItemBranchSetting",
     "MenuPriceVersion",
     "PriceScope",
+    "ReceivableSource",
     "SalesChannel",
     "SalesChannelCategory",
+    "SalesDay",
+    "SalesDayLine",
+    "SalesDayStatus",
+    "SalesDocumentSequence",
+    "SalesTenderSummary",
     "TenderDestination",
 ]

@@ -573,13 +573,18 @@ class TestNavigationAndAuthority:
             assert section.available is True, f"{label} is still inert"
             assert reverse(section.url_name)
 
-    def test_five_of_twelve_are_active_and_seven_stay_honestly_inert(self) -> None:
+    def test_the_module_still_has_exactly_twelve_sections(self) -> None:
+        """
+        The shape of the finished module, which does not move.
+
+        How many are *active* is asserted as an invariant rather than a count
+        in `test_menu_and_channels.py`: a count is true for one checkpoint and
+        has to be edited by the next, which teaches nobody anything.
+        """
         from apps.core.navigation import MODULES
 
         sales = next(module for module in MODULES if module.key == "sales")
-        active = [row for row in sales.sections if row.available]
         assert len(sales.sections) == 12
-        assert len(active) == 5
 
     def test_a_cashier_may_not_touch_agreements_or_discounts(self, cashier: User) -> None:
         """A discount a till can invent is a discount nobody approved."""
