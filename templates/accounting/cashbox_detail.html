@@ -1,0 +1,130 @@
+{# One drawer: its balance, its movement, and the till closings behind it.   #}
+{#                                                                           #}
+{# Cashier closings belong to المبيعات. They are shown here because they are #}
+{# the evidence behind the cash line, and every one of them is a link out —  #}
+{# this page reports them and offers no action over them.                    #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-cashbox-detail">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'accounting:cashbox_list' %}">{% translate "الصناديق" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page"><bdi dir="ltr">{{ cashbox.code }}</bdi></span>
+    </nav>
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ cashbox.name_ar }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        {% if may_manage %}
+          <a class="btn btn--secondary" href="{% url 'accounting:cashbox_update' cashbox.pk %}">{% translate "تعديل" %}</a>
+          {% if cashbox.is_active %}
+            <form method="post" action="{% url 'accounting:cashbox_archive' cashbox.pk %}" class="inline-form">
+              {% csrf_token %}<button class="btn btn--secondary" type="submit">{% translate "أرشفة" %}</button>
+            </form>
+          {% else %}
+            <form method="post" action="{% url 'accounting:cashbox_reactivate' cashbox.pk %}" class="inline-form">
+              {% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "إعادة تفعيل" %}</button>
+            </form>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "التعريف" %}</h2>
+      <dl class="datalist">
+        <div><dt>{% translate "المؤسسة" %}</dt><dd>{{ cashbox.organization.code }}</dd></div>
+        <div><dt>{% translate "الفرع" %}</dt><dd>{{ cashbox.branch.code }} — {{ cashbox.branch.name_ar }}</dd></div>
+        <div>
+          <dt>{% translate "حساب النقدية" %}</dt>
+          <dd><a href="{% url 'accounting:account_detail' cashbox.account.pk %}">
+            <code dir="ltr">{{ cashbox.account.code }}</code> {{ cashbox.account.name_ar }}
+          </a></dd>
+        </div>
+        <div><dt>{% translate "مستعمَل من" %}</dt><dd><bdi dir="ltr">{{ cashbox.opened_on|date:"Y-m-d" }}</bdi></dd></div>
+        <div><dt>{% translate "المسؤول" %}</dt><dd>{{ cashbox.responsible_note|default:"—" }}</dd></div>
+        <div><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ current_balance|money_full }}</bdi></dd></div>
+        <div>
+          <dt>{% translate "آخر مطابقة" %}</dt>
+          <dd>{% if cashbox.last_reconciled_on %}<bdi dir="ltr">{{ cashbox.last_reconciled_on|date:"Y-m-d" }}</bdi>{% else %}{% translate "لم تُسجَّل" %}{% endif %}</dd>
+        </div>
+        <div>
+          <dt>{% translate "الحالة" %}</dt>
+          <dd>{% if cashbox.is_active %}<span class="chip chip--ok">{% translate "فعّال" %}</span>{% else %}<span class="chip chip--muted">{% translate "مؤرشف" %}</span>{% endif %}</dd>
+        </div>
+      </dl>
+
+      {% if may_manage %}
+        <form method="post" action="{% url 'accounting:cashbox_reconcile' cashbox.pk %}" class="formcard formcard--inline">
+          {% csrf_token %}
+          <label class="field">
+            <span class="field__label">{% translate "تسجيل مطابقة حتى" %}</span>
+            <input type="date" name="on_date" value="{{ today|date:'Y-m-d' }}">
+          </label>
+          <button class="btn btn--secondary" type="submit">{% translate "تسجيل المطابقة" %}</button>
+        </form>
+        <p class="card__hint">
+          {% translate "يُسجَّل التاريخ فقط، لا المبلغ: رصيد ذلك اليوم مشتق أصلاً من دفتر الأستاذ، ولو خُزِّن لأصبح رقماً ثانياً يمكن أن يخالفه." %}
+        </p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "كشف الحركة" %}</h2>
+      <form class="toolbar" method="get"
+            hx-get="{% url 'accounting:cashbox_detail' cashbox.pk %}"
+            hx-target="#accounting-cashbox-detail"
+            hx-swap="outerHTML"
+            hx-push-url="true"
+            hx-trigger="change from:find input"
+            hx-indicator="#cashbox-loading">
+        <label class="field">
+          <span class="field__label">{% translate "من" %}</span>
+          <input type="date" name="from" value="{{ statement.date_from|date:'Y-m-d' }}">
+        </label>
+        <label class="field">
+          <span class="field__label">{% translate "إلى" %}</span>
+          <input type="date" name="to" value="{{ statement.date_to|date:'Y-m-d' }}">
+        </label>
+        <span class="inventory-loading" id="cashbox-loading" role="status" aria-live="polite">
+          {% translate "جارٍ التحميل…" %}
+        </span>
+      </form>
+      {% include "accounting/_statement_table.html" %}
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "إقفالات الكاشير" %}</h2>
+      <p class="card__hint">{% translate "تملكها المبيعات. تُقرأ من هنا وتُدار من شاشتها." %}</p>
+      <div class="tablewrap">
+        <table class="table">
+          <thead><tr>
+            <th>{% translate "تاريخ العمل" %}</th>
+            <th>{% translate "الحالة" %}</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            {% for shift in shifts %}
+              <tr>
+                <td><bdi dir="ltr">{{ shift.business_date|date:"Y-m-d" }}</bdi></td>
+                <td>{{ shift.get_status_display }}</td>
+                <td class="cell-actions">
+                  <a class="btn btn--secondary btn--sm" href="{% url 'sales:shift_detail' shift.pk %}">{% translate "فتح" %}</a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="3" class="empty">{% translate "لا إقفالات مسجَّلة لهذا الفرع." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}

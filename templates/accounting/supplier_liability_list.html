@@ -1,0 +1,139 @@
+{# ذمم الموردين — a reconciliation workspace, not a subledger.               #}
+{#                                                                           #}
+{# Two independently computed numbers, side by side. The subledger side sums #}
+{# Procurement's own `supplier_outstanding`; the GL side is the balance of   #}
+{# the account carrying SUPPLIER_PAYABLE, resolved through the same role     #}
+{# indirection the postings used. Where they disagree the page says by how   #}
+{# much and offers nothing that would make them agree (ADR-029 §4).          #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-supplier-liabilities">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+    </div>
+
+    <form class="toolbar" method="get"
+          hx-get="{% url 'accounting:supplier_liability_list' %}"
+          hx-target="#accounting-supplier-liabilities"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          hx-trigger="submit, change from:find select, change from:find input[type=date], keyup changed delay:350ms from:find input[type=search]"
+          hx-indicator="#supplier-loading">
+      <div class="toolbar__search">
+        <label class="sr-only" for="supplier-search">{% translate "بحث" %}</label>
+        <input type="search" id="supplier-search" name="q" value="{{ search }}"
+               placeholder="{% translate 'ابحث باسم المورد أو رمزه…' %}" autocomplete="off">
+      </div>
+      <label class="field">
+        <span class="field__label">{% translate "المؤسسة" %}</span>
+        <select name="organization">
+          {% for row in organizations %}
+            <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>{{ row.code }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "بتاريخ" %}</span>
+        <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}">
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "شريحة العمر" %}</span>
+        <select name="bucket">
+          <option value="">{% translate "الكل" %}</option>
+          <option value="current" {% if selected_bucket == "current" %}selected{% endif %}>{% translate "غير مستحق" %}</option>
+          <option value="d30" {% if selected_bucket == "d30" %}selected{% endif %}>1–30</option>
+          <option value="d60" {% if selected_bucket == "d60" %}selected{% endif %}>31–60</option>
+          <option value="d90" {% if selected_bucket == "d90" %}selected{% endif %}>61–90</option>
+          <option value="older" {% if selected_bucket == "older" %}selected{% endif %}>90+</option>
+        </select>
+      </label>
+      <button class="btn btn--secondary toolbar__submit" type="submit">{% translate "تطبيق" %}</button>
+      <span class="inventory-loading" id="supplier-loading" role="status" aria-live="polite">
+        {% translate "جارٍ التحميل…" %}
+      </span>
+    </form>
+
+    <section class="card {% if not reconciled %}card--warn{% endif %}" id="supplier-reconciliation">
+      <h2 class="card__title">{% translate "المطابقة مع دفتر الأستاذ" %}</h2>
+      <div class="summary-row">
+        <div class="summary-row__item">
+          <span class="summary-row__label">{% translate "رصيد الذمم من المستندات" %}</span>
+          <span class="summary-row__value"><bdi dir="ltr">{{ subledger_total|money_full }}</bdi></span>
+        </div>
+        <div class="summary-row__item">
+          <span class="summary-row__label">
+            {% translate "رصيد حساب الذمم" %}
+            {% if gl_account %}<code dir="ltr">{{ gl_account.code }}</code>{% endif %}
+          </span>
+          <span class="summary-row__value"><bdi dir="ltr">{{ gl_balance|money_full }}</bdi></span>
+        </div>
+        <div class="summary-row__item">
+          <span class="summary-row__label">{% translate "الفرق" %}</span>
+          <span class="summary-row__value"><bdi dir="ltr">{{ difference|money_full }}</bdi></span>
+        </div>
+      </div>
+      {% if not gl_account %}
+        <p class="chip chip--warn">{% translate "دور ذمم الموردين غير مربوط بحساب في هذا التاريخ." %}</p>
+      {% elif reconciled %}
+        <p class="chip chip--ok">{% translate "مطابق" %}</p>
+      {% else %}
+        <p class="chip chip--warn">{% translate "غير مطابق — يُعرض الفرق ولا يُصلَح تلقائياً." %}</p>
+      {% endif %}
+      {% if findings %}
+        <ul class="chip-list">
+          {% for finding in findings %}
+            <li class="chip chip--warn">
+              {{ finding.scope }} · {{ finding.field }} ·
+              <bdi dir="ltr">{{ finding.expected }}</bdi> ≠ <bdi dir="ltr">{{ finding.actual }}</bdi>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "الأعمار حسب المورد" %}</h2>
+      <div class="tablewrap">
+        <table class="table" id="supplier-aging-table">
+          <thead><tr>
+            <th>{% translate "المورد" %}</th>
+            <th>{% translate "غير مستحق" %}</th>
+            <th>1–30</th><th>31–60</th><th>61–90</th><th>90+</th>
+            <th>{% translate "مفتوح" %}</th>
+            <th>{% translate "رصيد دائن" %}</th>
+            <th>{% translate "سلف" %}</th>
+            <th>{% translate "الصافي" %}</th>
+          </tr></thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td><code dir="ltr">{{ row.supplier_code }}</code> {{ row.supplier_name }}</td>
+                <td><bdi dir="ltr">{{ row.current|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.d30|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.d60|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.d90|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.older|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.open_total|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.standing_credit|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.advances|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.net_position|money_full }}</bdi></td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="10" class="empty">{% translate "لا توجد ذمم مفتوحة." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="card__hint">
+        {% translate "الأعمار تُحسب من تاريخ الاستحقاق المثبَّت على الفاتورة نفسها، لا من شروط السداد الحالية — إعادة التفاوض في آذار يجب ألّا تعيد ترتيب أعمار كانون الثاني." %}
+      </p>
+    </section>
+  </div>
+{% endblock %}

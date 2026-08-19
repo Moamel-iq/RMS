@@ -9,7 +9,14 @@ journal would fire on a link prefetch.
 
 from django.urls import path
 
-from apps.accounting import chart_views, dashboard_views, journal_views, views
+from apps.accounting import (
+    cash_views,
+    chart_views,
+    dashboard_views,
+    journal_views,
+    subledger_views,
+    views,
+)
 
 app_name = "accounting"
 
@@ -105,5 +112,83 @@ urlpatterns = [
         "journals/<int:pk>/discard/",
         journal_views.JournalTransitionView.as_view(action="discard"),
         name="journal_discard",
+    ),
+    # --- الصناديق ------------------------------------------------------------
+    path("cashboxes/", cash_views.CashboxListView.as_view(), name="cashbox_list"),
+    path("cashboxes/new/", cash_views.CashboxCreateView.as_view(), name="cashbox_create"),
+    path("cashboxes/<int:pk>/", cash_views.CashboxDetailView.as_view(), name="cashbox_detail"),
+    path(
+        "cashboxes/<int:pk>/edit/",
+        cash_views.CashboxUpdateView.as_view(),
+        name="cashbox_update",
+    ),
+    path(
+        "cashboxes/<int:pk>/archive/",
+        cash_views.CashboxActionView.as_view(action="archive"),
+        name="cashbox_archive",
+    ),
+    path(
+        "cashboxes/<int:pk>/reactivate/",
+        cash_views.CashboxActionView.as_view(action="reactivate"),
+        name="cashbox_reactivate",
+    ),
+    path(
+        "cashboxes/<int:pk>/reconcile/",
+        cash_views.CashboxActionView.as_view(action="reconcile"),
+        name="cashbox_reconcile",
+    ),
+    # --- الحسابات البنكية ----------------------------------------------------
+    path("bank-accounts/", cash_views.BankAccountListView.as_view(), name="bank_account_list"),
+    path(
+        "bank-accounts/new/",
+        cash_views.BankAccountCreateView.as_view(),
+        name="bank_account_create",
+    ),
+    path(
+        "bank-accounts/<int:pk>/",
+        cash_views.BankAccountDetailView.as_view(),
+        name="bank_account_detail",
+    ),
+    path(
+        "bank-accounts/<int:pk>/edit/",
+        cash_views.BankAccountUpdateView.as_view(),
+        name="bank_account_update",
+    ),
+    path(
+        "bank-accounts/<int:pk>/archive/",
+        cash_views.BankAccountActionView.as_view(action="archive"),
+        name="bank_account_archive",
+    ),
+    path(
+        "bank-accounts/<int:pk>/reactivate/",
+        cash_views.BankAccountActionView.as_view(action="reactivate"),
+        name="bank_account_reactivate",
+    ),
+    path(
+        "bank-accounts/<int:pk>/reconcile/",
+        cash_views.BankAccountActionView.as_view(action="reconcile"),
+        name="bank_account_reconcile",
+    ),
+    # --- ذمم الموردين --------------------------------------------------------
+    path(
+        "supplier-liabilities/",
+        subledger_views.SupplierLiabilityListView.as_view(),
+        name="supplier_liability_list",
+    ),
+    path(
+        "supplier-liabilities/<int:pk>/",
+        subledger_views.SupplierLiabilityDetailView.as_view(),
+        name="supplier_liability_detail",
+    ),
+    # --- ذمم التطبيقات -------------------------------------------------------
+    path(
+        "application-receivables/",
+        subledger_views.ApplicationReceivableListView.as_view(),
+        name="application_receivable_list",
+    ),
+    path(
+        "application-receivables/<int:pk>/",
+        subledger_views.ApplicationReceivableDetailView.as_view(),
+        name="application_receivable_detail",
     ),
 ]

@@ -13,6 +13,7 @@ must satisfy, and ADR-012 through ADR-015 for the decisions behind them.
 from __future__ import annotations
 
 import datetime
+import uuid
 from decimal import Decimal
 
 from django.conf import settings
@@ -114,6 +115,25 @@ class AccountingSettings(TimeStampedModel):
     class Meta:
         verbose_name = _("accounting settings")
         verbose_name_plural = _("accounting settings")
+        # The two reconciliation workspaces have no model of their own, and
+        # that is the decision rather than an oversight (ADR-029 §4): supplier
+        # liability lives in Procurement's documents and application receivable
+        # in Sales's ledger, and Accounting builds no second copy of either.
+        #
+        # A permission still needs a table to hang on, so they hang here — the
+        # per-organization accounting configuration — because both are
+        # organization-scoped authorities over the accounting module as a
+        # whole rather than over any one record.
+        permissions = [
+            (
+                "view_supplier_liabilities",
+                _("Can read the supplier liability reconciliation workspace"),
+            ),
+            (
+                "view_application_receivables",
+                _("Can read the delivery-application receivable workspace"),
+            ),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=Q(fiscal_year_start_month__gte=1) & Q(fiscal_year_start_month__lte=12),
@@ -1519,3 +1539,186 @@ class AccountReportMapping(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.account.code} -> {self.statement_group}"
+
+
+# ---------------------------------------------------------------------------
+# Cash and bank master data (ADR-030 §1)
+# ---------------------------------------------------------------------------
+
+
+class CashAccountBase(TimeStampedModel):
+    """
+    What a cashbox and a bank account have in common.
+
+    Abstract, because the two are genuinely different records — a cashbox sits
+    at one branch and a bank account may not — but every rule that matters is
+    shared, and stating it twice is how the two would drift.
+
+    **Neither carries a balance field of any kind.** Not `current_balance`, not
+    `opening_balance`, not `last_reconciled_balance`. A stored balance has to be
+    maintained, every maintenance path is a chance to disagree with the ledger,
+    and the disagreement is silent: the page says one figure, the trial balance
+    says another, and nothing is required to notice. Deriving it costs one
+    aggregate query and cannot be wrong (ADR-030 §1).
+
+    A *date* for the last reconciliation is fine and is here. An amount is not.
+    """
+
+    #: Stable across renames and re-codings, and safe to put in a URL or an
+    #: export. The primary key is sequential and leaks how many exist.
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        verbose_name=_("organization"),
+    )
+    code = models.CharField(_("code"), max_length=20)
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200)
+    notes = models.TextField(_("notes"), blank=True)
+    is_active = models.BooleanField(_("active"), default=True)
+    archived_at = models.DateTimeField(_("archived at"), null=True, blank=True)
+    last_reconciled_on = models.DateField(_("last reconciled on"), null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name_ar}"
+
+
+class Cashbox(CashAccountBase):
+    """
+    A physical drawer or safe, tied to exactly one postable cash account.
+
+    Branch is required here and optional on a bank account, because a cashbox
+    is a physical object in a specific place: somebody counts it, and "which
+    branch is this drawer in" always has an answer.
+    """
+
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="cashboxes",
+        verbose_name=_("branch"),
+    )
+    account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        related_name="cashboxes",
+        verbose_name=_("cash account"),
+    )
+    opened_on = models.DateField(_("in use from"))
+    responsible_note = models.CharField(_("responsible person"), max_length=200, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("cashbox")
+        verbose_name_plural = _("cashboxes")
+        ordering = ["organization__code", "code"]
+        permissions = [
+            ("manage_cashboxes", _("Can create and archive cashboxes")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "code"], name="cashbox_code_unique_per_organization"
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN), name="cashbox_code_format"
+            ),
+            models.CheckConstraint(
+                condition=~Q(name_ar="") & ~Q(name_en=""), name="cashbox_names_not_empty"
+            ),
+            # One GL account backs at most one **active** cashbox.
+            #
+            # Two active cashboxes on one account produce two statements that
+            # are the same movements, and an operator counting one drawer
+            # against it finds it over by exactly the other drawer — with
+            # nothing on either page to suggest why.
+            #
+            # Partial rather than total, so an archived cashbox can be replaced
+            # without renumbering the account, and the archived row stays
+            # readable forever.
+            models.UniqueConstraint(
+                fields=["organization", "account"],
+                condition=Q(is_active=True),
+                name="cashbox_account_unique_while_active",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (Q(is_active=True) & Q(archived_at__isnull=True))
+                    | (Q(is_active=False) & Q(archived_at__isnull=False))
+                ),
+                name="cashbox_archived_at_matches_state",
+            ),
+        ]
+
+
+class BankAccount(CashAccountBase):
+    """
+    One bank account, tied to exactly one postable bank GL account.
+
+    Branch is optional: an organization's operating account belongs to no
+    single branch, and forcing one would record a claim nobody made.
+    """
+
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="bank_accounts",
+        verbose_name=_("branch"),
+    )
+    bank_name = models.CharField(_("bank"), max_length=200)
+    #: **The mask, not the number.** Release 1 has no reason to hold a full
+    #: account number — nothing generates a payment file from it — and a field
+    #: that can hold one eventually will. What the screens need is enough to
+    #: tell two accounts apart, which the last four digits give.
+    masked_account_number = models.CharField(
+        _("account number (masked)"),
+        max_length=40,
+        help_text=_("آخر أربعة أرقام فقط."),
+    )
+    iban = models.CharField(_("IBAN"), max_length=34, blank=True)
+    account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        related_name="bank_accounts",
+        verbose_name=_("bank account"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("bank account")
+        verbose_name_plural = _("bank accounts")
+        ordering = ["organization__code", "code"]
+        permissions = [
+            ("manage_bank_accounts", _("Can create and archive bank accounts")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "code"], name="bank_account_code_unique_per_organization"
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN), name="bank_account_code_format"
+            ),
+            models.CheckConstraint(
+                condition=~Q(name_ar="") & ~Q(name_en="") & ~Q(bank_name=""),
+                name="bank_account_names_not_empty",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "account"],
+                condition=Q(is_active=True),
+                name="bank_account_account_unique_while_active",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (Q(is_active=True) & Q(archived_at__isnull=True))
+                    | (Q(is_active=False) & Q(archived_at__isnull=False))
+                ),
+                name="bank_account_archived_at_matches_state",
+            ),
+        ]

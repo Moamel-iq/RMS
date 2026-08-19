@@ -1,0 +1,60 @@
+{# الحسابات البنكية — the accounts, masked, with derived balances.           #}
+{#                                                                           #}
+{# The account number column shows the mask because the mask is what is      #}
+{# stored. Release 1 has no reason to hold a full number and a field that    #}
+{# could hold one eventually would.                                          #}
+{% extends "settings/base_list.html" %}
+{% load i18n money_tags %}
+
+{% block filters %}
+  <label class="field">
+    <span class="field__label">{% translate "الحالة" %}</span>
+    <select name="state">
+      <option value="">{% translate "الفعّالة" %}</option>
+      <option value="archived" {% if selected_state == "archived" %}selected{% endif %}>{% translate "المؤرشفة" %}</option>
+      <option value="all" {% if selected_state == "all" %}selected{% endif %}>{% translate "الكل" %}</option>
+    </select>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "المصرف" %}</th>
+  <th>{% translate "اسم الحساب" %}</th>
+  <th>{% translate "رقم الحساب" %}</th>
+  <th>{% translate "الفرع" %}</th>
+  <th>{% translate "الحساب المحاسبي" %}</th>
+  <th>{% translate "الرصيد" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th></th>
+{% endblock %}
+
+{% block rows %}
+  {% for bank in banks %}
+    <tr>
+      <td><code dir="ltr">{{ bank.code }}</code></td>
+      <td>{{ bank.bank_name }}</td>
+      <td>{{ bank.name_ar }}</td>
+      <td><bdi dir="ltr">{{ bank.masked_account_number }}</bdi></td>
+      <td>{% if bank.branch %}{{ bank.branch.code }}{% else %}{% translate "المؤسسة" %}{% endif %}</td>
+      <td>
+        <a href="{% url 'accounting:account_detail' bank.account.pk %}">
+          <code dir="ltr">{{ bank.account.code }}</code>
+        </a>
+      </td>
+      <td><bdi dir="ltr">{{ bank.derived_balance|money_full }}</bdi></td>
+      <td>
+        {% if bank.is_active %}
+          <span class="chip chip--ok">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--muted">{% translate "مؤرشف" %}</span>
+        {% endif %}
+      </td>
+      <td class="cell-actions">
+        <a class="btn btn--secondary btn--sm" href="{% url 'accounting:bank_account_detail' bank.pk %}">{% translate "الكشف" %}</a>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="9" class="empty">{% translate "لا توجد حسابات بنكية مسجَّلة." %}</td></tr>
+  {% endfor %}
+{% endblock %}

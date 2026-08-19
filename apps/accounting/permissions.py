@@ -63,6 +63,15 @@ REVERSE_IN_SOFT_CLOSED_PERIOD = f"{APP_LABEL}.reverse_in_soft_closed_period"
 VIEW_CHART_OF_ACCOUNTS = f"{APP_LABEL}.view_chart_of_accounts"
 MANAGE_CHART_OF_ACCOUNTS = f"{APP_LABEL}.manage_chart_of_accounts"
 MANAGE_REPORT_MAPPINGS = f"{APP_LABEL}.manage_report_mappings"
+MANAGE_CASHBOXES = f"{APP_LABEL}.manage_cashboxes"
+MANAGE_BANK_ACCOUNTS = f"{APP_LABEL}.manage_bank_accounts"
+#: Read-only workspaces over another module's documents. Separate from
+#: `view_journal` because reading a supplier's outstanding balance is a
+#: different disclosure from reading the ledger: it names counterparties and
+#: what is owed to them, and a deployment may reasonably grant one and not the
+#: other.
+VIEW_SUPPLIER_LIABILITIES = f"{APP_LABEL}.view_supplier_liabilities"
+VIEW_APPLICATION_RECEIVABLES = f"{APP_LABEL}.view_application_receivables"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_JOURNAL,
@@ -82,6 +91,10 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_CHART_OF_ACCOUNTS,
     MANAGE_CHART_OF_ACCOUNTS,
     MANAGE_REPORT_MAPPINGS,
+    MANAGE_CASHBOXES,
+    MANAGE_BANK_ACCOUNTS,
+    VIEW_SUPPLIER_LIABILITIES,
+    VIEW_APPLICATION_RECEIVABLES,
 )
 
 
@@ -125,6 +138,15 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     VIEW_CHART_OF_ACCOUNTS: PermissionScope.ORGANIZATION,
     MANAGE_CHART_OF_ACCOUNTS: PermissionScope.ORGANIZATION,
     MANAGE_REPORT_MAPPINGS: PermissionScope.ORGANIZATION,
+    # Cash and bank master data is organization structure for the same reason
+    # the chart is: one branch must not reshape what the others post through.
+    MANAGE_CASHBOXES: PermissionScope.ORGANIZATION,
+    MANAGE_BANK_ACCOUNTS: PermissionScope.ORGANIZATION,
+    # Both workspaces aggregate across every branch an organization owns, so
+    # branch authority cannot answer them: a per-branch reader would see a
+    # supplier balance that is real but is not the balance.
+    VIEW_SUPPLIER_LIABILITIES: PermissionScope.ORGANIZATION,
+    VIEW_APPLICATION_RECEIVABLES: PermissionScope.ORGANIZATION,
 }
 
 
@@ -167,11 +189,25 @@ _ACCOUNTANT = frozenset(
         POST_JOURNAL,
         REVERSE_JOURNAL,
         VIEW_CHART_OF_ACCOUNTS,
+        # The two reconciliation workspaces are read surfaces over documents
+        # Procurement and Sales own. An accountant chasing a difference needs
+        # them; neither grants any authority over the source documents, which
+        # is why they can be given without giving anything away.
+        VIEW_SUPPLIER_LIABILITIES,
+        VIEW_APPLICATION_RECEIVABLES,
     }
 )
 
-#: Read the ledger and the chart, change nothing in either.
-_READ_ONLY = frozenset({VIEW_JOURNAL, VIEW_CHART_OF_ACCOUNTS})
+#: Read the ledger, the chart and the two reconciliation workspaces; change
+#: nothing anywhere.
+_READ_ONLY = frozenset(
+    {
+        VIEW_JOURNAL,
+        VIEW_CHART_OF_ACCOUNTS,
+        VIEW_SUPPLIER_LIABILITIES,
+        VIEW_APPLICATION_RECEIVABLES,
+    }
+)
 
 #: Read the ledger only.
 #:

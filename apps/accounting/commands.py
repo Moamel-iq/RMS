@@ -41,11 +41,24 @@ from django.db import transaction
 from django.db.models import Model, Q, QuerySet
 from django.utils.translation import gettext_lazy as _
 
+from apps.accounting.cash_services import (
+    archive_bank_account,
+    archive_cashbox,
+    create_bank_account,
+    create_cashbox,
+    reactivate_bank_account,
+    reactivate_cashbox,
+    record_reconciliation,
+    update_bank_account,
+    update_cashbox,
+)
 from apps.accounting.models import (
     Account,
     AccountingPeriod,
     AccountReportMapping,
     AccountRole,
+    BankAccount,
+    Cashbox,
     CostCenter,
     JournalEntry,
     JournalEntryStatus,
@@ -60,6 +73,8 @@ from apps.accounting.permissions import (
     EDIT_DRAFT,
     MANAGE_ACCOUNT_MAPPINGS,
     MANAGE_ACCOUNTS,
+    MANAGE_BANK_ACCOUNTS,
+    MANAGE_CASHBOXES,
     MANAGE_CHART_OF_ACCOUNTS,
     MANAGE_REPORT_MAPPINGS,
     POST_JOURNAL,
@@ -960,3 +975,220 @@ def reopen_accounting_period(*, actor: User, period_id: int, reason: str) -> Acc
             },
         )
     return reopened
+
+
+# ---------------------------------------------------------------------------
+# Cashbox and bank-account commands (ADR-030 §1)
+# ---------------------------------------------------------------------------
+#
+# Organization-scoped, like the chart: a cashbox names a GL account, and which
+# accounts exist and what they mean is an organization decision that every
+# branch then posts through.
+
+
+def _resolve_cashbox(actor: User, cashbox_id: int) -> Cashbox:
+    """A cashbox id, resolved inside the caller's own organizations."""
+    row = (
+        Cashbox.objects.filter(organization_id__in=organization_scope(actor))
+        .select_related("organization", "branch", "account")
+        .filter(pk=cashbox_id)
+        .first()
+    )
+    if row is None:
+        raise OutOfScope(_("Cashbox %(id)s does not exist.") % {"id": cashbox_id})
+    return row
+
+
+def _resolve_bank_account(actor: User, bank_id: int) -> BankAccount:
+    row = (
+        BankAccount.objects.filter(organization_id__in=organization_scope(actor))
+        .select_related("organization", "branch", "account")
+        .filter(pk=bank_id)
+        .first()
+    )
+    if row is None:
+        raise OutOfScope(_("Bank account %(id)s does not exist.") % {"id": bank_id})
+    return row
+
+
+@transaction.atomic
+def register_cashbox(
+    *,
+    actor: User,
+    organization_id: int,
+    branch_id: int,
+    account_id: int,
+    code: str,
+    name_ar: str,
+    name_en: str,
+    opened_on: datetime.date,
+    responsible_note: str = "",
+    notes: str = "",
+) -> Cashbox:
+    organization = resolve_organization(actor, organization_id)
+    require_organization_permission(actor, MANAGE_CASHBOXES, organization)
+    branch = resolve_branch(actor, branch_id)
+    account = _scoped_account(organization, account_id)
+    with _acting_as(actor):
+        return create_cashbox(
+            organization=organization,
+            branch=branch,
+            account=account,
+            code=code,
+            name_ar=name_ar,
+            name_en=name_en,
+            opened_on=opened_on,
+            responsible_note=responsible_note,
+            notes=notes,
+        )
+
+
+@transaction.atomic
+def amend_cashbox(
+    *,
+    actor: User,
+    cashbox_id: int,
+    name_ar: str,
+    name_en: str,
+    responsible_note: str = "",
+    notes: str = "",
+    reason: str = "",
+) -> Cashbox:
+    cashbox = _resolve_cashbox(actor, cashbox_id)
+    require_organization_permission(actor, MANAGE_CASHBOXES, cashbox.organization)
+    with _acting_as(actor):
+        return update_cashbox(
+            cashbox=cashbox,
+            name_ar=name_ar,
+            name_en=name_en,
+            responsible_note=responsible_note,
+            notes=notes,
+            reason=reason,
+        )
+
+
+@transaction.atomic
+def withdraw_cashbox(*, actor: User, cashbox_id: int, reason: str = "") -> Cashbox:
+    cashbox = _resolve_cashbox(actor, cashbox_id)
+    require_organization_permission(actor, MANAGE_CASHBOXES, cashbox.organization)
+    with _acting_as(actor):
+        return archive_cashbox(cashbox=cashbox, reason=reason)
+
+
+@transaction.atomic
+def restore_cashbox(*, actor: User, cashbox_id: int, reason: str = "") -> Cashbox:
+    cashbox = _resolve_cashbox(actor, cashbox_id)
+    require_organization_permission(actor, MANAGE_CASHBOXES, cashbox.organization)
+    with _acting_as(actor):
+        return reactivate_cashbox(cashbox=cashbox, reason=reason)
+
+
+@transaction.atomic
+def register_bank_account(
+    *,
+    actor: User,
+    organization_id: int,
+    account_id: int,
+    code: str,
+    bank_name: str,
+    name_ar: str,
+    name_en: str,
+    masked_account_number: str,
+    branch_id: int | None = None,
+    iban: str = "",
+    notes: str = "",
+) -> BankAccount:
+    organization = resolve_organization(actor, organization_id)
+    require_organization_permission(actor, MANAGE_BANK_ACCOUNTS, organization)
+    branch = resolve_branch(actor, branch_id) if branch_id is not None else None
+    account = _scoped_account(organization, account_id)
+    with _acting_as(actor):
+        return create_bank_account(
+            organization=organization,
+            branch=branch,
+            account=account,
+            code=code,
+            bank_name=bank_name,
+            name_ar=name_ar,
+            name_en=name_en,
+            masked_account_number=masked_account_number,
+            iban=iban,
+            notes=notes,
+        )
+
+
+@transaction.atomic
+def amend_bank_account(
+    *,
+    actor: User,
+    bank_id: int,
+    bank_name: str,
+    name_ar: str,
+    name_en: str,
+    masked_account_number: str,
+    iban: str = "",
+    notes: str = "",
+    reason: str = "",
+) -> BankAccount:
+    bank = _resolve_bank_account(actor, bank_id)
+    require_organization_permission(actor, MANAGE_BANK_ACCOUNTS, bank.organization)
+    with _acting_as(actor):
+        return update_bank_account(
+            bank=bank,
+            bank_name=bank_name,
+            name_ar=name_ar,
+            name_en=name_en,
+            masked_account_number=masked_account_number,
+            iban=iban,
+            notes=notes,
+            reason=reason,
+        )
+
+
+@transaction.atomic
+def withdraw_bank_account(*, actor: User, bank_id: int, reason: str = "") -> BankAccount:
+    bank = _resolve_bank_account(actor, bank_id)
+    require_organization_permission(actor, MANAGE_BANK_ACCOUNTS, bank.organization)
+    with _acting_as(actor):
+        return archive_bank_account(bank=bank, reason=reason)
+
+
+@transaction.atomic
+def restore_bank_account(*, actor: User, bank_id: int, reason: str = "") -> BankAccount:
+    bank = _resolve_bank_account(actor, bank_id)
+    require_organization_permission(actor, MANAGE_BANK_ACCOUNTS, bank.organization)
+    with _acting_as(actor):
+        return reactivate_bank_account(bank=bank, reason=reason)
+
+
+@transaction.atomic
+def mark_cash_record_reconciled(
+    *,
+    actor: User,
+    kind: str,
+    record_id: int,
+    on_date: datetime.date,
+    reason: str = "",
+) -> Cashbox | BankAccount:
+    """
+    Stamp a reconciliation date on a cashbox or a bank account.
+
+    `kind` rather than two near-identical commands, because the only difference
+    is which resolver and which permission — and two copies of this would be
+    two chances to check the wrong one.
+    """
+    if kind == "cashbox":
+        record: Cashbox | BankAccount = _resolve_cashbox(actor, record_id)
+        permission = MANAGE_CASHBOXES
+    elif kind == "bank":
+        record = _resolve_bank_account(actor, record_id)
+        permission = MANAGE_BANK_ACCOUNTS
+    else:  # pragma: no cover - a routing mistake, not a state
+        raise ValidationError(_("Unknown cash record kind."), code="unknown_kind")
+
+    require_organization_permission(actor, permission, record.organization)
+    with _acting_as(actor):
+        stamped: Cashbox | BankAccount = record_reconciliation(
+            record=record, on_date=on_date, reason=reason
+        )
+    return stamped

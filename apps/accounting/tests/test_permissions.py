@@ -49,13 +49,14 @@ class TestThePermissionsExist:
         for permission in ALL_PERMISSIONS:
             assert permission.split(".", 1)[1] in codenames, permission
 
-    def test_there_are_exactly_seventeen(self) -> None:
+    def test_there_are_exactly_twenty_one(self) -> None:
         # Twelve from Task 0.7, plus `manage_account_mappings` (Task 1.3), plus
-        # the four Phase 5 checkpoint 1 adds: the chart read, the chart write,
-        # the financial-statement mapping, and the authority to post a manual
-        # line onto a RESTRICTED control account (ADR-029 §2).
-        assert len(ALL_PERMISSIONS) == 17
-        assert len(set(ALL_PERMISSIONS)) == 17
+        # eight from Phase 5: the chart read and write, the financial-statement
+        # mapping, the authority to post a manual line onto a RESTRICTED
+        # control account (ADR-029 §2), cashbox and bank-account management,
+        # and the two read-only reconciliation workspaces.
+        assert len(ALL_PERMISSIONS) == 21
+        assert len(set(ALL_PERMISSIONS)) == 21
 
     def test_every_permission_declares_a_scope(self) -> None:
         assert set(PERMISSION_SCOPE) == set(ALL_PERMISSIONS)
@@ -128,6 +129,12 @@ class TestRoleMapping:
         (Task 5.0 §V): coding a journal line means choosing an account, and an
         accountant who cannot see the chart cannot do the job the five
         permissions above exist for.
+
+        The two reconciliation workspaces are granted for the same reason and
+        with the same limit: both are read surfaces over documents Procurement
+        and Sales own, and neither confers any authority over those documents.
+        An accountant chasing a supplier difference needs to see it; being able
+        to see it changes nothing.
         """
         granted = permissions_for_role(Role.ACCOUNTANT)
 
@@ -139,6 +146,8 @@ class TestRoleMapping:
                 "accounting.post_journal",
                 "accounting.reverse_journal",
                 "accounting.view_chart_of_accounts",
+                "accounting.view_supplier_liabilities",
+                "accounting.view_application_receivables",
             }
         )
 

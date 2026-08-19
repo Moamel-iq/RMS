@@ -307,9 +307,13 @@ class AccountRoleDetailView(AccountingDetailView):
         resolutions = []
         for organization in organizations:
             try:
+                # The resolver hands back the **mapping**; the account is one
+                # hop further in. Rendering the mapping as though it were the
+                # account gives a blank code and a link to the wrong id, and
+                # both look like data rather than like a defect.
                 account = resolve_default_account(
                     organization=organization, account_role=role.code, on_date=as_of
-                )
+                ).account
             except ValidationError:
                 # Unmapped on this date. Reported as a row rather than skipped:
                 # an organization missing from the table reads as "fine".
@@ -458,7 +462,7 @@ class MappingPreviewView(AccountingViewMixin, View):
                 try:
                     account = resolve_default_account(
                         organization=organization, account_role=role.code, on_date=as_of
-                    )
+                    ).account
                 except ValidationError:
                     account = None
                 rows.append({"role": role, "account": account})
