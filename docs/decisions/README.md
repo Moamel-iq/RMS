@@ -34,6 +34,7 @@ consequences, date, and related requirements.
 | [ADR-029](ADR-029-accounting-operations-and-manual-journals.md) | Accounting operations, manual journals and the read-only subledger workspaces — *implemented by Phase 5 checkpoints 1–4* |
 | [ADR-030](ADR-030-cash-bank-expenses-and-deferrals.md) | Cash, bank, expense vouchers, accruals and prepayments — *implemented by Phase 5 checkpoints 3, 5, 6* |
 | [ADR-031](ADR-031-financial-statements-and-year-end-close.md) | Financial-statement mapping, current-year earnings and year-end close — *implemented by Phase 5 checkpoints 7–9* |
+| [ADR-032](ADR-032-supplier-credit-term-snapshots.md) | Effective-dated supplier credit terms and immutable invoice approval snapshots — *implemented by Procurement completion capability 3* |
 
 Four of these were missing from this table while their files read
 **Accepted** and their behaviour shipped, which is how the index came to

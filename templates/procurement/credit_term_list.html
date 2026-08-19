@@ -1,0 +1,77 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="filter-field">
+    <span class="filter-field__label">{% translate "المورد" %}</span>
+    <select name="supplier">
+      <option value="">{% translate "كل الموردين" %}</option>
+      {% for supplier in suppliers %}
+        <option value="{{ supplier.pk }}"{% if selected_supplier == supplier.pk|stringformat:"s" %} selected{% endif %}>{{ supplier.code }} — {{ supplier.name_ar }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="filter-field">
+    <span class="filter-field__label">{% translate "الحالة" %}</span>
+    <select name="status">
+      <option value="">{% translate "كل الحالات" %}</option>
+      {% for value, label in statuses %}
+        <option value="{{ value }}"{% if selected_status == value %} selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="filter-field">
+    <span class="filter-field__label">{% translate "النطاق" %}</span>
+    <select name="mode">
+      <option value="">{% translate "كل النسخ" %}</option>
+      <option value="current"{% if selected_mode == "current" %} selected{% endif %}>{% translate "الساري الآن" %}</option>
+      <option value="expired"{% if selected_mode == "expired" %} selected{% endif %}>{% translate "المنتهي" %}</option>
+    </select>
+  </label>
+  <label class="filter-field">
+    <span class="filter-field__label">{% translate "أيام الائتمان" %}</span>
+    <select name="days">
+      <option value="">{% translate "الكل" %}</option>
+      <option value="0"{% if selected_days == "0" %} selected{% endif %}>{% translate "عند الاستلام" %}</option>
+      <option value="14"{% if selected_days == "14" %} selected{% endif %}>14</option>
+      <option value="30"{% if selected_days == "30" %} selected{% endif %}>30</option>
+    </select>
+  </label>
+  <label class="filter-field">
+    <span class="filter-field__label">{% translate "ساري في تاريخ" %}</span>
+    <input type="date" name="effective_on" value="{{ selected_effective_on }}">
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th scope="col">{% translate "المورد" %}</th>
+  <th scope="col">{% translate "النسخة" %}</th>
+  <th scope="col">{% translate "الشرط" %}</th>
+  <th scope="col">{% translate "الأيام" %}</th>
+  <th scope="col">{% translate "فترة السريان" %}</th>
+  <th scope="col">{% translate "الحالة" %}</th>
+  <th scope="col">{% translate "الإجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for term in terms %}
+    <tr>
+      <td data-label="{% translate 'المورد' %}"><strong>{{ term.supplier.code }}</strong><br><span class="muted">{{ term.supplier.name_ar }}</span></td>
+      <td data-label="{% translate 'النسخة' %}"><bdi dir="ltr">v{{ term.version }}</bdi></td>
+      <td data-label="{% translate 'الشرط' %}">{{ term.name_ar }}{% if term.name_en %}<br><span class="muted" dir="ltr">{{ term.name_en }}</span>{% endif %}</td>
+      <td data-label="{% translate 'الأيام' %}">{% if term.net_days == 0 %}{% translate "عند الاستلام" %}{% else %}<bdi dir="ltr">{{ term.net_days }}</bdi>{% endif %}</td>
+      <td data-label="{% translate 'فترة السريان' %}"><bdi dir="ltr">{{ term.effective_from|date:"Y-m-d" }}</bdi> — {% if term.effective_to %}<bdi dir="ltr">{{ term.effective_to|date:"Y-m-d" }}</bdi>{% else %}{% translate "مفتوح" %}{% endif %}</td>
+      <td data-label="{% translate 'الحالة' %}"><span class="chip">{{ term.get_status_display }}</span></td>
+      <td data-label="{% translate 'الإجراءات' %}">
+        <div class="rowactions">
+          <a class="btn btn--secondary btn--sm" href="{% url 'procurement:credit_term_detail' term.pk %}">{% translate "التفاصيل" %}</a>
+          {% if term.status == "DRAFT" and term.organization_id in manageable_ids %}
+            <a class="btn btn--ghost btn--sm" href="{% url 'procurement:credit_term_update' term.pk %}">{% translate "تعديل" %}</a>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="7" data-empty-state><div class="empty-state"><strong>{% translate "لا توجد شروط مطابقة." %}</strong><span>{% translate "غيّر المرشحات أو أضف مسودة شرط ائتمان جديدة." %}</span></div></td></tr>
+  {% endfor %}
+{% endblock %}

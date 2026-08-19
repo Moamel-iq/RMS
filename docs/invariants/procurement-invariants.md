@@ -25,7 +25,10 @@ the payable account) and 47 (GRNI equality), which are the phase's proof
 obligation. The "Enforced where" column is the evidence; the traceability
 matrix carries the same citations against requirement IDs.
 
-## The fifty
+Procurement completion adds invariants 51–54 for ADR-032. They extend the
+Phase 2 exit contract without weakening any earlier row.
+
+## The fifty-four
 
 | # | Invariant | Enforced where | Delivered by |
 |---|---|---|---|
@@ -104,6 +107,10 @@ matrix carries the same citations against requirement IDs.
 | 48 | Every posted procurement journal traces to exactly one source document, across all six source types | Same verifier; `test_a_planted_journal_is_reported_by_verifier_and_report_alike` | 2.16 |
 | 49 | Verification reports and refuses to repair; the reports are reads over the same derivations, never a second formula | No repair path exists in `reports.py` or `reconciliation.py`; the planted-journal test asserts the row is reported and left standing | 2.16 |
 | 50 | Every report names its cutoff semantics — effective-date or posted-as-of | Report contract, inherited from Phase 1 | 2.16 |
+| 51 | `SupplierCreditTerm` is the only editable source of supplier credit days; the integer on `Supplier` is an activation-owned compatibility projection | Supplier edit form/API omit the field; `update_supplier` rejects changed days | Procurement completion 3 |
+| 52 | Credit-term ranges are inclusive, active ranges for one supplier do not overlap, only one draft exists, and its creator cannot activate it | PostgreSQL exclusion/unique/check constraints plus locked activation service | Procurement completion 3 |
+| 53 | Activated and superseded terms are immutable and cannot be deleted; correction closes the predecessor and creates a new version | Database trigger, version service and stale-instance tests | Procurement completion 3 |
+| 54 | Invoice approval freezes term UUID, version, name, net days and due date from the version effective on the invoice date; later term changes cannot restate it | Approval service, invoice immutability trigger, snapshot completeness constraint and tests | Procurement completion 3 |
 
 ## Rules that carry over unchanged
 

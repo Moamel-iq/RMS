@@ -133,6 +133,12 @@ def create_supplier(
     supplier.full_clean()
     supplier.save()
     record_audit_event(action=AuditAction.CREATED, target=supplier, new_state=snapshot(supplier))
+    # The effective-dated row is the source of truth. The integer on Supplier
+    # remains a compatibility projection for existing imports and order-draft
+    # creation, and is established from the same initial decision atomically.
+    from apps.procurement.credit_terms import bootstrap_credit_term
+
+    bootstrap_credit_term(supplier=supplier, net_days=payment_terms_days)
     return supplier
 
 
@@ -146,7 +152,7 @@ def update_supplier(
     phone: str = "",
     email: str = "",
     address: str = "",
-    payment_terms_days: int = 0,
+    payment_terms_days: int | None = None,
     credit_limit: Decimal | None = None,
     notes: str = "",
     is_active: bool = True,
@@ -164,32 +170,38 @@ def update_supplier(
     forever. Reusing `MEAT-01` for a different company would silently rewrite
     every report that groups by supplier.
 
-    Payment terms change here and take effect on **new** documents only.
-    Documents already raised carry their own snapshot, so January's due dates
-    do not move when March's terms are renegotiated.
+    Payment terms deliberately cannot change here. They are approved through
+    the effective-dated ``SupplierCreditTerm`` lifecycle; this parameter is a
+    compatibility guard for older callers and only accepts the current
+    projected value.
     """
-    previous = snapshot(Supplier.objects.get(pk=supplier.pk))
+    locked = Supplier.objects.select_for_update().get(pk=supplier.pk)
+    if payment_terms_days is not None and payment_terms_days != locked.payment_terms_days:
+        raise ValidationError(
+            _("Supplier payment terms must be changed through a credit-term version."),
+            code="supplier_credit_terms_are_versioned",
+        )
+    previous = snapshot(locked)
 
-    supplier.name_ar = name_ar.strip()
-    supplier.name_en = name_en.strip()
-    supplier.contact_name = contact_name.strip()
-    supplier.phone = _clean_phone(phone)
-    supplier.email = email.strip()
-    supplier.address = address.strip()
-    supplier.payment_terms_days = payment_terms_days
-    supplier.credit_limit = credit_limit
-    supplier.notes = notes.strip()
-    supplier.is_active = is_active
-    supplier.full_clean()
-    supplier.save()
+    locked.name_ar = name_ar.strip()
+    locked.name_en = name_en.strip()
+    locked.contact_name = contact_name.strip()
+    locked.phone = _clean_phone(phone)
+    locked.email = email.strip()
+    locked.address = address.strip()
+    locked.credit_limit = credit_limit
+    locked.notes = notes.strip()
+    locked.is_active = is_active
+    locked.full_clean()
+    locked.save()
 
     record_audit_event(
         action=AuditAction.UPDATED if is_active else AuditAction.DEACTIVATED,
-        target=supplier,
+        target=locked,
         previous_state=previous,
-        new_state=snapshot(supplier),
+        new_state=snapshot(locked),
     )
-    return supplier
+    return locked
 
 
 # ---------------------------------------------------------------------------

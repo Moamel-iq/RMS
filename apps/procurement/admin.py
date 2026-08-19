@@ -25,6 +25,7 @@ from apps.procurement.models import (
     SupplierCreditAllocation,
     SupplierCreditNote,
     SupplierCreditReturnAllocation,
+    SupplierCreditTerm,
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
@@ -61,6 +62,22 @@ class SupplierAdmin(ReadOnlyAdmin):
     list_filter = ("organization", "is_active")
     search_fields = ("code", "name_ar", "name_en", "contact_name", "phone")
     ordering = ("organization__code", "code")
+
+
+@admin.register(SupplierCreditTerm)
+class SupplierCreditTermAdmin(ReadOnlyAdmin):
+    list_display = (
+        "supplier",
+        "version",
+        "name_ar",
+        "net_days",
+        "effective_from",
+        "effective_to",
+        "status",
+    )
+    list_filter = ("organization", "status")
+    search_fields = ("supplier__code", "supplier__name_ar", "name_ar", "name_en")
+    ordering = ("supplier__code", "-version")
 
 
 @admin.register(SupplierItem)

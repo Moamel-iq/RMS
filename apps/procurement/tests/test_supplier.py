@@ -22,7 +22,7 @@ from apps.core.models import AuditEvent
 from apps.organizations.authorization import OutOfScope
 from apps.organizations.models import Organization, Role
 from apps.organizations.services import grant_organization_access
-from apps.procurement.models import Supplier
+from apps.procurement.models import Supplier, SupplierCreditTerm
 from apps.procurement.permissions import (
     ALL_PERMISSIONS,
     MANAGE_SUPPLIERS,
@@ -161,7 +161,7 @@ class TestOwnershipAndLifecycle:
         assert Supplier.objects.get(pk=meat.pk).is_active is True
 
     def test_creating_and_editing_are_audited_with_a_real_before(self, meat: Supplier) -> None:
-        update_supplier(supplier=meat, name_ar="مورد اللحوم المحدث", payment_terms_days=45)
+        update_supplier(supplier=meat, name_ar="مورد اللحوم المحدث")
         events = AuditEvent.objects.filter(
             target_type="procurement.Supplier", target_id=str(meat.pk)
         ).order_by("id")
@@ -172,14 +172,15 @@ class TestOwnershipAndLifecycle:
         assert edit.previous_state["name_ar"] == "مورد اللحوم"
         assert edit.new_state["name_ar"] == "مورد اللحوم المحدث"
         assert edit.previous_state["payment_terms_days"] == 30
-        assert edit.new_state["payment_terms_days"] == 45
+        assert edit.new_state["payment_terms_days"] == 30
 
-    def test_payment_terms_are_a_default_not_a_live_lookup(self, meat: Supplier) -> None:
-        """
-        Nothing snapshots them yet, and that is the point of the assertion:
-        when orders arrive they must copy this value, not join to it.
-        """
+    def test_payment_terms_are_a_projection_not_an_editable_supplier_field(
+        self, meat: Supplier
+    ) -> None:
         assert meat.payment_terms_days == 30
+        with pytest.raises(ValidationError) as refusal:
+            update_supplier(supplier=meat, name_ar=meat.name_ar, payment_terms_days=45)
+        assert refusal.value.code == "supplier_credit_terms_are_versioned"
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +374,17 @@ class TestAdminIsReadOnly:
         assert not registered.has_change_permission(None)  # type: ignore[arg-type]
         assert not registered.has_delete_permission(None)  # type: ignore[arg-type]
 
+    def test_credit_terms_are_registered_read_only(self) -> None:
+        from django.contrib import admin
+
+        from apps.procurement.admin import SupplierCreditTermAdmin
+
+        registered = admin.site._registry[SupplierCreditTerm]
+        assert isinstance(registered, SupplierCreditTermAdmin)
+        assert not registered.has_add_permission(None)  # type: ignore[arg-type]
+        assert not registered.has_change_permission(None)  # type: ignore[arg-type]
+        assert not registered.has_delete_permission(None)  # type: ignore[arg-type]
+
     def test_a_superuser_cannot_edit_a_supplier_through_the_admin(
         self, client_for: Callable[[User], Client], superuser: User, meat: Supplier
     ) -> None:
@@ -402,6 +414,9 @@ class TestDemoSuppliers:
         again = seed_demo_suppliers(organization=organization)
         assert {supplier.pk for supplier in again} == {supplier.pk for supplier in first}
         assert Supplier.objects.filter(organization=organization).count() == 3
+        terms = SupplierCreditTerm.objects.filter(organization=organization)
+        assert terms.count() == 3
+        assert set(terms.values_list("net_days", flat=True)) == {0, 14, 30}
 
     def test_every_demo_supplier_is_bilingual_and_named_in_arabic(
         self, organization: Organization

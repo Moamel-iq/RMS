@@ -1524,3 +1524,81 @@ certification rebase onto `phase-4-sales-complete` also remains, and that tag
 does not exist yet. The Phase 4 Kitchen debt — 13 stale boundary tests and 20
 demo-fixture errors — is unchanged and remains an owner decision rather than a
 Phase 5 task.
+
+## Procurement / HR / Reports completion baseline — 2026-08-19
+
+Starting head: `579d747` (`phase/5-accounting`). Delivery branch:
+`feature/complete-procurement-hr-reports`. The remote fetch completed before
+any change; migrations were fully applied through Procurement 0032 and
+Accounting 0021; `manage.py check` returned no issue; no stash and no tracked
+PDF/XLSX/DOCX were present. The development server and one pytest parent/child
+process family were already running and were left untouched. The SRS referenced
+by `CLAUDE.md` is still absent, as Task 2.0 already records.
+
+The earlier `feature/procurement-financial-completion` branch was reviewed but
+is not the delivery base: it diverged before Sales and Accounting. Its
+workspace-only treatment of credit terms and additional costs is useful
+evidence, but the new approved brief supersedes its explicit assertions that no
+credit-term or landed-cost model should exist.
+
+| # | Capability | Baseline | Existing evidence / missing completion |
+|---|---|---|---|
+| 1 | Supplier invoices | PARTIAL | Full DRAFT/APPROVED/POSTED/REVERSED aggregate, matching, payable posting, payment and reversal exist; navigation/workspace and the new term/charge snapshots are incomplete. |
+| 2 | Additional costs | PARTIAL | Quotation/header freight and direct ACCOUNT invoice lines exist; no actual charge aggregate, exact allocation, inventory value-only capitalisation or exact reversal snapshot. |
+| 3 | Credit terms | PARTIAL | `Supplier.payment_terms_days`, order/invoice snapshots and due dates exist; no effective-dated draft/activation/version lifecycle. |
+| 4 | Employees | ABSENT | No HR application. |
+| 5 | Contracts and wages | ABSENT | No HR application. |
+| 6 | Shifts | ABSENT | No HR application. |
+| 7 | Attendance and departure | ABSENT | No HR application. |
+| 8 | Leaves and absences | ABSENT | No HR application. |
+| 9 | Overtime | ABSENT | No HR application. |
+| 10 | Deductions | ABSENT | No HR application. |
+| 11 | Advances | ABSENT | No HR application. |
+| 12 | Payroll calculation | ABSENT | No HR/payroll application. |
+| 13 | Payroll approval | ABSENT | No HR/payroll application. |
+| 14 | Payroll payment | ABSENT | No HR/payroll application. |
+| 15 | Employee statements | ABSENT | No HR/payroll application. |
+| 16 | Inventory movement and valuation | PARTIAL | Authoritative stock ledger, movement history, stock-on-hand and valuation reads exist; the requested combined report/filter/export contract does not. |
+| 17 | Slow-/fast-moving items | ABSENT | Reorder/expiry reports do not implement movement-speed classification. |
+| 18 | Stock-count variances | PARTIAL | Counts, variance lines, posting and drill-down exist; no dedicated report/export surface. |
+| 19 | Purchase-price trends | PARTIAL | Spend, matching and price-variance reads exist; no normalized period/supplier trend report. |
+| 20 | Recipe cost | PARTIAL | Effective recipe versions, nested cost cards, historical snapshots and screens exist; no Reports-module definition/export surface. |
+| 21 | Theoretical versus actual | PARTIAL | Kitchen usage-variance query and screen exist; no Reports-module definition/export surface. |
+| 22 | Item/channel profitability | ABSENT | Sales captures revenue, discounts, commissions and costs, but no approved contribution-margin report combines them. |
+| 23 | Application settlement aging | PARTIAL | Application receivable and settlement workspaces exist; no aging-bucket report. |
+| 24 | Sales/cashier reconciliation | PARTIAL | Sales days, settlements and cashier close/reconciliation exist; no consolidated report/export surface. |
+| 25 | Payroll summary | ABSENT | Payroll source domain absent. |
+| 26 | Supplier aging | PARTIAL | Deterministic Procurement aging and Accounting supplier-liability views exist; Reports-module route/export integration is missing. |
+| 27 | Financial statements | IMPLEMENTED | Trial balance, general ledger, profit and loss and balance sheet are live and reconcile through Accounting. |
+| 28 | Branch KPIs | PARTIAL | Domain dashboards expose several source metrics; no deterministic cross-domain KPI definition/report. |
+| 29 | Month-end checklist | PARTIAL | Accounting periods, close guards, reconciliation and statements exist; no operational checklist with PASS/WARNING/BLOCKER drill-down. |
+
+Implementation proceeds in the approved dependency order. A later phase will
+not be started while the preceding phase has a failing migration, posting
+invariant or unresolved integrity defect.
+
+### Procurement capability 3 — credit terms
+
+Implemented on `feature/complete-procurement-hr-reports` as an additive,
+effective-dated lifecycle. Migration `procurement.0033_supplier_credit_terms`
+is applied to the development database. It backfilled 3 suppliers, 3 active
+terms and all 4 existing invoice snapshots; no supplier or invoice was left
+without its required row/snapshot.
+
+The first migration attempt was rolled back by the existing reversed-invoice
+immutability trigger. The corrected migration suspends that trigger only
+inside the atomic legacy backfill and restores it before commit. Post-migration
+`manage.py check`, migration drift, Ruff and targeted mypy are clean.
+
+Verification to this point:
+
+- credit-term domain/UI/API suite: **15 passed**;
+- supplier, purchase-order, invoice and credit-term regression group:
+  **185 passed**;
+- the unrelated pre-existing pytest process remained running and was never
+  stopped; focused tests used `test_khan_mandi_credit_terms_20260819` instead.
+
+ADR-032 records the source/projection split and invoice approval snapshot.
+Supplier maintenance no longer edits term days through the UI, API or service.
+The demo suppliers expose 0/14/30-day versions without duplicating them on a
+second seed.

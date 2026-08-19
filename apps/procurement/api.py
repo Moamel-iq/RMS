@@ -47,6 +47,12 @@ from apps.procurement.credit_notes import (
     reverse_supplier_credit_note,
     unallocated_credit,
 )
+from apps.procurement.credit_terms import (
+    activate_credit_term,
+    create_credit_term_draft,
+    delete_credit_term_draft,
+    update_credit_term_draft,
+)
 from apps.procurement.invoices import (
     add_account_line,
     add_inventory_line,
@@ -74,6 +80,8 @@ from apps.procurement.models import (
     PurchaseOrderLine,
     Supplier,
     SupplierCreditNote,
+    SupplierCreditTerm,
+    SupplierCreditTermStatus,
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
@@ -90,9 +98,11 @@ from apps.procurement.payments import (
     reverse_supplier_payment,
 )
 from apps.procurement.permissions import (
+    APPROVE_SUPPLIER_CREDIT_TERM,
     APPROVE_SUPPLIER_INVOICE,
     CANCEL_PURCHASE_MATCH,
     CREATE_SUPPLIER_CREDIT_NOTE,
+    CREATE_SUPPLIER_CREDIT_TERM,
     CREATE_SUPPLIER_INVOICE,
     CREATE_SUPPLIER_PAYMENT,
     CREATE_SUPPLIER_RETURN,
@@ -111,6 +121,7 @@ from apps.procurement.permissions import (
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
     VIEW_SUPPLIER_CREDIT_NOTE,
+    VIEW_SUPPLIER_CREDIT_TERM,
     VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
     VIEW_SUPPLIER_PAYMENT,
@@ -133,6 +144,7 @@ from apps.procurement.selectors import (
     resolve_return_line,
     resolve_supplier,
     resolve_supplier_credit_note,
+    resolve_supplier_credit_term,
     resolve_supplier_invoice,
     resolve_supplier_item,
     resolve_supplier_payment,
@@ -141,6 +153,7 @@ from apps.procurement.selectors import (
     visible_purchase_matches,
     visible_purchase_orders,
     visible_supplier_credit_notes,
+    visible_supplier_credit_terms,
     visible_supplier_invoices,
     visible_supplier_items,
     visible_supplier_payments,
@@ -222,7 +235,6 @@ class SupplierUpdateIn(Schema):
     phone: str = ""
     email: str = ""
     address: str = ""
-    payment_terms_days: int = 0
     credit_limit: str | None = None
     notes: str = ""
     is_active: bool = True
@@ -310,12 +322,187 @@ def update(request: HttpRequest, supplier_id: int, payload: SupplierUpdateIn) ->
         phone=payload.phone,
         email=payload.email,
         address=payload.address,
-        payment_terms_days=payload.payment_terms_days,
         credit_limit=_money(payload.credit_limit, field="credit_limit"),
         notes=payload.notes,
         is_active=payload.is_active,
     )
     return _serialize(updated, include_cost=True)
+
+
+# ---------------------------------------------------------------------------
+# Effective-dated supplier credit terms
+# ---------------------------------------------------------------------------
+
+
+class SupplierCreditTermOut(Schema):
+    id: int
+    public_id: str
+    organization_id: int
+    supplier_id: int
+    supplier_code: str
+    version: int
+    status: str
+    name_ar: str
+    name_en: str
+    net_days: int
+    effective_from: str
+    effective_to: str | None
+    supersedes_id: int | None
+    created_by_id: int | None
+    approved_by_id: int | None
+    approved_at: str | None
+
+
+class SupplierCreditTermIn(Schema):
+    supplier_id: int
+    name_ar: str
+    name_en: str = ""
+    net_days: int
+    effective_from: str
+    effective_to: str | None = None
+    notes: str = ""
+
+
+class SupplierCreditTermUpdateIn(Schema):
+    name_ar: str
+    name_en: str = ""
+    net_days: int
+    effective_from: str
+    effective_to: str | None = None
+    notes: str = ""
+
+
+def _serialize_credit_term(term: SupplierCreditTerm) -> dict[str, Any]:
+    return {
+        "id": term.pk,
+        "public_id": str(term.public_id),
+        "organization_id": term.organization_id,
+        "supplier_id": term.supplier_id,
+        "supplier_code": term.supplier.code,
+        "version": term.version,
+        "status": term.status,
+        "name_ar": term.name_ar,
+        "name_en": term.name_en,
+        "net_days": term.net_days,
+        "effective_from": term.effective_from.isoformat(),
+        "effective_to": term.effective_to.isoformat() if term.effective_to else None,
+        "supersedes_id": term.supersedes_id,
+        "created_by_id": term.created_by_id,
+        "approved_by_id": term.approved_by_id,
+        "approved_at": term.approved_at.isoformat() if term.approved_at else None,
+    }
+
+
+def _require_credit_term_view(request: HttpRequest) -> User:
+    actor = _actor(request)
+    if not actor.has_perm(VIEW_SUPPLIER_CREDIT_TERM):
+        raise PermissionMissing(f"{VIEW_SUPPLIER_CREDIT_TERM} is not held.")
+    return actor
+
+
+@router.get(
+    "/supplier-credit-terms/",
+    response=list[SupplierCreditTermOut],
+    summary="List supplier credit-term versions",
+)
+def list_supplier_credit_terms(request: HttpRequest, status: str | None = None) -> Any:
+    actor = _require_credit_term_view(request)
+    queryset = visible_supplier_credit_terms(actor)
+    if status:
+        queryset = queryset.filter(status=status.strip().upper())
+    return [
+        _serialize_credit_term(term) for term in queryset.order_by("supplier__code", "-version")
+    ]
+
+
+@router.get(
+    "/supplier-credit-terms/{term_id}/",
+    response=SupplierCreditTermOut,
+    summary="Read one supplier credit-term version",
+)
+def read_supplier_credit_term(request: HttpRequest, term_id: int) -> Any:
+    return _serialize_credit_term(
+        resolve_supplier_credit_term(_require_credit_term_view(request), term_id)
+    )
+
+
+@router.post(
+    "/supplier-credit-terms/",
+    response={201: SupplierCreditTermOut},
+    summary="Create a draft supplier credit term",
+)
+def create_credit_term_api(request: HttpRequest, payload: SupplierCreditTermIn) -> Status[Any]:
+    actor = _actor(request)
+    supplier = resolve_supplier(actor, payload.supplier_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_CREDIT_TERM, supplier.organization)
+    current = (
+        SupplierCreditTerm.objects.filter(
+            supplier=supplier,
+            status=SupplierCreditTermStatus.ACTIVE,
+        )
+        .order_by("-effective_from", "-version")
+        .first()
+    )
+    term = create_credit_term_draft(
+        supplier=supplier,
+        name_ar=payload.name_ar,
+        name_en=payload.name_en,
+        net_days=payload.net_days,
+        effective_from=_required_date(payload.effective_from, field="effective_from"),
+        effective_to=_date(payload.effective_to, field="effective_to"),
+        notes=payload.notes,
+        created_by=actor,
+        supersedes=current,
+    )
+    return Status(201, _serialize_credit_term(term))
+
+
+@router.put(
+    "/supplier-credit-terms/{term_id}/",
+    response=SupplierCreditTermOut,
+    summary="Edit a draft supplier credit term",
+)
+def update_credit_term_api(
+    request: HttpRequest, term_id: int, payload: SupplierCreditTermUpdateIn
+) -> Any:
+    actor = _actor(request)
+    term = resolve_supplier_credit_term(actor, term_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_CREDIT_TERM, term.organization)
+    updated = update_credit_term_draft(
+        term=term,
+        name_ar=payload.name_ar,
+        name_en=payload.name_en,
+        net_days=payload.net_days,
+        effective_from=_required_date(payload.effective_from, field="effective_from"),
+        effective_to=_date(payload.effective_to, field="effective_to"),
+        notes=payload.notes,
+    )
+    return _serialize_credit_term(updated)
+
+
+@router.delete(
+    "/supplier-credit-terms/{term_id}/",
+    response={204: None},
+    summary="Discard a draft supplier credit term",
+)
+def delete_credit_term_api(request: HttpRequest, term_id: int) -> Status[Any]:
+    actor = _actor(request)
+    term = resolve_supplier_credit_term(actor, term_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_CREDIT_TERM, term.organization)
+    delete_credit_term_draft(term=term)
+    return Status(204, None)
+
+
+@router.post(
+    "/supplier-credit-terms/{term_id}/activate/",
+    response=SupplierCreditTermOut,
+    summary="Activate a supplier credit-term version",
+)
+def activate_credit_term_api(request: HttpRequest, term_id: int) -> Any:
+    actor = _actor(request)
+    term = resolve_supplier_credit_term(actor, term_id)
+    require_organization_permission(actor, APPROVE_SUPPLIER_CREDIT_TERM, term.organization)
+    return _serialize_credit_term(activate_credit_term(term=term, actor=actor))
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +707,10 @@ class SupplierInvoiceOut(Schema):
     business_date: str
     due_date: str
     payment_terms_days: int
+    credit_term_public_id: str | None
+    credit_term_version: int | None
+    credit_term_name: str
+    credit_term_net_days: int
     status: str
     is_ready_to_post: bool
     blocking_line_sequences: list[int]
@@ -622,6 +813,12 @@ def _serialize_invoice(invoice: SupplierInvoice, *, include_cost: bool) -> dict[
         "business_date": invoice.business_date.isoformat(),
         "due_date": invoice.due_date.isoformat(),
         "payment_terms_days": invoice.payment_terms_days,
+        "credit_term_public_id": (
+            str(invoice.credit_term_public_id) if invoice.credit_term_public_id else None
+        ),
+        "credit_term_version": invoice.credit_term_version,
+        "credit_term_name": invoice.credit_term_name,
+        "credit_term_net_days": invoice.credit_term_net_days,
         "status": invoice.status,
         "is_ready_to_post": invoice.is_ready_to_post,
         "blocking_line_sequences": [line.sequence for line in invoice.blocking_lines],

@@ -180,6 +180,15 @@ A second run reports `0 created, N reused` and adds no second document, no
 second movement and no second journal. Balances are byte-identical afterwards.
 Both are asserted in `apps/inventory/tests/test_demo_seed.py`.
 
+### Procurement credit terms
+
+The three `DEMO-` suppliers deliberately carry 0-, 14- and 30-day terms. They
+are created through `create_supplier`, which atomically creates the initial
+`SupplierCreditTerm` version; the seed never writes a term row or supplier
+projection directly. A second seed reuses the three suppliers and leaves
+exactly three term rows. This is asserted by
+`TestDemoSuppliers::test_the_seed_creates_exactly_three_and_is_idempotent`.
+
 ### Reset is deliberately incomplete
 
 `--reset-demo` deletes draft documents and draft transfers, and — only when

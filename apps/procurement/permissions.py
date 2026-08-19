@@ -57,6 +57,12 @@ class PermissionScope(Enum):
 VIEW_SUPPLIER = f"{APP_LABEL}.view_supplier"
 MANAGE_SUPPLIERS = f"{APP_LABEL}.manage_suppliers"
 VIEW_SUPPLIER_COST = f"{APP_LABEL}.view_supplier_cost"
+# Effective-dated credit terms commit the organization to a due-date policy.
+# Purchasing drafts them; Accounting activates them; neither act is folded
+# into generic supplier maintenance.
+VIEW_SUPPLIER_CREDIT_TERM = f"{APP_LABEL}.view_suppliercreditterm"
+CREATE_SUPPLIER_CREDIT_TERM = f"{APP_LABEL}.create_supplier_credit_term"
+APPROVE_SUPPLIER_CREDIT_TERM = f"{APP_LABEL}.approve_supplier_credit_term"
 #: Task 2.2. Reading the catalogue is reading who supplies what — the
 #: prices on it are guarded separately by `view_supplier_cost`, exactly as
 #: stock quantity and stock valuation are guarded separately in inventory.
@@ -167,6 +173,9 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_SUPPLIER,
     MANAGE_SUPPLIERS,
     VIEW_SUPPLIER_COST,
+    VIEW_SUPPLIER_CREDIT_TERM,
+    CREATE_SUPPLIER_CREDIT_TERM,
+    APPROVE_SUPPLIER_CREDIT_TERM,
     VIEW_SUPPLIER_ITEM,
     MANAGE_SUPPLIER_ITEMS,
     VIEW_PURCHASE_REQUEST,
@@ -220,6 +229,9 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # who cannot is refused at the same boundary they are refused inventory
     # valuation.
     VIEW_SUPPLIER_COST: PermissionScope.ORGANIZATION_MASTER_DATA,
+    VIEW_SUPPLIER_CREDIT_TERM: PermissionScope.ORGANIZATION_AUTHORITY,
+    CREATE_SUPPLIER_CREDIT_TERM: PermissionScope.ORGANIZATION_AUTHORITY,
+    APPROVE_SUPPLIER_CREDIT_TERM: PermissionScope.ORGANIZATION_AUTHORITY,
     # The catalogue is organization master data for the same reason the
     # supplier list is: it says what the group buys and from whom.
     VIEW_SUPPLIER_ITEM: PermissionScope.ORGANIZATION_MASTER_DATA,
@@ -294,6 +306,8 @@ _PURCHASING = frozenset(
         VIEW_SUPPLIER,
         MANAGE_SUPPLIERS,
         VIEW_SUPPLIER_COST,
+        VIEW_SUPPLIER_CREDIT_TERM,
+        CREATE_SUPPLIER_CREDIT_TERM,
         VIEW_SUPPLIER_ITEM,
         MANAGE_SUPPLIER_ITEMS,
         VIEW_PURCHASE_REQUEST,
@@ -326,6 +340,8 @@ _MANAGER = frozenset(
         VIEW_SUPPLIER,
         MANAGE_SUPPLIERS,
         VIEW_SUPPLIER_COST,
+        VIEW_SUPPLIER_CREDIT_TERM,
+        CREATE_SUPPLIER_CREDIT_TERM,
         VIEW_SUPPLIER_ITEM,
         MANAGE_SUPPLIER_ITEMS,
         VIEW_PURCHASE_REQUEST,
@@ -374,6 +390,8 @@ _ACCOUNTING_MANAGER = frozenset(
     {
         VIEW_SUPPLIER,
         VIEW_SUPPLIER_COST,
+        VIEW_SUPPLIER_CREDIT_TERM,
+        APPROVE_SUPPLIER_CREDIT_TERM,
         VIEW_SUPPLIER_ITEM,
         VIEW_QUOTATION,
         VIEW_PURCHASE_REQUEST,
@@ -420,6 +438,7 @@ _ACCOUNTANT = frozenset(
     {
         VIEW_SUPPLIER,
         VIEW_SUPPLIER_COST,
+        VIEW_SUPPLIER_CREDIT_TERM,
         VIEW_SUPPLIER_ITEM,
         VIEW_PURCHASE_REQUEST,
         VIEW_QUOTATION,

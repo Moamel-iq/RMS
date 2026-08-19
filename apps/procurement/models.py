@@ -163,6 +163,132 @@ class Supplier(TimeStampedModel):
         return f"{self.code} — {self.name_ar}"
 
 
+class SupplierCreditTermStatus(models.TextChoices):
+    """Lifecycle of one effective-dated supplier credit-term version."""
+
+    DRAFT = "DRAFT", _("مسودة")
+    ACTIVE = "ACTIVE", _("فعّال")
+    SUPERSEDED = "SUPERSEDED", _("مستبدل")
+
+
+class SupplierCreditTerm(TimeStampedModel):
+    """
+    One version of the commercial due-date agreement with a supplier.
+
+    `Supplier.payment_terms_days` is retained as a compatibility projection for
+    older integrations and list screens. It is written by the activation
+    service only; this row is the effective-dated source used by invoice
+    approval. Posted and approved invoices keep their own immutable snapshots.
+    """
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="supplier_credit_terms",
+        verbose_name=_("organization"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="credit_terms",
+        verbose_name=_("supplier"),
+    )
+    version = models.PositiveIntegerField(_("version"))
+    status = models.CharField(
+        _("status"),
+        max_length=16,
+        choices=SupplierCreditTermStatus.choices,
+        default=SupplierCreditTermStatus.DRAFT,
+    )
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    net_days = models.PositiveSmallIntegerField(_("net days"), default=0)
+    effective_from = models.DateField(_("effective from"))
+    effective_to = models.DateField(_("effective to"), null=True, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_supplier_credit_terms",
+        verbose_name=_("created by"),
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_supplier_credit_terms",
+        verbose_name=_("approved by"),
+    )
+    approved_at = models.DateTimeField(_("approved at"), null=True, blank=True)
+    supersedes = models.OneToOneField(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="replacement",
+        verbose_name=_("supersedes"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier credit term")
+        verbose_name_plural = _("supplier credit terms")
+        ordering = ["supplier__code", "-version"]
+        permissions = [
+            ("create_supplier_credit_term", _("Can draft supplier credit terms")),
+            ("approve_supplier_credit_term", _("Can activate supplier credit terms")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["supplier", "version"],
+                name="procurement_credit_term_version_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["supplier"],
+                condition=Q(status="DRAFT"),
+                name="procurement_credit_term_one_draft_per_supplier",
+            ),
+            models.CheckConstraint(
+                condition=~Q(name_ar=""),
+                name="procurement_credit_term_name_ar_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=Q(effective_to__isnull=True)
+                | Q(effective_to__gte=models.F("effective_from")),
+                name="procurement_credit_term_period_is_ordered",
+            ),
+            models.CheckConstraint(
+                condition=Q(approved_by__isnull=True, approved_at__isnull=True)
+                | Q(approved_by__isnull=False, approved_at__isnull=False),
+                name="procurement_credit_term_approval_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(created_by__isnull=True)
+                | Q(approved_by__isnull=True)
+                | ~Q(created_by=models.F("approved_by")),
+                name="procurement_credit_term_maker_checker",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "status", "effective_from"],
+                name="credit_term_org_status_idx",
+            ),
+            models.Index(
+                fields=["supplier", "effective_from", "effective_to"],
+                name="credit_term_supplier_date_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.supplier.code} · v{self.version} · {self.name_ar}"
+
+
 class SupplierItem(TimeStampedModel):
     """
     What one supplier calls one of our items, and on what terms.
@@ -2134,6 +2260,23 @@ class SupplierInvoice(TimeStampedModel):
     #: of an invoice received in January.
     due_date = models.DateField(_("due date"))
     payment_terms_days = models.PositiveSmallIntegerField(_("payment terms (days)"), default=0)
+    #: Effective-dated term chosen and frozen at approval. The FK is evidence;
+    #: the copied public identity, version, label and days are the historical
+    #: statement and never re-resolve through today's supplier terms.
+    credit_term = models.ForeignKey(
+        SupplierCreditTerm,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="invoices",
+        verbose_name=_("credit term"),
+    )
+    credit_term_public_id = models.UUIDField(_("credit term public id"), null=True, blank=True)
+    credit_term_version = models.PositiveIntegerField(
+        _("credit term version"), null=True, blank=True
+    )
+    credit_term_name = models.CharField(_("credit term name"), max_length=200, blank=True)
+    credit_term_net_days = models.PositiveSmallIntegerField(_("credit term net days"), default=0)
 
     status = models.CharField(
         _("status"),
@@ -2277,6 +2420,16 @@ class SupplierInvoice(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(due_date__gte=models.F("invoice_date")),
                 name="procurement_invoice_due_after_invoice_date",
+            ),
+            models.CheckConstraint(
+                condition=Q(credit_term__isnull=True)
+                | Q(
+                    credit_term_public_id__isnull=False,
+                    credit_term_version__isnull=False,
+                    credit_term_name__gt="",
+                    credit_term_net_days=models.F("payment_terms_days"),
+                ),
+                name="procurement_invoice_credit_term_snapshot_complete",
             ),
             models.CheckConstraint(
                 condition=Q(freight_amount__gte=0) & Q(discount_amount__gte=0),

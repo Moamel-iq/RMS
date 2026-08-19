@@ -407,8 +407,11 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:report_supplier_aging",
                 available=True,
             ),
-            *_sections(
-                _("شروط الائتمان"),
+            Section(
+                label=_("شروط الائتمان"),
+                url_name="procurement:credit_term_list",
+                available=True,
+                active_prefixes=("/procurement/credit-terms/",),
             ),
         ),
     ),

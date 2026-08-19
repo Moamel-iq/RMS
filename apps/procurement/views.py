@@ -22,10 +22,11 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.db.models import Q, QuerySet
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 
@@ -60,6 +61,11 @@ from apps.procurement.credit_notes import (
     reverse_supplier_credit_note,
     unallocated_credit,
 )
+from apps.procurement.credit_terms import (
+    activate_credit_term,
+    create_credit_term_draft,
+    update_credit_term_draft,
+)
 from apps.procurement.forms import (
     CreditAllocationForm,
     CreditReturnAllocationForm,
@@ -75,6 +81,7 @@ from apps.procurement.forms import (
     PurchaseRequestForm,
     PurchaseRequestLineForm,
     SupplierCreditNoteForm,
+    SupplierCreditTermForm,
     SupplierForm,
     SupplierInvoiceForm,
     SupplierItemForm,
@@ -111,6 +118,7 @@ from apps.procurement.models import (
     PurchaseOrderStatus,
     PurchaseRequestStatus,
     SupplierCreditNoteStatus,
+    SupplierCreditTermStatus,
     SupplierInvoiceStatus,
     SupplierPaymentStatus,
     SupplierQuotationStatus,
@@ -129,6 +137,7 @@ from apps.procurement.payments import allocated_total as payment_allocated_total
 from apps.procurement.permissions import (
     APPROVE_PURCHASE_ORDER,
     APPROVE_PURCHASE_REQUEST,
+    APPROVE_SUPPLIER_CREDIT_TERM,
     APPROVE_SUPPLIER_INVOICE,
     AWARD_QUOTATION,
     CANCEL_PURCHASE_MATCH,
@@ -137,6 +146,7 @@ from apps.procurement.permissions import (
     CREATE_PURCHASE_ORDER,
     CREATE_PURCHASE_REQUEST,
     CREATE_SUPPLIER_CREDIT_NOTE,
+    CREATE_SUPPLIER_CREDIT_TERM,
     CREATE_SUPPLIER_INVOICE,
     CREATE_SUPPLIER_PAYMENT,
     CREATE_SUPPLIER_RETURN,
@@ -164,6 +174,7 @@ from apps.procurement.permissions import (
     VIEW_SUPPLIER,
     VIEW_SUPPLIER_COST,
     VIEW_SUPPLIER_CREDIT_NOTE,
+    VIEW_SUPPLIER_CREDIT_TERM,
     VIEW_SUPPLIER_INVOICE,
     VIEW_SUPPLIER_ITEM,
     VIEW_SUPPLIER_PAYMENT,
@@ -203,6 +214,7 @@ from apps.procurement.selectors import (
     resolve_return_line,
     resolve_supplier,
     resolve_supplier_credit_note,
+    resolve_supplier_credit_term,
     resolve_supplier_invoice,
     resolve_supplier_item,
     resolve_supplier_payment,
@@ -214,6 +226,7 @@ from apps.procurement.selectors import (
     visible_purchase_requests,
     visible_quotations,
     visible_supplier_credit_notes,
+    visible_supplier_credit_terms,
     visible_supplier_invoices,
     visible_supplier_items,
     visible_supplier_payments,
@@ -279,17 +292,19 @@ class SupplierWriteView(InventoryWriteView):
 
     def _fields(self, form: Any) -> dict[str, Any]:
         data = form.cleaned_data
-        return {
+        fields = {
             "name_ar": data["name_ar"],
             "name_en": data.get("name_en", ""),
             "contact_name": data.get("contact_name", ""),
             "phone": data.get("phone", ""),
             "email": data.get("email", ""),
             "address": data.get("address", ""),
-            "payment_terms_days": data["payment_terms_days"],
             "credit_limit": data.get("credit_limit"),
             "notes": data.get("notes", ""),
         }
+        if "payment_terms_days" in data:
+            fields["payment_terms_days"] = data["payment_terms_days"]
+        return fields
 
 
 class SupplierCreateView(SupplierWriteView):
@@ -312,10 +327,7 @@ class SupplierCreateView(SupplierWriteView):
 
 class SupplierUpdateView(SupplierWriteView):
     page_title = _("تعديل مورد")
-    page_hint = _(
-        "تغيير مهلة السداد يسري على المستندات الجديدة فقط. المستندات المرحّلة "
-        "تحمل نسختها الخاصة من الشروط."
-    )
+    page_hint = _("تُدار مهلة السداد من مساحة شروط الائتمان بنسخ مؤرخة واعتماد مستقل.")
     success_message = _("تم حفظ التعديل.")
 
     def load(self) -> Any:
@@ -341,7 +353,11 @@ class SupplierUpdateView(SupplierWriteView):
         )
 
     def perform(self, instance: Any, form: Any) -> None:
-        update_supplier(supplier=instance, is_active=instance.is_active, **self._fields(form))
+        update_supplier(
+            supplier=instance,
+            is_active=instance.is_active,
+            **self._fields(form),
+        )
 
 
 class SupplierActionView(InventoryActionView):
@@ -366,10 +382,248 @@ class SupplierActionView(InventoryActionView):
             phone=instance.phone,
             email=instance.email,
             address=instance.address,
-            payment_terms_days=instance.payment_terms_days,
             credit_limit=instance.credit_limit,
             notes=instance.notes,
             is_active=self.activate,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Effective-dated supplier credit terms
+# ---------------------------------------------------------------------------
+
+
+class SupplierCreditTermListView(InventoryListView):
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_CREDIT_TERM
+    template_name = "procurement/credit_term_list.html"
+    context_object_name = "terms"
+    page_title = _("شروط الائتمان")
+    page_hint = _(
+        "نسخ مؤرخة لشروط السداد. الاعتماد يثبّت النسخة على الفاتورة ولا يعيد حساب التاريخ لاحقاً."
+    )
+    search_fields = ("supplier__code", "supplier__name_ar", "name_ar", "name_en")
+    manage_permission = CREATE_SUPPLIER_CREDIT_TERM
+    create_url_name = "procurement:credit_term_create"
+    create_label = _("إضافة شرط ائتمان")
+    result_label = _("شرط")
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = visible_supplier_credit_terms(self.actor)
+        supplier_id = self.request.GET.get("supplier", "").strip()
+        status = self.request.GET.get("status", "").strip()
+        mode = self.request.GET.get("mode", "").strip()
+        days = self.request.GET.get("days", "").strip()
+        effective_on = self.request.GET.get("effective_on", "").strip()
+        if supplier_id.isdigit():
+            queryset = queryset.filter(supplier_id=int(supplier_id))
+        if status in SupplierCreditTermStatus.values:
+            queryset = queryset.filter(status=status)
+        if days in {"0", "14", "30"}:
+            queryset = queryset.filter(net_days=int(days))
+        today = timezone.localdate()
+        if effective_on:
+            try:
+                on = datetime.date.fromisoformat(effective_on)
+            except ValueError:
+                on = None
+            if on is not None:
+                queryset = queryset.filter(effective_from__lte=on).filter(
+                    Q(effective_to__isnull=True) | Q(effective_to__gte=on)
+                )
+        elif mode == "current":
+            queryset = queryset.filter(
+                status__in=(
+                    SupplierCreditTermStatus.ACTIVE,
+                    SupplierCreditTermStatus.SUPERSEDED,
+                ),
+                effective_from__lte=today,
+            ).filter(Q(effective_to__isnull=True) | Q(effective_to__gte=today))
+        elif mode == "expired":
+            queryset = queryset.filter(effective_to__lt=today)
+        return queryset.order_by("supplier__code", "-version")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["suppliers"] = visible_suppliers(self.actor).filter(is_active=True).order_by("code")
+        context["statuses"] = SupplierCreditTermStatus.choices
+        context["selected_supplier"] = self.request.GET.get("supplier", "")
+        context["selected_status"] = self.request.GET.get("status", "")
+        context["selected_mode"] = self.request.GET.get("mode", "")
+        context["selected_days"] = self.request.GET.get("days", "")
+        context["selected_effective_on"] = self.request.GET.get("effective_on", "")
+        return context
+
+
+class SupplierCreditTermWriteView(InventoryWriteView):
+    module_key = "procurement"
+    template_name = "procurement/credit_term_form.html"
+    form_class = SupplierCreditTermForm
+    required_permission = CREATE_SUPPLIER_CREDIT_TERM
+    success_url_name = "procurement:credit_term_list"
+
+    def _fields(self, form: SupplierCreditTermForm) -> dict[str, Any]:
+        data = form.cleaned_data
+        return {
+            "name_ar": data["name_ar"],
+            "name_en": data.get("name_en", ""),
+            "net_days": data["net_days"],
+            "effective_from": data["effective_from"],
+            "effective_to": data.get("effective_to"),
+            "notes": data.get("notes", ""),
+        }
+
+
+class SupplierCreditTermCreateView(SupplierCreditTermWriteView):
+    page_title = _("إضافة شرط ائتمان")
+    page_hint = _("تُحفظ مسودة ولا تصبح سارية قبل اعتماد شخص آخر.")
+    success_message = _("تم إنشاء مسودة شرط الائتمان.")
+
+    def authorize(self, instance: Any, form: SupplierCreditTermForm) -> None:
+        require_organization_permission(
+            self.actor,
+            CREATE_SUPPLIER_CREDIT_TERM,
+            form.selected_supplier().organization,
+        )
+
+    def perform(self, instance: Any, form: SupplierCreditTermForm) -> None:
+        create_credit_term_draft(
+            supplier=form.selected_supplier(),
+            created_by=self.actor,
+            supersedes=form.selected_supersedes(),
+            **self._fields(form),
+        )
+
+
+class SupplierCreditTermUpdateView(SupplierCreditTermWriteView):
+    page_title = _("تعديل مسودة شرط الائتمان")
+    page_hint = _("لا يمكن تعديل النسخة بعد تفعيلها؛ أنشئ نسخة بديلة للتصحيح.")
+    success_message = _("تم حفظ مسودة شرط الائتمان.")
+
+    def load(self) -> Any:
+        term = resolve_supplier_credit_term(self.actor, self.kwargs["pk"])
+        if term.status != SupplierCreditTermStatus.DRAFT:
+            raise Http404(_("Only a draft credit term can be edited."))
+        return term
+
+    def initial_for(self, instance: Any) -> dict[str, Any]:
+        return {
+            "name_ar": instance.name_ar,
+            "name_en": instance.name_en,
+            "net_days": instance.net_days,
+            "effective_from": instance.effective_from,
+            "effective_to": instance.effective_to,
+            "notes": instance.notes,
+        }
+
+    def authorize(self, instance: Any, form: SupplierCreditTermForm) -> None:
+        require_organization_permission(
+            self.actor, CREATE_SUPPLIER_CREDIT_TERM, instance.organization
+        )
+
+    def perform(self, instance: Any, form: SupplierCreditTermForm) -> None:
+        update_credit_term_draft(term=instance, **self._fields(form))
+
+
+class SupplierCreditTermDetailView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_CREDIT_TERM
+    template_name = "procurement/credit_term_detail.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        term = resolve_supplier_credit_term(self.actor, self.kwargs["pk"])
+        require_organization_permission(self.actor, VIEW_SUPPLIER_CREDIT_TERM, term.organization)
+        return render(
+            request,
+            self.template_name,
+            {
+                "term": term,
+                "page_title": _("تفاصيل شرط الائتمان"),
+                "can_edit": term.status == SupplierCreditTermStatus.DRAFT
+                and has_organization_permission(
+                    self.actor, CREATE_SUPPLIER_CREDIT_TERM, term.organization
+                ),
+                "can_activate": term.status == SupplierCreditTermStatus.DRAFT
+                and has_organization_permission(
+                    self.actor, APPROVE_SUPPLIER_CREDIT_TERM, term.organization
+                ),
+                "base_template": (
+                    "settings/_form_fragment.html"
+                    if request.headers.get("HX-Request") == "true"
+                    else "shell.html"
+                ),
+            },
+        )
+
+
+class SupplierCreditTermActivateView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = APPROVE_SUPPLIER_CREDIT_TERM
+    template_name = "procurement/credit_term_activate.html"
+
+    def _term(self) -> Any:
+        term = resolve_supplier_credit_term(self.actor, self.kwargs["pk"])
+        require_organization_permission(self.actor, APPROVE_SUPPLIER_CREDIT_TERM, term.organization)
+        return term
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        term = self._term()
+        return render(
+            request,
+            self.template_name,
+            {
+                "term": term,
+                "page_title": _("تفعيل شرط الائتمان"),
+                "base_template": (
+                    "settings/_form_fragment.html"
+                    if request.headers.get("HX-Request") == "true"
+                    else "shell.html"
+                ),
+            },
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        term = self._term()
+        try:
+            activate_credit_term(term=term, actor=self.actor)
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(message) for message in error.messages))
+        else:
+            messages.success(request, _("تم تفعيل شرط الائتمان وتثبيت النسخة."))
+        detail_url = reverse("procurement:credit_term_detail", args=[term.pk])
+        if self.is_htmx():
+            response = HttpResponse(status=200)
+            response["HX-Redirect"] = detail_url
+            return response
+        return HttpResponseRedirect(detail_url)
+
+
+class SupplierCreditTermHistoryView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_CREDIT_TERM
+    template_name = "procurement/credit_term_history.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        term = resolve_supplier_credit_term(self.actor, self.kwargs["pk"])
+        require_organization_permission(self.actor, VIEW_SUPPLIER_CREDIT_TERM, term.organization)
+        versions = (
+            visible_supplier_credit_terms(self.actor)
+            .filter(supplier=term.supplier)
+            .order_by("-version")
+        )
+        return render(
+            request,
+            self.template_name,
+            {
+                "term": term,
+                "versions": versions,
+                "page_title": _("سجل نسخ شروط الائتمان"),
+                "base_template": (
+                    "settings/_form_fragment.html"
+                    if request.headers.get("HX-Request") == "true"
+                    else "shell.html"
+                ),
+            },
         )
 
 

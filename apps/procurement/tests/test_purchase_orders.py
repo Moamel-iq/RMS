@@ -35,6 +35,7 @@ from apps.inventory.models import (
 from apps.organizations.authorization import OutOfScope
 from apps.organizations.models import Branch, Organization, Role
 from apps.organizations.services import grant_branch_access
+from apps.procurement.credit_terms import activate_credit_term, create_credit_term_draft
 from apps.procurement.models import (
     ProcurementDocumentSequence,
     PurchaseOrder,
@@ -222,7 +223,11 @@ class TestArithmeticAndSnapshots:
         assert "total_amount" not in {field.name for field in PurchaseOrder._meta.get_fields()}
 
     def test_payment_terms_are_snapshotted_from_the_supplier(
-        self, draft: PurchaseOrder, grocery: Supplier
+        self,
+        draft: PurchaseOrder,
+        grocery: Supplier,
+        buyer: User,
+        approver: User,
     ) -> None:
         """
         Copied at creation, never read live afterwards. An order placed in
@@ -230,9 +235,16 @@ class TestArithmeticAndSnapshots:
         """
         assert draft.payment_terms_days == 30
 
-        from apps.procurement.services import update_supplier
-
-        update_supplier(supplier=grocery, name_ar=grocery.name_ar, payment_terms_days=60)
+        current = grocery.credit_terms.get()
+        replacement = create_credit_term_draft(
+            supplier=grocery,
+            name_ar="60 يوم",
+            net_days=60,
+            effective_from=datetime.date(2026, 3, 1),
+            created_by=buyer,
+            supersedes=current,
+        )
+        activate_credit_term(term=replacement, actor=approver)
         draft.refresh_from_db()
         assert draft.payment_terms_days == 30
 

@@ -9,9 +9,10 @@ the view calls a service, which is the only place a write happens.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from django import forms
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.accounting.models import Account, CostCenter
@@ -38,6 +39,8 @@ from apps.procurement.models import (
     PurchaseRequest,
     PurchaseRequestStatus,
     Supplier,
+    SupplierCreditTerm,
+    SupplierCreditTermStatus,
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierItem,
@@ -49,6 +52,7 @@ from apps.procurement.models import (
 )
 from apps.procurement.permissions import (
     CREATE_SUPPLIER_CREDIT_NOTE,
+    CREATE_SUPPLIER_CREDIT_TERM,
     CREATE_SUPPLIER_INVOICE,
     CREATE_SUPPLIER_PAYMENT,
     MANAGE_SUPPLIERS,
@@ -110,6 +114,10 @@ class SupplierForm(forms.Form):
             del self.fields["organization"]
             self.fields["code"].disabled = True
             self.fields["code"].initial = instance.code
+            # Terms are versioned and maker-checker controlled in their own
+            # workspace. Leaving this integer editable here would create a
+            # second source of truth beside SupplierCreditTerm.
+            del self.fields["payment_terms_days"]
             return
 
         self.fields["organization"].queryset = organizations_with_permission(  # type: ignore[attr-defined]
@@ -157,6 +165,73 @@ class SupplierActionForm(forms.Form):
 
     def visible(self) -> Any:
         return visible_suppliers(self.actor)
+
+
+class SupplierCreditTermForm(forms.Form):
+    """Create or edit one DRAFT effective-dated credit-term version."""
+
+    supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
+    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
+    name_en = forms.CharField(label=_("الاسم بالإنكليزية"), max_length=200, required=False)
+    net_days = forms.IntegerField(label=_("عدد أيام الائتمان"), min_value=0, max_value=3650)
+    effective_from = forms.DateField(
+        label=_("ساري من"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    effective_to = forms.DateField(
+        label=_("ساري إلى"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(
+        self,
+        *args: Any,
+        actor: User,
+        instance: SupplierCreditTerm | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        self.instance = instance
+        if instance is None:
+            organizations = organizations_with_permission(actor, CREATE_SUPPLIER_CREDIT_TERM)
+            self.fields["supplier"].queryset = visible_suppliers(actor).filter(  # type: ignore[attr-defined]
+                organization__in=organizations,
+                is_active=True,
+            )
+            self.fields["effective_from"].initial = timezone.localdate()
+        else:
+            del self.fields["supplier"]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        start = cleaned.get("effective_from")
+        end = cleaned.get("effective_to")
+        if start and end and end < start:
+            self.add_error(
+                "effective_to",
+                forms.ValidationError(
+                    _("تاريخ النهاية لا يمكن أن يسبق تاريخ البداية."),
+                    code="credit_term_period_invalid",
+                ),
+            )
+        return cleaned
+
+    def selected_supplier(self) -> Supplier:
+        if self.instance is not None:
+            return self.instance.supplier
+        return cast(Supplier, self.cleaned_data["supplier"])
+
+    def selected_supersedes(self) -> SupplierCreditTerm | None:
+        return (
+            SupplierCreditTerm.objects.filter(
+                supplier=self.selected_supplier(),
+                status=SupplierCreditTermStatus.ACTIVE,
+            )
+            .order_by("-effective_from", "-version")
+            .first()
+        )
 
 
 class SupplierItemForm(forms.Form):

@@ -255,6 +255,10 @@ class InventoryViewMixin(LoginRequiredMixin, UserPassesTestMixin, ModuleViewMixi
         user: User = self.request.user  # type: ignore[assignment]
         return user
 
+    def is_htmx(self) -> bool:
+        """Whether htmx made this request rather than a browser navigation."""
+        return self.request.headers.get("HX-Request") == "true"
+
 
 class InventoryListView(InventoryViewMixin, _ListView):
     """
@@ -308,10 +312,6 @@ class InventoryListView(InventoryViewMixin, _ListView):
                 "id", flat=True
             )
         )
-
-    def is_htmx(self) -> bool:
-        """Whether htmx made this request, rather than the browser navigating."""
-        return self.request.headers.get("HX-Request") == "true"
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -499,6 +499,9 @@ class InventoryWriteView(InventoryViewMixin, View):
             "page_hint": self.page_hint,
             "cancel_url": self.get_success_url(),
             "instance": instance,
+            "form_base_template": (
+                "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
+            ),
         }
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -522,6 +525,10 @@ class InventoryWriteView(InventoryViewMixin, View):
                     form.add_error(None, message)
             else:
                 messages.success(request, self.success_message)
+                if self.is_htmx():
+                    response = HttpResponse(status=200)
+                    response["HX-Redirect"] = self.get_success_url()
+                    return response
                 return HttpResponseRedirect(self.get_success_url())
         return render(request, self.template_name, self.context(instance, form))
 

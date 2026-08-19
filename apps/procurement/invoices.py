@@ -118,6 +118,7 @@ from apps.core.services import record_audit_event, snapshot
 from apps.inventory.models import InventoryAccountMapping, InventoryItem
 from apps.organizations.business_dates import business_date_for, resolve_business_day
 from apps.organizations.models import Branch
+from apps.procurement.credit_terms import resolve_credit_term, term_name_ar
 from apps.procurement.lifecycle import lock_and_require_status
 from apps.procurement.matching import cancel_purchase_match
 from apps.procurement.models import (
@@ -236,7 +237,8 @@ def create_supplier_invoice(
             code="supplier_invoice_number_required",
         )
 
-    terms = supplier.payment_terms_days
+    credit_term = resolve_credit_term(supplier=supplier, on=invoice_date)
+    terms = credit_term.net_days if credit_term is not None else supplier.payment_terms_days
     invoice = SupplierInvoice(
         organization=branch.organization,
         branch=branch,
@@ -249,6 +251,11 @@ def create_supplier_invoice(
         business_date=business_date or business_date_for(branch, timezone.now()),
         payment_terms_days=terms,
         due_date=due_date_for(invoice_date=invoice_date, payment_terms_days=terms),
+        credit_term=credit_term,
+        credit_term_public_id=credit_term.public_id if credit_term is not None else None,
+        credit_term_version=credit_term.version if credit_term is not None else None,
+        credit_term_name=(credit_term.name_ar if credit_term is not None else term_name_ar(terms)),
+        credit_term_net_days=terms,
         freight_amount=quantize_money(freight_amount or ZERO),
         discount_amount=quantize_money(discount_amount or ZERO),
         notes=notes.strip(),
@@ -749,10 +756,48 @@ def approve_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> Suppli
         raise ValidationError(_("An empty invoice cannot be approved."), code="no_lines")
     _require_totals_agree(locked, lines)
 
+    # Approval, not draft creation, is the commercial decision boundary. A
+    # term negotiated while the invoice waited in draft is therefore resolved
+    # once here and copied in full. Later supplier changes cannot move this due
+    # date or rewrite this evidence.
+    credit_term = resolve_credit_term(supplier=locked.supplier, on=locked.invoice_date)
+    if credit_term is None:
+        terms = locked.supplier.payment_terms_days
+        locked.credit_term = None
+        locked.credit_term_public_id = None
+        locked.credit_term_version = None
+        locked.credit_term_name = term_name_ar(terms)
+    else:
+        terms = credit_term.net_days
+        locked.credit_term = credit_term
+        locked.credit_term_public_id = credit_term.public_id
+        locked.credit_term_version = credit_term.version
+        locked.credit_term_name = credit_term.name_ar
+    locked.credit_term_net_days = terms
+    locked.payment_terms_days = terms
+    locked.due_date = due_date_for(
+        invoice_date=locked.invoice_date,
+        payment_terms_days=terms,
+    )
+
     locked.status = SupplierInvoiceStatus.APPROVED
     locked.approved_by = actor
     locked.approved_at = timezone.now()
-    locked.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+    locked.save(
+        update_fields=[
+            "credit_term",
+            "credit_term_public_id",
+            "credit_term_version",
+            "credit_term_name",
+            "credit_term_net_days",
+            "payment_terms_days",
+            "due_date",
+            "status",
+            "approved_by",
+            "approved_at",
+            "updated_at",
+        ]
+    )
     record_audit_event(
         action=AuditAction.APPROVED,
         target=locked,

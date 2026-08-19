@@ -199,13 +199,19 @@ and the architecture plan names it explicitly —
 
 **PRC-004.** A supplier is archived, never deleted. `PROTECT` on every FK.
 
-### Payment terms are a snapshot, not a lookup
+### Payment terms are effective-dated; documents keep snapshots
 
-`payment_terms_days` on the supplier is the **default for new documents**. Each
-purchase order and each invoice stores the terms that applied to it. Changing a
-supplier's terms in March must not silently restate January's due dates, and a
-report that recomputes aging from today's master data is answering a different
-question from the one it is being asked.
+ADR-032 supersedes the original mutable-default wording here.
+`SupplierCreditTerm` is the versioned source of truth, with inclusive effective
+ranges, one draft, maker-checker activation, and immutable activated history.
+`Supplier.payment_terms_days` remains only as a compatibility projection and
+cannot be changed through supplier maintenance.
+
+At supplier-invoice approval the covering version is resolved by invoice date,
+then its public UUID, version, name, net days and resulting due date are frozen
+on the invoice. Changing terms in March therefore cannot restate January's due
+date, including when the January invoice is entered after the March version was
+activated.
 
 ---
 

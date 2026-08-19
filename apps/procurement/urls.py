@@ -26,6 +26,37 @@ urlpatterns = [
         views.SupplierActionView.as_view(activate=True),
         name="supplier_reactivate",
     ),
+    # --- effective-dated supplier credit terms ----------------------------
+    path(
+        "credit-terms/",
+        views.SupplierCreditTermListView.as_view(),
+        name="credit_term_list",
+    ),
+    path(
+        "credit-terms/new/",
+        views.SupplierCreditTermCreateView.as_view(),
+        name="credit_term_create",
+    ),
+    path(
+        "credit-terms/<int:pk>/",
+        views.SupplierCreditTermDetailView.as_view(),
+        name="credit_term_detail",
+    ),
+    path(
+        "credit-terms/<int:pk>/edit/",
+        views.SupplierCreditTermUpdateView.as_view(),
+        name="credit_term_update",
+    ),
+    path(
+        "credit-terms/<int:pk>/activate/",
+        views.SupplierCreditTermActivateView.as_view(),
+        name="credit_term_activate",
+    ),
+    path(
+        "credit-terms/<int:pk>/history/",
+        views.SupplierCreditTermHistoryView.as_view(),
+        name="credit_term_history",
+    ),
     # --- supplier item catalogue -------------------------------------
     path(
         "catalogue/",

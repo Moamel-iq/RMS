@@ -34,6 +34,7 @@ from apps.procurement.models import (
     SupplierCreditAllocation,
     SupplierCreditNote,
     SupplierCreditReturnAllocation,
+    SupplierCreditTerm,
     SupplierInvoice,
     SupplierInvoiceLine,
     SupplierInvoiceStatus,
@@ -80,6 +81,21 @@ def resolve_supplier(user: User, supplier_id: int) -> Supplier:
     if supplier is None:
         raise OutOfScope(_("Supplier %(id)s does not exist.") % {"id": supplier_id})
     return supplier
+
+
+def visible_supplier_credit_terms(user: User) -> QuerySet[SupplierCreditTerm]:
+    """All versions in organizations the caller can reach, including history."""
+    return SupplierCreditTerm.objects.filter(
+        organization_id__in=reachable_organization_ids(user)
+    ).select_related("organization", "supplier", "created_by", "approved_by", "supersedes")
+
+
+def resolve_supplier_credit_term(user: User, term_id: int) -> SupplierCreditTerm:
+    """Resolve an id with the caller so foreign terms answer 404."""
+    term = visible_supplier_credit_terms(user).filter(pk=term_id).first()
+    if term is None:
+        raise OutOfScope(_("Supplier credit term %(id)s does not exist.") % {"id": term_id})
+    return term
 
 
 def visible_supplier_items(user: User) -> QuerySet[SupplierItem]:

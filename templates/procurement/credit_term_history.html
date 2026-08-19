@@ -1,0 +1,13 @@
+{% extends base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block page %}
+  <section class="workspace-page" id="credit-term-detail">
+    <div class="pagehead"><div><p class="pagehead__eyebrow">{{ term.supplier.code }} — {{ term.supplier.name_ar }}</p><h1 class="pagehead__title">{% translate "سجل نسخ شروط الائتمان" %}</h1><p class="pagehead__hint">{% translate "كل نسخة تبقى مقروءة لأن الفواتير التاريخية تشير إلى النسخة التي اعتُمدت عليها." %}</p></div></div>
+    <div class="tablewrap"><div class="data-table-shell" role="region" tabindex="0" aria-label="{{ page_title }}"><table class="table data-table responsive-table"><thead><tr><th>{% translate "النسخة" %}</th><th>{% translate "الاسم" %}</th><th>{% translate "الأيام" %}</th><th>{% translate "السريان" %}</th><th>{% translate "الحالة" %}</th><th>{% translate "الاعتماد" %}</th></tr></thead><tbody>
+      {% for version in versions %}<tr><td data-label="{% translate 'النسخة' %}"><a href="{% url 'procurement:credit_term_detail' version.pk %}"><bdi dir="ltr">v{{ version.version }}</bdi></a></td><td data-label="{% translate 'الاسم' %}">{{ version.name_ar }}</td><td data-label="{% translate 'الأيام' %}"><bdi dir="ltr">{{ version.net_days }}</bdi></td><td data-label="{% translate 'السريان' %}"><bdi dir="ltr">{{ version.effective_from|date:"Y-m-d" }}</bdi> — {% if version.effective_to %}<bdi dir="ltr">{{ version.effective_to|date:"Y-m-d" }}</bdi>{% else %}{% translate "مفتوح" %}{% endif %}</td><td data-label="{% translate 'الحالة' %}"><span class="chip">{{ version.get_status_display }}</span></td><td data-label="{% translate 'الاعتماد' %}">{{ version.approved_by.username|default:"—" }}</td></tr>{% endfor %}
+    </tbody></table></div></div>
+    <div class="formactions"><a class="btn btn--ghost" href="{% url 'procurement:credit_term_detail' term.pk %}">{% translate "رجوع" %}</a></div>
+  </section>
+{% endblock %}

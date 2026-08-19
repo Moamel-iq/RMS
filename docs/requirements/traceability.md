@@ -26,7 +26,7 @@ reviews.
 | 0.4 | The leading table — `UOM-` | Units of measure and conversion |
 | 0.5 | The leading table — `AUD-` | The audit foundation |
 | 1.0 | — | A specification task. It *produces* the Phase 1 requirements the rows below cite; it has no separate implementation to trace |
-| 2.0 | — | The same, for Phase 2 (`PRC-001`..`PRC-067`) |
+| 2.0 | — | The same, for Phase 2 plus Procurement completion (`PRC-001`..`PRC-075`) |
 | 1.7 | Superseded by 1.7A and 1.7B | Split during Phase 1; both halves carry their own rows |
 | 1.8 | `EXIT-` rows plus the Phase 1 gate record | An exit gate verifies other tasks' requirements rather than adding its own |
 | 2.18 | The Phase 2 gate record | The same; see `docs/runbooks/overnight-progress.md` Step 20 |
@@ -632,6 +632,14 @@ see Task 2.0 §0.
 | PRC-065 | Arabic RTL screens, logical properties, HTMX filters surviving pagination | templates + `_filter_query`; reports reuse the Phase 1 `_base_report.html` chrome | `apps/procurement/tests/test_procurement_reports.py::TestExports::test_the_htmx_request_gets_the_fragment_not_the_shell` | 2.1–2.16 | | Done |
 | PRC-066 | Demo data: three suppliers, the five existing items, idempotent, DEBUG-only | demo tooling | `apps/procurement/tests/test_supplier.py::TestDemoSuppliers` | 2.1–2.17 | | Done |
 | PRC-067 | `source_document_id` is the immutable `public_id`, never a number or pk | posting services | — | 2.9 | | Specified |
+| PRC-068 | Supplier credit terms are effective-dated versions; the supplier integer is a non-editable compatibility projection | `SupplierCreditTerm`, supplier form/API/service | `apps/procurement/tests/test_supplier.py::TestOwnershipAndLifecycle::test_payment_terms_are_a_projection_not_an_editable_supplier_field` | Procurement completion 3 | | Done |
+| PRC-069 | Inclusive active ranges cannot overlap and one supplier has at most one draft | migration 0033 exclusion/partial unique constraints | `apps/procurement/tests/test_credit_terms.py::TestCreditTermLifecycle::test_inclusive_active_ranges_cannot_overlap`, `test_only_one_draft_may_exist_per_supplier` | Procurement completion 3 | | Done |
+| PRC-070 | A creator cannot activate their own term; activation is locked against stale instances | `activate_credit_term` plus database maker-checker check | `apps/procurement/tests/test_credit_terms.py::TestCreditTermLifecycle::test_creator_cannot_activate_their_own_term`, `test_stale_instance_cannot_be_activated_twice` | Procurement completion 3 | | Done |
+| PRC-071 | Activated/superseded versions are immutable and not hard-deleted; correction is a replacement version | migration 0033 trigger and lifecycle services | `apps/procurement/tests/test_credit_terms.py::TestCreditTermLifecycle::test_database_rejects_mutating_an_activated_term`, `test_only_a_draft_can_be_edited_or_deleted` | Procurement completion 3 | | Done |
+| PRC-072 | Invoice approval snapshots term UUID/version/name/days and due date from the invoice-date version | `approve_supplier_invoice` and invoice snapshot constraint | `apps/procurement/tests/test_credit_terms.py::TestInvoiceCreditTermSnapshot::test_approval_freezes_the_effective_term_and_due_date` | Procurement completion 3 | | Done |
+| PRC-073 | A superseded term remains authoritative for its closed historical effective period | `resolve_credit_term` | `apps/procurement/tests/test_credit_terms.py::TestCreditTermLifecycle::test_superseded_version_remains_authoritative_for_its_closed_period` | Procurement completion 3 | | Done |
+| PRC-074 | Credit-term UI/API use the same scoped lifecycle; foreign ids are 404 and in-scope missing authority is 403 | selectors, views, Ninja command endpoints | `apps/procurement/tests/test_credit_terms.py::TestCreditTermSurface` | Procurement completion 3 | | Done |
+| PRC-075 | Demo suppliers expose exactly the 0/14/30-day terms and a second seed creates no duplicate term | `seed_demo_suppliers` through `create_supplier` bootstrap | `apps/procurement/tests/test_supplier.py::TestDemoSuppliers::test_the_seed_creates_exactly_three_and_is_idempotent` | Procurement completion 3 | | Done |
 
 ## Phase 3 — Recipes, Kitchen and Production
 
