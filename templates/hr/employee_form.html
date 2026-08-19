@@ -1,0 +1,7 @@
+{% extends form_base_template %}
+{% load i18n %}
+{% block page %}
+<section class="workspace-page" id="employee-form"><nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}"><a href="{% url 'hr:employee_list' %}">{% translate "الموظفون" %}</a><span>/</span><span>{{ page_title }}</span></nav><div class="pagehead"><div><p class="pagehead__eyebrow">{% translate "الموارد البشرية" %}</p><h1 class="pagehead__title">{{ page_title }}</h1><p class="pagehead__hint">{{ page_hint }}</p></div></div>
+  <form class="formcard" method="post" novalidate hx-post="{{ request.path }}" hx-target="#employee-form" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">{% csrf_token %}{% include "components/form_error_summary.html" with form=form %}<div class="formgrid">{% for field in form %}<div class="formrow"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="helptext">{{ field.help_text }}</p>{% endif %}{% for error in field.errors %}<p class="fielderror">{{ error }}</p>{% endfor %}</div>{% endfor %}</div><div class="formactions"><button class="btn btn--primary" type="submit">{% translate "حفظ الموظف" %}</button><a class="btn btn--ghost" href="{% if employee %}{% url 'hr:employee_detail' employee.pk %}{% else %}{% url 'hr:employee_list' %}{% endif %}">{% translate "إلغاء" %}</a></div></form>
+</section>
+{% endblock %}

@@ -18,6 +18,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("kitchen/", include("apps.kitchen.urls")),
     path("sales/", include("apps.sales.urls")),
     path("accounting/", include("apps.accounting.urls")),
+    path("hr/", include("apps.hr.urls")),
     path("", include("apps.users.urls")),
 ]
 
