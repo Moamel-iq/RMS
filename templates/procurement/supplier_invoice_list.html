@@ -2,61 +2,45 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
-    <select name="status">
-      <option value="">{% translate "كل الحالات" %}</option>
-      {% for value, label in statuses %}
-        <option value="{{ value }}" {% if value == selected_status %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-  </label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "المورد" %}</span><select name="supplier"><option value="">{% translate "كل الموردين" %}</option>{% for supplier in suppliers %}<option value="{{ supplier.pk }}"{% if selected_supplier == supplier.pk|stringformat:"s" %} selected{% endif %}>{{ supplier.code }} — {{ supplier.name_ar }}</option>{% endfor %}</select></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "الفرع" %}</span><select name="branch"><option value="">{% translate "كل الفروع" %}</option>{% for branch in branches %}<option value="{{ branch.pk }}"{% if selected_branch == branch.pk|stringformat:"s" %} selected{% endif %}>{{ branch.code }} — {{ branch.name_ar }}</option>{% endfor %}</select></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "الحالة" %}</span><select name="status"><option value="">{% translate "كل الحالات" %}</option>{% for value, label in statuses %}<option value="{{ value }}"{% if value == selected_status %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "حالة المطابقة" %}</span><select name="matching"><option value="">{% translate "كل الحالات" %}</option>{% for value, label in matching_choices %}<option value="{{ value }}"{% if value == selected_matching %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "رقم النظام" %}</span><input name="number" value="{{ selected_number }}"></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "مرجع المورد" %}</span><input name="reference" value="{{ selected_reference }}"></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "تاريخ الفاتورة من" %}</span><input type="date" name="invoice_from" value="{{ selected_invoice_from }}"></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "تاريخ الفاتورة إلى" %}</span><input type="date" name="invoice_to" value="{{ selected_invoice_to }}"></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "التاريخ المحاسبي من" %}</span><input type="date" name="accounting_from" value="{{ selected_accounting_from }}"></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "التاريخ المحاسبي إلى" %}</span><input type="date" name="accounting_to" value="{{ selected_accounting_to }}"></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "الاستحقاق من" %}</span><input type="date" name="due_from" value="{{ selected_due_from }}"></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "الاستحقاق إلى" %}</span><input type="date" name="due_to" value="{{ selected_due_to }}"></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "المتأخرات" %}</span><select name="overdue"><option value="">{% translate "الكل" %}</option><option value="1"{% if selected_overdue == "1" %} selected{% endif %}>{% translate "متأخرة ومستحقة" %}</option></select></label>
+{% endblock %}
+
+{% block active_filter_chips %}
+  {% if selected_status %}<span class="filter-chip">{% translate "الحالة" %}: {{ selected_status }}</span>{% endif %}
+  {% if selected_matching %}<span class="filter-chip">{% translate "المطابقة" %}: {{ selected_matching }}</span>{% endif %}
+  {% if selected_overdue %}<span class="filter-chip">{% translate "متأخرة فقط" %}</span>{% endif %}
 {% endblock %}
 
 {% block columns %}
-  <th>{% translate "الرقم" %}</th>
-  <th>{% translate "المورد" %}</th>
-  <th>{% translate "رقم فاتورة المورد" %}</th>
-  <th>{% translate "التاريخ" %}</th>
-  <th>{% translate "الاستحقاق" %}</th>
-  {% if may_see_cost %}<th>{% translate "الإجمالي" %}</th>{% endif %}
-  <th>{% translate "الحالة" %}</th>
-  <th>{% translate "إجراءات" %}</th>
+  <th scope="col">{% translate "الهوية" %}</th><th scope="col">{% translate "المورد والفرع" %}</th><th scope="col">{% translate "التواريخ" %}</th><th scope="col">{% translate "شرط الائتمان" %}</th>
+  {% if may_see_cost %}<th scope="col">{% translate "المبالغ" %}</th>{% endif %}<th scope="col">{% translate "المطابقة" %}</th>{% if may_see_cost %}<th scope="col">{% translate "الذمة" %}</th>{% endif %}<th scope="col">{% translate "التنفيذ" %}</th><th scope="col">{% translate "الحالة" %}</th><th scope="col">{% translate "إجراءات" %}</th>
 {% endblock %}
 
 {% block rows %}
   {% for row in invoices %}
     <tr>
-      <td>
-        {% if row.number %}<code dir="ltr">{{ row.number }}</code>
-        {% else %}<span class="muted">{% translate "مسودة" %}</span>{% endif %}
-      </td>
-      <td>{{ row.supplier.code }} — {{ row.supplier.name_ar }}</td>
-      {# The supplier's own reference: their vocabulary, never localised. #}
-      <td><span dir="ltr">{{ row.supplier_invoice_number }}</span></td>
-      <td><span dir="ltr">{{ row.invoice_date|date:"Y-m-d" }}</span></td>
-      <td><span dir="ltr">{{ row.due_date|date:"Y-m-d" }}</span></td>
-      {% if may_see_cost %}
-        <td><span dir="ltr">{{ row.total_amount|stringformat:"f" }}</span></td>
-      {% endif %}
-      <td>
-        {% if row.status == "POSTED" %}
-          <span class="chip chip--on">{{ row.get_status_display }}</span>
-        {% elif row.status == "REVERSED" %}
-          <span class="chip chip--off">{{ row.get_status_display }}</span>
-        {% else %}
-          <span class="chip">{{ row.get_status_display }}</span>
-        {% endif %}
-      </td>
-      <td>
-        <div class="rowactions">
-          <a class="btn btn--ghost btn--sm" href="{% url 'procurement:supplier_invoice_detail' row.pk %}">
-            {% translate "فتح" %}
-          </a>
-        </div>
-      </td>
+      <td data-label="{% translate 'الهوية' %}">{% if row.number %}<strong><bdi dir="ltr">{{ row.number }}</bdi></strong>{% else %}<span class="muted">{% translate "لم يُرقّم بعد" %}</span>{% endif %}<br><bdi dir="ltr">{{ row.supplier_invoice_number }}</bdi>{% if row.supplier_reference %}<br><span class="muted">{{ row.supplier_reference }}</span>{% endif %}</td>
+      <td data-label="{% translate 'المورد والفرع' %}"><strong>{{ row.supplier.code }} — {{ row.supplier.name_ar }}</strong><br><span class="muted">{{ row.branch.code }} — {{ row.branch.name_ar }}</span></td>
+      <td data-label="{% translate 'التواريخ' %}"><span class="muted">{% translate "فاتورة" %}</span> <bdi dir="ltr">{{ row.invoice_date|date:"Y-m-d" }}</bdi><br><span class="muted">{% translate "محاسبي" %}</span> <bdi dir="ltr">{{ row.business_date|date:"Y-m-d" }}</bdi><br><span class="muted">{% translate "استحقاق" %}</span> <bdi dir="ltr">{{ row.due_date|date:"Y-m-d" }}</bdi>{% if row.overdue_days %}<br><span class="chip chip--off">{% blocktranslate with days=row.overdue_days %}متأخرة {{ days }} يوم{% endblocktranslate %}</span>{% endif %}</td>
+      <td data-label="{% translate 'شرط الائتمان' %}">{{ row.credit_term_name|default:"—" }}<br><span class="muted"><bdi dir="ltr">{{ row.credit_term_net_days }}</bdi> {% translate "يوم" %}{% if row.credit_term_version %} · <bdi dir="ltr">v{{ row.credit_term_version }}</bdi>{% endif %}</span></td>
+      {% if may_see_cost %}<td data-label="{% translate 'المبالغ' %}"><span class="muted">{% translate "إجمالي" %}</span> <bdi dir="ltr">{{ row.lines_total|stringformat:"f" }}</bdi><br><span class="muted">{% translate "إضافي" %}</span> <bdi dir="ltr">{{ row.freight_amount|stringformat:"f" }}</bdi> · <span class="muted">{% translate "خصم" %}</span> <bdi dir="ltr">{{ row.discount_amount|stringformat:"f" }}</bdi><br><strong><bdi dir="ltr">{{ row.total_amount|stringformat:"f" }} {{ row.currency_code }}</bdi></strong></td>{% endif %}
+      <td data-label="{% translate 'المطابقة' %}">{% if row.matching_state == "MATCHED" %}<span class="chip chip--on">{% translate "مطابق وجاهز" %}</span>{% elif row.matching_state == "IN_PROGRESS" %}<span class="chip">{% translate "قيد المطابقة" %}</span>{% elif row.matching_state == "DIRECT" %}<span class="chip chip--on">{% translate "مصروف مباشر" %}</span>{% else %}<span class="chip chip--off">{% translate "غير مطابق" %}</span>{% endif %}</td>
+      {% if may_see_cost %}<td data-label="{% translate 'الذمة' %}">{% if row.posted_amount is not None %}<span class="muted">{% translate "مرحّل" %}</span> <bdi dir="ltr">{{ row.posted_amount|stringformat:"f" }}</bdi><br><strong>{% translate "متبقي" %} <bdi dir="ltr">{{ row.outstanding_value|stringformat:"f" }}</bdi></strong>{% else %}—{% endif %}</td>{% endif %}
+      <td data-label="{% translate 'التنفيذ' %}"><span class="muted">{% translate "أنشأ" %}</span> {{ row.created_by.username }}<br><span class="muted">{% translate "اعتمد" %}</span> {{ row.approved_by.username|default:"—" }}<br><span class="muted">{% translate "رحّل" %}</span> {{ row.posted_by.username|default:"—" }}{% if row.journal_entry_id %}<br><bdi dir="ltr">{{ row.journal_entry.entry_number }}</bdi>{% endif %}</td>
+      <td data-label="{% translate 'الحالة' %}">{% if row.status == "POSTED" %}<span class="chip chip--on">{{ row.get_status_display }}</span>{% elif row.status == "REVERSED" %}<span class="chip chip--off">{{ row.get_status_display }}</span>{% else %}<span class="chip">{{ row.get_status_display }}</span>{% endif %}</td>
+      <td data-label="{% translate 'إجراءات' %}"><div class="rowactions"><a class="btn btn--secondary btn--sm" href="{% url 'procurement:supplier_invoice_detail' row.pk %}">{% translate "فتح" %}</a>{% if row.status == "DRAFT" and row.organization_id in manageable_ids %}<a class="btn btn--ghost btn--sm" href="{% url 'procurement:supplier_invoice_update' row.pk %}">{% translate "تعديل" %}</a>{% endif %}</div></td>
     </tr>
-  {% empty %}
-    <tr><td colspan="8">{% translate "لا توجد فواتير بعد." %}</td></tr>
-  {% endfor %}
+  {% empty %}<tr><td colspan="10" data-empty-state><div class="empty-state"><strong>{% translate "لا توجد فواتير مطابقة." %}</strong><span>{% translate "غيّر المرشحات أو سجّل فاتورة مورد جديدة." %}</span></div></td></tr>{% endfor %}
 {% endblock %}

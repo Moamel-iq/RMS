@@ -1,2 +1,26 @@
-{# Header form for a draft invoice; lines are entered on the detail screen. #}
-{% extends "inventory/master_form.html" %}
+{% extends form_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block page %}
+  <section class="workspace-page workspace-form-page" aria-labelledby="supplier-invoice-form-title">
+    <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}"><a href="{% url 'procurement:supplier_invoice_list' %}">{% translate "فواتير الموردين" %}</a><span aria-hidden="true">/</span><span aria-current="page">{{ page_title }}</span></nav>
+    <div class="pagehead"><div><p class="pagehead__eyebrow">{% translate "المشتريات" %}</p><h1 class="pagehead__title" id="supplier-invoice-form-title">{{ page_title }}</h1><p class="pagehead__hint">{{ page_hint }}</p></div></div>
+    <form class="formcard workspace-form-card" method="post" novalidate
+          hx-post="{{ request.path }}" hx-target="closest .workspace-form-page" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+      {% csrf_token %}
+      {% include "components/form_error_summary.html" with form=form %}
+      <div class="formgrid">
+        {% for field in form.visible_fields %}
+          <div class="formrow{% if field.errors %} formrow--invalid{% endif %}">
+            <label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<p class="formrow__help">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="formactions"><button class="btn btn--primary" type="submit">{% translate "حفظ المسودة" %}</button><a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a></div>
+    </form>
+  </section>
+{% endblock %}

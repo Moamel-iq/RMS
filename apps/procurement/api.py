@@ -21,7 +21,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.http import HttpRequest
+from django.http import HttpRequest, JsonResponse
 from ninja import Router, Schema, Status
 
 from apps.accounting.models import Account, CostCenter
@@ -61,7 +61,9 @@ from apps.procurement.invoices import (
     delete_supplier_invoice,
     outstanding_amount,
     post_supplier_invoice,
+    return_supplier_invoice_to_draft,
     reverse_supplier_invoice,
+    update_supplier_invoice,
 )
 from apps.procurement.matching import (
     add_allocation,
@@ -703,6 +705,8 @@ class SupplierInvoiceOut(Schema):
     supplier_code: str
     number: str
     supplier_invoice_number: str
+    supplier_reference: str
+    currency_code: str
     invoice_date: str
     business_date: str
     due_date: str
@@ -712,6 +716,15 @@ class SupplierInvoiceOut(Schema):
     credit_term_name: str
     credit_term_net_days: int
     status: str
+    matching_status: str
+    created_by: str
+    approved_by: str | None
+    posted_by: str | None
+    reversed_by: str | None
+    approved_at: str | None
+    posted_at: str | None
+    reversed_at: str | None
+    reversal_reason: str
     is_ready_to_post: bool
     blocking_line_sequences: list[int]
     journal_entry: str | None = None
@@ -734,9 +747,21 @@ class SupplierInvoiceIn(Schema):
     invoice_date: str
     business_date: str | None = None
     supplier_reference: str = ""
+    currency_code: str = "IQD"
     freight_amount: str | None = None
     discount_amount: str | None = None
     notes: str = ""
+
+
+class SupplierInvoiceUpdateIn(Schema):
+    supplier_invoice_number: str | None = None
+    invoice_date: str | None = None
+    business_date: str | None = None
+    supplier_reference: str | None = None
+    currency_code: str | None = None
+    freight_amount: str | None = None
+    discount_amount: str | None = None
+    notes: str | None = None
 
 
 class InvoiceInventoryLineIn(Schema):
@@ -809,6 +834,8 @@ def _serialize_invoice(invoice: SupplierInvoice, *, include_cost: bool) -> dict[
         "supplier_code": invoice.supplier.code,
         "number": invoice.number,
         "supplier_invoice_number": invoice.supplier_invoice_number,
+        "supplier_reference": invoice.supplier_reference,
+        "currency_code": invoice.currency_code,
         "invoice_date": invoice.invoice_date.isoformat(),
         "business_date": invoice.business_date.isoformat(),
         "due_date": invoice.due_date.isoformat(),
@@ -820,6 +847,15 @@ def _serialize_invoice(invoice: SupplierInvoice, *, include_cost: bool) -> dict[
         "credit_term_name": invoice.credit_term_name,
         "credit_term_net_days": invoice.credit_term_net_days,
         "status": invoice.status,
+        "matching_status": _invoice_matching_status(invoice),
+        "created_by": invoice.created_by.username,
+        "approved_by": invoice.approved_by.username if invoice.approved_by else None,
+        "posted_by": invoice.posted_by.username if invoice.posted_by else None,
+        "reversed_by": invoice.reversed_by.username if invoice.reversed_by else None,
+        "approved_at": invoice.approved_at.isoformat() if invoice.approved_at else None,
+        "posted_at": invoice.posted_at.isoformat() if invoice.posted_at else None,
+        "reversed_at": invoice.reversed_at.isoformat() if invoice.reversed_at else None,
+        "reversal_reason": invoice.reversal_reason,
         "is_ready_to_post": invoice.is_ready_to_post,
         "blocking_line_sequences": [line.sequence for line in invoice.blocking_lines],
         "journal_entry": invoice.journal_entry.entry_number if invoice.journal_entry else None,
@@ -843,6 +879,38 @@ def _serialize_invoice(invoice: SupplierInvoice, *, include_cost: bool) -> dict[
     return payload
 
 
+def _invoice_response(invoice: SupplierInvoice, *, actor: User) -> Any:
+    """Keep forbidden monetary keys out of the wire response, not merely null."""
+    include_cost = actor.has_perm(VIEW_SUPPLIER_COST)
+    payload = _serialize_invoice(invoice, include_cost=include_cost)
+    # A response model materialises absent Optional fields as null. Returning
+    # JsonResponse for this one authorization branch deliberately bypasses
+    # that materialisation; PRC-061 requires omission, because null means a
+    # value was shown and happened not to exist.
+    return payload if include_cost else JsonResponse(payload)
+
+
+def _invoice_created_response(
+    invoice: SupplierInvoice, *, actor: User
+) -> Status[Any] | JsonResponse:
+    include_cost = actor.has_perm(VIEW_SUPPLIER_COST)
+    payload = _serialize_invoice(invoice, include_cost=include_cost)
+    return Status(201, payload) if include_cost else JsonResponse(payload, status=201)
+
+
+def _invoice_matching_status(invoice: SupplierInvoice) -> str:
+    if not invoice.lines.filter(line_type="INVENTORY").exists():
+        return "DIRECT"
+    match_status = (
+        invoice.matches.exclude(status="CANCELLED").values_list("status", flat=True).first()
+    )
+    if match_status == "READY":
+        return "MATCHED"
+    if match_status == "DRAFT":
+        return "IN_PROGRESS"
+    return "UNMATCHED"
+
+
 def _required_money(value: str, *, field: str) -> Decimal:
     parsed = _money(value, field=field)
     if parsed is None:
@@ -860,16 +928,64 @@ def _required_date(value: str, *, field: str) -> datetime.date:
 @router.get(
     "/supplier-invoices/", response=list[SupplierInvoiceOut], summary="List supplier invoices"
 )
-def list_supplier_invoices(request: HttpRequest, status: str | None = None) -> Any:
+def list_supplier_invoices(
+    request: HttpRequest,
+    status: str | None = None,
+    supplier_id: int | None = None,
+    branch_id: int | None = None,
+    matching: str | None = None,
+    overdue: bool = False,
+    invoice_from: str | None = None,
+    invoice_to: str | None = None,
+    accounting_from: str | None = None,
+    accounting_to: str | None = None,
+    due_from: str | None = None,
+    due_to: str | None = None,
+    supplier_reference: str | None = None,
+    number: str | None = None,
+) -> Any:
     actor = _require_invoice_view(request)
     queryset = visible_supplier_invoices(actor)
     if status:
         queryset = queryset.filter(status=status.strip().upper())
+    if supplier_id is not None:
+        queryset = queryset.filter(supplier_id=supplier_id)
+    if branch_id is not None:
+        queryset = queryset.filter(branch_id=branch_id)
+    match_state = (matching or "").strip().upper()
+    if match_state == "DIRECT":
+        queryset = queryset.exclude(lines__line_type="INVENTORY")
+    elif match_state == "UNMATCHED":
+        queryset = queryset.filter(lines__line_type="INVENTORY").exclude(
+            matches__status__in=("DRAFT", "READY")
+        )
+    elif match_state == "IN_PROGRESS":
+        queryset = queryset.filter(matches__status="DRAFT")
+    elif match_state == "MATCHED":
+        queryset = queryset.filter(matches__status="READY")
+    for raw, lookup, field in (
+        (invoice_from, "invoice_date__gte", "invoice_from"),
+        (invoice_to, "invoice_date__lte", "invoice_to"),
+        (accounting_from, "business_date__gte", "accounting_from"),
+        (accounting_to, "business_date__lte", "accounting_to"),
+        (due_from, "due_date__gte", "due_from"),
+        (due_to, "due_date__lte", "due_to"),
+    ):
+        value = _date(raw, field=field)
+        if value is not None:
+            queryset = queryset.filter(**{lookup: value})
+    if supplier_reference:
+        queryset = queryset.filter(supplier_reference__icontains=supplier_reference.strip())
+    if number:
+        queryset = queryset.filter(number__icontains=number.strip())
+    if overdue:
+        queryset = queryset.filter(status="POSTED", due_date__lt=datetime.date.today())
     include_cost = actor.has_perm(VIEW_SUPPLIER_COST)
-    return [
+    payload = [
         _serialize_invoice(invoice, include_cost=include_cost)
-        for invoice in queryset.order_by("-id")
+        for invoice in queryset.order_by("-id").distinct()
     ]
+    return payload if include_cost else JsonResponse(payload, safe=False)
 
 
 @router.get(
@@ -880,7 +996,7 @@ def list_supplier_invoices(request: HttpRequest, status: str | None = None) -> A
 def read_supplier_invoice(request: HttpRequest, invoice_id: int) -> Any:
     actor = _require_invoice_view(request)
     invoice = resolve_supplier_invoice(actor, invoice_id)
-    return _serialize_invoice(invoice, include_cost=actor.has_perm(VIEW_SUPPLIER_COST))
+    return _invoice_response(invoice, actor=actor)
 
 
 @router.post(
@@ -888,7 +1004,7 @@ def read_supplier_invoice(request: HttpRequest, invoice_id: int) -> Any:
     response={201: SupplierInvoiceOut},
     summary="Record a supplier invoice",
 )
-def create_invoice(request: HttpRequest, payload: SupplierInvoiceIn) -> Status[Any]:
+def create_invoice(request: HttpRequest, payload: SupplierInvoiceIn) -> Any:
     actor = _actor(request)
     branch = resolve_branch(actor, payload.branch_id)
     require_organization_permission(actor, CREATE_SUPPLIER_INVOICE, branch.organization)
@@ -902,11 +1018,52 @@ def create_invoice(request: HttpRequest, payload: SupplierInvoiceIn) -> Status[A
         invoice_date=_required_date(payload.invoice_date, field="invoice_date"),
         business_date=_date(payload.business_date, field="business_date"),
         supplier_reference=payload.supplier_reference,
+        currency_code=payload.currency_code,
         freight_amount=_money(payload.freight_amount, field="freight_amount"),
         discount_amount=_money(payload.discount_amount, field="discount_amount"),
         notes=payload.notes,
     )
-    return Status(201, _serialize_invoice(invoice, include_cost=True))
+    return _invoice_created_response(invoice, actor=actor)
+
+
+@router.patch(
+    "/supplier-invoices/{invoice_id}/",
+    response=SupplierInvoiceOut,
+    summary="Correct a draft supplier invoice",
+)
+def update_invoice(request: HttpRequest, invoice_id: int, payload: SupplierInvoiceUpdateIn) -> Any:
+    actor = _actor(request)
+    invoice = resolve_supplier_invoice(actor, invoice_id)
+    require_organization_permission(actor, CREATE_SUPPLIER_INVOICE, invoice.organization)
+    supplied = payload.model_dump(exclude_unset=True)
+    updated = update_supplier_invoice(
+        invoice=invoice,
+        supplier_invoice_number=supplied.get("supplier_invoice_number"),
+        invoice_date=(
+            _required_date(supplied["invoice_date"], field="invoice_date")
+            if supplied.get("invoice_date") is not None
+            else None
+        ),
+        business_date=(
+            _required_date(supplied["business_date"], field="business_date")
+            if supplied.get("business_date") is not None
+            else None
+        ),
+        supplier_reference=supplied.get("supplier_reference"),
+        currency_code=supplied.get("currency_code"),
+        freight_amount=(
+            _required_money(supplied["freight_amount"], field="freight_amount")
+            if supplied.get("freight_amount") is not None
+            else None
+        ),
+        discount_amount=(
+            _required_money(supplied["discount_amount"], field="discount_amount")
+            if supplied.get("discount_amount") is not None
+            else None
+        ),
+        notes=supplied.get("notes"),
+    )
+    return _invoice_response(updated, actor=actor)
 
 
 @router.delete(
@@ -927,7 +1084,7 @@ def delete_invoice(request: HttpRequest, invoice_id: int) -> Status[Any]:
 )
 def add_invoice_inventory_line(
     request: HttpRequest, invoice_id: int, payload: InvoiceInventoryLineIn
-) -> Status[Any]:
+) -> Any:
     actor = _actor(request)
     invoice = resolve_supplier_invoice(actor, invoice_id)
     require_organization_permission(actor, CREATE_SUPPLIER_INVOICE, invoice.organization)
@@ -950,7 +1107,7 @@ def add_invoice_inventory_line(
         description=payload.description,
         note=payload.note,
     )
-    return Status(201, _serialize_invoice(_reload(invoice), include_cost=True))
+    return _invoice_created_response(_reload(invoice), actor=actor)
 
 
 @router.post(
@@ -960,7 +1117,7 @@ def add_invoice_inventory_line(
 )
 def add_invoice_account_line(
     request: HttpRequest, invoice_id: int, payload: InvoiceAccountLineIn
-) -> Status[Any]:
+) -> Any:
     actor = _actor(request)
     invoice = resolve_supplier_invoice(actor, invoice_id)
     require_organization_permission(actor, CREATE_SUPPLIER_INVOICE, invoice.organization)
@@ -988,7 +1145,7 @@ def add_invoice_account_line(
         unit_price=_required_money(payload.unit_price, field="unit_price"),
         note=payload.note,
     )
-    return Status(201, _serialize_invoice(_reload(invoice), include_cost=True))
+    return _invoice_created_response(_reload(invoice), actor=actor)
 
 
 @router.post(
@@ -1001,7 +1158,20 @@ def approve_invoice(request: HttpRequest, invoice_id: int) -> Any:
     invoice = resolve_supplier_invoice(actor, invoice_id)
     require_organization_permission(actor, APPROVE_SUPPLIER_INVOICE, invoice.organization)
     approved = approve_supplier_invoice(invoice=invoice, actor=actor)
-    return _serialize_invoice(approved, include_cost=True)
+    return _invoice_response(approved, actor=actor)
+
+
+@router.post(
+    "/supplier-invoices/{invoice_id}/return-to-draft/",
+    response=SupplierInvoiceOut,
+    summary="Return an approved supplier invoice to draft",
+)
+def return_invoice_to_draft(request: HttpRequest, invoice_id: int, payload: ReasonIn) -> Any:
+    actor = _actor(request)
+    invoice = resolve_supplier_invoice(actor, invoice_id)
+    require_organization_permission(actor, APPROVE_SUPPLIER_INVOICE, invoice.organization)
+    returned = return_supplier_invoice_to_draft(invoice=invoice, actor=actor, reason=payload.reason)
+    return _invoice_response(returned, actor=actor)
 
 
 @router.post(
@@ -1014,7 +1184,7 @@ def post_invoice(request: HttpRequest, invoice_id: int) -> Any:
     invoice = resolve_supplier_invoice(actor, invoice_id)
     require_organization_permission(actor, POST_SUPPLIER_INVOICE, invoice.organization)
     posted = post_supplier_invoice(invoice=invoice, actor=actor)
-    return _serialize_invoice(posted, include_cost=True)
+    return _invoice_response(posted, actor=actor)
 
 
 @router.post(
@@ -1027,7 +1197,7 @@ def reverse_invoice(request: HttpRequest, invoice_id: int, payload: ReasonIn) ->
     invoice = resolve_supplier_invoice(actor, invoice_id)
     require_organization_permission(actor, REVERSE_SUPPLIER_INVOICE, invoice.organization)
     reversed_invoice = reverse_supplier_invoice(invoice=invoice, actor=actor, reason=payload.reason)
-    return _serialize_invoice(reversed_invoice, include_cost=True)
+    return _invoice_response(reversed_invoice, actor=actor)
 
 
 def _reload(invoice: SupplierInvoice) -> SupplierInvoice:

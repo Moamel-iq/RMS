@@ -214,6 +214,7 @@ def create_supplier_invoice(
     invoice_date: datetime.date,
     business_date: datetime.date | None = None,
     supplier_reference: str = "",
+    currency_code: str = "IQD",
     freight_amount: Decimal | None = None,
     discount_amount: Decimal | None = None,
     notes: str = "",
@@ -247,6 +248,7 @@ def create_supplier_invoice(
         supplier_invoice_number=reference,
         supplier_invoice_number_key=normalize_invoice_number(reference),
         supplier_reference=supplier_reference.strip(),
+        currency_code=currency_code.strip().upper(),
         invoice_date=invoice_date,
         business_date=business_date or business_date_for(branch, timezone.now()),
         payment_terms_days=terms,
@@ -279,6 +281,7 @@ def update_supplier_invoice(
     invoice_date: datetime.date | None = None,
     business_date: datetime.date | None = None,
     supplier_reference: str | None = None,
+    currency_code: str | None = None,
     freight_amount: Decimal | None = None,
     discount_amount: Decimal | None = None,
     notes: str | None = None,
@@ -311,6 +314,8 @@ def update_supplier_invoice(
         locked.business_date = business_date
     if supplier_reference is not None:
         locked.supplier_reference = supplier_reference.strip()
+    if currency_code is not None:
+        locked.currency_code = currency_code.strip().upper()
     if freight_amount is not None:
         locked.freight_amount = quantize_money(freight_amount)
     if discount_amount is not None:

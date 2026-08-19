@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Any, cast
 
 from django import forms
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -721,6 +722,12 @@ class SupplierInvoiceForm(forms.Form):
         help_text=_("يوم العمل الذي يُرحّل فيه. يُترك فارغاً ليأخذ يوم الفرع الحالي."),
     )
     supplier_reference = forms.CharField(label=_("مرجع المورد"), max_length=200, required=False)
+    currency_code = forms.ChoiceField(
+        label=_("العملة"),
+        choices=(("IQD", _("الدينار العراقي (IQD)")),),
+        initial="IQD",
+        help_text=_("المرحلة الحالية تعمل بالدينار العراقي فقط."),
+    )
     freight_amount = forms.DecimalField(label=_("أجور النقل"), min_value=0, required=False)
     discount_amount = forms.DecimalField(label=_("الخصم"), min_value=0, required=False)
     notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
@@ -730,12 +737,22 @@ class SupplierInvoiceForm(forms.Form):
         self.actor = actor
         self.instance = instance
         organizations = organizations_with_permission(actor, CREATE_SUPPLIER_INVOICE)
+        supplier_scope = Q(organization__in=organizations, is_active=True)
+        branch_scope = Q(organization__in=organizations, is_active=True)
+        if instance is not None:
+            supplier_scope |= Q(pk=instance.supplier_id)
+            branch_scope |= Q(pk=instance.branch_id)
         self.fields["supplier"].queryset = Supplier.objects.filter(  # type: ignore[attr-defined]
-            organization__in=organizations, is_active=True
+            supplier_scope
         ).order_by("code")
         self.fields["branch"].queryset = Branch.objects.filter(  # type: ignore[attr-defined]
-            organization__in=organizations, is_active=True
+            branch_scope
         ).order_by("code")
+        if instance is not None:
+            # Changing either party changes the identity and accounting scope
+            # of the document. Corrections may change only the draft header.
+            self.fields["supplier"].disabled = True
+            self.fields["branch"].disabled = True
 
     def clean(self) -> dict[str, Any]:
         data: dict[str, Any] = super().clean() or {}
@@ -803,9 +820,20 @@ class InvoiceAccountLineForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.actor = actor
         self.invoice = invoice
-        self.fields["account"].queryset = Account.objects.filter(  # type: ignore[attr-defined]
-            organization_id=invoice.organization_id, is_active=True, is_postable=True
-        ).order_by("code")
+        from apps.procurement.invoices import DIRECT_LINE_ACCOUNT_CLASSES
+
+        self.fields["account"].queryset = (  # type: ignore[attr-defined]
+            Account.objects.filter(
+                organization_id=invoice.organization_id,
+                is_active=True,
+                is_postable=True,
+                account_class__in=DIRECT_LINE_ACCOUNT_CLASSES,
+                role_mappings__isnull=True,
+                inventory_mappings__isnull=True,
+            )
+            .order_by("code")
+            .distinct()
+        )
         self.fields["cost_center"].queryset = CostCenter.objects.filter(  # type: ignore[attr-defined]
             organization_id=invoice.organization_id, is_active=True
         ).order_by("code")

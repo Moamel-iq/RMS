@@ -251,6 +251,11 @@ urlpatterns = [
         name="supplier_invoice_detail",
     ),
     path(
+        "invoices/<int:pk>/edit/",
+        views.SupplierInvoiceUpdateView.as_view(),
+        name="supplier_invoice_update",
+    ),
+    path(
         "invoices/<int:pk>/lines/<int:line_id>/delete/",
         views.SupplierInvoiceLineDeleteView.as_view(),
         name="supplier_invoice_line_delete",

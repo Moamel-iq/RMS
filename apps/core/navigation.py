@@ -370,12 +370,15 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:goods_receipt_list",
                 available=True,
             ),
-            # Task 2.10 onward — visible so the shape of the module is legible,
-            # inert because the documents that would fill them do not exist.
-            *_sections(
-                _("فواتير الموردين"),
-                _("التكاليف الإضافية"),
+            Section(
+                label=_("فواتير الموردين"),
+                url_name="procurement:supplier_invoice_list",
+                available=True,
+                active_prefixes=("/procurement/invoices/",),
             ),
+            # Landed-cost allocation is promoted only when its own posting and
+            # inventory-capitalisation rules are present.
+            *_sections(_("التكاليف الإضافية")),
             # Task 2.13 — supplier returns. Built and reachable; the entry the
             # inventory module gave up ("returns belong to Procurement, where
             # they reconcile against an invoice and a credit note") lands here.

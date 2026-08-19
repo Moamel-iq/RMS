@@ -2249,6 +2249,12 @@ class SupplierInvoice(TimeStampedModel):
         _("supplier invoice number (key)"), max_length=64, editable=False
     )
     supplier_reference = models.CharField(_("supplier reference"), max_length=200, blank=True)
+    currency_code = models.CharField(
+        _("currency"),
+        max_length=3,
+        choices=(("IQD", "IQD"),),
+        default="IQD",
+    )
 
     #: The date on the supplier's document. Theirs, and not necessarily ours.
     invoice_date = models.DateField(_("invoice date"))
@@ -2416,6 +2422,10 @@ class SupplierInvoice(TimeStampedModel):
             models.CheckConstraint(
                 condition=~Q(supplier_invoice_number="") & ~Q(supplier_invoice_number_key=""),
                 name="procurement_invoice_states_the_supplier_reference",
+            ),
+            models.CheckConstraint(
+                condition=Q(currency_code="IQD"),
+                name="procurement_invoice_currency_is_iqd",
             ),
             models.CheckConstraint(
                 condition=Q(due_date__gte=models.F("invoice_date")),

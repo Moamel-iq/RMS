@@ -22,7 +22,8 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db.models import Q, QuerySet
+from django.db.models import DecimalField, Exists, OuterRef, Q, QuerySet, Subquery, Sum, Value
+from django.db.models.functions import Coalesce
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
@@ -102,6 +103,7 @@ from apps.procurement.invoices import (
     remove_invoice_line,
     return_supplier_invoice_to_draft,
     reverse_supplier_invoice,
+    update_supplier_invoice,
 )
 from apps.procurement.matching import (
     add_allocation,
@@ -114,11 +116,17 @@ from apps.procurement.matching import (
 )
 from apps.procurement.models import (
     GoodsReceiptStatus,
+    PaymentAllocation,
+    PurchaseMatch,
+    PurchaseMatchAllocation,
     PurchaseMatchStatus,
     PurchaseOrderStatus,
     PurchaseRequestStatus,
+    SupplierCreditAllocation,
     SupplierCreditNoteStatus,
     SupplierCreditTermStatus,
+    SupplierInvoiceLine,
+    SupplierInvoicePosting,
     SupplierInvoiceStatus,
     SupplierPaymentStatus,
     SupplierQuotationStatus,
@@ -1776,11 +1784,99 @@ class SupplierInvoiceListView(InventoryListView):
     create_url_name = "procurement:supplier_invoice_create"
     create_label = _("فاتورة جديدة")
 
+    MATCHING_CHOICES = (
+        ("DIRECT", _("مصروف مباشر")),
+        ("UNMATCHED", _("غير مطابق")),
+        ("IN_PROGRESS", _("مطابقة قيد العمل")),
+        ("MATCHED", _("مطابق وجاهز")),
+    )
+
+    def _date(self, key: str) -> datetime.date | None:
+        value = self.request.GET.get(key, "").strip()
+        try:
+            return datetime.date.fromisoformat(value) if value else None
+        except ValueError:
+            return None
+
     def scoped_queryset(self) -> QuerySet[Any]:
-        queryset = visible_supplier_invoices(self.actor)
+        active_match = PurchaseMatch.objects.filter(supplier_invoice_id=OuterRef("pk")).exclude(
+            status=PurchaseMatchStatus.CANCELLED
+        )
+        credit_total = (
+            SupplierCreditAllocation.objects.filter(
+                invoice_id=OuterRef("pk"), credit_note__status="POSTED"
+            )
+            .values("invoice_id")
+            .annotate(total=Sum("allocated_amount"))
+            .values("total")[:1]
+        )
+        payment_total = (
+            PaymentAllocation.objects.filter(invoice_id=OuterRef("pk"), payment__status="POSTED")
+            .values("invoice_id")
+            .annotate(total=Sum("allocated_amount"))
+            .values("total")[:1]
+        )
+        money_field = DecimalField(max_digits=20, decimal_places=3)
+        queryset = visible_supplier_invoices(self.actor).annotate(
+            has_inventory_lines=Exists(
+                SupplierInvoiceLine.objects.filter(invoice_id=OuterRef("pk"), line_type="INVENTORY")
+            ),
+            active_match_status=Subquery(active_match.values("status")[:1]),
+            credited_total=Coalesce(
+                Subquery(credit_total, output_field=money_field),
+                Value(Decimal("0.000")),
+                output_field=money_field,
+            ),
+            paid_total=Coalesce(
+                Subquery(payment_total, output_field=money_field),
+                Value(Decimal("0.000")),
+                output_field=money_field,
+            ),
+        )
         status = self.request.GET.get("status", "").strip().upper()
         if status in SupplierInvoiceStatus.values:
             queryset = queryset.filter(status=status)
+        supplier = self.request.GET.get("supplier", "").strip()
+        if supplier.isdigit():
+            queryset = queryset.filter(supplier_id=int(supplier))
+        branch = self.request.GET.get("branch", "").strip()
+        if branch.isdigit():
+            queryset = queryset.filter(branch_id=int(branch))
+        matching = self.request.GET.get("matching", "").strip().upper()
+        if matching == "DIRECT":
+            queryset = queryset.filter(has_inventory_lines=False)
+        elif matching == "UNMATCHED":
+            queryset = queryset.filter(has_inventory_lines=True, active_match_status__isnull=True)
+        elif matching == "IN_PROGRESS":
+            queryset = queryset.filter(active_match_status=PurchaseMatchStatus.DRAFT)
+        elif matching == "MATCHED":
+            queryset = queryset.filter(active_match_status=PurchaseMatchStatus.READY)
+        reference = self.request.GET.get("reference", "").strip()
+        if reference:
+            queryset = queryset.filter(supplier_reference__icontains=reference)
+        system_number = self.request.GET.get("number", "").strip()
+        if system_number:
+            queryset = queryset.filter(number__icontains=system_number)
+        for key, lookup in (
+            ("invoice_from", "invoice_date__gte"),
+            ("invoice_to", "invoice_date__lte"),
+            ("accounting_from", "business_date__gte"),
+            ("accounting_to", "business_date__lte"),
+            ("due_from", "due_date__gte"),
+            ("due_to", "due_date__lte"),
+        ):
+            value = self._date(key)
+            if value is not None:
+                queryset = queryset.filter(**{lookup: value})
+        if self.request.GET.get("overdue") == "1":
+            today = timezone.localdate()
+            queryset = queryset.filter(
+                status=SupplierInvoiceStatus.POSTED,
+                due_date__lt=today,
+                posted_amount__gt=Value(Decimal("0.000"))
+                + Coalesce(Subquery(credit_total), Value(Decimal("0.000")))
+                + Coalesce(Subquery(payment_total), Value(Decimal("0.000"))),
+            )
         return queryset.order_by("-id")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
@@ -1788,6 +1884,51 @@ class SupplierInvoiceListView(InventoryListView):
         context["statuses"] = SupplierInvoiceStatus.choices
         context["selected_status"] = self.request.GET.get("status", "")
         context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        context["matching_choices"] = self.MATCHING_CHOICES
+        context["selected_matching"] = self.request.GET.get("matching", "")
+        context["suppliers"] = visible_suppliers(self.actor).order_by("code")
+        organization_ids = organizations_with_permission(
+            self.actor, VIEW_SUPPLIER_INVOICE
+        ).values_list("pk", flat=True)
+        from apps.organizations.models import Branch
+
+        context["branches"] = Branch.objects.filter(
+            organization_id__in=organization_ids, is_active=True
+        ).order_by("code")
+        for key in (
+            "supplier",
+            "branch",
+            "reference",
+            "number",
+            "invoice_from",
+            "invoice_to",
+            "accounting_from",
+            "accounting_to",
+            "due_from",
+            "due_to",
+            "overdue",
+        ):
+            context[f"selected_{key}"] = self.request.GET.get(key, "")
+        today = timezone.localdate()
+        for invoice in context["invoices"]:
+            if not invoice.has_inventory_lines:
+                invoice.matching_state = "DIRECT"
+            elif invoice.active_match_status == PurchaseMatchStatus.READY:
+                invoice.matching_state = "MATCHED"
+            elif invoice.active_match_status == PurchaseMatchStatus.DRAFT:
+                invoice.matching_state = "IN_PROGRESS"
+            else:
+                invoice.matching_state = "UNMATCHED"
+            invoice.outstanding_value = (
+                (invoice.posted_amount or Decimal("0.000"))
+                - invoice.credited_total
+                - invoice.paid_total
+                if invoice.status == SupplierInvoiceStatus.POSTED
+                else Decimal("0.000")
+            )
+            invoice.overdue_days = (
+                max((today - invoice.due_date).days, 0) if invoice.outstanding_value > 0 else 0
+            )
         return context
 
 
@@ -1816,6 +1957,7 @@ class SupplierInvoiceCreateView(InventoryWriteView):
             invoice_date=data["invoice_date"],
             business_date=data.get("business_date"),
             supplier_reference=data.get("supplier_reference", ""),
+            currency_code=data["currency_code"],
             freight_amount=data.get("freight_amount"),
             discount_amount=data.get("discount_amount"),
             notes=data.get("notes", ""),
@@ -1826,6 +1968,57 @@ class SupplierInvoiceCreateView(InventoryWriteView):
         if created is None:
             return reverse(self.success_url_name)
         return reverse("procurement:supplier_invoice_detail", args=[created.pk])
+
+
+class SupplierInvoiceUpdateView(InventoryWriteView):
+    module_key = "procurement"
+    template_name = "procurement/supplier_invoice_form.html"
+    form_class = SupplierInvoiceForm
+    required_permission = CREATE_SUPPLIER_INVOICE
+    success_url_name = "procurement:supplier_invoice_list"
+    page_title = _("تعديل مسودة فاتورة المورد")
+    page_hint = _("تُعدَّل بيانات المسودة فقط؛ المورد والفرع جزء من هوية الوثيقة ولا يتغيران.")
+    success_message = _("تم تحديث مسودة الفاتورة.")
+
+    def load(self) -> Any:
+        invoice = resolve_supplier_invoice(self.actor, self.kwargs["pk"])
+        if invoice.status != SupplierInvoiceStatus.DRAFT:
+            raise Http404(_("Only a draft supplier invoice can be edited."))
+        return invoice
+
+    def initial_for(self, instance: Any) -> dict[str, Any]:
+        return {
+            "supplier": instance.supplier,
+            "branch": instance.branch,
+            "supplier_invoice_number": instance.supplier_invoice_number,
+            "invoice_date": instance.invoice_date,
+            "business_date": instance.business_date,
+            "supplier_reference": instance.supplier_reference,
+            "currency_code": instance.currency_code,
+            "freight_amount": instance.freight_amount,
+            "discount_amount": instance.discount_amount,
+            "notes": instance.notes,
+        }
+
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_organization_permission(self.actor, CREATE_SUPPLIER_INVOICE, instance.organization)
+
+    def perform(self, instance: Any, form: Any) -> None:
+        data = form.cleaned_data
+        update_supplier_invoice(
+            invoice=instance,
+            supplier_invoice_number=data["supplier_invoice_number"],
+            invoice_date=data["invoice_date"],
+            business_date=data["business_date"],
+            supplier_reference=data.get("supplier_reference", ""),
+            currency_code=data["currency_code"],
+            freight_amount=data.get("freight_amount") or Decimal("0.000"),
+            discount_amount=data.get("discount_amount") or Decimal("0.000"),
+            notes=data.get("notes", ""),
+        )
+
+    def get_success_url(self) -> str:
+        return reverse("procurement:supplier_invoice_detail", args=[self.kwargs["pk"]])
 
 
 class SupplierInvoiceDetailView(InventoryViewMixin, View):
@@ -1844,6 +2037,44 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
         may_edit = has_organization_permission(
             self.actor, CREATE_SUPPLIER_INVOICE, invoice.organization
         )
+        may_see_cost = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        allocations = list(
+            PurchaseMatchAllocation.objects.filter(match__supplier_invoice=invoice)
+            .select_related(
+                "match",
+                "supplier_invoice_line",
+                "supplier_invoice_line__item",
+                "goods_receipt_line",
+                "goods_receipt_line__receipt",
+                "purchase_order_line",
+                "purchase_order_line__order",
+            )
+            .order_by("match_id", "sequence")
+        )
+        orders = {}
+        for row in allocations:
+            order_line = row.purchase_order_line
+            if order_line is not None:
+                orders[order_line.order_id] = order_line.order
+        receipts = {
+            row.goods_receipt_line.receipt_id: row.goods_receipt_line.receipt for row in allocations
+        }
+        credit_allocations = invoice.credit_allocations.select_related("credit_note").order_by(
+            "sequence"
+        )
+        payment_allocations = invoice.payment_allocations.select_related("payment").order_by(
+            "sequence"
+        )
+        journal_entries = [
+            entry
+            for entry in (invoice.journal_entry, invoice.reversal_journal_entry)
+            if entry is not None
+        ]
+        if may_see_cost:
+            for entry in journal_entries:
+                entry.workspace_lines = entry.lines.select_related(
+                    "account", "branch", "cost_center"
+                ).order_by("line_number")
         return {
             "invoice": invoice,
             "lines": invoice.lines.select_related(
@@ -1858,6 +2089,10 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
                 self.actor, APPROVE_SUPPLIER_INVOICE, invoice.organization
             )
             and invoice.status == SupplierInvoiceStatus.DRAFT,
+            "may_return": has_organization_permission(
+                self.actor, APPROVE_SUPPLIER_INVOICE, invoice.organization
+            )
+            and invoice.status == SupplierInvoiceStatus.APPROVED,
             "may_post": has_organization_permission(
                 self.actor, POST_SUPPLIER_INVOICE, invoice.organization
             )
@@ -1868,8 +2103,22 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
             and invoice.status == SupplierInvoiceStatus.POSTED,
             "blocking": invoice.blocking_lines,
             "timeline": invoice_timeline(invoice),
-            "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
-            "outstanding": outstanding_amount(invoice),
+            "may_see_cost": may_see_cost,
+            "outstanding": outstanding_amount(invoice) if may_see_cost else None,
+            "coverage": coverage_for_invoice(invoice),
+            "matches": invoice.matches.select_related(
+                "created_by", "ready_by", "cancelled_by"
+            ).order_by("-id"),
+            "allocations": allocations,
+            "orders": list(orders.values()),
+            "receipts": list(receipts.values()),
+            "credit_allocations": credit_allocations,
+            "payment_allocations": payment_allocations,
+            "postings": SupplierInvoicePosting.objects.filter(
+                supplier_invoice=invoice
+            ).select_related("journal_entry", "reversal_journal_entry", "posted_by", "reversed_by"),
+            "journal_entries": journal_entries,
+            "base_template": ("settings/_form_fragment.html" if self.is_htmx() else "shell.html"),
         }
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -1901,6 +2150,12 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
                     form.add_error(None, message)
             else:
                 messages.success(request, _("تمت إضافة سطر البضاعة."))
+                if self.is_htmx():
+                    return render(
+                        request,
+                        self.template_name,
+                        self.context(resolve_supplier_invoice(self.actor, invoice.pk)),
+                    )
                 return HttpResponseRedirect(
                     reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
                 )
@@ -1925,6 +2180,12 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
                     form.add_error(None, message)
             else:
                 messages.success(request, _("تمت إضافة سطر المصروف."))
+                if self.is_htmx():
+                    return render(
+                        request,
+                        self.template_name,
+                        self.context(resolve_supplier_invoice(self.actor, invoice.pk)),
+                    )
                 return HttpResponseRedirect(
                     reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
                 )
@@ -1945,6 +2206,14 @@ class SupplierInvoiceLineDeleteView(InventoryViewMixin, View):
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
         else:
             messages.success(request, _("تم حذف السطر."))
+        if self.is_htmx():
+            detail = SupplierInvoiceDetailView()
+            detail.request = request
+            return render(
+                request,
+                detail.template_name,
+                detail.context(resolve_supplier_invoice(self.actor, invoice.pk)),
+            )
         return HttpResponseRedirect(
             reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
         )
@@ -1983,6 +2252,14 @@ class SupplierInvoiceTransitionView(InventoryViewMixin, View):
             self._apply(request, invoice, reason)
         except ValidationError as error:
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        if self.is_htmx():
+            detail = SupplierInvoiceDetailView()
+            detail.request = request
+            return render(
+                request,
+                detail.template_name,
+                detail.context(resolve_supplier_invoice(self.actor, invoice.pk)),
+            )
         return HttpResponseRedirect(
             reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
         )

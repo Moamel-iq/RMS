@@ -1602,3 +1602,35 @@ ADR-032 records the source/projection split and invoice approval snapshot.
 Supplier maintenance no longer edits term days through the UI, API or service.
 The demo suppliers expose 0/14/30-day versions without duplicating them on a
 second seed.
+
+### Procurement capability 1 — supplier invoices
+
+Completed in place over the existing `SupplierInvoice` aggregate; no second
+invoice model or posting path was introduced. Migration
+`procurement.0034_supplier_invoice_workspace` adds the explicit IQD currency
+snapshot to live and historical invoices and is applied to the development
+database.
+
+The invoice navigation entry is live. The HTMX workspace now covers supplier,
+branch, lifecycle, matching, due/overdue and date filters; draft header edit;
+goods and direct lines; approval/return/post/reverse commands; and full
+PO/receipt/match/allocation/payment/credit/journal/reversal/timeline evidence.
+The direct-account selector omits system-role accounts while the domain service
+keeps the authoritative refusal. Cost-restricted HTML and raw JSON omit money
+keys entirely.
+
+Verification found one journal-line ordering defect only through live browser
+inspection; it was corrected from the nonexistent `sequence` field to the
+ledger's `line_number`. The signed-in Arabic RTL list, draft edit and reversed
+detail were then rechecked at desktop and narrow responsive widths. The first
+full invoice regression run was **98 passed / 2 failed**, with both failures
+being the deliberately new cost-redaction assertions; after correcting the
+test role and Ninja's optional-field materialisation, the focused restricted
+and authorized API group passed. The final full supplier-invoice suite is
+**102 passed / 0 failed**; the nine new workspace/redaction/browser-regression
+tests are included in that total.
+
+The adjacent matching, variance-posting, supplier-credit and supplier-payment
+regression group is also clean: **183 passed / 0 failed**. These tests ran in
+`test_khan_mandi_invoice_ws_20260819`; the pre-existing unrelated pytest
+process and development server were not stopped.

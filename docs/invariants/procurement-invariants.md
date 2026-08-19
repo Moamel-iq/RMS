@@ -111,6 +111,10 @@ Phase 2 exit contract without weakening any earlier row.
 | 52 | Credit-term ranges are inclusive, active ranges for one supplier do not overlap, only one draft exists, and its creator cannot activate it | PostgreSQL exclusion/unique/check constraints plus locked activation service | Procurement completion 3 |
 | 53 | Activated and superseded terms are immutable and cannot be deleted; correction closes the predecessor and creates a new version | Database trigger, version service and stale-instance tests | Procurement completion 3 |
 | 54 | Invoice approval freezes term UUID, version, name, net days and due date from the version effective on the invoice date; later term changes cannot restate it | Approval service, invoice immutability trigger, snapshot completeness constraint and tests | Procurement completion 3 |
+| 55 | Supplier invoice structural and header changes are draft-only; an approved invoice can return to draft only through the audited reason command and never while a live match stands | Locked services, whole-row trigger, HTML/API command routes and tests | Procurement completion 1 |
+| 56 | Release 1 supplier invoices are explicitly IQD; a database constraint prevents an unsupported currency from entering through any write path | `currency_code`, form/API allowlist and check constraint | Procurement completion 1 |
+| 57 | A goods line can post only through a complete live match to a posted receipt; a direct line can name only an active postable expense/asset-like account not owned by a system posting role | Posting planner, account validator, narrowed form choices and matching coverage tests | Procurement completion 1 |
+| 58 | Invoice monetary fields and line prices are absent from both HTML and raw JSON when `view_supplier_cost` is not held; `null` is not a redaction | Template branches plus restricted `JsonResponse` path and raw-response tests | Procurement completion 1 |
 
 ## Rules that carry over unchanged
 

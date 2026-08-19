@@ -249,6 +249,14 @@ def controller(organization: Organization) -> User:
 
 
 @pytest.fixture
+def buyer(organization: Organization) -> User:
+    """Purchasing reaches invoice evidence; tests can remove only its cost grant."""
+    user = User.objects.create_user(username="buyer", password=PASSWORD)
+    grant_organization_access(user=user, organization=organization, role=Role.PURCHASING)
+    return User.objects.get(pk=user.pk)
+
+
+@pytest.fixture
 def keeper(branch: Branch, store: Warehouse) -> User:
     """A storekeeper: branch-scoped, and no business with a payable."""
     user = User.objects.create_user(username="keeper", password=PASSWORD)
@@ -1846,6 +1854,102 @@ class TestScopeAndPermissions:
         body = response.content.decode()
         assert expense_invoice.supplier_invoice_number not in body
 
+    def test_the_workspace_filters_reference_supplier_branch_and_matching(
+        self,
+        expense_invoice: SupplierInvoice,
+        controller: User,
+        client: Client,
+    ) -> None:
+        client.force_login(controller)
+        response = client.get(
+            reverse("procurement:supplier_invoice_list"),
+            {
+                "supplier": str(expense_invoice.supplier_id),
+                "branch": str(expense_invoice.branch_id),
+                "reference": "does-not-match",
+                "matching": "DIRECT",
+            },
+            headers=HX,
+        )
+        assert response.status_code == 200
+        assert expense_invoice.supplier_invoice_number not in response.content.decode()
+
+    def test_a_draft_header_has_an_htmx_edit_path(
+        self,
+        expense_invoice: SupplierInvoice,
+        clerk: User,
+        client: Client,
+    ) -> None:
+        client.force_login(clerk)
+        url = reverse("procurement:supplier_invoice_update", args=[expense_invoice.pk])
+        response = client.post(
+            url,
+            {
+                "supplier": expense_invoice.supplier_id,
+                "branch": expense_invoice.branch_id,
+                "supplier_invoice_number": "INV-EDITED",
+                "invoice_date": "2026-03-11",
+                "business_date": "2026-03-11",
+                "supplier_reference": "EVIDENCE-7",
+                "currency_code": "IQD",
+                "freight_amount": "0",
+                "discount_amount": "0",
+                "notes": "صححت المسودة",
+            },
+            headers=HX,
+        )
+        assert response.status_code == 200
+        assert response.headers["HX-Redirect"] == reverse(
+            "procurement:supplier_invoice_detail", args=[expense_invoice.pk]
+        )
+        expense_invoice.refresh_from_db()
+        assert expense_invoice.supplier_invoice_number == "INV-EDITED"
+        assert expense_invoice.supplier_reference == "EVIDENCE-7"
+        assert expense_invoice.currency_code == "IQD"
+
+    def test_an_htmx_transition_swaps_the_detail_not_a_whole_document(
+        self,
+        expense_invoice: SupplierInvoice,
+        controller: User,
+        client: Client,
+    ) -> None:
+        client.force_login(controller)
+        response = client.post(
+            reverse("procurement:supplier_invoice_approve", args=[expense_invoice.pk]),
+            headers=HX,
+        )
+        body = response.content.decode().lower()
+        assert response.status_code == 200
+        assert '<section class="workspace-page" id="supplier-invoice-detail">' in body
+        assert "<html" not in body
+
+    def test_cost_is_absent_from_restricted_html(
+        self,
+        expense_invoice: SupplierInvoice,
+        buyer: User,
+        client: Client,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        original_has_perm = User.has_perm
+        monkeypatch.setattr(
+            User,
+            "has_perm",
+            lambda user, permission, obj=None: (
+                False
+                if user.username == buyer.username
+                and permission == "procurement.view_supplier_cost"
+                else original_has_perm(user, permission, obj)
+            ),
+        )
+        client.force_login(buyer)
+        response = client.get(
+            reverse("procurement:supplier_invoice_detail", args=[expense_invoice.pk])
+        )
+        body = response.content.decode()
+        assert response.status_code == 200
+        assert "75000.000" not in body
+        assert "صافي الفاتورة" not in body
+
     def test_the_detail_screen_shows_the_matching_boundary(
         self,
         grocery: Supplier,
@@ -1912,6 +2016,38 @@ class TestScopeAndPermissions:
         expense_invoice.refresh_from_db()
         assert expense_invoice.status == SupplierInvoiceStatus.POSTED
 
+    def test_a_posted_detail_shows_the_journal_lines(
+        self,
+        expense_invoice: SupplierInvoice,
+        controller: User,
+        client: Client,
+    ) -> None:
+        approve_supplier_invoice(invoice=expense_invoice, actor=controller)
+        posted = post_supplier_invoice(invoice=expense_invoice, actor=controller)
+        client.force_login(controller)
+        response = client.get(reverse("procurement:supplier_invoice_detail", args=[posted.pk]))
+        body = response.content.decode()
+        assert response.status_code == 200
+        assert posted.journal_entry is not None
+        assert posted.journal_entry.entry_number in body
+        assert "5-01-02-003" in body
+        assert "2-01-01-001" in body
+
+    def test_the_direct_account_selector_omits_role_owned_accounts(
+        self,
+        expense_invoice: SupplierInvoice,
+        clerk: User,
+        client: Client,
+    ) -> None:
+        client.force_login(clerk)
+        response = client.get(
+            reverse("procurement:supplier_invoice_detail", args=[expense_invoice.pk])
+        )
+        body = response.content.decode()
+        assert response.status_code == 200
+        assert "5-01-02-003" in body
+        assert "2-01-01-001 — ذمم الموردين" not in body
+
     def test_a_get_does_not_post(
         self, expense_invoice: SupplierInvoice, controller: User, client: Client
     ) -> None:
@@ -1966,6 +2102,70 @@ class TestApi:
         )
         assert reversed_response.status_code == 200
         assert reversed_response.json()["status"] == "REVERSED"
+
+    def test_patch_updates_only_a_draft_header(
+        self,
+        expense_invoice: SupplierInvoice,
+        clerk: User,
+        controller: User,
+        client: Client,
+    ) -> None:
+        client.force_login(clerk)
+        url = f"/api/v1/procurement/supplier-invoices/{expense_invoice.pk}/"
+        changed = client.patch(
+            url,
+            data={"supplier_reference": "API-EVIDENCE", "currency_code": "IQD"},
+            content_type="application/json",
+        )
+        assert changed.status_code == 200
+        assert changed.json()["supplier_reference"] == "API-EVIDENCE"
+
+        approve_supplier_invoice(invoice=expense_invoice, actor=controller)
+        refused = client.patch(
+            url,
+            data={"supplier_reference": "MOVED"},
+            content_type="application/json",
+        )
+        assert refused.status_code in {400, 409, 422}
+        expense_invoice.refresh_from_db()
+        assert expense_invoice.supplier_reference == "API-EVIDENCE"
+
+    def test_cost_fields_are_omitted_from_the_restricted_api(
+        self,
+        expense_invoice: SupplierInvoice,
+        buyer: User,
+        client: Client,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        original_has_perm = User.has_perm
+        monkeypatch.setattr(
+            User,
+            "has_perm",
+            lambda user, permission, obj=None: (
+                False
+                if user.username == buyer.username
+                and permission == "procurement.view_supplier_cost"
+                else original_has_perm(user, permission, obj)
+            ),
+        )
+        client.force_login(buyer)
+        response = client.get(f"/api/v1/procurement/supplier-invoices/{expense_invoice.pk}/")
+        assert response.status_code == 200
+        payload = response.json()
+        assert "total_amount" not in payload
+        assert "unit_price" not in payload["lines"][0]
+
+    def test_the_api_exposes_currency_evidence_and_matching_state(
+        self,
+        expense_invoice: SupplierInvoice,
+        controller: User,
+        client: Client,
+    ) -> None:
+        client.force_login(controller)
+        payload = client.get(f"/api/v1/procurement/supplier-invoices/{expense_invoice.pk}/").json()
+        assert payload["currency_code"] == "IQD"
+        assert payload["matching_status"] == "DIRECT"
+        assert payload["created_by"] == expense_invoice.created_by.username
 
     def test_a_foreign_invoice_is_a_404_over_the_api(
         self, expense_invoice: SupplierInvoice, other_organization: Organization, client: Client
