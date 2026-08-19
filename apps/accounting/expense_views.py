@@ -29,6 +29,7 @@ from apps.accounting.expense_services import (
     add_expense_line,
     approve_expense_voucher,
     discard_expense_voucher,
+    open_expense_voucher,
     post_expense_voucher,
     remove_expense_line,
     reverse_expense_voucher,
@@ -154,13 +155,10 @@ class ExpenseVoucherCreateView(AccountingWriteView):
 
     def perform(self, instance: Any, form: Any) -> None:
         data = form.cleaned_data
-        branch = data["branch"]
-        voucher = ExpenseVoucher(
-            organization=branch.organization,
-            branch=branch,
+        self.created = open_expense_voucher(
+            branch=data["branch"],
             business_date=data["business_date"],
             expense_date=data["expense_date"],
-            payment_source=data["payment_source"],
             cashbox=data.get("cashbox"),
             bank_account=data.get("bank_account"),
             beneficiary=data["beneficiary"],
@@ -169,9 +167,6 @@ class ExpenseVoucherCreateView(AccountingWriteView):
             notes=data.get("notes", ""),
             created_by=self.actor,
         )
-        voucher.full_clean()
-        voucher.save()
-        self.created = voucher
 
     def get_success_url(self) -> str:
         created = getattr(self, "created", None)

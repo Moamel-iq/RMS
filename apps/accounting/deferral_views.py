@@ -9,7 +9,6 @@ paperwork, the other releases a payment after it.
 
 from __future__ import annotations
 
-import datetime
 from typing import Any
 
 from django.contrib import messages
@@ -27,7 +26,8 @@ from apps.accounting.deferral_services import (
     add_accrual_line,
     approve_accrual,
     approve_prepayment,
-    build_schedule,
+    open_accrual,
+    open_prepayment,
     post_accrual,
     post_prepayment,
     post_schedule_line,
@@ -161,10 +161,8 @@ class AccrualCreateView(AccountingWriteView):
 
     def perform(self, instance: Any, form: Any) -> None:
         data = form.cleaned_data
-        branch = data["branch"]
-        accrual = AccrualDocument(
-            organization=branch.organization,
-            branch=branch,
+        self.created = open_accrual(
+            branch=data["branch"],
             business_date=data["business_date"],
             description=data["description"],
             reason=data.get("reason", ""),
@@ -172,9 +170,6 @@ class AccrualCreateView(AccountingWriteView):
             evidence_reference=data.get("evidence_reference", ""),
             created_by=self.actor,
         )
-        accrual.full_clean()
-        accrual.save()
-        self.created = accrual
 
     def get_success_url(self) -> str:
         created = getattr(self, "created", None)
@@ -320,37 +315,22 @@ class PrepaymentCreateView(AccountingWriteView):
 
     def perform(self, instance: Any, form: Any) -> None:
         data = form.cleaned_data
-        branch = data["branch"]
-        periods = int(data["period_count"])
-        months = 1 if data["frequency"] == "MONTHLY" else 3
-        start = data["start_date"]
-        end_month = start.month - 1 + months * periods
-        end_year = start.year + end_month // 12
-        end = datetime.date(end_year, end_month % 12 + 1, 1) - datetime.timedelta(days=1)
-
-        prepayment = Prepayment(
-            organization=branch.organization,
-            branch=branch,
+        self.created = open_prepayment(
+            branch=data["branch"],
             business_date=data["business_date"],
             description=data["description"],
             total_amount=data["total_amount"],
-            start_date=start,
-            end_date=end,
+            start_date=data["start_date"],
             frequency=data["frequency"],
-            period_count=periods,
+            period_count=int(data["period_count"]),
             expense_account=data["expense_account"],
             prepaid_account=data["prepaid_account"],
             cost_center=data.get("cost_center"),
-            payment_source=data["payment_source"],
             cashbox=data.get("cashbox"),
             bank_account=data.get("bank_account"),
             source_reference=data.get("source_reference", ""),
             created_by=self.actor,
         )
-        prepayment.full_clean()
-        prepayment.save()
-        build_schedule(prepayment=prepayment)
-        self.created = prepayment
 
     def get_success_url(self) -> str:
         created = getattr(self, "created", None)

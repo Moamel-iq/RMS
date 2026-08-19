@@ -25,16 +25,20 @@ from django.utils.translation import gettext_lazy as _
 from apps.accounting.models import (
     Account,
     AccountClass,
+    BankAccount,
+    Cashbox,
     CostCenter,
     ExpenseVoucher,
     ExpenseVoucherLine,
     FinancialDocumentStatus,
+    PaymentSource,
 )
 from apps.accounting.services import post_entry, reverse_entry
 from apps.accounting.validators import PostingLine
 from apps.core.models import AuditAction
 from apps.core.money import quantize_money
 from apps.core.services import record_audit_event, snapshot
+from apps.organizations.models import Branch
 from apps.users.models import User
 
 ZERO = Decimal("0")
@@ -119,6 +123,77 @@ def _validate_line_account(voucher: ExpenseVoucher, account: Account) -> None:
             _("An expense line cannot name the account the voucher is paid from."),
             code="account_is_the_payment_source",
         )
+
+
+@transaction.atomic
+def open_expense_voucher(
+    *,
+    branch: Branch,
+    business_date: datetime.date,
+    expense_date: datetime.date,
+    beneficiary: str,
+    reason: str,
+    created_by: User,
+    cashbox: Cashbox | None = None,
+    bank_account: BankAccount | None = None,
+    evidence_reference: str = "",
+    notes: str = "",
+) -> ExpenseVoucher:
+    """
+    Open a draft voucher header. Lines are added afterwards.
+
+    The pay-from source is given as **the record itself**, never as a
+    `payment_source` string alongside it. Passing both would let a caller
+    declare `BANK` and hand over a cashbox, and the two would then have to be
+    checked against each other in every caller that exists — so the kind is
+    derived here from which record arrived, and "exactly one source" is decided
+    once instead of restated per surface.
+    """
+    if (cashbox is None) == (bank_account is None):
+        raise ValidationError(
+            _("A voucher is paid from exactly one source."),
+            code="payment_source_not_exactly_one",
+        )
+
+    source: Cashbox | BankAccount = cashbox if cashbox is not None else bank_account  # type: ignore[assignment]
+    if source.organization_id != branch.organization_id:
+        raise ValidationError(
+            _("The pay-from record belongs to another organization."),
+            code="payment_source_organization_mismatch",
+        )
+    if not source.is_active:
+        raise ValidationError(
+            _("The pay-from record is withdrawn."), code="payment_source_inactive"
+        )
+    if expense_date > business_date:
+        raise ValidationError(
+            _("The expense date is after the business date."), code="expense_date_after_business"
+        )
+
+    voucher = ExpenseVoucher(
+        organization=branch.organization,
+        branch=branch,
+        business_date=business_date,
+        expense_date=expense_date,
+        payment_source=PaymentSource.CASHBOX if cashbox is not None else PaymentSource.BANK,
+        cashbox=cashbox,
+        bank_account=bank_account,
+        beneficiary=beneficiary,
+        reason=reason,
+        evidence_reference=evidence_reference,
+        notes=notes,
+        created_by=created_by,
+    )
+    voucher.full_clean()
+    voucher.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=voucher,
+        branch=branch,
+        new_state=snapshot(voucher),
+        reason="",
+    )
+    return voucher
 
 
 @transaction.atomic
@@ -395,6 +470,7 @@ __all__ = [
     "add_expense_line",
     "approve_expense_voucher",
     "discard_expense_voucher",
+    "open_expense_voucher",
     "post_expense_voucher",
     "recompute_total",
     "remove_expense_line",

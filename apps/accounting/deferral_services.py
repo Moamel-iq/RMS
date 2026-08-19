@@ -29,8 +29,11 @@ from apps.accounting.models import (
     AccrualDocument,
     AccrualLine,
     AmortizationFrequency,
+    BankAccount,
+    Cashbox,
     CostCenter,
     FinancialDocumentStatus,
+    PaymentSource,
     Prepayment,
     PrepaymentScheduleLine,
     ScheduleLineStatus,
@@ -41,6 +44,7 @@ from apps.core.allocation import AllocationItem, allocate
 from apps.core.models import AuditAction
 from apps.core.money import quantize_money
 from apps.core.services import record_audit_event, snapshot
+from apps.organizations.models import Branch
 from apps.users.models import User
 
 ZERO = Decimal("0")
@@ -82,6 +86,40 @@ def _next_number(manager: Any, *, organization_id: int, prefix: str, year: int) 
 # ---------------------------------------------------------------------------
 # Accruals (ADR-030 §4)
 # ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def open_accrual(
+    *,
+    branch: Branch,
+    business_date: datetime.date,
+    description: str,
+    created_by: User,
+    reason: str = "",
+    auto_reverse_on: datetime.date | None = None,
+    evidence_reference: str = "",
+) -> AccrualDocument:
+    """Open a draft accrual header. Lines are added afterwards."""
+    accrual = AccrualDocument(
+        organization=branch.organization,
+        branch=branch,
+        business_date=business_date,
+        description=description,
+        reason=reason,
+        auto_reverse_on=auto_reverse_on,
+        evidence_reference=evidence_reference,
+        created_by=created_by,
+    )
+    accrual.full_clean()
+    accrual.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=accrual,
+        branch=branch,
+        new_state=snapshot(accrual),
+        reason=reason,
+    )
+    return accrual
 
 
 @transaction.atomic
@@ -398,6 +436,86 @@ def build_schedule(*, prepayment: Prepayment) -> list[PrepaymentScheduleLine]:
 
 
 @transaction.atomic
+def open_prepayment(
+    *,
+    branch: Branch,
+    business_date: datetime.date,
+    description: str,
+    total_amount: Decimal,
+    start_date: datetime.date,
+    frequency: str,
+    period_count: int,
+    expense_account: Account,
+    prepaid_account: Account,
+    created_by: User,
+    cost_center: CostCenter | None = None,
+    cashbox: Cashbox | None = None,
+    bank_account: BankAccount | None = None,
+    source_reference: str = "",
+    evidence_reference: str = "",
+) -> Prepayment:
+    """
+    Open a prepayment and build its schedule in the same transaction.
+
+    `end_date` is **derived**, never submitted. It is the end of the last
+    period, and the only thing that knows where a period ends is
+    `_period_bounds` — the same function that dates the schedule lines. A
+    caller-supplied end date could disagree with the final line by a day, and
+    then the balance sheet and the schedule would describe two different assets.
+
+    The header and the schedule are created together because a prepayment with
+    no schedule is a prepaid balance nothing will ever amortize.
+    """
+    if period_count < 1:
+        raise ValidationError(_("A prepayment needs at least one period."), code="no_periods")
+    if (cashbox is None) == (bank_account is None):
+        raise ValidationError(
+            _("A prepayment is paid from exactly one source."),
+            code="payment_source_not_exactly_one",
+        )
+    source: Cashbox | BankAccount = cashbox if cashbox is not None else bank_account  # type: ignore[assignment]
+    if source.organization_id != branch.organization_id:
+        raise ValidationError(
+            _("The pay-from record belongs to another organization."),
+            code="payment_source_organization_mismatch",
+        )
+
+    _begin, end_date = _period_bounds(start=start_date, frequency=frequency, index=period_count - 1)
+
+    prepayment = Prepayment(
+        organization=branch.organization,
+        branch=branch,
+        business_date=business_date,
+        description=description,
+        total_amount=quantize_money(total_amount, field="total_amount"),
+        start_date=start_date,
+        end_date=end_date,
+        frequency=frequency,
+        period_count=period_count,
+        expense_account=expense_account,
+        prepaid_account=prepaid_account,
+        cost_center=cost_center,
+        payment_source=PaymentSource.CASHBOX if cashbox is not None else PaymentSource.BANK,
+        cashbox=cashbox,
+        bank_account=bank_account,
+        source_reference=source_reference,
+        evidence_reference=evidence_reference,
+        created_by=created_by,
+    )
+    prepayment.full_clean()
+    prepayment.save()
+    build_schedule(prepayment=prepayment)
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=prepayment,
+        branch=branch,
+        new_state=snapshot(prepayment),
+        reason="",
+    )
+    return prepayment
+
+
+@transaction.atomic
 def approve_prepayment(*, prepayment: Prepayment, approver: User, reason: str = "") -> Prepayment:
     if prepayment.status != FinancialDocumentStatus.DRAFT:
         raise ValidationError(_("Only a draft may be approved."), code="not_a_draft")
@@ -607,6 +725,8 @@ __all__ = [
     "approve_accrual",
     "approve_prepayment",
     "build_schedule",
+    "open_accrual",
+    "open_prepayment",
     "post_accrual",
     "post_prepayment",
     "post_schedule_line",
