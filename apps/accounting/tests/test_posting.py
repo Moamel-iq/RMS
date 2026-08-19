@@ -28,6 +28,7 @@ from apps.accounting.selectors import (
     trial_balance_totals,
 )
 from apps.accounting.services import (
+    archive_account,
     close_period,
     post_entry,
     reopen_period,
@@ -330,8 +331,11 @@ class TestPostableAccounts:
         branch: Branch,
         hall: CostCenter,
     ) -> None:
-        cash.is_active = False
-        cash.save(update_fields=["is_active"])
+        # Through the service, not by writing the flag: since Phase 5 the
+        # database requires `archived_at` and `is_active` to agree, so setting
+        # one by hand is a row the constraint refuses — and the test would be
+        # proving something the application cannot produce anyway.
+        archive_account(account=cash, reason="withdrawn")
         with pytest.raises(ValidationError) as exc:
             post_entry(
                 organization=organization,

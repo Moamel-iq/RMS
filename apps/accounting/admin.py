@@ -31,6 +31,7 @@ from apps.accounting.models import (
     Account,
     AccountingPeriod,
     AccountingSettings,
+    AccountReportMapping,
     AccountRole,
     CostCenter,
     FiscalYear,
@@ -268,3 +269,29 @@ class OrganizationAccountMappingAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     search_fields = ("account_role__code", "account__code")
     ordering = ("organization__code", "account_role__code", "-version")
     list_select_related = ("organization", "account_role", "account")
+
+
+@admin.register(AccountReportMapping)
+class AccountReportMappingAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    """
+    Which statement group each account lands in (ADR-031).
+
+    Read-only here for the same reason the chart is. `set_report_mapping`
+    refuses a rollup — a fact about other rows that no form field could
+    express — and clears rather than deletes, so the classification a
+    statement was produced under stays readable. A dropdown here would offer
+    neither.
+    """
+
+    list_display = (
+        "account",
+        "statement_group",
+        "presentation_section",
+        "display_order",
+        "is_active",
+        "organization",
+    )
+    list_filter = ("statement_group", "presentation_section", "is_active", "organization")
+    search_fields = ("account__code", "account__name_ar", "account__name_en")
+    ordering = ("organization__code", "statement_group", "display_order")
+    list_select_related = ("organization", "account")

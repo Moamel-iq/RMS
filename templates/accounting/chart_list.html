@@ -1,0 +1,128 @@
+{# دليل الحسابات، مسطّحاً — the view for finding one account.                #}
+{#                                                                           #}
+{# The statement-group column is here rather than only on the detail page    #}
+{# because "which accounts are still unclassified" is a question about the   #}
+{# whole chart, and an unclassified account with a balance blocks the        #}
+{# financial statements (ADR-031 §2). The `group=unmapped` filter answers it #}
+{# directly.                                                                 #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="field">
+    <span class="field__label">{% translate "المؤسسة" %}</span>
+    <select name="organization">
+      <option value="">{% translate "كل المؤسسات" %}</option>
+      {% for organization in organizations %}
+        <option value="{{ organization.pk }}" {% if selected_organization == organization.pk|stringformat:"s" %}selected{% endif %}>
+          {{ organization.code }}
+        </option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "الصنف" %}</span>
+    <select name="account_class">
+      <option value="">{% translate "كل الأصناف" %}</option>
+      {% for value, label in account_classes %}
+        <option value="{{ value }}" {% if selected_account_class == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "قابل للترحيل" %}</span>
+    <select name="postable">
+      <option value="">{% translate "الكل" %}</option>
+      <option value="yes" {% if selected_postable == "yes" %}selected{% endif %}>{% translate "نعم" %}</option>
+      <option value="no" {% if selected_postable == "no" %}selected{% endif %}>{% translate "لا" %}</option>
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "الحالة" %}</span>
+    <select name="state">
+      <option value="">{% translate "الفعّالة" %}</option>
+      <option value="archived" {% if selected_state == "archived" %}selected{% endif %}>{% translate "المؤرشفة" %}</option>
+      <option value="all" {% if selected_state == "all" %}selected{% endif %}>{% translate "الكل" %}</option>
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "مركز الكلفة" %}</span>
+    <select name="cost_center">
+      <option value="">{% translate "الكل" %}</option>
+      <option value="required" {% if selected_cost_center == "required" %}selected{% endif %}>{% translate "مطلوب" %}</option>
+      <option value="not_required" {% if selected_cost_center == "not_required" %}selected{% endif %}>{% translate "غير مطلوب" %}</option>
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "القيد اليدوي" %}</span>
+    <select name="policy">
+      <option value="">{% translate "الكل" %}</option>
+      {% for value, label in policies %}
+        <option value="{{ value }}" {% if selected_policy == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "مجموعة القوائم" %}</span>
+    <select name="group">
+      <option value="">{% translate "الكل" %}</option>
+      <option value="unmapped" {% if selected_group == "unmapped" %}selected{% endif %}>{% translate "غير مصنّف" %}</option>
+      {% for value, label in statement_groups %}
+        <option value="{{ value }}" {% if selected_group == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "المؤسسة" %}</th>
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "الصنف" %}</th>
+  <th>{% translate "ترحيل" %}</th>
+  <th>{% translate "مركز كلفة" %}</th>
+  <th>{% translate "قيد يدوي" %}</th>
+  <th>{% translate "مجموعة القوائم" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th></th>
+{% endblock %}
+
+{% block rows %}
+  {% for account in accounts %}
+    <tr>
+      <td>{{ account.organization.code }}</td>
+      <td><code dir="ltr">{{ account.code }}</code></td>
+      <td>
+        {{ account.name_ar }}
+        {% if account.is_system %}<span class="chip chip--muted">{% translate "نظامي" %}</span>{% endif %}
+      </td>
+      <td>{{ account.get_account_class_display }}</td>
+      <td>{% if account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
+      <td>{% if account.requires_cost_center %}{% translate "مطلوب" %}{% else %}—{% endif %}</td>
+      <td>{{ account.get_manual_posting_policy_display }}</td>
+      <td>
+        {% if account.report_mapping %}
+          {{ account.report_mapping.get_statement_group_display }}
+        {% elif account.is_postable %}
+          {# Shown, never omitted: an unclassified account with a balance      #}
+          {# blocks the financial statements (ADR-031 section 2).             #}
+          <span class="chip chip--warn">{% translate "غير مصنّف" %}</span>
+        {% else %}
+          —
+        {% endif %}
+      </td>
+      <td>
+        {% if account.is_active %}
+          <span class="chip chip--ok">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--muted">{% translate "مؤرشف" %}</span>
+        {% endif %}
+      </td>
+      <td class="cell-actions">
+        <a class="btn btn--secondary btn--sm" href="{% url 'accounting:account_detail' account.pk %}">{% translate "تفاصيل" %}</a>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="10" class="empty">{% translate "لا توجد حسابات مطابقة." %}</td></tr>
+  {% endfor %}
+{% endblock %}

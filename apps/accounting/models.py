@@ -41,6 +41,28 @@ ANY_ACCOUNT_CODE_PATTERN = r"^[1-9](-[0-9]{2}(-[0-9]{2}(-[0-9]{3})?)?)?$"
 CODE_PATTERN = r"^[A-Z0-9][A-Z0-9_-]*$"
 
 
+class ManualPostingPolicy(models.TextChoices):
+    """
+    Whether an account accepts a hand-written journal line (ADR-029 §2).
+
+    Not a security setting and not a synonym for `is_active`. It answers one
+    narrow question: may somebody reach this account without going through the
+    document that owns it?
+
+    `RESTRICTED` is the interesting value, and it exists because the failure it
+    prevents is invisible. A manual credit to supplier payable is not an
+    accounting error — it balances, it posts, the trial balance still ties. It
+    silently breaks the equality that `ذمم الموردين` exists to prove, and the
+    workspace then reports a discrepancy whose cause cannot be seen from the
+    subledger side at all. `RESTRICTED` keeps that entry possible for somebody
+    holding `post_restricted_manual_journal`, and makes it nameable afterwards.
+    """
+
+    ALLOWED = "ALLOWED", _("متاح")
+    RESTRICTED = "RESTRICTED", _("مقيّد")
+    FORBIDDEN = "FORBIDDEN", _("ممنوع")
+
+
 class AccountClass(models.TextChoices):
     """The first segment of an account code (ADR-014)."""
 
@@ -309,6 +331,44 @@ class Account(TimeStampedModel):
     )
     is_active = models.BooleanField(_("active"), default=True)
 
+    #: Whether a manual journal may name this account (ADR-029 §2). Defaults to
+    #: `ALLOWED`, which is what every account meant before this column existed,
+    #: so no existing row changes meaning.
+    #:
+    #: What it prevents: a hand-written credit to the supplier payable control
+    #: account. That entry balances and posts, so nothing in the ledger objects
+    #: to it, and the supplier reconciliation then reports a difference it
+    #: cannot explain — the subledger side has no document to show for it.
+    manual_posting_policy = models.CharField(
+        _("manual posting policy"),
+        max_length=16,
+        choices=ManualPostingPolicy.choices,
+        default=ManualPostingPolicy.ALLOWED,
+        help_text=_("Whether a hand-written journal line may name this account."),
+    )
+
+    #: Seeded by `seed_chart_of_accounts`, never by a user.
+    #:
+    #: What it prevents: somebody renaming `2-01-01-001` from "ذمم الموردين" to
+    #: "إيجارات" because the code happened to be free in their mental model.
+    #: The account is the one Procurement's posting rules resolve to, and
+    #: repurposing it does not move the postings that already landed there — it
+    #: relabels them, which is the one correction nobody can spot in a report.
+    is_system = models.BooleanField(
+        _("system account"),
+        default=False,
+        help_text=_("Seeded reference data. A user may not repurpose it."),
+    )
+
+    #: When the account was withdrawn from use. `is_active` already carried the
+    #: fact; this carries the date.
+    #:
+    #: What it prevents: "this account has been archived since some point in
+    #: the past" as the only answer available to somebody reconciling a report
+    #: that stopped including it. Null for every active account, which is every
+    #: existing row's current meaning.
+    archived_at = models.DateTimeField(_("archived at"), null=True, blank=True)
+
     #: Optional mapping to a statutory chart, e.g. the Iraqi Unified
     #: Accounting System. Never affects posting (ADR-014).
     external_accounting_system = models.CharField(
@@ -324,6 +384,12 @@ class Account(TimeStampedModel):
         ordering = ["organization__code", "code"]
         permissions = [
             ("manage_accounts", _("Can create and archive accounts")),
+            # Phase 5 (ADR-029 §7). `manage_accounts` was Task 0.7's authority
+            # over the model; these two are the authority over the *screen* and
+            # its acts, and they are separate entries so a deployment can widen
+            # one without widening the other.
+            ("view_chart_of_accounts", _("Can read the chart of accounts")),
+            ("manage_chart_of_accounts", _("Can create, amend and archive chart accounts")),
         ]
         constraints = [
             # Per organization, not global: two organizations may each run a
@@ -359,6 +425,28 @@ class Account(TimeStampedModel):
                     | (~Q(external_accounting_system="") & ~Q(external_account_code=""))
                 ),
                 name="account_external_mapping_is_complete_or_absent",
+            ),
+            # A rollup never receives a journal line, so a posting policy on
+            # one is a claim about nothing — and a claim about nothing is
+            # worse than silence: a reader who sees `FORBIDDEN` on `2-01`
+            # concludes the whole payable branch is protected, when in fact
+            # every leaf under it is still `ALLOWED`.
+            models.CheckConstraint(
+                condition=(
+                    Q(is_postable=True) | Q(manual_posting_policy=ManualPostingPolicy.ALLOWED)
+                ),
+                name="account_only_postable_restricts_manual_posting",
+            ),
+            # If and only if, in both directions. An archived account with no
+            # archive date loses when it happened; an active account carrying
+            # one says it is archived while the flag every query filters on
+            # says it is not, and the flag is the one that wins silently.
+            models.CheckConstraint(
+                condition=(
+                    (Q(is_active=True) & Q(archived_at__isnull=True))
+                    | (Q(is_active=False) & Q(archived_at__isnull=False))
+                ),
+                name="account_archived_at_iff_inactive",
             ),
         ]
 
@@ -516,6 +604,27 @@ class JournalEntry(TimeStampedModel):
         verbose_name=_("reverses entry"),
     )
 
+    #: Who wrote this entry, as distinct from who released it to the ledger.
+    #:
+    #: The kernel recorded `posted_by` from Task 0.6 and no creator at all, so
+    #: "the same person entered and posted this" was not a question the database
+    #: could answer — and a maker-checker rule that cannot be asked is not a
+    #: control. Phase 5 asks it (ADR-029 §2).
+    #:
+    #: Nullable because every row that existed before this field did has no
+    #: creator to record, and a migration cannot invent one. A fabricated
+    #: creator would be worse than an absent one: it would read as evidence.
+    #: `post_draft` refuses a manual entry with a null creator rather than
+    #: treating the gap as consent, because nothing can prove the two differ.
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_journal_entries",
+        verbose_name=_("created by"),
+    )
+
     posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
     posted_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -536,6 +645,10 @@ class JournalEntry(TimeStampedModel):
             ("edit_draft", _("Can amend a draft journal entry")),
             ("post_journal", _("Can post a journal entry to the ledger")),
             ("reverse_journal", _("Can reverse a posted journal entry")),
+            (
+                "post_restricted_manual_journal",
+                _("Can post a manual line to a RESTRICTED control account"),
+            ),
             (
                 "post_soft_closed_adjustment",
                 _("Can post an adjustment into a soft-closed period"),
@@ -615,6 +728,25 @@ class JournalEntry(TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.entry_number} ({self.get_status_display()})"
 
+    @property
+    def is_manual(self) -> bool:
+        """
+        Whether a person wrote this entry rather than a document producing it.
+
+        Derived from the source identity, not stored: `source_event` is blank
+        exactly when there is no upstream document, and the check constraint
+        `journal_entry_source_identity_complete_or_absent` guarantees the three
+        source columns move together. A separate `is_manual` flag would be a
+        second answer to a question the identity already settles, and the two
+        could disagree.
+        """
+        return self.source_event == ""
+
+    @property
+    def is_editable(self) -> bool:
+        """A draft a person wrote. Nothing else is editable through Accounting."""
+        return self.status == JournalEntryStatus.DRAFT and self.is_manual
+
 
 class AccountRoleDomain(models.TextChoices):
     """
@@ -626,6 +758,16 @@ class AccountRoleDomain(models.TextChoices):
     organization **owes** rather than what it holds — a supplier payable is
     not an inventory concept and filing it under `INVENTORY` would make the
     domain column a label rather than a fact.
+
+    `ACCOUNTING` arrived with Task 5.0 and is the first domain whose posting
+    rules are about the organization's **own financial administration** rather
+    than a trading module's. Nothing buys, sells, produces or moves when an
+    expense is accrued at month end, a prepayment is amortised, or a year's
+    result is swept to retained earnings; the entries exist because the
+    accounting period ended, not because a document arrived. Filing an expense
+    accrual under `PURCHASING` because both involve a liability would make the
+    domain column a label rather than a fact — the same reasoning ADR-019
+    records for `PURCHASING` and ADR-027 for `SALES`.
     """
 
     INVENTORY = "INVENTORY", _("المخزون")
@@ -636,6 +778,10 @@ class AccountRoleDomain(models.TextChoices):
     #: it under `PURCHASING` because both are "somebody owes somebody" would
     #: make the domain column a label rather than a fact.
     SALES = "SALES", _("المبيعات")
+    #: Task 5.0. Deferrals and the year-end result — the accounts nothing
+    #: outside Accounting ever posts to, because nothing outside Accounting
+    #: knows that a period has ended.
+    ACCOUNTING = "ACCOUNTING", _("المحاسبة")
 
 
 class AccountRoleMappingScope(models.TextChoices):
@@ -1019,6 +1165,58 @@ SYSTEM_SALES_ROLES: tuple[tuple[str, str, str, str], ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Accounting — Task 5.0
+# ---------------------------------------------------------------------------
+
+#: The credit side of an accrual: a cost incurred that no invoice has stated
+#: yet (ADR-030 §4). A **liability**, and deliberately not the supplier
+#: payable: nobody has named an amount, so it cannot be aged, allocated or
+#: paid, and putting it in the payable would make the supplier reconciliation
+#: report a difference for every accrual outstanding at month end.
+ACCRUED_EXPENSES_PAYABLE = "ACCRUED_EXPENSES_PAYABLE"
+
+#: The debit side of a prepayment, released to expense by amortization
+#: (ADR-030 §5). An **asset**: rent paid for a quarter that has not happened
+#: yet is a right to occupy the premises, not a cost of this month.
+PREPAID_EXPENSE = "PREPAID_EXPENSE"
+
+#: The computed equity line, and where the year-end closing journal lands its
+#: result on the way through (ADR-031 §3).
+#:
+#: Computed, never posted monthly. Sweeping revenue and expense to equity every
+#: month destroys the year-to-date income statement: once March's revenue has
+#: gone to equity, "revenue for the year so far" has to be reconstructed from
+#: closing journals rather than read from the accounts.
+CURRENT_YEAR_EARNINGS = "CURRENT_YEAR_EARNINGS"
+
+#: Where the year-end closing journal leaves the result (ADR-031 §4). The one
+#: equity account that carries every prior year's outcome, and the reason
+#: `CURRENT_YEAR_EARNINGS` is separate: a balance sheet that could not tell
+#: this year's result from the accumulated ones would answer neither question.
+RETAINED_EARNINGS = "RETAINED_EARNINGS"
+
+#: The accounting vocabulary, same shape as the three above.
+#:
+#: Every one is `ORGANIZATION`-scoped, and necessarily so. `ITEM` is not merely
+#: unnecessary here, it is meaningless: none of these four is about a thing the
+#: organization holds or sells. An accrual is about a period that ended, a
+#: prepayment about a period that has not started, and the two earnings
+#: accounts about the whole organization's result — a per-item retained
+#: earnings would be a sentence with no subject.
+SYSTEM_ACCOUNTING_ROLES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        ACCRUED_EXPENSES_PAYABLE,
+        "مصروفات مستحقة الدفع",
+        "Accrued expenses payable",
+        "ORGANIZATION",
+    ),
+    (PREPAID_EXPENSE, "مصروفات مدفوعة مقدماً", "Prepaid expenses", "ORGANIZATION"),
+    (CURRENT_YEAR_EARNINGS, "نتيجة السنة الحالية", "Current year earnings", "ORGANIZATION"),
+    (RETAINED_EARNINGS, "الأرباح المحتجزة", "Retained earnings", "ORGANIZATION"),
+)
+
+
 class OrganizationAccountMapping(TimeStampedModel):
     """
     The organization's effective-dated default: this role posts to this
@@ -1184,3 +1382,140 @@ class JournalLine(models.Model):
     def amount(self) -> Decimal:
         """The signed movement: positive for a debit, negative for a credit."""
         return self.debit - self.credit
+
+
+# ---------------------------------------------------------------------------
+# Financial-statement classification — Task 5.0, ADR-031
+# ---------------------------------------------------------------------------
+
+
+class StatementGroup(models.TextChoices):
+    """
+    Where an account's balance appears on a financial statement (ADR-031 §1).
+
+    A closed set, and separate from `AccountClass` because the class cannot
+    carry this. Class `7` is "إيرادات ومصروفات أخرى" — **both** sides of the
+    income statement at once, and a class-7 account cannot be asked which one
+    it belongs to. Class `1` has no current / non-current distinction, so the
+    balance sheet cannot be split from it. Class `8` is clearing, of which
+    GRNI is a real liability and inter-branch clearing is presentation noise.
+
+    The rejected alternative was a code-prefix test inside the statement view.
+    It hides statement behaviour where nobody looks for it, it breaks the
+    moment a second organization numbers its chart differently — which ADR-014
+    explicitly allows — and it cannot express the class-7 split at all without
+    a second, longer prefix table that is a mapping in denial.
+    """
+
+    ASSET = "ASSET", _("الأصول")
+    LIABILITY = "LIABILITY", _("الالتزامات")
+    EQUITY = "EQUITY", _("حقوق الملكية")
+    REVENUE = "REVENUE", _("الإيرادات")
+    COST_OF_SALES = "COST_OF_SALES", _("كلفة المبيعات")
+    OPERATING_EXPENSE = "OPERATING_EXPENSE", _("المصروفات التشغيلية")
+    OTHER_INCOME = "OTHER_INCOME", _("إيرادات أخرى")
+    OTHER_EXPENSE = "OTHER_EXPENSE", _("مصروفات أخرى")
+
+
+#: The two groups a current / non-current split is a question about. Named
+#: here rather than spelled out at each use, so the model constraint, the
+#: service check and any later report all read the same list.
+BALANCE_SHEET_GROUPS = (StatementGroup.ASSET, StatementGroup.LIABILITY)
+
+
+class PresentationSection(models.TextChoices):
+    """
+    The balance-sheet split (ADR-031 §1).
+
+    `NOT_APPLICABLE` is the default and is a real answer, not a missing one:
+    an income-statement account has no current / non-current dimension, and
+    forcing one would invent a fact about it.
+    """
+
+    CURRENT = "CURRENT", _("متداول")
+    NON_CURRENT = "NON_CURRENT", _("غير متداول")
+    NOT_APPLICABLE = "NOT_APPLICABLE", _("لا ينطبق")
+
+
+class AccountReportMapping(TimeStampedModel):
+    """
+    This organization's account, in this statement group (ADR-031 §1).
+
+    Organization-owned rather than global, for the reason ADR-014 gives for the
+    chart itself: a second organization may number and structure its accounts
+    differently, and a global classification would either constrain that or
+    quietly misfile it.
+
+    **Assigned to postable accounts only.** A rollup carries no balance of its
+    own — its figure is the sum of its children — so classifying one would
+    either double-count the branch or contradict the leaves under it. That rule
+    is a fact about another row and therefore cannot be a check constraint;
+    `services.set_report_mapping` enforces it, and every write goes through
+    that function.
+
+    Deactivated rather than deleted, so a statement produced last year stays
+    explicable after the classification is revised.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="report_mappings",
+        verbose_name=_("organization"),
+    )
+    account = models.ForeignKey(
+        Account,
+        on_delete=models.PROTECT,
+        related_name="report_mappings",
+        verbose_name=_("account"),
+    )
+    statement_group = models.CharField(
+        _("statement group"), max_length=24, choices=StatementGroup.choices
+    )
+    presentation_section = models.CharField(
+        _("presentation section"),
+        max_length=16,
+        choices=PresentationSection.choices,
+        default=PresentationSection.NOT_APPLICABLE,
+    )
+    display_order = models.PositiveIntegerField(_("display order"), default=0)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("account report mapping")
+        verbose_name_plural = _("account report mappings")
+        ordering = ["organization__code", "statement_group", "display_order", "account__code"]
+        permissions = [
+            ("manage_report_mappings", _("Can map accounts to financial-statement groups")),
+        ]
+        constraints = [
+            # One classification per account. Two would let the same balance
+            # appear in two sections of the same statement, and the statement
+            # would still add up — which is what makes it undetectable.
+            models.UniqueConstraint(
+                fields=["organization", "account"],
+                name="report_mapping_unique_per_account",
+            ),
+            # A current / non-current split is a balance-sheet question. On a
+            # revenue account it is not merely unused, it is false: revenue has
+            # no maturity, and a reader who saw "متداول" on it would conclude
+            # somebody had decided something they had not.
+            models.CheckConstraint(
+                condition=(
+                    Q(presentation_section=PresentationSection.NOT_APPLICABLE)
+                    | Q(statement_group__in=[group.value for group in BALANCE_SHEET_GROUPS])
+                ),
+                name="report_mapping_section_only_on_balance_sheet_groups",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "statement_group", "is_active"],
+                name="report_mapping_group_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.account.code} -> {self.statement_group}"

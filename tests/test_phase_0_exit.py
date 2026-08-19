@@ -37,6 +37,7 @@ from apps.accounting.commands import (
     reverse_journal_entry,
     soft_close_accounting_period,
 )
+from apps.accounting.management.commands.seed_chart_of_accounts import CHART
 from apps.accounting.models import (
     Account,
     AccountingPeriod,
@@ -121,21 +122,21 @@ class TestTheFoundationsCooperate:
 
         # --- 1. Seeded reference data -------------------------------------
         assert UnitOfMeasure.objects.count() == 10
-        # 63: the Phase 0 chart of 46, plus the Task 1.3 inventory and
-        # opening-equity branches (1-03…, 3-02…), plus Task 1.4's GRNI
-        # liability and consumption leaves (2-01-02…, 5-01-02…), plus
-        # Task 1.5's transfer-shortage loss branch (6-02…), plus Task 2.12's
-        # purchase price variance clearing leaf and its group (8-01-03…),
-        # plus Task 2.13's supplier return clearing (8-01-04…) and purchase
-        # return variance (7-09-04…) leaves and their groups, plus Task
-        # 2.15's supplier advance branch (1-04…).
-        # Phase 4 added seventeen more: the returns, card-clearing,
-        # delivery-receivable, commission, other-fee, settlement-bank,
-        # settlement-variance and cash-over-short leaves the eleven Sales roles
-        # map to, and their groups. Task 4.0 put them in seed_chart_of_accounts
-        # and left this count behind, so this gate has been red since — which is
-        # the only way anybody was ever going to find out.
-        assert Account.objects.filter(organization=organization).count() == 94
+        # Asserted against the declared chart rather than a literal.
+        #
+        # The literal was 63, then 94, and each correction happened after a
+        # phase had already shipped: Task 4.0 added seventeen sales accounts
+        # and left the number behind, so this gate was red for a whole phase
+        # — "which is the only way anybody was ever going to find out" is what
+        # the previous note said, and it was right. Phase 5 adds eleven more
+        # (accrued expenses, prepaid expenses, retained earnings, current year
+        # earnings), so the literal would have gone stale a third time.
+        #
+        # What this line is actually for is that the seed creates every account
+        # it declares and no others. `len(CHART)` says exactly that, and
+        # `test_the_chart_declares_each_code_once` covers the one way that
+        # could be satisfied dishonestly.
+        assert Account.objects.filter(organization=organization).count() == len(CHART)
         assert CostCenter.objects.filter(organization=organization).count() == 6
         assert AccountingPeriod.objects.filter(fiscal_year__organization=organization).count() == 12
 

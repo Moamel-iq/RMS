@@ -1,0 +1,53 @@
+{# Create and edit for every accounting master-data kind.                    #}
+{#                                                                           #}
+{# Extends `form_base_template`, not `shell.html` directly. On a normal      #}
+{# request the view passes `shell.html` and the whole page renders; on an    #}
+{# HX-Request it passes `settings/_form_fragment.html` and this emits the    #}
+{# form alone — no rail, no sidebar, no second <html>.                       #}
+{#                                                                           #}
+{# The POST goes to `apps/accounting/commands.py`, never to `form.save()`.   #}
+{# `novalidate` hands validation to the server, so what the operator sees is #}
+{# the rule that will actually be enforced rather than a browser's guess at  #}
+{# it.                                                                       #}
+{% extends form_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+    <a href="{% url 'accounting:dashboard' %}">{% translate "المحاسبة" %}</a>
+    <span aria-hidden="true">/</span>
+    <span aria-current="page">{{ page_title }}</span>
+  </nav>
+
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+    </div>
+  </div>
+
+  <form class="formcard" id="accounting-form" method="post" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="formcard__errors" role="alert">
+        {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+      </div>
+    {% endif %}
+
+    {% for field in form %}
+      <div class="field{% if field.errors %} field--invalid{% endif %}">
+        <label class="field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<p class="field__help">{{ field.help_text }}</p>{% endif %}
+        {% for error in field.errors %}<p class="field__error" role="alert">{{ error }}</p>{% endfor %}
+      </div>
+    {% endfor %}
+
+    <div class="formcard__actions">
+      <button class="btn btn--primary" type="submit">{{ submit_label|default:_("حفظ") }}</button>
+      {% if cancel_url %}<a class="btn btn--secondary" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>{% endif %}
+    </div>
+  </form>
+{% endblock %}

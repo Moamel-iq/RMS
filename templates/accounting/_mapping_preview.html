@@ -1,0 +1,66 @@
+{# "On this date, this role resolves to this account" — every role at once.   #}
+{#                                                                            #}
+{# Resolved through `resolve_default_account`, the same function the posting  #}
+{# services call, so the preview cannot disagree with what a posting would    #}
+{# actually do. An unmapped role is a row saying so, never a missing row.     #}
+{% load i18n %}
+
+<section class="card" id="mapping-preview-panel">
+  <h2 class="card__title">{% translate "معاينة الحلّ بتاريخ" %}</h2>
+
+  <form class="toolbar" hx-get="{% url 'accounting:mapping_preview' %}"
+        hx-target="#mapping-preview" hx-swap="innerHTML"
+        hx-trigger="change from:find select, change from:find input"
+        hx-indicator="#mapping-preview-loading">
+    <label class="field">
+      <span class="field__label">{% translate "المؤسسة" %}</span>
+      <select name="organization">
+        {% for row in organizations %}
+          <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>{{ row.code }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field">
+      <span class="field__label">{% translate "بتاريخ" %}</span>
+      <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}">
+    </label>
+    <span class="inventory-loading" id="mapping-preview-loading" role="status" aria-live="polite">
+      {% translate "جارٍ الحساب…" %}
+    </span>
+  </form>
+
+  {% if unresolved_count %}
+    <p class="card__hint card__hint--warn">
+      {% blocktranslate count counter=unresolved_count %}دور واحد بلا حساب في هذا التاريخ.{% plural %}{{ counter }} أدوار بلا حساب في هذا التاريخ.{% endblocktranslate %}
+    </p>
+  {% endif %}
+
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{% translate "الدور" %}</th>
+          <th>{% translate "المجال" %}</th>
+          <th>{% translate "الحساب في هذا التاريخ" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td><code dir="ltr">{{ row.role.code }}</code></td>
+            <td>{{ row.role.get_domain_display }}</td>
+            <td>
+              {% if row.account %}
+                <code dir="ltr">{{ row.account.code }}</code> — {{ row.account.name_ar }}
+              {% else %}
+                <span class="chip chip--warn">{% translate "غير مربوط" %}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>

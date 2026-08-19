@@ -1,35 +1,55 @@
 """
-Accounting screens, inside the Khan Mandi shell — the first two of them.
+Accounting screens, inside the Khan Mandi shell.
 
-Task 1.3 delivers the account-mapping surface only: the role vocabulary
-(read-only) and the organization default mappings (managed). The rest of the
-accounting module's screens arrive with Phase 5, and their sections stay
-visibly inert in the navigation until they do.
+The list, write and action machinery is reused from `apps.inventory.views`
+rather than copied, for the reason `apps.procurement.views` and
+`apps.sales.views` both record: it is generic — a scoped queryset, a per-row
+action decision, an htmx partial swap, a POST-only archive — and a second copy
+would drift within two tasks, in the authorization behaviour, which is the part
+that must not vary.
 
-Same discipline as the inventory screens: no view calls `form.save()`, every
+**Accounting gets its own form template** (`accounting/master_form.html`) rather
+than reusing inventory's. Inventory's write template extends `shell.html`
+directly, which is correct for inventory and wrong for a module whose forms open
+inside htmx panels: a fragment carrying a second shell looks right until
+somebody swaps it.
+
+## The scope tightening
+
+The Task 1.3 screens gated themselves with `user.has_perm(...)` alone. That is a
+**global** answer — Django recomputes role groups from every membership a user
+holds — to a question that is always local, so a viewer in one organization who
+held accounting authority in another satisfied it everywhere. Phase 5 moves
+every accounting view onto `apps/organizations/authorization.py`, where the
+permission must be carried by a role held *inside the target organization*.
+
+That is a tightening, not a refactor. Somebody who could previously reach the
+mapping screen through authority held elsewhere now cannot. See ADR-029 §7.
+
+Same discipline as the other modules: no view calls `form.save()`, every
 mutation goes through `apps/accounting/commands.py`, and hiding a button is
 presentation, never protection.
 """
 
 from __future__ import annotations
 
+import datetime
 from typing import TYPE_CHECKING, Any
 
 from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.exceptions import ValidationError
+from django.db.models import Q, QuerySet
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
-from django.views.generic import ListView
 
 from apps.accounting.commands import (
     amend_account_role_mapping,
     archive_account_role_mapping,
     close_account_role_mapping,
-    list_account_roles,
     map_account_role,
 )
 from apps.accounting.forms import (
@@ -38,221 +58,522 @@ from apps.accounting.forms import (
     CloseMappingForm,
     manageable_organizations,
 )
-from apps.accounting.models import OrganizationAccountMapping
-from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS, VIEW_JOURNAL
-from apps.core.views import ModuleViewMixin
-from apps.users.models import User
+from apps.accounting.models import (
+    AccountRole,
+    AccountRoleDomain,
+    AccountRoleMappingScope,
+    OrganizationAccountMapping,
+)
+from apps.accounting.permissions import (
+    MANAGE_ACCOUNT_MAPPINGS,
+    VIEW_CHART_OF_ACCOUNTS,
+    VIEW_JOURNAL,
+)
+from apps.accounting.selectors import (
+    mapping_continuity_gaps,
+    mapping_history,
+    role_usage,
+)
+from apps.accounting.services import mapping_is_used, resolve_default_account
+from apps.inventory.views import (
+    InventoryActionView,
+    InventoryListView,
+    InventoryViewMixin,
+    InventoryWriteView,
+)
+from apps.organizations.authorization import (
+    OutOfScope,
+    has_organization_permission,
+    organizations_with_permission,
+    require_organization_permission,
+)
+from apps.organizations.models import Organization
 
 if TYPE_CHECKING:
-    _ListView = ListView[Any]
-else:
-    _ListView = ListView
+    from apps.users.models import User
 
 
-class AccountingViewMixin(LoginRequiredMixin, UserPassesTestMixin, ModuleViewMixin):
-    """Signed in, holding the permission the screen needs; 404 for foreign scope."""
+# ---------------------------------------------------------------------------
+# Base classes
+# ---------------------------------------------------------------------------
+
+
+class AccountingViewMixin(InventoryViewMixin):
+    """Signed in, holding the permission this screen needs; 404 for foreign scope."""
 
     module_key = "accounting"
     required_permission: str = VIEW_JOURNAL
-    request: HttpRequest
 
-    def test_func(self) -> bool:
-        user = self.request.user
-        return bool(user.is_authenticated and user.has_perm(self.required_permission))
+    def visible_organizations(self, permission: str | None = None) -> QuerySet[Organization]:
+        """
+        The organizations this caller may read through, as a queryset.
 
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Any:
-        try:
-            return super().dispatch(request, *args, **kwargs)
-        except ObjectDoesNotExist as missing:
-            raise Http404(str(missing)) from missing
-
-    @property
-    def actor(self) -> User:
-        user: User = self.request.user  # type: ignore[assignment]
-        return user
+        A queryset rather than a list because it is the *scope*: every
+        accounting selector filters through it, so an id from a request can
+        only ever select something already inside it. Fetching first and
+        checking afterwards is the shape of the bug this avoids.
+        """
+        return organizations_with_permission(
+            self.actor, permission or self.required_permission
+        ).order_by("code")
 
 
-class AccountRoleListView(AccountingViewMixin, _ListView):
-    """The system vocabulary. There is nothing to edit and no button offering to."""
+class AccountingListView(InventoryListView):
+    """Every accounting list: same scoping, same htmx contract, same row actions."""
 
-    template_name = "accounting/role_list.html"
-    context_object_name = "roles"
-
-    def get_queryset(self) -> Any:
-        return list_account_roles(actor=self.actor)
+    module_key = "accounting"
+    required_permission = VIEW_JOURNAL
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        context["page_title"] = _("الأدوار المحاسبية")
-        context["page_hint"] = _(
-            "مفردات النظام: قواعد الترحيل تشير إلى الدور، والمؤسسة تقرر أي حساب يحمله. "
-            "الأدوار محمية ولا تُعدَّل."
+        # Accounting keeps the shared semantic structure and its own styling,
+        # exactly as Settings, Procurement, Kitchen and Sales do. Inventory's
+        # direction and density rules are inventory's.
+        context["inventory_ui"] = False
+        return context
+
+    def visible_organizations(self, permission: str | None = None) -> QuerySet[Organization]:
+        return organizations_with_permission(
+            self.actor, permission or self.required_permission
+        ).order_by("code")
+
+
+class AccountingWriteView(InventoryWriteView):
+    """
+    Every accounting create and edit screen.
+
+    Supplies `form_base_template` so an htmx GET answers with the form alone.
+    Without it a panel swap receives a whole document — two `<html>` elements,
+    two navigation rails — which renders correctly enough to be missed in review
+    and is wrong in every accessibility tree.
+    """
+
+    module_key = "accounting"
+    template_name = "accounting/master_form.html"
+    submit_label: Any = _("حفظ")
+
+    def is_htmx(self) -> bool:
+        return self.request.headers.get("HX-Request") == "true"
+
+    def context(self, instance: Any, form: Any) -> dict[str, Any]:
+        context = super().context(instance, form)
+        context["submit_label"] = self.submit_label
+        context["form_base_template"] = (
+            "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
         )
         return context
 
 
-class AccountMappingListView(AccountingViewMixin, _ListView):
-    """Every mapping in the organizations this caller manages, newest version first."""
+class AccountingActionView(InventoryActionView):
+    module_key = "accounting"
+
+
+class AccountingDetailView(AccountingViewMixin, View):
+    """
+    Base for every accounting detail page.
+
+    A detail template extends its base **directly** rather than through
+    `settings/base_list.html`, so the block it defines is `page` — and the
+    fragment it must be paired with is `settings/_form_fragment.html`, which
+    declares `page`. `_list_fragment.html` declares only `results`; Django
+    silently drops a child block the parent does not declare, so pairing a
+    detail page with it answers 200 with a whitespace body.
+
+    Which fragment a screen needs is decided by the block it defines, never by
+    whether the screen is conceptually a list or a form. Centralised here so
+    no individual detail screen has to remember it.
+    """
+
+    template_name: str = ""
+
+    def base_template(self) -> str:
+        if self.request.headers.get("HX-Request") == "true":
+            return "settings/_form_fragment.html"
+        return "shell.html"
+
+    def render_detail(self, request: HttpRequest, context: dict[str, Any]) -> HttpResponse:
+        context.setdefault("list_base_template", self.base_template())
+        context.setdefault("inventory_ui", False)
+        return render(request, self.template_name, context)
+
+
+# ---------------------------------------------------------------------------
+# الأدوار المحاسبية — the system vocabulary
+# ---------------------------------------------------------------------------
+
+
+class AccountRoleListView(AccountingListView):
+    """
+    Every role posting rules can name, and how it is mapped where this caller
+    can see.
+
+    Read-only by construction. `AccountRole` is system-controlled vocabulary:
+    `INVENTORY_CONTROL` means the same thing in every organization, and which
+    *account* carries it is the organization's decision, recorded in
+    `OrganizationAccountMapping`. So this screen offers no create, no rename,
+    no delete — not disabled buttons, no buttons — and the only thing it links
+    to is the mapping that is genuinely the organization's to change.
+
+    The column that earns the screen is **unresolved organizations**. A role
+    with no mapping in effect is not visibly broken anywhere: the failure
+    arrives the first time somebody posts a document that resolves it, which is
+    days later and looks like a posting bug.
+    """
+
+    template_name = "accounting/role_list.html"
+    context_object_name = "roles"
+    page_title = _("الأدوار المحاسبية")
+    page_hint = _(
+        "مفردات النظام: قواعد الترحيل تشير إلى الدور، والمؤسسة تقرر أي حساب يحمله. "
+        "الأدوار محمية ولا تُنشأ ولا تُحذف من هنا — الذي يتغيّر هو الربط."
+    )
+    search_placeholder = _("ابحث برمز الدور أو اسمه…")
+    result_label = _("دور")
+    paginate_by = 40
+
+    def as_of(self) -> datetime.date:
+        raw = self.request.GET.get("as_of", "").strip()
+        if raw:
+            try:
+                return datetime.date.fromisoformat(raw)
+            except ValueError:
+                pass
+        return timezone.localdate()
+
+    def _organizations(self) -> list[Organization]:
+        organizations = list(self.visible_organizations(VIEW_CHART_OF_ACCOUNTS))
+        chosen = self.request.GET.get("organization", "").strip()
+        if chosen.isdigit():
+            organizations = [
+                organization for organization in organizations if organization.pk == int(chosen)
+            ]
+        return organizations
+
+    def get_queryset(self) -> Any:
+        rows = role_usage(organizations=self._organizations(), on_date=self.as_of())
+
+        search = self.request.GET.get("q", "").strip().lower()
+        domain = self.request.GET.get("domain", "").strip()
+        scope = self.request.GET.get("scope", "").strip()
+        mapped = self.request.GET.get("mapped", "").strip()
+
+        if search:
+            rows = [
+                row
+                for row in rows
+                if search in row.role.code.lower()
+                or search in row.role.name_ar
+                or search in row.role.name_en.lower()
+            ]
+        if domain in AccountRoleDomain.values:
+            rows = [row for row in rows if row.role.domain == domain]
+        if scope in AccountRoleMappingScope.values:
+            rows = [row for row in rows if row.role.mapping_scope == scope]
+        if mapped == "mapped":
+            rows = [row for row in rows if row.is_mapped]
+        elif mapped == "unmapped":
+            rows = [row for row in rows if not row.is_mapped]
+        elif mapped == "incomplete":
+            rows = [row for row in rows if row.unresolved]
+        return rows
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["domains"] = AccountRoleDomain.choices
+        context["scopes"] = AccountRoleMappingScope.choices
+        context["organizations"] = self.visible_organizations(VIEW_CHART_OF_ACCOUNTS)
+        context["selected_domain"] = self.request.GET.get("domain", "")
+        context["selected_scope"] = self.request.GET.get("scope", "")
+        context["selected_mapped"] = self.request.GET.get("mapped", "")
+        context["selected_organization"] = self.request.GET.get("organization", "")
+        context["as_of"] = self.as_of()
+        return context
+
+
+class AccountRoleDetailView(AccountingDetailView):
+    """One role: where it resolves today, every version behind that, and the gaps."""
+
+    template_name = "accounting/role_detail.html"
+    required_permission = VIEW_CHART_OF_ACCOUNTS
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        role = AccountRole.objects.filter(pk=kwargs["pk"]).first()
+        if role is None:
+            raise Http404(_("Account role does not exist."))
+
+        organizations = list(self.visible_organizations(VIEW_CHART_OF_ACCOUNTS))
+        as_of = timezone.localdate()
+
+        resolutions = []
+        for organization in organizations:
+            try:
+                account = resolve_default_account(
+                    organization=organization, account_role=role.code, on_date=as_of
+                )
+            except ValidationError:
+                # Unmapped on this date. Reported as a row rather than skipped:
+                # an organization missing from the table reads as "fine".
+                account = None
+            resolutions.append(
+                {
+                    "organization": organization,
+                    "account": account,
+                    "history": mapping_history(organization=organization, role=role),
+                }
+            )
+
+        return self.render_detail(
+            request,
+            {
+                "role": role,
+                "resolutions": resolutions,
+                "as_of": as_of,
+                "unresolved": [
+                    row["organization"] for row in resolutions if row["account"] is None
+                ],
+                "page_title": role.code,
+                "page_hint": _(
+                    "الدور مفردة نظام: الرمز والنطاق لا يتغيّران. ما يتغيّر هو الحساب "
+                    "الذي تحمله كل مؤسسة، ومن أي تاريخ."
+                ),
+                "may_manage": bool(
+                    organizations_with_permission(self.actor, MANAGE_ACCOUNT_MAPPINGS).exists()
+                ),
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# ربط الحسابات — the effective-dated defaults
+# ---------------------------------------------------------------------------
+
+
+class AccountMappingListView(AccountingListView):
+    """
+    Every mapping in the organizations this caller manages, newest version first.
+
+    Scoped through `organizations_with_permission`, not through
+    `user.has_perm`. The list is the boundary: a mapping outside the caller's
+    organizations is not in the queryset, so a guessed id on any of the row
+    actions below finds nothing rather than being fetched and then refused.
+    """
 
     template_name = "accounting/mapping_list.html"
     context_object_name = "mappings"
     required_permission = MANAGE_ACCOUNT_MAPPINGS
+    page_title = _("ربط الحسابات")
+    page_hint = _(
+        "أي حساب يحمل كل دور، ومن أي تاريخ. الربط المستعمَل لا يُعدَّل — يُغلق نطاقه ويُنشأ إصدار جديد."
+    )
+    search_fields = ("account_role__code", "account__code", "account__name_ar")
+    search_placeholder = _("ابحث برمز الدور أو الحساب…")
+    result_label = _("ربط")
+    create_url_name = "accounting:mapping_create"
+    create_label = _("ربط جديد")
+    manage_permission = MANAGE_ACCOUNT_MAPPINGS
+    manage_scope = "organization"
 
-    def get_queryset(self) -> Any:
-        return (
-            OrganizationAccountMapping.objects.filter(
-                organization__in=manageable_organizations(self.actor)
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = OrganizationAccountMapping.objects.filter(
+            organization__in=manageable_organizations(self.actor)
+        ).select_related("organization", "account_role", "account")
+
+        organization = self.request.GET.get("organization", "").strip()
+        if organization.isdigit():
+            queryset = queryset.filter(organization_id=int(organization))
+
+        role = self.request.GET.get("role", "").strip()
+        if role.isdigit():
+            queryset = queryset.filter(account_role_id=int(role))
+
+        state = self.request.GET.get("state", "").strip()
+        today = timezone.localdate()
+        if state == "active":
+            queryset = queryset.filter(is_active=True, effective_from__lte=today).filter(
+                Q(effective_to__isnull=True) | Q(effective_to__gte=today)
             )
-            .select_related("organization", "account_role", "account")
-            .order_by("organization__code", "account_role__code", "-version")
-        )
+        elif state == "closed":
+            queryset = queryset.filter(effective_to__lt=today)
+        elif state == "archived":
+            queryset = queryset.filter(is_active=False)
+
+        return queryset.order_by("organization__code", "account_role__code", "-version")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        context["page_title"] = _("ربط الحسابات")
-        context["page_hint"] = _(
-            "أي حساب يحمل كل دور، ومن أي تاريخ. الربط المستعمَل لا يُعدَّل — "
-            "يُغلق نطاقه ويُنشأ إصدار جديد."
-        )
-        context["create_url"] = reverse("accounting:mapping_create")
-        context["create_label"] = _("ربط جديد")
+        organizations = manageable_organizations(self.actor)
+        context["organizations"] = organizations
+        context["roles"] = AccountRole.objects.filter(is_active=True).order_by("domain", "code")
+        context["selected_organization"] = self.request.GET.get("organization", "")
+        context["selected_role"] = self.request.GET.get("role", "")
+        context["selected_state"] = self.request.GET.get("state", "")
+        # Which rows may still be amended, decided per row and in bulk rather
+        # than once per template render: `mapping_is_used` is a query, and a
+        # page of forty rows would otherwise be forty of them.
+        context["used_mapping_ids"] = {
+            mapping.pk
+            for mapping in context.get(self.context_object_name, [])
+            if mapping_is_used(mapping)
+        }
+        gaps: list[Any] = []
+        for organization in organizations:
+            gaps.extend(mapping_continuity_gaps(organization=organization))
+        context["continuity_gaps"] = gaps
         return context
 
 
-class AccountMappingCreateView(AccountingViewMixin, View):
-    template_name = "accounting/mapping_form.html"
-    required_permission = MANAGE_ACCOUNT_MAPPINGS
+class MappingPreviewView(AccountingViewMixin, View):
+    """
+    "On this date, this role resolves to this account" — for every role at once.
 
-    def _render(self, request: HttpRequest, form: AccountMappingForm) -> HttpResponse:
-        return render(
-            request,
-            self.template_name,
-            {
-                "form": form,
-                "page_title": _("ربط دور بحساب"),
-                "page_hint": _("الحساب يجب أن يكون حساباً تفصيلياً فعّالاً في المؤسسة نفسها."),
-                "cancel_url": reverse("accounting:mapping_list"),
-            },
-        )
+    An htmx panel rather than a page, because it answers a question somebody
+    asks *while* editing a mapping: what will actually be in force. The
+    resolution runs through `resolve_default_account`, the same function the
+    posting services call, so the preview cannot disagree with the posting.
+    """
+
+    required_permission = MANAGE_ACCOUNT_MAPPINGS
+    template_name = "accounting/_mapping_preview.html"
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        return self._render(request, AccountMappingForm(actor=self.actor))
+        organizations = manageable_organizations(self.actor)
+        chosen = request.GET.get("organization", "").strip()
+        organization = None
+        if chosen.isdigit():
+            organization = organizations.filter(pk=int(chosen)).first()
+            if organization is None:
+                raise Http404(_("Organization does not exist."))
+        else:
+            organization = organizations.first()
 
-    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        form = AccountMappingForm(data=request.POST, actor=self.actor)
-        if form.is_valid():
-            try:
-                map_account_role(
-                    actor=self.actor,
-                    organization_id=form.cleaned_data["organization"].pk,
-                    account_role_id=form.cleaned_data["account_role"].pk,
-                    account_id=form.cleaned_data["account"].pk,
-                    effective_from=form.cleaned_data["effective_from"],
-                    effective_to=form.cleaned_data["effective_to"],
-                )
-            except ValidationError as error:
-                for message in error.messages:
-                    form.add_error(None, message)
-            else:
-                messages.success(request, _("تم الربط."))
-                return HttpResponseRedirect(reverse("accounting:mapping_list"))
-        return self._render(request, form)
+        raw_date = request.GET.get("as_of", "").strip()
+        try:
+            as_of = datetime.date.fromisoformat(raw_date) if raw_date else timezone.localdate()
+        except ValueError:
+            as_of = timezone.localdate()
+
+        rows: list[dict[str, Any]] = []
+        if organization is not None:
+            for role in AccountRole.objects.filter(is_active=True).order_by("domain", "code"):
+                try:
+                    account = resolve_default_account(
+                        organization=organization, account_role=role.code, on_date=as_of
+                    )
+                except ValidationError:
+                    account = None
+                rows.append({"role": role, "account": account})
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "organization": organization,
+                "organizations": organizations,
+                "as_of": as_of,
+                "rows": rows,
+                "unresolved_count": sum(1 for row in rows if row["account"] is None),
+            },
+        )
 
 
-class AccountMappingCloseView(AccountingViewMixin, View):
-    """POST-only: end a mapping's range, with a stated reason."""
+class AccountMappingCreateView(AccountingWriteView):
+    """Map a role to an account, from a date."""
 
-    template_name = "accounting/mapping_close.html"
+    form_class = AccountMappingForm
     required_permission = MANAGE_ACCOUNT_MAPPINGS
+    success_url_name = "accounting:mapping_list"
+    page_title = _("ربط دور بحساب")
+    page_hint = _("الحساب يجب أن يكون حساباً تفصيلياً فعّالاً في المؤسسة نفسها.")
+    success_message = _("تم الربط.")
+    submit_label = _("ربط")
 
-    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        return render(
-            request,
-            self.template_name,
-            {
-                "form": CloseMappingForm(),
-                "page_title": _("إغلاق نطاق الربط"),
-                "cancel_url": reverse("accounting:mapping_list"),
-            },
+    def build_form(self, instance: Any, data: Any = None) -> Any:
+        # This form takes `actor` and nothing else; the inventory base passes
+        # `instance` too, which it does not accept.
+        return (
+            self.form_class(data=data, actor=self.actor)
+            if data
+            else self.form_class(actor=self.actor)
         )
 
-    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        form = CloseMappingForm(data=request.POST)
-        if form.is_valid():
-            try:
-                close_account_role_mapping(
-                    actor=self.actor,
-                    mapping_id=self.kwargs["pk"],
-                    effective_to=form.cleaned_data["effective_to"],
-                    reason=form.cleaned_data["reason"],
-                )
-            except ValidationError as error:
-                messages.error(request, "؛ ".join(str(message) for message in error.messages))
-            else:
-                messages.success(request, _("أُغلق نطاق الربط."))
-            return HttpResponseRedirect(reverse("accounting:mapping_list"))
-        return render(
-            request,
-            self.template_name,
-            {
-                "form": form,
-                "page_title": _("إغلاق نطاق الربط"),
-                "cancel_url": reverse("accounting:mapping_list"),
-            },
+    def authorize(self, instance: Any, form: Any) -> None:
+        require_organization_permission(
+            self.actor, MANAGE_ACCOUNT_MAPPINGS, form.cleaned_data["organization"]
+        )
+
+    def perform(self, instance: Any, form: Any) -> None:
+        map_account_role(
+            actor=self.actor,
+            organization_id=form.cleaned_data["organization"].pk,
+            account_role_id=form.cleaned_data["account_role"].pk,
+            account_id=form.cleaned_data["account"].pk,
+            effective_from=form.cleaned_data["effective_from"],
+            effective_to=form.cleaned_data["effective_to"],
         )
 
 
-class AccountMappingAmendView(AccountingViewMixin, View):
+class _ScopedMappingMixin(AccountingViewMixin):
+    """Resolve a mapping **with** the caller, never fetch-then-check."""
+
+    required_permission = MANAGE_ACCOUNT_MAPPINGS
+    #: Declared for the type checker: the mixin is always combined with a view,
+    #: which is where `kwargs` comes from. Same arrangement as
+    #: `InventoryViewMixin.request`.
+    kwargs: dict[str, Any]
+
+    def mapping(self) -> OrganizationAccountMapping:
+        row = (
+            OrganizationAccountMapping.objects.filter(
+                organization__in=manageable_organizations(self.actor)
+            )
+            .select_related("organization", "account", "account_role")
+            .filter(pk=self.kwargs["pk"])
+            .first()
+        )
+        if row is None:
+            raise OutOfScope(_("Account mapping does not exist."))
+        return row
+
+
+class AccountMappingAmendView(_ScopedMappingMixin, View):
     """
     Correct a mapping nothing has posted through yet.
 
-    The command existed from Task 1.3 with no way to reach it, so amending a
-    mistyped effective date meant a Python shell against production while its
-    siblings — close and archive — had screens. ADR-019 lists amending
-    alongside them as a first-class mapping operation; this is that screen.
-
-    It is deliberately *not* a way to edit history: the service refuses a
-    mapping any posting has snapshotted, and the path for one of those is to
-    close it and create the next version.
+    Deliberately *not* a way to edit history: the service refuses a mapping any
+    posting has snapshotted, and the path for one of those is to close it and
+    create the next version.
     """
 
     template_name = "accounting/mapping_amend.html"
-    required_permission = MANAGE_ACCOUNT_MAPPINGS
-
-    def _mapping(self) -> OrganizationAccountMapping:
-        """
-        Resolved **with** the caller, never fetched and then checked: a
-        mapping outside the organizations this caller manages is not found
-        at all, so a guessed id cannot confirm that it exists.
-        """
-        return get_object_or_404(
-            OrganizationAccountMapping.objects.filter(
-                organization__in=manageable_organizations(self.actor)
-            ).select_related("organization", "account", "account_role"),
-            pk=self.kwargs["pk"],
-        )
 
     def _render(self, request: HttpRequest, form: AmendMappingForm) -> HttpResponse:
+        mapping = self.mapping()
         return render(
             request,
             self.template_name,
             {
                 "form": form,
-                "mapping": self._mapping(),
+                "mapping": mapping,
+                "is_used": mapping_is_used(mapping),
                 "page_title": _("تعديل الربط"),
                 "page_hint": _(
                     "التعديل متاح ما دام لم يُرحَّل عبر هذا الربط شيء. بعد الترحيل "
                     "يُغلق النطاق وتُنشأ نسخة جديدة."
                 ),
                 "cancel_url": reverse("accounting:mapping_list"),
+                "form_base_template": (
+                    "settings/_form_fragment.html"
+                    if request.headers.get("HX-Request") == "true"
+                    else "shell.html"
+                ),
             },
         )
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        return self._render(request, AmendMappingForm(mapping=self._mapping()))
+        return self._render(request, AmendMappingForm(mapping=self.mapping()))
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        mapping = self._mapping()
+        mapping = self.mapping()
         form = AmendMappingForm(data=request.POST, mapping=mapping)
         if form.is_valid():
             try:
@@ -275,16 +596,63 @@ class AccountMappingAmendView(AccountingViewMixin, View):
         return self._render(request, form)
 
 
-class AccountMappingArchiveView(AccountingViewMixin, View):
-    """POST-only: withdraw an unused mapping recorded in error."""
+class AccountMappingCloseView(_ScopedMappingMixin, View):
+    """End a mapping's range, with a stated reason. The correction path for a used one."""
 
-    required_permission = MANAGE_ACCOUNT_MAPPINGS
+    template_name = "accounting/mapping_close.html"
+
+    def _render(self, request: HttpRequest, form: CloseMappingForm) -> HttpResponse:
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "mapping": self.mapping(),
+                "page_title": _("إغلاق نطاق الربط"),
+                "page_hint": _(
+                    "إغلاق النطاق لا يمسّ أي قيد مُرحَّل: الإصدار يبقى مقروءاً، "
+                    "والإصدار التالي يبدأ من اليوم التالي."
+                ),
+                "cancel_url": reverse("accounting:mapping_list"),
+                "form_base_template": (
+                    "settings/_form_fragment.html"
+                    if request.headers.get("HX-Request") == "true"
+                    else "shell.html"
+                ),
+            },
+        )
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self._render(request, CloseMappingForm())
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        mapping = self.mapping()
+        form = CloseMappingForm(data=request.POST)
+        if form.is_valid():
+            try:
+                close_account_role_mapping(
+                    actor=self.actor,
+                    mapping_id=mapping.pk,
+                    effective_to=form.cleaned_data["effective_to"],
+                    reason=form.cleaned_data["reason"],
+                )
+            except ValidationError as error:
+                messages.error(request, "؛ ".join(str(message) for message in error.messages))
+            else:
+                messages.success(request, _("أُغلق نطاق الربط."))
+            return HttpResponseRedirect(reverse("accounting:mapping_list"))
+        return self._render(request, form)
+
+
+class AccountMappingArchiveView(_ScopedMappingMixin, View):
+    """POST-only: withdraw an unused mapping recorded in error."""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        mapping = self.mapping()
         try:
             archive_account_role_mapping(
                 actor=self.actor,
-                mapping_id=self.kwargs["pk"],
+                mapping_id=mapping.pk,
                 reason=request.POST.get("reason", ""),
             )
         except ValidationError as error:
@@ -292,3 +660,25 @@ class AccountMappingArchiveView(AccountingViewMixin, View):
         else:
             messages.success(request, _("أُرشف الربط."))
         return HttpResponseRedirect(reverse("accounting:mapping_list"))
+
+
+def may_manage_mappings(actor: User, organization: Organization) -> bool:
+    """Shared by the templates that decide whether to offer a mapping action."""
+    return has_organization_permission(actor, MANAGE_ACCOUNT_MAPPINGS, organization)
+
+
+__all__ = [
+    "AccountMappingAmendView",
+    "AccountMappingArchiveView",
+    "AccountMappingCloseView",
+    "AccountMappingCreateView",
+    "AccountMappingListView",
+    "AccountRoleDetailView",
+    "AccountRoleListView",
+    "AccountingActionView",
+    "AccountingDetailView",
+    "AccountingListView",
+    "AccountingViewMixin",
+    "AccountingWriteView",
+    "MappingPreviewView",
+]

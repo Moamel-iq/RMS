@@ -689,9 +689,10 @@ MODULES: tuple[Module, ...] = (
         label=_("المحاسبة"),
         icon_name="ledger",
         phase=_("المرحلة ٥"),
-        # Reachable for the two Task 1.3 screens; the rest of the module's
-        # sections stay visibly inert until Phase 5 builds them.
-        url_name="accounting:mapping_list",
+        # The module landing page. Phase 5 gives Accounting a dashboard of its
+        # own rather than pointing the module at whichever screen happened to
+        # exist first.
+        url_name="accounting:dashboard",
         available=True,
         sections=(
             Section(
@@ -704,9 +705,19 @@ MODULES: tuple[Module, ...] = (
                 url_name="accounting:mapping_list",
                 available=True,
             ),
+            Section(
+                label=_("دليل الحسابات"),
+                url_name="accounting:chart_tree",
+                available=True,
+                active_prefixes=("/accounting/accounts/",),
+            ),
+            Section(
+                label=_("قيود اليومية"),
+                url_name="accounting:journal_list",
+                available=True,
+                active_prefixes=("/accounting/journals/",),
+            ),
             *_sections(
-                _("دليل الحسابات"),
-                _("قيود اليومية"),
                 _("الصناديق"),
                 _("الحسابات البنكية"),
                 _("ذمم الموردين"),

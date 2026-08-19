@@ -44,38 +44,52 @@ from django.utils.translation import gettext_lazy as _
 from apps.accounting.models import (
     Account,
     AccountingPeriod,
+    AccountReportMapping,
     AccountRole,
     CostCenter,
     JournalEntry,
     JournalEntryStatus,
+    ManualPostingPolicy,
     OrganizationAccountMapping,
     PeriodState,
+    PresentationSection,
 )
 from apps.accounting.permissions import (
     CLOSE_PERIOD,
     CREATE_DRAFT,
     EDIT_DRAFT,
     MANAGE_ACCOUNT_MAPPINGS,
+    MANAGE_ACCOUNTS,
+    MANAGE_CHART_OF_ACCOUNTS,
+    MANAGE_REPORT_MAPPINGS,
     POST_JOURNAL,
+    POST_RESTRICTED_MANUAL_JOURNAL,
     POST_SOFT_CLOSED_ADJUSTMENT,
     REOPEN_PERIOD,
     REVERSE_IN_SOFT_CLOSED_PERIOD,
     REVERSE_JOURNAL,
     SOFT_CLOSE_PERIOD,
+    VIEW_CHART_OF_ACCOUNTS,
     VIEW_JOURNAL,
 )
 from apps.accounting.services import (
     amend_account_mapping,
+    archive_account,
     archive_account_mapping,
+    clear_report_mapping,
     close_account_mapping,
     close_period,
+    create_account,
     create_account_mapping,
     create_draft,
     discard_draft,
     post_draft,
+    reactivate_account,
     reopen_period,
     reverse_entry,
+    set_report_mapping,
     soft_close_period,
+    update_account_metadata,
     update_draft,
 )
 from apps.accounting.validators import PostingLine
@@ -85,10 +99,13 @@ from apps.core.services import record_audit_event, snapshot
 from apps.organizations.authorization import (
     OutOfScope,
     PermissionMissing,
+    has_organization_permission,
     has_organization_scope,
     organization_scope,
+    organizations_with_permission,
     require_branch_permission,
     require_organization_permission,
+    require_reachable_organization_permission,
     resolve_branch,
     resolve_organization,
 )
@@ -392,9 +409,18 @@ def post_journal_entry(*, actor: User, entry_id: int, reason: str = "") -> Journ
     A SOFT_CLOSED period needs more than `post_journal`: it needs
     `post_soft_closed_adjustment` over the organization and a stated reason,
     and the override is audited in its own right.
+
+    A manual line landing on a `RESTRICTED` control account needs
+    `post_restricted_manual_journal`. The permission is resolved **here** and
+    handed to the kernel as a boolean: the kernel knows accounting, this layer
+    knows who is allowed, and a service that reads permissions has two jobs.
     """
     entry = _resolve_entry(actor, entry_id)
     _require_at_every_branch(actor, POST_JOURNAL, entry)
+
+    allow_restricted = has_organization_permission(
+        actor, POST_RESTRICTED_MANUAL_JOURNAL, entry.organization
+    )
 
     allow_closed_period = False
     if entry.period.state == PeriodState.SOFT_CLOSED:
@@ -408,7 +434,11 @@ def post_journal_entry(*, actor: User, entry_id: int, reason: str = "") -> Journ
         allow_closed_period = True
 
     with _acting_as(actor):
-        return post_draft(entry=entry, allow_closed_period=allow_closed_period)
+        return post_draft(
+            entry=entry,
+            allow_closed_period=allow_closed_period,
+            allow_restricted_accounts=allow_restricted,
+        )
 
 
 @transaction.atomic
@@ -522,6 +552,224 @@ def list_journal_entries(
         entries = entries.filter(status=status)
 
     return entries.select_related("organization", "period").order_by("-accounting_date", "-id")
+
+
+# ---------------------------------------------------------------------------
+# Chart-of-accounts commands (ADR-014, ADR-029 §7, ADR-031)
+# ---------------------------------------------------------------------------
+#
+# The chart is organization structure: one branch must not reshape what the
+# others post to. So every act here is organization-scoped, and the two halves
+# come from different helpers on purpose.
+#
+# `manage_chart_of_accounts` and `manage_report_mappings` use
+# `require_organization_permission` — an OrganizationMembership, the same bar
+# `manage_account_mappings` and the period acts clear, because all four decide
+# something every branch then lives with.
+#
+# `view_chart_of_accounts` uses `require_reachable_organization_permission`,
+# which is weaker in scope and identical in provenance. Reading the chart is
+# how an accountant codes a journal line, and this repository's accountants
+# hold branch posts; demanding organization membership to *read* the chart
+# would either lock them out of their own job or push deployments into granting
+# organization membership widely — which would quietly hand out period-closing
+# authority as a side effect (ADR-016).
+
+
+def _resolve_account(actor: User, account_id: int) -> Account:
+    """
+    An account id, resolved against the caller's reach — foreign is a 404.
+
+    Same shape and same wording as `_resolve_mapping`: an account in another
+    organization must be indistinguishable from one that was never created,
+    because account ids are sequential and a 403 would confirm it exists.
+    """
+    account = Account.objects.filter(pk=account_id).select_related("organization", "parent").first()
+    if account is None:
+        raise OutOfScope(_("Account %(id)s does not exist.") % {"id": account_id})
+    resolve_organization(actor, account.organization_id)
+    return account
+
+
+def _resolve_report_mapping(actor: User, mapping_id: int) -> AccountReportMapping:
+    """A statement classification id, resolved against the caller's reach."""
+    mapping = (
+        AccountReportMapping.objects.filter(pk=mapping_id)
+        .select_related("organization", "account")
+        .first()
+    )
+    if mapping is None:
+        raise OutOfScope(_("Report mapping %(id)s does not exist.") % {"id": mapping_id})
+    resolve_organization(actor, mapping.organization_id)
+    return mapping
+
+
+@transaction.atomic
+def create_chart_account(
+    *,
+    actor: User,
+    organization_id: int,
+    code: str,
+    name_ar: str,
+    name_en: str,
+    requires_cost_center: bool | None = None,
+    manual_posting_policy: str = ManualPostingPolicy.ALLOWED,
+    external_accounting_system: str = "",
+    external_account_code: str = "",
+) -> Account:
+    """
+    Add an account to one organization's chart.
+
+    `is_system` is deliberately not a parameter. A system account is seeded
+    reference data, and a user-creatable one would let an ordinary account
+    claim the protection the seeded control accounts rely on — the same
+    reasoning `AccountRole.is_system` records for the role vocabulary.
+    """
+    organization = resolve_organization(actor, organization_id)
+    require_organization_permission(actor, MANAGE_CHART_OF_ACCOUNTS, organization)
+    with _acting_as(actor):
+        return create_account(
+            organization=organization,
+            code=code,
+            name_ar=name_ar,
+            name_en=name_en,
+            requires_cost_center=requires_cost_center,
+            manual_posting_policy=manual_posting_policy,
+            external_accounting_system=external_accounting_system,
+            external_account_code=external_account_code,
+        )
+
+
+@transaction.atomic
+def update_chart_account(
+    *,
+    actor: User,
+    account_id: int,
+    name_ar: str,
+    name_en: str,
+    requires_cost_center: bool,
+    manual_posting_policy: str,
+    reason: str = "",
+    allow_system: bool = False,
+) -> Account:
+    """
+    Amend the metadata an account with journal history may safely change.
+
+    `allow_system` is the one elevated path, and it is gated here rather than
+    in the kernel because the kernel does not know who is asking. Changing the
+    manual-posting policy of a seeded control account opens `2-01-01-001` to
+    hand-written entries, which is exactly what `RESTRICTED` was seeded to
+    prevent — so it needs `accounting.manage_accounts`, the structural
+    authority from Task 0.7, and not merely the chart screen's own permission.
+    The two happen to sit with the same roles today; they are separate entries
+    so a deployment can widen the chart screen without widening this.
+    """
+    account = _resolve_account(actor, account_id)
+    require_organization_permission(actor, MANAGE_CHART_OF_ACCOUNTS, account.organization)
+    if allow_system:
+        require_organization_permission(actor, MANAGE_ACCOUNTS, account.organization)
+    with _acting_as(actor):
+        return update_account_metadata(
+            account=account,
+            name_ar=name_ar,
+            name_en=name_en,
+            requires_cost_center=requires_cost_center,
+            manual_posting_policy=manual_posting_policy,
+            reason=reason,
+            allow_system=allow_system,
+        )
+
+
+@transaction.atomic
+def archive_chart_account(*, actor: User, account_id: int, reason: str = "") -> Account:
+    """Withdraw an account from use. Never a delete — the code stays reserved."""
+    account = _resolve_account(actor, account_id)
+    require_organization_permission(actor, MANAGE_CHART_OF_ACCOUNTS, account.organization)
+    with _acting_as(actor):
+        return archive_account(account=account, reason=reason)
+
+
+@transaction.atomic
+def reactivate_chart_account(*, actor: User, account_id: int, reason: str = "") -> Account:
+    """Bring an archived account back into use."""
+    account = _resolve_account(actor, account_id)
+    require_organization_permission(actor, MANAGE_CHART_OF_ACCOUNTS, account.organization)
+    with _acting_as(actor):
+        return reactivate_account(account=account, reason=reason)
+
+
+@transaction.atomic
+def set_account_report_mapping(
+    *,
+    actor: User,
+    organization_id: int,
+    account_id: int,
+    statement_group: str,
+    presentation_section: str = PresentationSection.NOT_APPLICABLE,
+    display_order: int = 0,
+) -> AccountReportMapping:
+    """
+    Classify one account for the financial statements.
+
+    The account is resolved inside the named organization rather than fetched
+    and compared afterwards, so an id from elsewhere selects nothing at all —
+    a classification is the one place a foreign account id would be silently
+    plausible, because the statement would still balance without it.
+    """
+    organization = resolve_organization(actor, organization_id)
+    require_organization_permission(actor, MANAGE_REPORT_MAPPINGS, organization)
+    account = _scoped_account(organization, account_id)
+    with _acting_as(actor):
+        return set_report_mapping(
+            organization=organization,
+            account=account,
+            statement_group=statement_group,
+            presentation_section=presentation_section,
+            display_order=display_order,
+        )
+
+
+@transaction.atomic
+def clear_account_report_mapping(
+    *, actor: User, mapping_id: int, reason: str = ""
+) -> AccountReportMapping:
+    """Withdraw a classification. The account becomes unmapped, visibly."""
+    mapping = _resolve_report_mapping(actor, mapping_id)
+    require_organization_permission(actor, MANAGE_REPORT_MAPPINGS, mapping.organization)
+    with _acting_as(actor):
+        return clear_report_mapping(mapping=mapping, reason=reason)
+
+
+def list_chart_accounts(
+    *,
+    actor: User,
+    organization_id: int | None = None,
+    include_archived: bool = False,
+) -> QuerySet[Account]:
+    """
+    The accounts this caller may see, filtered in SQL rather than in Python.
+
+    Filtered, not checked-then-listed, for the reason `list_journal_entries`
+    records: an endpoint that fetched everything and dropped the rows it should
+    not show would still have loaded them, and the first aggregate written
+    against that queryset would report figures the caller is not entitled to.
+    """
+    organizations = organizations_with_permission(actor, VIEW_CHART_OF_ACCOUNTS)
+    accounts = Account.objects.filter(organization__in=organizations)
+    if organization_id is not None:
+        organization = resolve_organization(actor, organization_id)
+        require_reachable_organization_permission(actor, VIEW_CHART_OF_ACCOUNTS, organization)
+        accounts = accounts.filter(organization=organization)
+    if not include_archived:
+        accounts = accounts.filter(is_active=True)
+    return accounts.select_related("organization", "parent").order_by("organization__code", "code")
+
+
+def read_chart_account(*, actor: User, account_id: int) -> Account:
+    """One account, if the caller may see the chart it belongs to."""
+    account = _resolve_account(actor, account_id)
+    require_reachable_organization_permission(actor, VIEW_CHART_OF_ACCOUNTS, account.organization)
+    return account
 
 
 # ---------------------------------------------------------------------------

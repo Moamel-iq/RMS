@@ -1,0 +1,104 @@
+{# One accounting role: where it resolves, per organization, and the history. #}
+{#                                                                            #}
+{# An organization with no mapping is a ROW saying so, not an omission. A     #}
+{# table that simply left it out would read as "everything is fine", which is #}
+{# exactly the failure this screen exists to surface.                         #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-role-detail">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'accounting:role_list' %}">{% translate "الأدوار المحاسبية" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page"><bdi dir="ltr">{{ role.code }}</bdi></span>
+    </nav>
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title"><bdi dir="ltr">{{ role.code }}</bdi></h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        {% if may_manage %}
+          <a class="btn btn--primary" href="{% url 'accounting:mapping_create' %}">{% translate "ربط جديد" %}</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "تعريف الدور" %}</h2>
+      <dl class="datalist">
+        <div><dt>{% translate "الاسم بالعربية" %}</dt><dd>{{ role.name_ar }}</dd></div>
+        <div><dt>{% translate "الاسم بالإنجليزية" %}</dt><dd><bdi dir="ltr">{{ role.name_en }}</bdi></dd></div>
+        <div><dt>{% translate "المجال" %}</dt><dd>{{ role.get_domain_display }}</dd></div>
+        <div><dt>{% translate "نطاق الربط" %}</dt><dd>{{ role.get_mapping_scope_display }}</dd></div>
+        <div><dt>{% translate "مفردة نظام" %}</dt><dd>{% if role.is_system %}{% translate "نعم — لا تُعدَّل ولا تُحذف" %}{% else %}{% translate "لا" %}{% endif %}</dd></div>
+        <div><dt>{% translate "الحالة" %}</dt><dd>{% if role.is_active %}{% translate "فعّال" %}{% else %}{% translate "موقوف" %}{% endif %}</dd></div>
+      </dl>
+    </section>
+
+    {% if unresolved %}
+      <section class="card card--warn">
+        <h2 class="card__title">{% translate "مؤسسات بلا ربط سارٍ" %}</h2>
+        <p class="card__hint">
+          {% translate "أي مستند يحلّ هذا الدور في هذه المؤسسات سيفشل عند الترحيل، لا عند الإدخال." %}
+        </p>
+        <ul class="chip-list">
+          {% for organization in unresolved %}<li class="chip chip--warn">{{ organization.code }}</li>{% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    <section class="card">
+      <h2 class="card__title">
+        {% blocktranslate with day=as_of|date:"Y-m-d" %}الحساب السارٍ في {{ day }}{% endblocktranslate %}
+      </h2>
+      <div class="tablewrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>{% translate "المؤسسة" %}</th>
+              <th>{% translate "الحساب السارٍ" %}</th>
+              <th>{% translate "الإصدارات" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in resolutions %}
+              <tr>
+                <td>{{ row.organization.code }} — {{ row.organization.name_ar }}</td>
+                <td>
+                  {% if row.account %}
+                    <a href="{% url 'accounting:account_detail' row.account.pk %}">
+                      <code dir="ltr">{{ row.account.code }}</code> — {{ row.account.name_ar }}
+                    </a>
+                  {% else %}
+                    <span class="chip chip--warn">{% translate "غير مربوط" %}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% for mapping in row.history %}
+                    <div class="history-line">
+                      <span class="muted">v{{ mapping.version }}</span>
+                      <code dir="ltr">{{ mapping.account.code }}</code>
+                      <bdi dir="ltr">{{ mapping.effective_from|date:"Y-m-d" }}</bdi>
+                      —
+                      {% if mapping.effective_to %}<bdi dir="ltr">{{ mapping.effective_to|date:"Y-m-d" }}</bdi>{% else %}{% translate "مفتوح" %}{% endif %}
+                      {% if not mapping.is_active %}<span class="chip chip--muted">{% translate "مؤرشف" %}</span>{% endif %}
+                    </div>
+                  {% empty %}
+                    <span class="muted">{% translate "لا يوجد أي إصدار" %}</span>
+                  {% endfor %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="3" class="empty">{% translate "لا توجد مؤسسات في نطاقك." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}

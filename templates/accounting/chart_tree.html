@@ -1,0 +1,97 @@
+{# دليل الحسابات — the chart as a hierarchy.                                 #}
+{#                                                                           #}
+{# Roots render eagerly; every level below arrives on demand through         #}
+{# `hx-get`. Rendering the whole chart and hiding it with CSS would ship     #}
+{# several hundred rows to draw four, and the cost would grow with the chart #}
+{# rather than with what anybody actually opened.                            #}
+{#                                                                           #}
+{# The balance column is derived from posted lines at request time. There is #}
+{# no stored balance anywhere in this module to disagree with the ledger.    #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-chart-tree">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--secondary" href="{% url 'accounting:chart_list' %}">{% translate "عرض كقائمة" %}</a>
+        {% if may_manage %}
+          <a class="btn btn--primary" href="{% url 'accounting:account_create' %}">{% translate "حساب جديد" %}</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <form class="toolbar" method="get"
+          hx-get="{% url 'accounting:chart_tree' %}"
+          hx-target="#accounting-chart-tree"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          hx-trigger="change from:find select, change from:find input"
+          hx-indicator="#chart-loading">
+      <label class="field">
+        <span class="field__label">{% translate "المؤسسة" %}</span>
+        <select name="organization">
+          {% for row in organizations %}
+            <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>
+              {{ row.code }} — {{ row.name_ar }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field field--checkbox">
+        <input type="checkbox" name="archived" value="1" {% if include_archived %}checked{% endif %}>
+        <span class="field__label">{% translate "إظهار المؤرشف" %}</span>
+      </label>
+      <span class="inventory-loading" id="chart-loading" role="status" aria-live="polite">
+        {% translate "جارٍ التحميل…" %}
+      </span>
+    </form>
+
+    <section class="card">
+      <div class="tablewrap">
+        <table class="table" id="chart-tree-table">
+          <thead>
+            <tr>
+              <th>{% translate "الرمز" %}</th>
+              <th>{% translate "الاسم" %}</th>
+              <th>{% translate "الصنف" %}</th>
+              <th>{% translate "قابل للترحيل" %}</th>
+              <th>{% translate "الرصيد" %}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for node in roots %}
+              <tr class="chart-row chart-row--level-0">
+                <td>
+                  <button class="tree-toggle" type="button"
+                          hx-get="{% url 'accounting:chart_children' node.account.pk %}{% if include_archived %}?archived=1{% endif %}"
+                          hx-target="closest tr"
+                          hx-swap="afterend"
+                          hx-indicator="#chart-loading"
+                          aria-label="{% translate 'افتح الفروع' %}">+</button>
+                  <code dir="ltr">{{ node.account.code }}</code>
+                </td>
+                <td>{{ node.account.name_ar }}</td>
+                <td>{{ node.account.get_account_class_display }}</td>
+                <td>{% if node.account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
+                <td><bdi dir="ltr">{{ node.balance|money_full }}</bdi></td>
+                <td class="cell-actions">
+                  <a class="btn btn--secondary btn--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="6" class="empty">{% translate "لا يوجد دليل حسابات لهذه المؤسسة بعد." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}

@@ -1,5 +1,5 @@
 """
-The thirteen accounting permissions, their scope, and which role holds them.
+The sixteen accounting permissions, their scope, and which role holds them.
 
 Django's `add`/`change`/`delete` describe table access, not accounting acts.
 "May amend a draft" and "may post it to the ledger" are different authorities
@@ -33,13 +33,17 @@ class PermissionScope(Enum):
     BRANCH = "BRANCH"
 
 
-# --- The thirteen ---------------------------------------------------------
+# --- The sixteen ----------------------------------------------------------
 
 VIEW_JOURNAL = f"{APP_LABEL}.view_journal"
 CREATE_DRAFT = f"{APP_LABEL}.create_draft"
 EDIT_DRAFT = f"{APP_LABEL}.edit_draft"
 POST_JOURNAL = f"{APP_LABEL}.post_journal"
 REVERSE_JOURNAL = f"{APP_LABEL}.reverse_journal"
+#: A manual line on a control account a subledger owns. See ADR-029 section 2:
+#: the entry balances and posts, and it silently breaks the subledger-to-GL
+#: equality the reconciliation workspaces exist to prove.
+POST_RESTRICTED_MANUAL_JOURNAL = f"{APP_LABEL}.post_restricted_manual_journal"
 MANAGE_ACCOUNTS = f"{APP_LABEL}.manage_accounts"
 MANAGE_COST_CENTERS = f"{APP_LABEL}.manage_cost_centers"
 MANAGE_ACCOUNT_MAPPINGS = f"{APP_LABEL}.manage_account_mappings"
@@ -49,12 +53,24 @@ REOPEN_PERIOD = f"{APP_LABEL}.reopen_period"
 POST_SOFT_CLOSED_ADJUSTMENT = f"{APP_LABEL}.post_soft_closed_adjustment"
 REVERSE_IN_SOFT_CLOSED_PERIOD = f"{APP_LABEL}.reverse_in_soft_closed_period"
 
+# --- Phase 5, checkpoint 1 (Task 5.0 §6, ADR-029 §7) ----------------------
+#
+# `manage_accounts` (Task 0.7) already existed and keeps its meaning. These
+# three are the authority over the chart *screen* and the statement mapping,
+# and they are separate entries so a deployment can hand out the read without
+# the write — which is the whole reason an accountant can code a journal line
+# without also being able to reshape the chart.
+VIEW_CHART_OF_ACCOUNTS = f"{APP_LABEL}.view_chart_of_accounts"
+MANAGE_CHART_OF_ACCOUNTS = f"{APP_LABEL}.manage_chart_of_accounts"
+MANAGE_REPORT_MAPPINGS = f"{APP_LABEL}.manage_report_mappings"
+
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_JOURNAL,
     CREATE_DRAFT,
     EDIT_DRAFT,
     POST_JOURNAL,
     REVERSE_JOURNAL,
+    POST_RESTRICTED_MANUAL_JOURNAL,
     MANAGE_ACCOUNTS,
     MANAGE_COST_CENTERS,
     MANAGE_ACCOUNT_MAPPINGS,
@@ -63,6 +79,9 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     REOPEN_PERIOD,
     POST_SOFT_CLOSED_ADJUSTMENT,
     REVERSE_IN_SOFT_CLOSED_PERIOD,
+    VIEW_CHART_OF_ACCOUNTS,
+    MANAGE_CHART_OF_ACCOUNTS,
+    MANAGE_REPORT_MAPPINGS,
 )
 
 
@@ -73,6 +92,11 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     EDIT_DRAFT: PermissionScope.BRANCH,
     POST_JOURNAL: PermissionScope.BRANCH,
     REVERSE_JOURNAL: PermissionScope.BRANCH,
+    # Organization authority, even though the line it authorizes lands on a
+    # branch: which accounts are controlled is a decision about the chart, and
+    # the chart belongs to the organization (ADR-014). Both are checked - this
+    # over the organization, the lines at their branches.
+    POST_RESTRICTED_MANUAL_JOURNAL: PermissionScope.ORGANIZATION,
     # The chart of accounts and the cost centres belong to the organization
     # (ADR-014, ADR-015). One branch must not reshape what the others post to.
     MANAGE_ACCOUNTS: PermissionScope.ORGANIZATION,
@@ -92,6 +116,15 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # checked: the override over the organization, the lines at their branches.
     POST_SOFT_CLOSED_ADJUSTMENT: PermissionScope.ORGANIZATION,
     REVERSE_IN_SOFT_CLOSED_PERIOD: PermissionScope.ORGANIZATION,
+    # The chart and the statement mapping are organization structure (ADR-014,
+    # ADR-031). One branch must not reshape what the others post to, and a
+    # statement group decides how every branch's balance is presented at once,
+    # so neither is answerable per branch — including the read, which is a
+    # question about the organization's chart and not about any branch's slice
+    # of it.
+    VIEW_CHART_OF_ACCOUNTS: PermissionScope.ORGANIZATION,
+    MANAGE_CHART_OF_ACCOUNTS: PermissionScope.ORGANIZATION,
+    MANAGE_REPORT_MAPPINGS: PermissionScope.ORGANIZATION,
 }
 
 
@@ -121,6 +154,11 @@ _FULL = frozenset(ALL_PERMISSIONS)
 #: These are defaults, not kernel rules. A deployment that wants a senior
 #: accountant to hold more grants it deliberately, by changing this table or
 #: by adding the permission to that user — no accounting code changes.
+#:
+#: `view_chart_of_accounts` is here and the two manage permissions are not,
+#: and that is the whole distinction: an accountant has to *read* the chart to
+#: code a journal line, and reshaping it is a structural decision that affects
+#: every branch's postings at once.
 _ACCOUNTANT = frozenset(
     {
         VIEW_JOURNAL,
@@ -128,18 +166,29 @@ _ACCOUNTANT = frozenset(
         EDIT_DRAFT,
         POST_JOURNAL,
         REVERSE_JOURNAL,
+        VIEW_CHART_OF_ACCOUNTS,
     }
 )
 
-#: Read the ledger, change nothing in it.
-_READ_ONLY = frozenset({VIEW_JOURNAL})
+#: Read the ledger and the chart, change nothing in either.
+_READ_ONLY = frozenset({VIEW_JOURNAL, VIEW_CHART_OF_ACCOUNTS})
+
+#: Read the ledger only.
+#:
+#: A purchasing officer reads journals because Procurement's documents post
+#: into them, and Task 5.0 §V does not extend that to the chart: which account
+#: carries a role is resolved for them by the posting rules, so the chart is
+#: not a screen their work needs. Kept separate from `_READ_ONLY` rather than
+#: widened along with it, because "the two happen to be equal today" is how a
+#: shared constant quietly grants something nobody decided to grant.
+_LEDGER_READ_ONLY = frozenset({VIEW_JOURNAL})
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     Role.OWNER.value: _FULL,
     Role.ACCOUNTING_MANAGER.value: _FULL,
     Role.ACCOUNTANT.value: _ACCOUNTANT,
     Role.MANAGER.value: _READ_ONLY,
-    Role.PURCHASING.value: _READ_ONLY,
+    Role.PURCHASING.value: _LEDGER_READ_ONLY,
     Role.VIEWER.value: _READ_ONLY,
     # Neither post carries accounting authority. A cashier records takings
     # through the sales module, which posts on their behalf under its own
