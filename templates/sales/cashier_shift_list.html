@@ -1,0 +1,116 @@
+{# إقفال الكاشير — one row per till, per branch, per business date.           #}
+{#                                                                           #}
+{# Expected, counted and variance are three columns and never one. Which two #}
+{# of them agree is the diagnosis: expected and counted agreeing is a clean  #}
+{# drawer, and a variance column alone would say how much without ever       #}
+{# saying against what.                                                      #}
+{#                                                                           #}
+{# The variance is signed and is rendered with its sign intact. A magnitude  #}
+{# with a word beside it would make "short" and "over" a reading exercise on #}
+{# the one column somebody scans down a page of.                             #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="field">
+    <span class="field__label">{% translate "الحالة" %}</span>
+    <select name="status">
+      <option value="">{% translate "كل الحالات" %}</option>
+      {% for value, label in statuses %}
+        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "تاريخ العمل" %}</th>
+  <th>{% translate "الفرع" %}</th>
+  <th>{% translate "الكاشير" %}</th>
+  <th>{% translate "العهدة" %}</th>
+  <th>{% translate "المتوقَّع" %}</th>
+  <th>{% translate "المعدود" %}</th>
+  <th>{% translate "الفرق" %}</th>
+  <th>{% translate "الرقم" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for shift in shifts %}
+    <tr>
+      <td data-label="{% translate 'تاريخ العمل' %}">
+        <a href="{% url 'sales:shift_detail' shift.pk %}">
+          <bdi dir="ltr"><code>{{ shift.business_date|date:"Y-m-d" }}</code></bdi>
+        </a>
+      </td>
+      <td data-label="{% translate 'الفرع' %}">
+        <bdi dir="ltr"><code>{{ shift.branch.code }}</code></bdi>
+        {{ shift.branch.name_ar }}
+      </td>
+      <td data-label="{% translate 'الكاشير' %}">{{ shift.cashier.get_full_name|default:shift.cashier.username }}</td>
+      {# Recorded, never posted: the restaurant's own money moved from a safe #}
+      {# into a drawer is not an economic event.                             #}
+      <td data-label="{% translate 'العهدة' %}">
+        <bdi dir="ltr"><code>{{ shift.opening_float }}</code></bdi>
+      </td>
+      <td data-label="{% translate 'المتوقَّع' %}">
+        {% if shift.status == "OPEN" %}
+          <span class="muted">{% translate "لم يُقفل" %}</span>
+        {% else %}
+          <bdi dir="ltr"><code>{{ shift.expected_cash }}</code></bdi>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'المعدود' %}">
+        {% if shift.status == "OPEN" %}
+          <span class="muted">—</span>
+        {% else %}
+          <bdi dir="ltr"><code>{{ shift.counted_cash }}</code></bdi>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'الفرق' %}">
+        {% if shift.status == "OPEN" %}
+          <span class="muted">—</span>
+        {% elif shift.variance_amount == 0 %}
+          <span class="chip chip--ok">{% translate "مطابق" %}</span>
+        {% else %}
+          <bdi dir="ltr"><code>{{ shift.variance_amount }}</code></bdi>
+          {% if shift.is_short %}
+            <span class="chip chip--bad">{% translate "عجز" %}</span>
+          {% else %}
+            <span class="chip">{% translate "زيادة" %}</span>
+          {% endif %}
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'الرقم' %}">
+        {% if shift.number %}
+          <bdi dir="ltr"><code>{{ shift.number }}</code></bdi>
+        {% else %}
+          <span class="muted">{% translate "لم يُعتمد" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if shift.status == "APPROVED" %}
+          <span class="chip chip--ok">{{ shift.get_status_display }}</span>
+        {% elif shift.status == "REVERSED" %}
+          <span class="chip chip--bad">{{ shift.get_status_display }}</span>
+        {% else %}
+          <span class="chip">{{ shift.get_status_display }}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        <div class="rowactions">
+          <a class="btn btn--quiet btn--sm" href="{% url 'sales:shift_detail' shift.pk %}">
+            {% translate "فتح" %}
+          </a>
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="10">
+        {% translate "لا توجد صناديق بعد. الإقفال يُرحّل فرق الصندوق وحده — لا الإيراد ولا العهدة ولا البطاقات." %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endblock %}

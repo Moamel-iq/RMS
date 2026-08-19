@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends form_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# Correct a mapping nothing has posted through yet. Every field is optional: #}

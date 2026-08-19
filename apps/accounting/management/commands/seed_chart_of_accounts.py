@@ -15,7 +15,7 @@ from typing import Any
 from django.core.management.base import CommandError
 from django.db import transaction
 
-from apps.accounting.models import Account, CostCenter
+from apps.accounting.models import Account, CostCenter, ManualPostingPolicy
 from apps.accounting.services import create_account, create_cost_center
 from apps.core.console import SeedCommand
 from apps.organizations.models import Organization
@@ -61,6 +61,18 @@ CHART: list[tuple[str, str, str]] = [
     ("1-04", "السلف والدفعات المقدمة", "Advances and prepayments"),
     ("1-04-01", "سلف الموردين", "Supplier advances"),
     ("1-04-01-001", "سلف الموردين", "Supplier Advances"),
+    # Rent, insurance and licences paid before the period they cover (Task 5.0,
+    # ADR-030 §5). An **asset**, and the reason it is not an expense on the day
+    # it is paid: a quarter's rent settled in January is a right to occupy the
+    # premises in February and March, and booking all of it in January would
+    # make one month carry three months of cost and the next two carry none.
+    #
+    # Released to expense one schedule line at a time, and the schedule is
+    # split with the certified allocator so `Σ lines == total` exactly — a
+    # residual thousandth here would leave this account permanently non-zero
+    # and unclosable at year end.
+    ("1-04-02", "مصروفات مدفوعة مقدماً", "Prepaid expenses"),
+    ("1-04-02-001", "مصروفات مدفوعة مقدماً", "Prepaid Expenses"),
     # 2 Liabilities
     ("2", "الالتزامات", "Liabilities"),
     ("2-01", "الذمم الدائنة", "Payables"),
@@ -71,6 +83,18 @@ CHART: list[tuple[str, str, str]] = [
     # until the invoice arrives, and Procurement clears this against it.
     ("2-01-02", "بضاعة مستلمة غير مفوترة", "Goods received not invoiced"),
     ("2-01-02-001", "بضاعة مستلمة غير مفوترة", "Goods Received Not Invoiced"),
+    # A cost incurred that no invoice has stated yet (Task 5.0, ADR-030 §4).
+    # A liability of its own and deliberately not the supplier payable: nobody
+    # has named an amount, so the balance cannot be aged, allocated or paid,
+    # and putting it in `2-01-01-001` would make the supplier reconciliation
+    # report a difference for every accrual outstanding at month end.
+    #
+    # An accrual is what an unpaid expense is. An expense voucher posting to a
+    # generic payable and settling later would be a supplier subledger with no
+    # supplier — an unaged, unallocatable liability nobody can reconcile.
+    ("2-02", "الالتزامات المستحقة", "Accrued liabilities"),
+    ("2-02-01", "مصروفات مستحقة", "Accrued expenses"),
+    ("2-02-01-001", "مصروفات مستحقة الدفع", "Accrued Expenses Payable"),
     # 3 Equity
     ("3", "حقوق الملكية", "Equity"),
     ("3-01", "رأس المال", "Capital"),
@@ -79,6 +103,25 @@ CHART: list[tuple[str, str, str]] = [
     ("3-02", "أرصدة افتتاحية", "Opening balances"),
     ("3-02-01", "أرصدة افتتاحية", "Opening balances"),
     ("3-02-01-001", "أرصدة افتتاحية - مخزون", "Inventory Opening Equity"),
+    # Where the year-end closing journal leaves the result (Task 5.0,
+    # ADR-031 §4). The accumulated outcome of every year already closed.
+    ("3-03", "الأرباح المحتجزة", "Retained earnings"),
+    ("3-03-01", "الأرباح المحتجزة", "Retained earnings"),
+    ("3-03-01-001", "الأرباح المحتجزة", "Retained Earnings"),
+    # This year's result, and separate from retained earnings on purpose
+    # (ADR-031 §3). Before the year closes the balance sheet carries a
+    # **computed** equity line — year-to-date revenue less year-to-date
+    # expenses — so that `Assets = Liabilities + Equity` holds on any date in
+    # an ordinary open month with no closing entry posted.
+    #
+    # Not closed monthly, and that is a decision rather than an omission.
+    # Monthly closing entries destroy the year-to-date income statement: once
+    # March's revenue has been swept to equity, "revenue for the year so far"
+    # has to be reconstructed from closing journals rather than read from the
+    # accounts, and comparatives across the boundary stop meaning what they say.
+    ("3-04", "نتيجة السنة الحالية", "Current year earnings"),
+    ("3-04-01", "نتيجة السنة الحالية", "Current year earnings"),
+    ("3-04-01-001", "نتيجة السنة الحالية", "Current Year Earnings"),
     # 4 Revenue
     ("4", "الإيرادات", "Revenue"),
     ("4-01", "إيرادات المبيعات", "Sales revenue"),
@@ -233,6 +276,40 @@ CHART: list[tuple[str, str, str]] = [
 #: later fails loudly if it is missing rather than mid-settlement.
 CASH_ROUNDING_ACCOUNT_CODE = "7-09-01-001"
 
+#: The accounts a subledger owns, and which therefore accept a manual journal
+#: line only from somebody holding `post_restricted_manual_journal`
+#: (ADR-029 §2).
+#:
+#: `RESTRICTED` rather than `FORBIDDEN`, deliberately. A manual credit to
+#: supplier payable is not an accounting error — it balances, it posts, and the
+#: trial balance still ties. What it does is break the equality that
+#: `ذمم الموردين` exists to prove, and the workspace then reports a discrepancy
+#: whose cause is invisible from the subledger side: there is no invoice, no
+#: credit note and no payment to show for it. `FORBIDDEN` would refuse the
+#: entry an accountant occasionally, genuinely needs; `RESTRICTED` keeps it
+#: available and makes it nameable as the reason the two sides disagree.
+#:
+#: The two earnings accounts are here for a different reason. Nothing but the
+#: year-end closing journal may post to them — a hand-written entry into
+#: retained earnings restates a closed year, and the balance sheet would then
+#: disagree with the closing journal that is supposed to explain it.
+RESTRICTED_CONTROL_ACCOUNT_CODES: tuple[str, ...] = (
+    # Procurement's supplier subledger.
+    "2-01-01-001",
+    # GRNI — cleared by Procurement against the invoice that catches up.
+    "2-01-02-001",
+    # Inventory's stock value control.
+    "1-03-01-001",
+    # Sales's delivery-application receivable, every leaf of it.
+    "1-02-01-001",
+    "1-02-01-002",
+    "1-02-01-003",
+    "1-02-01-009",
+    # Accounting's own year-end accounts.
+    "3-03-01-001",
+    "3-04-01-001",
+)
+
 COST_CENTERS: list[tuple[str, str, str]] = [
     ("KITCHEN", "المطبخ", "Kitchen"),
     ("HALL", "الصالة", "Hall"),
@@ -241,6 +318,18 @@ COST_CENTERS: list[tuple[str, str, str]] = [
     ("ADMIN", "الإدارة", "Administration"),
     ("HR", "الموارد البشرية", "Human Resources"),
 ]
+
+
+def _policy_for(account_code: str) -> str:
+    """
+    The manual-posting policy this seed declares for one code.
+
+    A rollup is always `ALLOWED` — it never receives a line, so a policy on it
+    is a claim about nothing, and the database refuses one anyway.
+    """
+    if account_code in RESTRICTED_CONTROL_ACCOUNT_CODES:
+        return ManualPostingPolicy.RESTRICTED
+    return ManualPostingPolicy.ALLOWED
 
 
 class Command(SeedCommand):
@@ -269,8 +358,12 @@ class Command(SeedCommand):
                 code=account_code,
                 name_ar=name_ar,
                 name_en=name_en,
+                manual_posting_policy=_policy_for(account_code),
+                is_system=True,
             )
             created_accounts += 1
+
+        reconciled_accounts = self._reconcile_system_flags(organization)
 
         created_centers = 0
         for center_code, name_ar, name_en in COST_CENTERS:
@@ -289,9 +382,37 @@ class Command(SeedCommand):
                 "Cash settlement rounding cannot be enabled without it."
             )
 
-        self.stdout.write(
+        self.write(
             self.style.SUCCESS(
                 f"{organization.code}: {created_accounts} accounts and "
-                f"{created_centers} cost centres created."
+                f"{created_centers} cost centres created, "
+                f"{reconciled_accounts} existing accounts brought up to date."
             )
         )
+
+    def _reconcile_system_flags(self, organization: Organization) -> int:
+        """
+        Bring accounts seeded before Phase 5 up to the flags this file declares.
+
+        Needed because `create_account` only runs for an account that does not
+        exist yet, and every deployment already has the chart. Without this
+        pass, a database seeded in Phase 1 would carry `is_system = False` on
+        `2-01-01-001` forever and the supplier control account would stay
+        openly writable by hand.
+
+        Convergent, so it is also the idempotency guarantee rather than a
+        threat to it: a row already holding the declared values is not written
+        at all, so the second run reports zero and touches nothing — not even
+        `updated_at`, and not a history row.
+        """
+        changed = 0
+        seeded_codes = [account_code for account_code, *_ in CHART]
+        for account in Account.objects.filter(organization=organization, code__in=seeded_codes):
+            policy = _policy_for(account.code)
+            if account.is_system and account.manual_posting_policy == policy:
+                continue
+            account.is_system = True
+            account.manual_posting_policy = policy
+            account.save(update_fields=["is_system", "manual_posting_policy", "updated_at"])
+            changed += 1
+        return changed

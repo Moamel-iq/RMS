@@ -1,0 +1,58 @@
+{# One supplier's statement, in the order an auditor reads it.               #}
+{#                                                                           #}
+{# The chronology is the journal's: business date, then posted_at, then      #}
+{# entry number. An earlier Procurement cut ordered same-day rows by         #}
+{# document kind, which was deterministic and wrong — it told a different    #}
+{# story from the ledger for anybody reconciling the two.                    #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags report_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-supplier-statement">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'accounting:supplier_liability_list' %}">{% translate "ذمم الموردين" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ supplier.name_ar }}</span>
+    </nav>
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ supplier.name_ar }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--secondary" href="{% url 'procurement:supplier_update' supplier.pk %}">
+          {% translate "بطاقة المورد في المشتريات" %}
+        </a>
+      </div>
+    </div>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "كشف الحساب" %}</h2>
+      <div class="tablewrap">
+        <table class="table" id="supplier-statement-table">
+          <thead>
+            <tr>
+              {% for column in rows.0.keys %}<th>{{ column }}</th>{% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                {% for key, value in row.items %}
+                  <td>
+                    {% if row|is_ltr_cell:key %}<bdi dir="ltr">{{ value }}</bdi>{% else %}{{ value }}{% endif %}
+                  </td>
+                {% endfor %}
+              </tr>
+            {% empty %}
+              <tr><td class="empty">{% translate "لا مستندات مُرحَّلة لهذا المورد." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}

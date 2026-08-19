@@ -1,0 +1,91 @@
+{# تسويات التطبيقات — one row per statement from one delivery company.       #}
+{#                                                                           #}
+{# Three money columns, never one. Expected, statement and remitted are kept #}
+{# apart on the list for the same reason they are kept apart on the document #}
+{# (ADR-028 §7): which two of them agree is the diagnosis, and a single      #}
+{# "variance" column would throw that away before the reader ever opens a    #}
+{# row.                                                                      #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="field">
+    <span class="field__label">{% translate "الحالة" %}</span>
+    <select name="status">
+      <option value="">{% translate "كل الحالات" %}</option>
+      {% for value, label in statuses %}
+        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الفترة" %}</th>
+  <th>{% translate "التطبيق" %}</th>
+  <th>{% translate "كشف الحساب" %}</th>
+  <th>{% translate "المستحق" %}</th>
+  <th>{% translate "الكشف" %}</th>
+  <th>{% translate "المحوَّل" %}</th>
+  <th>{% translate "الرقم" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for settlement in settlements %}
+    <tr>
+      <td data-label="{% translate 'الفترة' %}">
+        <a href="{% url 'sales:settlement_detail' settlement.pk %}">
+          <bdi dir="ltr"><code>{{ settlement.period_start|date:"Y-m-d" }} … {{ settlement.period_end|date:"Y-m-d" }}</code></bdi>
+        </a>
+      </td>
+      <td data-label="{% translate 'التطبيق' %}">
+        <bdi dir="ltr"><code>{{ settlement.delivery_application.code }}</code></bdi>
+        {{ settlement.delivery_application.name_ar }}
+      </td>
+      <td data-label="{% translate 'كشف الحساب' %}">
+        <bdi dir="ltr"><code>{{ settlement.statement_reference }}</code></bdi>
+      </td>
+      {# Three separate figures. Never netted into one. #}
+      <td data-label="{% translate 'المستحق' %}">
+        <bdi dir="ltr"><code>{{ settlement.expected_amount }}</code></bdi>
+      </td>
+      <td data-label="{% translate 'الكشف' %}">
+        <bdi dir="ltr"><code>{{ settlement.statement_amount }}</code></bdi>
+      </td>
+      <td data-label="{% translate 'المحوَّل' %}">
+        <bdi dir="ltr"><code>{{ settlement.remitted_amount }}</code></bdi>
+      </td>
+      <td data-label="{% translate 'الرقم' %}">
+        {% if settlement.number %}
+          <bdi dir="ltr"><code>{{ settlement.number }}</code></bdi>
+        {% else %}
+          <span class="muted">{% translate "لم تُرحَّل" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if settlement.status == "POSTED" %}
+          <span class="chip chip--ok">{{ settlement.get_status_display }}</span>
+        {% elif settlement.status == "REVERSED" %}
+          <span class="chip chip--bad">{{ settlement.get_status_display }}</span>
+        {% else %}
+          <span class="chip">{{ settlement.get_status_display }}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        <div class="rowactions">
+          <a class="btn btn--quiet btn--sm" href="{% url 'sales:settlement_detail' settlement.pk %}">
+            {% translate "فتح" %}
+          </a>
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="9">
+        {% translate "لا توجد تسويات بعد. التسوية تُخصَّص على حركات ذمة مرحّلة، لا على إجمالي فترة." %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endblock %}

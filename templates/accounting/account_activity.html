@@ -1,0 +1,99 @@
+{# One account's posted movement, with a running balance.                    #}
+{#                                                                           #}
+{# The running balance is accumulated in the view, never here. Template      #}
+{# arithmetic cannot carry a Decimal across rows without a filter that hides #}
+{# the ordering assumption — and the ordering IS the content of the column:  #}
+{# business date, then posted_at, then entry number, then line number.       #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-account-activity">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'accounting:chart_tree' %}">{% translate "دليل الحسابات" %}</a>
+      <span aria-hidden="true">/</span>
+      <a href="{% url 'accounting:account_detail' account.pk %}"><bdi dir="ltr">{{ account.code }}</bdi></a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{% translate "الحركة" %}</span>
+    </nav>
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+    </div>
+
+    <form class="toolbar" method="get"
+          hx-get="{% url 'accounting:account_activity' account.pk %}"
+          hx-target="#accounting-account-activity"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          hx-trigger="change from:find input"
+          hx-indicator="#activity-loading">
+      <label class="field">
+        <span class="field__label">{% translate "من" %}</span>
+        <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}">
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "إلى" %}</span>
+        <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}">
+      </label>
+      <span class="inventory-loading" id="activity-loading" role="status" aria-live="polite">
+        {% translate "جارٍ التحميل…" %}
+      </span>
+    </form>
+
+    <section class="card">
+      <div class="summary-row">
+        <div class="summary-row__item">
+          <span class="summary-row__label">{% translate "رصيد افتتاحي" %}</span>
+          <span class="summary-row__value"><bdi dir="ltr">{{ opening|money_full }}</bdi></span>
+        </div>
+        <div class="summary-row__item">
+          <span class="summary-row__label">{% translate "رصيد ختامي" %}</span>
+          <span class="summary-row__value"><bdi dir="ltr">{{ closing|money_full }}</bdi></span>
+        </div>
+      </div>
+
+      <div class="tablewrap">
+        <table class="table" id="account-activity-table">
+          <thead><tr>
+            <th>{% translate "التاريخ" %}</th>
+            <th>{% translate "القيد" %}</th>
+            <th>{% translate "المصدر" %}</th>
+            <th>{% translate "الفرع" %}</th>
+            <th>{% translate "مركز الكلفة" %}</th>
+            <th>{% translate "مدين" %}</th>
+            <th>{% translate "دائن" %}</th>
+            <th>{% translate "الرصيد" %}</th>
+          </tr></thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td><bdi dir="ltr">{{ row.line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
+                <td><a href="{% url 'accounting:journal_detail' row.line.entry.pk %}"><bdi dir="ltr">{{ row.line.entry.entry_number }}</bdi></a></td>
+                <td>
+                  {% if row.line.entry.source_document_type %}
+                    <code dir="ltr">{{ row.line.entry.source_document_type }}</code>
+                  {% else %}
+                    {% translate "يدوي" %}
+                  {% endif %}
+                </td>
+                <td>{{ row.line.branch.code }}</td>
+                <td>{% if row.line.cost_center %}{{ row.line.cost_center.code }}{% else %}—{% endif %}</td>
+                <td><bdi dir="ltr">{{ row.line.debit|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.line.credit|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="8" class="empty">{% translate "لا حركة في هذه الفترة." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}

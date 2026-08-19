@@ -87,7 +87,10 @@ class CoverageStatus(StrEnum):
     """Whether a declared source can actually answer."""
 
     AVAILABLE = "AVAILABLE"
-    #: The adapter does not exist because its data does not exist. Not an error.
+    #: The adapter is not registered in this deployment because its data does
+    #: not exist here. Not an error, and — since Phase 4 — not permanent: the
+    #: value is reported for a *declared* source type with no adapter, which is
+    #: a statement about what is installed rather than about what is built.
     DEFERRED_TO_PHASE_4 = "DEFERRED_TO_PHASE_4"
 
 
@@ -95,9 +98,16 @@ class CoverageStatus(StrEnum):
 #: filters. A reader who sees a number must see this beside it.
 SALES_NOT_INCLUDED = "SALES_NOT_INCLUDED_PHASE_4"
 
+#: The counterpart, stamped once Phase 4's adapter is registered. Its own
+#: value rather than the absence of the first, because a reader of a CSV has
+#: to see which of the two claims a figure carries — silence is not a claim.
+SALES_INCLUDED = "SALES_INCLUDED"
+
 #: What a partial diagnostic is, so nobody can mistake it for the real thing.
 PARTIAL_COVERAGE = "PARTIAL_COVERAGE"
 NOT_FINAL_USAGE_VARIANCE = "NOT_FINAL_USAGE_VARIANCE"
+COMPLETE_COVERAGE = "COMPLETE_COVERAGE"
+FINAL_USAGE_VARIANCE = "FINAL_USAGE_VARIANCE"
 FINAL_SALES_USAGE_VARIANCE_NOT_AVAILABLE = "FINAL_SALES_USAGE_VARIANCE_NOT_AVAILABLE"
 
 #: Task 3.7's standing limitation, restated here because this is the module
@@ -110,6 +120,11 @@ MEAL_ACCOUNTING_RECLASSIFICATION_DEFERRED = "MEAL_ACCOUNTING_RECLASSIFICATION_DE
 SALES_COVERAGE_NOTICE: Promise = _(
     "الاستهلاك النظري المعتمد على المبيعات غير مكتمل حالياً؛ "
     "سيتم ربط كميات المبيعات المعتمدة في المرحلة الرابعة."
+)
+
+#: Rendered once approved sales quantities are part of the figure.
+SALES_INCLUDED_NOTICE: Promise = _(
+    "الاستهلاك النظري يشمل كميات المبيعات المعتمدة ووجبات الموظفين والوجبات المجانية."
 )
 
 #: Rendered beside any partial usage-variance figure.
@@ -358,33 +373,125 @@ class MealEquivalentSource:
         return contributions
 
 
-#: Every source that can actually answer today. **`SALES` is not here**, and
-#: its absence is the mechanism: `theoretical_consumption_coverage` reports
-#: every declared source type against this registry and names the gap.
+#: Every source that can actually answer, in this deployment, right now.
+#:
+#: The two meal adapters are built in. `SALES` is **registered from outside**
+#: by `apps.sales` at app-ready, and that inversion is the whole reason this is
+#: a mutable registry rather than a literal: the kitchen must not import a
+#: sales model, and sales must not reach inside the kitchen's arithmetic
+#: (ADR-027 section 9).
+#:
+#: `theoretical_consumption_coverage` reports every declared source *type*
+#: against this registry, so a deployment where sales is not installed still
+#: names the gap honestly, and one where it is reports a final figure.
 REGISTERED_SOURCES: tuple[TheoreticalConsumptionSource, ...] = (
     MealEquivalentSource(source_type=TheoreticalSourceType.STAFF_MEAL),
     MealEquivalentSource(source_type=TheoreticalSourceType.COMPLIMENTARY_MEAL),
 )
 
+#: The kitchen's own adapters. A module registering from outside may not
+#: replace one: the meal sources are this module's, and something that could
+#: shadow them could silently restate what the staff ate.
+_BUILT_IN = frozenset({TheoreticalSourceType.STAFF_MEAL, TheoreticalSourceType.COMPLIMENTARY_MEAL})
+
+
+def register_theoretical_source(source: TheoreticalConsumptionSource) -> None:
+    """
+    Add a source the kitchen does not own. Called by the module that owns it.
+
+    **Idempotent by source type.** `AppConfig.ready()` can run more than once
+    in a test process, and a registry that accumulated duplicates would count
+    every sales contribution twice — precisely the double count this whole area
+    exists to avoid. Re-registering a type replaces it rather than appending.
+    """
+    global REGISTERED_SOURCES  # noqa: PLW0603 - a registry is what this is
+
+    if source.source_type in _BUILT_IN:
+        raise ValueError(
+            f"{source.source_type} is the kitchen's own adapter and may not be replaced"
+        )
+    REGISTERED_SOURCES = (
+        *(row for row in REGISTERED_SOURCES if row.source_type != source.source_type),
+        source,
+    )
+
+
+def sales_source_is_registered() -> bool:
+    """
+    Whether approved sales quantities can be read at all.
+
+    The one question every coverage code is computed from. A deployment without
+    `apps.sales` answers `False` and keeps Phase 3's honest limitation; one with
+    it answers `True` and the limitation disappears — which is what Task 3.8
+    promised when it reserved the value and shipped no adapter.
+    """
+    return any(row.source_type == TheoreticalSourceType.SALES for row in REGISTERED_SOURCES)
+
+
+def coverage_code() -> str:
+    """
+    The code stamped on every theoretical figure, computed rather than fixed.
+
+    Task 3.8 wrote `SALES_NOT_INCLUDED_PHASE_4` as a constant default, which was
+    correct while no adapter could exist. It is a *fact about the deployment*
+    now, so it is answered rather than asserted.
+    """
+    return SALES_INCLUDED if sales_source_is_registered() else SALES_NOT_INCLUDED
+
+
+def coverage_labels() -> tuple[str, str]:
+    """
+    The pair a usage-variance surface stamps: coverage, then finality.
+
+    Returned together because they move together. A variance whose theoretical
+    side excludes sales is partial *and* non-final; one that includes it is
+    neither, and no combination in between is meaningful.
+    """
+    if sales_source_is_registered():
+        return (COMPLETE_COVERAGE, FINAL_USAGE_VARIANCE)
+    return (PARTIAL_COVERAGE, NOT_FINAL_USAGE_VARIANCE)
+
 
 def _scoped(user: User, filters: MealUsageFilters) -> tuple[int, list[int]] | None:
     """
-    The organization and branches this caller may read meals in.
+    The organization and branches this caller may read theoretical figures in.
+
+    Taken from the caller's **branch reach** — the branches where a post they
+    hold carries `view_kitchen_report` — and never from the rows that happen to
+    exist. It was derived from `MealRecord` until Phase 4, which was
+    self-consistent while every source read meals and became a silent
+    subtraction the moment one did not: a branch that posts sales and never
+    logs a staff meal produced no identifiers, so the scope was `None`, so the
+    sales adapter was never called — while `theoretical_consumption_coverage`
+    stamped the same figure `SALES_INCLUDED` and `is_final=True`. Every
+    ingredient those sales consumed then appeared as unexplained variance on a
+    report claiming to be complete, which is worse than the honest
+    `DEFERRED_TO_PHASE_4` zero it replaced.
 
     Returns `None` when the caller reaches nothing, which every caller treats
     as an empty report rather than as an error: a user with no membership has
     an empty kitchen, not a broken one.
-    """
-    from apps.kitchen.selectors import visible_meal_records
 
-    visible = visible_meal_records(user)
+    One organization, as before. Which one is now decided in a stated order
+    rather than by whichever row the database returned first, and the branches
+    are the ones belonging to *that* organization — the old shape could pair one
+    organization's id with another organization's branches.
+    """
+    from apps.kitchen.permissions import VIEW_KITCHEN_REPORT
+    from apps.organizations.authorization import branches_with_permission
+
+    branches = branches_with_permission(user, VIEW_KITCHEN_REPORT)
     if filters.branch_id:
-        visible = visible.filter(branch_id=filters.branch_id)
-    identifiers = list(visible.values_list("organization_id", "branch_id").distinct())
+        branches = branches.filter(pk=filters.branch_id)
+    identifiers = list(
+        branches.order_by("organization__code", "code").values_list("organization_id", "id")
+    )
     if not identifiers:
         return None
     organization_id = identifiers[0][0]
-    return organization_id, sorted({branch_id for _org, branch_id in identifiers})
+    return organization_id, sorted(
+        branch_id for organization, branch_id in identifiers if organization == organization_id
+    )
 
 
 def _usage(
@@ -527,6 +634,16 @@ class TheoreticalCoverage:
 
     @property
     def notice(self) -> Promise:
+        """
+        The sentence beside the figure — or the other one, once sales count.
+
+        Phase 3 returned the limitation unconditionally, which was right when
+        no adapter could exist. Continuing to show it after Phase 4 registered
+        one would be the opposite failure: a complete figure carrying a
+        warning that it is incomplete.
+        """
+        if self.is_final:
+            return SALES_INCLUDED_NOTICE
         return SALES_COVERAGE_NOTICE
 
     @property
@@ -575,18 +692,26 @@ def theoretical_consumption_coverage(user: User, filters: MealUsageFilters) -> T
     return TheoreticalCoverage(
         sources=tuple(rows),
         totals=tuple(totals_by_item(contributions)),
+        coverage_code=coverage_code(),
+        # Computed from the registry rather than a hard-coded `False`. Phase
+        # 3's constant was honest then and would be a lie now.
+        is_final=sales_source_is_registered(),
     )
 
 
 __all__ = [
     "COMPLIMENTARY_MEAL_EQUIVALENT",
+    "COMPLETE_COVERAGE",
     "FINAL_SALES_USAGE_VARIANCE_NOT_AVAILABLE",
+    "FINAL_USAGE_VARIANCE",
     "MEAL_ACCOUNTING_RECLASSIFICATION_DEFERRED",
     "NOT_FINAL_USAGE_VARIANCE",
     "PARTIAL_COVERAGE",
     "PARTIAL_VARIANCE_NOTICE",
     "REGISTERED_SOURCES",
     "SALES_COVERAGE_NOTICE",
+    "SALES_INCLUDED",
+    "SALES_INCLUDED_NOTICE",
     "SALES_NOT_INCLUDED",
     "SOURCE_LABELS",
     "STAFF_MEAL_EQUIVALENT",
@@ -600,7 +725,11 @@ __all__ = [
     "TheoreticalCoverage",
     "TheoreticalSourceType",
     "complimentary_meal_equivalent_usage",
+    "coverage_code",
+    "coverage_labels",
     "meal_batch_fraction",
+    "register_theoretical_source",
+    "sales_source_is_registered",
     "staff_meal_equivalent_usage",
     "theoretical_consumption_coverage",
     "totals_by_item",

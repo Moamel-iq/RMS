@@ -1,0 +1,64 @@
+{# One account's movement with its running balance. Shared by الصناديق and   #}
+{# الحسابات البنكية so the two pages cannot drift apart in what they show.   #}
+{#                                                                          #}
+{# The running balance arrives already accumulated from                     #}
+{# `apps/accounting/statements.py`. Nothing here does arithmetic: the order #}
+{# it was accumulated in is the whole content of the column, and a template #}
+{# cannot state that order.                                                 #}
+{% load i18n money_tags %}
+
+<div class="summary-row">
+  <div class="summary-row__item">
+    <span class="summary-row__label">{% translate "رصيد افتتاحي" %}</span>
+    <span class="summary-row__value"><bdi dir="ltr">{{ statement.opening|money_full }}</bdi></span>
+  </div>
+  <div class="summary-row__item">
+    <span class="summary-row__label">{% translate "مدين" %}</span>
+    <span class="summary-row__value"><bdi dir="ltr">{{ statement.debits|money_full }}</bdi></span>
+  </div>
+  <div class="summary-row__item">
+    <span class="summary-row__label">{% translate "دائن" %}</span>
+    <span class="summary-row__value"><bdi dir="ltr">{{ statement.credits|money_full }}</bdi></span>
+  </div>
+  <div class="summary-row__item">
+    <span class="summary-row__label">{% translate "رصيد ختامي" %}</span>
+    <span class="summary-row__value"><bdi dir="ltr">{{ statement.closing|money_full }}</bdi></span>
+  </div>
+</div>
+
+<div class="tablewrap">
+  <table class="table" id="cash-statement-table">
+    <thead><tr>
+      <th>{% translate "التاريخ" %}</th>
+      <th>{% translate "القيد" %}</th>
+      <th>{% translate "المصدر" %}</th>
+      <th>{% translate "الفرع" %}</th>
+      <th>{% translate "البيان" %}</th>
+      <th>{% translate "مدين" %}</th>
+      <th>{% translate "دائن" %}</th>
+      <th>{% translate "الرصيد" %}</th>
+    </tr></thead>
+    <tbody>
+      {% for row in statement.rows %}
+        <tr>
+          <td><bdi dir="ltr">{{ row.line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
+          <td><a href="{% url 'accounting:journal_detail' row.line.entry.pk %}"><bdi dir="ltr">{{ row.line.entry.entry_number }}</bdi></a></td>
+          <td>
+            {% if row.line.entry.source_document_type %}
+              <code dir="ltr">{{ row.line.entry.source_document_type }}</code>
+            {% else %}
+              {% translate "يدوي" %}
+            {% endif %}
+          </td>
+          <td>{{ row.line.branch.code }}</td>
+          <td>{{ row.line.narration|default:row.line.entry.narration|truncatechars:50 }}</td>
+          <td><bdi dir="ltr">{{ row.line.debit|money_full }}</bdi></td>
+          <td><bdi dir="ltr">{{ row.line.credit|money_full }}</bdi></td>
+          <td><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8" class="empty">{% translate "لا حركة في هذه الفترة." %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

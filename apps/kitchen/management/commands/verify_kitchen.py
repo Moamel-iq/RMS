@@ -76,6 +76,7 @@ from apps.kitchen.consumption_sources import (
     FINAL_SALES_USAGE_VARIANCE_NOT_AVAILABLE,
     MEAL_ACCOUNTING_RECLASSIFICATION_DEFERRED,
     MealUsageFilters,
+    sales_source_is_registered,
 )
 from apps.kitchen.productivity import ProductionFilters
 from apps.organizations.models import Organization
@@ -439,36 +440,56 @@ class Command(SeedCommand):
 
     def _coverage(self, actor: Any) -> Section:
         """
-        The sales limitation is present, and nothing claims to be final.
+        What the coverage report says about sales agrees with what is deployed.
 
-        Reported as `COVERAGE_LIMITATION`, which does not affect the exit code:
-        a missing module is not a defect in this one. What *would* be an error
-        is a `SALES` adapter reporting itself available in Phase 3, or a
-        theoretical response claiming finality — both are checked.
+        Both halves are computed from `sales_source_is_registered()` rather
+        than asserted, because both answers are now facts about the
+        deployment. Before Phase 4 the limitation was unconditional and right;
+        continuing to print it once the adapter is registered would be a
+        complete figure carrying a warning that it is incomplete — the exact
+        failure `TheoreticalCoverage.notice` already refuses to make.
+
+        Everything here is a `COVERAGE_LIMITATION` while the limitation holds,
+        which does not affect the exit code: a missing module is not a defect in
+        this one. The ERRORs `verify_theoretical_coverage` can still raise are
+        disagreements between the coverage report and the registry, in either
+        direction.
         """
+        registered = sales_source_is_registered()
+        title = (
+            "9. Theoretical coverage: sales quantities included, finality claimed"
+            if registered
+            else "9. Theoretical coverage: sales limitation present, no finality claimed"
+        )
         if actor is None:
             return Section(
-                title="9. Theoretical coverage: sales limitation present, no finality claimed",
+                title=title,
                 checked="nothing — pass --user",
-                findings=[
-                    _limitation(
-                        FINAL_SALES_USAGE_VARIANCE_NOT_AVAILABLE,
-                        "approved sales quantities do not exist before Phase 4, so no final "
-                        "sales-based usage variance can be computed. Not approximated.",
-                    )
-                ],
+                findings=(
+                    []
+                    if registered
+                    else [
+                        _limitation(
+                            FINAL_SALES_USAGE_VARIANCE_NOT_AVAILABLE,
+                            "approved sales quantities do not exist before Phase 4, so no "
+                            "final sales-based usage variance can be computed. Not "
+                            "approximated.",
+                        )
+                    ]
+                ),
             )
         findings = verify_theoretical_coverage(actor, MealUsageFilters())
-        findings.append(
-            _limitation(
-                FINAL_SALES_USAGE_VARIANCE_NOT_AVAILABLE,
-                "the variance screen shows a complete production standard variance and a "
-                "partial diagnostic labelled PARTIAL_COVERAGE / NOT_FINAL_USAGE_VARIANCE. "
-                "No surface offers a final figure.",
+        if not registered:
+            findings.append(
+                _limitation(
+                    FINAL_SALES_USAGE_VARIANCE_NOT_AVAILABLE,
+                    "the variance screen shows a complete production standard variance and a "
+                    "partial diagnostic labelled PARTIAL_COVERAGE / NOT_FINAL_USAGE_VARIANCE. "
+                    "No surface offers a final figure.",
+                )
             )
-        )
         return Section(
-            title="9. Theoretical coverage: sales limitation present, no finality claimed",
+            title=title,
             checked="every declared theoretical source type",
             findings=findings,
         )
@@ -529,11 +550,23 @@ class Command(SeedCommand):
         for advisory in CONSUMPTION_ADVISORIES:
             self.write(f"  - {advisory}")
         self.write("")
-        self.write(
-            "A COVERAGE_LIMITATION is not a defect. Sales quantities arrive in Phase 4 "
-            "and the meal expense reclassification needs an approved journal shape; "
-            "neither is a disagreement between this module and a ledger."
-        )
+        # The sales half of this sentence is a fact about the deployment, so it
+        # is answered rather than printed. A run whose theoretical figures now
+        # include sold quantities must not close by telling the reader they do
+        # not — the same reason `_coverage` stopped emitting the limitation.
+        if sales_source_is_registered():
+            self.write(
+                "A COVERAGE_LIMITATION is not a defect. Sales quantities are included "
+                "here; what remains is the meal expense reclassification, which needs "
+                "an approved journal shape. That is not a disagreement between this "
+                "module and a ledger."
+            )
+        else:
+            self.write(
+                "A COVERAGE_LIMITATION is not a defect. Sales quantities arrive in Phase 4 "
+                "and the meal expense reclassification needs an approved journal shape; "
+                "neither is a disagreement between this module and a ledger."
+            )
         self.write("This command reports and refuses to repair. There is no --fix.")
         if errors:
             self.write("")

@@ -1,0 +1,90 @@
+{# الفترات المحاسبية — every fiscal year and its twelve monthly periods.     #}
+{#                                                                           #}
+{# A year's "closed" state is derived from its periods, never stored: the    #}
+{# periods are what postings are actually checked against, so a stored flag  #}
+{# would be a second source of truth that could disagree with them.          #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-periods">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+    </div>
+
+    <form class="toolbar" method="get"
+          hx-get="{% url 'accounting:period_list' %}"
+          hx-target="#accounting-periods" hx-swap="outerHTML" hx-push-url="true"
+          hx-trigger="change from:find select">
+      <label class="field">
+        <span class="field__label">{% translate "المؤسسة" %}</span>
+        <select name="organization">
+          {% for row in organizations %}
+            <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>{{ row.code }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "الحالة" %}</span>
+        <select name="state">
+          <option value="">{% translate "الكل" %}</option>
+          {% for value, label in states %}
+            <option value="{{ value }}" {% if selected_state == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+
+    {% for year in years %}
+      <section class="card">
+        <h2 class="card__title">
+          {% translate "السنة المالية" %} <bdi dir="ltr">{{ year.fiscal_year.year }}</bdi>
+          {% if year.is_closed %}
+            <span class="chip chip--muted">{% translate "مقفلة بالكامل" %}</span>
+          {% else %}
+            <span class="chip chip--ok">{% translate "مفتوحة" %}</span>
+          {% endif %}
+        </h2>
+        <p class="card__hint">
+          {% blocktranslate with open=year.open_count soft=year.soft_closed_count closed=year.closed_count %}مفتوحة {{ open }} · مغلقة مبدئياً {{ soft }} · مقفلة {{ closed }}{% endblocktranslate %}
+        </p>
+        <div class="tablewrap">
+          <table class="table">
+            <thead><tr>
+              <th>{% translate "الفترة" %}</th><th>{% translate "من" %}</th>
+              <th>{% translate "إلى" %}</th><th>{% translate "الحالة" %}</th><th></th>
+            </tr></thead>
+            <tbody>
+              {% for period in year.periods %}
+                <tr>
+                  <td><bdi dir="ltr">{{ period.period_number }}</bdi></td>
+                  <td><bdi dir="ltr">{{ period.start_date|date:"Y-m-d" }}</bdi></td>
+                  <td><bdi dir="ltr">{{ period.end_date|date:"Y-m-d" }}</bdi></td>
+                  <td>
+                    {% if period.state == "OPEN" %}<span class="chip chip--ok">{{ period.get_state_display }}</span>
+                    {% elif period.state == "SOFT_CLOSED" %}<span class="chip chip--warn">{{ period.get_state_display }}</span>
+                    {% else %}<span class="chip chip--muted">{{ period.get_state_display }}</span>{% endif %}
+                  </td>
+                  <td class="cell-actions">
+                    <a class="btn btn--secondary btn--sm" href="{% url 'accounting:period_detail' period.pk %}">{% translate "تفاصيل" %}</a>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="5" class="empty">{% translate "لا فترات مطابقة." %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% empty %}
+      <section class="card">
+        <p class="empty">{% translate "لم تُفتح سنة مالية لهذه المؤسسة بعد." %}</p>
+      </section>
+    {% endfor %}
+  </div>
+{% endblock %}

@@ -1,0 +1,114 @@
+{# دفتر الأستاذ — one account's movement with a running balance.             #}
+{#                                                                           #}
+{# The balance column arrives already accumulated. Template arithmetic       #}
+{# cannot carry a Decimal across rows without hiding the ordering, and the   #}
+{# ordering is the whole content of the column.                              #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-general-ledger">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+    </div>
+
+    {% if organization %}
+      {% with report_target="#accounting-general-ledger" %}
+        {% include "accounting/_report_filters.html" %}
+      {% endwith %}
+
+      <form class="toolbar" method="get"
+            hx-get="{{ request.path }}" hx-target="#accounting-general-ledger"
+            hx-swap="outerHTML" hx-push-url="true"
+            hx-trigger="change from:find select">
+        <input type="hidden" name="organization" value="{{ organization.pk }}">
+        <label class="field">
+          <span class="field__label">{% translate "الحساب" %}</span>
+          <select name="account">
+            <option value="">{% translate "كل الحسابات" %}</option>
+            {% for account in accounts %}
+              <option value="{{ account.pk }}" {% if selected_account and selected_account.pk == account.pk %}selected{% endif %}>
+                {{ account.code }} — {{ account.name_ar }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">
+          <span class="field__label">{% translate "المنشأ" %}</span>
+          <select name="origin">
+            <option value="">{% translate "الكل" %}</option>
+            <option value="manual" {% if selected_origin == "manual" %}selected{% endif %}>{% translate "يدوي" %}</option>
+            <option value="system" {% if selected_origin == "system" %}selected{% endif %}>{% translate "من مستند" %}</option>
+          </select>
+        </label>
+      </form>
+
+      <section class="card">
+        <div class="summary-row">
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "رصيد افتتاحي" %}</span>
+            <span class="summary-row__value"><bdi dir="ltr">{{ report.opening|money_full }}</bdi></span>
+          </div>
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "مدين" %}</span>
+            <span class="summary-row__value"><bdi dir="ltr">{{ report.debits|money_full }}</bdi></span>
+          </div>
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "دائن" %}</span>
+            <span class="summary-row__value"><bdi dir="ltr">{{ report.credits|money_full }}</bdi></span>
+          </div>
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "رصيد ختامي" %}</span>
+            <span class="summary-row__value"><bdi dir="ltr">{{ report.closing|money_full }}</bdi></span>
+          </div>
+        </div>
+
+        <div class="tablewrap">
+          <table class="table" id="general-ledger-table">
+            <thead><tr>
+              <th>{% translate "التاريخ" %}</th>
+              <th>{% translate "رقم القيد" %}</th>
+              <th>{% translate "المصدر" %}</th>
+              <th>{% translate "الحساب" %}</th>
+              <th>{% translate "الفرع" %}</th>
+              <th>{% translate "مركز الكلفة" %}</th>
+              <th>{% translate "البيان" %}</th>
+              <th>{% translate "مدين" %}</th>
+              <th>{% translate "دائن" %}</th>
+              <th>{% translate "الرصيد" %}</th>
+            </tr></thead>
+            <tbody>
+              {% for row in report.rows %}
+                <tr>
+                  <td><bdi dir="ltr">{{ row.line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
+                  <td><a href="{% url 'accounting:journal_detail' row.line.entry.pk %}"><bdi dir="ltr">{{ row.line.entry.entry_number }}</bdi></a></td>
+                  <td>
+                    {% if row.line.entry.source_document_type %}
+                      <code dir="ltr">{{ row.line.entry.source_document_type }}</code>
+                    {% else %}{% translate "يدوي" %}{% endif %}
+                  </td>
+                  <td><a href="{% url 'accounting:account_detail' row.line.account.pk %}"><code dir="ltr">{{ row.line.account.code }}</code></a></td>
+                  <td>{{ row.line.branch.code }}</td>
+                  <td>{% if row.line.cost_center %}{{ row.line.cost_center.code }}{% else %}—{% endif %}</td>
+                  <td>{{ row.line.narration|default:row.line.entry.narration|truncatechars:40 }}</td>
+                  <td><bdi dir="ltr">{{ row.line.debit|money_full }}</bdi></td>
+                  <td><bdi dir="ltr">{{ row.line.credit|money_full }}</bdi></td>
+                  <td><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="10" class="empty">{% translate "لا حركة داخل هذه المرشحات." %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% else %}
+      <section class="card"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
+    {% endif %}
+  </div>
+{% endblock %}

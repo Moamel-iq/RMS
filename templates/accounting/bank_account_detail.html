@@ -1,0 +1,179 @@
+{# One bank account: its movement, and the documents that caused it.         #}
+{#                                                                           #}
+{# No statement-import control appears on this page, disabled or otherwise.  #}
+{# Release 1 does not import bank statements, and a greyed-out button is a   #}
+{# promise the system does not keep — discovered at month end (ADR-030 §2).  #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-bank-detail">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'accounting:bank_account_list' %}">{% translate "الحسابات البنكية" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page"><bdi dir="ltr">{{ bank.code }}</bdi></span>
+    </nav>
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ bank.name_ar }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        {% if may_manage %}
+          <a class="btn btn--secondary" href="{% url 'accounting:bank_account_update' bank.pk %}">{% translate "تعديل" %}</a>
+          {% if bank.is_active %}
+            <form method="post" action="{% url 'accounting:bank_account_archive' bank.pk %}" class="inline-form">
+              {% csrf_token %}<button class="btn btn--secondary" type="submit">{% translate "أرشفة" %}</button>
+            </form>
+          {% else %}
+            <form method="post" action="{% url 'accounting:bank_account_reactivate' bank.pk %}" class="inline-form">
+              {% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "إعادة تفعيل" %}</button>
+            </form>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "التعريف" %}</h2>
+      <dl class="datalist">
+        <div><dt>{% translate "المؤسسة" %}</dt><dd>{{ bank.organization.code }}</dd></div>
+        <div><dt>{% translate "المصرف" %}</dt><dd>{{ bank.bank_name }}</dd></div>
+        <div><dt>{% translate "رقم الحساب" %}</dt><dd><bdi dir="ltr">{{ bank.masked_account_number }}</bdi></dd></div>
+        {% if bank.iban %}<div><dt>IBAN</dt><dd><bdi dir="ltr">{{ bank.iban }}</bdi></dd></div>{% endif %}
+        <div><dt>{% translate "الفرع" %}</dt><dd>{% if bank.branch %}{{ bank.branch.code }}{% else %}{% translate "على مستوى المؤسسة" %}{% endif %}</dd></div>
+        <div>
+          <dt>{% translate "الحساب المحاسبي" %}</dt>
+          <dd><a href="{% url 'accounting:account_detail' bank.account.pk %}">
+            <code dir="ltr">{{ bank.account.code }}</code> {{ bank.account.name_ar }}
+          </a></dd>
+        </div>
+        <div><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ current_balance|money_full }}</bdi></dd></div>
+        <div>
+          <dt>{% translate "آخر مطابقة" %}</dt>
+          <dd>{% if bank.last_reconciled_on %}<bdi dir="ltr">{{ bank.last_reconciled_on|date:"Y-m-d" }}</bdi>{% else %}{% translate "لم تُسجَّل" %}{% endif %}</dd>
+        </div>
+      </dl>
+
+      {% if may_manage %}
+        <form method="post" action="{% url 'accounting:bank_account_reconcile' bank.pk %}" class="formcard formcard--inline">
+          {% csrf_token %}
+          <label class="field">
+            <span class="field__label">{% translate "تسجيل مطابقة حتى" %}</span>
+            <input type="date" name="on_date" value="{{ today|date:'Y-m-d' }}">
+          </label>
+          <button class="btn btn--secondary" type="submit">{% translate "تسجيل المطابقة" %}</button>
+        </form>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "كشف الحركة" %}</h2>
+      <form class="toolbar" method="get"
+            hx-get="{% url 'accounting:bank_account_detail' bank.pk %}"
+            hx-target="#accounting-bank-detail"
+            hx-swap="outerHTML"
+            hx-push-url="true"
+            hx-trigger="change from:find input"
+            hx-indicator="#bank-loading">
+        <label class="field">
+          <span class="field__label">{% translate "من" %}</span>
+          <input type="date" name="from" value="{{ statement.date_from|date:'Y-m-d' }}">
+        </label>
+        <label class="field">
+          <span class="field__label">{% translate "إلى" %}</span>
+          <input type="date" name="to" value="{{ statement.date_to|date:'Y-m-d' }}">
+        </label>
+        <span class="inventory-loading" id="bank-loading" role="status" aria-live="polite">
+          {% translate "جارٍ التحميل…" %}
+        </span>
+      </form>
+      {% include "accounting/_statement_table.html" %}
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">
+        {% translate "بنود غير مطابقة" %}
+        <span class="chip">{{ unreconciled|length }}</span>
+      </h2>
+      <p class="card__hint">
+        {% translate "السطور المُرحَّلة بعد تاريخ آخر مطابقة. مشتقّة من التواريخ، لا علامة مخزّنة على السطر — دفتر الأستاذ مُلحَق فقط ولا يقبل علامة تتغيّر." %}
+      </p>
+      <div class="tablewrap">
+        <table class="table">
+          <thead><tr>
+            <th>{% translate "التاريخ" %}</th><th>{% translate "القيد" %}</th>
+            <th>{% translate "مدين" %}</th><th>{% translate "دائن" %}</th>
+          </tr></thead>
+          <tbody>
+            {% for row in unreconciled %}
+              <tr>
+                <td><bdi dir="ltr">{{ row.line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
+                <td><a href="{% url 'accounting:journal_detail' row.line.entry.pk %}"><bdi dir="ltr">{{ row.line.entry.entry_number }}</bdi></a></td>
+                <td><bdi dir="ltr">{{ row.line.debit|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.line.credit|money_full }}</bdi></td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4" class="empty">{% translate "كل الحركة داخل هذه الفترة مطابَقة." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "دفعات الموردين" %}</h2>
+      <p class="card__hint">{% translate "تملكها المشتريات. تُقرأ من هنا وتُدار من شاشتها." %}</p>
+      <div class="tablewrap">
+        <table class="table">
+          <thead><tr>
+            <th>{% translate "التاريخ" %}</th><th>{% translate "المورد" %}</th>
+            <th>{% translate "المبلغ" %}</th><th>{% translate "الحالة" %}</th>
+          </tr></thead>
+          <tbody>
+            {% for payment in payments %}
+              <tr>
+                <td><bdi dir="ltr">{{ payment.business_date|date:"Y-m-d" }}</bdi></td>
+                <td>{{ payment.supplier.name_ar }}</td>
+                <td><bdi dir="ltr">{{ payment.amount|money_full }}</bdi></td>
+                <td>{{ payment.get_status_display }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4" class="empty">{% translate "لا دفعات." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "تسويات تطبيقات التوصيل" %}</h2>
+      <p class="card__hint">{% translate "تملكها المبيعات. تُقرأ من هنا وتُدار من شاشتها." %}</p>
+      <div class="tablewrap">
+        <table class="table">
+          <thead><tr>
+            <th>{% translate "التطبيق" %}</th><th>{% translate "حتى" %}</th>
+            <th>{% translate "الحالة" %}</th><th></th>
+          </tr></thead>
+          <tbody>
+            {% for settlement in settlements %}
+              <tr>
+                <td>{{ settlement.delivery_application.name_ar }}</td>
+                <td><bdi dir="ltr">{{ settlement.period_end|date:"Y-m-d" }}</bdi></td>
+                <td>{{ settlement.get_status_display }}</td>
+                <td class="cell-actions">
+                  <a class="btn btn--secondary btn--sm" href="{% url 'sales:settlement_detail' settlement.pk %}">{% translate "فتح" %}</a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4" class="empty">{% translate "لا تسويات." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}

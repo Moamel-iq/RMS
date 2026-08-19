@@ -1,0 +1,62 @@
+{# فروقات الصندوق — shortage and overage kept apart, never netted.            #}
+{#                                                                           #}
+{# A month of alternating 5,000 shortages and 5,000 overages nets to zero and #}
+{# is a serious finding; a genuinely clean month also nets to zero. One       #}
+{# figure cannot tell them apart, so this card never shows only one.          #}
+{% load i18n %}
+<h2 class="section-title">{{ card.label }}</h2>
+<div class="statrow">
+  <div class="stat">
+    <span class="stat__label">{% translate "عجز الصندوق" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.shortage }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "زيادة الصندوق" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.overage }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "صافي الفرق" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.variance }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "النقد المعدود" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.counted_cash }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "النقد المتوقع" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.expected_cash }}</code></bdi></span>
+  </div>
+</div>
+
+<div class="statrow">
+  <div class="stat">
+    <span class="stat__label">{% translate "صناديق معتمدة" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.approved_shifts }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "مُغلقة بانتظار الاعتماد" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.closed_shifts }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "مفتوحة" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.open_shifts }}</code></bdi></span>
+  </div>
+</div>
+
+{% if summary.worst_shortage and summary.worst_shortage.variance_amount < 0 %}
+  <p class="pagehead__hint">
+    {% translate "أكبر عجز:" %}
+    <a href="{% url 'sales:shift_detail' summary.worst_shortage.pk %}">
+      <bdi dir="ltr"><code>{{ summary.worst_shortage.number|default:summary.worst_shortage.pk }}</code></bdi>
+    </a>
+    <bdi dir="ltr"><code>{{ summary.worst_shortage.business_date|date:"Y-m-d" }}</code></bdi>
+    <bdi dir="ltr"><code>{{ summary.worst_shortage.variance_amount }}</code></bdi>
+  </p>
+{% endif %}
+
+{% if not summary.shifts %}
+  <p class="empty">{% translate "لا توجد صناديق في هذه المدة." %}</p>
+{% endif %}
+<p class="pagehead__hint">
+  {% translate "الأرقام أعلاه من الصناديق المعتمدة وحدها: الصندوق المعتمد وحده رحّل فرقه إلى الأستاذ العام، وصندوق مُغلق بلا اعتماد فرقه إعلان لم يوافق عليه أحد بعد." %}
+</p>

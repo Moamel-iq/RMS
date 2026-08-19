@@ -1,33 +1,103 @@
+{# الأدوار المحاسبية — the vocabulary posting rules speak.                   #}
+{#                                                                           #}
+{# Read-only by construction, not by hidden buttons. A role code means the   #}
+{# same thing in every organization; which account carries it is the         #}
+{# organization's decision, and that decision lives on ربط الحسابات.        #}
+{#                                                                           #}
+{# The column that earns this screen is "غير مربوطة": a role with no mapping #}
+{# in force is invisible until a document tries to resolve it, which is days #}
+{# later and looks like a posting bug rather than a configuration one.       #}
 {% extends "settings/base_list.html" %}
 {% load i18n %}
 
-{# The system role vocabulary. Read-only by design: posting rules refer to  #}
-{# these codes, and the database trigger refuses renaming or deleting them. #}
-
-{% block toolbar %}{% endblock %}
+{% block filters %}
+  <label class="field">
+    <span class="field__label">{% translate "المجال" %}</span>
+    <select name="domain">
+      <option value="">{% translate "كل المجالات" %}</option>
+      {% for value, label in domains %}
+        <option value="{{ value }}" {% if selected_domain == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "نطاق الربط" %}</span>
+    <select name="scope">
+      <option value="">{% translate "الكل" %}</option>
+      {% for value, label in scopes %}
+        <option value="{{ value }}" {% if selected_scope == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "حالة الربط" %}</span>
+    <select name="mapped">
+      <option value="">{% translate "الكل" %}</option>
+      <option value="mapped" {% if selected_mapped == "mapped" %}selected{% endif %}>{% translate "مربوطة" %}</option>
+      <option value="unmapped" {% if selected_mapped == "unmapped" %}selected{% endif %}>{% translate "غير مربوطة" %}</option>
+      <option value="incomplete" {% if selected_mapped == "incomplete" %}selected{% endif %}>{% translate "ناقصة في مؤسسة" %}</option>
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "المؤسسة" %}</span>
+    <select name="organization">
+      <option value="">{% translate "كل المؤسسات" %}</option>
+      {% for organization in organizations %}
+        <option value="{{ organization.pk }}" {% if selected_organization == organization.pk|stringformat:"s" %}selected{% endif %}>
+          {{ organization.code }}
+        </option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "بتاريخ" %}</span>
+    <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}">
+  </label>
+{% endblock %}
 
 {% block columns %}
   <th>{% translate "الرمز" %}</th>
   <th>{% translate "الاسم" %}</th>
   <th>{% translate "المجال" %}</th>
   <th>{% translate "نطاق الربط" %}</th>
-  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "روابط فعّالة" %}</th>
+  <th>{% translate "مؤسسات" %}</th>
+  <th>{% translate "آخر ربط" %}</th>
+  <th>{% translate "سطور مُرحَّلة" %}</th>
+  <th>{% translate "تحذير" %}</th>
+  <th></th>
 {% endblock %}
 
 {% block rows %}
-  {% for role in roles %}
+  {% for row in roles %}
     <tr>
       {# A technical identity: always LTR, never localised. #}
-      <td><code dir="ltr">{{ role.code }}</code></td>
-      <td>{{ role.name_ar }}</td>
-      <td>{{ role.get_domain_display }}</td>
-      <td>{{ role.get_mapping_scope_display }}</td>
+      <td><code dir="ltr">{{ row.role.code }}</code></td>
       <td>
-        {% if role.is_active %}{% translate "فعّال" %}{% else %}{% translate "موقوف" %}{% endif %}
-        {% if role.is_system %}· {% translate "نظامي" %}{% endif %}
+        {{ row.role.name_ar }}
+        <span class="muted"> · <bdi dir="ltr">{{ row.role.name_en }}</bdi></span>
+        {% if row.role.is_system %}<span class="chip chip--muted">{% translate "نظامي" %}</span>{% endif %}
+      </td>
+      <td>{{ row.role.get_domain_display }}</td>
+      <td>{{ row.role.get_mapping_scope_display }}</td>
+      <td><bdi dir="ltr">{{ row.active_mappings }}</bdi></td>
+      <td><bdi dir="ltr">{{ row.organizations_used }}</bdi></td>
+      <td>{% if row.last_effective_from %}<bdi dir="ltr">{{ row.last_effective_from|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}</td>
+      <td><bdi dir="ltr">{{ row.posted_lines }}</bdi></td>
+      <td>
+        {% if row.unresolved %}
+          <span class="chip chip--warn" title="{% for organization in row.unresolved %}{{ organization.code }} {% endfor %}">
+            {% blocktranslate count counter=row.unresolved|length %}مؤسسة بلا ربط{% plural %}{{ counter }} مؤسسات بلا ربط{% endblocktranslate %}
+          </span>
+        {% else %}
+          <span class="chip chip--ok">{% translate "مكتمل" %}</span>
+        {% endif %}
+      </td>
+      <td class="cell-actions">
+        <a class="btn btn--secondary btn--sm" href="{% url 'accounting:role_detail' row.role.pk %}">{% translate "تفاصيل" %}</a>
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="5">{% translate "لا أدوار بعد." %}</td></tr>
+    <tr><td colspan="10" class="empty">{% translate "لا توجد أدوار مطابقة." %}</td></tr>
   {% endfor %}
 {% endblock %}

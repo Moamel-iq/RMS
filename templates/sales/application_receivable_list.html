@@ -1,0 +1,86 @@
+{# ذمم التطبيقات — what every delivery company owes, and how old it is.       #}
+{#                                                                           #}
+{# There is no balance column anywhere in the database behind this table.    #}
+{# Every figure here is recomputed from the append-only ledger on each       #}
+{# render (ADR-027 §5), which is why the aging and the balance can be        #}
+{# trusted to agree with the entries that produced them.                     #}
+{#                                                                           #}
+{# The اسـتحقاق column reports and refuses nothing: a company that settles   #}
+{# late is a commercial problem, and no bucket here is ever written off      #}
+{# automatically (ADR-028 §9).                                               #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="field">
+    <span class="field__label">{% translate "حتى تاريخ" %}</span>
+    <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}">
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "التطبيق" %}</th>
+  <th>{% translate "الرصيد" %}</th>
+  {% for label in bucket_labels %}
+    <th><bdi dir="ltr"><code>{{ label }}</code></bdi></th>
+  {% endfor %}
+  <th>{% translate "أقدم مديونية" %}</th>
+  <th>{% translate "الاستحقاق" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for position in positions %}
+    <tr>
+      <td data-label="{% translate 'التطبيق' %}">
+        <a href="{% url 'sales:receivable_detail' position.delivery_application.pk %}">
+          <bdi dir="ltr"><code>{{ position.delivery_application.code }}</code></bdi>
+        </a>
+        {{ position.delivery_application.name_ar }}
+      </td>
+      <td data-label="{% translate 'الرصيد' %}">
+        <bdi dir="ltr"><code>{{ position.balance }}</code></bdi>
+      </td>
+      {% for bucket in position.buckets %}
+        <td data-label="{{ bucket.label }}">
+          {% if bucket.amount %}
+            <bdi dir="ltr"><code>{{ bucket.amount }}</code></bdi>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </td>
+      {% endfor %}
+      <td data-label="{% translate 'أقدم مديونية' %}">
+        {% if position.oldest_open_date %}
+          <bdi dir="ltr"><code>{{ position.oldest_open_date|date:"Y-m-d" }}</code></bdi>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'الاستحقاق' %}">
+        {% if position.expected_settlement_date %}
+          <bdi dir="ltr"><code>{{ position.expected_settlement_date|date:"Y-m-d" }}</code></bdi>
+          <span class="muted">
+            {% blocktranslate with days=position.delivery_application.settlement_cycle_days %}دورة {{ days }} يوماً{% endblocktranslate %}
+          </span>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        <div class="rowactions">
+          <a class="btn btn--quiet btn--sm"
+             href="{% url 'sales:receivable_detail' position.delivery_application.pk %}">
+            {% translate "كشف الحساب" %}
+          </a>
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="8">
+        {% translate "لا توجد تطبيقات توصيل بعد. الذمة تنشأ عند ترحيل يوم مبيعات فيه سطر تطبيق." %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endblock %}

@@ -867,3 +867,137 @@ as suite-verified.
 | RCP-049 | `verify_kitchen` proves posting, value conservation, journals and Inventory-to-GL | composes seven verifiers | run: sections 1 – 10 all clean | 3.9 | Implemented |
 | RCP-112 | The absent journal is absent for the right reason | `production_posting_reconciliation` recomputes per-account nets | composed by `verify_kitchen` section 4 | 3.9 | Composed |
 | RCP-107 | No `is_kitchen` flag; the reader selects the warehouse | `FlowFilters.warehouse_id` | every consumption screen scopes by warehouse | 3.8 | Implemented |
+
+
+## Phase 4 — Sales and Settlements
+
+Specified by Task 4.0 (`docs/tasks/task-4-0-sales-domain-spec.md`, ADR-027,
+ADR-028) and delivered across checkpoints 4.1 to 4.7. The invariants these rows
+cite are numbered in `docs/invariants/sales-invariants.md`; the journals are
+written out in `docs/development/sales-accounting.md`.
+
+Two conventions carried from Phase 3. A row may cite a **constraint or a
+trigger** instead of a test, because an `EXCLUDE USING gist` *is* the
+enforcement and pointing at a test that merely observes it would be the weaker
+claim. And a row is `Done` only when the evidence exists — every citation below
+resolves to a test that runs.
+
+| Req ID | Summary | Module / service | Tests | Task | Status |
+|---|---|---|---|---|---|
+| SLS-001 | A menu item names a recipe and a serving that some version of it offers; `DIRECT_STOCK` is refused | `apps/sales/services.create_menu_item` | `apps/sales/tests/test_menu_and_channels.py` · `apps/sales/tests/test_verify_sales.py::test_a_menu_item_whose_serving_lapsed_is_an_error` | 4.1 | Done |
+| SLS-002 | Two active prices never overlap within one scope; resolution is most specific wins | `apps/sales/selectors.effective_prices`, `EXCLUDE USING gist` in migration `0002` | `apps/sales/tests/test_menu_and_channels.py` | 4.1 | Done |
+| SLS-003 | An application channel settles into a receivable and never into a drawer | `SalesChannel` check constraints | `apps/sales/tests/test_menu_and_channels.py` | 4.1 | Done |
+| SLS-004 | A discount programme's two funding shares add to exactly one hundred, and an application-funded share names its application | `CheckConstraint` + `services.create_discount_program` | `apps/sales/tests/test_agreements_and_discounts.py` · `apps/sales/tests/test_verify_sales.py::test_a_discount_whose_funding_does_not_close_is_refused` | 4.2 | Done |
+| SLS-005 | Four commission bases, each computed on its own stated amount, and every field the commission used is frozen on the line | `apps/sales/agreements.py` | `apps/sales/tests/test_agreements_and_discounts.py` | 4.2 | Done |
+| SLS-006 | Every resolved identity is stored on the line, never re-derivable (ADR-024) | `apps/sales/day_services.resolve_line` | `apps/sales/tests/test_daily_sales_posting.py` | 4.3 | Done |
+| SLS-007 | Revenue is credited **gross**; the restaurant-funded discount is a separate debit beside it | `apps/sales/posting.build_plan` | `apps/sales/tests/test_daily_sales_posting.py` · `apps/sales/tests/test_verify_sales.py::test_revenue_that_stops_being_gross_is_an_error` | 4.3 | Done |
+| SLS-008 | The **application-funded** discount reaches no account at all | `build_plan` omits it | `apps/sales/tests/test_daily_sales_posting.py` · `apps/sales/tests/test_sales_dashboard.py::test_the_application_funded_discount_is_shown_and_never_subtracted` | 4.3 | Done |
+| SLS-009 | The application receivable is append-only; there is no balance field anywhere in the module | `sales_receivable_is_append_only` trigger | `apps/sales/tests/test_verify_sales.py::test_the_receivable_ledger_refuses_a_raw_update` | 4.3 | Done |
+| SLS-010 | A posted day is frozen by a whole-row allowlist trigger; correction is reversal or adjustment | migration `0006` | `apps/sales/tests/test_daily_sales_posting.py` · `apps/sales/tests/test_verify_sales.py::test_a_posted_sales_line_refuses_a_raw_update` | 4.3 | Done |
+| SLS-011 | An adjustment posts to `SALES_RETURNS` and never touches `SALES_REVENUE` | `apps/sales/adjustment_posting.build_adjustment_plan` | `apps/sales/tests/test_sales_adjustments.py` · `apps/sales/tests/test_verify_sales.py::test_an_adjustment_that_reaches_revenue_is_an_error` | 4.4 | Done |
+| SLS-012 | No adjustment takes back more quantity or gross than its original line carried | `sales_adjustment_line_is_within_its_original` trigger | `apps/sales/tests/test_sales_adjustments.py` · `apps/sales/tests/test_verify_sales.py::test_a_posted_adjustment_line_refuses_a_raw_update` | 4.4 | Done |
+| SLS-013 | A `FINANCIAL_CORRECTION` moves money and no quantity | the same trigger | `apps/sales/tests/test_sales_adjustments.py` · `apps/sales/tests/test_sales_demo_seed.py::test_the_financial_correction_takes_back_money_and_no_quantity` | 4.4 | Done |
+| SLS-014 | **Only** `CANCELLED_BEFORE_FULFILLMENT` reduces theoretical consumption | `apps/sales/consumption_source.cancelled_quantities` | `apps/sales/tests/test_sales_adjustments.py` · `apps/sales/tests/test_verify_sales.py::test_only_a_cancellation_reduces_the_theoretical_quantity` | 4.4 | Done |
+| SLS-015 | Expected, statement and remitted are kept as three figures; every dinar of each gap is claimed | `apps/sales/settlement_services.three_way_for` | `apps/sales/tests/test_application_settlements.py` · `apps/sales/tests/test_sales_api.py::test_the_settlement_payload_keeps_the_three_figures_apart` | 4.5 | Done |
+| SLS-016 | An unexplained gap on either leg blocks reconciliation exactly, with no tolerance | `reconcile_settlement`, `unexplained_variance` | `apps/sales/tests/test_application_settlements.py` | 4.5 | Done |
+| SLS-017 | `UNEXPLAINED_APPROVED` costs a written explanation and a named approver | two `CheckConstraint`s in migration `0009` | `apps/sales/tests/test_application_settlements.py` | 4.5 | Done |
+| SLS-018 | A settlement journal contains **no** class-6 line: commission is recognised once, at the sale | `apps/sales/settlement_posting.build_settlement_plan` | `apps/sales/tests/test_application_settlements.py` · `apps/sales/tests/test_verify_sales.py::test_a_settlement_that_debits_commission_twice_is_an_error` | 4.5 | Done |
+| SLS-019 | No receivable entry is allocated beyond what it owes, across posted settlements | `sales_settlement_allocation_is_within_its_entry` trigger | `apps/sales/tests/test_application_settlements.py` | 4.5 | Done |
+| SLS-020 | The approver of a cashier closing is never its closer — in the service and at the database | `sales_shift_approver_is_not_the_closer` + `approve_cashier_shift` | `apps/sales/tests/test_cashier_shifts.py` · `apps/sales/tests/test_sales_api.py::test_approving_your_own_closing_is_a_409` | 4.6 | Done |
+| SLS-021 | A closing posts the approved cash over/short variance and nothing else | `apps/sales/shift_posting.build_shift_plan` | `apps/sales/tests/test_cashier_shifts.py` · `apps/sales/tests/test_verify_sales.py::test_a_shift_journal_touching_the_wrong_accounts_is_an_error` | 4.6 | Done |
+| SLS-022 | A zero variance posts no journal at all and still takes a number | `approve_cashier_shift` | `apps/sales/tests/test_cashier_shifts.py` | 4.6 | Done |
+| SLS-023 | A shift closes only against a `POSTED` day | `close_cashier_shift`, `day_not_posted` | `apps/sales/tests/test_cashier_shifts.py` | 4.6 | Done |
+| SLS-024 | The daily reconciliation stores nothing and offers no acknowledge control | `apps/sales/daily_reconciliation.py`, `report_views.py` | `apps/sales/tests/test_cashier_shifts.py` | 4.6 | Done |
+| SLS-025 | `net_revenue` is the ledger's own arithmetic and can be found in the general ledger | `apps/sales/dashboard.headline_for` | `apps/sales/tests/test_sales_dashboard.py::test_net_revenue_is_the_ledgers_own_arithmetic` | 4.7 | Done |
+| SLS-026 | No `float` appears in a dashboard aggregate; shares are exact `Decimal`s quantized once | `apps/sales/dashboard.py` | `apps/sales/tests/test_sales_dashboard.py::test_mixes_and_top_items_share_to_a_hundred` | 4.7 | Done |
+| SLS-027 | Shortage and overage are reported separately and never netted | `dashboard.cashier_summary` | `apps/sales/tests/test_sales_dashboard.py::test_shortage_and_overage_are_never_netted` | 4.7 | Done |
+| SLS-028 | A line with no cost snapshot behind it is counted and reported, never costed at zero | `dashboard.cost_summary` | `apps/sales/tests/test_sales_dashboard.py::test_cost_summary_never_values_a_line_at_zero` | 4.7 | Done |
+| SLS-029 | Cost and margin are **omitted, never blanked**, without `view_sales_cost` | the card registry + `/dashboard/cost` | `apps/sales/tests/test_sales_dashboard.py::test_a_manager_without_cost_gets_no_cost_card_and_a_403_on_its_route` · `apps/sales/tests/test_sales_api.py::test_cost_is_a_separate_route_and_carries_no_key_on_the_dashboard` | 4.7 | Done |
+| SLS-030 | Every dashboard card answers as its own htmx fragment with no second shell | `apps/sales/dashboard_views.SalesDashboardCardView` | `apps/sales/tests/test_sales_dashboard.py::test_every_card_route_answers_as_a_fragment` | 4.7 | Done |
+| SLS-031 | Money, quantities and rates cross the API as exact strings, both directions | `apps/sales/api.py` | `apps/sales/tests/test_sales_api.py::test_every_read_answers_and_carries_no_json_number` · `apps/sales/tests/test_sales_api.py::test_the_day_payload_reconstructs_its_own_totals` | 4.7 | Done |
+| SLS-032 | Out of scope is 404 and never 403, including for a malformed identifier | `apps/sales/selectors.py` + `api._by_public_id` | `apps/sales/tests/test_sales_api.py::test_an_unknown_document_is_a_404_and_not_a_403` | 4.7 | Done |
+| SLS-033 | No `PATCH` and no `DELETE` on anything that has left `DRAFT` or `OPEN` | the router's shape | `apps/sales/tests/test_sales_api.py::test_a_posted_day_offers_no_patch_and_no_delete` | 4.7 | Done |
+| SLS-034 | A cashier may draft and submit a day and may not post it | `require_branch_permission` per transition | `apps/sales/tests/test_sales_api.py::test_a_cashier_may_draft_a_day_and_may_not_post_it` | 4.7 | Done |
+| SLS-035 | A state conflict answers 409 and a fixable input answers 422 | `CONFLICT_CODES` in `config/api.py` | `apps/sales/tests/test_sales_api.py::test_posting_a_posted_day_is_a_409_and_not_a_422` · `apps/sales/tests/test_sales_api.py::test_a_malformed_decimal_is_a_422_naming_the_field` | 4.7 | Done |
+| SLS-036 | The Sales router is registered under the versioned prefix | `config/api.py` | `apps/sales/tests/test_sales_api.py::test_the_router_is_registered_under_the_versioned_prefix` | 4.7 | Done |
+| SLS-037 | `verify_sales` reports and refuses to repair; there is no `--fix` | `apps/sales/management/commands/verify_sales.py` | `apps/sales/tests/test_verify_sales.py::test_the_command_offers_no_repair_flag` | 4.7 | Done |
+| SLS-038 | A clean module exits zero with advisories present; an error exits non-zero | the command's epilogue | `apps/sales/tests/test_verify_sales.py::test_the_command_runs_and_exits_zero_on_a_clean_module` · `apps/sales/tests/test_verify_sales.py::test_the_command_exits_non_zero_on_an_error` | 4.7 | Done |
+| SLS-039 | A commission gap with a delivery company is an ADVISORY and never an ERROR | `reconciliation.verify_settlement_commission` | `apps/sales/tests/test_verify_sales.py::test_the_commission_gap_is_an_advisory_and_never_an_error` | 4.7 | Done |
+| SLS-040 | A drawer counted but not yet approved is a COVERAGE_LIMITATION | `reconciliation.verify_shift_counts` | `apps/sales/tests/test_verify_sales.py::test_a_shift_closed_but_not_yet_approved_is_a_coverage_limitation` | 4.7 | Done |
+| SLS-041 | The receivable subledger is compared per **control account**, not per application | `reconciliation.verify_receivable_ledger` | `apps/sales/tests/test_verify_sales.py::test_an_appended_receivable_entry_breaks_the_subledger` | 4.7 | Done |
+| SLS-042 | Every sales journal carries a complete, upper-case source identity and names a real document | `reconciliation.verify_source_identity` | `apps/sales/tests/test_verify_sales.py::test_a_journal_with_no_document_behind_it_is_an_error` | 4.7 | Done |
+| SLS-043 | Seventeen permissions: every declared name granted, every grant scoped, every grant migrated | `apps/sales/permissions.py` | `apps/sales/tests/test_verify_sales.py::test_the_permission_table_is_complete_at_seventeen` · `apps/sales/tests/test_verify_sales.py::test_every_declared_permission_name_is_granted_and_migrated` | 4.7 | Done |
+| SLS-044 | With the `SALES` adapter registered, no surface reports `SALES_NOT_INCLUDED_PHASE_4` | `kitchen.consumption_sources.coverage_code` | `apps/sales/tests/test_verify_sales.py::test_the_sales_quantity_source_is_registered` | 4.7 | Done |
+| SLS-045 | `seed_sales_demo` refuses outside `DEBUG` and posts nothing without `--confirm-demo` | the command's guards | `apps/sales/tests/test_sales_demo_seed.py::test_it_refuses_to_run_outside_debug` · `apps/sales/tests/test_sales_demo_seed.py::test_it_posts_nothing_without_confirm_demo` | 4.7 | Done |
+| SLS-046 | A second seed run creates nothing: every table counted before and after, journals included | `apps/sales/demo.py` | `apps/sales/tests/test_sales_demo_seed.py::test_a_second_run_creates_nothing_at_all` | 4.7 | Done |
+| SLS-047 | The demo posts through the real services; no journal is written by hand | `apps/sales/demo.py` | `apps/sales/tests/test_sales_demo_seed.py::test_the_seed_writes_no_journal_by_hand` | 4.7 | Done |
+| SLS-048 | Demo delivery applications are fictional and every record says it is a demo | `DEMO_BANNER`, `DEMO_NAMESPACE` | `apps/sales/tests/test_sales_demo_seed.py::test_the_delivery_applications_are_fictional` · `apps/sales/tests/test_sales_demo_seed.py::test_every_record_says_it_is_a_demo` | 4.7 | Done |
+| SLS-049 | The demo's business dates are fixed, so a second run is a retry rather than a new day | `demo.ANCHOR` | `apps/sales/tests/test_sales_demo_seed.py::test_the_business_dates_are_fixed_and_not_todays` | 4.7 | Done |
+| SLS-050 | The seeded module verifies clean, which is what makes the demo worth having | `seed_sales_demo` + `verify_sales` | `apps/sales/tests/test_sales_demo_seed.py::test_the_seeded_module_verifies_clean` | 4.7 | Done |
+| SLS-051 | Twelve navigation sections, all active, no قريباً badge left in Sales | `apps/core/navigation.py` | `apps/core/tests/test_shell.py::test_a_finished_module_has_no_inert_section_left` | 4.7 | Done |
+| SLS-052 | Task 4.0's seventeen chart accounts are in the Phase 0 exit gate's count | `seed_chart_of_accounts.CHART` | `tests/test_phase_0_exit.py::TestTheFoundationsCooperate::test_the_whole_path_from_an_empty_database_to_a_closed_period` | 4.0 | Done |
+
+## Phase 5 — Accounting
+
+Specified by Task 5.0 (`docs/tasks/task-5-0-accounting-domain-spec.md`,
+ADR-029, ADR-030, ADR-031) and delivered across checkpoints 5.1 to 5.13. The
+invariants these rows cite are numbered in
+`docs/invariants/accounting-module-invariants.md`; the documents are written
+out in `docs/development/accounting-operations.md` and the reads in
+`docs/development/accounting-reports.md`.
+
+The Phase 3 and Phase 4 conventions carry over. A row may cite a **constraint,
+a trigger or a management command** instead of a test, because the enforcement
+*is* the constraint and pointing at a test that merely observes it would be the
+weaker claim. A row is `Done` only when the evidence exists and runs.
+
+| Req ID | Summary | Module / service | Tests | Task | Status |
+|---|---|---|---|---|---|
+| ACT-001 | The Phase 0 kernel stays the only ledger; Phase 5 adds no second journal store | no journal model outside `apps/accounting/models.JournalEntry` | `apps/accounting/tests/test_verify_accounting.py::test_a_clean_organization_reports_no_blocking_findings` | 5.1 | Done |
+| ACT-002 | No mutable balance column exists on any accounting model | `reconciliation.verify_no_stored_balance` | `apps/accounting/tests/test_api_reports.py::test_cashbox_endpoint_returns_no_balance` · `apps/accounting/tests/test_verify_accounting.py::test_no_accounting_model_carries_a_stored_balance` | 5.1 | Done |
+| ACT-003 | Every balance is derived from POSTED and REVERSED journal lines at read time | `selectors.account_balance`, `reports._scoped_lines` | `apps/accounting/tests/test_api_reports.py::test_trial_balance_ties_and_reports_strings` | 5.8 | Done |
+| ACT-004 | A manual journal's creator may not post it; system journals are exempt | `services.validate_manual_maker_checker` | `apps/accounting/tests/test_api.py::test_create_amend_post` | 5.2 | Done |
+| ACT-005 | A RESTRICTED account refuses a hand-written line without the override permission | `services.validate_manual_posting_policy` | `apps/accounting/tests/test_posting.py` | 5.2 | Done |
+| ACT-006 | A posted journal is frozen by a whole-row allowlist trigger, not a blocklist | migration `accounting/0005` | `apps/accounting/tests/test_hardening.py` | 0.6 | Done |
+| ACT-007 | Role mappings are effective-dated and versioned; a used mapping is closed, never rewritten | `commands.close_account_role_mapping` | `apps/accounting/tests/test_account_mappings.py` | 5.1 | Done |
+| ACT-008 | No account code is written into any accounting service; every account is resolved by role | `services.resolve_default_account` | `apps/accounting/tests/test_report_mapping.py` | 5.1 | Done |
+| ACT-009 | One GL account carries at most one active cash record | partial unique index on `(organization, account) WHERE is_active` | `apps/accounting/tests/test_cash_accounts.py` | 5.3 | Done |
+| ACT-010 | Bank account numbers are stored masked | `cash_services._mask` | `apps/accounting/tests/test_cash_accounts.py` | 5.3 | Done |
+| ACT-011 | Reconciliation stamps a date and changes no figure, because none is stored | `cash_services.record_reconciliation` | `apps/accounting/tests/test_cash_accounts.py` | 5.3 | Done |
+| ACT-012 | The supplier workspace forwards to Procurement's `supplier_aging` and derives nothing | `report_commands.read_supplier_liabilities` | `apps/accounting/tests/test_verify_accounting.py::test_it_forwards_the_other_modules_verifiers` | 5.4 | Done |
+| ACT-013 | The application workspace forwards to Sales' `positions_for` and derives nothing | `report_commands.read_application_receivables` | `apps/accounting/tests/test_verify_accounting.py::test_it_forwards_the_other_modules_verifiers` | 5.4 | Done |
+| ACT-014 | The subledger comparison uses `net_position`, not `open_total`, so standing credit ties | `reconciliation.verify_supplier_subledger` | `apps/accounting/tests/test_verify_accounting.py::test_a_clean_organization_reports_no_blocking_findings` | 5.4 | Done |
+| ACT-015 | A subledger discrepancy is reported and never repaired automatically | no repair path in `reconciliation.py` | `apps/accounting/tests/test_verify_accounting.py::test_nothing_in_reconciliation_writes` | 5.4 | Done |
+| ACT-016 | An expense voucher has no supplier field and no tax field | `ExpenseVoucher` model | `apps/accounting/tests/test_api_documents.py::test_expense_voucher_full_lifecycle` | 5.5 | Done |
+| ACT-017 | A voucher is paid from exactly one source, cashbox or bank | `expense_voucher_exactly_one_payment_source` check constraint + `open_expense_voucher` | `apps/accounting/tests/test_api_documents.py::test_voucher_needs_exactly_one_payment_source` | 5.5 | Done |
+| ACT-018 | The voucher's author may neither approve nor post it, whatever permissions they hold | `expense_services.approve_expense_voucher` / `post_expense_voucher` | `apps/accounting/tests/test_api_documents.py::test_author_cannot_approve_own_voucher` | 5.5 | Done |
+| ACT-019 | A voucher total is the sum of its lines, never rounded independently | `expense_services.recompute_total` | `apps/accounting/tests/test_api_documents.py::test_expense_voucher_full_lifecycle` | 5.5 | Done |
+| ACT-020 | Nothing that reached the ledger takes the discard path | `expense_services.discard_expense_voucher` | `apps/accounting/tests/test_api_documents.py::test_posted_voucher_cannot_be_discarded` | 5.5 | Done |
+| ACT-021 | An accrual line names an expense account and never revenue, liability or equity | `deferral_services.add_accrual_line` | `apps/accounting/tests/test_api_documents.py::test_accrual_line_refuses_a_non_expense_account` | 5.6 | Done |
+| ACT-022 | Reversing an accrual may record which invoice superseded it; Accounting never creates that invoice | `deferral_services.reverse_accrual` | `apps/accounting/tests/test_api_documents.py::test_accrual_lifecycle_and_line_totals` | 5.6 | Done |
+| ACT-023 | A prepayment schedule is split by the certified allocator and sums to its header exactly | `deferral_services.build_schedule` + `apps/core/allocation.py` | `apps/accounting/tests/test_api_documents.py::test_prepayment_schedule_is_exact` | 5.6 | Done |
+| ACT-024 | `end_date` is derived from the last schedule period and never submitted | `deferral_services.open_prepayment` | `apps/accounting/tests/test_api_documents.py::test_prepayment_end_date_cannot_be_submitted` | 5.6 | Done |
+| ACT-025 | An instalment into a closed period is refused, and the refusal names the period | `deferral_services.post_schedule_line` | `apps/accounting/tests/test_posting.py` | 5.6 | Done |
+| ACT-026 | The pre-close report collects every blocker instead of raising on the first | `period_services.period_close_blockers` | `apps/accounting/tests/test_api_reports.py::test_pre_close_collects_every_blocker_not_just_the_first` | 5.7 | Done |
+| ACT-027 | A close guard that raises unexpectedly becomes an advisory finding, not an aborted preview | `period_services._domain_guards` | `apps/accounting/tests/test_api_reports.py::test_pre_close_collects_every_blocker_not_just_the_first` | 5.7 | Done |
+| ACT-028 | Statement order is one tuple, named once, and the running balance is accumulated in the service | `apps/accounting/statements.py` + `reports.general_ledger` | `apps/accounting/tests/test_api_reports.py::test_general_ledger_source_document_id_is_a_string` | 5.8 | Done |
+| ACT-029 | `source_type` is upper-cased on the way in, matching stored source identity | `report_commands.read_general_ledger` | `apps/accounting/tests/test_source_identity.py` | 5.8 | Done |
+| ACT-030 | The statements resolve their account set from the ledger, so an unmapped balance cannot vanish | `reports.classify` | `apps/accounting/tests/test_api_reports.py::test_unmapped_balance_is_shown_and_blocks_approval` | 5.9 | Done |
+| ACT-031 | An unmapped account with a balance blocks approval and appears in غير مصنّف | `IncomeStatement.is_approvable`, `BalanceSheet.is_approvable` | `apps/accounting/tests/test_api_reports.py::test_unmapped_balance_is_shown_and_blocks_approval` | 5.9 | Done |
+| ACT-032 | Current-year earnings are computed, so the equation holds without monthly closing entries | `reports.balance_sheet` | `apps/accounting/tests/test_api_reports.py::test_balance_sheet_reports_its_difference_rather_than_hiding_it` | 5.9 | Done |
+| ACT-033 | An unbalanced statement reports its difference and offers no repair | `BalanceSheet.difference`; no repair path in `report_views.py` or `api_reports.py` | `apps/accounting/tests/test_api_reports.py::test_balance_sheet_reports_its_difference_rather_than_hiding_it` | 5.9 | Done |
+| ACT-034 | Every CSV export calls the same service the screen did, with a BOM and neutralised cells | `report_views.py` + `apps/inventory/report_views.neutralise` | `apps/accounting/tests/test_accounting_ui.py::test_every_report_export_is_csv_with_a_bom` · `apps/accounting/tests/test_accounting_ui.py::test_an_exported_cell_cannot_execute_as_a_formula` | 5.8 | Done |
+| ACT-035 | Every dashboard card answers as its own fragment, so one failure cannot blank the page | `apps/accounting/dashboard_views.py` | `apps/accounting/tests/test_accounting_ui.py::test_every_dashboard_card_answers_as_a_fragment` | 5.10 | Done |
+| ACT-036 | Money crosses the API as a string in both directions | `api_documents.py`, `api_reports.py` | `apps/accounting/tests/test_api_documents.py::test_amounts_leave_as_strings` | 5.11 | Done |
+| ACT-037 | `source_document_id` crosses the API as a string, because upstream ids are UUIDs as often as integers | `api_reports.LedgerRowOut` | `apps/accounting/tests/test_api_reports.py::test_general_ledger_source_document_id_is_a_string` | 5.11 | Done |
+| ACT-038 | Out of scope is 404; in scope without authority is 403 | `document_commands.py`, `report_commands.py` | `apps/accounting/tests/test_api_documents.py::test_out_of_scope_voucher_is_404_not_403` · `::test_in_scope_without_authority_is_403` | 5.11 | Done |
+| ACT-039 | Every new endpoint requires authentication, because the API authenticates by default | `config/api.py` `auth=django_auth` | `apps/accounting/tests/test_api_documents.py::test_anonymous_is_refused` | 5.11 | Done |
+| ACT-040 | The API reaches reports under the same authority the screens use, neither wider nor narrower | `report_commands` uses `require_reachable_organization_permission` | `apps/accounting/tests/test_api_reports.py::test_reader_without_ledger_authority_cannot_read_reports` | 5.11 | Done |
+| ACT-041 | Twenty-six accounting permissions: every declared name granted, every grant scoped and migrated | `apps/accounting/permissions.py` | `apps/accounting/tests/test_permissions.py` | 5.1 | Done |
+| ACT-042 | `verify_accounting` reports and refuses to repair; there is no `--fix` | `apps/accounting/management/commands/verify_accounting.py` | `apps/accounting/tests/test_verify_accounting.py::test_the_command_offers_no_repair_flag` | 5.10 | Done |
+| ACT-043 | The verifier composes Procurement's and Sales' own verifiers rather than re-deriving them | `reconciliation.verify_supplier_subledger` / `verify_application_subledger` | `apps/accounting/tests/test_verify_accounting.py::test_it_forwards_the_other_modules_verifiers` | 5.10 | Done |
+| ACT-044 | A check that raises becomes a finding rather than aborting the run | `verify_accounting.Command.handle` | `apps/accounting/tests/test_verify_accounting.py::test_a_check_that_raises_becomes_a_finding` | 5.10 | Done |
+| ACT-045 | The seeded demo verifies clean: 0 ERROR, 0 ADVISORY, 0 COVERAGE_LIMITATION | `seed_accounting_demo` + `verify_accounting` | `verify_accounting --organization DEMO-KHAN-MANDI` exits zero: 0 ERROR, 0 ADVISORY, 0 COVERAGE_LIMITATION | 5.10 | Verified |
+| ACT-046 | The demo classifies every postable account, because an unmapped balance blocks the statements | `demo.seed_report_mappings` | the first verifier run reported 27 unclassified balances; the seed closed them | 5.10 | Verified |
+| ACT-047 | Fifteen navigation sections, all active, no قريباً badge left in Accounting | `apps/core/navigation.py` | `apps/core/tests/test_shell.py::test_a_finished_module_has_no_inert_section_left` | 5.10 | Done |
+| ACT-048 | IQD only: no currency field, no rate table, no tax field anywhere in the module | the absence across `apps/accounting/models.py` | `apps/accounting/tests/test_commit_boundary.py` | 5.0 | Done |

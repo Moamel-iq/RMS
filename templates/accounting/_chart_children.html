@@ -1,0 +1,36 @@
+{# One node's children, swapped in after its row. The lazy half of the tree. #}
+{#                                                                           #}
+{# Rows only — no <table>, no shell. htmx inserts these straight after the   #}
+{# parent's <tr>, so anything wrapping them would be invalid table markup    #}
+{# that browsers silently hoist out of the table.                            #}
+{% load i18n money_tags %}
+
+{% for node in children %}
+  <tr class="chart-row chart-row--child" data-parent="{{ parent.pk }}">
+    <td class="chart-cell--indent">
+      {% if not node.account.is_postable %}
+        <button class="tree-toggle" type="button"
+                hx-get="{% url 'accounting:chart_children' node.account.pk %}{% if include_archived %}?archived=1{% endif %}"
+                hx-target="closest tr"
+                hx-swap="afterend"
+                aria-label="{% translate 'افتح الفروع' %}">+</button>
+      {% endif %}
+      <code dir="ltr">{{ node.account.code }}</code>
+    </td>
+    <td>
+      {{ node.account.name_ar }}
+      {% if not node.account.is_active %}<span class="chip chip--muted">{% translate "مؤرشف" %}</span>{% endif %}
+      {% if node.account.is_system %}<span class="chip chip--muted">{% translate "نظامي" %}</span>{% endif %}
+    </td>
+    <td>{{ node.account.get_account_class_display }}</td>
+    <td>{% if node.account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
+    <td><bdi dir="ltr">{{ node.balance|money_full }}</bdi></td>
+    <td class="cell-actions">
+      <a class="btn btn--secondary btn--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
+    </td>
+  </tr>
+{% empty %}
+  <tr class="chart-row chart-row--child">
+    <td colspan="6" class="empty">{% translate "لا توجد حسابات تحت هذا المستوى." %}</td>
+  </tr>
+{% endfor %}

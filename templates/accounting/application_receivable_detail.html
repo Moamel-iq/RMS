@@ -1,0 +1,92 @@
+{# One delivery application's receivable ledger.                             #}
+{#                                                                           #}
+{# Append-only: a settlement or a reversal adds a row and never edits one.   #}
+{# Sales owns these rows; Accounting reads them and offers no action.        #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-application-statement">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'accounting:application_receivable_list' %}">{% translate "ذمم التطبيقات" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ application.name_ar }}</span>
+    </nav>
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ application.name_ar }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--secondary" href="{% url 'sales:application_detail' application.pk %}">
+          {% translate "بطاقة التطبيق في المبيعات" %}
+        </a>
+      </div>
+    </div>
+
+    {% if position %}
+      <section class="card">
+        <h2 class="card__title">{% translate "الوضع الحالي" %}</h2>
+        <div class="summary-row">
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "الرصيد" %}</span>
+            <span class="summary-row__value"><bdi dir="ltr">{{ position.balance|money_full }}</bdi></span>
+          </div>
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "أقدم دين مفتوح" %}</span>
+            <span class="summary-row__value">
+              {% if position.oldest_open_date %}<bdi dir="ltr">{{ position.oldest_open_date|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}
+            </span>
+          </div>
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "التسوية المتوقَّعة" %}</span>
+            <span class="summary-row__value">
+              {% if position.expected_settlement_date %}<bdi dir="ltr">{{ position.expected_settlement_date|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}
+            </span>
+          </div>
+        </div>
+        <ul class="chip-list">
+          {% for bucket in position.buckets %}
+            <li class="chip">{{ bucket.label }}: <bdi dir="ltr">{{ bucket.amount|money_full }}</bdi></li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    <section class="card">
+      <h2 class="card__title">{% translate "سجل الذمم" %}</h2>
+      <div class="tablewrap">
+        <table class="table" id="application-ledger-table">
+          <thead><tr>
+            <th>{% translate "تاريخ العمل" %}</th>
+            <th>{% translate "المصدر" %}</th>
+            <th>{% translate "المستند" %}</th>
+            <th>{% translate "مدين" %}</th>
+            <th>{% translate "دائن" %}</th>
+            <th>{% translate "الرصيد" %}</th>
+          </tr></thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td><bdi dir="ltr">{{ row.entry.business_date|date:"Y-m-d" }}</bdi></td>
+                <td>{{ row.entry.get_source_display }}</td>
+                <td>
+                  <code dir="ltr">{{ row.entry.source_document_type }}</code>
+                  <bdi dir="ltr">{{ row.entry.source_document_id }}</bdi>
+                </td>
+                <td><bdi dir="ltr">{{ row.entry.debit|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.entry.credit|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="6" class="empty">{% translate "لا حركة على هذا التطبيق." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}

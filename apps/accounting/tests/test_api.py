@@ -83,6 +83,7 @@ class TestDraftLifecycle:
     def test_create_amend_post(
         self,
         accountant: User,
+        accounting_manager: User,
         client_for: Any,
         organization: Organization,
         cash: Account,
@@ -90,9 +91,18 @@ class TestDraftLifecycle:
         branch: Branch,
         hall: CostCenter,
     ) -> None:
-        client = client_for(accountant)
+        """
+        The whole manual-journal lifecycle, through **two** people.
 
-        created = _post(client, ENTRIES, _draft_payload(organization, cash, sales, branch, hall))
+        The accountant writes it and the accounting manager releases it,
+        because a manual journal may not be posted by whoever wrote it
+        (ADR-029 §2). The API is the surface where that is easiest to get
+        wrong: one authenticated session can do both halves unless the rule is
+        enforced on the entry rather than on the request.
+        """
+        writer = client_for(accountant)
+
+        created = _post(writer, ENTRIES, _draft_payload(organization, cash, sales, branch, hall))
         assert created.status_code == 201
         body = created.json()
         assert body["status"] == JournalEntryStatus.DRAFT
@@ -100,7 +110,7 @@ class TestDraftLifecycle:
         assert body["entry_number"] == ""
         entry_id = body["id"]
 
-        amended = client.patch(
+        amended = writer.patch(
             f"{ENTRIES}{entry_id}/",
             data=json.dumps({"narration": "cash sale, corrected"}),
             content_type="application/json",
@@ -108,7 +118,12 @@ class TestDraftLifecycle:
         assert amended.status_code == 200
         assert amended.json()["narration"] == "cash sale, corrected"
 
-        posted = _post(client, f"{ENTRIES}{entry_id}/post/")
+        # The author cannot release their own entry.
+        refused = _post(writer, f"{ENTRIES}{entry_id}/post/")
+        assert refused.status_code == 422
+
+        poster = client_for(accounting_manager)
+        posted = _post(poster, f"{ENTRIES}{entry_id}/post/")
         assert posted.status_code == 200
         assert posted.json()["status"] == JournalEntryStatus.POSTED
         assert posted.json()["entry_number"].startswith("JE-")

@@ -273,6 +273,8 @@ because swapping a page into a table would nest the shell inside itself.
 | `seed_inventory_demo` | `DEMO-INVENTORY-V1` | Inventory master data, opening stock, receipts, issues, returns, reversal, transfers, in-transit, shortage, waste, stock counts, manual adjustments, reorder points, dated lots, import batches |
 | `seed_procurement_demo` | `DEMO-*` procurement codes | Suppliers, catalogue, requests, quotations, award, orders, revision, receipts, invoices, matching, returns, credit notes, payments, report routes, applied and rejected import batches. (This row was missing while the command shipped through Phase 2 — the table lagged the code by a phase, found at Task 3.0.) |
 | `seed_kitchen_demo` (Task 3.1) | `DEMO-KITCHEN-V1` | Five recipes: one batch recipe with FOOD and PACKAGING lines, a substitute, numbered steps (one with a sourced duration, one with a qualitative heat instruction and a **null** temperature) and three servings; one portion recipe drawing on the batch's output; one draft with no structure; one recipe with no draft; one archived. Creates the single permitted new item `DEMO-RICE-COOKED`. **No approved version, no cost, no price, no stock movement and no journal entry.** Every row carries `تجريبي — غير معتمد للإنتاج` |
+| `seed_sales_demo` (Task 4.7) | `DEMO-SALES-V1` | A menu of five items, four channel categories, three fictional delivery applications with three different commission bases, three discount programmes covering the restaurant-funded, application-funded and shared shapes, a posted day, a reversed day, a draft day, one adjustment of **each** reason kind, one posted settlement with a claimed gap on each variance leg, one reconciled settlement carrying an `UNEXPLAINED_APPROVED` claim, and one approved cashier shift with a small shortage. Requires `--confirm-demo` before anything posts; there is no `--reset-demo` |
+| `seed_accounting_demo` (Phase 5) | `DEMO-KHAN-MANDI` accounting records | A cashbox and a bank account, one expense voucher taken through approve and post, one accrual, one prepayment with its full amortization schedule, and a statement group for **every** postable account. The last one is not decoration: an account with a balance and no statement group blocks both financial statements, so a demo without it verifies dirty and teaches the reader that dirty is normal. `DEBUG`-only, checked before any argument is read; idempotent; there is no `--reset`, because everything it touches is or becomes ledger history |
 
 Reference data seeds — `seed_units`, `seed_chart_of_accounts`,
 `sync_accounting_roles` — are **not** demo commands. They create deterministic
@@ -424,3 +426,52 @@ batch sitting in `DRAFT` because a semi-finished component had never been put on
 the shelf, which meant the productivity report and every consumption read had
 been rendering correctly against nothing at all. Counting the rows a screen will
 show is part of writing the seed, not part of reviewing it later.
+
+
+## Task 4.7 — three things the Sales seed had to get right
+
+### Fixed business dates, not relative ones
+
+`SalesDay` is unique per branch and business date. An anchor of "today" makes a
+second run **tomorrow** a new document rather than a retry, so the dataset grows
+by one day of trading per calendar day and never reports `reused`. The Sales
+seed therefore anchors on a literal date and every document is offset from it.
+
+The cost is real and is paid in the output rather than in the data: the
+dashboard's default window is a fortnight, so the scenario eventually falls
+outside it. The command prints the dashboard URL **with the dates already in
+it**. A drift that only shows up as an empty screen six weeks later is the worst
+of the available failures.
+
+### Three actors, because the control is on the actor
+
+`sales_shift_approver_is_not_the_closer` is a check constraint. A seed that
+closed and approved a drawer with one user would be refused by the database and
+the whole scenario would roll back with it — which is the correct outcome and a
+confusing one to debug. `demo-sales-cashier`, `demo-sales-manager` and
+`demo-sales-accounting` are created with unusable passwords, exactly as the
+kitchen demo's four reviewers are, and each carries the membership that lets a
+reviewer sign in and see what they may and may not do.
+
+### The upserts are guarded by value, not by a flag
+
+`set_branch_availability`, `set_application_branch_setting` and
+`grant_branch_access` all upsert happily and all record an audit event every
+time. An unguarded second run therefore added nineteen audit events and nothing
+else — every document count identical, and the strictest count in the
+idempotency test the only one that moved. Each of them is now guarded by the
+value it would write.
+
+That is the same lesson Task 3.4 recorded and it was learned again here, which
+is why it is worth writing twice: **counting only the documents is not enough.**
+The Sales idempotency test compares twenty tables including `JournalEntry`,
+`JournalLine` and `AuditEvent`, because a second run that re-posted a day it had
+already posted would leave the document count unchanged and the ledger doubled.
+
+### And one thing it deliberately does not have
+
+**No `--reset-demo`.** The inventory seed has one; everything this command posts
+is a journal, an application receivable movement or an approved cash difference,
+and none of it may be removed to make a reseed convenient. A flag that could
+only ever delete the master data would promise more than it does. To start from
+nothing: a fresh development database, or a fresh namespace version.

@@ -1,0 +1,68 @@
+{# أصناف المنيو — what the restaurant sells, and what fulfils each one.      #}
+{#                                                                           #}
+{# No cost column, in any variant. What a plate costs is `view_recipe_cost`  #}
+{# and `view_sales_cost`, and it is answered on the cost card and the        #}
+{# dashboard rather than smuggled into a master-data list where the column   #}
+{# would have to be blanked for most readers.                                #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="field">
+    <span class="field__label">{% translate "المجموعة" %}</span>
+    <select name="category">
+      <option value="">{% translate "كل المجموعات" %}</option>
+      {% for category in categories %}
+        <option value="{{ category.pk }}" {% if selected_category == category.pk|stringformat:"s" %}selected{% endif %}>
+          {{ category.name_ar }}
+        </option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "الحالة" %}</span>
+    <select name="state">
+      <option value="">{% translate "الكل" %}</option>
+      <option value="active" {% if selected_state == "active" %}selected{% endif %}>{% translate "فعّال" %}</option>
+      <option value="archived" {% if selected_state == "archived" %}selected{% endif %}>{% translate "مؤرشف" %}</option>
+    </select>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "المجموعة" %}</th>
+  <th>{% translate "الوصفة" %}</th>
+  <th>{% translate "رمز الحصة" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for item in menu_items %}
+    <tr>
+      <td data-label="{% translate 'الرمز' %}">
+        <a href="{% url 'sales:menu_item_detail' item.pk %}"><bdi dir="ltr"><code>{{ item.code }}</code></bdi></a>
+      </td>
+      <td data-label="{% translate 'الاسم' %}">{{ item.name_ar }}</td>
+      <td data-label="{% translate 'المجموعة' %}">{{ item.category.name_ar|default:"—" }}</td>
+      <td data-label="{% translate 'الوصفة' %}">
+        {% if item.recipe %}<bdi dir="ltr"><code>{{ item.recipe.code }}</code></bdi> {{ item.recipe.name_ar }}{% else %}—{% endif %}
+      </td>
+      <td data-label="{% translate 'رمز الحصة' %}">
+        {% if item.serving_code %}<bdi dir="ltr"><code>{{ item.serving_code }}</code></bdi>{% else %}—{% endif %}
+      </td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if item.is_active %}
+          <span class="chip chip--on">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+        {% endif %}
+      </td>
+      {% include "inventory/_rowactions.html" with row=item owner_id=item.organization_id edit_url="sales:menu_item_update" archive_url="sales:menu_item_archive" reactivate_url="sales:menu_item_reactivate" extra_url="sales:menu_item_detail" extra_label=_("التوفّر والأسعار") %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="7">{% translate "لا توجد أصناف منيو بعد. الصنف يشير إلى وصفة ورمز حصة معرَّف على نسخها." %}</td></tr>
+  {% endfor %}
+{% endblock %}

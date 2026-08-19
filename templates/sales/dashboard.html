@@ -1,0 +1,167 @@
+{# لوحة المبيعات — the module's landing page.                                #}
+{#                                                                           #}
+{# Nothing on this page writes. Every figure is read back out of a posted     #}
+{# document, and the only controls are the period and the branch.            #}
+{#                                                                           #}
+{# The headline renders with the page; every card below fetches itself with   #}
+{# its own hx-get on load, so the reconciliation and cost cards — the two     #}
+{# that do real work — delay themselves and nothing else.                     #}
+{#                                                                           #}
+{# The cost card is ABSENT without `view_sales_cost`, never blank. A blank    #}
+{# card tells the reader a number exists and that they are not trusted with   #}
+{# it, which is a different statement from the one intended.                  #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="sales-dashboard" class="list-page">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+    </div>
+
+    <form class="filterbar" method="get">
+      <label class="field">
+        <span class="field__label">{% translate "المنشأة" %}</span>
+        <select name="organization">
+          {% for row in organizations %}
+            <option value="{{ row.pk }}" {% if row.pk == organization.pk %}selected{% endif %}>
+              {{ row.code }} — {{ row.name_ar }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "الفرع" %}</span>
+        <select name="branch">
+          <option value="">{% translate "كل الفروع" %}</option>
+          {% for branch in branches %}
+            <option value="{{ branch.pk }}" {% if selected_branch == branch.pk|stringformat:"s" %}selected{% endif %}>
+              {{ branch.code }} — {{ branch.name_ar }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "من" %}</span>
+        <input type="date" name="from" value="{{ scope.date_from|date:'Y-m-d' }}">
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "إلى" %}</span>
+        <input type="date" name="to" value="{{ scope.date_to|date:'Y-m-d' }}">
+      </label>
+      <button class="btn btn--secondary" type="submit">{% translate "عرض" %}</button>
+    </form>
+
+    {# --- the headline ---------------------------------------------------- #}
+    <section class="card">
+      <h2 class="section-title">{% translate "الإيراد" %}</h2>
+      <div class="statrow">
+        <div class="stat">
+          <span class="stat__label">{% translate "إجمالي المبيعات" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.gross }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "خصومات المطعم" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.restaurant_discount }}</code></bdi></span>
+          <span class="stat__hint"><bdi dir="ltr"><code>{{ headline.discount_share }}%</code></bdi></span>
+        </div>
+        {# Shown and never subtracted: the application reimburses it, so it     #}
+        {# reduces neither الإيراد ولا الذمة (ADR-028 §3).                      #}
+        <div class="stat">
+          <span class="stat__label">{% translate "خصومات ممولة من التطبيق" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.application_discount }}</code></bdi></span>
+          <span class="stat__hint">{% translate "تُعرض ولا تُطرح" %}</span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "المرتجعات والإلغاءات" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.returns_gross }}</code></bdi></span>
+          <span class="stat__hint"><bdi dir="ltr"><code>{{ headline.returns_share }}%</code></bdi></span>
+        </div>
+        <div class="stat stat--strong">
+          <span class="stat__label">{% translate "صافي الإيراد" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.net_revenue }}</code></bdi></span>
+        </div>
+      </div>
+
+      <h2 class="section-title">{% translate "الوجهات" %}</h2>
+      <div class="statrow">
+        <div class="stat">
+          <span class="stat__label">{% translate "مبيعات نقدية" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.cash_sales }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "مبيعات بطاقة" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.card_sales }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "مبيعات التطبيقات" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.application_sales }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "عمولات التطبيقات" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.commission }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "رسوم أخرى" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.other_fees }}</code></bdi></span>
+        </div>
+      </div>
+
+      <h2 class="section-title">{% translate "المستندات" %}</h2>
+      <div class="statrow">
+        <div class="stat">
+          <span class="stat__label">{% translate "أيام مرحّلة" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.day_count }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "أيام غير مرحّلة" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.draft_day_count }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "أيام معكوسة" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.reversed_day_count }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "عدد السطور" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.line_count }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "الكمية المباعة" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.quantity }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "عدد الطلبات" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.order_count }}</code></bdi></span>
+        </div>
+      </div>
+    </section>
+
+    {# --- the independently loaded cards ---------------------------------- #}
+    {# Each fetches itself. `hx-trigger="load"` rather than a click, because   #}
+    {# a card the reader has to ask for is a card nobody reads; and each has   #}
+    {# its own target, so one slow card never holds another.                  #}
+    {% for card in cards %}
+      <section class="card"
+               id="dashboard-card-{{ card.slug }}"
+               hx-get="{% url 'sales:dashboard_card' card.slug %}?{{ card_query }}"
+               hx-trigger="load"
+               hx-swap="innerHTML">
+        <h2 class="section-title">{{ card.label }}</h2>
+        <p class="muted" role="status">{% translate "جارٍ التحميل…" %}</p>
+      </section>
+    {% endfor %}
+
+    {% if not may_read_cost %}
+      {# Not a blanked figure and not an apology — a statement that the card   #}
+      {# is not part of this reader's screen at all.                           #}
+      <p class="pagehead__hint">
+        {% translate "بطاقة الكلفة والهامش غير معروضة: صلاحية عرض كلفة المبيعات غير ممنوحة." %}
+      </p>
+    {% endif %}
+  </div>
+{% endblock %}

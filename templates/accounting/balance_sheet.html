@@ -1,0 +1,133 @@
+{# الميزانية العمومية — as at an explicit date.                              #}
+{#                                                                           #}
+{# Equity carries a COMPUTED «أرباح السنة الحالية» line before year-end      #}
+{# close, so the equation holds on any date without the income-statement     #}
+{# accounts being physically closed every month. Monthly closing entries     #}
+{# would destroy the year-to-date income statement (ADR-031 §3).             #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-balance-sheet">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+    </div>
+
+    {% if organization %}
+      {% with report_target="#accounting-balance-sheet" %}
+        {% include "accounting/_report_filters.html" %}
+      {% endwith %}
+
+      <p class="muted">
+        {% blocktranslate with day=as_of|date:"Y-m-d" %}بتاريخ {{ day }}{% endblocktranslate %}
+      </p>
+
+      <section class="card {% if not report.is_balanced %}card--warn{% endif %}" id="balance-equation">
+        <h2 class="card__title">{% translate "المعادلة المحاسبية" %}</h2>
+        <div class="summary-row">
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "الأصول" %}</span>
+            <span class="summary-row__value"><bdi dir="ltr">{{ report.assets|money_full }}</bdi></span>
+          </div>
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "المطلوبات" %}</span>
+            <span class="summary-row__value"><bdi dir="ltr">{{ report.liabilities|money_full }}</bdi></span>
+          </div>
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "حقوق الملكية" %}</span>
+            <span class="summary-row__value"><bdi dir="ltr">{{ report.equity_total|money_full }}</bdi></span>
+          </div>
+          <div class="summary-row__item">
+            <span class="summary-row__label">{% translate "الفرق" %}</span>
+            <span class="summary-row__value"><bdi dir="ltr">{{ report.difference|money_full }}</bdi></span>
+          </div>
+        </div>
+        {% if report.is_balanced %}
+          <p class="chip chip--ok">{% translate "الأصول = المطلوبات + حقوق الملكية" %}</p>
+        {% else %}
+          <p class="chip chip--warn">
+            {% blocktranslate with amount=report.difference %}غير متوازنة — الفرق {{ amount }}. يُعرض ولا يُصلَح تلقائياً.{% endblocktranslate %}
+          </p>
+        {% endif %}
+      </section>
+
+      {% if report.unmapped %}
+        <section class="card card--warn" id="balance-unmapped">
+          <h2 class="card__title">{% translate "غير مصنّف" %}</h2>
+          <p class="card__hint">
+            {% translate "حسابات لها رصيد ولا تحمل مجموعة قوائم مالية. تُعرض ولا تُحذف." %}
+          </p>
+          <ul class="chip-list">
+            {% for account, balance in report.unmapped %}
+              <li class="chip chip--warn">
+                <a href="{% url 'accounting:account_detail' account.pk %}">
+                  <code dir="ltr">{{ account.code }}</code> {{ account.name_ar }}
+                </a>
+                · <bdi dir="ltr">{{ balance|money_full }}</bdi>
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
+
+      <section class="card">
+        <div class="tablewrap">
+          <table class="table" id="balance-sheet-table">
+            <tbody>
+              {% for section in sections %}
+                <tr class="statement-row statement-row--section">
+                  <th colspan="2">{{ section.label }}</th>
+                  <th><bdi dir="ltr">{{ section.total|money_full }}</bdi></th>
+                </tr>
+                {% for account, balance in section.rows %}
+                  <tr>
+                    <td></td>
+                    <td>
+                      <a href="{% url 'accounting:general_ledger' %}?organization={{ organization.pk }}&account={{ account.pk }}">
+                        <code dir="ltr">{{ account.code }}</code> {{ account.name_ar }}
+                      </a>
+                    </td>
+                    <td><bdi dir="ltr">{{ balance|money_full }}</bdi></td>
+                  </tr>
+                {% empty %}
+                  <tr><td></td><td class="empty">{% translate "لا حسابات في هذا القسم." %}</td><td></td></tr>
+                {% endfor %}
+              {% endfor %}
+
+              <tr class="statement-row statement-row--section">
+                <th colspan="2">{% translate "أرباح السنة الحالية" %}</th>
+                <th><bdi dir="ltr">{{ report.current_year_earnings|money_full }}</bdi></th>
+              </tr>
+              <tr>
+                <td></td>
+                <td class="muted">
+                  {% blocktranslate with start=year_start|date:"Y-m-d" %}محسوبة: إيرادات السنة حتى تاريخه ناقص مصروفاتها، من {{ start }}{% endblocktranslate %}
+                </td>
+                <td></td>
+              </tr>
+
+              <tr class="statement-row statement-row--grand">
+                <th colspan="2">{% translate "مجموع الأصول" %}</th>
+                <th><bdi dir="ltr">{{ report.assets|money_full }}</bdi></th>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="card__hint">
+          {% if report.is_approvable %}
+            <span class="chip chip--ok">{% translate "قابلة للاعتماد" %}</span>
+          {% else %}
+            <span class="chip chip--warn">{% translate "لا تُعتمد: إمّا غير متوازنة أو فيها حساب غير مصنّف له رصيد" %}</span>
+          {% endif %}
+        </p>
+      </section>
+    {% else %}
+      <section class="card"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -26,6 +26,7 @@ from apps.accounting.api import router as accounting_router
 from apps.inventory.api import router as inventory_router
 from apps.kitchen.api import router as kitchen_router
 from apps.procurement.api import router as procurement_router
+from apps.sales.api import router as sales_router
 from config import __version__
 
 api = NinjaAPI(
@@ -47,6 +48,7 @@ api.add_router("", accounting_router)
 api.add_router("/inventory", inventory_router)
 api.add_router("/procurement", procurement_router)
 api.add_router("/kitchen", kitchen_router)
+api.add_router("/sales", sales_router)
 
 
 #: Domain errors that describe a state conflict rather than a bad request.
@@ -60,8 +62,30 @@ CONFLICT_CODES = frozenset(
         "idempotency_key_conflict",
         "not_a_draft",
         "source_event_already_posted",
+        # --- Phase 4 -----------------------------------------------------
+        #
+        # Each of these says the document has already moved on, which is a
+        # state conflict rather than a malformed request. A client retrying a
+        # 422 forever would be right to be confused by "this day is already
+        # posted".
+        #
+        # `approver_is_the_closer` belongs here and not in the 422 set for a
+        # subtler reason: the caller cannot fix it by sending different input.
+        # Nothing about the request is wrong — the *world* is, and the fix is a
+        # second person.
+        "already_posted",
+        "adjustment_reversed",
+        "approver_is_the_closer",
+        "day_reversed",
+        "settlement_reversed",
+        "shift_reversed",
     }
 )
+
+#: Deliberately **not** conflicts, and worth naming: `unexplained_variance`,
+#: `day_not_posted` and `cost_center_required` stay 422. Each is something the
+#: caller can fix by sending or recording something different — claim the gap,
+#: post the day, map the role — which is exactly what 422 means.
 
 
 class ErrorSchema(Schema):

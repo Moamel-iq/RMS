@@ -585,19 +585,124 @@ MODULES: tuple[Module, ...] = (
         label=_("المبيعات"),
         icon_name="receipt",
         phase=_("المرحلة ٤"),
-        sections=_sections(
-            _("لوحة المبيعات"),
-            _("المبيعات اليومية"),
-            _("أصناف المنيو"),
-            _("قنوات البيع"),
-            _("تطبيقات التوصيل"),
-            _("العمولات والاتفاقيات"),
-            _("الخصومات"),
-            _("المرتجعات والإلغاءات"),
-            _("ذمم التطبيقات"),
-            _("تسويات التطبيقات"),
-            _("إقفال الكاشير"),
-            _("المطابقة اليومية"),
+        # Checkpoint 7 — the module now opens on its own dashboard rather than
+        # on the menu. Until لوحة المبيعات existed the menu was the honest
+        # landing page, being the master everything else in Phase 4 is built
+        # on; a module whose landing page is a summary of its own documents is
+        # the shape every other module here has.
+        url_name="sales:dashboard",
+        available=True,
+        sections=(
+            # Checkpoint 7 — the twelfth and last entry. `_sections(...)` is
+            # empty for this module now: every section in the sidebar leads to
+            # a screen that exists, renders as a full page and as an htmx
+            # fragment, and is populated. There is no قريباً badge left in
+            # Sales.
+            Section(
+                label=_("لوحة المبيعات"),
+                url_name="sales:dashboard",
+                available=True,
+                active_prefixes=("/sales/dashboard/",),
+            ),
+            # Checkpoint 3 — the module's operational centre. One document per
+            # branch per business date, and the first Sales screen that reaches
+            # the ledger.
+            Section(
+                label=_("المبيعات اليومية"),
+                url_name="sales:day_list",
+                available=True,
+                active_prefixes=("/sales/days/", "/sales/day-lines/"),
+            ),
+            Section(
+                label=_("أصناف المنيو"),
+                url_name="sales:menu_item_list",
+                available=True,
+                active_prefixes=(
+                    "/sales/menu-items/",
+                    "/sales/menu-categories/",
+                    "/sales/menu-prices/",
+                ),
+            ),
+            Section(
+                label=_("قنوات البيع"),
+                url_name="sales:channel_list",
+                available=True,
+                active_prefixes=("/sales/channels/",),
+            ),
+            # Checkpoint 2 — three more entries promoted. The delivery master
+            # and the two contract screens travel together because they are
+            # useless apart: an application with no agreement refuses every
+            # sale it takes, and a discount that names no application cannot
+            # state who funds it.
+            Section(
+                label=_("تطبيقات التوصيل"),
+                url_name="sales:application_list",
+                available=True,
+                active_prefixes=("/sales/applications/",),
+            ),
+            Section(
+                label=_("العمولات والاتفاقيات"),
+                url_name="sales:agreement_list",
+                available=True,
+                active_prefixes=("/sales/agreements/",),
+            ),
+            Section(
+                label=_("الخصومات"),
+                url_name="sales:discount_list",
+                available=True,
+                active_prefixes=("/sales/discounts/",),
+            ),
+            # Checkpoint 4 — corrections against posted days. Promoted after
+            # the list and the detail both answered as a full page and as an
+            # htmx fragment; the line-delete prefix is listed so the sidebar
+            # still highlights the section while a draft is being edited.
+            Section(
+                label=_("المرتجعات والإلغاءات"),
+                url_name="sales:adjustment_list",
+                available=True,
+                active_prefixes=("/sales/adjustments/", "/sales/adjustment-lines/"),
+            ),
+            # Checkpoint 5 — the receivable ledger and the settlement that
+            # clears it. Two entries rather than one, because reading what a
+            # delivery company owes and agreeing its statement are different
+            # acts held by different permissions: the read is
+            # `view_application_receivables` and reaches a viewer, the
+            # settlement is `manage_application_settlements` and reaches
+            # neither a branch manager nor an accountant.
+            Section(
+                label=_("ذمم التطبيقات"),
+                url_name="sales:receivable_list",
+                available=True,
+                active_prefixes=("/sales/receivables/",),
+            ),
+            Section(
+                label=_("تسويات التطبيقات"),
+                url_name="sales:settlement_list",
+                available=True,
+                active_prefixes=(
+                    "/sales/settlements/",
+                    "/sales/settlement-allocations/",
+                    "/sales/settlement-adjustments/",
+                ),
+            ),
+            # Checkpoint 6 — the till and the report that reads everything the
+            # module has produced. Two entries rather than one, because closing
+            # a drawer and reading a reconciliation are different acts held by
+            # different permissions: the closing is `close_cashier_shift` /
+            # `approve_cashier_closing` at the branch, and the report is
+            # `view_sales_reports` and records nothing at all.
+            Section(
+                label=_("إقفال الكاشير"),
+                url_name="sales:shift_list",
+                available=True,
+                active_prefixes=("/sales/cashier-shifts/",),
+            ),
+            Section(
+                label=_("المطابقة اليومية"),
+                url_name="sales:report_daily_reconciliation",
+                available=True,
+                active_prefixes=("/sales/reports/daily-reconciliation/",),
+            ),
         ),
     ),
     Module(
@@ -605,9 +710,10 @@ MODULES: tuple[Module, ...] = (
         label=_("المحاسبة"),
         icon_name="ledger",
         phase=_("المرحلة ٥"),
-        # Reachable for the two Task 1.3 screens; the rest of the module's
-        # sections stay visibly inert until Phase 5 builds them.
-        url_name="accounting:mapping_list",
+        # The module landing page. Phase 5 gives Accounting a dashboard of its
+        # own rather than pointing the module at whichever screen happened to
+        # exist first.
+        url_name="accounting:dashboard",
         available=True,
         sections=(
             Section(
@@ -620,20 +726,83 @@ MODULES: tuple[Module, ...] = (
                 url_name="accounting:mapping_list",
                 available=True,
             ),
-            *_sections(
-                _("دليل الحسابات"),
-                _("قيود اليومية"),
-                _("الصناديق"),
-                _("الحسابات البنكية"),
-                _("ذمم الموردين"),
-                _("ذمم التطبيقات"),
-                _("المصروفات"),
-                _("المستحقات والمقدمات"),
-                _("الفترات المحاسبية"),
-                _("ميزان المراجعة"),
-                _("دفتر الأستاذ"),
-                _("قائمة الدخل"),
-                _("الميزانية العمومية"),
+            Section(
+                label=_("دليل الحسابات"),
+                url_name="accounting:chart_tree",
+                available=True,
+                active_prefixes=("/accounting/accounts/",),
+            ),
+            Section(
+                label=_("قيود اليومية"),
+                url_name="accounting:journal_list",
+                available=True,
+                active_prefixes=("/accounting/journals/",),
+            ),
+            Section(
+                label=_("الصناديق"),
+                url_name="accounting:cashbox_list",
+                available=True,
+                active_prefixes=("/accounting/cashboxes/",),
+            ),
+            Section(
+                label=_("الحسابات البنكية"),
+                url_name="accounting:bank_account_list",
+                available=True,
+                active_prefixes=("/accounting/bank-accounts/",),
+            ),
+            Section(
+                label=_("ذمم الموردين"),
+                url_name="accounting:supplier_liability_list",
+                available=True,
+                active_prefixes=("/accounting/supplier-liabilities/",),
+            ),
+            Section(
+                label=_("ذمم التطبيقات"),
+                url_name="accounting:application_receivable_list",
+                available=True,
+                active_prefixes=("/accounting/application-receivables/",),
+            ),
+            Section(
+                label=_("المصروفات"),
+                url_name="accounting:expense_list",
+                available=True,
+                active_prefixes=("/accounting/expenses/",),
+            ),
+            Section(
+                label=_("المستحقات والمقدمات"),
+                url_name="accounting:deferral_list",
+                available=True,
+                active_prefixes=("/accounting/deferrals/",),
+            ),
+            Section(
+                label=_("الفترات المحاسبية"),
+                url_name="accounting:period_list",
+                available=True,
+                active_prefixes=("/accounting/periods/",),
+            ),
+            Section(
+                label=_("ميزان المراجعة"),
+                url_name="accounting:trial_balance",
+                available=True,
+                active_prefixes=("/accounting/reports/trial-balance/",),
+            ),
+            Section(
+                label=_("دفتر الأستاذ"),
+                url_name="accounting:general_ledger",
+                available=True,
+                active_prefixes=("/accounting/reports/general-ledger/",),
+            ),
+            Section(
+                label=_("قائمة الدخل"),
+                url_name="accounting:income_statement",
+                available=True,
+                active_prefixes=("/accounting/reports/income-statement/",),
+            ),
+            Section(
+                label=_("الميزانية العمومية"),
+                url_name="accounting:balance_sheet",
+                available=True,
+                active_prefixes=("/accounting/reports/balance-sheet/",),
             ),
         ),
     ),

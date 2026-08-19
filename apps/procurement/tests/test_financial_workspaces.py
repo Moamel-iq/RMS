@@ -17,6 +17,7 @@ a panel looks correct until somebody swaps it.
 from __future__ import annotations
 
 import datetime
+from typing import cast
 
 import pytest
 
@@ -25,7 +26,11 @@ from apps.procurement.additional_costs import (
     AdditionalCostFilters,
 )
 from apps.procurement.credit_terms import CreditTermFilters, term_label
-from apps.procurement.models import SupplierInvoiceLineType, SupplierInvoiceStatus
+from apps.procurement.models import (
+    SupplierInvoice,
+    SupplierInvoiceLineType,
+    SupplierInvoiceStatus,
+)
 
 
 class TestTheInvoiceLifecycleIsUnchanged:
@@ -141,7 +146,7 @@ class TestTheSnapshotIsWhatCarriesCorrectness:
             due_date = datetime.date(2026, 9, 2)
             supplier = _Supplier()
 
-        snap = snapshot_for(_Invoice(), today=datetime.date(2026, 8, 19))
+        snap = snapshot_for(cast(SupplierInvoice, _Invoice()), today=datetime.date(2026, 8, 19))
 
         # The invoice keeps its own 14 even though the supplier now says 30.
         assert snap.snapshot_days == 14
@@ -166,9 +171,11 @@ class TestTheSnapshotIsWhatCarriesCorrectness:
             due_date = datetime.date(2026, 8, 19)
             supplier = _Supplier()
 
-        before = snapshot_for(_Invoice(), today=datetime.date(2026, 8, 18))
-        on_the_day = snapshot_for(_Invoice(), today=datetime.date(2026, 8, 19))
-        after = snapshot_for(_Invoice(), today=datetime.date(2026, 8, 20))
+        before = snapshot_for(cast(SupplierInvoice, _Invoice()), today=datetime.date(2026, 8, 18))
+        on_the_day = snapshot_for(
+            cast(SupplierInvoice, _Invoice()), today=datetime.date(2026, 8, 19)
+        )
+        after = snapshot_for(cast(SupplierInvoice, _Invoice()), today=datetime.date(2026, 8, 20))
 
         assert before.days_remaining == 1
         assert str(before.status_label) == "غير مستحق"

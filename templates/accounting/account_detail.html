@@ -1,0 +1,177 @@
+{# One account: what it means, what it carries, and where that came from.    #}
+{#                                                                           #}
+{# The balance is derived from posted lines when this page is requested.     #}
+{# Nothing in this module stores one, so there is no cached figure that can  #}
+{# drift away from the ledger and no reconciliation between the two to run.  #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-account-detail">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'accounting:chart_tree' %}">{% translate "دليل الحسابات" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page"><bdi dir="ltr">{{ account.code }}</bdi></span>
+    </nav>
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title"><bdi dir="ltr">{{ account.code }}</bdi> — {{ account.name_ar }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--secondary" href="{% url 'accounting:account_activity' account.pk %}">{% translate "حركة الحساب" %}</a>
+        {% if may_manage %}
+          <a class="btn btn--secondary" href="{% url 'accounting:account_update' account.pk %}">{% translate "تعديل البيانات" %}</a>
+          {% if account.is_active %}
+            <form method="post" action="{% url 'accounting:account_archive' account.pk %}" class="inline-form">
+              {% csrf_token %}
+              <button class="btn btn--secondary" type="submit">{% translate "أرشفة" %}</button>
+            </form>
+          {% else %}
+            <form method="post" action="{% url 'accounting:account_reactivate' account.pk %}" class="inline-form">
+              {% csrf_token %}
+              <button class="btn btn--primary" type="submit">{% translate "إعادة تفعيل" %}</button>
+            </form>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "التعريف" %}</h2>
+      <dl class="datalist">
+        <div><dt>{% translate "المؤسسة" %}</dt><dd>{{ account.organization.code }} — {{ account.organization.name_ar }}</dd></div>
+        <div><dt>{% translate "الاسم بالإنجليزية" %}</dt><dd><bdi dir="ltr">{{ account.name_en }}</bdi></dd></div>
+        <div><dt>{% translate "الصنف" %}</dt><dd>{{ account.get_account_class_display }}</dd></div>
+        <div>
+          <dt>{% translate "المسار" %}</dt>
+          <dd>
+            {% for parent in parents %}
+              <a href="{% url 'accounting:account_detail' parent.pk %}"><code dir="ltr">{{ parent.code }}</code></a>
+              <span aria-hidden="true">›</span>
+            {% empty %}—{% endfor %}
+            <code dir="ltr">{{ account.code }}</code>
+          </dd>
+        </div>
+        <div><dt>{% translate "قابل للترحيل" %}</dt><dd>{% if account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا — حساب تجميعي" %}{% endif %}</dd></div>
+        <div><dt>{% translate "يتطلب مركز كلفة" %}</dt><dd>{% if account.requires_cost_center %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</dd></div>
+        <div><dt>{% translate "سياسة القيد اليدوي" %}</dt><dd>{{ account.get_manual_posting_policy_display }}</dd></div>
+        <div><dt>{% translate "حساب نظامي" %}</dt><dd>{% if account.is_system %}{% translate "نعم — لا يُعاد استخدامه لغرض آخر" %}{% else %}{% translate "لا" %}{% endif %}</dd></div>
+        <div>
+          <dt>{% translate "الحالة" %}</dt>
+          <dd>
+            {% if account.is_active %}<span class="chip chip--ok">{% translate "فعّال" %}</span>
+            {% else %}<span class="chip chip--muted">{% translate "مؤرشف" %}{% if account.archived_at %} · <bdi dir="ltr">{{ account.archived_at|date:"Y-m-d" }}</bdi>{% endif %}</span>{% endif %}
+          </dd>
+        </div>
+        <div><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ balance|money_full }}</bdi></dd></div>
+      </dl>
+    </section>
+
+    {% if children %}
+      <section class="card">
+        <h2 class="card__title">{% translate "الحسابات تحته" %}</h2>
+        <ul class="chip-list">
+          {% for child in children %}
+            <li><a class="chip" href="{% url 'accounting:account_detail' child.pk %}">
+              <code dir="ltr">{{ child.code }}</code> {{ child.name_ar }}
+            </a></li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    <section class="card">
+      <h2 class="card__title">{% translate "تصنيف القوائم المالية" %}</h2>
+      {% if account.is_postable %}
+        {% if may_map_report %}
+          <form method="post" action="{% url 'accounting:account_report_mapping' account.pk %}" class="formcard formcard--inline">
+            {% csrf_token %}
+            {% for field in mapping_form %}
+              <label class="field">
+                <span class="field__label">{{ field.label }}</span>
+                {{ field }}
+              </label>
+            {% endfor %}
+            <button class="btn btn--primary" type="submit">{% translate "حفظ التصنيف" %}</button>
+            {% if report_mapping %}
+              <button class="btn btn--secondary" type="submit" name="action" value="clear">{% translate "إلغاء التصنيف" %}</button>
+            {% endif %}
+          </form>
+        {% elif report_mapping %}
+          <p>{{ report_mapping.get_statement_group_display }} · {{ report_mapping.get_presentation_section_display }}</p>
+        {% else %}
+          <p class="chip chip--warn">{% translate "غير مصنّف — يمنع اعتماد القوائم المالية" %}</p>
+        {% endif %}
+      {% else %}
+        <p class="muted">{% translate "الحسابات التجميعية لا تُصنَّف: أرصدتها مجموع أبنائها." %}</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "الأدوار المرتبطة" %}</h2>
+      {% if role_mappings %}
+        <div class="tablewrap">
+          <table class="table">
+            <thead><tr>
+              <th>{% translate "الدور" %}</th><th>{% translate "الإصدار" %}</th>
+              <th>{% translate "من" %}</th><th>{% translate "حتى" %}</th>
+            </tr></thead>
+            <tbody>
+              {% for mapping in role_mappings %}
+                <tr>
+                  <td><a href="{% url 'accounting:role_detail' mapping.account_role.pk %}"><code dir="ltr">{{ mapping.account_role.code }}</code></a></td>
+                  <td><bdi dir="ltr">{{ mapping.version }}</bdi></td>
+                  <td><bdi dir="ltr">{{ mapping.effective_from|date:"Y-m-d" }}</bdi></td>
+                  <td>{% if mapping.effective_to %}<bdi dir="ltr">{{ mapping.effective_to|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="muted">{% translate "لا يحمل هذا الحساب أي دور محاسبي." %}</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">
+        {% blocktranslate with count=recent_limit %}آخر {{ count }} سطراً مُرحَّلاً{% endblocktranslate %}
+      </h2>
+      <div class="tablewrap">
+        <table class="table">
+          <thead><tr>
+            <th>{% translate "التاريخ" %}</th>
+            <th>{% translate "القيد" %}</th>
+            <th>{% translate "الفرع" %}</th>
+            <th>{% translate "مركز الكلفة" %}</th>
+            <th>{% translate "مدين" %}</th>
+            <th>{% translate "دائن" %}</th>
+            <th>{% translate "البيان" %}</th>
+          </tr></thead>
+          <tbody>
+            {% for line in recent_lines %}
+              <tr>
+                <td><bdi dir="ltr">{{ line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
+                <td><a href="{% url 'accounting:journal_detail' line.entry.pk %}"><bdi dir="ltr">{{ line.entry.entry_number }}</bdi></a></td>
+                <td>{{ line.branch.code }}</td>
+                <td>{% if line.cost_center %}{{ line.cost_center.code }}{% else %}—{% endif %}</td>
+                <td><bdi dir="ltr">{{ line.debit|money_full }}</bdi></td>
+                <td><bdi dir="ltr">{{ line.credit|money_full }}</bdi></td>
+                <td>{{ line.narration|default:line.entry.narration }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="7" class="empty">{% translate "لم يُرحَّل شيء على هذا الحساب بعد." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="card__hint">
+        <a href="{% url 'accounting:account_activity' account.pk %}">{% translate "عرض الحركة كاملة برصيد متحرك" %}</a>
+      </p>
+    </section>
+  </div>
+{% endblock %}

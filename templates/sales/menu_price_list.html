@@ -1,0 +1,75 @@
+{# أسعار المنيو — effective-dated, most specific wins, never edited in place. #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="field field--check">
+    <input type="checkbox" name="current" value="1" {% if only_current == "1" %}checked{% endif %}>
+    <span>{% translate "السارية اليوم فقط" %}</span>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "الصنف" %}</th>
+  <th>{% translate "الفرع" %}</th>
+  <th>{% translate "النطاق" %}</th>
+  <th>{% translate "القناة" %}</th>
+  <th>{% translate "السعر" %}</th>
+  <th>{% translate "من" %}</th>
+  <th>{% translate "حتى" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for price in prices %}
+    <tr>
+      <td data-label="{% translate 'الصنف' %}">
+        <a href="{% url 'sales:menu_item_detail' price.menu_item_id %}">
+          <bdi dir="ltr"><code>{{ price.menu_item.code }}</code></bdi>
+        </a>
+        {{ price.menu_item.name_ar }}
+      </td>
+      <td data-label="{% translate 'الفرع' %}"><bdi dir="ltr"><code>{{ price.branch.code }}</code></bdi></td>
+      <td data-label="{% translate 'النطاق' %}"><span class="chip">{{ price.get_scope_display }}</span></td>
+      <td data-label="{% translate 'القناة' %}">{% if price.channel %}{{ price.channel.name_ar }}{% else %}—{% endif %}</td>
+      <td data-label="{% translate 'السعر' %}"><bdi dir="ltr"><code>{{ price.price_display }}</code></bdi></td>
+      <td data-label="{% translate 'من' %}"><bdi dir="ltr"><code>{{ price.effective_from|date:"Y-m-d" }}</code></bdi></td>
+      <td data-label="{% translate 'حتى' %}">
+        {% if price.effective_to %}
+          <bdi dir="ltr"><code>{{ price.effective_to|date:"Y-m-d" }}</code></bdi>
+        {% else %}
+          <span class="muted">{% translate "مفتوح" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if not price.is_active %}
+          <span class="chip chip--off">{% translate "مسحوب" %}</span>
+        {% elif price.effective_to and price.effective_to < today %}
+          <span class="chip">{% translate "منتهٍ" %}</span>
+        {% elif price.effective_from > today %}
+          <span class="chip">{% translate "مستقبلي" %}</span>
+        {% else %}
+          <span class="chip chip--on">{% translate "ساري" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        <div class="rowactions">
+          {% if price.menu_item.organization_id in manageable_ids and price.is_active %}
+            <a class="btn btn--quiet btn--sm" href="{% url 'sales:menu_price_close' price.pk %}">{% translate "إنهاء" %}</a>
+            <form method="post" action="{% url 'sales:menu_price_archive' price.pk %}"
+                  data-confirm="{% translate 'السحب يعني أن هذا السعر لم يكن صحيحاً أصلاً. لإنهائه بتاريخ استخدم «إنهاء».' %}"
+                  data-confirm-title="{% translate 'تأكيد السحب' %}">
+              {% csrf_token %}
+              <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "سحب" %}</button>
+            </form>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="9">{% translate "لا توجد أسعار بعد. السعر يُسجَّل لصنف وفرع وتاريخ سريان." %}</td></tr>
+  {% endfor %}
+{% endblock %}

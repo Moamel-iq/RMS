@@ -1,0 +1,105 @@
+{# المرتجعات والإلغاءات — corrections against posted trading days.           #}
+{#                                                                           #}
+{# The reason-kind column is not decoration. The three kinds post the same   #}
+{# journal and differ in what the kitchen's theoretical consumption sees, so #}
+{# it is the one column that tells a reader which of three different facts   #}
+{# a row records.                                                            #}
+{#                                                                           #}
+{# No cost or margin column: those are `view_sales_cost` and live on the     #}
+{# dashboard, and a blanked column tells every reader that a number exists   #}
+{# and they are not trusted with it.                                         #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="field">
+    <span class="field__label">{% translate "الحالة" %}</span>
+    <select name="status">
+      <option value="">{% translate "كل الحالات" %}</option>
+      {% for value, label in statuses %}
+        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span class="field__label">{% translate "النوع" %}</span>
+    <select name="kind">
+      <option value="">{% translate "كل الأنواع" %}</option>
+      {% for value, label in kinds %}
+        <option value="{{ value }}" {% if selected_kind == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+{% endblock %}
+
+{% block columns %}
+  <th>{% translate "تاريخ التسوية" %}</th>
+  <th>{% translate "الفرع" %}</th>
+  <th>{% translate "اليوم المصحَّح" %}</th>
+  <th>{% translate "النوع" %}</th>
+  <th>{% translate "الرقم" %}</th>
+  <th>{% translate "المستند" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for adjustment in adjustments %}
+    <tr>
+      <td data-label="{% translate 'تاريخ التسوية' %}">
+        <a href="{% url 'sales:adjustment_detail' adjustment.pk %}">
+          <bdi dir="ltr"><code>{{ adjustment.business_date|date:"Y-m-d" }}</code></bdi>
+        </a>
+      </td>
+      <td data-label="{% translate 'الفرع' %}">
+        <bdi dir="ltr"><code>{{ adjustment.branch.code }}</code></bdi> {{ adjustment.branch.name_ar }}
+      </td>
+      <td data-label="{% translate 'اليوم المصحَّح' %}">
+        <a href="{% url 'sales:day_detail' adjustment.sales_day.pk %}">
+          <bdi dir="ltr"><code>{{ adjustment.sales_day.business_date|date:"Y-m-d" }}</code></bdi>
+        </a>
+      </td>
+      <td data-label="{% translate 'النوع' %}">
+        {% if adjustment.reduces_theoretical_consumption %}
+          {# The only kind the kitchen's theoretical consumption sees. #}
+          <span class="chip chip--ok">{{ adjustment.get_reason_kind_display }}</span>
+        {% else %}
+          <span class="chip">{{ adjustment.get_reason_kind_display }}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'الرقم' %}">
+        {% if adjustment.number %}
+          <bdi dir="ltr"><code>{{ adjustment.number }}</code></bdi>
+        {% else %}
+          {# A number exists exactly when the adjustment has reached the ledger. #}
+          <span class="muted">{% translate "لم تُرحَّل" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'المستند' %}">
+        <bdi dir="ltr"><code>{{ adjustment.evidence_reference }}</code></bdi>
+      </td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if adjustment.status == "POSTED" %}
+          <span class="chip chip--ok">{{ adjustment.get_status_display }}</span>
+        {% elif adjustment.status == "REVERSED" %}
+          <span class="chip chip--bad">{{ adjustment.get_status_display }}</span>
+        {% else %}
+          <span class="chip">{{ adjustment.get_status_display }}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        <div class="rowactions">
+          <a class="btn btn--quiet btn--sm" href="{% url 'sales:adjustment_detail' adjustment.pk %}">
+            {% translate "فتح" %}
+          </a>
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr>
+      <td colspan="8">
+        {% translate "لا توجد تسويات بعد. التسوية تُسجَّل على يوم مرحّل، ولا تُعدَّل سطراً مرحّلاً أبداً." %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endblock %}

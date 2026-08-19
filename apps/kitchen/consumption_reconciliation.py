@@ -81,6 +81,7 @@ from apps.kitchen.consumption_sources import (
     TheoreticalCoverage,
     TheoreticalSourceType,
     complimentary_meal_equivalent_usage,
+    sales_source_is_registered,
     staff_meal_equivalent_usage,
     theoretical_consumption_coverage,
 )
@@ -466,20 +467,42 @@ def verify_batch_consumption(user: User, production: ProductionFilters) -> list[
 
 def verify_theoretical_coverage(user: User, meals: MealUsageFilters) -> list[Finding]:
     """
-    The sales limitation is present and named, and no final claim is made.
+    What the coverage report says about sales agrees with what is deployed.
 
-    Reported as `COVERAGE_LIMITATION`, which is **not** an error: a missing
-    module is not a defect in this one, and a verifier that exited non-zero for
-    it would make the command useless as a gate for the whole of Phase 3.
+    Phase 3 could assert something stronger and simpler — the sales limitation
+    is present, and no final claim is made — because no `SALES` adapter could
+    exist. Phase 4 ships one, and the two assertions became false *by
+    construction*: `SalesConfig.ready()` registers the adapter, coverage then
+    reports `SALES` as `AVAILABLE` and `is_final=True`, and this verifier
+    raised two ERRORs for a deployment behaving exactly as designed. It was the
+    mirror image of `sales.reconciliation.verify_coverage`, which raises an
+    ERROR when the registration is *absent* — so the two gates could never both
+    pass, and `verify_kitchen` exited non-zero on every correct install.
+
+    What is left is the check that still has content, and it is the one worth
+    keeping: coverage must agree with the registry. A report claiming sales are
+    included where no adapter is registered would present a figure missing a
+    whole module as complete; one claiming they are excluded where an adapter
+    *is* registered would send somebody chasing a limitation that no longer
+    exists. Both are ERRORs, in either direction.
+
+    The limitation itself stays a `COVERAGE_LIMITATION` and is emitted only
+    while it is true. It is **not** an error: a missing module is not a defect
+    in this one, and a verifier that exited non-zero for it would make the
+    command useless as a gate for the whole of Phase 3.
     """
     coverage = theoretical_consumption_coverage(user, meals)
-    findings = [
-        Finding(
-            severity=COVERAGE_LIMITATION,
-            code=SALES_NOT_INCLUDED,
-            message=str(SALES_COVERAGE_NOTICE),
+    registered = sales_source_is_registered()
+
+    findings: list[Finding] = []
+    if not registered:
+        findings.append(
+            Finding(
+                severity=COVERAGE_LIMITATION,
+                code=SALES_NOT_INCLUDED,
+                message=str(SALES_COVERAGE_NOTICE),
+            )
         )
-    ]
     for missing in coverage.missing_sources:
         findings.append(
             Finding(
@@ -488,23 +511,32 @@ def verify_theoretical_coverage(user: User, meals: MealUsageFilters) -> list[Fin
                 message=f"{missing.source_type} has no adapter: {missing.status}",
             )
         )
-    if any(
+
+    sales_is_available = any(
         row.source_type == TheoreticalSourceType.SALES and row.is_available
         for row in coverage.sources
-    ):
+    )
+    if sales_is_available != registered:
         findings.append(
             Finding(
                 severity=ERROR,
-                code="kitchen_sales_source_claims_availability",
-                message="a SALES theoretical adapter reported itself available in Phase 3",
+                code="kitchen_sales_source_availability_disagrees_with_the_registry",
+                message=(
+                    f"coverage reports the SALES source as "
+                    f"{'available' if sales_is_available else 'absent'} while the registry "
+                    f"has it {'registered' if registered else 'unregistered'}"
+                ),
             )
         )
-    if coverage.is_final:  # pragma: no cover - a constant False
+    if coverage.is_final != registered:
         findings.append(
             Finding(
                 severity=ERROR,
-                code="kitchen_theoretical_claims_finality",
-                message="theoretical coverage claimed to be final without sales quantities",
+                code="kitchen_theoretical_finality_disagrees_with_the_registry",
+                message=(
+                    f"theoretical coverage claims is_final={coverage.is_final} while the "
+                    f"SALES source is {'registered' if registered else 'unregistered'}"
+                ),
             )
         )
     return findings

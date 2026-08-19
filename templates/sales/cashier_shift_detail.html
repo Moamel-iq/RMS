@@ -1,0 +1,183 @@
+{# One till: what was expected, what was counted, and whatever it may do next.#}
+{#                                                                           #}
+{# The banner under the head is the whole point of the document and is not   #}
+{# decoration: an operator looking at a cash figure on a closing screen will #}
+{# assume it is being posted, and it is not. Saying so once, plainly, in the #}
+{# place the mistake would be made is cheaper than discovering a doubled cash#}
+{# account a quarter later (ADR-027 §8).                                     #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="cashier-shift-detail">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'sales:shift_list' %}">{% translate "إقفال الكاشير" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ shift.business_date|date:"Y-m-d" }}</span>
+    </nav>
+
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">
+          <span class="chip">{{ shift.get_status_display }}</span>
+          {% if shift.number %}<bdi dir="ltr"><code>{{ shift.number }}</code></bdi>{% endif %}
+          <span>{% translate "الكاشير" %}: {{ shift.cashier.get_full_name|default:shift.cashier.username }}</span>
+        </p>
+      </div>
+      <div class="pagehead__actions">
+        {% if may_close %}
+          <a class="btn btn--secondary" href="#close-form">{% translate "إقفال الصندوق" %}</a>
+        {% endif %}
+        {% if may_reopen %}
+          <form method="post" action="{% url 'sales:shift_reopen' shift.pk %}"
+                data-confirm="{% translate 'ستعود الأرقام قابلة للتعديل، ويُسجَّل السبب في سجل التدقيق.' %}"
+                data-confirm-title="{% translate 'إعادة فتح الصندوق' %}">
+            {% csrf_token %}
+            <input type="hidden" name="reason" value="{% translate 'إعادة عدّ' %}">
+            <button class="btn btn--ghost" type="submit">{% translate "إعادة الفتح" %}</button>
+          </form>
+        {% endif %}
+        {% if may_approve %}
+          <form method="post" action="{% url 'sales:shift_approve' shift.pk %}"
+                data-confirm="{% translate 'سيُرحَّل فرق الصندوق وحده — لا إيراد ولا عهدة ولا بطاقات. الفرق الصفري لا يكتب قيداً، ويظل الإقفال معتمداً.' %}"
+                data-confirm-title="{% translate 'اعتماد الإقفال' %}">
+            {% csrf_token %}
+            <button class="btn btn--primary" type="submit">{% translate "اعتماد" %}</button>
+          </form>
+        {% endif %}
+        {% if may_reverse %}
+          <form method="post" action="{% url 'sales:shift_reverse' shift.pk %}"
+                data-confirm="{% translate 'سيُضاف قيد عاكس إن وُجد قيد. الأصل يبقى ظاهراً، ولا يُعدَّل ولا يُحذف.' %}"
+                data-confirm-title="{% translate 'تأكيد العكس' %}">
+            {% csrf_token %}
+            <input type="hidden" name="reason" value="{% translate 'عكس إقفال صندوق' %}">
+            <button class="btn btn--danger-quiet" type="submit">{% translate "عكس" %}</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if closer_cannot_approve %}
+      {# Maker-checker on the actor. The button is absent rather than disabled, #}
+      {# and the reason is stated: a control nobody can see is a control        #}
+      {# somebody will try to work around.                                      #}
+      <p class="banner" role="note">
+        {% translate "أنت من أقفل هذا الصندوق، ولذلك لا يمكنك اعتماده. الرقابة هنا على الشخص لا على الصلاحية: من عدّ الدرج لا يعتمد عدّه، ولو كان يملك صلاحية الاعتماد." %}
+      </p>
+    {% endif %}
+
+    {% if shift.status == "REVERSED" %}
+      <p class="banner banner--bad" role="note">
+        {% blocktranslate with reason=shift.reversal_reason %}هذا الإقفال معكوس: {{ reason }}{% endblocktranslate %}
+      </p>
+    {% endif %}
+
+    <div class="statrow">
+      <div class="stat">
+        <span class="stat__label">{% translate "العهدة الافتتاحية" %}</span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.opening_float }}</code></bdi></span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">
+          {% if shift.status == "OPEN" %}{% translate "النقد المتوقَّع الآن" %}{% else %}{% translate "النقد المتوقَّع" %}{% endif %}
+        </span>
+        <span class="stat__value">
+          <bdi dir="ltr"><code>{% if shift.status == "OPEN" %}{{ expected_cash_now }}{% else %}{{ shift.expected_cash }}{% endif %}</code></bdi>
+        </span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">{% translate "النقد المعدود" %}</span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.counted_cash }}</code></bdi></span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">{% translate "الفرق" %}</span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.variance_amount }}</code></bdi></span>
+      </div>
+    </div>
+
+    <p class="banner" role="note">
+      {% translate "الإقفال يُرحّل شيئاً واحداً: فرق الصندوق المعتمد. لا يُرحّل مبيعات اليوم — البيع اعترف بالإيراد وأثبت النقد يوم رُحِّل، وإعادة ترحيلها تضاعف كل رقم نقدي في النظام دون أن يظهر ذلك في أي تقرير، لأن كلا القيدين يبدو صحيحاً ويسمّي مستنداً حقيقياً. ولا يُرحّل العهدة الافتتاحية، فهي مال المطعم نُقل من الخزنة إلى الدرج ولم يقع حدث اقتصادي. ولا البطاقات، فهي في مقاصة البطاقات حتى يحوّلها المُصدِر وليست في الدرج ليُعدّ." %}
+    </p>
+
+    {% if shift.sales_day %}
+      <p class="pagehead__hint">
+        {% translate "يوم المبيعات" %}:
+        <a href="{% url 'sales:day_detail' shift.sales_day.pk %}">
+          <bdi dir="ltr"><code>{{ shift.sales_day.number|default:shift.sales_day.business_date|date:"Y-m-d" }}</code></bdi>
+        </a>
+        <span class="chip">{{ shift.sales_day.get_status_display }}</span>
+      </p>
+    {% endif %}
+
+    <h2 class="section-title">{% translate "العدّ حسب وجهة التحصيل" %}</h2>
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "الوجهة" %}</th>
+            <th scope="col">{% translate "المتوقَّع" %}</th>
+            <th scope="col">{% translate "المعدود" %}</th>
+            <th scope="col">{% translate "الفرق" %}</th>
+            <th scope="col">{% translate "ملاحظات" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in count_rows %}
+            <tr>
+              <td data-label="{% translate 'الوجهة' %}">{{ entry.row.get_tender_display }}</td>
+              <td data-label="{% translate 'المتوقَّع' %}"><bdi dir="ltr"><code>{{ entry.expected }}</code></bdi></td>
+              <td data-label="{% translate 'المعدود' %}"><bdi dir="ltr"><code>{{ entry.row.counted_amount }}</code></bdi></td>
+              <td data-label="{% translate 'الفرق' %}"><bdi dir="ltr"><code>{{ entry.row.variance_amount }}</code></bdi></td>
+              <td data-label="{% translate 'ملاحظات' %}">{{ entry.row.notes|default:"—" }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="5" class="empty">{% translate "لم يُسجَّل عدّ بعد." %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="pagehead__hint">
+      {% translate "البطاقات تُعدّ ولا تُرحَّل: خلاف بين إجمالي البطاقات وشريط الجهاز نتيجةٌ حقيقية تُكتشف في يومها، لكنه خلاف على رصيد مقاصة لم يحوّله المُصدِر بعد، والاعتراف بفرقه اعترافٌ بفرق على مالٍ لم يعدّه أحد. وذمم التطبيقات ليست في الدرج أصلاً: تُسدَّد بتسوية لا بعدّ، ولذلك لا يُعرض لها صندوق يُملأ." %}
+    </p>
+
+    {% if count_form %}
+      <h2 class="section-title">{% translate "تسجيل عدّ" %}</h2>
+      <form class="formcard" method="post" novalidate>
+        {% csrf_token %}
+        {% include "components/form_error_summary.html" with form=count_form %}
+        <div class="formgrid">
+          {% for field in count_form %}
+            {% include "settings/_field.html" with field=field %}
+          {% endfor %}
+        </div>
+        <div class="formactions">
+          <button class="btn btn--primary" type="submit">{% translate "حفظ العدّ" %}</button>
+        </div>
+      </form>
+    {% endif %}
+
+    {% if close_form %}
+      <h2 class="section-title" id="close-form">{% translate "إقفال الصندوق" %}</h2>
+      <p class="pagehead__hint">
+        {% translate "يُشترط أن يكون يوم المبيعات مرحّلاً: المتوقَّع المشتق من مسودة هدفٌ يمكن أن يتحرك بعد العدّ، ويصبح الفرق فرقاً بين عدّ وشيء ما زال يُحرَّر. عند الإقفال تُختم الأرقام ولا تعود قابلة للتعديل — العودة تكون بإعادة فتح مُسجَّلة." %}
+      </p>
+      <form class="formcard" method="post" action="{% url 'sales:shift_close' shift.pk %}" novalidate>
+        {% csrf_token %}
+        {% include "components/form_error_summary.html" with form=close_form %}
+        <div class="formgrid">
+          {% for field in close_form %}
+            {% include "settings/_field.html" with field=field %}
+          {% endfor %}
+        </div>
+        <div class="formactions">
+          <button class="btn btn--secondary" type="submit">{% translate "إقفال" %}</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+{% endblock %}

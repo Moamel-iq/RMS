@@ -1,0 +1,186 @@
+{# One expense voucher: its lines, its state, and whatever it may do next.   #}
+{#                                                                           #}
+{# The approve and post buttons are hidden from the person who wrote it. The #}
+{# service refuses the same request either way — hiding a button is          #}
+{# presentation and never protection — but offering somebody a control that  #}
+{# will refuse them is its own kind of wrong.                                #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-expense-detail">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'accounting:expense_list' %}">{% translate "المصروفات" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ page_title }}</span>
+    </nav>
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        {% if may_approve %}
+          <form method="post" action="{% url 'accounting:expense_approve' voucher.pk %}" class="inline-form">
+            {% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "اعتماد" %}</button>
+          </form>
+        {% endif %}
+        {% if may_post %}
+          <form method="post" action="{% url 'accounting:expense_post' voucher.pk %}" class="inline-form">
+            {% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+          </form>
+        {% endif %}
+        {% if may_reverse %}
+          <form method="post" action="{% url 'accounting:expense_reverse' voucher.pk %}" class="inline-form">
+            {% csrf_token %}
+            <input class="field__input" type="text" name="reason" placeholder="{% translate 'سبب العكس' %}" dir="auto">
+            <button class="btn btn--secondary" type="submit">{% translate "عكس السند" %}</button>
+          </form>
+        {% endif %}
+        {% if may_edit %}
+          <form method="post" action="{% url 'accounting:expense_discard' voucher.pk %}" class="inline-form">
+            {% csrf_token %}<button class="btn btn--secondary" type="submit">{% translate "حذف المسودة" %}</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if is_own_draft and voucher.status == "DRAFT" %}
+      <p class="chip chip--muted">
+        {% translate "أنت من أنشأ هذا السند، فلا يمكنك اعتماده. الاعتماد لشخص آخر." %}
+      </p>
+    {% endif %}
+
+    <section class="card">
+      <h2 class="card__title">{% translate "بيانات السند" %}</h2>
+      <dl class="datalist">
+        <div><dt>{% translate "الفرع" %}</dt><dd>{{ voucher.branch.code }} — {{ voucher.branch.name_ar }}</dd></div>
+        <div><dt>{% translate "تاريخ العملية" %}</dt><dd><bdi dir="ltr">{{ voucher.business_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div><dt>{% translate "تاريخ المصروف" %}</dt><dd><bdi dir="ltr">{{ voucher.expense_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div>
+          <dt>{% translate "مصدر الدفع" %}</dt>
+          <dd>
+            {% if voucher.cashbox %}
+              <a href="{% url 'accounting:cashbox_detail' voucher.cashbox.pk %}">{{ voucher.cashbox.name_ar }}</a>
+            {% elif voucher.bank_account %}
+              <a href="{% url 'accounting:bank_account_detail' voucher.bank_account.pk %}">{{ voucher.bank_account.name_ar }}</a>
+            {% else %}—{% endif %}
+          </dd>
+        </div>
+        <div><dt>{% translate "المستفيد" %}</dt><dd>{{ voucher.beneficiary }}</dd></div>
+        <div><dt>{% translate "السبب" %}</dt><dd>{{ voucher.reason }}</dd></div>
+        <div><dt>{% translate "المستند" %}</dt><dd>{{ voucher.evidence_reference|default:"—" }}</dd></div>
+        <div><dt>{% translate "الحالة" %}</dt><dd>{{ voucher.get_status_display }}</dd></div>
+        <div><dt>{% translate "المبلغ" %}</dt><dd><bdi dir="ltr">{{ voucher.total_amount|money_full }}</bdi></dd></div>
+        <div><dt>{% translate "أنشأه" %}</dt><dd>{% if voucher.created_by %}{{ voucher.created_by.get_full_name|default:voucher.created_by.username }}{% else %}—{% endif %}</dd></div>
+        <div><dt>{% translate "اعتمده" %}</dt><dd>{% if voucher.approved_by %}{{ voucher.approved_by.get_full_name|default:voucher.approved_by.username }}{% else %}—{% endif %}</dd></div>
+        <div><dt>{% translate "رحّله" %}</dt><dd>{% if voucher.posted_by %}{{ voucher.posted_by.get_full_name|default:voucher.posted_by.username }}{% else %}—{% endif %}</dd></div>
+        {% if voucher.journal_entry %}
+          <div>
+            <dt>{% translate "القيد" %}</dt>
+            <dd><a href="{% url 'accounting:journal_detail' voucher.journal_entry.pk %}">
+              <bdi dir="ltr">{{ voucher.journal_entry.entry_number }}</bdi>
+            </a></dd>
+          </div>
+        {% endif %}
+        {% if voucher.reversal_entry %}
+          <div>
+            <dt>{% translate "قيد العكس" %}</dt>
+            <dd><a href="{% url 'accounting:journal_detail' voucher.reversal_entry.pk %}">
+              <bdi dir="ltr">{{ voucher.reversal_entry.entry_number }}</bdi>
+            </a></dd>
+          </div>
+        {% endif %}
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{% translate "السطور" %}</h2>
+      <div class="tablewrap">
+        <table class="table" id="expense-lines">
+          <thead><tr>
+            <th>#</th>
+            <th>{% translate "الحساب" %}</th>
+            <th>{% translate "مركز الكلفة" %}</th>
+            <th>{% translate "البيان" %}</th>
+            <th>{% translate "المبلغ" %}</th>
+            {% if may_edit %}<th></th>{% endif %}
+          </tr></thead>
+          <tbody>
+            {% for line in lines %}
+              <tr>
+                <td><bdi dir="ltr">{{ line.sequence }}</bdi></td>
+                <td>
+                  <a href="{% url 'accounting:account_detail' line.account.pk %}">
+                    <code dir="ltr">{{ line.account.code }}</code> {{ line.account.name_ar }}
+                  </a>
+                </td>
+                <td>{% if line.cost_center %}{{ line.cost_center.code }}{% else %}—{% endif %}</td>
+                <td>{{ line.description|default:"—" }}</td>
+                <td><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td>
+                {% if may_edit %}
+                  <td class="cell-actions">
+                    <form method="post" action="{% url 'accounting:expense_line_delete' line.pk %}" class="inline-form">
+                      {% csrf_token %}<button class="btn btn--secondary btn--sm" type="submit">{% translate "حذف" %}</button>
+                    </form>
+                  </td>
+                {% endif %}
+              </tr>
+            {% empty %}
+              <tr><td colspan="6" class="empty">{% translate "لا سطور بعد." %}</td></tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th colspan="4">{% translate "المجموع" %}</th>
+              <th><bdi dir="ltr">{{ voucher.total_amount|money_full }}</bdi></th>
+              {% if may_edit %}<th></th>{% endif %}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
+
+    {% if may_edit and line_form %}
+      <section class="card" id="expense-line-form">
+        <h2 class="card__title">{% translate "إضافة سطر" %}</h2>
+        <form class="formcard formcard--inline" method="post"
+              action="{% url 'accounting:expense_detail' voucher.pk %}" novalidate>
+          {% csrf_token %}
+          {% if line_form.non_field_errors %}
+            <div class="formcard__errors" role="alert">
+              {% for error in line_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+            </div>
+          {% endif %}
+          {% for field in line_form %}
+            <div class="field{% if field.errors %} field--invalid{% endif %}">
+              <label class="field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% for error in field.errors %}<p class="field__error" role="alert">{{ error }}</p>{% endfor %}
+            </div>
+          {% endfor %}
+          <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
+        </form>
+      </section>
+    {% endif %}
+
+    <section class="card">
+      <h2 class="card__title">{% translate "سجل الأحداث" %}</h2>
+      <ul class="timeline">
+        {% for event in timeline %}
+          <li class="timeline__item">
+            <span class="timeline__when"><bdi dir="ltr">{{ event.occurred_at|date:"Y-m-d H:i" }}</bdi></span>
+            <span class="timeline__what">{{ event.get_action_display }}</span>
+            <span class="timeline__who">{{ event.actor_label|default:_("النظام") }}</span>
+            {% if event.reason %}<span class="timeline__why">{{ event.reason }}</span>{% endif %}
+          </li>
+        {% empty %}
+          <li class="timeline__item muted">{% translate "لا أحداث مسجَّلة." %}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+{% endblock %}

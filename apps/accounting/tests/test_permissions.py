@@ -1,5 +1,5 @@
 """
-The twelve permissions, the roles that hold them, and the scope they hold them in.
+The sixteen permissions, the roles that hold them, and the scope they hold them in.
 
 Not a restatement of the mapping table in another syntax — that would pass
 whatever the table said. These assert the *consequences* the mapping is
@@ -40,7 +40,7 @@ pytestmark = pytest.mark.django_db
 
 
 class TestThePermissionsExist:
-    def test_all_thirteen_are_migrated(self) -> None:
+    def test_all_of_them_are_migrated(self) -> None:
         codenames = set(
             Permission.objects.filter(content_type__app_label="accounting").values_list(
                 "codename", flat=True
@@ -49,10 +49,16 @@ class TestThePermissionsExist:
         for permission in ALL_PERMISSIONS:
             assert permission.split(".", 1)[1] in codenames, permission
 
-    def test_there_are_exactly_thirteen(self) -> None:
-        # Twelve from Task 0.7 plus `manage_account_mappings` (Task 1.3).
-        assert len(ALL_PERMISSIONS) == 13
-        assert len(set(ALL_PERMISSIONS)) == 13
+    def test_there_are_exactly_twenty_six(self) -> None:
+        # Twelve from Task 0.7, plus `manage_account_mappings` (Task 1.3), plus
+        # thirteen from Phase 5: the chart read and write, the
+        # financial-statement mapping, the authority to post a manual line onto
+        # a RESTRICTED control account (ADR-029 §2), cashbox and bank-account
+        # management, the two read-only reconciliation workspaces, writing and
+        # approving an expense voucher as **separate** authorities, accruals,
+        # prepayments, and closing a fiscal year.
+        assert len(ALL_PERMISSIONS) == 26
+        assert len(set(ALL_PERMISSIONS)) == 26
 
     def test_every_permission_declares_a_scope(self) -> None:
         assert set(PERMISSION_SCOPE) == set(ALL_PERMISSIONS)
@@ -120,6 +126,17 @@ class TestRoleMapping:
         managerial dimensions, and when a period stops accepting entries are
         organization-level structural decisions affecting every branch at
         once — Accounting Manager authority by default.
+
+        Reading the chart is on the other side of that line and is granted
+        (Task 5.0 §V): coding a journal line means choosing an account, and an
+        accountant who cannot see the chart cannot do the job the five
+        permissions above exist for.
+
+        The two reconciliation workspaces are granted for the same reason and
+        with the same limit: both are read surfaces over documents Procurement
+        and Sales own, and neither confers any authority over those documents.
+        An accountant chasing a supplier difference needs to see it; being able
+        to see it changes nothing.
         """
         granted = permissions_for_role(Role.ACCOUNTANT)
 
@@ -130,6 +147,13 @@ class TestRoleMapping:
                 "accounting.edit_draft",
                 "accounting.post_journal",
                 "accounting.reverse_journal",
+                "accounting.view_chart_of_accounts",
+                "accounting.view_supplier_liabilities",
+                "accounting.view_application_receivables",
+                # Writes a voucher; does not release it. Approval is
+                # ACCOUNTING_MANAGER and OWNER authority, and the service
+                # refuses a self-approval on top of whoever holds it.
+                "accounting.manage_expense_vouchers",
             }
         )
 
@@ -143,10 +167,35 @@ class TestRoleMapping:
             "accounting.reopen_period",
             "accounting.post_soft_closed_adjustment",
             "accounting.reverse_in_soft_closed_period",
+            "accounting.manage_chart_of_accounts",
+            "accounting.manage_report_mappings",
         ],
     )
     def test_the_accountant_holds_no_structural_authority(self, permission: str) -> None:
         assert permission not in permissions_for_role(Role.ACCOUNTANT)
+
+    def test_the_chart_and_statement_authorities_are_owner_and_manager_only(self) -> None:
+        """
+        Task 5.0 §V. Which accounts exist and which statement group each one
+        lands in are organization-wide decisions, so no branch-held post
+        carries either.
+        """
+        for permission in (
+            "accounting.manage_chart_of_accounts",
+            "accounting.manage_report_mappings",
+        ):
+            holders = {role for role in Role if permission in permissions_for_role(role)}
+            assert holders == {Role.OWNER, Role.ACCOUNTING_MANAGER}, permission
+
+    def test_the_operational_roles_do_not_read_the_chart(self) -> None:
+        """
+        A purchasing officer reads journals because Procurement's documents
+        post into them. The chart is not a screen their work needs — the
+        posting rules resolve the account for them — and Task 5.0 §V does not
+        extend the read that far.
+        """
+        for role in (Role.PURCHASING, Role.STOREKEEPER, Role.CASHIER):
+            assert "accounting.view_chart_of_accounts" not in permissions_for_role(role)
 
     def test_those_seven_remain_manager_and_owner_authority(self) -> None:
         for role in (Role.ACCOUNTING_MANAGER, Role.OWNER):

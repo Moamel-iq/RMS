@@ -1,0 +1,49 @@
+{# المرتجعات والإلغاءات, by reason kind.                                       #}
+{#                                                                           #}
+{# The last column is the point of the card. Only إلغاء قبل التنفيذ reduces   #}
+{# theoretical consumption: a cancelled order was never cooked, so its        #}
+{# ingredients never left. A return WAS cooked, and subtracting it would      #}
+{# manufacture an unexplained usage variance of exactly the returned quantity #}
+{# every single time (ADR-028 §8). Showing the flag beside every row is       #}
+{# cheaper than explaining it again to every reader.                          #}
+{% load i18n %}
+<h2 class="section-title">{{ card.label }}</h2>
+{% if rows %}
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">{% translate "السبب" %}</th>
+          <th scope="col">{% translate "الإجمالي المرتجع" %}</th>
+          <th scope="col">{% translate "الصافي" %}</th>
+          <th scope="col">{% translate "الكمية" %}</th>
+          <th scope="col">{% translate "عدد السطور" %}</th>
+          <th scope="col">{% translate "يخفض الاستهلاك النظري" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td data-label="{% translate 'السبب' %}">{{ row.label }}</td>
+            <td data-label="{% translate 'الإجمالي المرتجع' %}"><bdi dir="ltr"><code>{{ row.gross }}</code></bdi></td>
+            <td data-label="{% translate 'الصافي' %}"><bdi dir="ltr"><code>{{ row.net }}</code></bdi></td>
+            <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ row.quantity }}</code></bdi></td>
+            <td data-label="{% translate 'عدد السطور' %}"><bdi dir="ltr"><code>{{ row.line_count }}</code></bdi></td>
+            <td data-label="{% translate 'يخفض الاستهلاك النظري' %}">
+              {% if row.reduces_consumption %}
+                <span class="chip">{% translate "نعم" %}</span>
+              {% else %}
+                <span class="chip chip--quiet">{% translate "لا" %}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="pagehead__hint">
+    {% translate "الإرجاع بعد التنفيذ لا يخفض الاستهلاك النظري: الطعام طُبخ وخرجت مكوّناته، وطرحه هنا يصنع فرقاً غير مفسّر بمقدار المرتجع بالضبط. إتلاف الطعام المرتجع مستند هالك في سجل المطبخ." %}
+  </p>
+{% else %}
+  <p class="empty">{% translate "لا توجد مرتجعات مرحّلة في هذه المدة." %}</p>
+{% endif %}

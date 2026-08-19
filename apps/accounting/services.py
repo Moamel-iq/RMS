@@ -16,6 +16,7 @@ import json
 import re
 import uuid
 from collections.abc import Callable, Sequence
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -24,12 +25,14 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.accounting.models import (
+    BALANCE_SHEET_GROUPS,
     CLASSES_REQUIRING_COST_CENTER,
     DETAIL_CODE_PATTERN,
     Account,
     AccountClass,
     AccountingPeriod,
     AccountingSettings,
+    AccountReportMapping,
     AccountRole,
     CostCenter,
     FiscalYear,
@@ -37,10 +40,14 @@ from apps.accounting.models import (
     JournalEntryStatus,
     JournalLine,
     JournalNumberSequence,
+    ManualPostingPolicy,
     OrganizationAccountMapping,
     PeriodState,
+    PresentationSection,
     SourceEvent,
+    StatementGroup,
 )
+from apps.accounting.selectors import account_balances
 from apps.accounting.validators import (
     PostingLine,
     validate_account_parentage,
@@ -356,6 +363,28 @@ def default_requires_cost_center(account_class: str) -> bool:
     return account_class in CLASSES_REQUIRING_COST_CENTER
 
 
+def _validate_manual_posting_policy(*, is_postable: bool, manual_posting_policy: str) -> None:
+    """
+    A rollup is always `ALLOWED`, because a rollup never receives a line.
+
+    The database says the same thing, and this says it in a sentence somebody
+    can act on. A policy on `2-01` is not a stricter version of the policy on
+    its children — it is a statement about a row nothing can ever post to, and
+    a reader who takes it for protection has been told something false.
+    """
+    if manual_posting_policy not in ManualPostingPolicy.values:
+        raise ValidationError(
+            _("%(policy)s is not a manual posting policy."),
+            code="unknown_manual_posting_policy",
+            params={"policy": manual_posting_policy},
+        )
+    if not is_postable and manual_posting_policy != ManualPostingPolicy.ALLOWED:
+        raise ValidationError(
+            _("A group account never receives a journal line, so it cannot restrict one."),
+            code="policy_on_rollup",
+        )
+
+
 @transaction.atomic
 def create_account(
     *,
@@ -366,12 +395,18 @@ def create_account(
     requires_cost_center: bool | None = None,
     external_accounting_system: str = "",
     external_account_code: str = "",
+    manual_posting_policy: str = ManualPostingPolicy.ALLOWED,
+    is_system: bool = False,
 ) -> Account:
     """
     Add an account. Class and parent are derived from the code (ADR-014).
 
     Deriving them means the code, the class, and the position in the tree can
     never disagree with each other.
+
+    `manual_posting_policy` and `is_system` default to what every account
+    created before Phase 5 meant, so an existing caller that names neither gets
+    exactly the account it got before (ADR-029 §2).
     """
     code = code.strip()
     account_class = code[0]
@@ -399,6 +434,10 @@ def create_account(
     if requires_cost_center is None:
         requires_cost_center = is_postable and default_requires_cost_center(account_class)
 
+    _validate_manual_posting_policy(
+        is_postable=is_postable, manual_posting_policy=manual_posting_policy
+    )
+
     account = Account(
         organization=organization,
         code=code,
@@ -408,6 +447,8 @@ def create_account(
         parent=parent,
         is_postable=is_postable,
         requires_cost_center=requires_cost_center,
+        manual_posting_policy=manual_posting_policy,
+        is_system=is_system,
         external_accounting_system=external_accounting_system.strip(),
         external_account_code=external_account_code.strip(),
     )
@@ -426,10 +467,16 @@ def archive_account(*, account: Account, reason: str = "") -> Account:
     Deletion is refused by PROTECT wherever a posted line references it, and
     would destroy the trail even where it is not. Archiving keeps the code
     reserved, so it can never be reissued to mean something else.
+
+    `archived_at` is stamped in the same statement as `is_active`, because the
+    database requires the pair: an inactive account with no archive date is a
+    row the `if and only if` constraint refuses, and a separate second write
+    would leave a window in which the row is illegal.
     """
     before = snapshot(Account.objects.get(pk=account.pk))
     account.is_active = False
-    account.save(update_fields=["is_active", "updated_at"])
+    account.archived_at = timezone.now()
+    account.save(update_fields=["is_active", "archived_at", "updated_at"])
     record_audit_event(
         action=AuditAction.DEACTIVATED,
         target=account,
@@ -438,6 +485,152 @@ def archive_account(*, account: Account, reason: str = "") -> Account:
         reason=reason,
     )
     return account
+
+
+@transaction.atomic
+def reactivate_account(*, account: Account, reason: str = "") -> Account:
+    """
+    Bring an archived account back into use.
+
+    Refused while its parent is archived. An active leaf under a dead group is
+    not merely untidy: `chart_tree` returns it as a root, so the account would
+    appear at the top of the chart detached from the branch that gives its code
+    meaning, and a report grouping by parent would drop it entirely.
+    """
+    # No `select_related("parent")`: the parent join is an outer join, and
+    # PostgreSQL refuses `FOR UPDATE` on the nullable side of one. The parent
+    # is loaded lazily below, which is one extra query on a path taken by hand.
+    current = Account.objects.select_for_update().get(pk=account.pk)
+    if current.is_active:
+        return current
+    parent = current.parent
+    if parent is not None and not parent.is_active:
+        raise ValidationError(
+            _("Parent account %(parent)s is archived. Reactivate it first."),
+            code="parent_archived",
+            params={"parent": parent.code},
+        )
+
+    previous = snapshot(current)
+    current.is_active = True
+    current.archived_at = None
+    current.full_clean()
+    current.save(update_fields=["is_active", "archived_at", "updated_at"])
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=current,
+        previous_state=previous,
+        new_state=snapshot(current),
+        reason=reason,
+    )
+    account.refresh_from_db()
+    return current
+
+
+#: What an account may never change once it exists, whatever its history.
+#:
+#: `code` and `account_class` because a posted line names the account and not
+#: the code, so renumbering silently restates every report that groups by code.
+#: `parent` because the tree is derived from the code and the two must agree.
+#: `is_postable` because it is pinned to the code shape by a check constraint,
+#: and because turning a rollup postable would let a line land on a node whose
+#: children already sum into it.
+_ACCOUNT_FINANCIAL_MEANING = ("code", "account_class", "parent_id", "is_postable")
+
+
+@transaction.atomic
+def update_account_metadata(
+    *,
+    account: Account,
+    name_ar: str,
+    name_en: str,
+    requires_cost_center: bool,
+    manual_posting_policy: str,
+    reason: str = "",
+    allow_system: bool = False,
+) -> Account:
+    """
+    Change the metadata an account with journal history may safely change.
+
+    Four fields, and the boundary is not arbitrary: none of these four
+    restates anything already posted. A better Arabic name, a corrected
+    English one, a cost-centre requirement that applies to the next line, and
+    a manual-posting policy that is checked when a draft is shaped and again
+    when it is posted — every one of them is about what happens next.
+
+    What is refused is everything on the other side of that line. Code, class,
+    parent and postability are `_ACCOUNT_FINANCIAL_MEANING`: they are not
+    parameters here, and the persisted row is re-read and compared against the
+    instance the caller handed in, so mutating the object before calling is
+    refused rather than quietly saved. A caller who genuinely needs a different
+    code creates the new account and archives this one — the archived code
+    stays reserved and every historic report keeps meaning what it said.
+
+    An `is_system` account's policy is refused outright unless `allow_system`
+    is passed. That flag is not authorization and grants nothing on its own;
+    the command layer gates it on `accounting.manage_accounts`, so the
+    seeded control accounts cannot be opened up by the ordinary chart screen.
+    """
+    # Locked without joining the parent: `FOR UPDATE` cannot be applied to the
+    # nullable side of an outer join, and the comparison below reads
+    # `parent_id` rather than the parent row anyway.
+    current = Account.objects.select_for_update().get(pk=account.pk)
+
+    drifted = [
+        name
+        for name in _ACCOUNT_FINANCIAL_MEANING
+        if getattr(account, name) != getattr(current, name)
+    ]
+    if drifted:
+        raise ValidationError(
+            _("%(fields)s cannot change on an existing account. Archive it and create a new one."),
+            code="account_financial_meaning_immutable",
+            params={"fields": ", ".join(sorted(drifted))},
+        )
+
+    _validate_manual_posting_policy(
+        is_postable=current.is_postable, manual_posting_policy=manual_posting_policy
+    )
+    if (
+        current.is_system
+        and manual_posting_policy != current.manual_posting_policy
+        and not allow_system
+    ):
+        raise ValidationError(
+            _("%(code)s is a system account. Its manual posting policy is protected."),
+            code="system_account_policy_protected",
+            params={"code": current.code},
+        )
+    if requires_cost_center and not current.is_postable:
+        raise ValidationError(
+            _("A group account never receives a journal line, so it cannot require a cost center."),
+            code="cost_center_on_rollup",
+        )
+
+    previous = snapshot(current)
+    current.name_ar = name_ar.strip()
+    current.name_en = name_en.strip()
+    current.requires_cost_center = requires_cost_center
+    current.manual_posting_policy = manual_posting_policy
+    current.full_clean()
+    current.save(
+        update_fields=[
+            "name_ar",
+            "name_en",
+            "requires_cost_center",
+            "manual_posting_policy",
+            "updated_at",
+        ]
+    )
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=current,
+        previous_state=previous,
+        new_state=snapshot(current),
+        reason=reason,
+    )
+    account.refresh_from_db()
+    return current
 
 
 @transaction.atomic
@@ -482,6 +675,7 @@ def sync_system_account_roles() -> None:
     exactly as the role groups do.
     """
     from apps.accounting.models import (
+        SYSTEM_ACCOUNTING_ROLES,
         SYSTEM_INVENTORY_ROLES,
         SYSTEM_PURCHASING_ROLES,
         SYSTEM_SALES_ROLES,
@@ -493,6 +687,7 @@ def sync_system_account_roles() -> None:
         (SYSTEM_INVENTORY_ROLES, AccountRoleDomain.INVENTORY),
         (SYSTEM_PURCHASING_ROLES, AccountRoleDomain.PURCHASING),
         (SYSTEM_SALES_ROLES, AccountRoleDomain.SALES),
+        (SYSTEM_ACCOUNTING_ROLES, AccountRoleDomain.ACCOUNTING),
     )
     for roles, domain in vocabularies:
         for code, name_ar, name_en, mapping_scope in roles:
@@ -846,6 +1041,189 @@ def resolve_default_account(
             },
         )
     return mapping
+
+
+# ---------------------------------------------------------------------------
+# 3c. Financial-statement mapping (ADR-031)
+# ---------------------------------------------------------------------------
+#
+# Which statement group an account's balance belongs to, decided explicitly by
+# the organization rather than derived from the account code inside a report.
+# `AccountClass` cannot carry it: class 7 is other income *and* other expense,
+# and class 1 has no current / non-current split.
+
+
+def _validate_report_mapping_account(*, organization: Organization, account: Account) -> None:
+    """
+    The account a statement classification may be attached to.
+
+    Postable only, and that is a fact about **other rows** — a rollup's figure
+    is the sum of its children — so it cannot be a check constraint and lives
+    here instead. Classifying `1-01` as well as the three leaves under it would
+    put the same money on the balance sheet twice, and the statement would
+    still add up.
+
+    An **archived** account is deliberately accepted. Archiving stops new
+    postings; it does not remove the balance already sitting there, and an
+    archived account with a non-zero balance is precisely the row ADR-031 §2
+    refuses to let a statement omit.
+    """
+    if account.organization_id != organization.pk:
+        raise ValidationError(
+            _("Account %(code)s belongs to another organization."),
+            code="account_organization_mismatch",
+            params={"code": account.code},
+        )
+    if not account.is_postable:
+        raise ValidationError(
+            _("Account %(code)s is a group account. Classify its detail accounts instead."),
+            code="account_not_postable",
+            params={"code": account.code},
+        )
+
+
+@transaction.atomic
+def set_report_mapping(
+    *,
+    organization: Organization,
+    account: Account,
+    statement_group: str,
+    presentation_section: str = PresentationSection.NOT_APPLICABLE,
+    display_order: int = 0,
+) -> AccountReportMapping:
+    """
+    Classify one account for the financial statements — create or update.
+
+    One row per account, so re-classifying is an update rather than a second
+    row: two active classifications would put one balance in two sections of
+    the same statement, and both sections would still add up internally.
+
+    A previously cleared classification is revived rather than duplicated, for
+    the same reason.
+    """
+    if statement_group not in StatementGroup.values:
+        raise ValidationError(
+            _("%(group)s is not a financial-statement group."),
+            code="unknown_statement_group",
+            params={"group": statement_group},
+        )
+    if presentation_section not in PresentationSection.values:
+        raise ValidationError(
+            _("%(section)s is not a presentation section."),
+            code="unknown_presentation_section",
+            params={"section": presentation_section},
+        )
+    if presentation_section != PresentationSection.NOT_APPLICABLE and statement_group not in [
+        group.value for group in BALANCE_SHEET_GROUPS
+    ]:
+        raise ValidationError(
+            _("A current / non-current split is a balance-sheet question only."),
+            code="section_not_on_balance_sheet",
+        )
+    _validate_report_mapping_account(organization=organization, account=account)
+
+    existing = (
+        AccountReportMapping.objects.select_for_update()
+        .filter(organization=organization, account=account)
+        .first()
+    )
+    if existing is None:
+        mapping = AccountReportMapping(
+            organization=organization,
+            account=account,
+            statement_group=statement_group,
+            presentation_section=presentation_section,
+            display_order=display_order,
+        )
+        mapping.full_clean()
+        mapping.save()
+        record_audit_event(action=AuditAction.CREATED, target=mapping, new_state=snapshot(mapping))
+        return mapping
+
+    previous = snapshot(existing)
+    existing.statement_group = statement_group
+    existing.presentation_section = presentation_section
+    existing.display_order = display_order
+    existing.is_active = True
+    existing.full_clean()
+    existing.save()
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=existing,
+        previous_state=previous,
+        new_state=snapshot(existing),
+    )
+    return existing
+
+
+@transaction.atomic
+def clear_report_mapping(
+    *, mapping: AccountReportMapping, reason: str = ""
+) -> AccountReportMapping:
+    """
+    Withdraw a classification without deleting it.
+
+    Deactivated, never removed: a statement produced under the old
+    classification has to stay explicable, and a deleted row leaves the
+    question "why was this in operating expenses last year" with no answer at
+    all. The account itself becomes unmapped, which `unmapped_accounts` will
+    report the moment its balance is non-zero — that is the intended
+    consequence, not a side effect.
+    """
+    current = AccountReportMapping.objects.select_for_update().get(pk=mapping.pk)
+    previous = snapshot(current)
+    current.is_active = False
+    current.full_clean()
+    current.save(update_fields=["is_active", "updated_at"])
+    record_audit_event(
+        action=AuditAction.DEACTIVATED,
+        target=current,
+        previous_state=previous,
+        new_state=snapshot(current),
+        reason=reason,
+    )
+    mapping.refresh_from_db()
+    return current
+
+
+def unmapped_accounts(
+    *, organization: Organization, up_to: datetime.date | None = None
+) -> list[Account]:
+    """
+    Accounts carrying a balance that no active classification covers.
+
+    **The account set is resolved from the ledger, not from the mapping
+    table**, and that inversion is the whole point (ADR-031 §2).
+
+    A statement built by iterating mappings produces a beautiful, balanced,
+    wrong report when an account is unmapped: the balance is simply not there,
+    nothing on the page indicates its absence, and the arithmetic still ties
+    because every line that *is* present is internally consistent. A missing
+    balance is the one error a reader cannot detect from the report itself.
+
+    So the question asked here is "which accounts moved", answered by
+    `account_balances` over posted lines, and the mapping table is used only to
+    subtract the ones already classified. An account nobody has classified
+    therefore cannot fail to appear.
+
+    Zero-balance accounts are excluded because they contribute nothing to any
+    statement — classifying them is tidiness, and reporting them as findings
+    would bury the ones that actually change a figure.
+    """
+    balances = account_balances(organization=organization, up_to=up_to)
+    mapped = set(
+        AccountReportMapping.objects.filter(organization=organization, is_active=True).values_list(
+            "account_id", flat=True
+        )
+    )
+    unmapped_ids = [
+        account_id
+        for account_id, balance in balances.items()
+        if balance != Decimal("0") and account_id not in mapped
+    ]
+    if not unmapped_ids:
+        return []
+    return list(Account.objects.filter(pk__in=unmapped_ids).order_by("code"))
 
 
 # ---------------------------------------------------------------------------
@@ -1305,6 +1683,95 @@ def _validate_draft_shape(*, organization: Organization, lines: Sequence[Posting
     validate_branches_are_active(lines)
     validate_cost_centers(lines)
     validate_organization_consistency(organization, lines)
+    validate_manual_posting_policy(lines=lines)
+
+
+# ---------------------------------------------------------------------------
+# 6a. Manual-journal controls (ADR-029 §2)
+# ---------------------------------------------------------------------------
+
+
+def validate_manual_posting_policy(
+    *, lines: Sequence[PostingLine], allow_restricted: bool = False
+) -> None:
+    """
+    Which accounts a **hand-written** line may touch.
+
+    `FORBIDDEN` refuses always. `RESTRICTED` refuses unless the caller holds
+    `post_restricted_manual_journal`, which the command layer resolves and
+    passes down as `allow_restricted` — the kernel is told the answer, never
+    the actor, because a service that reads permissions has two jobs.
+
+    Checked when the draft is shaped **and again at posting**. Not belt and
+    braces: a draft can sit for a week, and an account's policy can be
+    tightened while it sits. Only the second check runs against the policy that
+    is actually in force when the money moves.
+
+    A manual credit to supplier payable is not an accounting error — it
+    balances, it posts, the trial balance still ties. It silently breaks the
+    subledger-to-GL equality that `ذمم الموردين` exists to prove, and the
+    workspace then reports a difference whose cause is invisible from the
+    subledger side.
+    """
+    forbidden: list[str] = []
+    restricted: list[str] = []
+    for line in lines:
+        policy = line.account.manual_posting_policy
+        if policy == ManualPostingPolicy.FORBIDDEN:
+            forbidden.append(line.account.code)
+        elif policy == ManualPostingPolicy.RESTRICTED and not allow_restricted:
+            restricted.append(line.account.code)
+
+    if forbidden:
+        raise ValidationError(
+            _("Account %(codes)s does not accept a manual journal line."),
+            code="manual_posting_forbidden",
+            params={"codes": "، ".join(sorted(set(forbidden)))},
+        )
+    if restricted:
+        raise ValidationError(
+            _(
+                "Account %(codes)s is a controlled account. Posting a manual line to it "
+                "needs the restricted-posting authority."
+            ),
+            code="manual_posting_restricted",
+            params={"codes": "، ".join(sorted(set(restricted)))},
+        )
+
+
+def validate_manual_maker_checker(*, entry: JournalEntry, poster: User | None) -> None:
+    """
+    The creator of a manual journal may not post it.
+
+    **System journals are exempt**, and that is a decision rather than an
+    oversight (ADR-029 §2). A supplier invoice already cannot be posted by the
+    person who entered it; Procurement enforces that on the *document*, where
+    the segregation means something. Re-checking it on the journal would either
+    duplicate that rule or quietly contradict it.
+
+    A manual entry whose `created_by` is NULL is refused rather than waved
+    through. Those rows predate the field, so nothing can prove the creator and
+    the poster differ — and an unprovable control is not a control. The message
+    names the reason so the operator recreates the draft instead of hunting a
+    permission they already hold.
+    """
+    if not entry.is_manual:
+        return
+
+    if entry.created_by_id is None:
+        raise ValidationError(
+            _(
+                "This manual entry records no author, so it cannot be shown that the "
+                "poster is a different person. Recreate it as a new draft."
+            ),
+            code="manual_journal_author_unknown",
+        )
+
+    if poster is not None and entry.created_by_id == poster.pk:
+        raise ValidationError(
+            _("A manual journal must be posted by somebody other than the person who wrote it."),
+            code="manual_journal_self_posted",
+        )
 
 
 @transaction.atomic
@@ -1364,6 +1831,9 @@ def create_draft(
         idempotency_key=idempotency_key or f"draft:{uuid.uuid4()}",
         idempotency_fingerprint=fingerprint,
         narration=narration,
+        # From the ambient context, like `posted_by`, so every path that
+        # creates a draft records an author without having to remember to.
+        created_by=_current_actor(),
     )
     entry.save()
     _write_lines(entry, lines)
@@ -1434,7 +1904,12 @@ def update_draft(
 
 
 @transaction.atomic
-def post_draft(*, entry: JournalEntry, allow_closed_period: bool = False) -> JournalEntry:
+def post_draft(
+    *,
+    entry: JournalEntry,
+    allow_closed_period: bool = False,
+    allow_restricted_accounts: bool = False,
+) -> JournalEntry:
     """
     Move a draft into the ledger.
 
@@ -1442,6 +1917,10 @@ def post_draft(*, entry: JournalEntry, allow_closed_period: bool = False) -> Jou
     was allowed to be unbalanced while it was being written, so this is the
     first moment the finished entry is checked. It takes its gapless journal
     number at this point and not before.
+
+    Two Phase 5 controls run here as well, and only for a manual entry: the
+    maker-checker, and the manual-posting policy re-checked against the policy
+    in force *now* rather than when the draft was written.
     """
     if entry.status != JournalEntryStatus.DRAFT:
         raise ValidationError(
@@ -1474,6 +1953,15 @@ def post_draft(*, entry: JournalEntry, allow_closed_period: bool = False) -> Jou
     validate_cost_centers(lines)
     validate_organization_consistency(entry.organization, lines)
 
+    poster = _current_actor()
+    validate_manual_maker_checker(entry=entry, poster=poster)
+    # Only a manual entry is subject to the policy. A system journal resolves
+    # its accounts through roles, and refusing one would stop Inventory,
+    # Procurement, Kitchen and Sales posting at all — the control accounts are
+    # exactly where those journals are supposed to land.
+    if entry.is_manual:
+        validate_manual_posting_policy(lines=lines, allow_restricted=allow_restricted_accounts)
+
     period = entry.period
     if not allow_closed_period:
         validate_period_accepts_postings(period)
@@ -1489,7 +1977,7 @@ def post_draft(*, entry: JournalEntry, allow_closed_period: bool = False) -> Jou
     )
     entry.status = JournalEntryStatus.POSTED
     entry.posted_at = timezone.now()
-    entry.posted_by = _current_actor()
+    entry.posted_by = poster
     entry.save(update_fields=["entry_number", "status", "posted_at", "posted_by", "updated_at"])
 
     record_audit_event(

@@ -1,0 +1,83 @@
+{# ذمم التطبيقات — what the delivery companies owe, and how old it is.        #}
+{#                                                                           #}
+{# No write-off anywhere on this card, and none is offered. An aged balance   #}
+{# stays a balance until a settlement or an authorized adjustment clears it   #}
+{# (ADR-028 §9); a control that aged it away would remove the argument        #}
+{# without settling it.                                                       #}
+{% load i18n %}
+<h2 class="section-title">{{ card.label }}</h2>
+<div class="statrow">
+  <div class="stat">
+    <span class="stat__label">{% translate "الرصيد القائم" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.outstanding }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "متأخر أكثر من ٩٠ يوماً" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.overdue }}</code></bdi></span>
+    <span class="stat__hint"><bdi dir="ltr"><code>{{ summary.overdue_share }}%</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "تسويات مرحّلة" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.settlements_posted }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "المسوّى في المدة" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.settled_in_period }}</code></bdi></span>
+  </div>
+  <div class="stat">
+    <span class="stat__label">{% translate "تسويات مفتوحة" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.settlements_open }}</code></bdi></span>
+  </div>
+  {# Both legs added as absolute values, never netted: a statement short by    #}
+  {# 100 and a remittance over by 100 is two arguments, not agreement.         #}
+  <div class="stat">
+    <span class="stat__label">{% translate "فروق غير مفسّرة (مفتوحة)" %}</span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.unexplained_open }}</code></bdi></span>
+  </div>
+</div>
+
+{% if summary.positions %}
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">{% translate "التطبيق" %}</th>
+          <th scope="col">{% translate "الرصيد" %}</th>
+          <th scope="col">{% translate "أقدم مبلغ مفتوح" %}</th>
+          <th scope="col">{% translate "التسوية المتوقعة" %}</th>
+          {% for bucket in summary.positions.0.buckets %}
+            <th scope="col"><bdi dir="ltr"><code>{{ bucket.label }}</code></bdi></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for position in summary.positions %}
+          <tr>
+            <td data-label="{% translate 'التطبيق' %}">
+              <a href="{% url 'sales:receivable_detail' position.delivery_application.pk %}">
+                <bdi dir="ltr"><code>{{ position.delivery_application.code }}</code></bdi>
+                {{ position.delivery_application.name_ar }}
+              </a>
+            </td>
+            <td data-label="{% translate 'الرصيد' %}"><bdi dir="ltr"><code>{{ position.balance }}</code></bdi></td>
+            <td data-label="{% translate 'أقدم مبلغ مفتوح' %}">
+              {% if position.oldest_open_date %}
+                <bdi dir="ltr"><code>{{ position.oldest_open_date|date:"Y-m-d" }}</code></bdi>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+            <td data-label="{% translate 'التسوية المتوقعة' %}">
+              {% if position.expected_settlement_date %}
+                <bdi dir="ltr"><code>{{ position.expected_settlement_date|date:"Y-m-d" }}</code></bdi>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+            {% for bucket in position.buckets %}
+              <td data-label="{{ bucket.label }}"><bdi dir="ltr"><code>{{ bucket.amount }}</code></bdi></td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="empty">{% translate "لا توجد ذمم قائمة على التطبيقات." %}</p>
+{% endif %}

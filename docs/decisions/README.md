@@ -27,29 +27,31 @@ consequences, date, and related requirements.
 | [ADR-022](ADR-022-supplier-return-valuation-and-purchase-variance.md) | Supplier return valuation and purchase variance treatment — *implemented by Tasks 2.12–2.14* |
 | [ADR-023](ADR-023-grni-clearing-and-three-way-matching.md) | GRNI clearing and three-way matching allocations — *implemented by Tasks 2.11–2.12* |
 | [ADR-024](ADR-024-recipe-versioning-and-the-effective-dated-cost-basis.md) | Recipe structure, versioning and the effective-dated cost basis — *lifecycle, evidence, dating and immutability implemented by Task 3.2A; the nested-recipe graph by Task 3.2B; the cost basis, snapshots and the reproducible ledger cutoff by Task 3.3. Its whole original scope is now built* |
+| [ADR-025](ADR-025-production-posting-value-conservation-and-reversal.md) | Production posting, value conservation and reversal — *implemented by Task 3.5* |
+| [ADR-026](ADR-026-kitchen-custody-consumption-and-usage-variance.md) | Kitchen custody, consumption and the boundary of usage variance — *implemented by Task 3.8; its deferred sales-based source supplied by Phase 4* |
+| [ADR-027](ADR-027-sales-recognition-and-application-receivables.md) | Sales recognition, application receivables and the cashier boundary — *implemented by Phase 4* |
+| [ADR-028](ADR-028-sales-discounts-commissions-and-settlements.md) | Sales discounts, commissions and settlements — *implemented by Phase 4* |
+| [ADR-029](ADR-029-accounting-operations-and-manual-journals.md) | Accounting operations, manual journals and the read-only subledger workspaces — *implemented by Phase 5 checkpoints 1–4* |
+| [ADR-030](ADR-030-cash-bank-expenses-and-deferrals.md) | Cash, bank, expense vouchers, accruals and prepayments — *implemented by Phase 5 checkpoints 3, 5, 6* |
+| [ADR-031](ADR-031-financial-statements-and-year-end-close.md) | Financial-statement mapping, current-year earnings and year-end close — *implemented by Phase 5 checkpoints 7–9* |
 
 Four of these were missing from this table while their files read
 **Accepted** and their behaviour shipped, which is how the index came to
 disagree with the decisions it indexes. Found at the Phase 2 gate.
 
+Four more had drifted the same way by the Phase 5 audit — ADR-025 and ADR-026
+were still listed below as "proposed, not yet written" while both files read
+**Accepted** and both behaviours had shipped, and ADR-027 / ADR-028 had never
+been indexed at all. All four are in the table above now, and the rows that
+claimed otherwise are gone.
+
 ## Proposed by Phase 3, not yet written
 
-Registered here the day they were proposed, so the index cannot fall behind the
-specification again. Each is written by the task that first implements its
-subject.
-
-**ADR-024 has left this table.** Task 3.2A implemented the lifecycle, the
-evidence model, effective dating and whole-row immutability, so the decision was
-written and accepted above. Its remaining halves are named inside it and belong
-to Task 3.2B (nested components) and Task 3.3 (costing and snapshots) — recorded
-in the ADR's own "Still open" section rather than by leaving the whole decision
-listed as unwritten.
-
-| ADR | Title | Proposed by | Written by | Scope |
-|---|---|---|---|---|
-| ADR-025 | Production posting, value conservation and reversal — **Accepted 2026-08-18** | Task 3.0, **scope extended by Task 3.0A** | Task 3.5 | Value conservation through the batch; yield absorbed into unit cost rather than journalled against a standard nobody set; the per-account net journal and the **legitimate no-journal case**; one output per batch and what multi-output would require; why there is no WIP account — **and the seven conditions under which that is true**, plus what must be specified if multi-day production is ever needed |
-| ADR-026 | Kitchen custody, consumption and the boundary of usage variance — **Accepted 2026-08-18** | Task 3.0 §11, **§11.2's batch formula and the `MATERIAL_RETURN` / `LINKED_WASTE` vocabulary superseded here** | Task 3.8 | Custody movement is not consumption, in either direction; the movement partition and the stock identity that proves it; post-production correction through reversal and repost rather than a later document; `BatchDocumentLink` as explanatory attribution with typed foreign keys and a doubly-enforced attribution cap; waste classified by what was lost; corrections kept out of consumption; `MealRecord` equivalents as separate explanatory sources that are **not** added to production plans; the sales-based theoretical source interface with its `SALES` adapter deliberately **absent**; production standard variance available and complete against final sales-based usage variance deferred to Phase 4 |
-| ADR-026 | Consumption is a partition, not a sum | **Task 3.0A** | Task 3.8 | Why the architecture charter's actual-consumption formula is **not implemented as written**: its "issues to kitchen" and "transfers into the kitchen" terms are one event under two incompatible physical models, and adding custody transfers to production usage double-counts. Records the partition that replaces it, in which every posted movement contributes to exactly one bucket and the classification is proved against the stock identity. **The only deliberate departure from an approved charter formula in three phases** |
+Nothing. Every decision this section registered has been written and accepted:
+ADR-024 by Task 3.2A (with its remaining halves named inside it and delivered
+by 3.2B and 3.3), ADR-025 by Task 3.5, and ADR-026 by Task 3.8. The section is
+kept, empty, because registering a decision the day it is proposed is what
+stopped the index falling behind the specification a second time.
 
 ## Reserved, not yet written
 

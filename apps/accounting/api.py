@@ -31,6 +31,9 @@ from typing import Any
 from django.http import HttpRequest
 from ninja import Router, Schema, Status
 
+from apps.accounting.api_documents import router as document_router
+from apps.accounting.api_master import router as master_router
+from apps.accounting.api_reports import router as report_router
 from apps.accounting.commands import (
     LineInput,
     amend_draft_entry,
@@ -49,6 +52,14 @@ from apps.core.money import money_export, quantize_money
 from apps.users.models import User
 
 router = Router(tags=["accounting"])
+
+# The rest of the module's surface, split by subject rather than piled into one
+# file: journals and periods here, master data, documents and reports in their
+# own modules. Mounted on this router so `config/api.py` keeps naming one
+# accounting entry point.
+router.add_router("", master_router)
+router.add_router("", document_router)
+router.add_router("", report_router)
 
 
 def _actor(request: HttpRequest) -> User:

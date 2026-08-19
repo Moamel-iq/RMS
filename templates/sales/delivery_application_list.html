@@ -1,0 +1,57 @@
+{# تطبيقات التوصيل — the companies, not the channel.                          #}
+{#                                                                            #}
+{# No balance column, and its absence is the design: what an application owes #}
+{# is derived from the append-only receivable ledger, and a column here would #}
+{# be a second number that can disagree with the entries behind it.           #}
+{#                                                                            #}
+{# No commission column either. Rates are dated contract terms and live on    #}
+{# the agreements screen; one here would be a second answer no posted sale    #}
+{# could be traced to.                                                        #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "دورة التسوية" %}</th>
+  <th>{% translate "حساب الذمة" %}</th>
+  <th>{% translate "الفروع المفعّلة" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for application in applications %}
+    <tr>
+      <td data-label="{% translate 'الرمز' %}">
+        <a href="{% url 'sales:application_detail' application.pk %}">
+          <bdi dir="ltr"><code>{{ application.code }}</code></bdi>
+        </a>
+      </td>
+      <td data-label="{% translate 'الاسم' %}">{{ application.name_ar }}</td>
+      <td data-label="{% translate 'دورة التسوية' %}">
+        <bdi dir="ltr">{{ application.settlement_cycle_days }}</bdi> {% translate "يوم" %}
+      </td>
+      <td data-label="{% translate 'حساب الذمة' %}">
+        {% if application.receivable_account %}
+          <bdi dir="ltr"><code>{{ application.receivable_account.code }}</code></bdi>
+        {% else %}
+          <span class="muted">{% translate "افتراضي المؤسسة" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'الفروع المفعّلة' %}">
+        <bdi dir="ltr">{{ application.branch_settings.count }}</bdi>
+      </td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if application.is_active %}
+          <span class="chip chip--on">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+        {% endif %}
+      </td>
+      {% include "inventory/_rowactions.html" with row=application owner_id=application.organization_id edit_url="sales:application_update" archive_url="sales:application_archive" reactivate_url="sales:application_reactivate" extra_url="sales:application_detail" extra_label=_("الفروع والاتفاقيات") %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="7">{% translate "لا توجد تطبيقات توصيل بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

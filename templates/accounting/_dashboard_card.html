@@ -1,0 +1,16 @@
+{# One dashboard card's contents, swapped into its own frame.               #}
+{#                                                                          #}
+{# The frame stays; only the inside is replaced. A card that could not be   #}
+{# computed says so here rather than raising, so the other cards on the     #}
+{# page keep their figures.                                                 #}
+{% load i18n %}
+
+<h2 class="card__title">{{ card.label }}</h2>
+<p class="card__value card__value--{{ payload.state }}" aria-live="polite">
+  <bdi dir="auto">{{ payload.value }}</bdi>
+</p>
+<p class="card__hint">{{ payload.hint }}</p>
+<p class="card__meta">
+  <span class="muted"><bdi dir="ltr">{{ as_of|date:"Y-m-d" }}</bdi></span>
+  {% if drill %}<a href="{{ drill }}">{% translate "تفصيل" %}</a>{% endif %}
+</p>

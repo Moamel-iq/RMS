@@ -1,0 +1,4 @@
+{# الأصناف الأكثر مبيعاً — the top ten by gross. #}
+{% load i18n %}
+{% translate "الصنف" as mix_label %}
+{% include "sales/cards/_mix_table.html" with mix_label=mix_label %}

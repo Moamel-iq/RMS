@@ -1,0 +1,66 @@
+{# لوحة المحاسبة — the module landing page.                                   #}
+{#                                                                            #}
+{# Card frames only. Every figure arrives through its own `hx-get`, so a      #}
+{# slow trial balance does not hold up the period card and a card that raises #}
+{# renders its error inside its own frame instead of blanking the page.       #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-dashboard">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--secondary" href="{% url 'accounting:journal_list' %}">{% translate "قيود اليومية" %}</a>
+        <a class="btn btn--primary" href="{% url 'accounting:chart_tree' %}">{% translate "دليل الحسابات" %}</a>
+      </div>
+    </div>
+
+    {% if organizations|length > 1 %}
+      <form class="toolbar" method="get"
+            hx-get="{% url 'accounting:dashboard' %}"
+            hx-target="#accounting-dashboard"
+            hx-swap="outerHTML"
+            hx-push-url="true"
+            hx-trigger="change from:find select">
+        <label class="field">
+          <span class="field__label">{% translate "المؤسسة" %}</span>
+          <select name="organization">
+            {% for row in organizations %}
+              <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>
+                {{ row.code }} — {{ row.name_ar }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+    {% endif %}
+
+    {% if organization %}
+      <p class="muted">
+        {% blocktranslate with code=organization.code day=as_of|date:"Y-m-d" %}{{ code }} · بتاريخ {{ day }}{% endblocktranslate %}
+      </p>
+
+      <div class="card-grid" id="accounting-dashboard-cards">
+        {% for item in cards %}
+          <section class="card card--metric" id="card-{{ item.card.key }}"
+                   hx-get="{{ item.url }}"
+                   hx-trigger="load"
+                   hx-swap="innerHTML">
+            <h2 class="card__title">{{ item.card.label }}</h2>
+            <p class="card__value muted" aria-live="polite">{% translate "جارٍ الحساب…" %}</p>
+          </section>
+        {% endfor %}
+      </div>
+    {% else %}
+      <section class="card">
+        <p class="empty">{% translate "لا توجد مؤسسة في نطاقك المحاسبي." %}</p>
+      </section>
+    {% endif %}
+  </div>
+{% endblock %}
