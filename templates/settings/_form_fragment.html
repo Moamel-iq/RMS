@@ -1,0 +1,13 @@
+{# A write screen's page block on its own, for an htmx swap.                 #}
+{#                                                                           #}
+{# The mirror of `_list_fragment.html`, and it exists for the same reason.   #}
+{# A form template extends whichever base its view asks for: on a normal     #}
+{# request that is `shell.html` and the whole page renders; on an            #}
+{# HX-Request it is this file, which emits the `page` block and nothing      #}
+{# else — no rail, no sidebar, no top bar, no second <html>.                 #}
+{#                                                                           #}
+{# Without it a panel swap receives a whole document. That renders well      #}
+{# enough to pass a glance and is wrong in every accessibility tree, and     #}
+{# the defect is invisible until somebody opens the panel rather than the    #}
+{# page.                                                                     #}
+{% block page %}{% endblock %}

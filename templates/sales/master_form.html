@@ -1,0 +1,56 @@
+{# Create and edit for every sales master-data kind.                         #}
+{#                                                                           #}
+{# Extends `form_base_template`, not `shell.html` directly. On a normal      #}
+{# request the view passes `shell.html` and the whole page renders; on an    #}
+{# HX-Request it passes `settings/_form_fragment.html` and this emits the    #}
+{# form alone. Inventory's own write template is untouched.                  #}
+{#                                                                           #}
+{# Errors render inline in Arabic; the POST goes to a service, never to      #}
+{# form.save(). `novalidate` hands validation to the server, so what the     #}
+{# operator sees is the rule that will actually be enforced.                 #}
+{% extends form_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+    <a href="{% url 'sales:menu_item_list' %}">{% translate "المبيعات" %}</a>
+    <span aria-hidden="true">/</span>
+    <span aria-current="page">{{ page_title }}</span>
+  </nav>
+
+  <div class="pagehead">
+    <div>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+    </div>
+  </div>
+
+  <form class="formcard" method="post" novalidate>
+    {% csrf_token %}
+    {% include "components/form_error_summary.html" with form=form %}
+
+    <div class="formgrid">
+      {% for field in form %}
+        {% if field.field.widget.input_type == "checkbox" %}
+          <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}" data-field>
+            {{ field }}
+            <label class="formrow__label formrow__label--inline" for="{{ field.id_for_label }}">
+              {{ field.label }}
+            </label>
+            {% if field.help_text %}<p class="formrow__help" id="{{ field.auto_id }}_helptext" data-field-description>{{ field.help_text }}</p>{% endif %}
+            {% if field.errors %}<div id="{{ field.auto_id }}_error" data-field-description data-field-error>{% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}</div>{% endif %}
+          </div>
+        {% else %}
+          {% include "settings/_field.html" with field=field %}
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <div class="formactions">
+      <button class="btn btn--primary" type="submit">{% translate "حفظ" %}</button>
+      <a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
+    </div>
+  </form>
+{% endblock %}

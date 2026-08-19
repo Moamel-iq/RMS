@@ -564,19 +564,48 @@ MODULES: tuple[Module, ...] = (
         label=_("المبيعات"),
         icon_name="receipt",
         phase=_("المرحلة ٤"),
-        sections=_sections(
-            _("لوحة المبيعات"),
-            _("المبيعات اليومية"),
-            _("أصناف المنيو"),
-            _("قنوات البيع"),
-            _("تطبيقات التوصيل"),
-            _("العمولات والاتفاقيات"),
-            _("الخصومات"),
-            _("المرتجعات والإلغاءات"),
-            _("ذمم التطبيقات"),
-            _("تسويات التطبيقات"),
-            _("إقفال الكاشير"),
-            _("المطابقة اليومية"),
+        # Reachable for the Task 4.0 checkpoint-1 screens. The module's own
+        # landing page is لوحة المبيعات, which arrives with checkpoint 7; until
+        # then the module opens on the menu, which is the master everything
+        # else in Phase 4 is built on.
+        url_name="sales:menu_item_list",
+        available=True,
+        sections=(
+            # Checkpoint 1 — exactly two entries promoted, and only two. Each
+            # leads to a screen that exists, renders as a full page and as an
+            # htmx fragment, and is populated. The other ten stay inert until
+            # their own checkpoint builds them, because an active entry that
+            # 404s is worse than an obviously unfinished one.
+            *_sections(
+                _("لوحة المبيعات"),
+                _("المبيعات اليومية"),
+            ),
+            Section(
+                label=_("أصناف المنيو"),
+                url_name="sales:menu_item_list",
+                available=True,
+                active_prefixes=(
+                    "/sales/menu-items/",
+                    "/sales/menu-categories/",
+                    "/sales/menu-prices/",
+                ),
+            ),
+            Section(
+                label=_("قنوات البيع"),
+                url_name="sales:channel_list",
+                available=True,
+                active_prefixes=("/sales/channels/",),
+            ),
+            *_sections(
+                _("تطبيقات التوصيل"),
+                _("العمولات والاتفاقيات"),
+                _("الخصومات"),
+                _("المرتجعات والإلغاءات"),
+                _("ذمم التطبيقات"),
+                _("تسويات التطبيقات"),
+                _("إقفال الكاشير"),
+                _("المطابقة اليومية"),
+            ),
         ),
     ),
     Module(

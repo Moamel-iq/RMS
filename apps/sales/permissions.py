@@ -1,19 +1,30 @@
 """
 The sales permissions, their scope, and which role holds them.
 
-Identical machinery to `apps/inventory/permissions.py`,
+Same machinery as `apps/inventory/permissions.py`,
 `apps/procurement/permissions.py` and `apps/kitchen/permissions.py`,
 deliberately: a permission says *what*, a membership says *where*, and neither
 alone is authorization (ADR-016).
+
+## Declared one checkpoint at a time
+
+`_TABLE` grows as Phase 4's documents land, and never ahead of them. That is
+the repository's standing rule rather than a convenience — kitchen's own
+permission table records the same growth across Tasks 3.1 to 3.8 — because a
+permission for a workflow that does not exist is a grant nobody can audit, and
+`sync_role_groups` would fail loudly on a name with no migration behind it.
+
+One row per permission, carrying its scope *and* the roles that hold it, so
+adding a permission is one edit rather than three that can disagree.
+`ALL_PERMISSIONS`, `PERMISSION_SCOPE` and `ROLE_PERMISSIONS` are all derived
+and keep the same shape the other modules expose.
 
 ## The three separations this table exists to make
 
 **Master data from operations.** Who may set a commission rate is not who may
 enter Tuesday's takings. An agreement decides what every future application
-order is worth to the restaurant; a day's sales entry records what happened.
-A cashier legitimately does the second and must never do the first, which is
-why `manage_sales_agreements` sits with the manager and `create_daily_sales`
-sits with everybody who works a till.
+order is worth to the restaurant; a day's sales entry records what happened. A
+cashier legitimately does the second and must never do the first.
 
 **Entering from posting.** `create_daily_sales` writes a draft that moves no
 money. `post_daily_sales` writes a journal, an application receivable and a
@@ -23,7 +34,7 @@ types the numbers also commits them has no second pair of eyes on the one step
 that reaches the ledger.
 
 **Counting from approving.** `close_cashier_shift` is the cashier declaring
-what is in the drawer. `approve_cashier_closing` is somebody else agreeing.
+what is in the drawer; `approve_cashier_closing` is somebody else agreeing.
 Maker-checker is enforced on the **actor**, not on the permission — a branch
 manager may legitimately hold both, and what they may not do is use both on the
 same shift. Encoding it as "only some role may approve" would break the moment
@@ -32,19 +43,19 @@ a branch had one manager, and would be a weaker control besides.
 ## Cost is its own permission, and money is omitted rather than blanked
 
 `view_sales_cost` guards food cost, recipe cost, margin and every derived
-profitability figure on the dashboard. A blanked column tells the reader a
-number exists and that they are not trusted with it, which is a different
-statement from the one intended, so the columns are **absent** — the same rule
-inventory applies to valuation and procurement to supplier cost.
+profitability figure. A blanked column tells the reader a number exists and
+that they are not trusted with it, which is a different statement from the one
+intended, so the columns are **absent** — the rule inventory applies to
+valuation and procurement to supplier cost.
 
-Note what `view_sales_cost` is *not*: it does not guard the selling price, the
-discount, the commission or the receivable. Those are sales figures, and a
-cashier who may not know what a plate costs still has to be able to read what
-it sold for.
+Note what it is *not*: it does not guard the selling price, the discount, the
+commission or the receivable. Those are sales figures, and a cashier who may
+not know what a plate costs still has to read what it sold for.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 
 from apps.organizations.models import Role
@@ -56,11 +67,11 @@ class PermissionScope(Enum):
     """
     Where a sales permission is exercised.
 
-    No `WAREHOUSE` value, and its absence is the point: Release 1 sells
-    recipe servings, and a recipe serving leaves stock through the production
-    batch that cooked it rather than through the sale. Nothing in this module
-    takes custody of a store, so scoping anything here to a warehouse would be
-    asking a question sales cannot answer.
+    No `WAREHOUSE` value, and its absence is the point: Release 1 sells recipe
+    servings, and a serving leaves stock through the production batch that
+    cooked it rather than through the sale. Nothing here takes custody of a
+    store, so scoping anything to a warehouse would be asking a question sales
+    cannot answer.
     """
 
     #: The caller need only *reach* the organization — a branch membership is
@@ -74,16 +85,19 @@ class PermissionScope(Enum):
     BRANCH = "BRANCH"
 
 
-# --- The seventeen ----------------------------------------------------------
+# --- Names ------------------------------------------------------------------
+#
+# Every Phase 4 permission is named here so the vocabulary is readable in one
+# place, but a name is not a grant: only the rows in `_TABLE` below are real,
+# and a name whose checkpoint has not landed appears in neither
+# `ALL_PERMISSIONS` nor any role.
 
-#: Arrives from Django's default set for `SalesDay` rather than from
-#: `Meta.permissions`, because declaring `view_salesday` again would be an
-#: `auth.E005` clash with the builtin. `apps.kitchen` records the same
-#: arrangement for `view_recipe`, and `apps.procurement` for `view_supplier`.
-VIEW_SALES = f"{APP_LABEL}.view_salesday"
-
+VIEW_SALES = f"{APP_LABEL}.view_sales"
 MANAGE_MENU = f"{APP_LABEL}.manage_menu"
+VIEW_SALES_REPORTS = f"{APP_LABEL}.view_sales_reports"
+VIEW_SALES_COST = f"{APP_LABEL}.view_sales_cost"
 MANAGE_SALES_CHANNELS = f"{APP_LABEL}.manage_sales_channels"
+
 MANAGE_DELIVERY_APPLICATIONS = f"{APP_LABEL}.manage_delivery_applications"
 MANAGE_SALES_AGREEMENTS = f"{APP_LABEL}.manage_sales_agreements"
 MANAGE_SALES_DISCOUNTS = f"{APP_LABEL}.manage_sales_discounts"
@@ -101,182 +115,80 @@ MANAGE_APPLICATION_SETTLEMENTS = f"{APP_LABEL}.manage_application_settlements"
 CLOSE_CASHIER_SHIFT = f"{APP_LABEL}.close_cashier_shift"
 APPROVE_CASHIER_CLOSING = f"{APP_LABEL}.approve_cashier_closing"
 
-VIEW_SALES_REPORTS = f"{APP_LABEL}.view_sales_reports"
-VIEW_SALES_COST = f"{APP_LABEL}.view_sales_cost"
 
-ALL_PERMISSIONS: tuple[str, ...] = (
-    VIEW_SALES,
-    MANAGE_MENU,
-    MANAGE_SALES_CHANNELS,
-    MANAGE_DELIVERY_APPLICATIONS,
-    MANAGE_SALES_AGREEMENTS,
-    MANAGE_SALES_DISCOUNTS,
-    CREATE_DAILY_SALES,
-    SUBMIT_DAILY_SALES,
-    POST_DAILY_SALES,
-    REVERSE_DAILY_SALES,
-    MANAGE_SALES_ADJUSTMENTS,
-    VIEW_APPLICATION_RECEIVABLES,
-    MANAGE_APPLICATION_SETTLEMENTS,
-    CLOSE_CASHIER_SHIFT,
-    APPROVE_CASHIER_CLOSING,
-    VIEW_SALES_REPORTS,
-    VIEW_SALES_COST,
-)
+# --- What is actually granted -----------------------------------------------
 
-PERMISSION_SCOPE: dict[str, PermissionScope] = {
-    # The menu is organization property, exactly as the recipe master is. One
-    # dish, one menu; a branch must not invent its own price list for the
-    # group's food. Where a branch genuinely differs — this item is not sold
-    # here, this channel charges more — that is *data* on the item and its
-    # prices, not a separate branch-owned master.
-    VIEW_SALES: PermissionScope.ORGANIZATION_MASTER_DATA,
-    MANAGE_MENU: PermissionScope.ORGANIZATION_MASTER_DATA,
-    MANAGE_SALES_CHANNELS: PermissionScope.ORGANIZATION_MASTER_DATA,
-    MANAGE_DELIVERY_APPLICATIONS: PermissionScope.ORGANIZATION_MASTER_DATA,
-    # An agreement and a discount programme are **contracts**, and reaching the
-    # organization is not enough to change one. `ORGANIZATION_AUTHORITY` means
-    # the caller holds the permission across the organization rather than at
-    # one branch: a branch manager who could quietly change the commission
-    # basis would be changing what every other branch earns.
-    MANAGE_SALES_AGREEMENTS: PermissionScope.ORGANIZATION_AUTHORITY,
-    MANAGE_SALES_DISCOUNTS: PermissionScope.ORGANIZATION_AUTHORITY,
-    # A day of trading belongs to one branch.
-    CREATE_DAILY_SALES: PermissionScope.BRANCH,
-    SUBMIT_DAILY_SALES: PermissionScope.BRANCH,
-    POST_DAILY_SALES: PermissionScope.BRANCH,
-    # Undoing a posted economic event is supervisory, exactly as the goods
-    # receipt reversal is, and the person who posted should not be the only one
-    # who can make it disappear.
-    REVERSE_DAILY_SALES: PermissionScope.ORGANIZATION_AUTHORITY,
-    MANAGE_SALES_ADJUSTMENTS: PermissionScope.BRANCH,
-    VIEW_APPLICATION_RECEIVABLES: PermissionScope.ORGANIZATION_MASTER_DATA,
-    # Settling with an application is a statement about the organization's
-    # contract with that company, not about one branch's takings, even though
-    # the receivable it clears was earned branch by branch.
-    MANAGE_APPLICATION_SETTLEMENTS: PermissionScope.ORGANIZATION_AUTHORITY,
-    CLOSE_CASHIER_SHIFT: PermissionScope.BRANCH,
-    APPROVE_CASHIER_CLOSING: PermissionScope.BRANCH,
-    VIEW_SALES_REPORTS: PermissionScope.ORGANIZATION_MASTER_DATA,
-    VIEW_SALES_COST: PermissionScope.ORGANIZATION_MASTER_DATA,
-}
+_OWNER = Role.OWNER.value
+_ACCOUNTING_MANAGER = Role.ACCOUNTING_MANAGER.value
+_MANAGER = Role.MANAGER.value
+_ACCOUNTANT = Role.ACCOUNTANT.value
+_PURCHASING = Role.PURCHASING.value
+_STOREKEEPER = Role.STOREKEEPER.value
+_CASHIER = Role.CASHIER.value
+_VIEWER = Role.VIEWER.value
 
 
-# --- Which role holds what --------------------------------------------------
+@dataclass(frozen=True)
+class _Declared:
+    """One permission, its scope, and the roles that carry it."""
 
-_FULL = frozenset(ALL_PERMISSIONS)
+    permission: str
+    scope: PermissionScope
+    roles: frozenset[str]
 
-#: Runs a branch end to end. Holds the menu, channel and application masters
-#: and the whole daily-sales lifecycle, and is still refused the moment it
-#: tries to approve its own cashier closing: the separation is between
-#: *people*, and both the service and the database check the actor.
+
+#: **Checkpoint 1.** The menu, its prices, the channels, and the two reads.
 #:
-#: **No settlement authority.** Agreeing what a delivery company actually
-#: remitted against what it owed is a finance act, and a branch manager whose
-#: own takings are the thing being reconciled is the wrong person to sign it.
-_MANAGER = frozenset(
-    {
+#: `Role.CASHIER` receives its first permissions in the entire system here,
+#: which is worth noting: until Phase 4 the role existed and granted nothing
+#: anywhere, in any module.
+_TABLE: tuple[_Declared, ...] = (
+    # The domain read. Wide on purpose — a storekeeper legitimately needs to
+    # know what the branch sells to understand what its kitchen will demand,
+    # and a purchaser does not, because buying is not selling.
+    _Declared(
         VIEW_SALES,
+        PermissionScope.ORGANIZATION_MASTER_DATA,
+        frozenset(
+            {_OWNER, _ACCOUNTING_MANAGER, _MANAGER, _ACCOUNTANT, _STOREKEEPER, _CASHIER, _VIEWER}
+        ),
+    ),
+    # The menu is organization property, exactly as the recipe master is: one
+    # dish, one menu. Finance holds it as well as operations — not to design
+    # the menu, but because a price's effective date decides where money lands
+    # and when.
+    _Declared(
         MANAGE_MENU,
+        PermissionScope.ORGANIZATION_MASTER_DATA,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
+    ),
+    _Declared(
         MANAGE_SALES_CHANNELS,
-        MANAGE_DELIVERY_APPLICATIONS,
-        MANAGE_SALES_AGREEMENTS,
-        MANAGE_SALES_DISCOUNTS,
-        CREATE_DAILY_SALES,
-        SUBMIT_DAILY_SALES,
-        POST_DAILY_SALES,
-        MANAGE_SALES_ADJUSTMENTS,
-        VIEW_APPLICATION_RECEIVABLES,
-        CLOSE_CASHIER_SHIFT,
-        APPROVE_CASHIER_CLOSING,
+        PermissionScope.ORGANIZATION_MASTER_DATA,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
+    ),
+    _Declared(
         VIEW_SALES_REPORTS,
+        PermissionScope.ORGANIZATION_MASTER_DATA,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER, _ACCOUNTANT, _VIEWER}),
+    ),
+    # Deliberately **not** the cashier, and deliberately not the viewer. What a
+    # plate costs to make is not information a till needs, and every cost
+    # column is omitted rather than blanked.
+    _Declared(
         VIEW_SALES_COST,
-    }
+        PermissionScope.ORGANIZATION_MASTER_DATA,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER, _ACCOUNTANT}),
+    ),
 )
 
-#: Owns the financial side: posting, reversal, receivables, settlements and
-#: reconciliation. Also holds `MANAGE_MENU` — not to design the menu, but
-#: because a menu item's account mapping and a price's effective date are the
-#: things that decide where money lands, and finance carries that.
-_ACCOUNTING_MANAGER = frozenset(
-    {
-        VIEW_SALES,
-        MANAGE_MENU,
-        MANAGE_SALES_CHANNELS,
-        MANAGE_DELIVERY_APPLICATIONS,
-        MANAGE_SALES_AGREEMENTS,
-        MANAGE_SALES_DISCOUNTS,
-        CREATE_DAILY_SALES,
-        SUBMIT_DAILY_SALES,
-        POST_DAILY_SALES,
-        REVERSE_DAILY_SALES,
-        MANAGE_SALES_ADJUSTMENTS,
-        VIEW_APPLICATION_RECEIVABLES,
-        MANAGE_APPLICATION_SETTLEMENTS,
-        APPROVE_CASHIER_CLOSING,
-        VIEW_SALES_REPORTS,
-        VIEW_SALES_COST,
-    }
-)
 
-#: Prepares and reviews, and signs nothing that needs a second party.
-#:
-#: Holds `MANAGE_APPLICATION_SETTLEMENTS` because matching a statement line by
-#: line **is** the accountant's job, and the control on it is not a second
-#: permission — it is that an unexplained variance blocks posting until it is
-#: categorised with a reason. No `APPROVE_CASHIER_CLOSING`: an accountant who
-#: could approve a count they also reconciled would close the loop on
-#: themselves. No `REVERSE_DAILY_SALES`, for the same reason.
-_ACCOUNTANT = frozenset(
-    {
-        VIEW_SALES,
-        CREATE_DAILY_SALES,
-        SUBMIT_DAILY_SALES,
-        MANAGE_SALES_ADJUSTMENTS,
-        VIEW_APPLICATION_RECEIVABLES,
-        MANAGE_APPLICATION_SETTLEMENTS,
-        VIEW_SALES_REPORTS,
-        VIEW_SALES_COST,
-    }
-)
+ALL_PERMISSIONS: tuple[str, ...] = tuple(row.permission for row in _TABLE)
 
-#: The till. Enters the day's sales, opens and closes their own shift, and
-#: stops there.
-#:
-#: **No `POST_DAILY_SALES`**, no adjustments, no discount or agreement master,
-#: no settlement authority and no `APPROVE_CASHIER_CLOSING` — a cashier who
-#: could approve their own count is a cashier with no control at all. And no
-#: `VIEW_SALES_COST`: what a plate costs to make is not information a till
-#: needs, and every cost column is omitted rather than blanked.
-_CASHIER = frozenset(
-    {
-        VIEW_SALES,
-        CREATE_DAILY_SALES,
-        SUBMIT_DAILY_SALES,
-        CLOSE_CASHIER_SHIFT,
-    }
-)
-
-#: Reads the menu and the channels, because a storekeeper legitimately needs to
-#: know what the branch sells to understand what its kitchen will demand. No
-#: financial authority of any kind, and no cost.
-_STOREKEEPER = frozenset({VIEW_SALES})
-
-#: Buying is not selling. A purchaser reads nothing here.
-_PURCHASING: frozenset[str] = frozenset()
-
-#: Reads what exists, never what it cost.
-_VIEWER = frozenset({VIEW_SALES, VIEW_SALES_REPORTS})
+PERMISSION_SCOPE: dict[str, PermissionScope] = {row.permission: row.scope for row in _TABLE}
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
-    Role.OWNER.value: _FULL,
-    Role.ACCOUNTING_MANAGER.value: _ACCOUNTING_MANAGER,
-    Role.MANAGER.value: _MANAGER,
-    Role.STOREKEEPER.value: _STOREKEEPER,
-    Role.PURCHASING.value: _PURCHASING,
-    Role.ACCOUNTANT.value: _ACCOUNTANT,
-    Role.CASHIER.value: _CASHIER,
-    Role.VIEWER.value: _VIEWER,
+    role: frozenset(row.permission for row in _TABLE if role in row.roles) for role in Role.values
 }
 
 
@@ -291,7 +203,7 @@ def scope_of(permission: str) -> PermissionScope:
     try:
         return PERMISSION_SCOPE[permission]
     except KeyError:  # pragma: no cover - a typo in a caller, not a state
-        raise ValueError(f"{permission} is not a sales permission") from None
+        raise ValueError(f"{permission} is not a declared sales permission") from None
 
 
 def sync_role_groups() -> None:

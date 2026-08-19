@@ -1,0 +1,126 @@
+{# One menu item: where it is sold, and what it costs there today.           #}
+{#                                                                           #}
+{# The two questions an operator actually has about a menu item are about    #}
+{# the *combination* of item and branch, and a price list filtered by item   #}
+{# answers only half of it.                                                  #}
+{#                                                                           #}
+{# Three availability states are shown, not two. A branch with no row has    #}
+{# never been offered the item; a branch with a row and `is_available=False` #}
+{# is offered it and switched off. Both answer "not on sale today", and the  #}
+{# distinction is what tells an operator whether to add the offer or turn it #}
+{# back on.                                                                  #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="sales-menu-item-detail">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'sales:menu_item_list' %}">{% translate "أصناف المنيو" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ item.code }}</span>
+    </nav>
+
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ item.name_ar }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        {% if may_manage %}
+          <a class="btn btn--secondary" href="{% url 'sales:menu_item_update' item.pk %}">{% translate "تعديل الصنف" %}</a>
+          <a class="btn btn--primary" href="{% url 'sales:menu_price_create' %}">{% translate "سعر جديد" %}</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <dl class="factgrid">
+      <div><dt>{% translate "الرمز" %}</dt><dd><bdi dir="ltr"><code>{{ item.code }}</code></bdi></dd></div>
+      <div><dt>{% translate "المجموعة" %}</dt><dd>{{ item.category.name_ar|default:"—" }}</dd></div>
+      <div>
+        <dt>{% translate "الوصفة" %}</dt>
+        <dd>{% if item.recipe %}<bdi dir="ltr"><code>{{ item.recipe.code }}</code></bdi> {{ item.recipe.name_ar }}{% else %}—{% endif %}</dd>
+      </div>
+      <div><dt>{% translate "رمز الحصة" %}</dt><dd><bdi dir="ltr"><code>{{ item.serving_code }}</code></bdi></dd></div>
+      <div><dt>{% translate "مصدر التنفيذ" %}</dt><dd>{{ item.get_fulfillment_source_display }}</dd></div>
+      <div>
+        <dt>{% translate "الحالة" %}</dt>
+        <dd>{% if item.is_active %}{% translate "فعّال" %}{% else %}{% translate "مؤرشف" %}{% endif %}</dd>
+      </div>
+    </dl>
+
+    <p class="banner" role="note">
+      {% translate "نسخة الوصفة تُحلّ عند البيع من تاريخ العملية، لا من تاريخ اليوم. الأسعار المعروضة هنا هي السارية اليوم فقط، وكل سطر مبيعات مرحّل يحتفظ بالسعر والنسخة والحصة التي استُخدمت فعلاً." %}
+    </p>
+
+    <h2 class="section-title">{% translate "التوفّر والأسعار حسب الفرع" %}</h2>
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "الفرع" %}</th>
+            <th scope="col">{% translate "التوفّر" %}</th>
+            <th scope="col">{% translate "الاسم المحلي" %}</th>
+            <th scope="col">{% translate "الأسعار السارية اليوم" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td data-label="{% translate 'الفرع' %}">
+                <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name_ar }}
+              </td>
+              <td data-label="{% translate 'التوفّر' %}">
+                {% if not row.offered %}
+                  <span class="chip">{% translate "غير معروض في هذا الفرع" %}</span>
+                {% elif row.available %}
+                  <span class="chip chip--on">{% translate "متاح" %}</span>
+                {% else %}
+                  <span class="chip chip--off">{% translate "موقوف مؤقتاً" %}</span>
+                {% endif %}
+              </td>
+              <td data-label="{% translate 'الاسم المحلي' %}">{{ row.setting.local_name_ar|default:"—" }}</td>
+              <td data-label="{% translate 'الأسعار السارية اليوم' %}">
+                {% for price in row.prices %}
+                  <div>
+                    <span class="chip">{{ price.get_scope_display }}</span>
+                    <bdi dir="ltr"><code>{{ price.price_display }}</code></bdi>
+                    {% if price.channel %}<span class="muted">{{ price.channel.name_ar }}</span>{% endif %}
+                  </div>
+                {% empty %}
+                  <span class="muted">{% translate "لا يوجد سعر ساري — لا يمكن بيع الصنف في هذا الفرع اليوم." %}</span>
+                {% endfor %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" class="empty">{% translate "لا توجد فروع متاحة لك في هذه المؤسسة." %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if availability_form %}
+      <h2 class="section-title">{% translate "تحديث التوفّر" %}</h2>
+      <form class="formcard" method="post" novalidate>
+        {% csrf_token %}
+        {% include "components/form_error_summary.html" with form=availability_form %}
+        <div class="formgrid">
+          {% for field in availability_form %}
+            {% if field.field.widget.input_type == "checkbox" %}
+              <div class="formrow formrow--check" data-field>
+                {{ field }}
+                <label class="formrow__label formrow__label--inline" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              </div>
+            {% else %}
+              {% include "settings/_field.html" with field=field %}
+            {% endif %}
+          {% endfor %}
+        </div>
+        <div class="formactions">
+          <button class="btn btn--primary" type="submit">{% translate "حفظ التوفّر" %}</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+{% endblock %}

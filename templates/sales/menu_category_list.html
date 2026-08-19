@@ -1,0 +1,41 @@
+{# مجموعات المنيو — presentation only. Nothing here reaches a journal.       #}
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block columns %}
+  <th>{% translate "الرمز" %}</th>
+  <th>{% translate "الاسم" %}</th>
+  <th>{% translate "الترتيب" %}</th>
+  <th>{% translate "عدد الأصناف" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراءات" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for category in categories %}
+    <tr>
+      <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ category.code }}</code></bdi></td>
+      <td data-label="{% translate 'الاسم' %}">{{ category.name_ar }}</td>
+      <td data-label="{% translate 'الترتيب' %}"><bdi dir="ltr">{{ category.display_order }}</bdi></td>
+      <td data-label="{% translate 'عدد الأصناف' %}"><bdi dir="ltr">{{ category.items.count }}</bdi></td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if category.is_active %}
+          <span class="chip chip--on">{% translate "فعّالة" %}</span>
+        {% else %}
+          <span class="chip chip--off">{% translate "مؤرشفة" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        <div class="rowactions">
+          {% if category.organization_id in manageable_ids %}
+            <a class="btn btn--quiet btn--sm" href="{% url 'sales:menu_category_update' category.pk %}">{% translate "تعديل" %}</a>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6">{% translate "لا توجد مجموعات بعد." %}</td></tr>
+  {% endfor %}
+{% endblock %}

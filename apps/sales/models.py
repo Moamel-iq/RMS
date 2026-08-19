@@ -1,0 +1,640 @@
+"""
+Sales — the menu, what it is sold through, and what it is sold for.
+
+Phase 4 builds this domain one checkpoint at a time, and each checkpoint brings
+its own aggregates *and* the permissions that guard them. That ordering is the
+repository's standing rule rather than a convenience: a permission for a
+workflow that does not exist is a grant nobody can audit.
+
+Checkpoint 1 — this file's current contents:
+
+    MenuCategory            how the menu is grouped
+    MenuItem                one sellable thing, and what fulfils it
+    MenuItemBranchSetting   where it is sold, and whether it is available
+    MenuPriceVersion        what it costs the customer, effective-dated
+    SalesChannel            how the customer bought it
+
+See `docs/tasks/task-4-0-sales-domain-spec.md` for the approved design, and
+ADR-027 / ADR-028 for the decisions the constraints here enforce.
+
+## Two things this module deliberately does not carry
+
+**No stored balance, anywhere.** Not on a menu item, not on a channel, and —
+when checkpoint 5 arrives — not on a delivery application either. Every figure
+is derived from the documents that produced it. A stored balance is a second
+source of truth, and the one that drifts is always the stored one.
+
+**No account foreign key as the primary answer.** Which account a sale posts to
+is an `AccountRole` mapping (ADR-019). Where a channel or an application
+genuinely needs to differ from the organization default it carries an explicit
+*override*, which the posting service consults after the role — never instead
+of it.
+"""
+
+from __future__ import annotations
+
+import uuid
+from decimal import Decimal
+
+from django.db import models
+from django.db.models import Q
+from django.utils.translation import gettext_lazy as _
+from simple_history.models import HistoricalRecords
+
+from apps.core.models import TimeStampedModel
+from apps.core.money import MONEY_PLACES, UNIT_PRICE_PLACES
+from apps.core.quantity import CALCULATION_PLACES, QUANTITY_PLACES
+
+#: Codes are the same shape every other master in this system uses, and are
+#: canonicalised to uppercase before storage so uniqueness is case-insensitive
+#: in effect without a functional index.
+CODE_PATTERN = r"^[A-Z0-9][A-Z0-9._-]*$"
+
+#: Room for IQD, a currency with large nominal amounts.
+MONEY_MAX_DIGITS = MONEY_PLACES + 18
+UNIT_PRICE_MAX_DIGITS = UNIT_PRICE_PLACES + 15
+QUANTITY_MAX_DIGITS = QUANTITY_PLACES + 15
+CALCULATION_MAX_DIGITS = CALCULATION_PLACES + 15
+#: Demo rows are prefixed and labelled, never silently mixed with real data.
+DEMO_CODE_PREFIX = "DEMO-"
+DEMO_NOTICE = _("تجريبي — غير معتمد للإنتاج")
+
+
+# ---------------------------------------------------------------------------
+# Menu master
+# ---------------------------------------------------------------------------
+
+
+class MenuCategory(TimeStampedModel):
+    """
+    How the menu is grouped for the people reading it.
+
+    Presentation only. Nothing about a category reaches a journal, and no
+    posting rule consults it — grouping the mandi dishes together is a decision
+    about a menu board, and letting it decide an account would make a designer's
+    choice a financial one.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="menu_categories",
+        verbose_name=_("organization"),
+    )
+    code = models.CharField(_("code"), max_length=32)
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    display_order = models.PositiveIntegerField(_("display order"), default=1)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("menu category")
+        verbose_name_plural = _("menu categories")
+        ordering = ["organization__code", "display_order", "code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "code"],
+                name="sales_menu_category_code_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN),
+                name="sales_menu_category_code_format",
+            ),
+            models.CheckConstraint(
+                condition=~Q(name_ar=""), name="sales_menu_category_name_not_empty"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name_ar}"
+
+
+class FulfillmentSource(models.TextChoices):
+    """
+    What actually leaves the building when this item is sold.
+
+    `RECIPE_SERVING` is Release 1. The item names a recipe and a serving code;
+    the sale resolves the recipe version in force on its business date and the
+    serving on that version, and the kitchen's theoretical consumption follows
+    from the pair.
+
+    `DIRECT_STOCK` — a bottle of water taken off a shelf — is **declared and
+    refused**, in the service and by a check constraint. There is no certified
+    sales-and-COGS route out of a warehouse, and improvising one would open a
+    second stock-consumption path beside production, which is exactly the kind
+    of parallel ledger this system has spent three phases avoiding. Declaring
+    the value now means enabling it later is a service branch and a dropped
+    constraint rather than a redesign of every sales line (ADR-027 §10).
+    """
+
+    RECIPE_SERVING = "RECIPE_SERVING", _("حصة من وصفة")
+    DIRECT_STOCK = "DIRECT_STOCK", _("صنف مخزني مباشر")
+
+
+class MenuItem(TimeStampedModel):
+    """
+    One thing a customer can buy.
+
+    Organization master data, like the recipe it is built on: the dish is one
+    dish, and a branch inventing its own version of the group's menu would make
+    every cross-branch comparison meaningless (RCP-006). Where a branch
+    genuinely differs — this is not sold here, this costs more here — that is
+    `MenuItemBranchSetting` and `MenuPriceVersion`, which are *data about* the
+    one item rather than a second item.
+
+    **Points at a `Recipe` and a serving *code*, not at a `RecipeServing`.**
+    That looks like a missing foreign key and is deliberate: servings belong to
+    a *version*, so a direct link would pin the menu to one version of the
+    recipe forever and break the moment the kitchen approved a new one. The
+    code is what is stable across versions — `WHOLE` means the same thing in
+    version 3 as in version 1 — and the sale resolves the actual serving row on
+    the version effective at its own business date (ADR-027 §4).
+
+    A consequence worth stating: if the version in force on a date has no
+    serving with this code, the item **cannot be sold on that date**. The
+    service refuses the line rather than falling back to another serving,
+    because a fallback is a silent answer to a question the operator did not
+    know they were asking.
+
+    **Carries no price.** Prices are effective-dated and scoped, and live in
+    `MenuPriceVersion`. **Carries no cost**, for the reason `Recipe` carries
+    none: cost is derived from the version's lines against the ledger.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="menu_items",
+        verbose_name=_("organization"),
+    )
+    category = models.ForeignKey(
+        MenuCategory,
+        on_delete=models.PROTECT,
+        related_name="items",
+        null=True,
+        blank=True,
+        verbose_name=_("category"),
+    )
+    code = models.CharField(_("code"), max_length=32)
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    description_ar = models.TextField(_("description (Arabic)"), blank=True)
+
+    fulfillment_source = models.CharField(
+        _("fulfillment source"),
+        max_length=16,
+        choices=FulfillmentSource.choices,
+        default=FulfillmentSource.RECIPE_SERVING,
+    )
+    #: PROTECT rather than CASCADE: deleting a recipe that something is sold as
+    #: would take the menu with it, and the correct act is to archive the item.
+    recipe = models.ForeignKey(
+        "kitchen.Recipe",
+        on_delete=models.PROTECT,
+        related_name="menu_items",
+        null=True,
+        blank=True,
+        verbose_name=_("recipe"),
+    )
+    #: The serving's stable code, resolved against the effective version at
+    #: sale time. See the class docstring for why this is not a foreign key.
+    serving_code = models.CharField(_("serving code"), max_length=32, blank=True)
+
+    display_order = models.PositiveIntegerField(_("display order"), default=1)
+    notes = models.TextField(_("notes"), blank=True)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    #: The identity a sales line points at. Immutable, and deliberately not the
+    #: primary key or the code: a code can be corrected, and a posted line has
+    #: to still point at something in five years (ADR-017).
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("menu item")
+        verbose_name_plural = _("menu items")
+        ordering = ["organization__code", "display_order", "code"]
+        # `view_menuitem` arrives from Django's default set; `view_sales` is
+        # this module's own read grant and covers the whole domain, exactly as
+        # `view_kitchen_report` covers the kitchen's report family. Declaring
+        # them both is fine — they do not collide.
+        permissions = [
+            ("view_sales", _("Can view sales data")),
+            ("manage_menu", _("Can create, edit and archive menu items and prices")),
+            ("view_sales_reports", _("Can view sales reports and the dashboard")),
+            ("view_sales_cost", _("Can view food cost and margin on sales screens")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "code"],
+                name="sales_menu_item_code_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN), name="sales_menu_item_code_format"
+            ),
+            models.CheckConstraint(condition=~Q(name_ar=""), name="sales_menu_item_name_not_empty"),
+            # A recipe-served item without a recipe or without a serving code
+            # is an item nothing can fulfil. Refused here rather than
+            # discovered by a cashier at the till.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(fulfillment_source=FulfillmentSource.RECIPE_SERVING)
+                    | (Q(recipe__isnull=False) & ~Q(serving_code=""))
+                ),
+                name="sales_menu_item_recipe_serving_is_complete",
+            ),
+            # Release 1 refuses `DIRECT_STOCK` **in the database**, not only in
+            # the service. Enabling direct-stock sales is then an explicit act
+            # — a migration that drops this constraint alongside the service
+            # that posts the COGS — rather than something a shell session or a
+            # CSV import can do by accident.
+            models.CheckConstraint(
+                condition=Q(fulfillment_source=FulfillmentSource.RECIPE_SERVING),
+                name="sales_menu_item_direct_stock_is_deferred",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name_ar}"
+
+    @property
+    def is_demo(self) -> bool:
+        return self.code.startswith(DEMO_CODE_PREFIX)
+
+
+class MenuItemBranchSetting(TimeStampedModel):
+    """
+    Whether one branch sells one item, and what it calls it locally.
+
+    A row's **absence** means the item is not offered at that branch. That is a
+    deliberate choice over a nullable `is_available` on the item: absence is
+    unambiguous, and it makes "what does this branch sell" one join rather than
+    a query that has to reason about three states.
+    """
+
+    menu_item = models.ForeignKey(
+        MenuItem,
+        on_delete=models.CASCADE,
+        related_name="branch_settings",
+        verbose_name=_("menu item"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="menu_item_settings",
+        verbose_name=_("branch"),
+    )
+    #: Present but temporarily off — sold here normally, not today. Distinct
+    #: from having no row at all, which means never sold here.
+    is_available = models.BooleanField(_("available"), default=True)
+    local_name_ar = models.CharField(_("local name (Arabic)"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("menu item branch setting")
+        verbose_name_plural = _("menu item branch settings")
+        ordering = ["menu_item__code", "branch__code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["menu_item", "branch"],
+                name="sales_menu_item_branch_unique",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.menu_item.code} @ {self.branch.code}"
+
+
+# ---------------------------------------------------------------------------
+# Channels
+# ---------------------------------------------------------------------------
+
+
+class SalesChannelCategory(models.TextChoices):
+    """
+    How the customer reached the restaurant. A **closed** set.
+
+    Closed because posting behaviour depends on it: whether a cashier is
+    involved, whether a delivery application is, and which tender the money
+    lands in. A free-text channel type would let a typo pick a default, and the
+    default would be a financial destination.
+
+    Note what this is **not**: one value per delivery company. Talabat and
+    Toters are both `DELIVERY_APPLICATION`, and which company is separate
+    master data — `DeliveryApplication`, checkpoint 2. A channel per
+    application would multiply every report's channel axis by the number of
+    contracts and make "how much did we sell through apps" a sum nobody
+    maintains.
+    """
+
+    DINE_IN = "DINE_IN", _("صالة")
+    TAKEAWAY = "TAKEAWAY", _("سفري")
+    DIRECT_DELIVERY = "DIRECT_DELIVERY", _("توصيل مباشر")
+    DELIVERY_APPLICATION = "DELIVERY_APPLICATION", _("تطبيق توصيل")
+    OTHER = "OTHER", _("أخرى")
+
+
+class TenderDestination(models.TextChoices):
+    """
+    Where the money goes when this channel's sale posts.
+
+    Three destinations, and each is a different economic claim:
+
+    * `CASH` — in the drawer, countable, and what a cashier closing reconciles.
+    * `CARD` — a clearing asset. Real money the restaurant does not have yet;
+      treating it as cash would make every closing count short by the day's
+      card volume.
+    * `APPLICATION_RECEIVABLE` — owed by a delivery company, cleared by a
+      settlement rather than by a count.
+    """
+
+    CASH = "CASH", _("نقد")
+    CARD = "CARD", _("بطاقة")
+    APPLICATION_RECEIVABLE = "APPLICATION_RECEIVABLE", _("ذمة تطبيق")
+
+
+class SalesChannel(TimeStampedModel):
+    """
+    A route a sale arrives by, and the financial behaviour that follows.
+
+    **Carries the cost centre**, and that is the one field here that is not
+    obvious. Revenue, discount, commission and fee accounts are classes 4, 5
+    and 6, all of which require a cost centre (ADR-014), so every sales journal
+    needs one and it has to come from somewhere principled. The channel is the
+    only master with the right granularity and the right meaning: dine-in earns
+    in the hall, application orders earn in delivery. Taking it from the branch
+    would make every department's contribution identical; taking it from the
+    menu item would say a dish belongs to a department, which it does not.
+
+    `revenue_account` is an **override**, consulted after the `SALES_REVENUE`
+    role and never instead of it. Null is the ordinary case.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="sales_channels",
+        verbose_name=_("organization"),
+    )
+    code = models.CharField(_("code"), max_length=32)
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+
+    category = models.CharField(_("category"), max_length=24, choices=SalesChannelCategory.choices)
+    default_tender = models.CharField(
+        _("default tender"),
+        max_length=24,
+        choices=TenderDestination.choices,
+        default=TenderDestination.CASH,
+    )
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        related_name="sales_channels",
+        verbose_name=_("cost center"),
+    )
+    #: Optional. The organization's `SALES_REVENUE` mapping is the default and
+    #: this narrows it — hall takings into one revenue account, application
+    #: takings into another, when the organization wants that split.
+    revenue_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        related_name="sales_channel_overrides",
+        null=True,
+        blank=True,
+        verbose_name=_("revenue account override"),
+    )
+
+    #: A channel whose money passes through a till. Drives which sales days a
+    #: cashier shift is expected to reconcile.
+    requires_cashier = models.BooleanField(_("requires a cashier"), default=True)
+    #: A channel whose lines must name a delivery application. True exactly
+    #: when the category is `DELIVERY_APPLICATION`, enforced below rather than
+    #: left to agree by convention.
+    requires_delivery_application = models.BooleanField(
+        _("requires a delivery application"), default=False
+    )
+
+    display_order = models.PositiveIntegerField(_("display order"), default=1)
+    notes = models.TextField(_("notes"), blank=True)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("sales channel")
+        verbose_name_plural = _("sales channels")
+        ordering = ["organization__code", "display_order", "code"]
+        permissions = [
+            ("manage_sales_channels", _("Can create, edit and archive sales channels")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "code"],
+                name="sales_channel_code_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=CODE_PATTERN), name="sales_channel_code_format"
+            ),
+            models.CheckConstraint(condition=~Q(name_ar=""), name="sales_channel_name_not_empty"),
+            # The two must agree, and the database says so. A channel flagged
+            # `DELIVERY_APPLICATION` whose lines need not name an application
+            # would post application sales with nobody to collect from.
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        category=SalesChannelCategory.DELIVERY_APPLICATION,
+                        requires_delivery_application=True,
+                    )
+                    | (
+                        ~Q(category=SalesChannelCategory.DELIVERY_APPLICATION)
+                        & Q(requires_delivery_application=False)
+                    )
+                ),
+                name="sales_channel_application_flag_matches_category",
+            ),
+            # An application channel is settled, never counted in a drawer.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(category=SalesChannelCategory.DELIVERY_APPLICATION)
+                    | Q(default_tender=TenderDestination.APPLICATION_RECEIVABLE)
+                ),
+                name="sales_channel_application_tender_is_receivable",
+            ),
+            # ...and the converse: only an application channel may settle.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(default_tender=TenderDestination.APPLICATION_RECEIVABLE)
+                    | Q(category=SalesChannelCategory.DELIVERY_APPLICATION)
+                ),
+                name="sales_channel_receivable_tender_needs_application_category",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} — {self.name_ar}"
+
+    @property
+    def is_application_channel(self) -> bool:
+        return self.category == SalesChannelCategory.DELIVERY_APPLICATION
+
+
+# ---------------------------------------------------------------------------
+# Prices
+# ---------------------------------------------------------------------------
+
+
+class PriceScope(models.TextChoices):
+    """
+    How narrowly a price applies. Resolution is **most specific wins**.
+
+    `APPLICATION` arrives with checkpoint 2, together with the delivery
+    application master it names. It is declared here because the resolution
+    order is a property of this vocabulary and splitting it across two
+    checkpoints would make the earlier half read as complete when it is not.
+    """
+
+    BRANCH_DEFAULT = "BRANCH_DEFAULT", _("سعر الفرع الافتراضي")
+    CHANNEL = "CHANNEL", _("سعر قناة")
+    APPLICATION = "APPLICATION", _("سعر تطبيق")
+
+
+class MenuPriceVersion(TimeStampedModel):
+    """
+    What one item costs the customer, from one date to another.
+
+    Effective-dated and never edited in place, for exactly the reason recipe
+    versions are (ADR-024): a price changed on Monday must not restate Sunday's
+    revenue. A correction is a new version, and the sales line snapshots the
+    one it used.
+
+    **Overlaps within a scope are refused by a PostgreSQL exclusion
+    constraint**, not by a service check. A `UniqueConstraint` cannot express
+    it — the clash is between *ranges*, and two rows can each be legitimate
+    alone and contradictory together — and a service check alone would be a
+    promise rather than a guarantee that a raw `INSERT` also keeps. The
+    constraint lives in migration `0002`, in the same shape
+    `procurement/0003` and `inventory/0002` use.
+
+    `effective_to` NULL means open-ended, which is the ordinary case for a
+    current price.
+    """
+
+    menu_item = models.ForeignKey(
+        MenuItem,
+        on_delete=models.PROTECT,
+        related_name="prices",
+        verbose_name=_("menu item"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="menu_prices",
+        verbose_name=_("branch"),
+    )
+    scope = models.CharField(
+        _("scope"),
+        max_length=16,
+        choices=PriceScope.choices,
+        default=PriceScope.BRANCH_DEFAULT,
+    )
+    channel = models.ForeignKey(
+        SalesChannel,
+        on_delete=models.PROTECT,
+        related_name="menu_prices",
+        null=True,
+        blank=True,
+        verbose_name=_("channel"),
+    )
+
+    unit_price = models.DecimalField(
+        _("unit price"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+    )
+    effective_from = models.DateField(_("effective from"))
+    effective_to = models.DateField(_("effective to"), null=True, blank=True)
+
+    evidence_reference = models.CharField(_("evidence"), max_length=200, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+    is_active = models.BooleanField(_("active"), default=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("menu price version")
+        verbose_name_plural = _("menu price versions")
+        ordering = ["menu_item__code", "branch__code", "-effective_from"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(unit_price__gte=Decimal("0")),
+                name="sales_menu_price_is_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(effective_to__isnull=True)
+                | Q(effective_to__gte=models.F("effective_from")),
+                name="sales_menu_price_range_is_ordered",
+            ),
+            # The scope and the pointer it needs must agree. A `CHANNEL` price
+            # with no channel is a price that applies to nothing; a
+            # `BRANCH_DEFAULT` price *with* a channel is a price two different
+            # resolvers would read differently.
+            models.CheckConstraint(
+                condition=(
+                    Q(scope=PriceScope.CHANNEL, channel__isnull=False)
+                    | (~Q(scope=PriceScope.CHANNEL) & Q(channel__isnull=True))
+                ),
+                name="sales_menu_price_channel_matches_scope",
+            ),
+            # `APPLICATION` needs the delivery-application master, which
+            # arrives with checkpoint 2. Until it does, the scope is declared
+            # and refused rather than silently accepted and unresolvable.
+            models.CheckConstraint(
+                condition=~Q(scope=PriceScope.APPLICATION),
+                name="sales_menu_price_application_scope_not_yet_available",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.menu_item.code} @ {self.branch.code}: {self.unit_price:f}"
+
+    @property
+    def price_display(self) -> str:
+        """
+        The price as a technical identity: period, never comma.
+
+        Django localises Decimals, so under Arabic a stored `12500.000000`
+        renders `12500,000000`, which reads as a grouped thousand beside a
+        money column that genuinely is grouped that way. The same rule the
+        recipe serving's `quantity_display` follows, and for the same reason.
+        """
+        return f"{self.unit_price:f}"
+
+
+__all__ = [
+    "CALCULATION_MAX_DIGITS",
+    "CODE_PATTERN",
+    "DEMO_CODE_PREFIX",
+    "DEMO_NOTICE",
+    "MONEY_MAX_DIGITS",
+    "QUANTITY_MAX_DIGITS",
+    "UNIT_PRICE_MAX_DIGITS",
+    "FulfillmentSource",
+    "MenuCategory",
+    "MenuItem",
+    "MenuItemBranchSetting",
+    "MenuPriceVersion",
+    "PriceScope",
+    "SalesChannel",
+    "SalesChannelCategory",
+    "TenderDestination",
+]
