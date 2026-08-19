@@ -627,8 +627,17 @@ MODULES: tuple[Module, ...] = (
                 available=True,
                 active_prefixes=("/sales/discounts/",),
             ),
+            # Checkpoint 4 — corrections against posted days. Promoted after
+            # the list and the detail both answered as a full page and as an
+            # htmx fragment; the line-delete prefix is listed so the sidebar
+            # still highlights the section while a draft is being edited.
+            Section(
+                label=_("المرتجعات والإلغاءات"),
+                url_name="sales:adjustment_list",
+                available=True,
+                active_prefixes=("/sales/adjustments/", "/sales/adjustment-lines/"),
+            ),
             *_sections(
-                _("المرتجعات والإلغاءات"),
                 _("ذمم التطبيقات"),
                 _("تسويات التطبيقات"),
                 _("إقفال الكاشير"),

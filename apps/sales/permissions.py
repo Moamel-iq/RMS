@@ -241,6 +241,29 @@ _TABLE: tuple[_Declared, ...] = (
         PermissionScope.ORGANIZATION_MASTER_DATA,
         frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER, _ACCOUNTANT}),
     ),
+    # --- Checkpoint 4 -----------------------------------------------------
+    #
+    # One codename covers drafting **and** posting a return, and that is
+    # deliberate rather than a shortcut. The separation checkpoint 3 needed —
+    # a cashier types, somebody else commits — is already achieved here by who
+    # holds the grant at all: not the cashier, and not the accountant. A till
+    # that could credit back its own takings is the oldest fraud in the trade,
+    # and a preparer/approver split inside a permission nobody junior holds
+    # would be ceremony rather than control.
+    #
+    # `BRANCH`, because a return is one branch's trading being corrected — the
+    # same scope the day it corrects is exercised at.
+    #
+    # **Reversing** a posted adjustment is not here. It requires
+    # `REVERSE_DAILY_SALES`, read off the migrated labels rather than chosen:
+    # `manage_sales_adjustments` says *"Can record returns and cancellations"*
+    # and says nothing about reversal, while `reverse_daily_sales` is this
+    # module's declared supervisory undo.
+    _Declared(
+        MANAGE_SALES_ADJUSTMENTS,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
+    ),
 )
 
 

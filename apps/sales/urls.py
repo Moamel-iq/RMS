@@ -12,13 +12,15 @@ screens they need.
 Checkpoint 2: تطبيقات التوصيل, العمولات والاتفاقيات and الخصومات.
 
 Checkpoint 3: المبيعات اليومية, and the four lifecycle transitions behind it.
+
+Checkpoint 4: المرتجعات والإلغاءات, and the two transitions behind it.
 """
 
 from __future__ import annotations
 
 from django.urls import URLPattern, path
 
-from apps.sales import day_views, views
+from apps.sales import adjustment_views, day_views, views
 
 app_name = "sales"
 
@@ -158,5 +160,40 @@ urlpatterns: list[URLPattern] = [
         "day-lines/<int:pk>/delete/",
         day_views.SalesDayLineDeleteView.as_view(),
         name="day_line_delete",
+    ),
+    # --- المرتجعات والإلغاءات ------------------------------------------------
+    #
+    # No edit route on a posted adjustment, and no delete route on one at all.
+    # A posted correction has reached the ledger and the application receivable;
+    # the only way back is `reverse`, which adds a document rather than removing
+    # one — and which needs a different permission from the one that recorded
+    # it.
+    path(
+        "adjustments/", adjustment_views.SalesAdjustmentListView.as_view(), name="adjustment_list"
+    ),
+    path(
+        "adjustments/new/",
+        adjustment_views.SalesAdjustmentCreateView.as_view(),
+        name="adjustment_create",
+    ),
+    path(
+        "adjustments/<int:pk>/",
+        adjustment_views.SalesAdjustmentDetailView.as_view(),
+        name="adjustment_detail",
+    ),
+    path(
+        "adjustments/<int:pk>/post/",
+        adjustment_views.SalesAdjustmentTransitionView.as_view(action="post"),
+        name="adjustment_post",
+    ),
+    path(
+        "adjustments/<int:pk>/reverse/",
+        adjustment_views.SalesAdjustmentTransitionView.as_view(action="reverse"),
+        name="adjustment_reverse",
+    ),
+    path(
+        "adjustment-lines/<int:pk>/delete/",
+        adjustment_views.SalesAdjustmentLineDeleteView.as_view(),
+        name="adjustment_line_delete",
     ),
 ]

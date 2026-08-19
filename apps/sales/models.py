@@ -1742,6 +1742,368 @@ class ApplicationReceivableEntry(models.Model):
         return self.debit - self.credit
 
 
+# ---------------------------------------------------------------------------
+# Returns, cancellations and financial corrections — checkpoint 4
+# ---------------------------------------------------------------------------
+
+
+class SalesAdjustmentReasonKind(models.TextChoices):
+    """
+    Why a posted sale is being taken back. **Three values, and the difference
+    between them is the design** (ADR-028 §8).
+
+    All three post the same journal. What they disagree about is the *quantity*
+    the kitchen is measured against:
+
+    * `CANCELLED_BEFORE_FULFILLMENT` — never cooked, so the ingredients never
+      left. Theoretical consumption should never have included it, and
+      subtracting it restores the truth.
+    * `RETURNED_AFTER_FULFILLMENT` — cooked. The rice was measured and the
+      ingredients left through the production batch that made them.
+      Subtracting it would lower theoretical while actual stayed exactly where
+      it was, manufacturing an unexplained variance of precisely the returned
+      quantity — indistinguishable on the report from real over-portioning.
+      Where the food is physically discarded that is a Waste document in the
+      kitchen's own ledger; recording it here too is the double count ADR-026
+      §4 refuses.
+    * `FINANCIAL_CORRECTION` — money only, and it may not touch quantity at
+      all. A correction to a price is not a claim that less food was sold.
+    """
+
+    CANCELLED_BEFORE_FULFILLMENT = "CANCELLED_BEFORE_FULFILLMENT", _("إلغاء قبل التنفيذ")
+    RETURNED_AFTER_FULFILLMENT = "RETURNED_AFTER_FULFILLMENT", _("إرجاع بعد التنفيذ")
+    FINANCIAL_CORRECTION = "FINANCIAL_CORRECTION", _("تصحيح مالي")
+
+
+class SalesAdjustmentStatus(models.TextChoices):
+    """
+    The lifecycle of one correction.
+
+    **No `SUBMITTED`**, and the absence is deliberate rather than an omission.
+    A sales day has one because the person who counts the till is not the
+    person who may commit it. An adjustment is authored by somebody who already
+    holds `manage_sales_adjustments`, which the checkpoint-3 table gives to
+    neither the cashier nor the accountant — so the second pair of eyes is
+    already inside the permission, and a submit step would be ceremony rather
+    than control.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class SalesAdjustment(TimeStampedModel):
+    """
+    A correction against a **posted** sales day, with its own posting
+    lifecycle.
+
+    A posted sales line is never edited — that is the standing rule for every
+    posted document in this system, and the reason a return is a document of
+    its own rather than a smaller number on yesterday's line. The original says
+    what was sold; this says what came back, and both survive.
+
+    **Every adjustment reduces.** A correction that *increases* what was
+    charged is a new sales day, not an adjustment: a negative return would make
+    `SALES_RETURNS` a net figure answering neither "what came back" nor "what we
+    billed late", and the two questions have different owners.
+
+    Carries a mandatory `reason` and a mandatory `evidence_reference` (ADR-028
+    §8), on top of the closed `reason_kind`. The enum says which of three facts
+    this is; the free text says what happened, and the evidence says where to
+    go and look.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="sales_adjustments",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="sales_adjustments",
+        verbose_name=_("branch"),
+    )
+    #: The **posted** original. `PROTECT`, because a day that has been corrected
+    #: has to still be there to explain the correction.
+    sales_day = models.ForeignKey(
+        SalesDay,
+        on_delete=models.PROTECT,
+        related_name="adjustments",
+        verbose_name=_("sales day"),
+    )
+    #: Entered, never `date(now())`: when the adjustment was *decided*, which is
+    #: routinely a different day from the one it corrects and is the date the
+    #: journal carries.
+    business_date = models.DateField(_("business date"))
+
+    reason_kind = models.CharField(
+        _("reason kind"), max_length=32, choices=SalesAdjustmentReasonKind.choices
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=12,
+        choices=SalesAdjustmentStatus.choices,
+        default=SalesAdjustmentStatus.DRAFT,
+    )
+    #: `SA-YYYY-#####`, assigned at posting and never before. A number on a
+    #: draft is a gap in the sequence waiting to happen.
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    reason = models.TextField(_("reason"))
+    evidence_reference = models.CharField(_("evidence"), max_length=200)
+    notes = models.TextField(_("notes"), blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sales_adjustments_created",
+        null=True,
+        blank=True,
+        verbose_name=_("created by"),
+    )
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sales_adjustments_posted",
+        null=True,
+        blank=True,
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sales_adjustments_reversed",
+        null=True,
+        blank=True,
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    idempotency_key = models.CharField(_("idempotency key"), max_length=128, blank=True)
+    request_fingerprint = models.CharField(_("request fingerprint"), max_length=128, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("sales adjustment")
+        verbose_name_plural = _("sales adjustments")
+        ordering = ["-business_date", "-id"]
+        # **No `permissions`.** `manage_sales_adjustments` is already declared
+        # on `SalesDay` and migrated by `0005`; declaring it again here would
+        # create a duplicate codename and a migration nobody wants.
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(status="DRAFT", number="")
+                    | (Q(status__in=["POSTED", "REVERSED"]) & ~Q(number=""))
+                ),
+                name="sales_adjustment_number_iff_posted",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="sales_adjustment_number_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(posted_by__isnull=True, posted_at__isnull=True)
+                    | Q(posted_by__isnull=False, posted_at__isnull=False)
+                ),
+                name="sales_adjustment_posting_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(status="REVERSED", reversed_at__isnull=False)
+                    | (~Q(status="REVERSED") & Q(reversed_at__isnull=True))
+                ),
+                name="sales_adjustment_reversal_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="REVERSED") | ~Q(reversal_reason=""),
+                name="sales_adjustment_reversal_has_a_reason",
+            ),
+            # ADR-028 §8 asks for both by name. A return nobody explained and a
+            # return nobody can point at are the same failure wearing different
+            # clothes.
+            models.CheckConstraint(condition=~Q(reason=""), name="sales_adjustment_has_a_reason"),
+            models.CheckConstraint(
+                condition=~Q(evidence_reference=""), name="sales_adjustment_has_evidence"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        label = self.number or str(_("مسودة"))
+        return f"{label} · {self.branch.code} {self.business_date.isoformat()}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == SalesAdjustmentStatus.DRAFT
+
+    @property
+    def is_posted(self) -> bool:
+        return self.status == SalesAdjustmentStatus.POSTED
+
+    @property
+    def reduces_theoretical_consumption(self) -> bool:
+        """
+        Whether the kitchen's theoretical consumption sees this adjustment.
+
+        Only a cancellation does. Named as a property rather than left implicit
+        in a query filter because it is the single fact about this model that a
+        reader is most likely to assume the other way round.
+        """
+        return self.reason_kind == SalesAdjustmentReasonKind.CANCELLED_BEFORE_FULFILLMENT
+
+
+class SalesAdjustmentLine(TimeStampedModel):
+    """
+    How much of one posted sales line is being taken back.
+
+    `unit_price` is **copied from the original line, never re-resolved**. The
+    price that sold the plate is the price that un-sells it, and looking the
+    price table up again would let a Monday price change restate a Sunday
+    return — the same error `SalesDayLine`'s snapshots exist to prevent.
+
+    The seven money figures are all proportional to the original's, computed
+    once in `adjustment_services.proportional_amounts` and stored. Storing them
+    rather than deriving at read time is what lets the journal balance by
+    construction: `adjusted_net_amount` is the *residual* of the others, so the
+    credits sum to the debit at every amount, forever.
+    """
+
+    adjustment = models.ForeignKey(
+        SalesAdjustment,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name=_("adjustment"),
+    )
+    sequence = models.PositiveIntegerField(_("sequence"))
+    #: `PROTECT`: the original is the evidence for the correction.
+    original_line = models.ForeignKey(
+        SalesDayLine,
+        on_delete=models.PROTECT,
+        related_name="adjustment_lines",
+        verbose_name=_("original line"),
+    )
+
+    #: Zero for a `FINANCIAL_CORRECTION`, and a database trigger says so. A
+    #: money correction is not a claim that less food was sold.
+    adjusted_quantity = models.DecimalField(
+        _("adjusted quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        default=Decimal("0"),
+    )
+    unit_price = models.DecimalField(
+        _("unit price"),
+        max_digits=UNIT_PRICE_MAX_DIGITS,
+        decimal_places=UNIT_PRICE_PLACES,
+    )
+
+    adjusted_gross = models.DecimalField(
+        _("adjusted gross"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    adjusted_restaurant_discount = models.DecimalField(
+        _("adjusted restaurant-funded discount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    #: Stored, reported, and **never posted** — for the reason it is never
+    #: posted on the sale itself (ADR-028 §3). The application reimburses it, so
+    #: it reduces neither revenue nor what the application owes.
+    adjusted_application_discount = models.DecimalField(
+        _("adjusted application-funded discount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    adjusted_commission = models.DecimalField(
+        _("adjusted commission"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    adjusted_other_fees = models.DecimalField(
+        _("adjusted other application fees"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    adjusted_customer_charge = models.DecimalField(
+        _("adjusted customer charge"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: The tender or receivable side, and the **residual** of the four figures
+    #: above rather than a product of its own.
+    adjusted_net_amount = models.DecimalField(
+        _("adjusted net amount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        help_text=_("Cash or card taken back, or the receivable credited."),
+    )
+
+    line_reason = models.CharField(_("line reason"), max_length=300, blank=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("sales adjustment line")
+        verbose_name_plural = _("sales adjustment lines")
+        ordering = ["adjustment", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["adjustment", "sequence"], name="sales_adjustment_line_sequence_unique"
+            ),
+            # One row per original line per adjustment. Two rows against the
+            # same original would make "how much of this line came back" a sum
+            # somebody has to remember to take.
+            models.UniqueConstraint(
+                fields=["adjustment", "original_line"],
+                name="sales_adjustment_line_one_row_per_original",
+            ),
+            models.CheckConstraint(
+                condition=Q(adjusted_quantity__gte=Decimal("0")),
+                name="sales_adjustment_line_quantity_is_not_negative",
+            ),
+            # Strictly positive: an adjustment line that moves no money is a row
+            # that says nothing and still has to be read by everything.
+            models.CheckConstraint(
+                condition=Q(adjusted_gross__gt=Decimal("0")),
+                name="sales_adjustment_line_gross_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(adjusted_restaurant_discount__gte=Decimal("0"))
+                    & Q(adjusted_application_discount__gte=Decimal("0"))
+                    & Q(adjusted_commission__gte=Decimal("0"))
+                    & Q(adjusted_other_fees__gte=Decimal("0"))
+                    & Q(adjusted_customer_charge__gte=Decimal("0"))
+                ),
+                name="sales_adjustment_line_amounts_are_not_negative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.adjustment} · {self.original_line.menu_item.code}"
+
+    @property
+    def quantity_display(self) -> str:
+        """The quantity as a technical identity: period, never comma."""
+        return f"{self.adjusted_quantity:f}"
+
+    @property
+    def is_application_adjustment(self) -> bool:
+        return self.original_line.delivery_application_id is not None
+
+
 __all__ = [
     "CALCULATION_MAX_DIGITS",
     "CODE_PATTERN",
@@ -1765,6 +2127,10 @@ __all__ = [
     "MenuPriceVersion",
     "PriceScope",
     "ReceivableSource",
+    "SalesAdjustment",
+    "SalesAdjustmentLine",
+    "SalesAdjustmentReasonKind",
+    "SalesAdjustmentStatus",
     "SalesChannel",
     "SalesChannelCategory",
     "SalesDay",

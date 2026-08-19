@@ -135,21 +135,40 @@ SOURCE_DOCUMENT_TYPE = "SALES.SALESDAY"
 # ---------------------------------------------------------------------------
 
 
-def _next_number(organization: Organization, year: int) -> str:
+def next_document_number(
+    *, organization: Organization, document_type: str, prefix: str, year: int
+) -> str:
     """
-    The next gapless number for this organization and year.
+    The next gapless number for this organization, document type and year.
 
     A row taken with `select_for_update` rather than `MAX(number) + 1`, because
-    two concurrent postings reading the same maximum would produce two days
+    two concurrent postings reading the same maximum would produce two documents
     claiming the same number. Four lines, and deliberately identical to the
     three sequence helpers already in this system.
+
+    Parameterised by `document_type` rather than copied per document, because
+    Phase 4 has four numbered documents and four copies of this would be four
+    chances to draw from the wrong counter — which is the one thing a gapless
+    sequence must never do. What must stay separate is the *counter*, and the
+    unique constraint on `(organization, document_type, year)` is what keeps it
+    separate.
     """
     sequence, _created = SalesDocumentSequence.objects.select_for_update().get_or_create(
-        organization=organization, document_type=SALES_DAY_DOCUMENT_TYPE, year=year
+        organization=organization, document_type=document_type, year=year
     )
     sequence.last_number += 1
     sequence.save(update_fields=["last_number"])
-    return f"SD-{year}-{sequence.last_number:05d}"
+    return f"{prefix}-{year}-{sequence.last_number:05d}"
+
+
+def _next_number(organization: Organization, year: int) -> str:
+    """The next sales-day number."""
+    return next_document_number(
+        organization=organization,
+        document_type=SALES_DAY_DOCUMENT_TYPE,
+        prefix="SD",
+        year=year,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +574,7 @@ __all__ = [
     "SALES_DAY_DOCUMENT_TYPE",
     "SOURCE_DOCUMENT_TYPE",
     "build_plan",
+    "next_document_number",
     "post_sales_day",
     "reverse_sales_day",
 ]

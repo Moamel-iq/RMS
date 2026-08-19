@@ -30,8 +30,10 @@ from apps.sales.models import (
     MenuItemBranchSetting,
     MenuPriceVersion,
     PriceScope,
+    SalesAdjustment,
     SalesChannel,
     SalesDay,
+    SalesDayLine,
 )
 
 ZERO = Decimal("0")
@@ -306,6 +308,49 @@ def resolve_sales_day(user: User, day_id: int) -> SalesDay:
     return day
 
 
+# ---------------------------------------------------------------------------
+# Returns and cancellations — checkpoint 4
+# ---------------------------------------------------------------------------
+
+
+def visible_sales_adjustments(user: User) -> QuerySet[SalesAdjustment]:
+    """
+    Every adjustment at a branch the caller reaches.
+
+    Branch-scoped for the reason `visible_sales_days` is: a correction is one
+    branch's trading being taken back, and reaching the organization through
+    some other branch is not a reason to read it.
+    """
+    return SalesAdjustment.objects.filter(branch__in=accessible_branches(user)).select_related(
+        "organization", "branch", "sales_day"
+    )
+
+
+def resolve_sales_adjustment(user: User, adjustment_id: int) -> SalesAdjustment:
+    adjustment = visible_sales_adjustments(user).filter(pk=adjustment_id).first()
+    if adjustment is None:
+        raise OutOfScope(_("Sales adjustment %(id)s does not exist.") % {"id": adjustment_id})
+    return adjustment
+
+
+def resolve_sales_day_line(user: User, line_id: int) -> SalesDayLine:
+    """
+    Turn a submitted line id into one the caller may reach.
+
+    Scoped through the **day's** branch rather than through the line, because a
+    line has no branch of its own and inventing one on it would be a second
+    place for the same truth to live.
+    """
+    line = (
+        SalesDayLine.objects.filter(pk=line_id, sales_day__branch__in=accessible_branches(user))
+        .select_related("sales_day", "sales_day__branch", "menu_item", "channel")
+        .first()
+    )
+    if line is None:
+        raise OutOfScope(_("Sales line %(id)s does not exist.") % {"id": line_id})
+    return line
+
+
 def visible_receivable_entries(user: User) -> QuerySet[ApplicationReceivableEntry]:
     """
     Every receivable movement at a branch the caller reaches.
@@ -351,7 +396,10 @@ __all__ = [
     "resolve_discount_program",
     "resolve_menu_item",
     "resolve_price",
+    "resolve_sales_adjustment",
     "resolve_sales_channel",
+    "resolve_sales_day_line",
+    "visible_sales_adjustments",
     "visible_sales_days",
     "visible_receivable_entries",
     "resolve_sales_day",

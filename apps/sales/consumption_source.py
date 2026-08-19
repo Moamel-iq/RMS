@@ -33,9 +33,11 @@ Where returned food is physically discarded that is a Waste document in the
 kitchen's own ledger, and counting it here as well would be the double count
 ADR-026 §4 refuses.
 
-The adjustment subtraction arrives with checkpoint 4, together with the
-adjustment model. Until then `_cancelled_quantity` returns zero for every line,
-which is correct rather than provisional: no adjustments exist yet.
+`cancelled_quantities` is where that asymmetry lives, and it is one filter long:
+`reason_kind=CANCELLED_BEFORE_FULFILLMENT`. The intuitive implementation —
+subtract every posted adjustment — reads perfectly well, is one filter shorter,
+and produces a usage-variance report that is wrong in a direction nobody
+questions.
 """
 
 from __future__ import annotations
@@ -45,6 +47,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
+from django.db.models import Sum
+
 from apps.core.quantity import quantize_calculation
 from apps.kitchen.consumption_sources import (
     CoverageStatus,
@@ -52,7 +56,13 @@ from apps.kitchen.consumption_sources import (
     TheoreticalSourceType,
 )
 from apps.kitchen.expansion import expand_recipe_version
-from apps.sales.models import SalesDayLine, SalesDayStatus
+from apps.sales.models import (
+    SalesAdjustmentLine,
+    SalesAdjustmentReasonKind,
+    SalesAdjustmentStatus,
+    SalesDayLine,
+    SalesDayStatus,
+)
 
 ZERO = Decimal("0")
 
@@ -62,34 +72,50 @@ ZERO = Decimal("0")
 SALES_EQUIVALENT = "SALES_EQUIVALENT"
 
 
-def _cancelled_quantity(line: SalesDayLine) -> Decimal:
+def cancelled_quantities(line_ids: Sequence[int]) -> dict[int, Decimal]:
     """
-    How much of this line was cancelled before it was ever made.
+    Posted `CANCELLED_BEFORE_FULFILLMENT` quantity per original line.
 
-    Zero for every line at checkpoint 3, and that is **correct rather than
-    provisional**: the adjustment aggregate arrives with checkpoint 4, so there
-    is nothing to subtract yet and no line can have been cancelled. Checkpoint
-    4 replaces this body with the query over posted
-    `CANCELLED_BEFORE_FULFILLMENT` adjustment lines.
+    **Only cancellations, and the filter on `reason_kind` is the whole point.**
+    A `RETURNED_AFTER_FULFILLMENT` adjustment is deliberately absent: the food
+    was cooked and its ingredients left through the production batch that made
+    them, so subtracting it would lower theoretical while actual stayed exactly
+    where it was — manufacturing an unexplained variance of precisely the
+    returned quantity, in every branch that ever takes a plate back. That
+    variance is indistinguishable on the report from real over-portioning or
+    real theft, which is the failure: the module would generate the exact signal
+    the usage-variance report exists to detect (ADR-028 §8).
 
-    Written as its own function now rather than inlined as a `0`, because the
-    thing that matters is *which* adjustments count: only cancellations. A
-    return is deliberately never subtracted — the food was cooked, and taking
-    it back out would manufacture an unexplained actual-versus-theoretical
-    variance of exactly the returned amount (ADR-028 §8).
+    A `FINANCIAL_CORRECTION` is absent for a simpler reason: it may not carry a
+    quantity at all, and a database trigger enforces that.
+
+    Answered as one aggregate over the whole result set rather than per line. A
+    per-line query would be one round trip per sold item per day, which on a
+    month of six branches is tens of thousands of them.
     """
-    return ZERO
+    if not line_ids:
+        return {}
+    rows = (
+        SalesAdjustmentLine.objects.filter(
+            original_line_id__in=line_ids,
+            adjustment__status=SalesAdjustmentStatus.POSTED,
+            adjustment__reason_kind=SalesAdjustmentReasonKind.CANCELLED_BEFORE_FULFILLMENT,
+        )
+        .values("original_line_id")
+        .annotate(total=Sum("adjusted_quantity"))
+    )
+    return {row["original_line_id"]: row["total"] or ZERO for row in rows}
 
 
-def fulfilled_quantity(line: SalesDayLine) -> Decimal:
+def fulfilled_quantity(line: SalesDayLine, cancelled: Decimal = ZERO) -> Decimal:
     """
     The quantity the kitchen actually had to produce for this line.
 
-    Never negative: a cancellation cannot exceed what was sold, and if data
-    ever said otherwise the honest answer is zero rather than a negative
-    ingredient requirement.
+    Never negative: a cancellation cannot exceed what was sold — the containment
+    trigger in `sales/0008` guarantees it — and if data ever said otherwise the
+    honest answer is zero rather than a negative ingredient requirement.
     """
-    remaining = line.quantity - _cancelled_quantity(line)
+    remaining = line.quantity - cancelled
     return remaining if remaining > ZERO else ZERO
 
 
@@ -142,13 +168,20 @@ class SalesQuantitySource:
         if recipe_id:
             rows = rows.filter(recipe_id=recipe_id)
 
+        # Built **once**, for the whole result set, before the loop. Asking per
+        # line would be one round trip per sold item per day.
+        lines = list(rows)
+        cancelled = cancelled_quantities([line.pk for line in lines])
+
         contributions: list[TheoreticalConsumptionContribution] = []
-        for line in rows:
-            contributions.extend(_contributions_for(line))
+        for line in lines:
+            contributions.extend(_contributions_for(line, cancelled.get(line.pk, ZERO)))
         return contributions
 
 
-def _contributions_for(line: SalesDayLine) -> list[TheoreticalConsumptionContribution]:
+def _contributions_for(
+    line: SalesDayLine, cancelled: Decimal
+) -> list[TheoreticalConsumptionContribution]:
     """
     Expand one sold line into its leaf ingredients, at its own stored version.
 
@@ -157,7 +190,7 @@ def _contributions_for(line: SalesDayLine) -> list[TheoreticalConsumptionContrib
     against a serving — deliberately, because the two are the same question
     asked about different records.
     """
-    quantity = fulfilled_quantity(line)
+    quantity = fulfilled_quantity(line, cancelled)
     if quantity <= ZERO:
         return []
 
@@ -218,6 +251,7 @@ def register_with_kitchen() -> None:
 __all__ = [
     "SALES_EQUIVALENT",
     "SalesQuantitySource",
+    "cancelled_quantities",
     "fulfilled_quantity",
     "register_with_kitchen",
 ]
