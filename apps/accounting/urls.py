@@ -17,6 +17,7 @@ from apps.accounting import (
     expense_views,
     journal_views,
     period_views,
+    report_views,
     subledger_views,
     views,
 )
@@ -304,6 +305,27 @@ urlpatterns = [
         "periods/<int:pk>/reopen/",
         period_views.PeriodTransitionView.as_view(action="reopen"),
         name="period_reopen",
+    ),
+    # --- التقارير المالية ----------------------------------------------------
+    path(
+        "reports/trial-balance/",
+        report_views.TrialBalanceView.as_view(),
+        name="trial_balance",
+    ),
+    path(
+        "reports/general-ledger/",
+        report_views.GeneralLedgerView.as_view(),
+        name="general_ledger",
+    ),
+    path(
+        "reports/income-statement/",
+        report_views.IncomeStatementView.as_view(),
+        name="income_statement",
+    ),
+    path(
+        "reports/balance-sheet/",
+        report_views.BalanceSheetView.as_view(),
+        name="balance_sheet",
     ),
     # --- ذمم التطبيقات -------------------------------------------------------
     path(

@@ -1,0 +1,85 @@
+{# ميزان المراجعة — opening, movement and closing, from posted lines only.   #}
+{#                                                                           #}
+{# The two closing columns are derived from one line set, so they are equal  #}
+{# on every filter combination. When they are not, the page names the        #}
+{# difference and offers nothing that would make them agree.                 #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="accounting-trial-balance">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+    </div>
+
+    {% if organization %}
+      {% with report_target="#accounting-trial-balance" %}
+        {% include "accounting/_report_filters.html" %}
+      {% endwith %}
+
+      <section class="card {% if not report.is_balanced %}card--warn{% endif %}">
+        <h2 class="card__title">
+          {% if report.is_balanced %}
+            <span class="chip chip--ok">{% translate "متوازن" %}</span>
+          {% else %}
+            <span class="chip chip--warn">
+              {% blocktranslate with amount=report.difference %}غير متوازن — الفرق {{ amount }}{% endblocktranslate %}
+            </span>
+          {% endif %}
+        </h2>
+        <div class="tablewrap">
+          <table class="table" id="trial-balance-table">
+            <thead><tr>
+              <th>{% translate "الرمز" %}</th>
+              <th>{% translate "الحساب" %}</th>
+              <th>{% translate "افتتاحي مدين" %}</th>
+              <th>{% translate "افتتاحي دائن" %}</th>
+              <th>{% translate "حركة مدين" %}</th>
+              <th>{% translate "حركة دائن" %}</th>
+              <th>{% translate "ختامي مدين" %}</th>
+              <th>{% translate "ختامي دائن" %}</th>
+            </tr></thead>
+            <tbody>
+              {% for row in report.rows %}
+                <tr>
+                  <td><code dir="ltr">{{ row.account.code }}</code></td>
+                  <td>
+                    <a href="{% url 'accounting:general_ledger' %}?organization={{ organization.pk }}&account={{ row.account.pk }}">
+                      {{ row.account.name_ar }}
+                    </a>
+                  </td>
+                  <td><bdi dir="ltr">{{ row.opening_debit|money_full }}</bdi></td>
+                  <td><bdi dir="ltr">{{ row.opening_credit|money_full }}</bdi></td>
+                  <td><bdi dir="ltr">{{ row.period_debit|money_full }}</bdi></td>
+                  <td><bdi dir="ltr">{{ row.period_credit|money_full }}</bdi></td>
+                  <td><bdi dir="ltr">{{ row.closing_debit|money_full }}</bdi></td>
+                  <td><bdi dir="ltr">{{ row.closing_credit|money_full }}</bdi></td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="8" class="empty">{% translate "لا حركة داخل هذه المرشحات." %}</td></tr>
+              {% endfor %}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colspan="2">{% translate "المجموع" %}</th>
+                <th><bdi dir="ltr">{{ report.opening_debit|money_full }}</bdi></th>
+                <th><bdi dir="ltr">{{ report.opening_credit|money_full }}</bdi></th>
+                <th><bdi dir="ltr">{{ report.period_debit|money_full }}</bdi></th>
+                <th><bdi dir="ltr">{{ report.period_credit|money_full }}</bdi></th>
+                <th><bdi dir="ltr">{{ report.closing_debit|money_full }}</bdi></th>
+                <th><bdi dir="ltr">{{ report.closing_credit|money_full }}</bdi></th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </section>
+    {% else %}
+      <section class="card"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
+    {% endif %}
+  </div>
+{% endblock %}
