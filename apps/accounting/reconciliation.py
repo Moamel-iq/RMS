@@ -25,6 +25,7 @@ to see them disagree first.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -50,15 +51,39 @@ from apps.accounting.models import (
 from apps.accounting.reports import ReportFilters, balance_sheet, income_statement, trial_balance
 from apps.accounting.selectors import account_balance
 from apps.accounting.services import resolve_default_account
-from apps.kitchen.consumption_reconciliation import (
-    ADVISORY,
-    COVERAGE_LIMITATION,
-    ERROR,
-    Finding,
-)
 from apps.organizations.models import Organization
 
 ZERO = Decimal("0")
+
+#: The three severities, and the shape a verifier reports in.
+#:
+#: Declared here rather than imported from Kitchen's verifier, which is where
+#: the same three names first appeared. Accounting must not import Kitchen —
+#: `apps/kitchen/tests/test_cost_boundary.py` asserts the direction, and it is
+#: right to: the ledger is what Kitchen posts *into*, so a dependency the other
+#: way would make the two mutually reachable and the boundary unenforceable.
+#:
+#: Three identical dataclasses across three modules is the deliberate trade.
+#: A shared base would put a vocabulary every module depends on into whichever
+#: module happened to define it first, and that is exactly the coupling the
+#: boundary test exists to prevent. The cost of the duplication is three lines;
+#: the cost of the coupling is an import graph nobody can reason about.
+ERROR = "ERROR"
+ADVISORY = "ADVISORY"
+COVERAGE_LIMITATION = "COVERAGE_LIMITATION"
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One thing a verifier noticed, and how seriously to take it."""
+
+    severity: str
+    code: str
+    message: str
+
+    @property
+    def is_error(self) -> bool:
+        return self.severity == ERROR
 
 
 def _error(code: str, message: str) -> Finding:
@@ -266,7 +291,15 @@ def verify_supplier_subledger(organization: Organization) -> list[Finding]:
 def verify_application_subledger(organization: Organization) -> list[Finding]:
     from apps.sales.reconciliation import verify_receivable_ledger
 
-    findings = list(verify_receivable_ledger(organization))
+    # Re-wrapped rather than passed through. Sales reports in its own Finding
+    # type, and the two are structurally identical today — which is exactly
+    # when an implicit pass-through starts to look safe. Copying the three
+    # fields keeps the seam visible, so a field added on one side shows up
+    # here as a type error rather than as a silently dropped column.
+    findings = [
+        Finding(severity=row.severity, code=row.code, message=row.message)
+        for row in verify_receivable_ledger(organization)
+    ]
     try:
         mapping = resolve_default_account(
             organization=organization,
