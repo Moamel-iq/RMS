@@ -637,9 +637,30 @@ MODULES: tuple[Module, ...] = (
                 available=True,
                 active_prefixes=("/sales/adjustments/", "/sales/adjustment-lines/"),
             ),
+            # Checkpoint 5 — the receivable ledger and the settlement that
+            # clears it. Two entries rather than one, because reading what a
+            # delivery company owes and agreeing its statement are different
+            # acts held by different permissions: the read is
+            # `view_application_receivables` and reaches a viewer, the
+            # settlement is `manage_application_settlements` and reaches
+            # neither a branch manager nor an accountant.
+            Section(
+                label=_("ذمم التطبيقات"),
+                url_name="sales:receivable_list",
+                available=True,
+                active_prefixes=("/sales/receivables/",),
+            ),
+            Section(
+                label=_("تسويات التطبيقات"),
+                url_name="sales:settlement_list",
+                available=True,
+                active_prefixes=(
+                    "/sales/settlements/",
+                    "/sales/settlement-allocations/",
+                    "/sales/settlement-adjustments/",
+                ),
+            ),
             *_sections(
-                _("ذمم التطبيقات"),
-                _("تسويات التطبيقات"),
                 _("إقفال الكاشير"),
                 _("المطابقة اليومية"),
             ),

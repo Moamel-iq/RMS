@@ -264,6 +264,45 @@ _TABLE: tuple[_Declared, ...] = (
         PermissionScope.BRANCH,
         frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
     ),
+    # --- Checkpoint 5 -----------------------------------------------------
+    #
+    # The receivable ledger and the settlement that clears it. The two scopes
+    # differ, and the difference is the point.
+    #
+    # `ORGANIZATION_MASTER_DATA` on the read: reaching the organization is
+    # enough to see what the delivery companies owe. Scope and selector answer
+    # two different questions here and both are asked —
+    # `visible_receivable_entries` already narrows the rows to the caller's own
+    # branches, so a branch manager sees the organization's ledger filtered to
+    # their own trading rather than all of it.
+    _Declared(
+        VIEW_APPLICATION_RECEIVABLES,
+        PermissionScope.ORGANIZATION_MASTER_DATA,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER, _ACCOUNTANT, _VIEWER}),
+    ),
+    # `ORGANIZATION_AUTHORITY` on the write, because this scope is reserved for
+    # the acts that decide policy or settle a contract and this is literally
+    # the second one.
+    #
+    # **`MANAGER` is deliberately excluded**, even though `MANAGER` holds
+    # `MANAGE_SALES_AGREEMENTS`. That exclusion is the whole control: the
+    # person who agreed the commission rate must not also be the person who
+    # agrees the statement that applies it. A settlement can absorb the
+    # difference between the two into `DELIVERY_SETTLEMENT_VARIANCE` with a
+    # reason of their own choosing, and a rate nobody can audit against a
+    # statement is a rate nobody agreed to.
+    #
+    # `ACCOUNTANT` is excluded because this one codename covers posting *and*
+    # reversal — the already-migrated label reads "Can create, reconcile, post
+    # and reverse application settlements" — and an accountant is a preparer
+    # here as everywhere else in this system.
+    #
+    # Not the cashier, in either row.
+    _Declared(
+        MANAGE_APPLICATION_SETTLEMENTS,
+        PermissionScope.ORGANIZATION_AUTHORITY,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER}),
+    ),
 )
 
 

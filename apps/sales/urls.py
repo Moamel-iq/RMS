@@ -14,13 +14,22 @@ Checkpoint 2: تطبيقات التوصيل, العمولات والاتفاقي
 Checkpoint 3: المبيعات اليومية, and the four lifecycle transitions behind it.
 
 Checkpoint 4: المرتجعات والإلغاءات, and the two transitions behind it.
+
+Checkpoint 5: ذمم التطبيقات — read-only over the append-only ledger — and
+تسويات التطبيقات with its four transitions.
 """
 
 from __future__ import annotations
 
 from django.urls import URLPattern, path
 
-from apps.sales import adjustment_views, day_views, views
+from apps.sales import (
+    adjustment_views,
+    day_views,
+    receivable_views,
+    settlement_views,
+    views,
+)
 
 app_name = "sales"
 
@@ -195,5 +204,70 @@ urlpatterns: list[URLPattern] = [
         "adjustment-lines/<int:pk>/delete/",
         adjustment_views.SalesAdjustmentLineDeleteView.as_view(),
         name="adjustment_line_delete",
+    ),
+    # --- ذمم التطبيقات ------------------------------------------------------
+    #
+    # Read-only, both routes. The ledger is written by a posting service and by
+    # nothing else; a route that could add a movement here would be a writer
+    # with no document behind it.
+    #
+    # `<int:pk>` on the detail is the **delivery application**, not an entry:
+    # the page is that company's account and the entries are its lines.
+    path(
+        "receivables/",
+        receivable_views.ApplicationReceivableListView.as_view(),
+        name="receivable_list",
+    ),
+    path(
+        "receivables/<int:pk>/",
+        receivable_views.ApplicationReceivableDetailView.as_view(),
+        name="receivable_detail",
+    ),
+    # --- تسويات التطبيقات ----------------------------------------------------
+    #
+    # No edit route once a settlement has reconciled, and no delete route on one
+    # at all. A reconciled settlement is a declaration and a posted one has
+    # reached the ledger; the ways back are `return` and `reverse`, each of
+    # which adds a record rather than removing one.
+    path("settlements/", settlement_views.SettlementListView.as_view(), name="settlement_list"),
+    path(
+        "settlements/new/",
+        settlement_views.SettlementCreateView.as_view(),
+        name="settlement_create",
+    ),
+    path(
+        "settlements/<int:pk>/",
+        settlement_views.SettlementDetailView.as_view(),
+        name="settlement_detail",
+    ),
+    path(
+        "settlements/<int:pk>/reconcile/",
+        settlement_views.SettlementTransitionView.as_view(action="reconcile"),
+        name="settlement_reconcile",
+    ),
+    path(
+        "settlements/<int:pk>/return/",
+        settlement_views.SettlementTransitionView.as_view(action="return"),
+        name="settlement_return",
+    ),
+    path(
+        "settlements/<int:pk>/post/",
+        settlement_views.SettlementTransitionView.as_view(action="post"),
+        name="settlement_post",
+    ),
+    path(
+        "settlements/<int:pk>/reverse/",
+        settlement_views.SettlementTransitionView.as_view(action="reverse"),
+        name="settlement_reverse",
+    ),
+    path(
+        "settlement-allocations/<int:pk>/delete/",
+        settlement_views.SettlementAllocationDeleteView.as_view(),
+        name="settlement_allocation_delete",
+    ),
+    path(
+        "settlement-adjustments/<int:pk>/delete/",
+        settlement_views.SettlementAdjustmentDeleteView.as_view(),
+        name="settlement_adjustment_delete",
     ),
 ]

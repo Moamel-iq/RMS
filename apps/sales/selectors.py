@@ -24,6 +24,7 @@ from apps.sales.models import (
     ApplicationReceivableEntry,
     DeliveryAgreement,
     DeliveryApplication,
+    DeliveryApplicationSettlement,
     DiscountProgram,
     MenuCategory,
     MenuItem,
@@ -387,6 +388,44 @@ def receivable_balance(
     return (totals["debit"] or ZERO) - (totals["credit"] or ZERO)
 
 
+# ---------------------------------------------------------------------------
+# Application settlements — checkpoint 5
+# ---------------------------------------------------------------------------
+
+
+def visible_settlements(user: User) -> QuerySet[DeliveryApplicationSettlement]:
+    """
+    Every settlement at a branch the caller reaches.
+
+    Branch-scoped even though the *permission* that guards writing one is
+    organization-wide, and the two are answering different questions on purpose
+    (ADR-016): the permission says whether this person may settle a contract at
+    all, and the selector says whose trading they can see. A caller who reaches
+    the organization through one branch has no business reading another
+    branch's statements.
+    """
+    return DeliveryApplicationSettlement.objects.filter(
+        branch__in=accessible_branches(user)
+    ).select_related("organization", "branch", "delivery_application")
+
+
+def resolve_settlement(user: User, settlement_id: int) -> DeliveryApplicationSettlement:
+    settlement = visible_settlements(user).filter(pk=settlement_id).first()
+    if settlement is None:
+        raise OutOfScope(_("Settlement %(id)s does not exist.") % {"id": settlement_id})
+    return settlement
+
+
+def resolve_receivable_entry(user: User, entry_id: int) -> ApplicationReceivableEntry:
+    """Turn a submitted entry id into one the caller may reach."""
+    entry = (
+        visible_receivable_entries(user).filter(pk=entry_id).select_related("organization").first()
+    )
+    if entry is None:
+        raise OutOfScope(_("Receivable entry %(id)s does not exist.") % {"id": entry_id})
+    return entry
+
+
 __all__ = [
     "application_is_live_at",
     "effective_prices",
@@ -396,10 +435,13 @@ __all__ = [
     "resolve_discount_program",
     "resolve_menu_item",
     "resolve_price",
+    "resolve_receivable_entry",
     "resolve_sales_adjustment",
     "resolve_sales_channel",
     "resolve_sales_day_line",
+    "resolve_settlement",
     "visible_sales_adjustments",
+    "visible_settlements",
     "visible_sales_days",
     "visible_receivable_entries",
     "resolve_sales_day",

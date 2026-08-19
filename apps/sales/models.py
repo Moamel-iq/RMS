@@ -2104,6 +2104,478 @@ class SalesAdjustmentLine(TimeStampedModel):
         return self.original_line.delivery_application_id is not None
 
 
+# ---------------------------------------------------------------------------
+# Application settlements — checkpoint 5
+# ---------------------------------------------------------------------------
+
+
+class SettlementStatus(models.TextChoices):
+    """
+    The lifecycle of one statement from one delivery application.
+
+    `RECONCILED` sits between `DRAFT` and `POSTED` and is not ceremony. It is
+    the moment somebody asserts that every dinar of both gaps has been claimed
+    by a named reason — and the assertion has to be a *state*, because posting
+    re-checks it under a row lock and needs to know whether it was ever made.
+    A settlement that went straight from draft to posted would have nowhere to
+    record that the reconciliation happened, or who did it.
+    """
+
+    DRAFT = "DRAFT", _("مسودة")
+    RECONCILED = "RECONCILED", _("مطابق")
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class SettlementRemittance(models.TextChoices):
+    """
+    Where the money actually arrived.
+
+    Decides `SALES_SETTLEMENT_BANK` against `SALES_CASH_ON_HAND`, through the
+    role mapping and never through a hard-coded account id — the same rule
+    every other posting in this module follows (ADR-019).
+    """
+
+    BANK = "BANK", _("مصرف")
+    CASH = "CASH", _("نقد")
+
+
+class SettlementVarianceLeg(models.TextChoices):
+    """
+    Which two of the three figures an adjustment reconciles.
+
+    This is what keeps ADR-028 §7's three-way comparison from collapsing into
+    one net number. `expected`, `statement` and `remitted` produce two gaps, and
+    an adjustment says which gap it explains — so the *pattern* of which two
+    figures agree survives as data rather than being averaged away. A single
+    net variance would answer "how much" and never "where", and where is the
+    diagnosis (ADR-023).
+    """
+
+    STATEMENT = "STATEMENT", _("فرق كشف الحساب")
+    REMITTANCE = "REMITTANCE", _("فرق التحويل")
+
+
+class SettlementAdjustmentReason(models.TextChoices):
+    """
+    Why a gap exists. A **closed** vocabulary, and not master data.
+
+    Closed for the reason `CommissionBasis` is: it decides where money is
+    recognised, and a free-text reason would let a typo fall through to a
+    default. Not a table, because every reason here is a property of *this
+    software's* domain rather than of one organization's vocabulary — which is
+    the exact test `inventory.ReasonCodeApplication` applies — and because
+    there is no eighteenth permission to guard a reason master with.
+
+    **No constraint pairs a reason to a leg.** Which leg a contractual dispute
+    lands on is a fact about the counterparty's statement layout, not about
+    this system: an application that publishes commission net of promotions
+    puts a rate difference on the remittance leg, and one that publishes it
+    gross puts the same difference on the statement leg. A constraint asserting
+    otherwise would refuse a real month.
+    """
+
+    COMMISSION_RATE_DIFFERENCE = "COMMISSION_RATE_DIFFERENCE", _("فرق نسبة العمولة")
+    PROMOTION_FUNDING_DIFFERENCE = "PROMOTION_FUNDING_DIFFERENCE", _("فرق تمويل العروض")
+    CANCELLED_ORDER_NOT_CREDITED = "CANCELLED_ORDER_NOT_CREDITED", _("طلب ملغى غير مُعاد")
+    PENALTY_OR_CHARGEBACK = "PENALTY_OR_CHARGEBACK", _("غرامة أو استرداد")
+    WITHHOLDING_OR_OFFSET = "WITHHOLDING_OR_OFFSET", _("حجز أو مقاصة")
+    ROUNDING = "ROUNDING", _("تقريب")
+    UNEXPLAINED_APPROVED = "UNEXPLAINED_APPROVED", _("فرق غير مفسّر معتمد")
+
+
+class DeliveryApplicationSettlement(TimeStampedModel):
+    """
+    One statement from one delivery application, reconciled and then posted.
+
+    **Three figures, kept apart, and never reduced to one.** `expected_amount`
+    is what the restaurant's own posted receivable entries say it is owed;
+    `statement_amount` is what the application's statement says; `remitted_amount`
+    is what arrived in the bank or the till. ADR-028 §7 keeps all three on the
+    document for the reason three-way matching keeps order, receipt and invoice
+    apart (ADR-023): the pattern of which two agree is the diagnosis. Expected
+    and statement agreeing while remittance is short is a withholding; statement
+    and remittance agreeing while expected is higher is a rate dispute. One net
+    variance answers neither question.
+
+    `expected_amount` is **derived** — the sum of this settlement's allocations
+    — and stamped at `RECONCILED` rather than computed at read time. That looks
+    like a stored balance and is not one: it is evidence of what was claimed at
+    the moment the reconciliation was made, the allocations that produced it are
+    still there to be re-added, and the guard trigger freezes it afterwards. A
+    balance that could change under a signed statement would make the statement
+    meaningless.
+
+    **No commission expense is ever recognised here.** `statement_commission_amount`
+    is stored so it can be *compared* against the accrual made at the sale, and
+    the difference is a variance on a leg. Expensing it again would overstate
+    selling expense and understate gross margin by the same amount, both
+    individually defensible, which is why ADR-028 §6 names it the single most
+    likely error in the module.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="application_settlements",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="application_settlements",
+        verbose_name=_("branch"),
+    )
+    delivery_application = models.ForeignKey(
+        DeliveryApplication,
+        on_delete=models.PROTECT,
+        related_name="settlements",
+        verbose_name=_("delivery application"),
+    )
+
+    #: The period the statement covers. Reported and used to bound which
+    #: receivable entries may be allocated; it decides nothing on its own.
+    period_start = models.DateField(_("period start"))
+    period_end = models.DateField(_("period end"))
+    #: The accounting date of the remittance — when the money moved, which is
+    #: routinely later than the period it settles.
+    business_date = models.DateField(_("business date"))
+
+    #: The counterparty's own statement number. Mandatory, and unique per
+    #: application: paying one statement twice is the failure that makes it so.
+    statement_reference = models.CharField(_("statement reference"), max_length=200)
+    statement_date = models.DateField(_("statement date"))
+
+    status = models.CharField(
+        _("status"),
+        max_length=12,
+        choices=SettlementStatus.choices,
+        default=SettlementStatus.DRAFT,
+    )
+    #: `AS-YYYY-#####`, assigned at posting and never before.
+    number = models.CharField(_("number"), max_length=32, blank=True)
+
+    #: Σ allocations, stamped at `RECONCILED`. See the class docstring for why
+    #: a derived figure is stored here and nowhere else in this module.
+    expected_amount = models.DecimalField(
+        _("expected amount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+    )
+    statement_amount = models.DecimalField(
+        _("statement amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    remitted_amount = models.DecimalField(
+        _("remitted amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    #: The statement's commission column. **Compared and never posted.**
+    statement_commission_amount = models.DecimalField(
+        _("statement commission"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0"),
+        help_text=_("Compared against the accrual made at the sale. Never expensed again."),
+    )
+
+    remittance_destination = models.CharField(
+        _("remittance destination"),
+        max_length=8,
+        choices=SettlementRemittance.choices,
+        default=SettlementRemittance.BANK,
+    )
+    evidence_reference = models.CharField(_("evidence"), max_length=200)
+    notes = models.TextField(_("notes"), blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="application_settlements_created",
+        null=True,
+        blank=True,
+        verbose_name=_("created by"),
+    )
+    reconciled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="application_settlements_reconciled",
+        null=True,
+        blank=True,
+        verbose_name=_("reconciled by"),
+    )
+    reconciled_at = models.DateTimeField(_("reconciled at"), null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="application_settlements_posted",
+        null=True,
+        blank=True,
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    reversed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="application_settlements_reversed",
+        null=True,
+        blank=True,
+        verbose_name=_("reversed by"),
+    )
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    reversal_reason = models.TextField(_("reversal reason"), blank=True)
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, editable=False, unique=True)
+    idempotency_key = models.CharField(_("idempotency key"), max_length=128, blank=True)
+    request_fingerprint = models.CharField(_("request fingerprint"), max_length=128, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("delivery application settlement")
+        verbose_name_plural = _("delivery application settlements")
+        ordering = ["-period_end", "-id"]
+        # **No `permissions`.** `view_application_receivables` and
+        # `manage_application_settlements` are already declared on
+        # `DeliveryApplication` and migrated by `0003`.
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(period_end__gte=models.F("period_start")),
+                name="sales_settlement_period_is_ordered",
+            ),
+            # One settlement per statement. Paying a statement twice is the
+            # failure this prevents, and it is a failure that only ever
+            # surfaces once the counterparty stops answering.
+            models.UniqueConstraint(
+                fields=["delivery_application", "statement_reference"],
+                name="sales_settlement_statement_unique_per_application",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(status__in=["DRAFT", "RECONCILED"], number="")
+                    | (Q(status__in=["POSTED", "REVERSED"]) & ~Q(number=""))
+                ),
+                name="sales_settlement_number_iff_posted",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "number"],
+                condition=~Q(number=""),
+                name="sales_settlement_number_unique_per_organization",
+            ),
+            # The three figures and the commission column are magnitudes. The
+            # *variance* between them is signed and is derived, never stored.
+            models.CheckConstraint(
+                condition=(
+                    Q(expected_amount__gte=Decimal("0"))
+                    & Q(statement_amount__gte=Decimal("0"))
+                    & Q(remitted_amount__gte=Decimal("0"))
+                    & Q(statement_commission_amount__gte=Decimal("0"))
+                ),
+                name="sales_settlement_amounts_are_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(reconciled_by__isnull=True, reconciled_at__isnull=True)
+                    | Q(reconciled_by__isnull=False, reconciled_at__isnull=False)
+                ),
+                name="sales_settlement_reconciliation_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(posted_by__isnull=True, posted_at__isnull=True)
+                    | Q(posted_by__isnull=False, posted_at__isnull=False)
+                ),
+                name="sales_settlement_posting_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(status="REVERSED", reversed_at__isnull=False)
+                    | (~Q(status="REVERSED") & Q(reversed_at__isnull=True))
+                ),
+                name="sales_settlement_reversal_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="REVERSED") | ~Q(reversal_reason=""),
+                name="sales_settlement_reversal_has_a_reason",
+            ),
+            models.CheckConstraint(
+                condition=~Q(statement_reference=""),
+                name="sales_settlement_has_a_statement_reference",
+            ),
+            models.CheckConstraint(
+                condition=~Q(evidence_reference=""), name="sales_settlement_has_evidence"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        label = self.number or self.statement_reference
+        return f"{label} · {self.delivery_application.code}"
+
+    @property
+    def is_editable(self) -> bool:
+        return self.status == SettlementStatus.DRAFT
+
+    @property
+    def is_posted(self) -> bool:
+        return self.status == SettlementStatus.POSTED
+
+    @property
+    def statement_gap(self) -> Decimal:
+        """Expected minus statement. Positive means the statement claims less."""
+        return self.expected_amount - self.statement_amount
+
+    @property
+    def remittance_gap(self) -> Decimal:
+        """Statement minus remitted. Positive means less arrived than promised."""
+        return self.statement_amount - self.remitted_amount
+
+    @property
+    def total_variance(self) -> Decimal:
+        """Expected minus remitted — the figure the journal recognises."""
+        return self.expected_amount - self.remitted_amount
+
+
+class DeliveryApplicationSettlementAllocation(TimeStampedModel):
+    """
+    One posted receivable entry, and how much of it this settlement pays.
+
+    **Allocations rather than a period total**, which is ADR-028 §6's whole
+    decision. A settlement that credited "the balance as at the 31st" could not
+    answer which sales it paid for, and the first disputed order would be
+    unanswerable — the restaurant would be arguing about a number instead of
+    about a document. Here the question is mechanical: follow the allocation to
+    the entry, and the entry to the day that produced it.
+
+    `PROTECT` on the entry, because the entry is the evidence for the claim.
+    """
+
+    settlement = models.ForeignKey(
+        DeliveryApplicationSettlement,
+        on_delete=models.CASCADE,
+        related_name="allocations",
+        verbose_name=_("settlement"),
+    )
+    receivable_entry = models.ForeignKey(
+        ApplicationReceivableEntry,
+        on_delete=models.PROTECT,
+        related_name="settlement_allocations",
+        verbose_name=_("receivable entry"),
+    )
+    allocated_amount = models.DecimalField(
+        _("allocated amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("settlement allocation")
+        verbose_name_plural = _("settlement allocations")
+        ordering = ["settlement", "receivable_entry__business_date", "receivable_entry_id"]
+        constraints = [
+            # One row per entry per settlement. Two would make "how much of
+            # this entry has been claimed" a sum somebody has to remember.
+            models.UniqueConstraint(
+                fields=["settlement", "receivable_entry"],
+                name="sales_settlement_allocation_unique_per_entry",
+            ),
+            models.CheckConstraint(
+                condition=Q(allocated_amount__gt=Decimal("0")),
+                name="sales_settlement_allocation_is_positive",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.settlement} ← {self.receivable_entry_id}: {self.allocated_amount}"
+
+
+class DeliveryApplicationSettlementAdjustment(TimeStampedModel):
+    """
+    One dinar-for-dinar claim against one of the two gaps.
+
+    Every dinar of `statement_gap` and every dinar of `remittance_gap` must be
+    claimed by a row here before the settlement may reconcile. That is ADR-028
+    §7's refusal to absorb: an account that silently swallows differences is an
+    account nobody reads, and a mis-configured commission rate sitting inside it
+    is invisible for a year.
+
+    `amount` is **signed**. Positive means the restaurant received less than the
+    previous leg promised — a withholding, a penalty, a rate the application
+    applied and the restaurant did not accrue. Negative means it received more.
+    A magnitude plus a direction flag would be two fields that can disagree.
+
+    The escape hatch is `UNEXPLAINED_APPROVED`, and it is not free: two check
+    constraints below require a written explanation *and* a named approver. An
+    unexplained difference may reach the ledger, but only wearing a name and a
+    reason — which is ADR-022's rule that a difference is recognised where it is
+    decided, by somebody who decided it.
+    """
+
+    settlement = models.ForeignKey(
+        DeliveryApplicationSettlement,
+        on_delete=models.CASCADE,
+        related_name="adjustments",
+        verbose_name=_("settlement"),
+    )
+    leg = models.CharField(_("leg"), max_length=12, choices=SettlementVarianceLeg.choices)
+    reason = models.CharField(
+        _("reason"), max_length=40, choices=SettlementAdjustmentReason.choices
+    )
+    amount = models.DecimalField(
+        _("amount"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        help_text=_("Signed: positive means the restaurant received less than promised."),
+    )
+    explanation = models.CharField(_("explanation"), max_length=300, blank=True)
+
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="settlement_adjustments_approved",
+        null=True,
+        blank=True,
+        verbose_name=_("approved by"),
+    )
+    approved_at = models.DateTimeField(_("approved at"), null=True, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("settlement adjustment")
+        verbose_name_plural = _("settlement adjustments")
+        ordering = ["settlement", "leg", "id"]
+        constraints = [
+            # A zero claim explains nothing and still has to be read by
+            # everything that adds the leg up.
+            models.CheckConstraint(
+                condition=~Q(amount=Decimal("0")),
+                name="sales_settlement_adjustment_is_not_zero",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(approved_by__isnull=True, approved_at__isnull=True)
+                    | Q(approved_by__isnull=False, approved_at__isnull=False)
+                ),
+                name="sales_settlement_adjustment_approval_is_complete",
+            ),
+            # ADR-028 §7 as a database guarantee rather than a service check.
+            models.CheckConstraint(
+                condition=~Q(reason="UNEXPLAINED_APPROVED") | ~Q(explanation=""),
+                name="sales_settlement_adjustment_unexplained_needs_words",
+            ),
+            models.CheckConstraint(
+                condition=~Q(reason="UNEXPLAINED_APPROVED") | Q(approved_by__isnull=False),
+                name="sales_settlement_adjustment_unexplained_needs_an_approver",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.settlement} · {self.get_leg_display()} {self.amount}"
+
+    @property
+    def is_unexplained(self) -> bool:
+        return self.reason == SettlementAdjustmentReason.UNEXPLAINED_APPROVED
+
+
 __all__ = [
     "CALCULATION_MAX_DIGITS",
     "CODE_PATTERN",
@@ -2119,6 +2591,9 @@ __all__ = [
     "DeliveryAgreement",
     "DeliveryApplication",
     "DeliveryApplicationBranchSetting",
+    "DeliveryApplicationSettlement",
+    "DeliveryApplicationSettlementAdjustment",
+    "DeliveryApplicationSettlementAllocation",
     "DiscountProgram",
     "FulfillmentSource",
     "MenuCategory",
@@ -2138,5 +2613,9 @@ __all__ = [
     "SalesDayStatus",
     "SalesDocumentSequence",
     "SalesTenderSummary",
+    "SettlementAdjustmentReason",
+    "SettlementRemittance",
+    "SettlementStatus",
+    "SettlementVarianceLeg",
     "TenderDestination",
 ]

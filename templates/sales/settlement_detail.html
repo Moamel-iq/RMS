@@ -1,0 +1,392 @@
+{# One statement, reconciled against one ledger.                             #}
+{#                                                                           #}
+{# The three-figure block at the top is the most important thing on this     #}
+{# page and it is deliberately not summarised. Expected, statement and       #}
+{# remitted stay apart, with both gaps and both *unexplained residuals*      #}
+{# stated in dinars beside them (ADR-028 §7). The residual is the only       #}
+{# number here that decides anything: the settlement cannot reconcile until  #}
+{# both are exactly zero.                                                    #}
+{#                                                                           #}
+{# The commission row is a comparison, never a posting. It is on the page so #}
+{# a rate dispute is visible; a class-6 line in this document's journal      #}
+{# would be a second recognition of an expense already accrued at the sale.  #}
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="settlement-detail">
+    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'sales:settlement_list' %}">{% translate "تسويات التطبيقات" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ settlement.statement_reference }}</span>
+    </nav>
+
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">
+          <span class="chip">{{ settlement.get_status_display }}</span>
+          <span class="chip">{{ settlement.get_remittance_destination_display }}</span>
+          {% if settlement.number %}<bdi dir="ltr"><code>{{ settlement.number }}</code></bdi>{% endif %}
+        </p>
+      </div>
+      <div class="pagehead__actions">
+        {% if may_reconcile %}
+          <form method="post" action="{% url 'sales:settlement_reconcile' settlement.pk %}"
+                data-confirm="{% translate 'المطابقة إقرار بأن كل دينار من الفرقين مطالَب به بسبب مسمّى. بعدها تتجمّد الأرقام الثلاثة.' %}"
+                data-confirm-title="{% translate 'تأكيد المطابقة' %}">
+            {% csrf_token %}
+            <button class="btn btn--secondary" type="submit">{% translate "مطابقة" %}</button>
+          </form>
+        {% endif %}
+        {% if may_post %}
+          <form method="post" action="{% url 'sales:settlement_post' settlement.pk %}"
+                data-confirm="{% translate 'سيُكتب قيد يخصم ما وصل فعلاً ويُقيِّد الفرق على فروقات تسويات التطبيقات، ويُعدم الذمة بالمبلغ المستحق. العمولة لا تُسجَّل مصروفاً مرة ثانية.' %}"
+                data-confirm-title="{% translate 'تأكيد ترحيل التسوية' %}">
+            {% csrf_token %}
+            <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if settlement.status == "REVERSED" %}
+      <p class="banner banner--bad" role="note">
+        {% blocktranslate with reason=settlement.reversal_reason %}هذه التسوية معكوسة: {{ reason }}{% endblocktranslate %}
+      </p>
+    {% endif %}
+
+    {# --- the three figures, kept apart ------------------------------------ #}
+    <h2 class="section-title">{% translate "المقارنة الثلاثية" %}</h2>
+    <div class="statrow">
+      <div class="stat">
+        <span class="stat__label">{% translate "المستحق لدينا" %}</span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ three_way.expected }}</code></bdi></span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">{% translate "كشف التطبيق" %}</span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ three_way.statement }}</code></bdi></span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">{% translate "المحوَّل فعلاً" %}</span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ three_way.remitted }}</code></bdi></span>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "الفرق" %}</th>
+            <th scope="col">{% translate "المقدار" %}</th>
+            <th scope="col">{% translate "المفسَّر" %}</th>
+            <th scope="col">{% translate "غير المفسَّر" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-label="{% translate 'الفرق' %}">{% translate "فرق كشف الحساب" %}</td>
+            <td data-label="{% translate 'المقدار' %}">
+              <bdi dir="ltr"><code>{{ three_way.statement_gap }}</code></bdi>
+            </td>
+            <td data-label="{% translate 'المفسَّر' %}">
+              <bdi dir="ltr"><code>{{ three_way.explained_statement }}</code></bdi>
+            </td>
+            <td data-label="{% translate 'غير المفسَّر' %}">
+              {% if three_way.unexplained_statement %}
+                <span class="chip chip--bad">
+                  <bdi dir="ltr"><code>{{ three_way.unexplained_statement }}</code></bdi>
+                </span>
+              {% else %}
+                <span class="chip chip--ok"><bdi dir="ltr"><code>0.000</code></bdi></span>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td data-label="{% translate 'الفرق' %}">{% translate "فرق التحويل" %}</td>
+            <td data-label="{% translate 'المقدار' %}">
+              <bdi dir="ltr"><code>{{ three_way.remittance_gap }}</code></bdi>
+            </td>
+            <td data-label="{% translate 'المفسَّر' %}">
+              <bdi dir="ltr"><code>{{ three_way.explained_remittance }}</code></bdi>
+            </td>
+            <td data-label="{% translate 'غير المفسَّر' %}">
+              {% if three_way.unexplained_remittance %}
+                <span class="chip chip--bad">
+                  <bdi dir="ltr"><code>{{ three_way.unexplained_remittance }}</code></bdi>
+                </span>
+              {% else %}
+                <span class="chip chip--ok"><bdi dir="ltr"><code>0.000</code></bdi></span>
+              {% endif %}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% if not three_way.is_reconcilable %}
+      <p class="banner banner--bad" role="note">
+        {% translate "لا يمكن المطابقة حتى يُطالَب بكل دينار من الفرقين بسبب مسمّى. الحساب الذي يبتلع الفروق بصمت حساب لا يقرأه أحد، ونسبة عمولة مضبوطة خطأً تجلس داخله سنة كاملة دون أن تُرى. المخرج الأخير «فرق غير مفسّر معتمد»، ويحتاج تفسيراً مكتوباً ومعتمداً بالاسم." %}
+      </p>
+    {% endif %}
+
+    {# --- commission: compared, never posted -------------------------------- #}
+    <h2 class="section-title">{% translate "العمولة" %}</h2>
+    <div class="statrow">
+      <div class="stat">
+        <span class="stat__label">{% translate "المستحقة عند البيع" %}</span>
+        <span class="stat__value">
+          <bdi dir="ltr"><code>{{ three_way.accrued_commission }}</code></bdi>
+        </span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">{% translate "حسب كشف التطبيق" %}</span>
+        <span class="stat__value">
+          <bdi dir="ltr"><code>{{ three_way.statement_commission }}</code></bdi>
+        </span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">{% translate "الفرق" %}</span>
+        <span class="stat__value">
+          <bdi dir="ltr"><code>{{ three_way.commission_gap }}</code></bdi>
+        </span>
+      </div>
+    </div>
+    <p class="banner" role="note">
+      {% translate "العمولة لا تُعترف مرتين. استُحقّت عند البيع، وعمود العمولة في الكشف يُقارَن بها فقط. أي فرق بينهما فرقٌ يُفسَّر على أحد الشقّين، لا مصروف بيع ثانٍ: تسجيله مرة أخرى يضخّم مصروف البيع ويقلّص مجمل الربح بالمقدار نفسه، وكلاهما يبدو معقولاً على حدة — ولذلك لا يكتشفه أحد." %}
+    </p>
+
+    <dl class="deflist">
+      <div>
+        <dt>{% translate "الفترة" %}</dt>
+        <dd>
+          <bdi dir="ltr"><code>{{ settlement.period_start|date:"Y-m-d" }} … {{ settlement.period_end|date:"Y-m-d" }}</code></bdi>
+        </dd>
+      </div>
+      <div>
+        <dt>{% translate "تاريخ التحويل" %}</dt>
+        <dd><bdi dir="ltr"><code>{{ settlement.business_date|date:"Y-m-d" }}</code></bdi></dd>
+      </div>
+      <div>
+        <dt>{% translate "التطبيق" %}</dt>
+        <dd>
+          <a href="{% url 'sales:receivable_detail' settlement.delivery_application.pk %}">
+            <bdi dir="ltr"><code>{{ settlement.delivery_application.code }}</code></bdi>
+            {{ settlement.delivery_application.name_ar }}
+          </a>
+        </dd>
+      </div>
+      <div>
+        <dt>{% translate "المستند" %}</dt>
+        <dd><bdi dir="ltr"><code>{{ settlement.evidence_reference }}</code></bdi></dd>
+      </div>
+      {% if settlement.notes %}
+        <div>
+          <dt>{% translate "ملاحظات" %}</dt>
+          <dd>{{ settlement.notes }}</dd>
+        </div>
+      {% endif %}
+    </dl>
+
+    {# --- allocations ------------------------------------------------------- #}
+    <h2 class="section-title">{% translate "التخصيصات" %}</h2>
+    <p class="pagehead__hint">
+      {% translate "التخصيص يربط التسوية بحركة ذمة مرحّلة بعينها. تسوية تُسدِّد «الرصيد حتى ٣١» لا تستطيع أن تقول أيّ المبيعات دفعت ثمنها." %}
+    </p>
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "تاريخ الحركة" %}</th>
+            <th scope="col">{% translate "المصدر" %}</th>
+            <th scope="col">{% translate "المدين" %}</th>
+            <th scope="col">{% translate "المخصَّص" %}</th>
+            <th scope="col">{% translate "المتبقّي مفتوحاً" %}</th>
+            {% if may_edit %}<th scope="col"></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for allocation, still_open in allocations %}
+            <tr>
+              <td data-label="{% translate 'تاريخ الحركة' %}">
+                <bdi dir="ltr"><code>{{ allocation.receivable_entry.business_date|date:"Y-m-d" }}</code></bdi>
+              </td>
+              <td data-label="{% translate 'المصدر' %}">
+                {{ allocation.receivable_entry.get_source_display }}
+              </td>
+              <td data-label="{% translate 'المدين' %}">
+                <bdi dir="ltr"><code>{{ allocation.receivable_entry.debit }}</code></bdi>
+              </td>
+              <td data-label="{% translate 'المخصَّص' %}">
+                <bdi dir="ltr"><code>{{ allocation.allocated_amount }}</code></bdi>
+              </td>
+              <td data-label="{% translate 'المتبقّي مفتوحاً' %}">
+                <bdi dir="ltr"><code>{{ still_open }}</code></bdi>
+              </td>
+              {% if may_edit %}
+                <td>
+                  <form method="post" action="{% url 'sales:settlement_allocation_delete' allocation.pk %}">
+                    {% csrf_token %}
+                    <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "حذف" %}</button>
+                  </form>
+                </td>
+              {% endif %}
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="{% if may_edit %}6{% else %}5{% endif %}" class="empty">
+                {% translate "لا توجد تخصيصات بعد." %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if settled_days %}
+      <p class="pagehead__hint">
+        {% translate "أيام المبيعات المسدَّدة:" %}
+        {% for day in settled_days %}
+          <a href="{% url 'sales:day_detail' day.pk %}">
+            <bdi dir="ltr"><code>{{ day.business_date|date:"Y-m-d" }}</code></bdi>
+          </a>{% if not forloop.last %}،{% endif %}
+        {% endfor %}
+      </p>
+    {% endif %}
+    {% if settled_adjustments %}
+      <p class="pagehead__hint">
+        {% translate "التسويات المرتجعة المشمولة:" %}
+        {% for adjustment in settled_adjustments %}
+          <a href="{% url 'sales:adjustment_detail' adjustment.pk %}">
+            <bdi dir="ltr"><code>{{ adjustment.number }}</code></bdi>
+          </a>{% if not forloop.last %}،{% endif %}
+        {% endfor %}
+      </p>
+    {% endif %}
+
+    {% if allocation_form %}
+      <h2 class="section-title">{% translate "تخصيص حركة" %}</h2>
+      <form class="formcard" method="post" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="form" value="allocation">
+        {% include "components/form_error_summary.html" with form=allocation_form %}
+        <div class="formgrid">
+          {% for field in allocation_form %}
+            {% include "settings/_field.html" with field=field %}
+          {% endfor %}
+        </div>
+        <div class="formactions">
+          <button class="btn btn--primary" type="submit">{% translate "تخصيص" %}</button>
+        </div>
+      </form>
+    {% endif %}
+
+    {# --- variance claims ---------------------------------------------------- #}
+    <h2 class="section-title">{% translate "تفسير الفروق" %}</h2>
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "الشق" %}</th>
+            <th scope="col">{% translate "السبب" %}</th>
+            <th scope="col">{% translate "المبلغ" %}</th>
+            <th scope="col">{% translate "التفسير" %}</th>
+            <th scope="col">{% translate "المعتمِد" %}</th>
+            {% if may_edit %}<th scope="col"></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for adjustment in adjustments %}
+            <tr>
+              <td data-label="{% translate 'الشق' %}">{{ adjustment.get_leg_display }}</td>
+              <td data-label="{% translate 'السبب' %}">
+                {% if adjustment.is_unexplained %}
+                  <span class="chip chip--bad">{{ adjustment.get_reason_display }}</span>
+                {% else %}
+                  <span class="chip">{{ adjustment.get_reason_display }}</span>
+                {% endif %}
+              </td>
+              <td data-label="{% translate 'المبلغ' %}">
+                <bdi dir="ltr"><code>{{ adjustment.amount }}</code></bdi>
+              </td>
+              <td data-label="{% translate 'التفسير' %}">{{ adjustment.explanation|default:"—" }}</td>
+              <td data-label="{% translate 'المعتمِد' %}">
+                {% if adjustment.approved_by %}
+                  {{ adjustment.approved_by.get_username }}
+                {% else %}—{% endif %}
+              </td>
+              {% if may_edit %}
+                <td>
+                  <form method="post" action="{% url 'sales:settlement_adjustment_delete' adjustment.pk %}">
+                    {% csrf_token %}
+                    <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "حذف" %}</button>
+                  </form>
+                </td>
+              {% endif %}
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="{% if may_edit %}6{% else %}5{% endif %}" class="empty">
+                {% translate "لا توجد فروق مفسَّرة بعد." %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if adjustment_form %}
+      <h2 class="section-title">{% translate "إضافة تفسير" %}</h2>
+      <form class="formcard" method="post" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="form" value="adjustment">
+        {% include "components/form_error_summary.html" with form=adjustment_form %}
+        <div class="formgrid">
+          {% for field in adjustment_form %}
+            {% include "settings/_field.html" with field=field %}
+          {% endfor %}
+        </div>
+        <div class="formactions">
+          <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+        </div>
+      </form>
+    {% endif %}
+
+    {% if may_return %}
+      <h2 class="section-title">{% translate "إعادة إلى المسودة" %}</h2>
+      <p class="pagehead__hint">
+        {% translate "المطابقة إقرار، والإقرار الذي يمكن تعديله بصمت ليس إقراراً. الطريق إلى الوراء موجود ويبقى على السجل." %}
+      </p>
+      <form class="formcard" method="post" novalidate
+            action="{% url 'sales:settlement_return' settlement.pk %}">
+        {% csrf_token %}
+        <div class="formgrid">
+          {% for field in reversal_form %}
+            {% include "settings/_field.html" with field=field %}
+          {% endfor %}
+        </div>
+        <div class="formactions">
+          <button class="btn btn--secondary" type="submit">{% translate "إعادة إلى المسودة" %}</button>
+        </div>
+      </form>
+    {% elif may_reverse %}
+      <h2 class="section-title">{% translate "عكس التسوية" %}</h2>
+      <form class="formcard" method="post" novalidate
+            action="{% url 'sales:settlement_reverse' settlement.pk %}"
+            data-confirm="{% translate 'سيُضاف قيد عاكس وحركة ذمة عاكسة، وتعود التخصيصات مفتوحة. الأصل يبقى ظاهراً.' %}"
+            data-confirm-title="{% translate 'تأكيد عكس التسوية' %}">
+        {% csrf_token %}
+        <div class="formgrid">
+          {% for field in reversal_form %}
+            {% include "settings/_field.html" with field=field %}
+          {% endfor %}
+        </div>
+        <div class="formactions">
+          <button class="btn btn--danger-quiet" type="submit">{% translate "عكس" %}</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+{% endblock %}
