@@ -404,6 +404,14 @@ def test_every_hr_permission_is_scoped_and_the_role_matrix_separates_sensitive_d
         "hr.manage_advance",
         "hr.approve_advance",
         "hr.disburse_advance",
+        "hr.view_payroll_workspace",
+        "hr.calculate_payroll",
+        "hr.review_payroll",
+        "hr.approve_payroll",
+        "hr.post_payroll",
+        "hr.pay_payroll",
+        "hr.view_payroll_amounts",
+        "hr.view_employee_statement",
     }
     assert all(
         scope_of(permission) is PermissionScope.ORGANIZATION_AUTHORITY

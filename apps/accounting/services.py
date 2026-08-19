@@ -677,6 +677,7 @@ def sync_system_account_roles() -> None:
     from apps.accounting.models import (
         SYSTEM_ACCOUNTING_ROLES,
         SYSTEM_INVENTORY_ROLES,
+        SYSTEM_PAYROLL_ROLES,
         SYSTEM_PURCHASING_ROLES,
         SYSTEM_SALES_ROLES,
         AccountRole,
@@ -688,6 +689,7 @@ def sync_system_account_roles() -> None:
         (SYSTEM_PURCHASING_ROLES, AccountRoleDomain.PURCHASING),
         (SYSTEM_SALES_ROLES, AccountRoleDomain.SALES),
         (SYSTEM_ACCOUNTING_ROLES, AccountRoleDomain.ACCOUNTING),
+        (SYSTEM_PAYROLL_ROLES, AccountRoleDomain.PAYROLL),
     )
     for roles, domain in vocabularies:
         for code, name_ar, name_en, mapping_scope in roles:

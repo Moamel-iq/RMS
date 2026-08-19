@@ -45,6 +45,14 @@ VIEW_ADVANCE = f"{APP_LABEL}.view_advance_workspace"
 MANAGE_ADVANCE = f"{APP_LABEL}.manage_advance"
 APPROVE_ADVANCE = f"{APP_LABEL}.approve_advance"
 DISBURSE_ADVANCE = f"{APP_LABEL}.disburse_advance"
+VIEW_PAYROLL = f"{APP_LABEL}.view_payroll_workspace"
+CALCULATE_PAYROLL = f"{APP_LABEL}.calculate_payroll"
+REVIEW_PAYROLL = f"{APP_LABEL}.review_payroll"
+APPROVE_PAYROLL = f"{APP_LABEL}.approve_payroll"
+POST_PAYROLL = f"{APP_LABEL}.post_payroll"
+PAY_PAYROLL = f"{APP_LABEL}.pay_payroll"
+VIEW_PAYROLL_AMOUNTS = f"{APP_LABEL}.view_payroll_amounts"
+VIEW_EMPLOYEE_STATEMENT = f"{APP_LABEL}.view_employee_statement"
 
 ALL_PERMISSIONS: tuple[str, ...] = (
     VIEW_EMPLOYEE,
@@ -76,6 +84,14 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     MANAGE_ADVANCE,
     APPROVE_ADVANCE,
     DISBURSE_ADVANCE,
+    VIEW_PAYROLL,
+    CALCULATE_PAYROLL,
+    REVIEW_PAYROLL,
+    APPROVE_PAYROLL,
+    POST_PAYROLL,
+    PAY_PAYROLL,
+    VIEW_PAYROLL_AMOUNTS,
+    VIEW_EMPLOYEE_STATEMENT,
 )
 
 PERMISSION_SCOPE = dict.fromkeys(ALL_PERMISSIONS, PermissionScope.ORGANIZATION_AUTHORITY)
@@ -112,6 +128,11 @@ _MANAGER = frozenset(
         MANAGE_ADVANCE,
         APPROVE_ADVANCE,
         DISBURSE_ADVANCE,
+        VIEW_PAYROLL,
+        CALCULATE_PAYROLL,
+        REVIEW_PAYROLL,
+        VIEW_PAYROLL_AMOUNTS,
+        VIEW_EMPLOYEE_STATEMENT,
     }
 )
 _ACCOUNTING_MANAGER = frozenset(
@@ -129,6 +150,13 @@ _ACCOUNTING_MANAGER = frozenset(
         VIEW_ADVANCE,
         APPROVE_ADVANCE,
         DISBURSE_ADVANCE,
+        VIEW_PAYROLL,
+        REVIEW_PAYROLL,
+        APPROVE_PAYROLL,
+        POST_PAYROLL,
+        PAY_PAYROLL,
+        VIEW_PAYROLL_AMOUNTS,
+        VIEW_EMPLOYEE_STATEMENT,
     }
 )
 _ACCOUNTANT = frozenset(
@@ -142,6 +170,11 @@ _ACCOUNTANT = frozenset(
         VIEW_OVERTIME,
         VIEW_DEDUCTION,
         VIEW_ADVANCE,
+        VIEW_PAYROLL,
+        CALCULATE_PAYROLL,
+        REVIEW_PAYROLL,
+        VIEW_PAYROLL_AMOUNTS,
+        VIEW_EMPLOYEE_STATEMENT,
     }
 )
 _VIEWER = frozenset({VIEW_EMPLOYEE})

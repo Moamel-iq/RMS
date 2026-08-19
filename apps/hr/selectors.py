@@ -13,6 +13,7 @@ from apps.hr.models import (
     EmployeeDeduction,
     LeaveRequest,
     OvertimeRequest,
+    PayrollRun,
     Shift,
     ShiftAssignment,
 )
@@ -24,6 +25,7 @@ from apps.hr.permissions import (
     VIEW_EMPLOYEE,
     VIEW_LEAVE,
     VIEW_OVERTIME,
+    VIEW_PAYROLL,
     VIEW_SHIFT,
 )
 from apps.organizations.authorization import organizations_with_permission
@@ -195,4 +197,34 @@ def resolve_advance(actor: User, pk: int) -> EmployeeAdvance:
             .get(pk=pk)
         )
     except EmployeeAdvance.DoesNotExist as error:
+        raise Http404 from error
+
+
+def visible_payroll_runs(actor: User) -> QuerySet[PayrollRun]:
+    return PayrollRun.objects.filter(
+        organization__in=organizations_with_permission(actor, VIEW_PAYROLL)
+    )
+
+
+def resolve_payroll_run(actor: User, pk: int) -> PayrollRun:
+    try:
+        return (
+            visible_payroll_runs(actor)
+            .select_related(
+                "organization",
+                "branch",
+                "policy",
+                "created_by",
+                "calculated_by",
+                "reviewed_by",
+                "approved_by",
+                "posted_by",
+                "released_by",
+                "accrual_journal",
+                "reversal_journal",
+            )
+            .prefetch_related("employee_lines", "employee_lines__components", "payments")
+            .get(pk=pk)
+        )
+    except PayrollRun.DoesNotExist as error:
         raise Http404 from error

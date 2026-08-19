@@ -802,6 +802,7 @@ class AccountRoleDomain(models.TextChoices):
     #: outside Accounting ever posts to, because nothing outside Accounting
     #: knows that a period has ended.
     ACCOUNTING = "ACCOUNTING", _("المحاسبة")
+    PAYROLL = "PAYROLL", _("الرواتب")
 
 
 class AccountRoleMappingScope(models.TextChoices):
@@ -1234,6 +1235,31 @@ SYSTEM_ACCOUNTING_ROLES: tuple[tuple[str, str, str, str], ...] = (
     (PREPAID_EXPENSE, "مصروفات مدفوعة مقدماً", "Prepaid expenses", "ORGANIZATION"),
     (CURRENT_YEAR_EARNINGS, "نتيجة السنة الحالية", "Current year earnings", "ORGANIZATION"),
     (RETAINED_EARNINGS, "الأرباح المحتجزة", "Retained earnings", "ORGANIZATION"),
+)
+
+
+# ---------------------------------------------------------------------------
+# Payroll
+# ---------------------------------------------------------------------------
+
+PAYROLL_SALARY_EXPENSE = "PAYROLL_SALARY_EXPENSE"
+PAYROLL_ALLOWANCE_EXPENSE = "PAYROLL_ALLOWANCE_EXPENSE"
+PAYROLL_OVERTIME_EXPENSE = "PAYROLL_OVERTIME_EXPENSE"
+PAYROLL_PAYABLE = "PAYROLL_PAYABLE"
+EMPLOYEE_RECEIVABLE = "EMPLOYEE_RECEIVABLE"
+PAYROLL_OTHER_LIABILITY = "PAYROLL_OTHER_LIABILITY"
+PAYROLL_CASH = "PAYROLL_CASH"
+PAYROLL_BANK = "PAYROLL_BANK"
+
+SYSTEM_PAYROLL_ROLES: tuple[tuple[str, str, str, str], ...] = (
+    (PAYROLL_SALARY_EXPENSE, "مصروف الرواتب والأجور", "Salary and wage expense", "ORGANIZATION"),
+    (PAYROLL_ALLOWANCE_EXPENSE, "مصروف بدلات الرواتب", "Payroll allowance expense", "ORGANIZATION"),
+    (PAYROLL_OVERTIME_EXPENSE, "مصروف العمل الإضافي", "Payroll overtime expense", "ORGANIZATION"),
+    (PAYROLL_PAYABLE, "رواتب مستحقة الدفع", "Payroll payable", "ORGANIZATION"),
+    (EMPLOYEE_RECEIVABLE, "ذمم الموظفين", "Employee receivable", "ORGANIZATION"),
+    (PAYROLL_OTHER_LIABILITY, "التزامات رواتب أخرى", "Other payroll liability", "ORGANIZATION"),
+    (PAYROLL_CASH, "نقدية صرف الرواتب", "Payroll cash", "ORGANIZATION"),
+    (PAYROLL_BANK, "مصرف صرف الرواتب", "Payroll bank", "ORGANIZATION"),
 )
 
 

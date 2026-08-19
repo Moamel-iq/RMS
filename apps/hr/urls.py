@@ -1,6 +1,6 @@
 from django.urls import path
 
-from apps.hr import attendance_views, operation_views, shift_views, views
+from apps.hr import attendance_views, operation_views, payroll_views, shift_views, views
 from apps.hr.permissions import VIEW_ADVANCE, VIEW_DEDUCTION, VIEW_LEAVE, VIEW_OVERTIME
 
 app_name = "hr"
@@ -145,5 +145,27 @@ urlpatterns = [
             kind="advance", required_permission=VIEW_ADVANCE
         ),
         name="advance_command",
+    ),
+    path("payroll/", payroll_views.PayrollRunListView.as_view(), name="payroll_list"),
+    path("payroll/new/", payroll_views.PayrollRunCreateView.as_view(), name="payroll_create"),
+    path(
+        "payroll/approvals/",
+        payroll_views.PayrollApprovalListView.as_view(),
+        name="payroll_approvals",
+    ),
+    path(
+        "payroll/<int:pk>/",
+        payroll_views.PayrollRunDetailView.as_view(),
+        name="payroll_detail",
+    ),
+    path(
+        "payroll/<int:pk>/<str:action>/",
+        payroll_views.PayrollRunCommandView.as_view(),
+        name="payroll_command",
+    ),
+    path(
+        "payroll/lines/<int:pk>/",
+        payroll_views.PayrollEmployeeLineView.as_view(),
+        name="payroll_line",
     ),
 ]

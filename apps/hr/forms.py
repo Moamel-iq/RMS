@@ -22,11 +22,13 @@ from apps.hr.models import (
     LeaveType,
     OvertimeRequest,
     PayrollPolicy,
+    PayrollRun,
     Shift,
     ShiftAssignment,
 )
 from apps.hr.permissions import (
     ASSIGN_SHIFT,
+    CALCULATE_PAYROLL,
     CORRECT_ATTENDANCE,
     MANAGE_ADVANCE,
     MANAGE_CONTRACT,
@@ -613,3 +615,42 @@ class AdvanceForm(forms.ModelForm):  # type: ignore[type-arg]
         cast(
             "forms.ModelChoiceField[Employee]", self.fields["employee"]
         ).queryset = Employee.objects.filter(organization__in=organizations)
+
+
+class PayrollRunForm(forms.ModelForm):  # type: ignore[type-arg]
+    class Meta:
+        model = PayrollRun
+        fields = (
+            "branch",
+            "period_start",
+            "period_end",
+            "accounting_date",
+            "policy",
+            "notes",
+        )
+        widgets = {
+            "period_start": DATE_WIDGET,
+            "period_end": DATE_WIDGET,
+            "accounting_date": DATE_WIDGET,
+            "notes": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "branch": _("الفرع"),
+            "period_start": _("بداية الفترة"),
+            "period_end": _("نهاية الفترة"),
+            "accounting_date": _("التاريخ المحاسبي"),
+            "policy": _("سياسة الرواتب"),
+            "notes": _("ملاحظات"),
+        }
+
+    def __init__(self, *, actor: User, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        organizations = organizations_with_permission(actor, CALCULATE_PAYROLL)
+        cast(
+            "forms.ModelChoiceField[Branch]", self.fields["branch"]
+        ).queryset = Branch.objects.filter(organization__in=organizations, is_active=True)
+        cast(
+            "forms.ModelChoiceField[PayrollPolicy]", self.fields["policy"]
+        ).queryset = PayrollPolicy.objects.filter(
+            organization__in=organizations, is_active=True
+        ).order_by("organization__code", "code", "-version")

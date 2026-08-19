@@ -173,6 +173,14 @@ class PayrollPolicy(TimeStampedModel):
     deduction_cap_percentage = models.DecimalField(
         max_digits=6, decimal_places=3, default=Decimal("100.000")
     )
+    deduct_lateness = models.BooleanField(default=True)
+    deduct_early_departure = models.BooleanField(default=True)
+    absence_multiplier = models.DecimalField(
+        max_digits=8, decimal_places=3, default=Decimal("1.000")
+    )
+    unpaid_leave_multiplier = models.DecimalField(
+        max_digits=8, decimal_places=3, default=Decimal("1.000")
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -203,7 +211,9 @@ class PayrollPolicy(TimeStampedModel):
                 condition=Q(money_rounding__gt=0)
                 & Q(hour_rounding__gt=0)
                 & Q(overtime_multiplier__gte=0)
-                & Q(deduction_cap_percentage__gte=0),
+                & Q(deduction_cap_percentage__gte=0)
+                & Q(absence_multiplier__gte=0)
+                & Q(unpaid_leave_multiplier__gte=0),
                 name="hr_payroll_policy_values_valid",
             ),
         ]
@@ -1109,4 +1119,349 @@ class AdvanceRecoveryAllocation(TimeStampedModel):
                 fields=["advance", "payroll_reference"], name="hr_advance_payroll_unique"
             ),
             models.CheckConstraint(condition=Q(amount__gt=0), name="hr_advance_recovery_positive"),
+        ]
+
+
+class PayrollRunStatus(models.TextChoices):
+    DRAFT = "DRAFT", _("مسودة")
+    CALCULATED = "CALCULATED", _("محسوب")
+    REVIEWED = "REVIEWED", _("تمت مراجعته")
+    APPROVED = "APPROVED", _("معتمد")
+    POSTED = "POSTED", _("مرحّل محاسبياً")
+    RELEASED = "RELEASED", _("مطلق للصرف")
+    PARTIALLY_PAID = "PARTIALLY_PAID", _("مصروف جزئياً")
+    PAID = "PAID", _("مصروف بالكامل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class PayrollRun(TimeStampedModel):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="payroll_runs"
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch", on_delete=models.PROTECT, related_name="payroll_runs"
+    )
+    run_number = models.CharField(max_length=48)
+    period_start = models.DateField()
+    period_end = models.DateField()
+    accounting_date = models.DateField()
+    policy = models.ForeignKey(PayrollPolicy, on_delete=models.PROTECT, related_name="payroll_runs")
+    policy_snapshot = models.JSONField(default=dict)
+    currency = models.CharField(max_length=3, default="IQD")
+    status = models.CharField(
+        max_length=24, choices=PayrollRunStatus.choices, default=PayrollRunStatus.DRAFT
+    )
+    employee_count = models.PositiveIntegerField(default=0)
+    basic_pay_total = models.DecimalField(max_digits=20, decimal_places=3, default=Decimal("0"))
+    allowance_total = models.DecimalField(max_digits=20, decimal_places=3, default=Decimal("0"))
+    overtime_total = models.DecimalField(max_digits=20, decimal_places=3, default=Decimal("0"))
+    reward_total = models.DecimalField(max_digits=20, decimal_places=3, default=Decimal("0"))
+    gross_total = models.DecimalField(max_digits=20, decimal_places=3, default=Decimal("0"))
+    deduction_total = models.DecimalField(max_digits=20, decimal_places=3, default=Decimal("0"))
+    net_total = models.DecimalField(max_digits=20, decimal_places=3, default=Decimal("0"))
+    warning_count = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_payroll_runs"
+    )
+    calculated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="calculated_payroll_runs",
+    )
+    calculated_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reviewed_payroll_runs",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_payroll_runs",
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="posted_payroll_runs",
+    )
+    posted_at = models.DateTimeField(null=True, blank=True)
+    released_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="released_payroll_runs",
+    )
+    released_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True)
+    notes = models.TextField(blank=True)
+    accrual_journal = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payroll_accrual_runs",
+    )
+    reversal_journal = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reversed_payroll_runs",
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["-period_end", "branch__code", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "run_number"], name="hr_payroll_run_number_unique"
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "branch", "period_start", "period_end"],
+                condition=~Q(status=PayrollRunStatus.REVERSED),
+                name="hr_payroll_live_period_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(period_end__gte=models.F("period_start")),
+                name="hr_payroll_period_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(basic_pay_total__gte=0)
+                & Q(allowance_total__gte=0)
+                & Q(overtime_total__gte=0)
+                & Q(reward_total__gte=0)
+                & Q(gross_total__gte=0)
+                & Q(deduction_total__gte=0)
+                & Q(net_total__gte=0)
+                & Q(net_total=models.F("gross_total") - models.F("deduction_total")),
+                name="hr_payroll_run_totals_reconcile",
+            ),
+        ]
+        permissions = [
+            ("view_payroll_workspace", "Can view payroll workspace"),
+            ("calculate_payroll", "Can calculate payroll"),
+            ("review_payroll", "Can review payroll"),
+            ("approve_payroll", "Can approve payroll"),
+            ("post_payroll", "Can post or reverse payroll"),
+            ("pay_payroll", "Can pay payroll"),
+            ("view_payroll_amounts", "Can view payroll amounts"),
+            ("view_employee_statement", "Can view employee statements"),
+        ]
+
+    @property
+    def paid_total(self) -> Decimal:
+        return sum((line.paid_amount for line in self.employee_lines.all()), Decimal("0.000"))
+
+    @property
+    def outstanding_total(self) -> Decimal:
+        return self.net_total - self.paid_total
+
+    def __str__(self) -> str:
+        return f"{self.run_number} · {self.branch.code}"
+
+
+class PayrollEmployeeLine(TimeStampedModel):
+    payroll_run = models.ForeignKey(
+        PayrollRun, on_delete=models.PROTECT, related_name="employee_lines"
+    )
+    employee = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="payroll_lines")
+    contract = models.ForeignKey(
+        EmployeeContract, on_delete=models.PROTECT, related_name="payroll_lines"
+    )
+    contract_version = models.PositiveIntegerField()
+    employee_code = models.CharField(max_length=40)
+    employee_name_ar = models.CharField(max_length=200)
+    job_title = models.CharField(max_length=120)
+    wage_basis = models.CharField(max_length=12, choices=WageBasis.choices)
+    payment_method = models.CharField(max_length=12, choices=EmployeePaymentMethod.choices)
+    payment_reference = models.CharField(max_length=160, blank=True)
+    basic_salary_snapshot = models.DecimalField(max_digits=18, decimal_places=3)
+    scheduled_days = models.DecimalField(max_digits=10, decimal_places=3, default=Decimal("0"))
+    scheduled_minutes = models.PositiveIntegerField(default=0)
+    worked_minutes = models.PositiveIntegerField(default=0)
+    paid_leave_minutes = models.PositiveIntegerField(default=0)
+    unpaid_leave_minutes = models.PositiveIntegerField(default=0)
+    absence_minutes = models.PositiveIntegerField(default=0)
+    lateness_minutes = models.PositiveIntegerField(default=0)
+    early_departure_minutes = models.PositiveIntegerField(default=0)
+    overtime_minutes = models.PositiveIntegerField(default=0)
+    basic_pay = models.DecimalField(max_digits=18, decimal_places=3, default=Decimal("0"))
+    fixed_allowances = models.DecimalField(max_digits=18, decimal_places=3, default=Decimal("0"))
+    variable_allowances = models.DecimalField(max_digits=18, decimal_places=3, default=Decimal("0"))
+    overtime_pay = models.DecimalField(max_digits=18, decimal_places=3, default=Decimal("0"))
+    rewards = models.DecimalField(max_digits=18, decimal_places=3, default=Decimal("0"))
+    absence_deduction = models.DecimalField(max_digits=18, decimal_places=3, default=Decimal("0"))
+    lateness_deduction = models.DecimalField(max_digits=18, decimal_places=3, default=Decimal("0"))
+    early_departure_deduction = models.DecimalField(
+        max_digits=18, decimal_places=3, default=Decimal("0")
+    )
+    administrative_deduction = models.DecimalField(
+        max_digits=18, decimal_places=3, default=Decimal("0")
+    )
+    advance_recovery = models.DecimalField(max_digits=18, decimal_places=3, default=Decimal("0"))
+    other_deductions = models.DecimalField(max_digits=18, decimal_places=3, default=Decimal("0"))
+    gross_pay = models.DecimalField(max_digits=18, decimal_places=3)
+    total_deductions = models.DecimalField(max_digits=18, decimal_places=3)
+    net_pay = models.DecimalField(max_digits=18, decimal_places=3)
+    warnings = models.JSONField(default=list, blank=True)
+    source_snapshot = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["employee_code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["payroll_run", "employee"], name="hr_payroll_employee_unique"
+            ),
+            models.CheckConstraint(
+                condition=Q(basic_pay__gte=0)
+                & Q(fixed_allowances__gte=0)
+                & Q(variable_allowances__gte=0)
+                & Q(overtime_pay__gte=0)
+                & Q(rewards__gte=0)
+                & Q(gross_pay__gte=0)
+                & Q(total_deductions__gte=0)
+                & Q(net_pay__gte=0)
+                & Q(net_pay=models.F("gross_pay") - models.F("total_deductions")),
+                name="hr_payroll_employee_totals_reconcile",
+            ),
+        ]
+
+    @property
+    def paid_amount(self) -> Decimal:
+        return sum(
+            (
+                -allocation.amount if allocation.payment.reversal_of_id else allocation.amount
+                for allocation in self.payment_allocations.select_related("payment")
+            ),
+            Decimal("0.000"),
+        )
+
+    @property
+    def outstanding_amount(self) -> Decimal:
+        return self.net_pay - self.paid_amount
+
+    def __str__(self) -> str:
+        return f"{self.payroll_run.run_number} · {self.employee_code}"
+
+
+class PayrollComponentKind(models.TextChoices):
+    BASIC = "BASIC", _("أجر أساسي")
+    FIXED_ALLOWANCE = "FIXED_ALLOWANCE", _("بدل ثابت")
+    VARIABLE_ALLOWANCE = "VARIABLE_ALLOWANCE", _("بدل متغير")
+    OVERTIME = "OVERTIME", _("عمل إضافي")
+    REWARD = "REWARD", _("مكافأة")
+    ABSENCE = "ABSENCE", _("غياب")
+    LATENESS = "LATENESS", _("تأخر")
+    EARLY_DEPARTURE = "EARLY_DEPARTURE", _("انصراف مبكر")
+    DEDUCTION = "DEDUCTION", _("استقطاع")
+    ADVANCE_RECOVERY = "ADVANCE_RECOVERY", _("استرداد سلفة")
+
+
+class PayrollComponentLine(TimeStampedModel):
+    employee_line = models.ForeignKey(
+        PayrollEmployeeLine, on_delete=models.PROTECT, related_name="components"
+    )
+    kind = models.CharField(max_length=24, choices=PayrollComponentKind.choices)
+    code = models.CharField(max_length=80)
+    label_ar = models.CharField(max_length=200)
+    quantity = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
+    rate = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal("0"))
+    multiplier = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal("1"))
+    amount = models.DecimalField(max_digits=18, decimal_places=3)
+    is_deduction = models.BooleanField(default=False)
+    source_type = models.CharField(max_length=80, blank=True)
+    source_id = models.CharField(max_length=80, blank=True)
+    source_snapshot = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["employee_line__employee_code", "id"]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gte=0), name="hr_payroll_component_positive")
+        ]
+
+
+class PayrollPaymentStatus(models.TextChoices):
+    POSTED = "POSTED", _("مرحّل")
+    REVERSED = "REVERSED", _("معكوس")
+
+
+class PayrollPayment(TimeStampedModel):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    payroll_run = models.ForeignKey(PayrollRun, on_delete=models.PROTECT, related_name="payments")
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="payroll_payments"
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch", on_delete=models.PROTECT, related_name="payroll_payments"
+    )
+    payment_number = models.CharField(max_length=48)
+    payment_date = models.DateField()
+    method = models.CharField(max_length=12, choices=EmployeePaymentMethod.choices)
+    amount = models.DecimalField(max_digits=20, decimal_places=3)
+    reference = models.CharField(max_length=200)
+    reason = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=12, choices=PayrollPaymentStatus.choices, default=PayrollPaymentStatus.POSTED
+    )
+    idempotency_key = models.CharField(max_length=160)
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry",
+        on_delete=models.PROTECT,
+        related_name="payroll_payments",
+    )
+    reversal_of = models.OneToOneField(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="reversal"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_payroll_payments"
+    )
+
+    class Meta:
+        ordering = ["-payment_date", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "payment_number"],
+                name="hr_payroll_payment_number_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "idempotency_key"],
+                name="hr_payroll_payment_idempotency_unique",
+            ),
+            models.CheckConstraint(condition=Q(amount__gt=0), name="hr_payroll_payment_positive"),
+        ]
+
+    @property
+    def net_amount(self) -> Decimal:
+        return -self.amount if self.reversal_of_id else self.amount
+
+
+class PayrollPaymentAllocation(TimeStampedModel):
+    payment = models.ForeignKey(
+        PayrollPayment, on_delete=models.PROTECT, related_name="allocations"
+    )
+    employee_line = models.ForeignKey(
+        PayrollEmployeeLine, on_delete=models.PROTECT, related_name="payment_allocations"
+    )
+    amount = models.DecimalField(max_digits=18, decimal_places=3)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["payment", "employee_line"], name="hr_payroll_payment_line_unique"
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gt=0), name="hr_payroll_payment_allocation_positive"
+            ),
         ]
