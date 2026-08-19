@@ -107,8 +107,14 @@ class DailyReconciliationView(InventoryViewMixin, View):
                 "يشطبه من الشاشة. المُعلن والمشتق يُعرضان معاً لأن أيّهما الخطأ هو "
                 "ما يقرّر من يصلحه."
             ),
+            # `_form_fragment.html`, not `_list_fragment.html`. This template
+            # extends `list_base_template` **directly** rather than through
+            # `settings/base_list.html`, so the block it defines is `page`;
+            # `_list_fragment.html` contains only `results`, Django silently
+            # drops a child block the parent does not declare, and the htmx
+            # form of this screen answered 200 with an empty body.
             "list_base_template": (
-                "settings/_list_fragment.html"
+                "settings/_form_fragment.html"
                 if request.headers.get("HX-Request") == "true"
                 else "shell.html"
             ),

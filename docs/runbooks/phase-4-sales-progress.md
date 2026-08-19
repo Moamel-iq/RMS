@@ -179,3 +179,71 @@ intended small shortage; the existing row was **not** edited or deleted, because
 a posted journal and an approved cash difference are ledger history and this
 repository does not rewrite those to tidy a demo. `verify_sales` reports it as
 the advisory it is.
+
+## What the adversarial audit found, and what it changed
+
+Four verifiers audited the finished module. Eight findings survived their own
+refutation attempt, all eight reproduced with a failing test first, and all
+eight are fixed. Three of them share one shape worth naming: **a rule that was
+true when it was written and became false when a neighbouring module arrived.**
+
+* **A day and its corrections could both be reversed.** `reverse_sales_day`
+  refused on status alone, so a day already carrying a posted `SalesAdjustment`
+  could be reversed as well and the same sale was un-recognised twice — in the
+  general ledger and the receivable subledger both, by the identical amount, so
+  `verify_receivable_ledger` found them in perfect agreement. Refused now by the
+  service and by `0013`'s trigger, and refused from the other side too:
+  `post_sales_adjustment` re-reads the day's status, because `0008`'s
+  containment guard checks it when a *line* is written and a draft outlives a
+  reversal.
+* **A same-day refund was counted as a till shortage.** The drawer expectation
+  read the day's lines and not the adjustments dated on the same business date,
+  while the adjustment's own journal credits `SALES_CASH_ON_HAND`. The count
+  came up short by exactly the refund, approving it credited the same cash
+  again, and المطابقة اليومية reported an advisory variance rather than an
+  error. `expected_by_tender` now subtracts `refunded_by_tender`, and
+  `reconcile_day` recomputes the expectation through `expected_cash_for` — the
+  function that stamped it — rather than through a second implementation.
+* **A discount programme was applied without checking that it covered the
+  line.** `applicable_programs` existed for exactly this and was called only
+  from tests, so a promotion funded by one delivery application could be
+  applied to a line taken by another — raising a receivable against a company
+  that agreed to reimburse nothing, with every figure on the line still summing.
+  `resolve_line` asks the same function the screen asks.
+* **`manage_sales_agreements` was enforced at branch scope** while the
+  permission table declares it `ORGANIZATION_AUTHORITY`, so a bare branch
+  manager could set the commission rate their own branch trades at. Both write
+  views now use `require_organization_permission`, matching the sibling
+  discount views.
+* **The settlement API could forge an approval.** `approver_id` was resolved
+  with a global user lookup, so any active user in the database could be
+  stamped as the approver of an `UNEXPLAINED_APPROVED` variance, and the
+  endpoint doubled as a cross-tenant user-id oracle. The named approver must
+  now be able to exercise `manage_application_settlements` over that
+  settlement's organization, and a missing user and a foreign one get the same
+  refusal.
+* **`verify_kitchen` failed by construction.** `verify_theoretical_coverage`
+  still raised Phase 3's two ERRORs — a `SALES` adapter reporting itself
+  available, and coverage claiming finality — both of which are exactly what
+  registering the adapter causes. It was the mirror of `verify_sales`, which
+  errors when the registration is absent, so the two gates could never both
+  pass. The check now asserts that coverage *agrees with the registry*, in
+  either direction, and the limitation is printed only while it is true.
+* **The kitchen's theoretical scope came from `MealRecord` rows.** Harmless
+  while every source read meals; a silent subtraction once one did not. A
+  branch that posts sales and never logs a staff meal produced no scope at all,
+  so the sales adapter was never called — while the same call stamped the
+  figure `SALES_INCLUDED` and `is_final=True`. `_scoped` now derives the scope
+  from `branches_with_permission`, which is the caller's actual reach.
+* **Nine screens answered an htmx request with an empty body.** They extend
+  `list_base_template` directly, so the block each defines is `page`, and they
+  named `settings/_list_fragment.html` — which declares only `results`. Django
+  drops a child block the parent does not have, silently. The existing tests
+  checked the status and the absence of a second `<html>`, both of which an
+  empty body satisfies perfectly, which is why it sat undetected; the new test
+  asserts on content and compares the fragment against the full page.
+
+The lesson the third bullet and the last two share: **an assertion about
+absence has to be re-read when the thing stops being absent.** Phase 3 wrote
+three of them honestly, and Phase 4 made all three false without touching a
+line of the code that held them.

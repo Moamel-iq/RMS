@@ -62,6 +62,7 @@ from apps.organizations.authorization import (
     OutOfScope,
     PermissionMissing,
     has_organization_master_data_permission,
+    has_organization_permission,
     require_branch_permission,
     require_organization_permission,
     require_reachable_organization_permission,
@@ -724,7 +725,10 @@ class SettlementAdjustmentIn(Schema):
     explanation: str = ""
     #: The approver is named by id rather than implied by the caller, because
     #: `UNEXPLAINED_APPROVED` requires somebody to have decided and the caller
-    #: recording it may not be that person.
+    #: recording it may not be that person. Whoever is named must be able to
+    #: exercise `manage_application_settlements` over this settlement's
+    #: organization — see `_resolve_settlement_approver` for why a global user
+    #: lookup here was a way to forge an approval.
     approver_id: int | None = None
 
 
@@ -1720,6 +1724,43 @@ def post_settlement_allocation(
     )
 
 
+def _resolve_settlement_approver(approver_id: int, settlement: Any) -> User:
+    """
+    The named approver, resolved **against the settlement** rather than looked
+    up globally.
+
+    The settlement was already resolved with the caller by `_settlement_for`,
+    so the caller's own authority is settled before this runs; what is left is
+    whether the person being *named* could have approved this document.
+
+    `UNEXPLAINED_APPROVED` is the escape hatch ADR-028 §7 opens: a difference
+    nobody can explain may still reach `DELIVERY_SETTLEMENT_VARIANCE`, but only
+    wearing a name. A bare `User.objects.filter(pk=...)` let the caller write
+    any active user in the database into that field — the Owner of another
+    organization, or an id they guessed — and the row then carried an approval
+    by somebody who never saw the settlement and could not have approved it.
+
+    The rule is the one the permission table already states: the approver must
+    be able to exercise `manage_application_settlements` over *this*
+    settlement's organization. Anyone else is not an approver of this document,
+    and naming them is not an approval.
+
+    A user who does not exist, is inactive, or holds nothing here all get the
+    identical refusal. Distinguishing them would turn the endpoint into an
+    oracle for user ids across every tenant, which is the same disclosure a 403
+    about a foreign document would be.
+    """
+    candidate = User.objects.filter(pk=approver_id, is_active=True).first()
+    if candidate is None or not has_organization_permission(
+        candidate, MANAGE_APPLICATION_SETTLEMENTS, settlement.organization
+    ):
+        raise ValidationError(
+            _("The named approver may not approve settlements here."),
+            code="approver_required",
+        )
+    return candidate
+
+
 @router.post(
     "/settlements/{public_id}/adjustments",
     response={201: SettlementDetailOut},
@@ -1731,9 +1772,7 @@ def post_settlement_adjustment(
     actor, settlement = _settlement_for(request, public_id)
     approver = None
     if payload.approver_id is not None:
-        approver = User.objects.filter(pk=payload.approver_id, is_active=True).first()
-        if approver is None:
-            raise ValidationError(_("The named approver does not exist."), code="approver_required")
+        approver = _resolve_settlement_approver(payload.approver_id, settlement)
     add_settlement_adjustment(
         settlement=settlement,
         leg=payload.leg,

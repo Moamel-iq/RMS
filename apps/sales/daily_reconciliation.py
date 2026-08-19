@@ -90,6 +90,7 @@ from apps.sales.models import (
 )
 from apps.sales.posting import SOURCE_DOCUMENT_TYPE as DAY_SOURCE_DOCUMENT_TYPE
 from apps.sales.selectors import visible_sales_days
+from apps.sales.shift_services import expected_cash_for
 
 if TYPE_CHECKING:
     from apps.organizations.models import Branch
@@ -324,7 +325,7 @@ def reconcile_day(*, sales_day: SalesDay) -> DailyReconciliation:
 
     shift = (
         CashierShift.objects.filter(branch_id=branch.pk, business_date=sales_day.business_date)
-        .select_related("cashier", "closed_by", "approved_by")
+        .select_related("cashier", "closed_by", "approved_by", "sales_day")
         .first()
     )
 
@@ -384,12 +385,19 @@ def reconcile_day(*, sales_day: SalesDay) -> DailyReconciliation:
                         ),
                     )
                 )
-            # The stamped expectation against what the day says now. They agree
-            # unless the day was reversed and replaced after the count, which is
-            # the case this comparison exists to surface — the shift would
-            # otherwise sit there approved against arithmetic nobody can
+            # The stamped expectation against what the documents say now. They
+            # agree unless the day was reversed and replaced after the count,
+            # which is the case this comparison exists to surface — the shift
+            # would otherwise sit there approved against arithmetic nobody can
             # reproduce.
-            expected_now = quantize_money(shift.opening_float + derived[TenderDestination.CASH])
+            #
+            # Recomputed through `expected_cash_for`, the same function that
+            # stamped it, rather than re-derived from the day's lines here. A
+            # second implementation of the expectation is a second thing that
+            # can disagree, and it did: the lines alone miss a same-day refund,
+            # so every corrected day would have reported a stale expectation
+            # that was not stale.
+            expected_now = expected_cash_for(shift)
             if shift.expected_cash != expected_now:
                 findings.append(
                     Finding(

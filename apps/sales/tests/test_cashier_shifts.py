@@ -42,6 +42,7 @@ from apps.accounting.models import (
     SALES_CASH_ON_HAND,
     SALES_CASH_OVER_SHORT,
     SALES_DISCOUNT,
+    SALES_RETURNS,
     SALES_REVENUE,
     Account,
     AccountRole,
@@ -52,6 +53,8 @@ from apps.accounting.models import (
 from apps.accounting.services import create_account, create_account_mapping, open_fiscal_year
 from apps.kitchen.models import Recipe, RecipeServing, RecipeVersion
 from apps.organizations.models import Branch, Organization
+from apps.sales.adjustment_posting import post_sales_adjustment
+from apps.sales.adjustment_services import add_adjustment_line, create_sales_adjustment
 from apps.sales.daily_reconciliation import ADVISORY, COVERAGE_LIMITATION, reconcile_day
 from apps.sales.day_services import (
     add_sales_line,
@@ -65,6 +68,7 @@ from apps.sales.models import (
     CashierShiftStatus,
     CashierTenderCount,
     MenuItem,
+    SalesAdjustmentReasonKind,
     SalesChannel,
     SalesChannelCategory,
     SalesDay,
@@ -118,6 +122,12 @@ _CHART: tuple[tuple[str, str, str], ...] = (
     ("4-02", "خصومات المبيعات", "Discounts"),
     ("4-02-01", "خصومات المطعم", "Restaurant discounts"),
     ("4-02-01-001", "خصومات المبيعات", "Sales Discount"),
+    # Added for the same-day refund case: an adjustment credits the drawer
+    # account, so a drawer expectation that ignores it charges the difference
+    # to `SALES_CASH_OVER_SHORT` as a shortage nobody was short of.
+    ("4-03", "المردودات", "Returns"),
+    ("4-03-01", "مردودات المبيعات", "Sales returns"),
+    ("4-03-01-001", "مردودات وإلغاءات المبيعات", "Sales Returns"),
     ("6", "المصروفات", "Expenses"),
     ("6-03", "مصروفات البيع", "Selling"),
     ("6-03-01", "عمولات التطبيقات", "App commissions"),
@@ -140,6 +150,7 @@ def chart(
     mappings = {
         SALES_REVENUE: "4-01-01-001",
         SALES_DISCOUNT: "4-02-01-001",
+        SALES_RETURNS: "4-03-01-001",
         SALES_CASH_ON_HAND: "1-01-01-001",
         SALES_CARD_CLEARING: "1-03-01-001",
         DELIVERY_APP_RECEIVABLE: "1-02-01-001",
@@ -387,6 +398,173 @@ class TestTheExpectation:
         shift = _shift(organization, branch, cashier, manager)
         shift.sales_day = draft_day
         assert expected_by_tender(shift)[TenderDestination.CASH] == Decimal("0.000")
+
+
+# ---------------------------------------------------------------------------
+# A refund paid out of this drawer, on this date
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestASameDayRefundLeavesTheDrawer:
+    """
+    The audit finding this class exists for.
+
+    `post_sales_adjustment` credits `SALES_CASH_ON_HAND` — the money is
+    physically handed back out of the drawer. An expectation derived from the
+    day's lines alone does not know that, so the count comes up short by exactly
+    the refund and `approve_cashier_shift` posts the shortage: the same cash is
+    credited twice, the ledger drawer goes negative against a box holding what
+    it holds, and المطابقة اليومية reports an ADVISORY variance rather than the
+    ERROR that would have made somebody look.
+    """
+
+    def _refund(
+        self, day: SalesDay, manager: User, business_date: datetime.date, quantity: Decimal
+    ) -> None:
+        adjustment = create_sales_adjustment(
+            sales_day=day,
+            reason_kind=SalesAdjustmentReasonKind.RETURNED_AFTER_FULFILLMENT,
+            business_date=business_date,
+            reason="الزبون أعاد الطبق ونُقد ثمنه.",
+            evidence_reference="محضر إرجاع ٩",
+            actor=manager,
+        )
+        add_adjustment_line(
+            adjustment=adjustment,
+            original_line=day.lines.get(),
+            adjusted_quantity=quantity,
+            actor=manager,
+        )
+        post_sales_adjustment(adjustment=adjustment, actor=manager)
+
+    def test_the_expectation_drops_by_what_was_refunded(
+        self,
+        cash_day: SalesDay,
+        organization: Organization,
+        branch: Branch,
+        cashier: User,
+        manager: User,
+    ) -> None:
+        """20,000 sold, one 10,000 plate handed back on the same date."""
+        self._refund(cash_day, manager, BUSINESS_DATE, Decimal("1.000"))
+        shift = _shift(organization, branch, cashier, manager)
+        shift.sales_day = cash_day
+        assert expected_by_tender(shift)[TenderDestination.CASH] == Decimal("10000.000")
+        assert expected_cash_for(shift) == Decimal("15000.000")
+
+    def test_an_honest_drawer_shows_no_variance_and_posts_no_journal(
+        self,
+        cash_day: SalesDay,
+        organization: Organization,
+        branch: Branch,
+        cashier: User,
+        manager: User,
+    ) -> None:
+        """
+        The whole point, stated once.
+
+        The drawer holds the float plus 20,000 taken minus 10,000 given back.
+        Counting exactly that must be a variance of nothing — before the fix it
+        was a 10,000 shortage, and approving it credited `SALES_CASH_ON_HAND` a
+        second time for cash that had already left.
+        """
+        self._refund(cash_day, manager, BUSINESS_DATE, Decimal("1.000"))
+        shift = _closed(
+            _shift(organization, branch, cashier, manager),
+            cash_day,
+            Decimal("15000"),
+            cashier,
+        )
+        assert shift.expected_cash == Decimal("15000.000")
+        assert shift.variance_amount == Decimal("0.000")
+
+        approved = approve_cashier_shift(shift=shift, actor=manager)
+        assert approved.status == CashierShiftStatus.APPROVED
+        assert not JournalEntry.objects.filter(
+            source_document_type=SOURCE_DOCUMENT_TYPE, source_document_id=str(shift.public_id)
+        ).exists()
+
+    def test_the_drawer_account_is_not_credited_twice(
+        self,
+        cash_day: SalesDay,
+        organization: Organization,
+        branch: Branch,
+        cashier: User,
+        manager: User,
+    ) -> None:
+        """`SALES_CASH_ON_HAND` ends at what is really in the box."""
+        self._refund(cash_day, manager, BUSINESS_DATE, Decimal("1.000"))
+        shift = _closed(
+            _shift(organization, branch, cashier, manager),
+            cash_day,
+            Decimal("15000"),
+            cashier,
+        )
+        approve_cashier_shift(shift=shift, actor=manager)
+
+        balance = sum(
+            (
+                line.debit - line.credit
+                for line in JournalLine.objects.select_related("account").filter(
+                    account__code="1-01-01-001"
+                )
+            ),
+            Decimal("0"),
+        )
+        assert balance == Decimal("10000.000")
+
+    def test_a_refund_dated_later_belongs_to_that_dates_drawer(
+        self,
+        cash_day: SalesDay,
+        organization: Organization,
+        branch: Branch,
+        cashier: User,
+        manager: User,
+    ) -> None:
+        """
+        The scope is the date, not the day.
+
+        A correction decided tomorrow is paid out of tomorrow's drawer, and
+        subtracting it here would move a count somebody has already declared —
+        which is the freeze `expected_cash` exists to provide.
+        """
+        self._refund(
+            cash_day, manager, BUSINESS_DATE + datetime.timedelta(days=1), Decimal("1.000")
+        )
+        shift = _shift(organization, branch, cashier, manager)
+        shift.sales_day = cash_day
+        assert expected_by_tender(shift)[TenderDestination.CASH] == Decimal("20000.000")
+
+    def test_the_reconciliation_does_not_call_the_expectation_stale(
+        self,
+        cash_day: SalesDay,
+        organization: Organization,
+        branch: Branch,
+        cashier: User,
+        manager: User,
+    ) -> None:
+        """
+        `expected_now` is recomputed through the function that stamped it.
+
+        Re-deriving it from the day's lines was a second implementation of the
+        expectation, and a second implementation is a second thing that can
+        disagree — every corrected day would have reported an ERROR saying the
+        count was closed against arithmetic that had since moved, when nothing
+        had moved at all.
+        """
+        self._refund(cash_day, manager, BUSINESS_DATE, Decimal("1.000"))
+        shift = _closed(
+            _shift(organization, branch, cashier, manager),
+            cash_day,
+            Decimal("15000"),
+            cashier,
+        )
+        approve_cashier_shift(shift=shift, actor=manager)
+
+        row = reconcile_day(sales_day=cash_day)
+        assert "cashier_shift_expectation_is_stale" not in {finding.code for finding in row.errors}
+        assert "cashier_shift_variance" not in {finding.code for finding in row.advisories}
 
 
 # ---------------------------------------------------------------------------

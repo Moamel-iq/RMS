@@ -374,6 +374,214 @@ class TestResolutionHappensOnceAndRefusesRatherThanFallingBack:
 
 
 @pytest.mark.django_db
+class TestADiscountProgrammeMustCoverTheLineItIsAppliedTo:
+    """
+    The audit finding this class exists for.
+
+    `applicable_programs` is the single statement of which programme covers
+    which line, and `resolve_line` never called it — it took whatever programme
+    it was handed and split it. The expensive case is the funding one: a
+    promotion funded by one delivery application, applied to a line taken by
+    another, raises a receivable against a company that agreed to reimburse
+    nothing, and every figure on the line still sums.
+    """
+
+    def _second_application(
+        self, organization: Organization, branch: Branch
+    ) -> DeliveryApplication:
+        other = create_delivery_application(
+            organization=organization, code="DEMO-OTHER", name_ar="تطبيق آخر"
+        )
+        set_application_branch_setting(application=other, branch=branch)
+        create_delivery_agreement(
+            branch=branch,
+            delivery_application=other,
+            effective_from=JANUARY,
+            commission_percent=Decimal("15"),
+            commission_basis=CommissionBasis.GROSS_LIST_AMOUNT,
+            evidence_reference="عقد تجريبي آخر",
+        )
+        return other
+
+    def test_one_applications_promotion_may_not_be_billed_to_another(
+        self,
+        day: SalesDay,
+        menu_item: MenuItem,
+        app_channel: SalesChannel,
+        application: DeliveryApplication,
+        organization: Organization,
+        branch: Branch,
+    ) -> None:
+        """A receivable against a company that funded nothing."""
+        program = create_discount_program(
+            organization=organization,
+            code="DEMO-THEIRS",
+            name_ar="عرض تطبيق واحد",
+            effective_from=JANUARY,
+            discount_percent=Decimal("20"),
+            restaurant_funded_share=Decimal("0"),
+            application_funded_share=Decimal("100"),
+            delivery_application=application,
+        )
+        other = self._second_application(organization, branch)
+
+        with pytest.raises(ValidationError) as caught:
+            add_sales_line(
+                day=day,
+                menu_item=menu_item,
+                channel=app_channel,
+                delivery_application=other,
+                quantity=Decimal("1.000"),
+                order_count=1,
+                discount_program=program,
+            )
+        assert caught.value.code == "discount_program_not_applicable"
+        assert day.lines.count() == 0
+
+    def test_a_programme_that_has_ended_is_no_longer_applied(
+        self,
+        day: SalesDay,
+        menu_item: MenuItem,
+        hall: SalesChannel,
+        organization: Organization,
+    ) -> None:
+        """
+        `close_discount_program` writes `effective_to` and leaves `is_active`
+        alone, by design — the row stays readable. A filter that asked only
+        `is_active` therefore kept applying a promotion that ended months ago.
+        """
+        program = create_discount_program(
+            organization=organization,
+            code="DEMO-ENDED",
+            name_ar="عرض منتهٍ",
+            effective_from=JANUARY,
+            effective_to=datetime.date(2026, 4, 1),
+            discount_percent=Decimal("10"),
+        )
+        assert program.is_active is True
+
+        with pytest.raises(ValidationError) as caught:
+            add_sales_line(
+                day=day,
+                menu_item=menu_item,
+                channel=hall,
+                quantity=Decimal("1.000"),
+                discount_program=program,
+            )
+        assert caught.value.code == "discount_program_not_applicable"
+
+    def test_a_programme_restricted_to_another_branch_is_refused(
+        self,
+        day: SalesDay,
+        menu_item: MenuItem,
+        hall: SalesChannel,
+        organization: Organization,
+        second_branch: Branch,
+    ) -> None:
+        program = create_discount_program(
+            organization=organization,
+            code="DEMO-ELSEWHERE",
+            name_ar="عرض فرع آخر",
+            effective_from=JANUARY,
+            discount_percent=Decimal("10"),
+            branch=second_branch,
+        )
+        with pytest.raises(ValidationError) as caught:
+            add_sales_line(
+                day=day,
+                menu_item=menu_item,
+                channel=hall,
+                quantity=Decimal("1.000"),
+                discount_program=program,
+            )
+        assert caught.value.code == "discount_program_not_applicable"
+
+    def test_a_programme_restricted_to_another_channel_is_refused(
+        self,
+        day: SalesDay,
+        menu_item: MenuItem,
+        hall: SalesChannel,
+        app_channel: SalesChannel,
+        organization: Organization,
+    ) -> None:
+        program = create_discount_program(
+            organization=organization,
+            code="DEMO-APPSONLY",
+            name_ar="عرض قناة التطبيقات",
+            effective_from=JANUARY,
+            discount_percent=Decimal("10"),
+            channel=app_channel,
+        )
+        with pytest.raises(ValidationError) as caught:
+            add_sales_line(
+                day=day,
+                menu_item=menu_item,
+                channel=hall,
+                quantity=Decimal("1.000"),
+                discount_program=program,
+            )
+        assert caught.value.code == "discount_program_not_applicable"
+
+    def test_a_programme_that_does_cover_the_line_still_applies(
+        self,
+        day: SalesDay,
+        menu_item: MenuItem,
+        hall: SalesChannel,
+        organization: Organization,
+        branch: Branch,
+    ) -> None:
+        """
+        The check refuses what does not fit and nothing else.
+
+        Every axis named, so the narrowest possible programme still reaches the
+        line it was written for — otherwise the guard would be a ban.
+        """
+        program = create_discount_program(
+            organization=organization,
+            code="DEMO-EXACT",
+            name_ar="عرض مطابق",
+            effective_from=JANUARY,
+            discount_percent=Decimal("10"),
+            branch=branch,
+            channel=hall,
+            menu_item=menu_item,
+        )
+        line = add_sales_line(
+            day=day,
+            menu_item=menu_item,
+            channel=hall,
+            quantity=Decimal("1.000"),
+            discount_program=program,
+        )
+        assert line.restaurant_discount == Decimal("1000.000")
+        assert line.customer_charge == Decimal("9000.000")
+
+    def test_an_unrestricted_programme_still_covers_everything(
+        self,
+        day: SalesDay,
+        menu_item: MenuItem,
+        hall: SalesChannel,
+        organization: Organization,
+    ) -> None:
+        """A `NULL` on every axis means no restriction on any of them."""
+        program = create_discount_program(
+            organization=organization,
+            code="DEMO-RAMADAN",
+            name_ar="عرض رمضان",
+            effective_from=JANUARY,
+            discount_percent=Decimal("10"),
+        )
+        line = add_sales_line(
+            day=day,
+            menu_item=menu_item,
+            channel=hall,
+            quantity=Decimal("1.000"),
+            discount_program=program,
+        )
+        assert line.restaurant_discount == Decimal("1000.000")
+
+
+@pytest.mark.django_db
 class TestTheCashJournal:
     def test_revenue_is_gross_and_the_discount_sits_beside_it(
         self,
@@ -718,6 +926,134 @@ class TestTheKitchenNowHasItsSalesSource:
         assert sales_source_is_registered() is True
         assert coverage_code() == SALES_INCLUDED
         assert coverage_labels() == (COMPLETE_COVERAGE, FINAL_USAGE_VARIANCE)
+
+    def test_the_kitchen_verifier_does_not_fail_a_correct_deployment(self, manager: User) -> None:
+        """
+        The audit finding this test exists for.
+
+        `verify_theoretical_coverage` still raised Phase 3's two ERRORs — a
+        `SALES` adapter reporting itself available, and coverage claiming
+        finality — both of which became true *by construction* the moment
+        `SalesConfig.ready()` registered the adapter. `verify_kitchen` therefore
+        exited non-zero on every correct install, and did so as the exact mirror
+        of `verify_sales`, which raises an ERROR when the registration is
+        absent. The two gates could never both pass.
+        """
+        from apps.kitchen.consumption_reconciliation import ERROR, verify_theoretical_coverage
+        from apps.kitchen.consumption_sources import MealUsageFilters
+
+        findings = verify_theoretical_coverage(manager, MealUsageFilters())
+        assert [row for row in findings if row.severity == ERROR] == []
+
+    def test_the_limitation_is_no_longer_reported_either(self, manager: User) -> None:
+        """
+        A complete figure carrying a warning that it is incomplete is the
+        opposite failure, and `TheoreticalCoverage.notice` already refuses to
+        make it. The verifier now agrees with the notice.
+        """
+        from apps.kitchen.consumption_reconciliation import verify_theoretical_coverage
+        from apps.kitchen.consumption_sources import SALES_NOT_INCLUDED, MealUsageFilters
+
+        codes = {row.code for row in verify_theoretical_coverage(manager, MealUsageFilters())}
+        assert SALES_NOT_INCLUDED not in codes
+
+    def test_the_two_gates_agree(self, manager: User) -> None:
+        """`verify_sales` and `verify_kitchen` must be satisfiable at once."""
+        from apps.kitchen.consumption_reconciliation import ERROR, verify_theoretical_coverage
+        from apps.kitchen.consumption_sources import MealUsageFilters
+        from apps.sales.reconciliation import verify_coverage
+
+        kitchen = [
+            row
+            for row in verify_theoretical_coverage(manager, MealUsageFilters())
+            if row.severity == ERROR
+        ]
+        sales = [row for row in verify_coverage() if row.is_error]
+        assert kitchen == []
+        assert sales == []
+
+    def test_a_branch_with_sales_and_no_meal_records_is_still_in_scope(
+        self,
+        chart: dict[str, str],
+        day: SalesDay,
+        menu_item: MenuItem,
+        hall: SalesChannel,
+        manager: User,
+        accounting_manager: User,
+        organization: Organization,
+        branch: Branch,
+    ) -> None:
+        """
+        The audit finding this test exists for.
+
+        `_scoped` derived the organization and branch list from `MealRecord`
+        rows, which was self-consistent while every theoretical source read
+        meals. A branch that posts sales and never logs a staff meal produced no
+        identifiers at all, so `_usage` returned `[]` without ever calling the
+        sales adapter — while the same call stamped the figure `SALES_INCLUDED`
+        and `is_final=True`. Every ingredient those sales consumed then appeared
+        as unexplained variance on a report claiming to be complete.
+
+        Asserted against the scope rather than against a contribution count,
+        because the scope is where the figure was lost: the adapter that is
+        never called cannot contribute whatever its recipes expand to.
+        """
+        from apps.kitchen.consumption_sources import MealUsageFilters, _scoped
+        from apps.kitchen.models import MealRecord
+
+        add_sales_line(day=day, menu_item=menu_item, channel=hall, quantity=Decimal("2.000"))
+        submit_sales_day(day=day, actor=manager)
+        post_sales_day(day=day, actor=accounting_manager)
+        assert not MealRecord.objects.exists()
+
+        assert _scoped(manager, MealUsageFilters()) == (organization.pk, [branch.pk])
+
+    def test_the_branch_filter_narrows_rather_than_empties(
+        self, manager: User, organization: Organization, branch: Branch
+    ) -> None:
+        """
+        Filtering to the branch that actually sold must not zero the figure.
+
+        The old scoping applied `filter(branch_id=...)` to meal records, so a
+        branch with sales and no meals answered `None` — and every source,
+        including sales, returned empty against a page still stamped final.
+        """
+        from apps.kitchen.consumption_sources import MealUsageFilters, _scoped
+
+        assert _scoped(manager, MealUsageFilters(branch_id=branch.pk)) == (
+            organization.pk,
+            [branch.pk],
+        )
+
+    def test_a_branch_the_caller_cannot_reach_is_still_refused(
+        self, manager: User, second_branch: Branch
+    ) -> None:
+        """
+        Wider than meal records, never wider than the caller's own reach.
+
+        `second_branch` exists in the same organization and `manager` holds no
+        post at it, so filtering to it must answer nothing rather than quietly
+        widening to the whole organization.
+        """
+        from apps.kitchen.consumption_sources import MealUsageFilters, _scoped
+
+        assert _scoped(manager, MealUsageFilters(branch_id=second_branch.pk)) is None
+
+    def test_a_caller_who_reaches_nothing_still_answers_empty(self, outsider: User) -> None:
+        """A user with no reach has an empty kitchen, not a broken one."""
+        from apps.kitchen.consumption_sources import (
+            MealUsageFilters,
+            TheoreticalSourceType,
+            _scoped,
+            theoretical_consumption_coverage,
+        )
+
+        assert _scoped(outsider, MealUsageFilters()) is None
+        coverage = theoretical_consumption_coverage(outsider, MealUsageFilters())
+        sales = next(
+            row for row in coverage.sources if row.source_type == TheoreticalSourceType.SALES
+        )
+        assert sales.contribution_count == 0
 
     def test_the_kitchen_still_owns_its_own_adapters(self) -> None:
         """A module registering from outside may not shadow a meal source."""

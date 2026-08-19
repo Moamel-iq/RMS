@@ -55,7 +55,7 @@ from apps.sales.agreements import (
     inputs_from,
     resolve_agreement,
 )
-from apps.sales.discounts import split_for
+from apps.sales.discounts import applicable_programs, split_for
 from apps.sales.models import (
     DeliveryApplication,
     DiscountProgram,
@@ -296,6 +296,36 @@ def resolve_line(
             _("A line takes a discount programme or a manual discount, never both."),
             code="discount_source_ambiguous",
         )
+    if discount_program is not None:
+        # The programme's own applicability, asked the one way that cannot
+        # drift from the way a screen offers it: `applicable_programs` is the
+        # single statement of which programme covers which line, and calling it
+        # here means "offered" and "accepted" answer the same question.
+        #
+        # Applying an unchecked programme is not a cosmetic mistake. A discount
+        # funded by one delivery application, applied to a line taken by
+        # another, raises a receivable against a company that agreed to
+        # reimburse nothing — and it does so *quietly*, because the funding
+        # split still closes and every figure on the line still sums.
+        covers = applicable_programs(
+            organization_id=day.organization_id,
+            branch_id=day.branch_id,
+            on_date=on_date,
+            menu_item_id=menu_item.pk,
+            channel_id=channel.pk,
+            delivery_application_id=(
+                delivery_application.pk if delivery_application is not None else None
+            ),
+        ).filter(pk=discount_program.pk)
+        if not covers.exists():
+            raise ValidationError(
+                _(
+                    "Discount programme %(code)s does not cover this line on %(date)s. "
+                    "Check its branch, channel, item, application and effective dates."
+                )
+                % {"code": discount_program.code, "date": on_date.isoformat()},
+                code="discount_program_not_applicable",
+            )
     split = split_for(
         discount_program, gross_amount=gross_amount, manual_amount=manual_discount_amount
     )

@@ -79,9 +79,10 @@ from apps.sales.models import (
     SalesChannelCategory,
     SalesDay,
     SalesDayLine,
+    SalesDayStatus,
     TenderDestination,
 )
-from apps.sales.posting import post_sales_day
+from apps.sales.posting import post_sales_day, reverse_sales_day
 from apps.sales.selectors import receivable_balance
 from apps.sales.services import (
     create_delivery_agreement,
@@ -812,6 +813,174 @@ class TestTheDatabaseHoldsTheLine:
         )
         assert SalesAdjustment.objects.get(pk=adjustment.pk).number == ""
         assert post_sales_adjustment(adjustment=adjustment, actor=manager).number != ""
+
+
+# ---------------------------------------------------------------------------
+# A day and its corrections may not both be taken back
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestADayAndItsCorrectionsAreNotBothReversible:
+    """
+    The audit finding this class exists for, stated as arithmetic.
+
+    A 20,000 application sale posts a 17,000 receivable and a 3,000 commission.
+    A full return takes both back and every account closes. Reversing the *day*
+    afterwards takes them back a second time — and nothing in the module noticed,
+    because the general ledger and the receivable subledger were wrong by the
+    identical amount and therefore agreed with each other.
+    """
+
+    def _fully_returned(self, day: SalesDay, manager: User) -> SalesAdjustment:
+        adjustment = _adjustment(
+            day, manager, kind=SalesAdjustmentReasonKind.RETURNED_AFTER_FULFILLMENT
+        )
+        add_adjustment_line(
+            adjustment=adjustment,
+            original_line=day.lines.get(),
+            adjusted_quantity=Decimal("2.000"),
+            actor=manager,
+        )
+        return post_sales_adjustment(adjustment=adjustment, actor=manager)
+
+    def test_reversing_a_corrected_day_is_refused(
+        self, application_day: SalesDay, manager: User, accounting_manager: User
+    ) -> None:
+        posted = self._fully_returned(application_day, manager)
+        with pytest.raises(ValidationError) as caught:
+            reverse_sales_day(
+                day=application_day, actor=accounting_manager, reason="أُغلق اليوم بالخطأ"
+            )
+        assert caught.value.code == "day_has_posted_adjustments"
+        # The number is named, because "reverse them first" is only actionable
+        # if the operator is told which.
+        assert posted.number in str(caught.value)
+        assert SalesDay.objects.get(pk=application_day.pk).status == SalesDayStatus.POSTED
+
+    def test_the_ledger_is_left_exactly_where_the_return_left_it(
+        self, application_day: SalesDay, manager: User, accounting_manager: User
+    ) -> None:
+        """
+        The figures the double reversal fabricated, asserted at zero.
+
+        Before the fix this ended with a −17,000 receivable, a −3,000 credit
+        balance in a class-6 expense account, and a 20,000 debit sitting in
+        `SALES_RETURNS` against revenue that had been cancelled — a loss and a
+        negative expense conjured out of one ordinary sale and one ordinary
+        return.
+        """
+        self._fully_returned(application_day, manager)
+        with pytest.raises(ValidationError):
+            reverse_sales_day(day=application_day, actor=accounting_manager, reason="خطأ")
+
+        balances: dict[str, Decimal] = {}
+        for line in JournalLine.objects.select_related("account"):
+            code = line.account.code
+            balances[code] = balances.get(code, Decimal("0")) + line.debit - line.credit
+
+        # A 20,000 sale and a 20,000 return, and nothing else.
+        assert balances["1-02-01-001"] == Decimal("0.000")  # app receivable
+        assert balances["6-03-01-001"] == Decimal("0.000")  # commission expense
+        assert balances["4-01-01-001"] == Decimal("-20000.000")  # revenue, still gross
+        assert balances["4-03-01-001"] == Decimal("20000.000")  # returns, its own claim
+
+    def test_the_receivable_subledger_nets_to_zero_and_stays_there(
+        self, application_day: SalesDay, manager: User, accounting_manager: User
+    ) -> None:
+        """
+        The subledger the double reversal drove negative.
+
+        One `SALE_POSTED` debit and one `AUTHORIZED_ADJUSTMENT` credit, netting
+        to nothing. A `SALE_REVERSED` credit on top of those would make the
+        delivery application appear owed money it was never paid.
+        """
+        self._fully_returned(application_day, manager)
+        with pytest.raises(ValidationError):
+            reverse_sales_day(day=application_day, actor=accounting_manager, reason="خطأ")
+
+        entries = ApplicationReceivableEntry.objects.all()
+        assert {row.source for row in entries} == {
+            ReceivableSource.SALE_POSTED,
+            ReceivableSource.AUTHORIZED_ADJUSTMENT,
+        }
+        balance = sum((row.debit - row.credit for row in entries), Decimal("0"))
+        assert balance == Decimal("0.000")
+
+    def test_the_database_refuses_it_too(self, application_day: SalesDay, manager: User) -> None:
+        """
+        A service check holds for the screens and fails for the shell session.
+
+        The status transition is an ordinary `UPDATE`, so the rule is a trigger
+        as well — the same reasoning `0008`'s containment guard records.
+        """
+        self._fully_returned(application_day, manager)
+        row = SalesDay.objects.get(pk=application_day.pk)
+        row.status = SalesDayStatus.REVERSED
+        with (
+            pytest.raises(Exception, match="posted adjustment"),
+            transaction.atomic(),
+        ):
+            row.save(update_fields=["status"])
+
+    def test_a_draft_correction_does_not_block_a_reversal(
+        self, application_day: SalesDay, manager: User, accounting_manager: User
+    ) -> None:
+        """
+        A draft proposes nothing and has reached no ledger.
+
+        Refusing on one would make a day permanently unreversible because
+        somebody once opened a correction and abandoned it, which is a worse
+        failure than the one being prevented.
+        """
+        adjustment = _adjustment(application_day, manager)
+        add_adjustment_line(
+            adjustment=adjustment,
+            original_line=application_day.lines.get(),
+            adjusted_quantity=Decimal("1.000"),
+            actor=manager,
+        )
+        reversed_day = reverse_sales_day(
+            day=application_day, actor=accounting_manager, reason="أُعيد اليوم"
+        )
+        assert reversed_day.status == SalesDayStatus.REVERSED
+
+    def test_reversing_the_correction_first_reopens_the_way(
+        self, application_day: SalesDay, manager: User, accounting_manager: User
+    ) -> None:
+        """The stated remedy actually works, which is what makes the refusal fair."""
+        posted = self._fully_returned(application_day, manager)
+        reverse_sales_adjustment(
+            adjustment=posted, actor=accounting_manager, reason="سُجّل الإرجاع خطأً"
+        )
+        reversed_day = reverse_sales_day(
+            day=application_day, actor=accounting_manager, reason="أُغلق اليوم بالخطأ"
+        )
+        assert reversed_day.status == SalesDayStatus.REVERSED
+
+    def test_a_draft_correction_cannot_post_against_a_reversed_day(
+        self, application_day: SalesDay, manager: User, accounting_manager: User
+    ) -> None:
+        """
+        The same rule from the other side.
+
+        `0008`'s containment trigger reads the day's status when a *line* is
+        written, so a draft authored while the day was posted survives the day
+        being reversed. Posting it then would credit `SALES_RETURNS` against a
+        sale the reversal has already taken back.
+        """
+        adjustment = _adjustment(application_day, manager)
+        add_adjustment_line(
+            adjustment=adjustment,
+            original_line=application_day.lines.get(),
+            adjusted_quantity=Decimal("1.000"),
+            actor=manager,
+        )
+        reverse_sales_day(day=application_day, actor=accounting_manager, reason="أُعيد اليوم")
+
+        with pytest.raises(ValidationError) as caught:
+            post_sales_adjustment(adjustment=adjustment, actor=accounting_manager)
+        assert caught.value.code == "day_not_posted"
 
 
 # ---------------------------------------------------------------------------

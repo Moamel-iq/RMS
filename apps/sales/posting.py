@@ -64,6 +64,12 @@ the opposite receivable entry, and reads no mapping and no rate again: the
 question "what did this day do" has one answer and it was settled the day it
 posted. Only its *date* is current, because undoing something is an event that
 happens now.
+
+It also **refuses a day that has already been corrected.** A posted
+`SalesAdjustment` has taken part of this day back once; reversing the whole day
+would take the same sale back twice, in both ledgers, by the same amount — so
+the two agree with each other and disagree with reality. See
+`reverse_sales_day` and migration `0013`.
 """
 
 from __future__ import annotations
@@ -100,6 +106,8 @@ from apps.core.services import record_audit_event, snapshot
 from apps.sales.models import (
     ApplicationReceivableEntry,
     ReceivableSource,
+    SalesAdjustment,
+    SalesAdjustmentStatus,
     SalesDay,
     SalesDayLine,
     SalesDayStatus,
@@ -492,6 +500,21 @@ def reverse_sales_day(*, day: SalesDay, actor: User, reason: str) -> SalesDay:
     amount the sale wrote, read from the ledger rather than recomputed from the
     lines, because recomputing would silently pick up any master-data change
     since — which is exactly the drift a reversal must not introduce.
+
+    **A day that has already been corrected may not be reversed.** A posted
+    adjustment has un-recognised part of this day once, in the general ledger
+    and in the receivable subledger both; reversing the whole day afterwards
+    un-recognises the same sale a second time. No verifier catches it, and the
+    reason is worth stating: the two ledgers are wrong by the *identical*
+    amount, so `verify_receivable_ledger` finds them in perfect agreement,
+    while `verify_adjustments_are_within_their_originals` reads the original
+    line's quantity and gross, which a reversal never touches. What is left is
+    a receivable with a credit balance the application never owed and a class-6
+    expense account holding a credit.
+
+    The remedy is to reverse the adjustment first, which puts the day back into
+    the state its own reversal describes. Enforced here and by
+    `0013`'s trigger, because the status change is an ordinary `UPDATE`.
     """
     if not reason.strip():
         raise ValidationError(_("Reversing a sales day needs a reason."), code="reason_required")
@@ -501,6 +524,22 @@ def reverse_sales_day(*, day: SalesDay, actor: User, reason: str) -> SalesDay:
         raise ValidationError(_("This sales day is already reversed."), code="already_reversed")
     if locked.status != SalesDayStatus.POSTED:
         raise ValidationError(_("Only a posted sales day can be reversed."), code="day_not_posted")
+
+    corrections = list(
+        SalesAdjustment.objects.filter(sales_day_id=locked.pk, status=SalesAdjustmentStatus.POSTED)
+        .order_by("number")
+        .values_list("number", flat=True)
+    )
+    if corrections:
+        raise ValidationError(
+            _(
+                "This sales day has posted corrections against it (%(numbers)s). "
+                "Reverse them first: reversing the day as well would take the same "
+                "sale back twice."
+            )
+            % {"numbers": "، ".join(corrections)},
+            code="day_has_posted_adjustments",
+        )
 
     entry = JournalEntry.objects.filter(
         organization=locked.organization,

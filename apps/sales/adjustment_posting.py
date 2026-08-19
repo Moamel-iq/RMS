@@ -109,6 +109,7 @@ from apps.sales.models import (
     SalesAdjustmentLine,
     SalesAdjustmentStatus,
     SalesDayLine,
+    SalesDayStatus,
     TenderDestination,
 )
 from apps.sales.posting import next_document_number
@@ -373,6 +374,17 @@ def post_sales_adjustment(*, adjustment: SalesAdjustment, actor: User) -> SalesA
         raise ValidationError(
             _("A reversed adjustment cannot be posted again. Record a new one."),
             code="adjustment_reversed",
+        )
+    # Re-read at posting, not only at drafting. `0008`'s containment trigger
+    # checks the day's status when a *line* is written, and a draft written
+    # while the day was posted survives the day being reversed afterwards.
+    # Posting it then would credit `SALES_RETURNS` against a sale the day's own
+    # reversal has already taken back — the mirror of the rule
+    # `reverse_sales_day` enforces from the other side.
+    if locked.sales_day.status != SalesDayStatus.POSTED:
+        raise ValidationError(
+            _("The sales day this corrects is no longer posted. There is nothing to take back."),
+            code="day_not_posted",
         )
 
     lines = list(

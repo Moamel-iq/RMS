@@ -431,6 +431,116 @@ def test_a_malformed_decimal_is_a_422_naming_the_field(
     assert "quantity" in body["message"]
 
 
+def _draft_settlement(scenario: dict[str, Any], actor: User) -> Any:
+    """A second, still-draft settlement — an adjustment needs one."""
+    import datetime
+
+    from apps.sales.settlement_services import create_settlement
+
+    return create_settlement(
+        organization=scenario["organization"],
+        branch=scenario["branch"],
+        delivery_application=scenario["application"],
+        period_start=datetime.date(2026, 8, 15),
+        period_end=datetime.date(2026, 8, 20),
+        business_date=datetime.date(2026, 8, 20),
+        statement_reference="SCN/STMT-02",
+        statement_date=datetime.date(2026, 8, 20),
+        statement_amount=Decimal("1000"),
+        remitted_amount=Decimal("500"),
+        statement_commission_amount=Decimal("100"),
+        remittance_destination="BANK",
+        evidence_reference="SCN/EVIDENCE-02",
+        actor=actor,
+    )
+
+
+def _unexplained_claim(approver_id: int) -> str:
+    return json.dumps(
+        {
+            "leg": "REMITTANCE",
+            "reason": "UNEXPLAINED_APPROVED",
+            "amount": "-500.000",
+            "explanation": "لا تفسير.",
+            "approver_id": approver_id,
+        }
+    )
+
+
+def test_a_settlement_approver_must_be_able_to_approve_settlements_here(
+    scenario: dict[str, Any],
+    accounting_manager: User,
+    outsider: User,
+    cashier: User,
+    client_for: Callable[[User], Client],
+) -> None:
+    """
+    The audit finding this test exists for.
+
+    `approver_id` was resolved with a global `User.objects.filter(pk=...)`, so
+    the caller could stamp any active user in the database as having approved an
+    unexplained settlement variance — the Owner of another organization, or an
+    id they guessed. `UNEXPLAINED_APPROVED` is the one place ADR-028 §7 lets a
+    difference nobody can explain reach the ledger, and the name on it was the
+    entire control.
+    """
+    settlement = _draft_settlement(scenario, accounting_manager)
+    client = client_for(accounting_manager)
+    path = f"{BASE}/settlements/{settlement.public_id}/adjustments"
+
+    for stranger in (outsider, cashier):
+        response = client.post(
+            path, data=_unexplained_claim(stranger.pk), content_type="application/json"
+        )
+        # 422, not 403: the *caller* is permitted here and the payload is what
+        # is wrong, which they fix by naming somebody who may actually approve.
+        assert response.status_code == 422, (stranger.username, response.content[:300])
+        assert json.loads(response.content)["code"] == "approver_required"
+
+    assert settlement.adjustments.count() == 0
+
+
+def test_a_nonexistent_approver_is_indistinguishable_from_a_foreign_one(
+    scenario: dict[str, Any],
+    accounting_manager: User,
+    outsider: User,
+    client_for: Callable[[User], Client],
+) -> None:
+    """
+    The endpoint was a cross-tenant user-id oracle: an existing foreign id
+    returned 201 and a nonexistent one returned an error, so a caller could
+    enumerate which user ids exist in other organizations.
+    """
+    settlement = _draft_settlement(scenario, accounting_manager)
+    client = client_for(accounting_manager)
+    path = f"{BASE}/settlements/{settlement.public_id}/adjustments"
+
+    missing = client.post(
+        path, data=_unexplained_claim(10_000_000), content_type="application/json"
+    )
+    foreign = client.post(
+        path, data=_unexplained_claim(outsider.pk), content_type="application/json"
+    )
+    assert missing.status_code == foreign.status_code
+    assert json.loads(missing.content) == json.loads(foreign.content)
+
+
+def test_an_approver_who_may_settle_here_is_accepted(
+    scenario: dict[str, Any], accounting_manager: User, client_for: Callable[[User], Client]
+) -> None:
+    """The check refuses forgery, not approval. The legitimate path still works."""
+    settlement = _draft_settlement(scenario, accounting_manager)
+    response = client_for(accounting_manager).post(
+        f"{BASE}/settlements/{settlement.public_id}/adjustments",
+        data=_unexplained_claim(accounting_manager.pk),
+        content_type="application/json",
+    )
+    assert response.status_code == 201, response.content[:300]
+    adjustment = settlement.adjustments.get()
+    assert adjustment.approved_by == accounting_manager
+    assert adjustment.approved_at is not None
+
+
 def test_the_router_is_registered_under_the_versioned_prefix() -> None:
     """One line in `config/api.py`, and this is the assertion behind it."""
     from config.api import api

@@ -454,22 +454,44 @@ def coverage_labels() -> tuple[str, str]:
 
 def _scoped(user: User, filters: MealUsageFilters) -> tuple[int, list[int]] | None:
     """
-    The organization and branches this caller may read meals in.
+    The organization and branches this caller may read theoretical figures in.
+
+    Taken from the caller's **branch reach** — the branches where a post they
+    hold carries `view_kitchen_report` — and never from the rows that happen to
+    exist. It was derived from `MealRecord` until Phase 4, which was
+    self-consistent while every source read meals and became a silent
+    subtraction the moment one did not: a branch that posts sales and never
+    logs a staff meal produced no identifiers, so the scope was `None`, so the
+    sales adapter was never called — while `theoretical_consumption_coverage`
+    stamped the same figure `SALES_INCLUDED` and `is_final=True`. Every
+    ingredient those sales consumed then appeared as unexplained variance on a
+    report claiming to be complete, which is worse than the honest
+    `DEFERRED_TO_PHASE_4` zero it replaced.
 
     Returns `None` when the caller reaches nothing, which every caller treats
     as an empty report rather than as an error: a user with no membership has
     an empty kitchen, not a broken one.
-    """
-    from apps.kitchen.selectors import visible_meal_records
 
-    visible = visible_meal_records(user)
+    One organization, as before. Which one is now decided in a stated order
+    rather than by whichever row the database returned first, and the branches
+    are the ones belonging to *that* organization — the old shape could pair one
+    organization's id with another organization's branches.
+    """
+    from apps.kitchen.permissions import VIEW_KITCHEN_REPORT
+    from apps.organizations.authorization import branches_with_permission
+
+    branches = branches_with_permission(user, VIEW_KITCHEN_REPORT)
     if filters.branch_id:
-        visible = visible.filter(branch_id=filters.branch_id)
-    identifiers = list(visible.values_list("organization_id", "branch_id").distinct())
+        branches = branches.filter(pk=filters.branch_id)
+    identifiers = list(
+        branches.order_by("organization__code", "code").values_list("organization_id", "id")
+    )
     if not identifiers:
         return None
     organization_id = identifiers[0][0]
-    return organization_id, sorted({branch_id for _org, branch_id in identifiers})
+    return organization_id, sorted(
+        branch_id for organization, branch_id in identifiers if organization == organization_id
+    )
 
 
 def _usage(

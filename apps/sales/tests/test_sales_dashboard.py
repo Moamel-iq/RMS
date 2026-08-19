@@ -235,6 +235,56 @@ def test_every_card_route_answers_as_a_fragment(
         assert "<html" not in response.content.decode("utf-8").lower(), card.slug
 
 
+def test_every_detail_screen_answers_as_a_page_and_as_a_real_fragment(
+    scenario: dict[str, Any], accounting_manager: User, client_for: Callable[[User], Client]
+) -> None:
+    """
+    The audit finding this test exists for.
+
+    Nine screens extend `list_base_template` **directly** rather than through
+    `settings/base_list.html`, so the block each defines is `page`. They named
+    `settings/_list_fragment.html` as their htmx parent, which declares only
+    `results` — and Django silently drops a child block the parent does not
+    have, so every one of them answered 200 with a body of whitespace.
+
+    The old assertions on these routes checked the status and the absence of a
+    second `<html>`, both of which an empty body satisfies perfectly. That is
+    why the defect sat here undetected, and it is why this test asserts on
+    *content* rather than on the absence of a mistake.
+    """
+    routes = (
+        reverse("sales:dashboard"),
+        reverse("sales:day_detail", args=[scenario["day"].pk]),
+        reverse("sales:adjustment_detail", args=[scenario["adjustment"].pk]),
+        # `pk` here is the delivery application: the page is that company's
+        # account, and the entries are its lines.
+        reverse("sales:receivable_detail", args=[scenario["application"].pk]),
+        reverse("sales:settlement_detail", args=[scenario["settlement"].pk]),
+        reverse("sales:shift_detail", args=[scenario["shift"].pk]),
+        reverse("sales:menu_item_detail", args=[scenario["menu_item"].pk]),
+        reverse("sales:application_detail", args=[scenario["application"].pk]),
+        reverse("sales:report_daily_reconciliation"),
+    )
+
+    client = client_for(accounting_manager)
+    for path in routes:
+        page = client.get(path)
+        fragment = client.get(path, headers={"HX-Request": "true"})
+        assert page.status_code == 200, path
+        assert fragment.status_code == 200, path
+
+        body = fragment.content.decode("utf-8")
+        # A fragment carrying a second shell renders correctly enough to be
+        # missed in review and is wrong in every accessibility tree.
+        assert "<html" not in body.lower(), path
+        # And an *empty* fragment is the failure the previous assertion cannot
+        # see. Compared against the full page rather than against a magic
+        # number: the fragment is the page's own `page` block, so it is
+        # substantial and strictly smaller than the shell around it.
+        assert len(body.strip()) > 500, (path, len(body.strip()))
+        assert len(body) < len(page.content.decode("utf-8")), path
+
+
 def test_the_cost_card_is_omitted_from_a_cashiers_dashboard(
     scenario: dict[str, Any], cashier: User, client_for: Callable[[User], Client]
 ) -> None:

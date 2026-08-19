@@ -55,6 +55,9 @@ from apps.sales.models import (
     CashierShift,
     CashierShiftStatus,
     CashierTenderCount,
+    SalesAdjustmentLine,
+    SalesAdjustmentStatus,
+    SalesChannel,
     SalesDay,
     SalesDayStatus,
     TenderDestination,
@@ -143,9 +146,48 @@ def open_cashier_shift(
 # ---------------------------------------------------------------------------
 
 
+def _tender_of(channel: SalesChannel) -> str:
+    """Which countable tender a non-application channel settles into."""
+    if channel.default_tender == TenderDestination.CARD:
+        return TenderDestination.CARD
+    return TenderDestination.CASH
+
+
+def refunded_by_tender(shift: CashierShift) -> dict[str, Decimal]:
+    """
+    What posted corrections handed back out of **this** drawer, per tender.
+
+    Scoped by branch and business date rather than by the shift's own sales
+    day, because a drawer is a physical box on one date and a refund paid from
+    it today reduces it whichever day's sale it corrects. That is not a wider
+    net for its own sake: it is the same scope the ledger already uses —
+    `build_adjustment_plan` credits `SALES_CASH_ON_HAND` or
+    `SALES_CARD_CLEARING` with `adjusted_net_amount` on the adjustment's own
+    business date, and an expectation that disagreed with the credit would
+    charge the difference to `SALES_CASH_OVER_SHORT` as a shortage nobody was
+    short of.
+
+    Application lines are excluded here for the reason they are excluded from
+    the expectation: a delivery company's debt is not in a drawer, and the
+    correction against it moves a receivable rather than cash.
+    """
+    refunds: dict[str, Decimal] = dict.fromkeys(COUNTABLE_TENDERS, ZERO)
+    lines = SalesAdjustmentLine.objects.filter(
+        adjustment__status=SalesAdjustmentStatus.POSTED,
+        adjustment__branch_id=shift.branch_id,
+        adjustment__business_date=shift.business_date,
+        original_line__delivery_application__isnull=True,
+    ).select_related("original_line__channel")
+    for line in lines:
+        tender = _tender_of(line.original_line.channel)
+        refunds[tender] = refunds[tender] + line.adjusted_net_amount
+    return refunds
+
+
 def expected_by_tender(shift: CashierShift) -> dict[str, Decimal]:
     """
-    What the shift's posted day says each tender took, before the float.
+    What the shift's posted day says each tender took, before the float, less
+    what posted corrections handed back on the same date.
 
     Derived from the **lines** rather than from `SalesTenderSummary`, and the
     difference matters: the summary is what the operator *declared*, the lines
@@ -153,6 +195,14 @@ def expected_by_tender(shift: CashierShift) -> dict[str, Decimal]:
     against a declaration would compare two things the same person typed. The
     declaration is compared separately, on المطابقة اليومية, which is where a
     disagreement between the two is itself the finding.
+
+    **A same-day refund is subtracted**, and reading the lines alone was the
+    defect: the adjustment credits the drawer account in the ledger, so a count
+    measured against the un-refunded figure is short by exactly the refund, and
+    approving that shortage credits the same cash a second time — the drawer
+    ends negative in the ledger against a box that really holds what it holds.
+    A refund decided on a *later* date belongs to that date's drawer and is not
+    subtracted here, which is why the scope is the date and not the day.
 
     An open shift with no day named yet answers zero for every tender rather
     than refusing — the screen wants to show a running expectation before the
@@ -168,13 +218,11 @@ def expected_by_tender(shift: CashierShift) -> dict[str, Decimal]:
             # Not countable, and not this document's business. It is cleared by
             # a settlement.
             continue
-        tender = (
-            TenderDestination.CARD
-            if line.channel.default_tender == TenderDestination.CARD
-            else TenderDestination.CASH
-        )
+        tender = _tender_of(line.channel)
         totals[tender] = totals[tender] + line.net_amount
-    return {tender: quantize_money(amount) for tender, amount in totals.items()}
+
+    refunds = refunded_by_tender(shift)
+    return {tender: quantize_money(amount - refunds[tender]) for tender, amount in totals.items()}
 
 
 def expected_cash_for(shift: CashierShift) -> Decimal:
@@ -410,6 +458,7 @@ __all__ = [
     "expected_by_tender",
     "expected_cash_for",
     "open_cashier_shift",
+    "refunded_by_tender",
     "reopen_cashier_shift",
     "set_tender_count",
 ]

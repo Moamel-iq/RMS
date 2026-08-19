@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.urls import reverse
 
 from apps.accounting.models import CostCenter
 from apps.organizations.models import Branch, Organization
@@ -563,8 +564,6 @@ class TestDiscountApplicability:
 @pytest.mark.django_db
 class TestNavigationAndAuthority:
     def test_the_three_checkpoint_two_entries_are_active(self) -> None:
-        from django.urls import reverse
-
         from apps.core.navigation import MODULES
 
         sales = next(module for module in MODULES if module.key == "sales")
@@ -592,6 +591,103 @@ class TestNavigationAndAuthority:
 
         assert not cashier.has_perm(MANAGE_SALES_AGREEMENTS)
         assert not cashier.has_perm(MANAGE_SALES_DISCOUNTS)
+
+    def test_an_agreement_is_declared_organization_authority(self) -> None:
+        """
+        The scope the table states, read from the table.
+
+        Asserted rather than assumed because the whole of the next two tests
+        depends on it: an agreement decides what every future order at that
+        branch is worth, so reaching the organization through one branch
+        membership is deliberately not enough to change one.
+        """
+        from apps.sales.permissions import (
+            MANAGE_SALES_AGREEMENTS,
+            PERMISSION_SCOPE,
+            PermissionScope,
+        )
+
+        assert PERMISSION_SCOPE[MANAGE_SALES_AGREEMENTS] == PermissionScope.ORGANIZATION_AUTHORITY
+
+    def test_a_branch_manager_may_not_create_an_agreement(
+        self,
+        branch: Branch,
+        application: DeliveryApplication,
+        manager: User,
+        client_for: Any,
+    ) -> None:
+        """
+        The audit finding this test exists for.
+
+        `manager` holds a `BranchMembership` and no organization membership
+        anywhere. Both write views enforced `manage_sales_agreements` with
+        `require_branch_permission`, which a bare branch post satisfies — so a
+        branch manager could set the commission rate their own branch trades at,
+        which is exactly what the declared scope refuses.
+        """
+        response = client_for(manager).post(
+            reverse("sales:agreement_create"),
+            data={
+                "branch": branch.pk,
+                "delivery_application": application.pk,
+                "effective_from": JANUARY.isoformat(),
+                "commission_percent": "0.5",
+                "fixed_fee_per_order": "0",
+                "commission_basis": CommissionBasis.GROSS_LIST_AMOUNT,
+                "settlement_lag_days": "0",
+                "evidence_reference": "عقد",
+            },
+        )
+        assert response.status_code == 403
+        assert not DeliveryAgreement.objects.filter(
+            branch=branch, delivery_application=application
+        ).exists()
+
+    def test_a_branch_manager_may_not_close_one_either(
+        self,
+        agreement: DeliveryAgreement,
+        manager: User,
+        client_for: Any,
+    ) -> None:
+        """Ending an agreement is the only way its rate ever changes."""
+        response = client_for(manager).post(
+            reverse("sales:agreement_close", args=[agreement.pk]),
+            data={"effective_to": TODAY.isoformat(), "reason": "انتهى العقد"},
+        )
+        assert response.status_code == 403
+        agreement.refresh_from_db()
+        assert agreement.effective_to is None
+
+    def test_an_accounting_manager_still_may(
+        self,
+        branch: Branch,
+        application: DeliveryApplication,
+        accounting_manager: User,
+        client_for: Any,
+    ) -> None:
+        """
+        The organization post that the scope actually means.
+
+        Without this the previous two tests would pass equally well against a
+        view that refused everybody.
+        """
+        response = client_for(accounting_manager).post(
+            reverse("sales:agreement_create"),
+            data={
+                "branch": branch.pk,
+                "delivery_application": application.pk,
+                "effective_from": JANUARY.isoformat(),
+                "commission_percent": "0.5",
+                "fixed_fee_per_order": "0",
+                "commission_basis": CommissionBasis.GROSS_LIST_AMOUNT,
+                "settlement_lag_days": "0",
+                "evidence_reference": "عقد",
+            },
+        )
+        assert response.status_code in {200, 302}
+        assert DeliveryAgreement.objects.filter(
+            branch=branch, delivery_application=application, commission_percent=Decimal("0.5")
+        ).exists()
 
     def test_an_outsider_reaches_no_application(
         self, outsider: User, application: DeliveryApplication

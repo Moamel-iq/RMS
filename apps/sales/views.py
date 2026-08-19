@@ -41,7 +41,6 @@ from apps.inventory.views import (
 from apps.organizations.authorization import (
     has_organization_permission,
     organizations_with_permission,
-    require_branch_permission,
     require_organization_permission,
     require_reachable_organization_permission,
 )
@@ -435,8 +434,14 @@ class MenuItemDetailView(InventoryViewMixin, View):
             ),
             "page_title": item.name_ar,
             "page_hint": _("توفّر الصنف في الفروع، والأسعار السارية اليوم في كل فرع."),
+            # `_form_fragment.html`, not `_list_fragment.html`. This template
+            # extends `list_base_template` **directly** rather than through
+            # `settings/base_list.html`, so the block it defines is `page`;
+            # `_list_fragment.html` contains only `results`, Django silently
+            # drops a child block the parent does not declare, and the htmx
+            # form of this screen answered 200 with an empty body.
             "list_base_template": (
-                "settings/_list_fragment.html"
+                "settings/_form_fragment.html"
                 if request.headers.get("HX-Request") == "true"
                 else "shell.html"
             ),
@@ -916,8 +921,14 @@ class DeliveryApplicationDetailView(InventoryViewMixin, View):
             ),
             "page_title": application.name_ar,
             "page_hint": _("الفروع المفعّلة مع هذا التطبيق، والاتفاقية السارية اليوم لكل فرع."),
+            # `_form_fragment.html`, not `_list_fragment.html`. This template
+            # extends `list_base_template` **directly** rather than through
+            # `settings/base_list.html`, so the block it defines is `page`;
+            # `_list_fragment.html` contains only `results`, Django silently
+            # drops a child block the parent does not declare, and the htmx
+            # form of this screen answered 200 with an empty body.
             "list_base_template": (
-                "settings/_list_fragment.html"
+                "settings/_form_fragment.html"
                 if request.headers.get("HX-Request") == "true"
                 else "shell.html"
             ),
@@ -1008,7 +1019,17 @@ class DeliveryAgreementCreateView(SalesWriteView):
     success_message = _("تمت إضافة الاتفاقية.")
 
     def authorize(self, instance: Any, form: Any) -> None:
-        require_branch_permission(self.actor, MANAGE_SALES_AGREEMENTS, form.cleaned_data["branch"])
+        # `require_organization_permission`, matching the scope the permission
+        # table declares. `manage_sales_agreements` is `ORGANIZATION_AUTHORITY`
+        # precisely because an agreement decides what every future order at that
+        # branch is worth, and ADR-016 defines that scope as an
+        # `OrganizationMembership` — a branch post is not one. Enforcing it at
+        # branch scope let a bare branch manager set the commission rate their
+        # own branch trades at, which is the case the declared scope exists to
+        # refuse.
+        require_organization_permission(
+            self.actor, MANAGE_SALES_AGREEMENTS, form.cleaned_data["branch"].organization
+        )
 
     def perform(self, instance: Any, form: Any) -> None:
         data = form.cleaned_data
@@ -1041,7 +1062,11 @@ class DeliveryAgreementCloseView(SalesWriteView):
         return resolve_agreement_row(self.actor, self.kwargs["pk"])
 
     def authorize(self, instance: Any, form: Any) -> None:
-        require_branch_permission(self.actor, MANAGE_SALES_AGREEMENTS, instance.branch)
+        # The same declared scope as creating one. Ending an agreement is the
+        # only way its rate ever changes, so it is exactly as consequential.
+        require_organization_permission(
+            self.actor, MANAGE_SALES_AGREEMENTS, instance.branch.organization
+        )
 
     def perform(self, instance: Any, form: Any) -> None:
         close_delivery_agreement(

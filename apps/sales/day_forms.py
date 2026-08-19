@@ -19,6 +19,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from django import forms
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -138,9 +139,25 @@ class SalesLineForm(forms.Form):
         self.fields["delivery_application"].queryset = DeliveryApplication.objects.filter(  # type: ignore[attr-defined]
             pk__in=[row.pk for row in applications_for(day)]
         ).order_by("code")
-        self.fields["discount_program"].queryset = DiscountProgram.objects.filter(  # type: ignore[attr-defined]
-            organization_id=day.organization_id, is_active=True
-        ).order_by("code")
+        # Narrowed to the axes a form can know before the line exists: the
+        # organization, the branch and the day's own date. The item, the
+        # channel and the application are only known once this form is
+        # submitted, and `resolve_line` refuses a programme that does not cover
+        # them — so the list is honest rather than complete. Offering an ended
+        # programme was the visible half of that: `close_discount_program`
+        # writes `effective_to` and leaves `is_active` alone, by design, and a
+        # filter that read only `is_active` therefore listed every promotion the
+        # organization had ever run.
+        self.fields["discount_program"].queryset = (  # type: ignore[attr-defined]
+            DiscountProgram.objects.filter(
+                organization_id=day.organization_id,
+                is_active=True,
+                effective_from__lte=day.business_date,
+            )
+            .filter(Q(effective_to__isnull=True) | Q(effective_to__gte=day.business_date))
+            .filter(Q(branch__isnull=True) | Q(branch_id=day.branch_id))
+            .order_by("code")
+        )
 
     def clean(self) -> dict[str, Any]:
         data = super().clean() or {}
