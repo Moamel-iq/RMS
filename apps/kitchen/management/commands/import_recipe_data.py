@@ -49,6 +49,7 @@ from apps.inventory.services import create_item, create_item_category
 from apps.kitchen.models import MeasurementBasis, RecipeLineCostClass, RecipeType
 from apps.kitchen.services import (
     add_recipe_line,
+    add_recipe_serving,
     create_draft_recipe_version,
     create_recipe,
     create_recipe_category,
@@ -427,6 +428,25 @@ class Command(SeedCommand):
                     source_note=yield_note,
                 )
                 versions += 1
+
+                # A plating card describes exactly one plate, so a portion
+                # recipe gets one primary serving and that is what a menu item
+                # is sold as. Batch recipes get none: how a batch divides into
+                # portions is the yield the book does not state, and a serving
+                # invented here would put a number on it.
+                if recipe_type == RecipeType.PORTION.value:
+                    add_recipe_serving(
+                        version=version,
+                        code="PLATE",
+                        name_ar="الطبق",
+                        serving_quantity=Decimal("1"),
+                        serving_unit=units["PIECE"],
+                        is_primary=True,
+                        source_document=document,
+                        source_page=entry["page"],
+                        source_sha256=sha,
+                        source_note="حصة واحدة = طبق واحد كما يصفه كارت التقديم.",
+                    )
 
                 for order, line in enumerate(entry["lines"], start=1):
                     item = InventoryItem.objects.get(
