@@ -370,17 +370,39 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:goods_receipt_list",
                 available=True,
             ),
+            # The supplier invoice. Its comment used to say the backing
+            # documents "do not exist" — they had existed since Task 2.12 and
+            # the entry stayed inert anyway, which is the failure mode where a
+            # stale note outlives the thing it described. `SupplierInvoice`,
+            # `SupplierInvoiceLine`, `SupplierInvoicePosting`, `PurchaseMatch`,
+            # matching, GRNI, PPV, payments and credit notes are all built.
             Section(
                 label=_("فواتير الموردين"),
                 url_name="procurement:supplier_invoice_list",
                 available=True,
                 active_prefixes=("/procurement/invoices/",),
             ),
+            # The charge documents this branch added: a charge is drafted,
+            # allocated across the receipt lines it landed on, and posted with
+            # its invoice. It owns this entry because it is the screen somebody
+            # actually works in.
             Section(
                 label=_("التكاليف الإضافية"),
                 url_name="procurement:supplier_invoice_charge_list",
                 available=True,
                 active_prefixes=("/procurement/additional-costs/",),
+            ),
+            # The read screen main already had, over ACCOUNT invoice lines.
+            # Kept, and labelled apart: two entries reading التكاليف الإضافية
+            # that opened different pages would be the sidebar lying about which
+            # one you are on. Neither offers a posting control — the invoice
+            # owns that, so there is still exactly one path to the ledger for a
+            # charge the supplier billed once.
+            Section(
+                label=_("سطور التكاليف الإضافية"),
+                url_name="procurement:additional_cost_list",
+                available=True,
+                active_prefixes=("/procurement/additional-cost-lines/",),
             ),
             # Task 2.13 — supplier returns. Built and reachable; the entry the
             # inventory module gave up ("returns belong to Procurement, where
@@ -418,6 +440,15 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:credit_term_list",
                 available=True,
                 active_prefixes=("/procurement/credit-terms/",),
+            ),
+            # main's read-only view over `Supplier.payment_terms_days`. The
+            # register above is the effective-dated record; this stays as the
+            # at-a-glance summary, under its own route and its own name.
+            Section(
+                label=_("ملخّص شروط الائتمان"),
+                url_name="procurement:credit_term_summary",
+                available=True,
+                active_prefixes=("/procurement/credit-term-summary/",),
             ),
         ),
     ),

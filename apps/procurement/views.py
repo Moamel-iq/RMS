@@ -22,6 +22,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.db.models import DecimalField, Exists, OuterRef, Q, QuerySet, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
@@ -48,6 +49,12 @@ from apps.organizations.authorization import (
     require_reachable_organization_permission,
     require_warehouse_permission,
 )
+from apps.procurement.additional_cost_workspace import (
+    EDITABLE_INVOICE_STATUSES,
+    AdditionalCostFilters,
+    additional_costs,
+    totals_for,
+)
 from apps.procurement.additional_costs import (
     create_charge,
     delete_charge,
@@ -69,6 +76,7 @@ from apps.procurement.credit_notes import (
     reverse_supplier_credit_note,
     unallocated_credit,
 )
+from apps.procurement.credit_term_workspace import CreditTermFilters, supplier_term_rows
 from apps.procurement.credit_terms import (
     activate_credit_term,
     create_credit_term_draft,
@@ -2092,6 +2100,12 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
                     "account", "branch", "cost_center"
                 ).order_by("line_number")
         return {
+            # One hook, set once here, so all three render paths on this view —
+            # the GET, the inventory-line POST and the account-line POST — answer
+            # an HTMX request with a fragment rather than a nested document.
+            "form_base_template": (
+                "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
+            ),
             "invoice": invoice,
             "lines": invoice.lines.select_related(
                 "item", "account", "cost_center", "receipt_line", "receipt_line__receipt"
@@ -3554,4 +3568,168 @@ class SupplierCreditNoteTransitionView(InventoryViewMixin, View):
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
         return HttpResponseRedirect(
             reverse("procurement:supplier_credit_note_detail", args=[credit_note.pk])
+        )
+
+
+# ---------------------------------------------------------------------------
+# التكاليف الإضافية — the ACCOUNT-line workspace
+# ---------------------------------------------------------------------------
+
+
+class AdditionalCostListView(InventoryViewMixin, View):
+    """
+    Every `ACCOUNT` invoice line, in one place, with its invoice beside it.
+
+    A workspace rather than a document list. There is no additional-cost model,
+    no create action here and no post or reverse action — an additional cost is
+    a line on a supplier invoice, and the invoice owns its lifecycle. The
+    screen's job is to make the charges findable across invoices, which is the
+    thing the invoice detail page cannot do.
+
+    Money is redacted **structurally**: without `view_supplier_cost` the amount
+    columns are absent from the context rather than blanked, because a blank
+    cell says a number exists and is being withheld, which is a different
+    statement from the one intended.
+    """
+
+    module_key = "procurement"
+    template_name = "procurement/additional_cost_list.html"
+    required_permission = VIEW_SUPPLIER_INVOICE
+    paginate_by = 25
+
+    def _int(self, name: str) -> int | None:
+        raw = self.request.GET.get(name, "").strip()
+        return int(raw) if raw.isdigit() else None
+
+    def _date(self, name: str) -> datetime.date | None:
+        raw = self.request.GET.get(name, "").strip()
+        if not raw:
+            return None
+        try:
+            return datetime.date.fromisoformat(raw)
+        except ValueError:
+            # A malformed date narrows nothing rather than 400ing; the chip
+            # still shows what was typed.
+            return None
+
+    def filters(self) -> AdditionalCostFilters:
+        return AdditionalCostFilters(
+            search=self.request.GET.get("q", "").strip(),
+            supplier_id=self._int("supplier_id"),
+            invoice_id=self._int("invoice_id"),
+            account_id=self._int("account_id"),
+            cost_center_id=self._int("cost_center_id"),
+            status=self.request.GET.get("status", "").strip(),
+            date_from=self._date("date_from"),
+            date_to=self._date("date_to"),
+            overdue_only=self.request.GET.get("overdue") == "1",
+        )
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        filters = self.filters()
+        today = timezone.localdate()
+        rows = additional_costs(self.actor, filters, today=today)
+        totals = totals_for(rows)
+
+        paginator = Paginator(rows, self.paginate_by)
+        page = paginator.get_page(request.GET.get("page"))
+
+        # One permission question, asked once, for the whole screen.
+        may_read_cost = bool(organizations_with_permission(self.actor, VIEW_SUPPLIER_COST).exists())
+
+        query = request.GET.copy()
+        query.pop("page", None)
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "form_base_template": (
+                    "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
+                ),
+                "page_title": _("التكاليف الإضافية"),
+                "page_hint": _(
+                    "التكاليف الإضافية سطور من نوع «مصروف أو حساب مباشر» على فواتير "
+                    "الموردين — نقل، مناولة، صيانة، خدمة. لا تدخل المخزن، ولا تُرحَّل "
+                    "إلا مع فاتورتها، ولا تُرسمل في كلفة البضاعة."
+                ),
+                "rows": page.object_list,
+                "page_obj": page,
+                "paginator": paginator,
+                "is_paginated": page.has_other_pages(),
+                "total_rows": paginator.count,
+                "totals": totals if may_read_cost else None,
+                "show_cost": may_read_cost,
+                "statuses": SupplierInvoiceStatus.choices,
+                "filters": {
+                    "q": request.GET.get("q", ""),
+                    "supplier_id": request.GET.get("supplier_id", ""),
+                    "invoice_id": request.GET.get("invoice_id", ""),
+                    "status": request.GET.get("status", ""),
+                    "date_from": request.GET.get("date_from", ""),
+                    "date_to": request.GET.get("date_to", ""),
+                    "overdue": request.GET.get("overdue", ""),
+                },
+                "page_query": query.urlencode(),
+                "today": today,
+                "editable_statuses": sorted(EDITABLE_INVOICE_STATUSES),
+            },
+        )
+
+
+class CreditTermListView(InventoryViewMixin, View):
+    """
+    شروط الائتمان — supplier default terms, and how their invoices are sitting.
+
+    A workspace over `Supplier.payment_terms_days`, not a master-data screen for
+    a table that does not exist. Editing a supplier's default goes to the
+    supplier form, which already owns that field and its audit trail; this
+    screen shows the consequences of the setting rather than re-implementing the
+    setting.
+
+    Overdue is computed against `timezone.localdate()` passed explicitly into
+    the service, so the figure is a claim about a named date rather than about
+    whenever the page happened to render.
+    """
+
+    module_key = "procurement"
+    template_name = "procurement/credit_term_summary.html"
+    required_permission = VIEW_SUPPLIER
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        filters = CreditTermFilters(
+            search=request.GET.get("q", "").strip(),
+            state=request.GET.get("state", "").strip(),
+            band=request.GET.get("band", "").strip(),
+            overdue_only=request.GET.get("overdue") == "1",
+        )
+        today = timezone.localdate()
+        show_cost = bool(organizations_with_permission(self.actor, VIEW_SUPPLIER_COST).exists())
+        rows = supplier_term_rows(self.actor, filters, today=today, include_cost=show_cost)
+        return render(
+            request,
+            self.template_name,
+            {
+                "form_base_template": (
+                    "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
+                ),
+                "page_title": _("شروط الائتمان"),
+                "page_hint": _(
+                    "شروط الائتمان الافتراضية لكل مورد، بعدد الأيام. تُحفظ نسخة منها "
+                    "على كل فاتورة وأمر شراء عند الإنشاء، ويُحتسب تاريخ الاستحقاق منها."
+                ),
+                "rows": rows,
+                "total_rows": len(rows),
+                "show_cost": show_cost,
+                "may_manage": bool(
+                    organizations_with_permission(self.actor, MANAGE_SUPPLIERS).exists()
+                ),
+                "filters": {
+                    "q": request.GET.get("q", ""),
+                    "state": request.GET.get("state", ""),
+                    "band": request.GET.get("band", ""),
+                    "overdue": request.GET.get("overdue", ""),
+                },
+                "today": today,
+            },
         )

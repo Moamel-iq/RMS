@@ -172,3 +172,32 @@ Things a reader might expect to find here, and the reason each is absent:
   **omitted, not blanked** — a blanked column tells the reader a number exists
   and that they are not trusted with it, which is a different statement from
   the one intended.
+
+
+## The three financial workspaces (فواتير الموردين · التكاليف الإضافية · شروط الائتمان)
+
+- **The supplier-invoice lifecycle is four states.** `DRAFT → APPROVED → POSTED
+  → REVERSED`. There is no `SUBMITTED`: the approval step *is* the second pair
+  of eyes, and a submit step before it would carry no additional authority.
+- **A posted or reversed invoice is read-only.** Correction is reversal plus a
+  replacement invoice, never an edit and never a hard delete.
+- **An additional cost is a `SupplierInvoiceLine` with `line_type = ACCOUNT`.**
+  There is no additional-cost document, and the absence is load-bearing: a
+  charge that was both a line and a document would have two paths to the ledger
+  for something the supplier billed once.
+- **An additional cost posts exactly once, through its invoice.** No independent
+  post or reverse action exists, and none may be added.
+- **An `ACCOUNT` line charges an expense or asset account directly.** It never
+  capitalises into inventory value and never changes a moving average.
+  Landed-cost capitalisation is **deferred**: no approved allocation basis, no
+  revaluation shape, no decision about stock already issued.
+- **An `ACCOUNT` line is editable only while its invoice is `DRAFT`.**
+- **Credit terms are `Supplier.payment_terms_days` — one integer, no term
+  table.**
+- **Every document snapshots the terms it was raised under.** Changing a
+  supplier's default affects future documents only; an existing invoice keeps
+  its `payment_terms_days` and its `due_date` unchanged forever.
+- **Due dates are never recomputed from live supplier data.** Doing so would
+  restate the due date of every historical invoice the moment somebody
+  renegotiated, including invoices already posted, paid and chased.
+- **Overdue is measured against a date passed in, never the server clock.**

@@ -313,6 +313,30 @@ urlpatterns = [
         views.SupplierInvoiceChargeAllocationView.as_view(),
         name="supplier_invoice_charge_allocation",
     ),
+    # --- additional cost and credit term workspaces -------------------------
+    #
+    # Main's read-only workspaces, kept at their own paths. Both sides shipped a
+    # route at `additional-costs/` and at `credit-terms/` meaning different
+    # things by them: above, the charge documents and the credit-term records
+    # this branch added; here, the two read screens main already had. Django
+    # resolves the first match, so leaving both at the original paths would have
+    # made these two silently unreachable while `reverse()` still handed out a
+    # URL that went somewhere else — the kind of break no test asserts and no
+    # error reports.
+    path(
+        "additional-cost-lines/",
+        views.AdditionalCostListView.as_view(),
+        name="additional_cost_list",
+    ),
+    # Renamed from `credit_term_list`, which this branch's effective-dated
+    # credit-term register already claimed above. Two routes under one name is
+    # legal Django and silently lets the last one win every reverse() — so the
+    # read screen takes a name of its own rather than shadowing the register.
+    path(
+        "credit-term-summary/",
+        views.CreditTermListView.as_view(),
+        name="credit_term_summary",
+    ),
     # --- three-way matching ------------------------------------------------
     path("matching/", views.MatchingQueueView.as_view(), name="matching_queue"),
     path("matches/", views.PurchaseMatchListView.as_view(), name="purchase_match_list"),

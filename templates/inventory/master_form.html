@@ -1,3 +1,8 @@
+{# The same full-page / fragment contract `settings/base_list.html` uses.   #}
+{# `InventoryWriteView` passes `settings/_form_fragment.html` when the      #}
+{# request carries HX-Request, and nothing otherwise — so every existing    #}
+{# caller keeps rendering the shell exactly as before, and an HTMX GET      #}
+{# stops nesting a whole document inside a panel.                           #}
 {% extends form_base_template|default:"shell.html" %}
 {% load i18n %}
 

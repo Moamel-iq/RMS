@@ -1,4 +1,8 @@
-{% extends base_template|default:"shell.html" %}
+{# Same full-page / fragment contract as the list and the create form. The #}
+{# line forms on this screen post back with HTMX and swap the panel, so a  #}
+{# response carrying the shell would nest a document inside the page it    #}
+{# was swapped into.                                                       #}
+{% extends form_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}

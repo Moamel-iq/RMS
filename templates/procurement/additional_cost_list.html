@@ -1,0 +1,188 @@
+{# التكاليف الإضافية — a workspace over ACCOUNT supplier-invoice lines.       #}
+{#                                                                           #}
+{# There is no additional-cost document, so there is no create button here    #}
+{# and no post or reverse action. A cost is a line on a supplier invoice, the #}
+{# invoice owns its lifecycle, and this screen exists to make the charges     #}
+{# findable across invoices — which is the one thing the invoice detail page  #}
+{# cannot do.                                                                 #}
+{#                                                                           #}
+{# Money is absent, not blanked, without view_supplier_cost: `show_cost` gates #}
+{# the columns themselves rather than their contents.                        #}
+{% extends form_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="procurement-additional-costs">
+    <div class="pagehead">
+      <div>
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+    </div>
+
+    <p class="banner" role="note">
+      {% translate "التكلفة الإضافية تُرحَّل مرة واحدة فقط مع فاتورتها: مدين الحساب المباشر المعتمد، دائن ذمم الموردين. لا تُرسمل في كلفة المخزون ولا تغيّر متوسط التكلفة، ولا يوجد لها ترحيل أو عكس مستقل — تصحيحها يكون بعكس الفاتورة وإصدار بديلة." %}
+    </p>
+
+    {% if show_cost and totals %}
+      <div class="statrow">
+        <div class="stat">
+          <span class="stat__label">{% translate "عدد السطور" %}</span>
+          <span class="stat__value"><bdi dir="ltr">{{ totals.line_count }}</bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "عدد الفواتير" %}</span>
+          <span class="stat__value"><bdi dir="ltr">{{ totals.invoice_count }}</bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "مرحّل" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ totals.posted_total }}</code></bdi></span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">{% translate "غير مرحّل" %}</span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ totals.draft_total }}</code></bdi></span>
+        </div>
+      </div>
+    {% endif %}
+
+    <form class="toolbar"
+          method="get"
+          hx-get="{{ request.path }}"
+          hx-target="#procurement-additional-costs"
+          hx-swap="outerHTML">
+      <label class="field">
+        <span class="field__label">{% translate "بحث" %}</span>
+        <input type="search" name="q" value="{{ filters.q }}"
+               placeholder="{% translate 'الوصف، الفاتورة، المورد، الحساب' %}">
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "حالة الفاتورة" %}</span>
+        <select name="status">
+          <option value="">{% translate "كل الحالات" %}</option>
+          {% for value, label in statuses %}
+            <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "من تاريخ" %}</span>
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </label>
+      <label class="field">
+        <span class="field__label">{% translate "إلى تاريخ" %}</span>
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </label>
+      <label class="field field--check">
+        <input type="checkbox" name="overdue" value="1" {% if filters.overdue %}checked{% endif %}>
+        <span>{% translate "متأخرة السداد فقط" %}</span>
+      </label>
+      <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button>
+      <a class="btn btn--ghost" href="{{ request.path }}">{% translate "مسح المرشحات" %}</a>
+    </form>
+
+    <p class="muted">
+      {% blocktranslate count total=total_rows %}سطر واحد{% plural %}{{ total }} سطر{% endblocktranslate %}
+    </p>
+
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "الفاتورة" %}</th>
+            <th scope="col">{% translate "المورد" %}</th>
+            <th scope="col">{% translate "الوصف" %}</th>
+            <th scope="col">{% translate "الحساب المباشر" %}</th>
+            <th scope="col">{% translate "مركز الكلفة" %}</th>
+            {% if show_cost %}<th scope="col">{% translate "المبلغ" %}</th>{% endif %}
+            <th scope="col">{% translate "تاريخ الفاتورة" %}</th>
+            <th scope="col">{% translate "تاريخ الاستحقاق" %}</th>
+            <th scope="col">{% translate "حالة الفاتورة" %}</th>
+            <th scope="col">{% translate "القيد" %}</th>
+            <th scope="col"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td data-label="{% translate 'الفاتورة' %}">
+                <a href="{% url 'procurement:supplier_invoice_detail' row.invoice_id %}">
+                  <bdi dir="ltr"><code>{{ row.invoice.number|default:"—" }}</code></bdi>
+                </a>
+              </td>
+              <td data-label="{% translate 'المورد' %}">{{ row.invoice.supplier.name_ar }}</td>
+              <td data-label="{% translate 'الوصف' %}">{{ row.description|default:"—" }}</td>
+              <td data-label="{% translate 'الحساب المباشر' %}">
+                {% if row.account_id %}
+                  <bdi dir="ltr"><code>{{ row.account.code }}</code></bdi> {{ row.account.name_ar }}
+                {% else %}—{% endif %}
+              </td>
+              <td data-label="{% translate 'مركز الكلفة' %}">
+                {% if row.cost_center_id %}{{ row.cost_center.name_ar }}{% else %}—{% endif %}
+              </td>
+              {% if show_cost %}
+                <td data-label="{% translate 'المبلغ' %}">
+                  <bdi dir="ltr"><code>{{ row.net_amount }}</code></bdi>
+                </td>
+              {% endif %}
+              <td data-label="{% translate 'تاريخ الفاتورة' %}">
+                <bdi dir="ltr"><code>{{ row.invoice.invoice_date|date:"Y-m-d" }}</code></bdi>
+              </td>
+              <td data-label="{% translate 'تاريخ الاستحقاق' %}">
+                <bdi dir="ltr"><code>{{ row.invoice.due_date|date:"Y-m-d" }}</code></bdi>
+                {% if row.invoice.due_date < today and row.invoice.status == "POSTED" %}
+                  <span class="chip chip--bad">{% translate "متأخر" %}</span>
+                {% endif %}
+              </td>
+              <td data-label="{% translate 'حالة الفاتورة' %}">
+                <span class="chip">{{ row.invoice.get_status_display }}</span>
+              </td>
+              <td data-label="{% translate 'القيد' %}">
+                {% if row.journal_line_id %}
+                  <span class="chip chip--ok">{% translate "مرحّل" %}</span>
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if row.invoice.status in editable_statuses %}
+                  <a class="btn btn--ghost"
+                     href="{% url 'procurement:supplier_invoice_detail' row.invoice_id %}">
+                    {% translate "تعديل في الفاتورة" %}
+                  </a>
+                {% else %}
+                  <span class="muted">{% translate "للقراءة فقط" %}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="{% if show_cost %}11{% else %}10{% endif %}" class="empty">
+                {% translate "لا توجد تكاليف إضافية مطابقة. تُضاف التكلفة الإضافية كسطر «مصروف أو حساب مباشر» على فاتورة مورد بحالة مسودة." %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if is_paginated %}
+      <nav class="pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
+        {% if page_obj.has_previous %}
+          <a class="btn btn--ghost"
+             href="?{{ page_query }}&page={{ page_obj.previous_page_number }}"
+             hx-get="?{{ page_query }}&page={{ page_obj.previous_page_number }}"
+             hx-target="#procurement-additional-costs" hx-swap="outerHTML">{% translate "السابق" %}</a>
+        {% endif %}
+        <span class="muted">
+          {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
+        </span>
+        {% if page_obj.has_next %}
+          <a class="btn btn--ghost"
+             href="?{{ page_query }}&page={{ page_obj.next_page_number }}"
+             hx-get="?{{ page_query }}&page={{ page_obj.next_page_number }}"
+             hx-target="#procurement-additional-costs" hx-swap="outerHTML">{% translate "التالي" %}</a>
+        {% endif %}
+      </nav>
+    {% endif %}
+  </div>
+{% endblock %}
