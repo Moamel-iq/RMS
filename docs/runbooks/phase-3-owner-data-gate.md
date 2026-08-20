@@ -97,3 +97,59 @@ shared-string table, so a namespace-blind reader matched nothing. The finding
 above rests on the corrected parse, and the mistake is recorded because
 "the file is empty" and "my reader could not see the file" are conclusions that
 look identical from the outside and mean opposite things.
+
+## 2026-08-20 — the gate moves, and how far
+
+**Status: PARTIALLY CLOSED.** The owner supplied three PDFs, and unlike the
+`KM-RCP-004` workbook these state quantities:
+
+| Document | Content |
+|---|---|
+| `كتاب وصفات المطبخ خان مندي.pdf` | 44 pages, **23 batch recipes**, every ingredient with a quantity and a unit |
+| `كارت الاطباق الرئيسية.pdf` | 35 pages, **35 plated main dishes**, per-portion grams |
+| `كارت المقبلات.pdf` | 10 pages, **10 plated appetizers**, per-portion grams |
+
+Loaded through `manage.py import_recipe_data`: 68 recipes, 68 **DRAFT**
+versions, 488 lines, 180 ingredient items. `verify_recipe_versions` reports all
+68 clean.
+
+What this closes, and what it does not:
+
+- The blocking condition — *"it states no quantity for any ingredient of any
+  recipe"* — **no longer holds** for these 68. The quantities are real and
+  transcribed, not inferred.
+- The half/whole question the earlier audit could not answer **is answered by
+  the cards themselves**: a whole bird plates 1300 g of rice against 700 g for
+  a half, and both cards state the raw bird at 1400 g. Nothing here was derived
+  from a ratio.
+- **The four signatures are still absent.** No document carries an approval date
+  or a name. Every version therefore stays `DRAFT`, and the maker-checker
+  lifecycle is the only thing that can make one authoritative — the import
+  cannot and does not.
+
+### What the sources do not say
+
+Recorded rather than filled in. Each is a question only the kitchen can answer:
+
+- **13 rows** carry an ingredient with no quantity, or a quantity with no unit.
+  They are imported with a note saying the source is silent — never dropped,
+  because an invisible ingredient is worse than an incomplete one.
+- **24 rows** are measured in a container the documents never weigh: `علبة`
+  tomato paste, `ملعقة` flour, `كوب` pomegranate juice. The unit layer refuses
+  mass against count (KD-19) rather than guessing, so these wait for one
+  `ItemPackageConversion` each.
+- **Batch yield.** The book gives the ingredients for one production batch and,
+  for most recipes, no output weight. Each batch version records one batch and
+  says so in its source note.
+- Seven ingredients are measured two ways across recipes — flour by the spoon
+  and by the 50 kg sack, pomegranate molasses by gram, millilitre and tin. The
+  item takes the mass unit where mass appears at all; the other rows are among
+  the 24 above.
+
+### Where the data lives
+
+**Not in this repository.** The transcription is Khan Mandi's own formulas and
+this repository has a remote, so the loader takes `--directory` with no default
+and the JSON stays outside the tree. Provenance travels with every row instead:
+document name, page and SHA-256 on the recipe and on each line, so a later
+reader can tell which revision was transcribed and go check it.
