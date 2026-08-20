@@ -874,7 +874,12 @@ MODULES: tuple[Module, ...] = (
                 available=True,
                 active_prefixes=("hr:payroll_payment", "hr:payroll_payments"),
             ),
-            Section(label=_("كشوف الموظفين")),
+            Section(
+                label=_("كشوف الموظفين"),
+                url_name="hr:statement_list",
+                available=True,
+                active_prefixes=("hr:statement_", "hr:employee_statement", "hr:payslip"),
+            ),
         ),
     ),
     Module(

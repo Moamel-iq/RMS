@@ -475,6 +475,26 @@ def test_calculation_snapshots_approved_inputs_and_is_idempotent(
     assert released.outstanding_total == Decimal("0.000")
     assert PayrollPayment.objects.filter(payroll_run=released).count() == 2
 
+    statement_client = client_for(checker)
+    statement = statement_client.get(reverse("hr:employee_statement", args=[employee.pk]))
+    assert statement.status_code == 200
+    statement_html = statement.content.decode()
+    assert "حركة ذمة الموظف" in statement_html
+    assert "1087500.000" in statement_html
+    assert "BANK-PAY-1" in statement_html
+    assert reverse("hr:payslip", args=[employee_line.pk]) in statement_html
+    payslip = statement_client.get(reverse("hr:payslip", args=[employee_line.pk]))
+    assert payslip.status_code == 200
+    payslip_html = payslip.content.decode()
+    assert "قسيمة راتب" in payslip_html
+    assert employee.name_ar in payslip_html
+    assert "1087500.000" in payslip_html
+    assert "687500.000" in payslip_html
+    assert "BANK-PAY-1" in payslip_html
+    printable = statement_client.get(reverse("hr:payslip", args=[employee_line.pk]), {"print": "1"})
+    assert printable.status_code == 200
+    assert 'window.addEventListener("load"' in printable.content.decode()
+
     reverse_payroll_payment(
         payment=final,
         reversal_date=payment_date,
@@ -526,6 +546,7 @@ def test_unapproved_attendance_is_a_blocker_at_approval(
 def test_payroll_workspaces_are_scope_safe_arabic_and_htmx_enabled(
     branch: Branch,
     policy: PayrollPolicy,
+    employee: Employee,
     maker: User,
     viewer: User,
     other_organization: Organization,
@@ -535,17 +556,34 @@ def test_payroll_workspaces_are_scope_safe_arabic_and_htmx_enabled(
     client = client_for(maker)
     listing = client.get(reverse("hr:payroll_list"))
     payment_listing = client.get(reverse("hr:payroll_payments"))
+    statement_listing = client.get(reverse("hr:statement_list"))
+    statement_search = client.get(
+        reverse("hr:statement_list"), {"q": employee.code}, HTTP_HX_REQUEST="true"
+    )
+    employee_statement = client.get(reverse("hr:employee_statement", args=[employee.pk]))
     form = client.get(reverse("hr:payroll_create"), HTTP_HX_REQUEST="true")
     detail = client.get(reverse("hr:payroll_detail", args=[run.pk]))
     assert listing.status_code == 200
     assert "احتساب الرواتب" in listing.content.decode()
     assert payment_listing.status_code == 200
     assert "صرف الرواتب" in payment_listing.content.decode()
+    assert statement_listing.status_code == 200
+    assert "كشوف الموظفين" in statement_listing.content.decode()
+    assert employee.code in statement_listing.content.decode()
+    assert statement_search.status_code == 200
+    assert "<html" not in statement_search.content.decode().lower()
+    assert employee_statement.status_code == 200
+    assert "سجل الرواتب والحضور" in employee_statement.content.decode()
     assert detail.status_code == 200
     assert run.run_number in detail.content.decode()
     assert form.status_code == 200
     assert "<html" not in form.content.decode().lower()
     assert f'hx-post="{reverse("hr:payroll_create")}"' in form.content.decode()
     assert client_for(viewer).get(reverse("hr:payroll_list")).status_code == 403
+    assert client_for(viewer).get(reverse("hr:statement_list")).status_code == 403
     outsider = _actor("payroll-outsider", other_organization, Role.MANAGER)
     assert client_for(outsider).get(reverse("hr:payroll_detail", args=[run.pk])).status_code == 404
+    assert (
+        client_for(outsider).get(reverse("hr:employee_statement", args=[employee.pk])).status_code
+        == 404
+    )

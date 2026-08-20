@@ -1,0 +1,23 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block filters %}
+  <label class="filter-field"><span class="filter-field__label">{% translate "الفرع" %}</span><select name="branch"><option value="">{% translate "كل الفروع" %}</option>{% for branch in branches %}<option value="{{ branch.pk }}"{% if selected_branch == branch.pk|stringformat:"s" %} selected{% endif %}>{{ branch.code }} — {{ branch.name_ar }}</option>{% endfor %}</select></label>
+  <label class="filter-field"><span class="filter-field__label">{% translate "الحالة" %}</span><select name="status"><option value="">{% translate "كل الحالات" %}</option>{% for value, label in statuses %}<option value="{{ value }}"{% if selected_status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+{% endblock %}
+
+{% block active_filter_chips %}{% if selected_status %}<span class="filter-chip">{% translate "الحالة" %}: {{ selected_status }}</span>{% endif %}{% if selected_branch %}<span class="filter-chip">{% translate "الفرع" %}: <bdi dir="ltr">{{ selected_branch }}</bdi></span>{% endif %}{% endblock %}
+
+{% block columns %}
+  <th scope="col">{% translate "الموظف" %}</th><th scope="col">{% translate "الفرع" %}</th><th scope="col">{% translate "المسمى الوظيفي" %}</th><th scope="col">{% translate "الحالة" %}</th><th scope="col">{% translate "إجراء" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for row in employees %}<tr>
+    <td data-label="{% translate 'الموظف' %}"><strong><bdi dir="ltr">{{ row.code }}</bdi> — {{ row.name_ar }}</strong>{% if row.name_en %}<br><span class="muted" dir="ltr">{{ row.name_en }}</span>{% endif %}</td>
+    <td data-label="{% translate 'الفرع' %}"><bdi dir="ltr">{{ row.branch.code }}</bdi> — {{ row.branch.name_ar }}</td>
+    <td data-label="{% translate 'المسمى الوظيفي' %}">{{ row.job_title|default:"—" }}{% if row.department %}<br><span class="muted">{{ row.department }}</span>{% endif %}</td>
+    <td data-label="{% translate 'الحالة' %}"><span class="chip{% if row.status == 'ACTIVE' %} chip--on{% elif row.status == 'TERMINATED' or row.status == 'ARCHIVED' %} chip--off{% endif %}">{{ row.get_status_display }}</span></td>
+    <td data-label="{% translate 'إجراء' %}"><a class="btn btn--secondary btn--sm" href="{% url 'hr:employee_statement' row.pk %}" hx-get="{% url 'hr:employee_statement' row.pk %}" hx-target="main" hx-push-url="true">{% translate "فتح الكشف" %}</a></td>
+  </tr>{% empty %}<tr><td colspan="5" data-empty-state><div class="empty-state"><strong>{% translate "لا يوجد موظفون مطابقون." %}</strong><span>{% translate "غيّر البحث أو المرشحات لعرض كشف موظف." %}</span></div></td></tr>{% endfor %}
+{% endblock %}

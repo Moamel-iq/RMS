@@ -1,6 +1,13 @@
 from django.urls import path
 
-from apps.hr import attendance_views, operation_views, payroll_views, shift_views, views
+from apps.hr import (
+    attendance_views,
+    operation_views,
+    payroll_views,
+    shift_views,
+    statement_views,
+    views,
+)
 from apps.hr.permissions import VIEW_ADVANCE, VIEW_DEDUCTION, VIEW_LEAVE, VIEW_OVERTIME
 
 app_name = "hr"
@@ -182,5 +189,20 @@ urlpatterns = [
         "payroll/lines/<int:pk>/",
         payroll_views.PayrollEmployeeLineView.as_view(),
         name="payroll_line",
+    ),
+    path(
+        "statements/",
+        statement_views.EmployeeStatementListView.as_view(),
+        name="statement_list",
+    ),
+    path(
+        "statements/employees/<int:pk>/",
+        statement_views.EmployeeStatementDetailView.as_view(),
+        name="employee_statement",
+    ),
+    path(
+        "statements/payslips/<int:pk>/",
+        statement_views.PayslipView.as_view(),
+        name="payslip",
     ),
 ]
