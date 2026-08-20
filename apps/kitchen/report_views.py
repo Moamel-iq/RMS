@@ -33,16 +33,20 @@ from __future__ import annotations
 
 import csv
 import datetime
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from decimal import Decimal
 from typing import Any
 
 from django.core.paginator import Paginator
+from django.db.models import Q, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 
-from apps.core.money import money_export
+from apps.core.money import money_export, quantize_money
+from apps.kitchen.cost_reconciliation import snapshot_findings
 from apps.kitchen.kitchen_operations import (
     OperationFilters,
     custody_in,
@@ -50,6 +54,7 @@ from apps.kitchen.kitchen_operations import (
     kitchen_waste,
     readable_kitchen_warehouses,
 )
+from apps.kitchen.models import RecipeCostSnapshot, RecipeCostSnapshotLine
 from apps.kitchen.permissions import VIEW_KITCHEN_REPORT, VIEW_RECIPE_COST
 from apps.kitchen.productivity import (
     ProductionFilters,
@@ -59,7 +64,9 @@ from apps.kitchen.productivity import (
 )
 from apps.kitchen.selectors import (
     cost_readable_organization_ids,
+    resolve_cost_snapshot,
     resolve_production_batch,
+    visible_cost_snapshots,
 )
 from apps.kitchen.views import KitchenViewMixin
 
@@ -178,6 +185,7 @@ class KitchenReportView(KitchenViewMixin, View):
         "recipe_id": _("الوصفة"),
         "version_id": _("النسخة"),
         "batch_id": _("الدفعة"),
+        "q": _("بحث"),
         "bucket": _("التصنيف"),
         "meal_type": _("نوع الوجبة"),
         "status": _("الحالة"),
@@ -268,6 +276,7 @@ class KitchenReportView(KitchenViewMixin, View):
                     "bucket": request.GET.get("bucket", ""),
                     "meal_type": request.GET.get("meal_type", ""),
                     "status": request.GET.get("status", ""),
+                    "q": request.GET.get("q", ""),
                 },
                 "warehouses": readable_kitchen_warehouses(self.actor),
                 "show_cost": self.include_cost,
@@ -285,6 +294,235 @@ def _money(value: Any, *, include: bool) -> str | None:
     if not include or value is None:
         return None
     return money_export(value)
+
+
+# ---------------------------------------------------------------------------
+# كلفة الوصفات — historical, immutable recipe-cost evidence
+# ---------------------------------------------------------------------------
+
+ZERO = Decimal("0.000")
+
+
+def _approved_loss_cost(lines: Iterable[RecipeCostSnapshotLine]) -> Decimal:
+    """The informational loss share already carried by approved gross quantities.
+
+    A recipe line's ``loss_rate`` never inflates costing: its approved quantity
+    is already gross of cleaning/cooking loss.  This report exposes the share
+    of that stored line extension attributable to the approved rate, without
+    adding it to the batch total a second time.
+    """
+
+    return quantize_money(
+        sum(
+            (line.allocated_extension * (line.recipe_line.loss_rate or ZERO) for line in lines),
+            ZERO,
+        )
+    )
+
+
+def _missing_valuation_lines(
+    lines: Iterable[RecipeCostSnapshotLine],
+) -> tuple[RecipeCostSnapshotLine, ...]:
+    return tuple(
+        line for line in lines if line.valuation_lot_count == 0 or line.valuation_quantity <= ZERO
+    )
+
+
+class RecipeCostReportView(KitchenReportView):
+    """Exact historical recipe versions costed from frozen inventory evidence."""
+
+    module_key = "reports"
+    required_permission = VIEW_RECIPE_COST
+    template_name = "kitchen/reports/recipe_cost.html"
+    page_title = _("كلفة الوصفات")
+    page_hint = _(
+        "كل سطر لقطة كلفة ثابتة للوصفة والنسخة الفعالة والمخزن ونقطة قطع الدفتر في تاريخها؛ "
+        "لا يستبدل التقرير النسخة التاريخية بالنسخة الحالية."
+    )
+    export_stem = "recipe-cost"
+    filter_extras_template = "kitchen/reports/_recipe_cost_filters.html"
+    columns = (
+        ("recipe", _("الوصفة")),
+        ("version", _("النسخة")),
+        ("effective_period", _("فترة النفاذ")),
+        ("branch", _("انطباق الفرع")),
+        ("output", _("كمية الناتج")),
+        ("ingredients", _("كميات المكونات")),
+        ("nested_expansion", _("توسيع الوصفات الفرعية")),
+        ("portions", _("الحصص")),
+        ("valuation_warnings", _("تحذيرات التقييم")),
+        ("snapshot_date", _("تاريخ اللقطة")),
+        ("cost_basis", _("أساس كلفة المخزون")),
+    )
+    money_columns = (
+        ("food_cost", _("كلفة الغذاء")),
+        ("packaging_cost", _("كلفة التغليف")),
+        ("approved_loss_cost", _("كلفة الفاقد المعتمد")),
+        ("batch_cost", _("كلفة الدفعة")),
+        ("portion_cost", _("كلفة الحصة")),
+    )
+
+    def cost_snapshots(self) -> QuerySet[RecipeCostSnapshot]:
+        filters = self.production_filters()
+        rows = (
+            visible_cost_snapshots(self.actor)
+            .select_related("version__output_unit")
+            .prefetch_related("lines__recipe_line")
+        )
+        if filters.warehouse_id is not None:
+            rows = rows.filter(warehouse_id=filters.warehouse_id)
+        if filters.branch_id is not None:
+            rows = rows.filter(branch_id=filters.branch_id)
+        if filters.recipe_id is not None:
+            rows = rows.filter(recipe_id=filters.recipe_id)
+        if filters.version_id is not None:
+            rows = rows.filter(version_id=filters.version_id)
+        if filters.date_from is not None:
+            rows = rows.filter(as_of_date__gte=filters.date_from)
+        if filters.date_to is not None:
+            rows = rows.filter(as_of_date__lte=filters.date_to)
+        search = self.request.GET.get("q", "").strip()
+        if search:
+            rows = rows.filter(
+                Q(recipe_code__icontains=search)
+                | Q(recipe_name__icontains=search)
+                | Q(reference__icontains=search)
+            )
+        return rows.order_by("-as_of_date", "recipe_code", "-version_number", "-id")
+
+    def report_rows(self, *, include_cost: bool) -> list[dict[str, Any]]:
+        report: list[dict[str, Any]] = []
+        branches: dict[int, Any] = {}
+        warehouses: set[int] = set()
+        warning_total = 0
+        latest_date: datetime.date | None = None
+        for snapshot in self.cost_snapshots():
+            lines = tuple(snapshot.lines.all())
+            missing = _missing_valuation_lines(lines)
+            warning_total += len(missing)
+            branches[snapshot.branch_id] = snapshot.branch
+            warehouses.add(snapshot.warehouse_id)
+            latest_date = (
+                max(latest_date, snapshot.as_of_date) if latest_date else snapshot.as_of_date
+            )
+
+            ingredients = "; ".join(
+                f"{line.item_code} {line.quantity_display} {line.item_unit_code}" for line in lines
+            )
+            nested = tuple(
+                dict.fromkeys(
+                    f"{line.component_path}: {line.source_recipe_code} v{line.source_version_number}"
+                    for line in lines
+                    if line.component_path
+                )
+            )
+            effective_from = (
+                snapshot.version.effective_from.isoformat()
+                if snapshot.version.effective_from is not None
+                else str(_("غير محدد"))
+            )
+            effective_to = (
+                snapshot.version.effective_to.isoformat()
+                if snapshot.version.effective_to is not None
+                else str(_("مفتوح"))
+            )
+            row: dict[str, Any] = {
+                "snapshot_id": snapshot.pk,
+                "detail_url": reverse("kitchen:report_recipe_cost_detail", args=[snapshot.pk]),
+                "recipe": f"{snapshot.recipe_code} — {snapshot.recipe_name}",
+                "version": f"v{snapshot.version_number} · {snapshot.version_status}",
+                "effective_period": f"{effective_from} — {effective_to}",
+                "branch": f"{snapshot.branch.code} — {snapshot.branch.name_ar}",
+                "output": f"{snapshot.output_quantity_display} {snapshot.output_unit_code}",
+                "ingredients": ingredients,
+                "ingredient_count": len(lines),
+                "nested_expansion": "; ".join(nested) if nested else str(_("لا توجد")),
+                "nested_count": len(nested),
+                "portions": snapshot.portions_per_batch_display,
+                "valuation_warnings": (
+                    str(_("سليم"))
+                    if not missing
+                    else str(_("%(count)s مكوّن بلا تقييم")) % {"count": len(missing)}
+                ),
+                "warning_count": len(missing),
+                "snapshot_date": snapshot.as_of_date.isoformat(),
+                "created_at": snapshot.created_at.isoformat(timespec="minutes"),
+                "cost_basis": (
+                    f"{snapshot.warehouse_code} · {snapshot.get_valuation_mode_display()} · "
+                    f"#{snapshot.ledger_cutoff_sequence}"
+                ),
+            }
+            if include_cost:
+                row.update(
+                    {
+                        "food_cost": money_export(snapshot.food_total),
+                        "packaging_cost": money_export(snapshot.packaging_total),
+                        "approved_loss_cost": money_export(_approved_loss_cost(lines)),
+                        "batch_cost": money_export(snapshot.total_material_cost),
+                        "portion_cost": snapshot.plate_cost_display,
+                    }
+                )
+            report.append(row)
+
+        self._report_summary = {
+            "snapshot_count": len(report),
+            "warning_total": warning_total,
+            "warehouse_count": len(warehouses),
+            "latest_snapshot_date": latest_date,
+            "branches": tuple(branches.values()),
+        }
+        return report
+
+    def extra_context(self) -> dict[str, Any]:
+        return getattr(
+            self,
+            "_report_summary",
+            {
+                "snapshot_count": 0,
+                "warning_total": 0,
+                "warehouse_count": 0,
+                "latest_snapshot_date": None,
+                "branches": (),
+            },
+        )
+
+
+class RecipeCostReportDetailView(KitchenViewMixin, View):
+    """One immutable snapshot with ingredients, nested paths, servings, and warnings."""
+
+    module_key = "reports"
+    required_permission = VIEW_RECIPE_COST
+    template_name = "kitchen/cost_snapshot_detail.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        snapshot = resolve_cost_snapshot(self.actor, kwargs["pk"])
+        lines = tuple(snapshot.lines.select_related("recipe_line", "source_version"))
+        missing = _missing_valuation_lines(lines)
+        return render(
+            request,
+            self.template_name,
+            {
+                "snapshot": snapshot,
+                "lines": lines,
+                "servings": snapshot.servings.all(),
+                "findings": snapshot_findings(snapshot),
+                "class_totals": [
+                    (_("كلفة الغذاء"), snapshot.food_total),
+                    (_("كلفة التغليف"), snapshot.packaging_total),
+                    (_("كلفة المرافقات"), snapshot.accompaniment_total),
+                ],
+                "approved_loss_cost": _approved_loss_cost(lines),
+                "show_approved_loss": True,
+                "missing_valuation_lines": missing,
+                "report_back": True,
+                "page_title": _("تفاصيل كلفة الوصفة"),
+                "fragment_base_template": (
+                    "kitchen/_bare.html"
+                    if request.headers.get("HX-Request") == "true"
+                    else "shell.html"
+                ),
+            },
+        )
 
 
 # ---------------------------------------------------------------------------

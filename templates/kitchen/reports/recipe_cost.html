@@ -1,0 +1,43 @@
+{% extends base_template|default:"shell.html" %}
+{% load i18n %}
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block page %}
+<section class="workspace-page" id="recipe-cost-report">
+  <nav class="workspace-breadcrumb"><span>{% translate "التقارير" %}</span><span>/</span><span>{% translate "كلفة الوصفات" %}</span></nav>
+  <div class="pagehead"><div><p class="pagehead__eyebrow">{% translate "تحليل الكلفة التاريخية" %}</p><h1 class="pagehead__title">{{ page_title }}</h1><p class="pagehead__hint">{{ page_hint }}</p></div><div class="pagehead__actions"><a class="btn btn--secondary" href="?{{ export_query }}" download>{% translate "تصدير CSV" %}</a></div></div>
+
+  <div class="stats-grid">
+    <article class="stat-card"><span>{% translate "لقطات مطابقة" %}</span><strong><bdi dir="ltr">{{ snapshot_count }}</bdi></strong></article>
+    <article class="stat-card"><span>{% translate "المخازن" %}</span><strong><bdi dir="ltr">{{ warehouse_count }}</bdi></strong></article>
+    <article class="stat-card"><span>{% translate "تحذيرات التقييم" %}</span><strong><bdi dir="ltr">{{ warning_total }}</bdi></strong></article>
+    <article class="stat-card"><span>{% translate "أحدث تاريخ كلفة" %}</span><strong><bdi dir="ltr">{{ latest_snapshot_date|date:"Y-m-d"|default:"—" }}</bdi></strong></article>
+  </div>
+
+  <div class="banner" role="note"><strong>{% translate "أساس التقرير" %}</strong><p>{% translate "كلفة الفاقد المعتمد حصة معلوماتية من كلفة الكميات الإجمالية المعتمدة؛ هي ضمن كلفة الدفعة ولا تُجمع معها مرة ثانية. كل الأرقام من لقطة ثابتة ونقطة قطع دفتر محددة." %}</p></div>
+
+  <form class="toolbar" method="get" hx-get="{{ request.path }}" hx-target="#recipe-cost-report" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#recipe-cost-loading">
+    <label class="field"><span>{% translate "المخزن" %}</span><select name="warehouse_id"><option value="">{% translate "كل المخازن" %}</option>{% for warehouse in warehouses %}<option value="{{ warehouse.pk }}"{% if filters.warehouse_id == warehouse.pk|stringformat:"s" %} selected{% endif %}>{{ warehouse.code }} — {{ warehouse.name_ar }}</option>{% endfor %}</select></label>
+    <label class="field"><span>{% translate "من تاريخ" %}</span><input type="date" name="date_from" value="{{ filters.date_from }}"></label>
+    <label class="field"><span>{% translate "إلى تاريخ" %}</span><input type="date" name="date_to" value="{{ filters.date_to }}"></label>
+    {% include "kitchen/reports/_recipe_cost_filters.html" %}
+    <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button><span class="inventory-loading" id="recipe-cost-loading">{% translate "جارٍ تحديث التقرير…" %}</span>
+  </form>
+
+  {% if applied_filters %}<p class="chips" aria-label="{% translate 'المرشحات المطبقة' %}">{% for label, value in applied_filters %}<span class="chip">{{ label }}: <bdi dir="ltr">{{ value }}</bdi></span>{% endfor %}</p>{% endif %}
+
+  <div class="formcard"><div class="section-heading"><div><h2>{% translate "لقطات كلفة الوصفات" %}</h2><p>{% blocktranslate count total=total_rows %}لقطة واحدة{% plural %}{{ total }} لقطة{% endblocktranslate %}</p></div></div><div class="data-table-shell" tabindex="0"><table class="table responsive-table"><thead><tr><th>{% translate "الوصفة والنسخة" %}</th><th>{% translate "الفرع وأساس التقييم" %}</th><th>{% translate "الناتج والحصص" %}</th><th>{% translate "المكونات والتوسيع" %}</th><th>{% translate "تفصيل الكلفة" %}</th><th>{% translate "الإجمالي والحصة" %}</th><th>{% translate "التحقق واللقطة" %}</th><th>{% translate "إجراء" %}</th></tr></thead><tbody>
+    {% for row in rows %}<tr>
+      <td data-label="{% translate 'الوصفة والنسخة' %}"><strong>{{ row.recipe }}</strong><br><bdi dir="ltr">{{ row.version }}</bdi><br><span class="muted">{% translate "نفاذ" %} <bdi dir="ltr">{{ row.effective_period }}</bdi></span></td>
+      <td data-label="{% translate 'الفرع وأساس التقييم' %}">{{ row.branch }}<br><span class="muted"><bdi dir="ltr">{{ row.cost_basis }}</bdi></span></td>
+      <td data-label="{% translate 'الناتج والحصص' %}">{% translate "ناتج" %} <bdi dir="ltr">{{ row.output }}</bdi><br>{% translate "حصص" %} <bdi dir="ltr">{{ row.portions }}</bdi></td>
+      <td data-label="{% translate 'المكونات والتوسيع' %}"><strong><bdi dir="ltr">{{ row.ingredient_count }}</bdi> {% translate "مكوّن" %}</strong><br><span class="muted">{{ row.ingredients }}</span><br><span class="chip">{% blocktranslate with count=row.nested_count %}{{ count }} وصفة فرعية{% endblocktranslate %}</span>{% if row.nested_count %}<br><span class="muted">{{ row.nested_expansion }}</span>{% endif %}</td>
+      <td data-label="{% translate 'تفصيل الكلفة' %}">{% translate "غذاء" %} <bdi dir="ltr">{{ row.food_cost }} IQD</bdi><br>{% translate "تغليف" %} <bdi dir="ltr">{{ row.packaging_cost }} IQD</bdi><br>{% translate "فاقد معتمد" %} <bdi dir="ltr">{{ row.approved_loss_cost }} IQD</bdi></td>
+      <td data-label="{% translate 'الإجمالي والحصة' %}"><strong><bdi dir="ltr">{{ row.batch_cost }} IQD</bdi></strong><br>{% translate "للحصة" %} <bdi dir="ltr">{{ row.portion_cost }} IQD</bdi></td>
+      <td data-label="{% translate 'التحقق واللقطة' %}"><span class="chip{% if row.warning_count %} chip--warn{% else %} chip--on{% endif %}">{{ row.valuation_warnings }}</span><br><bdi dir="ltr">{{ row.snapshot_date }}</bdi><br><span class="muted"><bdi dir="ltr">{{ row.created_at }}</bdi></span></td>
+      <td data-label="{% translate 'إجراء' %}"><a class="btn btn--secondary btn--sm" href="{{ row.detail_url }}" hx-get="{{ row.detail_url }}" hx-target="main" hx-push-url="true">{% translate "تفاصيل الكلفة" %}</a></td>
+    </tr>{% empty %}<tr><td colspan="8" data-empty-state><div class="empty-state"><strong>{% translate "لا توجد لقطات كلفة مطابقة." %}</strong><span>{% translate "غيّر الفترة أو الفرع أو المخزن، أو أنشئ لقطة كلفة معتمدة من شاشة الوصفة." %}</span></div></td></tr>{% endfor %}
+  </tbody></table></div></div>
+
+  {% if is_paginated %}<nav class="pagination" aria-label="{% translate 'ترقيم الصفحات' %}">{% if page_obj.has_previous %}<a class="btn btn--secondary btn--sm" href="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.previous_page_number }}" hx-get="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.previous_page_number }}" hx-target="#recipe-cost-report" hx-swap="outerHTML" hx-push-url="true">{% translate "السابق" %}</a>{% endif %}<span>{% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}</span>{% if page_obj.has_next %}<a class="btn btn--secondary btn--sm" href="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.next_page_number }}" hx-get="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.next_page_number }}" hx-target="#recipe-cost-report" hx-swap="outerHTML" hx-push-url="true">{% translate "التالي" %}</a>{% endif %}</nav>{% endif %}
+</section>
+{% endblock %}

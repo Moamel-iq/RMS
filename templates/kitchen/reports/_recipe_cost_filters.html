@@ -1,0 +1,20 @@
+{% load i18n %}
+<label class="field">
+  <span>{% translate "بحث" %}</span>
+  <input type="search" name="q" value="{{ filters.q }}" placeholder="{% translate 'رمز الوصفة أو اسمها أو المرجع' %}">
+</label>
+<label class="field">
+  <span>{% translate "الفرع" %}</span>
+  <select name="branch_id">
+    <option value="">{% translate "كل الفروع" %}</option>
+    {% for branch in branches %}<option value="{{ branch.pk }}"{% if filters.branch_id == branch.pk|stringformat:"s" %} selected{% endif %}>{{ branch.code }} — {{ branch.name_ar }}</option>{% endfor %}
+  </select>
+</label>
+<label class="field">
+  <span>{% translate "رقم الوصفة" %}</span>
+  <input type="number" name="recipe_id" min="1" dir="ltr" value="{{ filters.recipe_id }}">
+</label>
+<label class="field">
+  <span>{% translate "رقم النسخة" %}</span>
+  <input type="number" name="version_id" min="1" dir="ltr" value="{{ filters.version_id }}">
+</label>

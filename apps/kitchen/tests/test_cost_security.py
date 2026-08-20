@@ -424,6 +424,80 @@ class TestTheApi:
 
 
 class TestTheArabicSurface:
+    def test_recipe_cost_report_uses_frozen_snapshots_and_htmx(
+        self, cost_reader_client: Client, snapshot: RecipeCostSnapshot
+    ) -> None:
+        cost_reader_client.cookies["django_language"] = "ar"
+        url = reverse("kitchen:report_recipe_cost")
+        full = cost_reader_client.get(url)
+        filters: dict[str, str] = {
+            "q": snapshot.recipe_code,
+            "branch_id": str(snapshot.branch_id),
+        }
+        fragment = cost_reader_client.get(
+            url,
+            filters,
+            headers={"HX-Request": "true"},
+        )
+        assert full.status_code == 200
+        body = full.content.decode()
+        assert "كلفة الوصفات" in body
+        assert snapshot.recipe_code in body
+        assert f"v{snapshot.version_number}" in body
+        assert snapshot.as_of_date.isoformat() in body
+        assert snapshot.warehouse_code in body
+        assert "كلفة الفاقد المعتمد" in body
+        assert "IQD" in body
+        assert reverse("kitchen:report_recipe_cost_detail", args=[snapshot.pk]) in body
+        assert fragment.status_code == 200
+        assert "<html" not in fragment.content.decode().lower()
+        assert snapshot.recipe_code in fragment.content.decode()
+
+    def test_recipe_cost_report_detail_shows_nested_evidence_and_warnings(
+        self, cost_reader_client: Client, snapshot: RecipeCostSnapshot
+    ) -> None:
+        cost_reader_client.cookies["django_language"] = "ar"
+        response = cost_reader_client.get(
+            reverse("kitchen:report_recipe_cost_detail", args=[snapshot.pk])
+        )
+        body = response.content.decode()
+        assert response.status_code == 200
+        assert "تقرير كلفة الوصفات" in body
+        assert "فترة نفاذ النسخة" in body
+        assert "كلفة الفاقد المعتمد (ضمن الكميات)" in body
+        assert "الكمية الفعّالة" in body
+        assert "نقطة قطع الدفتر" in body
+        assert snapshot.recipe_code in body
+
+    def test_recipe_cost_report_export_is_the_same_scoped_query(
+        self, cost_reader_client: Client, snapshot: RecipeCostSnapshot
+    ) -> None:
+        response = cost_reader_client.get(
+            reverse("kitchen:report_recipe_cost"),
+            {"q": snapshot.recipe_code, "export": "csv"},
+        )
+        assert response.status_code == 200
+        assert response["Content-Type"].startswith("text/csv")
+        assert response.content.startswith(b"\xef\xbb\xbf")
+        decoded = response.content.decode("utf-8-sig")
+        assert snapshot.recipe_code in decoded
+        assert "كلفة الدفعة" in decoded
+        assert "كلفة الفاقد المعتمد" in decoded
+
+    def test_recipe_cost_report_refuses_non_cost_readers_and_hides_foreign_detail(
+        self,
+        keeper_client: Client,
+        rival_client: Client,
+        snapshot: RecipeCostSnapshot,
+    ) -> None:
+        assert keeper_client.get(reverse("kitchen:report_recipe_cost")).status_code == 403
+        assert (
+            rival_client.get(
+                reverse("kitchen:report_recipe_cost_detail", args=[snapshot.pk])
+            ).status_code
+            == 404
+        )
+
     def test_the_authorized_card_shows_the_plate_cost(
         self,
         cost_reader_client: Client,

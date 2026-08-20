@@ -327,6 +327,16 @@ urlpatterns = [
         name="report_productivity",
     ),
     path(
+        "reports/recipe-cost/",
+        report_views.RecipeCostReportView.as_view(),
+        name="report_recipe_cost",
+    ),
+    path(
+        "reports/recipe-cost/<int:pk>/",
+        report_views.RecipeCostReportDetailView.as_view(),
+        name="report_recipe_cost_detail",
+    ),
+    path(
         "reports/batch-variance/<int:pk>/",
         report_views.BatchVarianceView.as_view(),
         name="report_batch_variance",

@@ -22,8 +22,9 @@
         </p>
       </div>
       <div class="rowactions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:cost_snapshot_list' %}">
-          {% translate "كل اللقطات" %}
+        <a class="btn btn--ghost" href="{% if report_back %}{% url 'kitchen:report_recipe_cost' %}{% else %}{% url 'kitchen:cost_snapshot_list' %}{% endif %}"
+           {% if report_back %}hx-get="{% url 'kitchen:report_recipe_cost' %}" hx-target="main" hx-push-url="true"{% endif %}>
+          {% if report_back %}{% translate "تقرير كلفة الوصفات" %}{% else %}{% translate "كل اللقطات" %}{% endif %}
         </a>
         <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' snapshot.version_id %}">
           {% translate "تفاصيل النسخة" %}
@@ -42,6 +43,9 @@
 
         <dt>{% translate "حالة النسخة وقت اللقطة" %}</dt>
         <dd><code dir="ltr">{{ snapshot.version_status }}</code></dd>
+
+        <dt>{% translate "فترة نفاذ النسخة" %}</dt>
+        <dd><code dir="ltr">{{ snapshot.version.effective_from|date:"Y-m-d"|default:"—" }} — {{ snapshot.version.effective_to|date:"Y-m-d"|default:"مفتوح" }}</code></dd>
 
         <dt>{% translate "الفرع والمخزن" %}</dt>
         <dd>{{ snapshot.branch.code }} / {{ snapshot.warehouse_code }}</dd>
@@ -94,6 +98,9 @@
           {% for label, amount in class_totals %}
             <tr><th scope="row">{{ label }}</th><td>{{ amount|money }}</td></tr>
           {% endfor %}
+          {% if show_approved_loss %}
+            <tr><th scope="row">{% translate "كلفة الفاقد المعتمد (ضمن الكميات)" %}</th><td>{{ approved_loss_cost|money }} <span class="muted">{% translate "معلوماتية ولا تُضاف مرة ثانية" %}</span></td></tr>
+          {% endif %}
           <tr>
             <th scope="row">{% translate "إجمالي كلفة المواد المباشرة" %}</th>
             <td><strong>{{ snapshot.total_material_cost|money }}</strong></td>
@@ -226,6 +233,9 @@
 
     <section class="formcard">
       <h2>{% translate "نتيجة التحقق" %}</h2>
+      {% if missing_valuation_lines %}
+        <div class="banner" role="alert"><strong>{% translate "تحذير تقييم" %}</strong><p>{% blocktranslate count count=missing_valuation_lines|length %}يوجد مكوّن واحد بلا رصيد تقييم أو لوط عند نقطة القطع.{% plural %}يوجد {{ count }} مكوّنات بلا رصيد تقييم أو لوط عند نقطة القطع.{% endblocktranslate %}</p></div>
+      {% endif %}
       {% if findings %}
         <ul class="errorlist" role="alert">
           {% for finding in findings %}
