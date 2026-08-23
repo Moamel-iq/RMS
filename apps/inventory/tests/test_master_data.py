@@ -27,6 +27,7 @@ from apps.inventory.models import (
 )
 from apps.inventory.services import (
     canonical_code,
+    correct_unused_item_base_unit,
     create_item,
     create_item_category,
     create_item_conversion,
@@ -451,6 +452,50 @@ class TestItemFlags:
             conversion_type=ConversionType.VARIABLE,
         )
         assert rice.is_variable_weight is True
+
+
+class TestBaseUnitCorrection:
+    def test_an_unused_imported_item_can_be_corrected_and_stale_conversions_are_removed(
+        self,
+        organization: Organization,
+        leaf_category: ItemCategory,
+        kilogram: UnitOfMeasure,
+        piece: UnitOfMeasure,
+        sack: PackageUnit,
+    ) -> None:
+        garlic = create_item(
+            organization=organization,
+            code="GARLIC",
+            name_ar="ثوم",
+            category=leaf_category,
+            item_type=ItemType.RAW_MATERIAL,
+            base_unit=piece,
+        )
+        conversion = create_item_conversion(
+            item=garlic,
+            package_unit=sack,
+            factor_to_base=Decimal("1"),
+            effective_from=TODAY,
+        )
+
+        corrected = correct_unused_item_base_unit(
+            item=garlic,
+            base_unit=kilogram,
+            reason="تصحيح وحدة الاستيراد",
+        )
+
+        assert corrected.base_unit_id == kilogram.pk
+        assert not ItemPackageConversion.objects.filter(pk=conversion.pk).exists()
+
+    def test_a_reason_is_required(
+        self,
+        rice: InventoryItem,
+        piece: UnitOfMeasure,
+    ) -> None:
+        with pytest.raises(ValidationError) as caught:
+            correct_unused_item_base_unit(item=rice, base_unit=piece, reason="")
+
+        assert caught.value.code == "base_unit_correction_reason_required"
 
 
 class TestPackageUnitsCarryNoFactor:

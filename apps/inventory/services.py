@@ -16,7 +16,7 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
@@ -413,6 +413,105 @@ def update_item(
         new_state=snapshot(item),
     )
     return item
+
+
+def _related_usage_labels(
+    instance: InventoryItem | ItemPackageConversion,
+    *,
+    ignored_accessors: frozenset[str] = frozenset(),
+) -> list[str]:
+    """Return concrete reverse relations that currently reference ``instance``."""
+    labels: list[str] = []
+    for relation in instance._meta.related_objects:
+        accessor = relation.get_accessor_name()
+        if not accessor or accessor in ignored_accessors:
+            continue
+        try:
+            related = getattr(instance, accessor)
+        except ObjectDoesNotExist:
+            continue
+        if hasattr(related, "exists"):
+            used = related.exists()
+        else:
+            used = related is not None
+        if used:
+            labels.append(relation.related_model._meta.label)
+    return sorted(set(labels))
+
+
+@transaction.atomic
+def correct_unused_item_base_unit(
+    *,
+    item: InventoryItem,
+    base_unit: UnitOfMeasure,
+    reason: str,
+) -> InventoryItem:
+    """
+    Correct an import-time base-unit mistake before the item is used anywhere.
+
+    A posted or referenced item must be replaced instead (Task 1.0, INV-004).
+    Package conversions are also removed only when they have never been used:
+    their factors resolve to the old base unit and would acquire a false meaning
+    if they survived the correction.
+    """
+    locked = InventoryItem.objects.select_for_update().select_related("base_unit").get(pk=item.pk)
+    if not reason.strip():
+        raise ValidationError(
+            _("A reason is required to correct an item's base unit."),
+            code="base_unit_correction_reason_required",
+        )
+    if not base_unit.is_active:
+        raise ValidationError(
+            _("Unit %(code)s is archived and cannot be a base unit."),
+            code="base_unit_inactive",
+            params={"code": base_unit.code},
+        )
+    if locked.base_unit_id == base_unit.pk:
+        return locked
+
+    blockers = _related_usage_labels(
+        locked,
+        ignored_accessors=frozenset({"package_conversions"}),
+    )
+    if blockers:
+        raise ValidationError(
+            _("The base unit cannot change because the item is already referenced."),
+            code="item_locked_by_usage",
+            params={"models": ", ".join(blockers)},
+        )
+
+    conversions = list(ItemPackageConversion.objects.select_for_update().filter(item=locked))
+    for conversion in conversions:
+        conversion_blockers = _related_usage_labels(conversion)
+        if conversion_blockers:
+            raise ValidationError(
+                _("A used package conversion prevents the base-unit correction."),
+                code="item_conversion_locked_by_usage",
+                params={"models": ", ".join(conversion_blockers)},
+            )
+
+    previous = snapshot(locked)
+    for conversion in conversions:
+        conversion_previous = snapshot(conversion)
+        record_audit_event(
+            action=AuditAction.DELETED,
+            target=conversion,
+            previous_state=conversion_previous,
+            reason=reason.strip(),
+        )
+        conversion.delete()
+
+    locked.base_unit = base_unit
+    locked.full_clean()
+    locked.save(update_fields=["base_unit", "updated_at"])
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=locked,
+        previous_state=previous,
+        new_state=snapshot(locked),
+        reason=reason.strip(),
+    )
+    return locked
 
 
 # ---------------------------------------------------------------------------
