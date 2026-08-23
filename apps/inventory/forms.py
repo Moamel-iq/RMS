@@ -51,10 +51,10 @@ from apps.inventory.permissions import (
     CLOSE_TRANSFER_SHORTAGE,
     CONDUCT_STOCK_COUNT,
     CREATE_DRAFT_MOVEMENT,
+    CREATE_ITEM,
     CREATE_OPENING_STOCK,
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
-    MANAGE_ITEMS,
     MANAGE_PACKAGE_UNITS,
     MANAGE_REASON_CODES,
     MANAGE_WAREHOUSES,
@@ -224,7 +224,7 @@ class InventoryItemForm(ScopedForm):
     rather than correct it.
     """
 
-    scope_permission = MANAGE_ITEMS
+    scope_permission = CREATE_ITEM
 
     organization = forms.ModelChoiceField(queryset=Organization.objects.none(), label=_("المؤسسة"))
     code = forms.CharField(

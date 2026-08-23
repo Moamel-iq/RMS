@@ -92,11 +92,37 @@ class TestShellRendering:
         assert 'class="subnav"' in body
         assert 'class="topbar"' in body
 
-    def test_every_module_appears_in_the_rail(self, client: Client, user: User) -> None:
-        client.force_login(user)
+    def test_every_module_appears_in_the_rail_for_someone_who_may_open_them(
+        self, client: Client
+    ) -> None:
+        """
+        The rail shows the whole system to a reader who may open all of it.
+
+        Since ADR-034 the rail is cut down to what the reader may do, so the
+        "every module" claim is made about a superuser; the cut itself is
+        pinned by `test_navigation_visibility`.
+        """
+        root = User.objects.create_superuser(username="root", password=PASSWORD)
+        client.force_login(root)
         body = client.get(reverse("users:home")).content.decode()
         for module in MODULES:
             assert str(module.label) in body, module.key
+
+    def test_a_reader_with_no_post_sees_only_home_and_the_unbuilt(
+        self, client: Client, user: User
+    ) -> None:
+        """
+        No membership, no permission — and therefore no module to open.
+
+        Asserted on the rail itself: the home page's build-status panel names
+        every module as a statement about the system, and is meant to.
+        """
+        client.force_login(user)
+        body = client.get(reverse("users:home")).content.decode()
+        rail = body.split('class="rail__list"', 1)[1].split("</ul>", 1)[0]
+        for module in MODULES:
+            expected = module.key == "home" or not module.available
+            assert (str(module.label) in rail) == expected, module.key
 
     def test_unbuilt_modules_are_marked_as_such(self, client: Client, user: User) -> None:
         """
@@ -214,7 +240,8 @@ class TestShellRendering:
         """These are the only sections with an implementation behind them."""
         settings_module = MODULES_BY_KEY["settings"]
         available = [s for s in settings_module.sections if s.available]
-        assert len(available) == 7
+        # Seven foundation screens plus the roles screen (ADR-034).
+        assert len(available) == 8
         for section in available:
             assert section.url_name is not None
             assert reverse(section.url_name)
@@ -230,7 +257,8 @@ class TestShellRendering:
             for s in settings_module.sections
             if s.available and not str(s.url_name).startswith("admin:")
         ]
-        assert len(native) == 6
+        # Six foundation screens plus the roles screen (ADR-034).
+        assert len(native) == 7
         for section in native:
             assert reverse(str(section.url_name)).startswith("/settings/")
 

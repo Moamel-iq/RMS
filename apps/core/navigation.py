@@ -997,6 +997,13 @@ MODULES: tuple[Module, ...] = (
                 url_name="organizations:access_list",
                 available=True,
             ),
+            # The posts an organization defines, and what each may do (ADR-034).
+            Section(
+                label=_("الأدوار والصلاحيات"),
+                url_name="organizations:role_list",
+                available=True,
+                active_prefixes=("organizations:role_",),
+            ),
             Section(label=_("المستخدمون"), url_name="users:user_list", available=True),
             Section(label=_("وحدات القياس"), url_name="units:unit_list", available=True),
             Section(label=_("سجل التدقيق"), url_name="core:audit_list", available=True),

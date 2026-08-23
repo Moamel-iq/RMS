@@ -16,7 +16,7 @@
     <tr>
       <td><strong>{{ membership.user.username }}</strong></td>
       <td>{{ membership.branch.name_ar }} <span class="muted">({{ membership.branch.code }})</span></td>
-      <td>{{ membership.get_role_display }}</td>
+      <td>{{ membership.role_label }}</td>
       <td>
         {% if membership.is_active %}
           <span class="chip chip--on">{% translate "فعّال" %}</span>

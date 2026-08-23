@@ -14,6 +14,7 @@ import zoneinfo
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
@@ -159,6 +160,85 @@ class WarehouseScopeMode(models.TextChoices):
     SELECTED = "SELECTED", _("مخازن محددة")
 
 
+#: A custom role's code: lower-case, so it can never be mistaken for one of the
+#: upper-case built-in values, and URL-safe, because it is part of a group name.
+ROLE_CODE_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
+
+
+class RoleDefinition(TimeStampedModel):
+    """
+    A post the organization defined itself (ADR-034).
+
+    The eight `Role` values are the charter's separation-of-duties posts. This
+    is the owner's own: "an accountant I configure" — which screens that
+    person sees and which acts they may perform, chosen permission by
+    permission. It is granted exactly like a built-in role: a membership
+    stores `key`, and `role:<key>` is the group carrying `permissions`.
+
+    Defined per organization because its group carries permissions that this
+    organization decided. Granting it inside another organization is refused
+    by the grant services, not merely unusual.
+    """
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.PROTECT,
+        related_name="role_definitions",
+        verbose_name=_("organization"),
+    )
+    code = models.CharField(
+        _("code"),
+        max_length=24,
+        validators=[
+            RegexValidator(
+                ROLE_CODE_PATTERN,
+                _("الرمز بحروف لاتينية صغيرة وأرقام وشرطات فقط، ويبدأ بحرف أو رقم."),
+            )
+        ],
+    )
+    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
+    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    description = models.TextField(_("description"), blank=True)
+    #: The built-in post this one was started from, if any. Kept for the
+    #: record, never consulted for authority: the permissions are the truth.
+    based_on = models.CharField(_("based on"), max_length=20, blank=True, choices=Role.choices)
+    permissions = models.ManyToManyField(
+        "auth.Permission",
+        blank=True,
+        related_name="role_definitions",
+        verbose_name=_("permissions"),
+    )
+    is_active = models.BooleanField(_("active"), default=True)
+
+    #: Who held authority to do what, and since when — the question an
+    #: auditor asks when an act was performed under a post that has since
+    #: changed shape.
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("role definition")
+        verbose_name_plural = _("role definitions")
+        ordering = ["organization__code", "name_ar"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "code"],
+                name="role_definition_code_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex=ROLE_CODE_PATTERN),
+                name="role_definition_code_format",
+            ),
+        ]
+
+    @property
+    def key(self) -> str:
+        """The value a membership stores, and the suffix of the group name."""
+        return f"custom:{self.organization_id}:{self.code}"
+
+    def __str__(self) -> str:
+        return f"{self.organization.code} · {self.name_ar}"
+
+
 class BranchMembership(TimeStampedModel):
     """
     Grants one user access to one branch in one role.
@@ -179,7 +259,10 @@ class BranchMembership(TimeStampedModel):
         related_name="memberships",
         verbose_name=_("branch"),
     )
-    role = models.CharField(_("role"), max_length=20, choices=Role.choices)
+    #: A built-in `Role` value, or a custom role's key (`custom:<org>:<code>`).
+    #: No `choices`: the valid set depends on the place the grant is made in,
+    #: and the grant services validate it there (ADR-034).
+    role = models.CharField(_("role"), max_length=64)
     is_active = models.BooleanField(_("active"), default=True)
 
     #: How far inside the branch this membership reaches. `ALL` covers every
@@ -213,8 +296,14 @@ class BranchMembership(TimeStampedModel):
             ),
         ]
 
+    @property
+    def role_label(self) -> str:
+        from apps.organizations.roles import role_label
+
+        return role_label(self.role)
+
     def __str__(self) -> str:
-        return f"{self.user} @ {self.branch.code} ({self.get_role_display()})"
+        return f"{self.user} @ {self.branch.code} ({self.role_label})"
 
 
 class BranchMembershipWarehouse(models.Model):
@@ -287,7 +376,10 @@ class OrganizationMembership(TimeStampedModel):
         related_name="memberships",
         verbose_name=_("organization"),
     )
-    role = models.CharField(_("role"), max_length=20, choices=Role.choices)
+    #: A built-in `Role` value, or a custom role's key (`custom:<org>:<code>`).
+    #: No `choices`: the valid set depends on the place the grant is made in,
+    #: and the grant services validate it there (ADR-034).
+    role = models.CharField(_("role"), max_length=64)
     is_active = models.BooleanField(_("active"), default=True)
 
     #: Who held organization-wide authority, and when. The first question an
@@ -305,5 +397,11 @@ class OrganizationMembership(TimeStampedModel):
             ),
         ]
 
+    @property
+    def role_label(self) -> str:
+        from apps.organizations.roles import role_label
+
+        return role_label(self.role)
+
     def __str__(self) -> str:
-        return f"{self.user} @ {self.organization.code} ({self.get_role_display()})"
+        return f"{self.user} @ {self.organization.code} ({self.role_label})"

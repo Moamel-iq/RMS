@@ -1,0 +1,85 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{# الأدوار والصلاحيات — the posts an organization defines (ADR-034).          #}
+{#                                                                            #}
+{# Two tables on purpose. The built-in posts are the charter's separation of  #}
+{# duties and cannot be edited here; they are shown so the owner can read     #}
+{# what "accountant" already means before defining a variant, and each one   #}
+{# links to a new role prefilled from it.                                     #}
+
+{% block columns %}
+  <th>{% translate "الدور" %}</th>
+  <th>{% translate "المؤسسة" %}</th>
+  <th>{% translate "الصلاحيات" %}</th>
+  <th>{% translate "يحمله" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th></th>
+{% endblock %}
+
+{% block rows %}
+  {% for row in rows %}
+    <tr>
+      <td data-label="{% translate 'الدور' %}">
+        <strong>{{ row.definition.name_ar }}</strong>
+        <span class="muted"><bdi dir="ltr">{{ row.definition.code }}</bdi></span>
+        {% if row.definition.description %}<br><span class="muted">{{ row.definition.description }}</span>{% endif %}
+      </td>
+      <td data-label="{% translate 'المؤسسة' %}">{{ row.definition.organization.code }} — {{ row.definition.organization.name_ar }}</td>
+      <td class="table__num" data-label="{% translate 'الصلاحيات' %}"><bdi dir="ltr">{{ row.permissions }}</bdi></td>
+      <td class="table__num" data-label="{% translate 'يحمله' %}"><bdi dir="ltr">{{ row.members }}</bdi> {% translate "مستخدم" %}</td>
+      <td data-label="{% translate 'الحالة' %}">
+        {% if row.definition.is_active %}
+          <span class="chip chip--ok">{% translate "فعّال" %}</span>
+        {% else %}
+          <span class="chip chip--muted">{% translate "مؤرشف" %}</span>
+        {% endif %}
+      </td>
+      <td data-label="{% translate 'إجراءات' %}">
+        <div class="rowactions">
+          <a class="btn btn--secondary btn--sm" href="{% url 'organizations:role_update' row.definition.pk %}">{% translate "فتح" %}</a>
+        </div>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6"><div class="empty-state"><strong>{% translate "لا أدوار مخصصة بعد." %}</strong><span>{% translate "ابدأ دوراً جديداً من الصفر أو من أحد الأدوار المبنية أدناه." %}</span></div></td></tr>
+  {% endfor %}
+{% endblock %}
+
+{% block results %}
+  {{ block.super }}
+
+  <section class="formcard">
+    <h2>{% translate "الأدوار المبنية" %}</h2>
+    <p class="muted">
+      {% translate "مناصب الفصل بين المهام كما يحددها ميثاق النظام. ثابتة، وتصلح نقطة بداية لدور مخصص." %}
+    </p>
+    <div class="data-table-shell">
+      <table class="table responsive-table">
+        <thead>
+          <tr>
+            <th>{% translate "الدور" %}</th>
+            <th>{% translate "الرمز" %}</th>
+            <th>{% translate "الصلاحيات" %}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in builtins %}
+            <tr>
+              <td data-label="{% translate 'الدور' %}"><strong>{{ row.label }}</strong></td>
+              <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr">{{ row.role.value }}</bdi></td>
+              <td class="table__num" data-label="{% translate 'الصلاحيات' %}"><bdi dir="ltr">{{ row.permissions }}</bdi></td>
+              <td data-label="{% translate 'إجراءات' %}">
+                <a class="btn btn--quiet btn--sm" href="{% url 'organizations:role_create' %}?based_on={{ row.role.value }}">{% translate "ابدأ دوراً منه" %}</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="panel__foot">
+      {% translate "المالك وحساب مدير النظام يملكان كل الصلاحيات؛ ما تعرّفه هنا يخصّ بقية الموظفين." %}
+    </p>
+  </section>
+{% endblock %}

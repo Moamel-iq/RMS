@@ -110,9 +110,9 @@ from apps.inventory.models import (
 from apps.inventory.opening import OpeningLineInput
 from apps.inventory.operations import DocumentLineInput
 from apps.inventory.permissions import (
+    CREATE_ITEM,
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
-    MANAGE_ITEMS,
     MANAGE_PACKAGE_UNITS,
     MANAGE_WAREHOUSES,
     VIEW_ITEM,
@@ -406,7 +406,7 @@ def create_inventory_item(request: HttpRequest, payload: ItemIn) -> Status[Any]:
 
     actor = _actor(request)
     organization = resolve_organization(actor, payload.organization_id)
-    require_reachable_organization_permission(actor, MANAGE_ITEMS, organization)
+    require_reachable_organization_permission(actor, CREATE_ITEM, organization)
 
     if payload.item_type not in ItemType.values:
         raise ValidationError("Unknown item type.", code="unknown_item_type")

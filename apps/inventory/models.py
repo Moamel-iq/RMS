@@ -283,6 +283,8 @@ class InventoryItem(TimeStampedModel):
         permissions = [
             ("view_item", _("Can view the item master")),
             ("manage_items", _("Can create and archive inventory items")),
+            ("create_item", _("Can register a new inventory item")),
+            ("edit_item", _("Can change an existing inventory item")),
             ("manage_conversions", _("Can manage item package conversions")),
             ("view_stock", _("Can view stock on hand")),
             ("view_valuation", _("Can view inventory cost and valuation")),

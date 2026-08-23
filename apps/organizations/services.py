@@ -24,8 +24,14 @@ from apps.organizations.models import (
     Organization,
     OrganizationMembership,
     Role,
+    RoleDefinition,
 )
 from apps.organizations.permissions import sync_user_role_groups
+from apps.organizations.roles import (
+    resolve_permissions,
+    sync_role_definition_group,
+    validate_role_key,
+)
 from apps.users.models import User
 
 if TYPE_CHECKING:
@@ -163,6 +169,8 @@ def grant_branch_access(*, user: User, branch: Branch, role: Role | str) -> Bran
     rather than failing, so repairing access is not a delete-and-recreate that
     would lose the original creation timestamp.
     """
+    # A built-in post, or a post this branch's organization defined (ADR-034).
+    role = validate_role_key(role, branch.organization)
     membership, created = BranchMembership.objects.get_or_create(
         user=user,
         branch=branch,
@@ -286,6 +294,7 @@ def grant_organization_access(
     covers every branch at once — so granting it is a different decision, made
     by a different person, and it should read that way at the call site.
     """
+    role = validate_role_key(role, organization)
     membership, created = OrganizationMembership.objects.get_or_create(
         user=user,
         organization=organization,
@@ -346,3 +355,169 @@ def deactivate_branch(*, branch: Branch) -> Branch:
     branch.is_active = False
     branch.save(update_fields=["is_active", "updated_at"])
     return branch
+
+
+# ---------------------------------------------------------------------------
+# Custom roles (ADR-034)
+# ---------------------------------------------------------------------------
+#
+# A definition is a post the organization invented: a name and a set of
+# permissions. Granting it is `grant_branch_access` / `grant_organization_access`
+# with the definition's key, exactly as for a built-in post, so nothing below
+# touches memberships. What lives here is the definition's own lifecycle, and
+# the one rule that keeps it honest: its group is rewritten from its
+# permissions every time they change, so the group can never say more or less
+# than the screen the owner saved.
+
+
+def _permission_names(definition: RoleDefinition) -> list[str]:
+    return sorted(
+        f"{permission.content_type.app_label}.{permission.codename}"
+        for permission in definition.permissions.select_related("content_type")
+    )
+
+
+@transaction.atomic
+def create_role_definition(
+    *,
+    organization: Organization,
+    code: str,
+    name_ar: str,
+    permissions: Sequence[str],
+    name_en: str = "",
+    description: str = "",
+    based_on: Role | str = "",
+) -> RoleDefinition:
+    """
+    Define a post for one organization.
+
+    `permissions` are `app_label.codename` strings. Every one must exist and
+    belong to a module the owner may configure; an unknown name refuses the
+    whole call rather than being dropped, because a role saved with fewer
+    permissions than the owner ticked is a silent narrowing nobody asked for.
+    """
+    rows = resolve_permissions(permissions)
+    definition = RoleDefinition(
+        organization=organization,
+        code=code.strip().lower(),
+        name_ar=name_ar.strip(),
+        name_en=name_en.strip(),
+        description=description.strip(),
+        based_on=based_on.value if isinstance(based_on, Role) else str(based_on),
+    )
+    definition.full_clean()
+    definition.save()
+    definition.permissions.set(rows)
+    sync_role_definition_group(definition)
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=definition,
+        new_state=snapshot(definition),
+        reason=f"role {definition.key} defined with {len(rows)} permissions",
+        metadata={"permissions": _permission_names(definition)},
+    )
+    return definition
+
+
+@transaction.atomic
+def update_role_definition(
+    *,
+    definition: RoleDefinition,
+    name_ar: str | None = None,
+    name_en: str | None = None,
+    description: str | None = None,
+    permissions: Sequence[str] | None = None,
+) -> RoleDefinition:
+    """
+    Change a post's name or permissions. The code is fixed: it is part of
+    every membership key and every group name that already names this post.
+
+    A permission change reaches everyone holding the post at once — the group
+    is theirs — which is the point of a post rather than per-user grants, and
+    the reason the change is audited with the before and after sets.
+    """
+    before = snapshot(RoleDefinition.objects.get(pk=definition.pk))
+    before_permissions = _permission_names(definition)
+
+    if name_ar is not None:
+        definition.name_ar = name_ar.strip()
+    if name_en is not None:
+        definition.name_en = name_en.strip()
+    if description is not None:
+        definition.description = description.strip()
+    definition.full_clean()
+    definition.save(update_fields=["name_ar", "name_en", "description", "updated_at"])
+
+    if permissions is not None:
+        definition.permissions.set(resolve_permissions(permissions))
+        sync_role_definition_group(definition)
+
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=definition,
+        previous_state=before,
+        new_state=snapshot(definition),
+        reason=f"role {definition.key} updated",
+        metadata={"before": before_permissions, "after": _permission_names(definition)},
+    )
+    return definition
+
+
+def role_definition_member_count(definition: RoleDefinition) -> int:
+    """Active memberships, at branches or over the organization, holding this post."""
+    key = definition.key
+    return (
+        BranchMembership.objects.filter(role=key, is_active=True).count()
+        + OrganizationMembership.objects.filter(role=key, is_active=True).count()
+    )
+
+
+@transaction.atomic
+def archive_role_definition(*, definition: RoleDefinition, reason: str) -> RoleDefinition:
+    """
+    Retire a post. Refused while anyone still holds it.
+
+    Archiving must not be a way to strip authority from people without a
+    record per person: each membership is revoked first, through the revoke
+    services that audit it, and only then does the post go.
+    """
+    held_by = role_definition_member_count(definition)
+    if held_by:
+        raise ValidationError(
+            _("لا يمكن أرشفة الدور وهو ممنوح لـ %(count)d مستخدم؛ اسحب الصلاحيات أولاً."),
+            code="role_in_use",
+            params={"count": held_by},
+        )
+    if not reason.strip():
+        raise ValidationError(_("الأرشفة تحتاج سبباً."), code="reason_required")
+
+    before = snapshot(RoleDefinition.objects.get(pk=definition.pk))
+    definition.is_active = False
+    definition.save(update_fields=["is_active", "updated_at"])
+    record_audit_event(
+        action=AuditAction.DEACTIVATED,
+        target=definition,
+        previous_state=before,
+        new_state=snapshot(definition),
+        reason=reason.strip(),
+    )
+    return definition
+
+
+@transaction.atomic
+def reactivate_role_definition(*, definition: RoleDefinition, reason: str) -> RoleDefinition:
+    """Bring a retired post back, with its permissions exactly as they were left."""
+    if not reason.strip():
+        raise ValidationError(_("إعادة التفعيل تحتاج سبباً."), code="reason_required")
+    before = snapshot(RoleDefinition.objects.get(pk=definition.pk))
+    definition.is_active = True
+    definition.save(update_fields=["is_active", "updated_at"])
+    sync_role_definition_group(definition)
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=definition,
+        previous_state=before,
+        new_state=snapshot(definition),
+        reason=reason.strip(),
+    )
+    return definition

@@ -145,3 +145,9 @@ question and its answer stay together.
   no match **refuses to post** (`invoice_awaiting_matching`) and is reported by
   the invoice-without-receipt report — this line previously said the opposite,
   which ADR-023 §5's own amendment had already overturned.
+- **Custom roles and a navigation that shows only what the reader may do** —
+  ADR-034 (**accepted**). An organization defines its own posts as permission
+  sets granted through the same memberships and `role:` groups ADR-016 built;
+  a section is shown when the reader holds the permission its view requires,
+  derived from the view rather than declared twice; `manage_items` is split so
+  "may add but not edit" is expressible.

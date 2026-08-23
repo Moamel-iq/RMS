@@ -7,6 +7,8 @@ the audit events; these only collect input and render errors.
 
 from __future__ import annotations
 
+from typing import Any
+
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
@@ -96,4 +98,74 @@ class BranchMembershipForm(forms.Form):
         queryset=Branch.objects.filter(is_active=True).order_by("code"),
         label=_("الفرع"),
     )
-    role = forms.ChoiceField(choices=Role.choices, label=_("الدور"))
+    # The built-in posts and every organization's active custom posts
+    # (ADR-034). Computed per request: a post defined a minute ago must be
+    # grantable now, and a class-level tuple would be frozen at import.
+    role = forms.ChoiceField(choices=(), label=_("الدور"))
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        from apps.organizations.roles import role_choices
+
+        self.fields["role"].choices = role_choices()  # type: ignore[attr-defined]
+
+
+class RoleDefinitionForm(forms.Form):
+    """
+    A post the organization defines (ADR-034): a name and a set of acts.
+
+    The acts are validated against the configurable permissions, so a code
+    typed into the request that names nothing — or names something outside
+    the modules — is refused here before the service sees it.
+    """
+
+    organization = forms.ModelChoiceField(
+        queryset=Organization.objects.filter(is_active=True).order_by("code"),
+        label=_("المؤسسة"),
+        help_text=_("الدور يُمنح داخل هذه المؤسسة وحدها."),
+    )
+    code = forms.CharField(
+        label=_("الرمز"),
+        max_length=24,
+        help_text=_("حروف لاتينية صغيرة وأرقام وشرطات. لا يتغيّر بعد الإنشاء."),
+    )
+    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
+    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200, required=False)
+    description = forms.CharField(
+        label=_("الوصف"), required=False, widget=forms.Textarea(attrs={"rows": 2})
+    )
+    based_on = forms.ChoiceField(
+        label=_("ابدأ من دور مبني"),
+        required=False,
+        choices=[("", _("— من الصفر —")), *Role.choices],
+        help_text=_("تُنسخ صلاحيات الدور المبني كبداية؛ عدّلها كما تشاء."),
+    )
+    permissions = forms.MultipleChoiceField(
+        label=_("الصلاحيات"),
+        required=False,
+        choices=(),
+        widget=forms.CheckboxSelectMultiple,
+    )
+
+    def __init__(self, *args: Any, definition: Any | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        from apps.organizations.roles import configurable_permissions
+
+        self.fields["permissions"].choices = [  # type: ignore[attr-defined]
+            (f"{p.content_type.app_label}.{p.codename}", p.name) for p in configurable_permissions()
+        ]
+        if definition is not None:
+            # The organization and code are part of every key that already
+            # names this post; they are shown, not offered.
+            self.fields["organization"].disabled = True
+            self.fields["code"].disabled = True
+            self.fields["based_on"].disabled = True
+
+    def clean_code(self) -> str:
+        return str(self.cleaned_data["code"]).strip().lower()
+
+
+class RoleLifecycleForm(forms.Form):
+    """Archive or reactivate a post: the reason is the record."""
+
+    reason = forms.CharField(label=_("السبب"), max_length=200)

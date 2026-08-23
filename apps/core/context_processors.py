@@ -11,7 +11,8 @@ from typing import Any
 
 from django.http import HttpRequest
 
-from apps.core.navigation import DEFAULT_MODULE_KEY, MODULES, MODULES_BY_KEY
+from apps.core.navigation import DEFAULT_MODULE_KEY, MODULES_BY_KEY
+from apps.core.navigation_access import visible_modules_for
 from apps.organizations.selectors import accessible_branches
 
 
@@ -34,7 +35,16 @@ def shell(request: HttpRequest) -> dict[str, Any]:
     else:
         active_key = actual_key
 
-    active_module = MODULES_BY_KEY.get(active_key, MODULES_BY_KEY[DEFAULT_MODULE_KEY])
+    # The registry cut down to what this reader may open (ADR-034 §3). The
+    # active module is taken from the same cut, so its sidebar hides the
+    # same sections the rail would; a screen reached by a typed URL the reader
+    # may not open still renders its shell from the full registry, because the
+    # view is what answers 403, not the navigation.
+    modules = visible_modules_for(user)
+    visible_by_key = {module.key: module for module in modules}
+    active_module = visible_by_key.get(active_key) or MODULES_BY_KEY.get(
+        active_key, MODULES_BY_KEY[DEFAULT_MODULE_KEY]
+    )
     resolver_match = getattr(request, "resolver_match", None)
     current_url_name = getattr(resolver_match, "view_name", "") or ""
     active_section = next(
@@ -48,7 +58,7 @@ def shell(request: HttpRequest) -> dict[str, Any]:
     )
 
     return {
-        "nav_modules": MODULES,
+        "nav_modules": modules,
         "active_module": active_module,
         "active_section": active_section,
         "active_nav_group": active_section.group if active_section else "",

@@ -116,6 +116,13 @@ VIEW_ITEM = f"{APP_LABEL}.view_item"
 MANAGE_CATEGORIES = f"{APP_LABEL}.manage_categories"
 MANAGE_PACKAGE_UNITS = f"{APP_LABEL}.manage_package_units"
 MANAGE_ITEMS = f"{APP_LABEL}.manage_items"
+#: The twenty-ninth and thirtieth split `manage_items` (ADR-034). Registering
+#: a new item and changing one already in use are different acts — the owner's
+#: own example was the clerk who may add but must not edit — and an act the
+#: owner wants to grant separately has to be its own permission. `manage_items`
+#: keeps the structural acts: archive, reactivate, correct a base unit.
+CREATE_ITEM = f"{APP_LABEL}.create_item"
+EDIT_ITEM = f"{APP_LABEL}.edit_item"
 MANAGE_CONVERSIONS = f"{APP_LABEL}.manage_conversions"
 MANAGE_WAREHOUSES = f"{APP_LABEL}.manage_warehouses"
 MANAGE_REASON_CODES = f"{APP_LABEL}.manage_reason_codes"
@@ -146,6 +153,8 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     MANAGE_CATEGORIES,
     MANAGE_PACKAGE_UNITS,
     MANAGE_ITEMS,
+    CREATE_ITEM,
+    EDIT_ITEM,
     MANAGE_CONVERSIONS,
     MANAGE_WAREHOUSES,
     MANAGE_REASON_CODES,
@@ -181,6 +190,8 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     MANAGE_CATEGORIES: PermissionScope.ORGANIZATION_MASTER_DATA,
     MANAGE_PACKAGE_UNITS: PermissionScope.ORGANIZATION_MASTER_DATA,
     MANAGE_ITEMS: PermissionScope.ORGANIZATION_MASTER_DATA,
+    CREATE_ITEM: PermissionScope.ORGANIZATION_MASTER_DATA,
+    EDIT_ITEM: PermissionScope.ORGANIZATION_MASTER_DATA,
     MANAGE_CONVERSIONS: PermissionScope.ORGANIZATION_MASTER_DATA,
     # Reason codes are the organization's shared vocabulary for why stock was
     # destroyed or corrected. One branch inventing its own would make the waste
@@ -279,6 +290,8 @@ _MANAGER = frozenset(
         MANAGE_CATEGORIES,
         MANAGE_PACKAGE_UNITS,
         MANAGE_ITEMS,
+        CREATE_ITEM,
+        EDIT_ITEM,
         MANAGE_CONVERSIONS,
         MANAGE_WAREHOUSES,
         MANAGE_LOCATIONS,

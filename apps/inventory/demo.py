@@ -138,6 +138,7 @@ from apps.inventory.operations import (
     post_document,
     reverse_document,
 )
+from apps.inventory.permissions import VIEW_IMPORT_HISTORY, VIEW_STOCK, VIEW_VALUATION
 from apps.inventory.reason_codes import (
     archive_reason_code,
     create_reason_code,
@@ -171,10 +172,12 @@ from apps.organizations.models import (
     Organization,
     OrganizationMembership,
     Role,
+    RoleDefinition,
 )
 from apps.organizations.services import (
     create_branch,
     create_organization,
+    create_role_definition,
     grant_branch_access,
     grant_organization_access,
 )
@@ -196,6 +199,9 @@ DESTINATION_BRANCH_CODE = "DEMO-SECOND"
 #: anybody signs in with. `manage.py changepassword` if you want to look at
 #: the blind count sheet through their eyes.
 COUNT_CONDUCTOR_USERNAME = "demo-storekeeper"
+#: The DEMO custom role and the data actor who holds it (ADR-034).
+REPORTS_ROLE_CODE = "demo-reports-reader"
+REPORTS_READER_USERNAME = "demo-reports-reader"
 
 BAGHDAD = ZoneInfo("Asia/Baghdad")
 
@@ -708,6 +714,40 @@ def ensure_access(
         "access",
         f"{conductor.username} STOREKEEPER at both branches",
         created=not had_branch_access,
+    )
+
+    # A post the organization defined itself (ADR-034): reads stock and its
+    # value, changes nothing. Held by a data actor so the roles screen has a
+    # live example and the navigation can be seen cut down to one reader.
+    definition = RoleDefinition.objects.filter(
+        organization=organization, code=REPORTS_ROLE_CODE
+    ).first()
+    role_created = definition is None
+    if definition is None:
+        definition = create_role_definition(
+            organization=organization,
+            code=REPORTS_ROLE_CODE,
+            name_ar="قارئ تقارير المخزون (تجريبي)",
+            name_en="Inventory reports reader (demo)",
+            description="يرى الأرصدة والقيمة والحركات ولا يغيّر شيئاً.",
+            permissions=[VIEW_STOCK, VIEW_VALUATION, VIEW_IMPORT_HISTORY],
+        )
+    log.record("role", definition.key, created=role_created)
+
+    reader, created = User.objects.get_or_create(
+        username=REPORTS_READER_USERNAME,
+        defaults={"first_name": "قارئ تقارير", "last_name": "تجريبي", "is_active": True},
+    )
+    if created:
+        reader.set_unusable_password()
+        reader.save(update_fields=["password"])
+    log.record("user", REPORTS_READER_USERNAME, created=created)
+    had_reader_access = BranchMembership.objects.filter(user=reader, branch=source_branch).exists()
+    grant_branch_access(user=reader, branch=source_branch, role=definition.key)
+    log.record(
+        "access",
+        f"{reader.username} {REPORTS_ROLE_CODE} at {source_branch.code}",
+        created=not had_reader_access,
     )
     return conductor
 

@@ -163,7 +163,9 @@ from apps.inventory.permissions import (
     CLOSE_TRANSFER_SHORTAGE,
     CONDUCT_STOCK_COUNT,
     CREATE_DRAFT_MOVEMENT,
+    CREATE_ITEM,
     CREATE_OPENING_STOCK,
+    EDIT_ITEM,
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
     MANAGE_ITEMS,
@@ -288,6 +290,10 @@ class InventoryListView(InventoryViewMixin, _ListView):
     create_label: Any = ""
     #: The permission that gates create, edit, archive, and reactivate here.
     manage_permission: str = ""
+    #: Where a list separates the acts, the permission behind its "new" button
+    #: and behind each row's "edit"; each falls back to `manage_permission`.
+    create_permission: str = ""
+    edit_permission: str = ""
     #: Whether that permission is answered per organization or per branch.
     manage_scope: str = "organization"
 
@@ -306,23 +312,24 @@ class InventoryListView(InventoryViewMixin, _ListView):
 
     def manageable_ids(self) -> list[int]:
         """Organizations, or branches, where this caller may write."""
-        if not self.manage_permission:
+        return self._ids_holding(self.manage_permission)
+
+    def _ids_holding(self, permission: str) -> list[int]:
+        if not permission:
             return []
         if self.manage_scope in {"branch", "warehouse"}:
             return list(
-                branches_with_permission(self.actor, self.manage_permission).values_list(
-                    "id", flat=True
-                )
+                branches_with_permission(self.actor, permission).values_list("id", flat=True)
             )
         return list(
-            organizations_with_permission(self.actor, self.manage_permission).values_list(
-                "id", flat=True
-            )
+            organizations_with_permission(self.actor, permission).values_list("id", flat=True)
         )
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         manageable = self.manageable_ids()
+        creatable = self._ids_holding(self.create_permission or self.manage_permission)
+        editable = self._ids_holding(self.edit_permission or self.manage_permission)
         context["page_title"] = self.page_title
         context["page_hint"] = self.page_hint
         context["search"] = self.request.GET.get("q", "")
@@ -330,6 +337,8 @@ class InventoryListView(InventoryViewMixin, _ListView):
         context["result_label"] = self.result_label
         context["create_label"] = self.create_label
         context["manageable_ids"] = manageable
+        context["creatable_ids"] = creatable
+        context["editable_ids"] = editable
         # `filter_query` comes from `apps.core.context_processors.shell`: it is
         # derived from the request alone, and every list template needs it.
         # Filtering and paging swap the results table alone. The flag drives
@@ -343,7 +352,7 @@ class InventoryListView(InventoryViewMixin, _ListView):
         # No place to create it means no button. The create view refuses the
         # same request anyway; this only avoids offering a dead end.
         context["create_url"] = (
-            reverse(self.create_url_name) if self.create_url_name and manageable else None
+            reverse(self.create_url_name) if self.create_url_name and creatable else None
         )
         return context
 
@@ -388,6 +397,10 @@ class ItemListView(InventoryListView):
     page_hint = _("سجل الأصناف على مستوى المؤسسة، مشترك بين الفروع.")
     search_fields = ("code", "name_ar", "name_en")
     manage_permission = MANAGE_ITEMS
+    # Registering and changing an item are separate acts (ADR-034); archiving
+    # stays with `manage_items`. The buttons follow the act each one performs.
+    create_permission = CREATE_ITEM
+    edit_permission = EDIT_ITEM
     create_url_name = "inventory:item_create"
     create_label = _("صنف جديد")
     search_placeholder = _("ابحث عن صنف بالرمز أو الاسم العربي أو الإنجليزي…")
@@ -800,7 +813,7 @@ class PackageUnitActionView(InventoryActionView):
 class ItemCreateView(InventoryWriteView):
     template_name = "inventory/item_form.html"
     form_class = InventoryItemForm
-    required_permission = MANAGE_ITEMS
+    required_permission = CREATE_ITEM
     success_url_name = "inventory:item_list"
     page_title = _("صنف جديد")
     page_hint = _("وحدة الأساس تُثبَّت عند الإنشاء — كل كمية مخزنية تُقاس بها.")
@@ -808,7 +821,7 @@ class ItemCreateView(InventoryWriteView):
 
     def authorize(self, instance: Any, form: Any) -> None:
         require_reachable_organization_permission(
-            self.actor, MANAGE_ITEMS, form.cleaned_data["organization"]
+            self.actor, CREATE_ITEM, form.cleaned_data["organization"]
         )
 
     def perform(self, instance: Any, form: Any) -> None:
@@ -830,7 +843,7 @@ class ItemCreateView(InventoryWriteView):
 class ItemUpdateView(InventoryWriteView):
     template_name = "inventory/item_form.html"
     form_class = InventoryItemForm
-    required_permission = MANAGE_ITEMS
+    required_permission = EDIT_ITEM
     success_url_name = "inventory:item_list"
     page_title = _("تعديل الصنف")
     success_message = _("تم حفظ الصنف.")
@@ -855,7 +868,7 @@ class ItemUpdateView(InventoryWriteView):
         }
 
     def authorize(self, instance: Any, form: Any) -> None:
-        require_reachable_organization_permission(self.actor, MANAGE_ITEMS, instance.organization)
+        require_reachable_organization_permission(self.actor, EDIT_ITEM, instance.organization)
 
     def perform(self, instance: Any, form: Any) -> None:
         update_item(
