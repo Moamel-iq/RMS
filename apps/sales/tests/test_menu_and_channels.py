@@ -7,7 +7,7 @@ that would be expensive to discover was false:
 * a price resolves most-specific-first, and two prices cannot both apply;
 * a menu item points at a recipe and a serving *code*, not at a version;
 * an application channel settles and never counts;
-* direct-stock sales are refused by the database, not only by the service.
+* direct-stock menu items carry one eligible resale item and no recipe identity.
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
 from apps.accounting.models import CostCenter
+from apps.inventory.models import InventoryItem, ItemType
+from apps.inventory.services import create_item, create_item_category
 from apps.kitchen.models import Recipe, RecipeServing, RecipeVersion
 from apps.organizations.models import Branch, Organization
 from apps.sales.models import (
@@ -82,7 +84,7 @@ class TestTheVocabularyIsClosed:
         assert PriceScope.APPLICATION in PriceScope
         assert set(PriceScope.values) == {"BRANCH_DEFAULT", "CHANNEL", "APPLICATION"}
 
-    def test_release_one_fulfils_from_recipe_servings(self) -> None:
+    def test_menu_fulfillment_supports_recipe_servings_and_direct_stock(self) -> None:
         assert set(FulfillmentSource.values) == {"RECIPE_SERVING", "DIRECT_STOCK"}
 
 
@@ -95,6 +97,33 @@ def recipe(organization: Organization) -> Recipe:
         code="MANDI-CHICKEN",
         name_ar="مندي دجاج",
         recipe_type=RecipeType.PORTION,
+    )
+
+
+@pytest.fixture
+def resale_item(organization: Organization) -> InventoryItem:
+    from apps.units.models import UnitOfMeasure
+
+    piece = UnitOfMeasure.objects.filter(code="PIECE").first() or UnitOfMeasure.objects.create(
+        code="PIECE",
+        name_ar="قطعة",
+        name_en="Piece",
+        dimension="COUNT",
+        factor_to_base=Decimal("1"),
+        is_base=True,
+    )
+    category = create_item_category(
+        organization=organization,
+        code="RESALE",
+        name_ar="إعادة البيع",
+    )
+    return create_item(
+        organization=organization,
+        code="WATER-500",
+        name_ar="ماء 500 مل",
+        category=category,
+        item_type=ItemType.GOODS_FOR_RESALE,
+        base_unit=piece,
     )
 
 
@@ -204,29 +233,34 @@ class TestAMenuItemNamesARecipeAndAServingCode:
             )
         assert caught.value.code == "recipe_organization_mismatch"
 
-    def test_direct_stock_is_refused_by_the_service(
-        self, organization: Organization, recipe: Recipe, servings: list[RecipeServing]
+    def test_direct_stock_is_accepted_with_one_eligible_resale_item(
+        self,
+        organization: Organization,
+        resale_item: InventoryItem,
     ) -> None:
-        with pytest.raises(ValidationError) as caught:
-            create_menu_item(
-                organization=organization,
-                code="MENU-WATER",
-                name_ar="ماء",
-                recipe=recipe,
-                serving_code="WHOLE",
-                fulfillment_source=FulfillmentSource.DIRECT_STOCK,
-            )
-        assert caught.value.code == "direct_stock_deferred"
+        item = create_menu_item(
+            organization=organization,
+            code="MENU-WATER",
+            name_ar="ماء",
+            fulfillment_source=FulfillmentSource.DIRECT_STOCK,
+            inventory_item=resale_item,
+            direct_stock_base_quantity=Decimal("1"),
+        )
 
-    def test_direct_stock_is_refused_by_the_database_as_well(
+        assert item.fulfillment_source == FulfillmentSource.DIRECT_STOCK
+        assert item.inventory_item == resale_item
+        assert item.direct_stock_base_quantity == Decimal("1.000000000000")
+        assert item.recipe_id is None
+        assert item.serving_code == ""
+
+    def test_database_refuses_a_direct_stock_item_that_also_names_a_recipe(
         self, organization: Organization, recipe: Recipe, servings: list[RecipeServing]
     ) -> None:
         """
-        The refusal survives a shell session and a CSV import.
+        The one-route rule survives a shell session and a CSV import.
 
-        Enabling direct-stock sales is then an explicit act — a migration that
-        drops the constraint beside the service that posts the COGS — rather
-        than something an ORM call can do by accident.
+        A direct-stock row cannot also masquerade as a recipe serving; the
+        historical sales line must always resolve one unambiguous route.
         """
         with pytest.raises(IntegrityError), transaction.atomic():
             MenuItem.objects.create(

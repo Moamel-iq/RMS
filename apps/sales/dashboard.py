@@ -35,11 +35,10 @@ it here would make the dashboard disagree with every journal in the module.
 when the caller holds `view_sales_cost`, and the view **omits** its whole card
 otherwise rather than blanking it.
 
-Its figures come from frozen `RecipeCostSnapshot` evidence — the exact serving
-row a line already points at, valued by the latest authoritative snapshot at or
-before that line's own business date. Nothing is re-costed here: a snapshot is
-what the books said on the day it was taken, and re-deriving a cost now would
-restate August using September's purchase prices.
+Recipe figures come from frozen `RecipeCostSnapshot` evidence. Direct-stock
+resale figures come from the line's own immutable issue movement. Nothing is
+re-costed here: both routes read the evidence that existed when the sale was
+posted, never today's recipe or today's moving average.
 
 Lines with no snapshot behind them are **counted and reported, never costed at
 zero**. Margin is then computed over the costed lines only, and the uncosted
@@ -63,9 +62,9 @@ import datetime
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from django.db.models import Count, QuerySet, Sum
+from django.db.models import Count, Q, QuerySet, Sum
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.money import quantize_money
@@ -74,6 +73,9 @@ from apps.sales.models import (
     CashierShift,
     CashierShiftStatus,
     DeliveryApplicationSettlement,
+    FulfillmentSource,
+    MenuPriceVersion,
+    PriceScope,
     SalesAdjustmentLine,
     SalesAdjustmentReasonKind,
     SalesAdjustmentStatus,
@@ -704,7 +706,7 @@ class CostSummary:
 
 def cost_summary(user: User, scope: DashboardScope) -> CostSummary:
     """
-    Value the window's posted lines against frozen cost snapshots.
+    Value recipe lines from snapshots and direct-stock lines from posted issues.
 
     The lookup, and why it is shaped this way:
 
@@ -725,8 +727,9 @@ def cost_summary(user: User, scope: DashboardScope) -> CostSummary:
     """
     from apps.kitchen.models import RecipeCostSnapshotServing
 
+    base_lines = posted_lines(user, scope)
     groups = list(
-        posted_lines(user, scope)
+        base_lines.filter(fulfillment_source=FulfillmentSource.RECIPE_SERVING)
         .values("serving_id", "sales_day__business_date")
         .annotate(
             quantity=Sum("quantity"),
@@ -735,7 +738,15 @@ def cost_summary(user: User, scope: DashboardScope) -> CostSummary:
             lines=Count("id"),
         )
     )
-    if not groups:
+    direct_rows = list(
+        base_lines.filter(fulfillment_source=FulfillmentSource.DIRECT_STOCK).values(
+            "pk",
+            "gross_amount",
+            "restaurant_discount",
+            "direct_stock_fulfillment__cogs_value",
+        )
+    )
+    if not groups and not direct_rows:
         return CostSummary(ZERO, ZERO, ZERO, ZERO, ZERO, 0, ZERO, 0)
 
     serving_ids = {row["serving_id"] for row in groups}
@@ -772,6 +783,23 @@ def cost_summary(user: User, scope: DashboardScope) -> CostSummary:
         costed_gross += row["gross"] or ZERO
         costed_discount += row["restaurant_discount"] or ZERO
         food_cost += (row["quantity"] or ZERO) * cost
+
+    # A resale line carries stronger evidence than a recipe snapshot: its own
+    # posted stock movement at the moving average of that exact posting. Read
+    # the frozen fulfillment allocation; never revalue it from today's stock.
+    for direct_row in direct_rows:
+        # The reverse one-to-one traversal is a LEFT OUTER JOIN, so a line with
+        # no fulfillment row reads back as None. django-stubs types the column
+        # as a bare Decimal; widen it so the uncosted branch stays reachable.
+        cost = cast(Decimal | None, direct_row["direct_stock_fulfillment__cogs_value"])
+        if cost is None:
+            uncosted_lines += 1
+            uncosted_gross += direct_row["gross_amount"] or ZERO
+            continue
+        costed_lines += 1
+        costed_gross += direct_row["gross_amount"] or ZERO
+        costed_discount += direct_row["restaurant_discount"] or ZERO
+        food_cost += cost
 
     costed_net = costed_gross - costed_discount
     quantized_cost = quantize_money(food_cost)
@@ -812,6 +840,64 @@ def _cost_at(
 
 
 @dataclass(frozen=True)
+class PricePremiumRow:
+    """One base→channel price pair and the items that carry it."""
+
+    base_price: Decimal
+    channel_price: Decimal
+    items: tuple[str, ...]
+
+    @property
+    def premium_share(self) -> Decimal:
+        """The channel uplift as a share of the base price, 1 dp."""
+        return _share(self.channel_price - self.base_price, self.base_price)
+
+
+def price_premiums(user: User, scope: DashboardScope) -> list[PricePremiumRow]:
+    """
+    Where the channel price sits above the hall price, grouped by the pair.
+
+    Reads the price lists, not the sales lines, so it answers on a day with no
+    posted sale. Only an *active* channel price on or before `date_to` counts,
+    compared with the branch default in force on the same day, and only pairs
+    where the channel is dearer are listed — a channel price equal to the hall
+    price is not a premium, and a cheaper one is a different screen's problem.
+    """
+    from apps.organizations.selectors import accessible_branches
+
+    branches = accessible_branches(user).filter(organization_id=scope.organization_id)
+    if scope.branch_ids is not None:
+        branches = branches.filter(pk__in=scope.branch_ids)
+    on = scope.date_to
+
+    def _in_force(queryset: QuerySet[MenuPriceVersion]) -> QuerySet[MenuPriceVersion]:
+        return queryset.filter(is_active=True, effective_from__lte=on).filter(
+            Q(effective_to__isnull=True) | Q(effective_to__gte=on)
+        )
+
+    base = {
+        (row.menu_item_id, row.branch_id): row.unit_price
+        for row in _in_force(
+            MenuPriceVersion.objects.filter(branch__in=branches, scope=PriceScope.BRANCH_DEFAULT)
+        ).order_by("effective_from")
+    }
+    pairs: dict[tuple[Decimal, Decimal], list[str]] = {}
+    for row in (
+        _in_force(MenuPriceVersion.objects.filter(branch__in=branches, scope=PriceScope.CHANNEL))
+        .select_related("menu_item")
+        .order_by("menu_item__display_order", "menu_item__code")
+    ):
+        hall = base.get((row.menu_item_id, row.branch_id))
+        if hall is None or row.unit_price <= hall:
+            continue
+        pairs.setdefault((hall, row.unit_price), []).append(row.menu_item.name_ar)
+    return [
+        PricePremiumRow(base_price=hall, channel_price=channel, items=tuple(items))
+        for (hall, channel), items in sorted(pairs.items(), key=lambda kv: -len(kv[1]))
+    ]
+
+
+@dataclass(frozen=True)
 class Card:
     """
     One independently-loaded dashboard card.
@@ -836,6 +922,7 @@ CARDS: tuple[Card, ...] = (
     Card("channels", _("مزيج القنوات"), "sales/cards/_channels.html"),
     Card("applications", _("مزيج التطبيقات"), "sales/cards/_applications.html"),
     Card("items", _("الأصناف الأكثر مبيعاً"), "sales/cards/_items.html"),
+    Card("prices", _("أسعار التطبيقات"), "sales/cards/_prices.html"),
     Card("returns", _("المرتجعات والإلغاءات"), "sales/cards/_returns.html"),
     Card("receivables", _("ذمم التطبيقات"), "sales/cards/_receivables.html"),
     Card("cashier", _("فروقات الصندوق"), "sales/cards/_cashier.html"),
@@ -854,6 +941,8 @@ def card_context(slug: str, user: User, scope: DashboardScope) -> dict[str, Any]
         return {"rows": application_mix(user, scope)}
     if slug == "items":
         return {"rows": top_menu_items(user, scope)}
+    if slug == "prices":
+        return {"rows": price_premiums(user, scope)}
     if slug == "returns":
         return {"rows": returns_breakdown(user, scope)}
     if slug == "receivables":

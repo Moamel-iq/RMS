@@ -70,7 +70,13 @@ def visible_menu_items(user: User) -> QuerySet[MenuItem]:
     """
     return MenuItem.objects.filter(
         organization_id__in=reachable_organization_ids(user)
-    ).select_related("organization", "category", "recipe")
+    ).select_related(
+        "organization",
+        "category",
+        "recipe",
+        "inventory_item",
+        "inventory_item__base_unit",
+    )
 
 
 def resolve_menu_item(user: User, menu_item_id: int) -> MenuItem:
@@ -119,7 +125,7 @@ def visible_branch_settings(user: User) -> QuerySet[MenuItemBranchSetting]:
     return MenuItemBranchSetting.objects.filter(
         menu_item__organization_id__in=reachable_organization_ids(user),
         branch__in=accessible_branches(user),
-    ).select_related("menu_item", "branch")
+    ).select_related("menu_item", "branch", "source_warehouse")
 
 
 # ---------------------------------------------------------------------------

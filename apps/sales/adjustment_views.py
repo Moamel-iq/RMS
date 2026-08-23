@@ -126,6 +126,7 @@ class SalesAdjustmentCreateView(SalesWriteView):
         self.created = create_sales_adjustment(
             sales_day=data["sales_day"],
             reason_kind=data["reason_kind"],
+            direct_stock_disposition=data["direct_stock_disposition"],
             business_date=data["business_date"],
             reason=data["reason"],
             evidence_reference=data["evidence_reference"],

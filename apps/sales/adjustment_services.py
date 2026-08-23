@@ -57,6 +57,8 @@ from apps.core.money import quantize_money
 from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
 from apps.sales.models import (
+    DirectStockDisposition,
+    FulfillmentSource,
     SalesAdjustment,
     SalesAdjustmentLine,
     SalesAdjustmentReasonKind,
@@ -188,6 +190,7 @@ def create_sales_adjustment(
     reason: str,
     evidence_reference: str,
     actor: User,
+    direct_stock_disposition: str = DirectStockDisposition.NOT_APPLICABLE,
     notes: str = "",
 ) -> SalesAdjustment:
     """
@@ -202,6 +205,18 @@ def create_sales_adjustment(
         raise ValidationError(_("Only a posted sales day can be adjusted."), code="day_not_posted")
     if reason_kind not in SalesAdjustmentReasonKind.values:
         raise ValidationError(_("Unknown adjustment reason."), code="unknown_reason_kind")
+    if direct_stock_disposition not in DirectStockDisposition.values:
+        raise ValidationError(
+            _("Unknown direct-stock disposition."),
+            code="unknown_direct_stock_disposition",
+        )
+    if reason_kind == SalesAdjustmentReasonKind.FINANCIAL_CORRECTION:
+        direct_stock_disposition = DirectStockDisposition.NOT_APPLICABLE
+    elif reason_kind == SalesAdjustmentReasonKind.CANCELLED_BEFORE_FULFILLMENT:
+        # The posted sales day already issued every direct-stock line. A
+        # cancellation says fulfillment never happened, so that issue must be
+        # restored; this is not an operator choice.
+        direct_stock_disposition = DirectStockDisposition.RESTOCK
     if not reason.strip():
         raise ValidationError(_("An adjustment needs a reason."), code="reason_required")
     if not evidence_reference.strip():
@@ -220,6 +235,7 @@ def create_sales_adjustment(
         sales_day=sales_day,
         business_date=business_date,
         reason_kind=reason_kind,
+        direct_stock_disposition=direct_stock_disposition,
         reason=reason.strip(),
         evidence_reference=evidence_reference.strip(),
         notes=notes.strip(),
@@ -262,6 +278,23 @@ def add_adjustment_line(
             _("An adjustment line must correct a line of its own sales day."),
             code="line_belongs_to_another_day",
         )
+
+    if original_line.fulfillment_source == FulfillmentSource.DIRECT_STOCK:
+        if adjustment.reason_kind == SalesAdjustmentReasonKind.RETURNED_AFTER_FULFILLMENT and (
+            adjustment.direct_stock_disposition == DirectStockDisposition.NOT_APPLICABLE
+        ):
+            raise ValidationError(
+                _(
+                    "Choose whether returned direct-stock goods are physically restocked "
+                    "or not before adding this line."
+                ),
+                code="direct_stock_disposition_required",
+            )
+        if not hasattr(original_line, "direct_stock_fulfillment"):
+            raise ValidationError(
+                _("The original direct-stock line has no posted inventory evidence."),
+                code="direct_stock_fulfillment_missing",
+            )
 
     is_correction = adjustment.reason_kind == SalesAdjustmentReasonKind.FINANCIAL_CORRECTION
     if is_correction:

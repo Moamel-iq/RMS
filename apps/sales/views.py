@@ -251,14 +251,21 @@ class MenuItemListView(SalesListView):
     context_object_name = "menu_items"
     page_title = _("أصناف المنيو")
     page_hint = _(
-        "صنف المنيو يشير إلى وصفة ورمز حصة، لا إلى حصة نسخة بعينها: النسخة "
-        "السارية في تاريخ البيع هي التي تُحلّ، وكل سطر مبيعات يحتفظ بنسختها إلى الأبد."
+        "كل صنف يُنفّذ إمّا من حصة وصفة أو مباشرة من بضاعة إعادة البيع. "
+        "التنفيذ المختار وبياناته تُحفظ على سطر البيع حتى لا تغيّر تعديلات المنيو التاريخ."
     )
-    search_fields = ("code", "name_ar", "name_en", "recipe__code")
+    search_fields = (
+        "code",
+        "name_ar",
+        "name_en",
+        "recipe__code",
+        "inventory_item__code",
+        "inventory_item__name_ar",
+    )
     manage_permission = MANAGE_MENU
     create_url_name = "sales:menu_item_create"
     create_label = _("صنف منيو جديد")
-    search_placeholder = _("ابحث بالرمز أو الاسم أو رمز الوصفة…")
+    search_placeholder = _("ابحث بالرمز أو الاسم أو الوصفة أو الصنف المخزني…")
     result_label = _("صنف")
 
     def scoped_queryset(self) -> QuerySet[Any]:
@@ -285,6 +292,7 @@ class MenuItemListView(SalesListView):
 
 class MenuItemWriteView(SalesWriteView):
     form_class = MenuItemForm
+    template_name = "sales/menu_item_form.html"
     required_permission = MANAGE_MENU
     success_url_name = "sales:menu_item_list"
 
@@ -294,8 +302,11 @@ class MenuItemWriteView(SalesWriteView):
             "name_ar": data["name_ar"],
             "name_en": data.get("name_en", ""),
             "category": data.get("category"),
-            "recipe": data["recipe"],
-            "serving_code": data["serving_code"],
+            "fulfillment_source": data["fulfillment_source"],
+            "recipe": data.get("recipe"),
+            "serving_code": data.get("serving_code", ""),
+            "inventory_item": data.get("inventory_item"),
+            "direct_stock_base_quantity": data.get("direct_stock_base_quantity"),
             "description_ar": data.get("description_ar", ""),
             "display_order": data["display_order"],
             "notes": data.get("notes", ""),
@@ -305,8 +316,8 @@ class MenuItemWriteView(SalesWriteView):
 class MenuItemCreateView(MenuItemWriteView):
     page_title = _("صنف منيو جديد")
     page_hint = _(
-        "رمز الحصة يُطابَق مع حصص نسخ الوصفة كلها، لا مع النسخة السارية اليوم فقط — "
-        "حتى يمكن تجهيز صنف لوصفة تبدأ نسختها الأحد القادم."
+        "اختر مسار تنفيذ واحداً. الأطباق ترتبط بوصفة ورمز حصة؛ الماء والمشروبات "
+        "والبضاعة المشتراة لإعادة البيع ترتبط بصنف مخزني وكمية صرف لكل وحدة مباعة."
     )
     success_message = _("تمت إضافة الصنف.")
 
@@ -340,8 +351,11 @@ class MenuItemUpdateView(MenuItemWriteView):
             "name_ar": instance.name_ar,
             "name_en": instance.name_en,
             "category": instance.category,
+            "fulfillment_source": instance.fulfillment_source,
             "recipe": instance.recipe,
             "serving_code": instance.serving_code,
+            "inventory_item": instance.inventory_item,
+            "direct_stock_base_quantity": instance.direct_stock_base_quantity,
             "description_ar": instance.description_ar,
             "display_order": instance.display_order,
             "notes": instance.notes,
@@ -370,8 +384,11 @@ class MenuItemActionView(SalesActionView):
             name_ar=instance.name_ar,
             name_en=instance.name_en,
             category=instance.category,
+            fulfillment_source=instance.fulfillment_source,
             recipe=instance.recipe,
             serving_code=instance.serving_code,
+            inventory_item=instance.inventory_item,
+            direct_stock_base_quantity=instance.direct_stock_base_quantity,
             description_ar=instance.description_ar,
             display_order=instance.display_order,
             notes=instance.notes,
@@ -408,7 +425,8 @@ class MenuItemDetailView(InventoryViewMixin, View):
             .order_by("code")
         )
         settings_by_branch = {
-            row.branch_id: row for row in item.branch_settings.select_related("branch")
+            row.branch_id: row
+            for row in item.branch_settings.select_related("branch", "source_warehouse")
         }
         rows = [
             {
@@ -458,6 +476,7 @@ class MenuItemDetailView(InventoryViewMixin, View):
                     item=item,
                     branch=form.cleaned_data["branch"],
                     is_available=form.cleaned_data["is_available"],
+                    source_warehouse=form.cleaned_data.get("source_warehouse"),
                     local_name_ar=form.cleaned_data.get("local_name_ar", ""),
                     notes=form.cleaned_data.get("notes", ""),
                 )

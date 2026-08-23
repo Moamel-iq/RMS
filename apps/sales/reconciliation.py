@@ -64,6 +64,7 @@ from apps.accounting.models import (
 )
 from apps.accounting.services import resolve_default_account
 from apps.core.money import quantize_money
+from apps.inventory.models import ItemType
 from apps.kitchen.consumption_reconciliation import (
     ADVISORY,
     COVERAGE_LIMITATION,
@@ -168,21 +169,60 @@ def verify_menu(organization: Organization) -> list[Finding]:
     `day_services._serving_on` refuses it — and the refusal arrives at the till
     at nine in the evening. Finding it here is the point of the check.
 
-    `DIRECT_STOCK` is reported as an error rather than a limitation: the
-    vocabulary declares it and the service refuses it (task 4.0 §3), so a row
-    carrying it is a row that was written around the service.
+    Direct-stock items follow a different, equally explicit route: one active
+    non-lot resale item, a positive base quantity, and one usable source
+    warehouse on every branch where the item is offered.
     """
     findings: list[Finding] = []
-    items = MenuItem.objects.filter(organization=organization).select_related("recipe")
+    items = MenuItem.objects.filter(organization=organization).select_related(
+        "recipe", "inventory_item"
+    )
     for item in items:
         if item.fulfillment_source == FulfillmentSource.DIRECT_STOCK:
-            findings.append(
-                _error(
-                    "menu_item_direct_stock_is_not_sellable",
-                    f"{item.code}: DIRECT_STOCK is declared but refused by the service; "
-                    "there is no certified sales-and-COGS route out of a warehouse.",
+            stock_item = item.inventory_item
+            if (
+                stock_item is None
+                or item.direct_stock_base_quantity is None
+                or item.direct_stock_base_quantity <= ZERO
+            ):
+                findings.append(
+                    _error(
+                        "menu_item_direct_stock_is_incomplete",
+                        f"{item.code}: DIRECT_STOCK needs an inventory item and a positive "
+                        "base quantity per sale.",
+                    )
                 )
-            )
+                continue
+            if (
+                stock_item.organization_id != organization.pk
+                or not stock_item.is_active
+                or stock_item.item_type != ItemType.GOODS_FOR_RESALE
+                or stock_item.tracks_lots
+            ):
+                findings.append(
+                    _error(
+                        "menu_item_direct_stock_item_is_unusable",
+                        f"{item.code}: {stock_item.code} must be an active, non-lot "
+                        "GOODS_FOR_RESALE item in this organization.",
+                    )
+                )
+            for setting in item.branch_settings.filter(is_available=True).select_related(
+                "branch", "source_warehouse"
+            ):
+                warehouse = setting.source_warehouse
+                if (
+                    warehouse is None
+                    or warehouse.branch_id != setting.branch_id
+                    or not warehouse.is_active
+                    or warehouse.is_system
+                ):
+                    findings.append(
+                        _error(
+                            "menu_item_direct_stock_warehouse_is_unusable",
+                            f"{item.code} at {setting.branch.code}: a usable source "
+                            "warehouse in that branch is required.",
+                        )
+                    )
             continue
         if item.recipe_id is None:
             findings.append(
@@ -464,6 +504,10 @@ def verify_day_journals(organization: Organization) -> list[Finding]:
                 "channel__revenue_account",
                 "delivery_application",
                 "delivery_application__receivable_account",
+                "direct_stock_fulfillment",
+                "direct_stock_fulfillment__stock_movement",
+                "direct_stock_fulfillment__consumption_account",
+                "direct_stock_fulfillment__cost_center",
             ).order_by("sequence")
         )
         try:
@@ -477,9 +521,75 @@ def verify_day_journals(organization: Organization) -> list[Finding]:
             )
             continue
 
-        planned = {
-            row.account.pk: row.debit - row.credit for row in plan.posting_lines if row.account
-        }
+        planned: dict[int, Decimal] = {}
+        for row in plan.posting_lines:
+            if row.account is not None:
+                planned[row.account.pk] = planned.get(row.account.pk, ZERO) + (
+                    row.debit - row.credit
+                )
+
+        direct_lines = [
+            line for line in lines if line.fulfillment_source == FulfillmentSource.DIRECT_STOCK
+        ]
+        stock_posting = getattr(day, "direct_stock_posting", None)
+        if direct_lines and stock_posting is None:
+            findings.append(
+                _error(
+                    "sales_day_direct_stock_has_no_posting",
+                    f"{day.number or day.pk}: direct-stock lines have no stock posting.",
+                )
+            )
+        if not direct_lines and stock_posting is not None:
+            findings.append(
+                _error(
+                    "sales_day_has_unexpected_stock_posting",
+                    f"{day.number or day.pk}: a stock posting exists without direct-stock lines.",
+                )
+            )
+        for line in direct_lines:
+            fulfillment = getattr(line, "direct_stock_fulfillment", None)
+            if fulfillment is None:
+                findings.append(
+                    _error(
+                        "sales_direct_line_has_no_fulfillment",
+                        f"{day.number or day.pk} line {line.sequence}: no stock movement evidence.",
+                    )
+                )
+                continue
+            movement = fulfillment.stock_movement
+            if (
+                movement.item_id != line.inventory_item_id
+                or movement.warehouse_id != line.source_warehouse_id
+                # An issue is stored negative; negating the movement recovers
+                # the quantity the line froze, and it is never nullable.
+                or -movement.base_quantity != line.direct_stock_total_base_qty
+                or abs(movement.inventory_value) != fulfillment.cogs_value
+                or fulfillment.base_quantity != line.direct_stock_total_base_qty
+                or (stock_posting is not None and movement.entry_id != stock_posting.stock_entry_id)
+            ):
+                findings.append(
+                    _error(
+                        "sales_direct_fulfillment_disagrees_with_line",
+                        f"{day.number or day.pk} line {line.sequence}: stock identity, quantity "
+                        "or value differs from its frozen sales snapshot.",
+                    )
+                )
+            planned[fulfillment.consumption_account_id] = (
+                planned.get(fulfillment.consumption_account_id, ZERO) + fulfillment.cogs_value
+            )
+            if movement.control_account_id is None:
+                findings.append(
+                    _error(
+                        "sales_direct_movement_has_no_control_account",
+                        f"{day.number or day.pk} line {line.sequence}: the stock movement has "
+                        "no inventory-control account.",
+                    )
+                )
+            else:
+                planned[movement.control_account_id] = (
+                    planned.get(movement.control_account_id, ZERO) - fulfillment.cogs_value
+                )
+        planned = {account_id: net for account_id, net in planned.items() if net != ZERO}
         actual = _nets_by_account(entry)
         for account_id in sorted(set(planned) | set(actual)):
             if planned.get(account_id, ZERO) != actual.get(account_id, ZERO):

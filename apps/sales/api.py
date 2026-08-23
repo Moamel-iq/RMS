@@ -270,6 +270,8 @@ class MenuItemOut(Schema):
     recipe_code: str | None
     serving_code: str
     fulfillment_source: str
+    inventory_item_code: str | None
+    direct_stock_base_quantity: str | None
     is_active: bool
 
 
@@ -366,9 +368,14 @@ class DayLineOut(Schema):
     menu_item_code: str
     channel_code: str
     delivery_application_code: str | None
-    recipe_code: str
-    recipe_version: int
-    serving_code: str
+    fulfillment_source: str
+    recipe_code: str | None
+    recipe_version: int | None
+    serving_code: str | None
+    inventory_item_code: str | None
+    source_warehouse_code: str | None
+    direct_stock_qty_per_unit: str | None
+    direct_stock_total_base_qty: str | None
     unit_price: str
     quantity: str
     order_count: int
@@ -400,6 +407,7 @@ class AdjustmentOut(Schema):
     sales_day_public_id: str
     business_date: str
     reason_kind: str
+    direct_stock_disposition: str
     status: str
     reason: str
     evidence_reference: str
@@ -683,6 +691,7 @@ class ReasonIn(Schema):
 class AdjustmentIn(Schema):
     sales_day_public_id: str
     reason_kind: str
+    direct_stock_disposition: str = "NOT_APPLICABLE"
     business_date: datetime.date
     reason: str
     evidence_reference: str
@@ -769,6 +778,8 @@ def _menu_item_out(item: Any) -> dict[str, Any]:
         "recipe_code": item.recipe.code if item.recipe_id else None,
         "serving_code": item.serving_code,
         "fulfillment_source": item.fulfillment_source,
+        "inventory_item_code": (item.inventory_item.code if item.inventory_item_id else None),
+        "direct_stock_base_quantity": _money(item.direct_stock_base_quantity),
         "is_active": item.is_active,
     }
 
@@ -888,9 +899,14 @@ def _day_line_out(line: Any) -> dict[str, Any]:
         "delivery_application_code": (
             line.delivery_application.code if line.delivery_application_id else None
         ),
-        "recipe_code": line.recipe.code,
-        "recipe_version": line.recipe_version.version_number,
-        "serving_code": line.serving.code,
+        "fulfillment_source": line.fulfillment_source,
+        "recipe_code": line.recipe.code if line.recipe_id else None,
+        "recipe_version": (line.recipe_version.version_number if line.recipe_version_id else None),
+        "serving_code": line.serving.code if line.serving_id else None,
+        "inventory_item_code": (line.inventory_item.code if line.inventory_item_id else None),
+        "source_warehouse_code": (line.source_warehouse.code if line.source_warehouse_id else None),
+        "direct_stock_qty_per_unit": _money(line.direct_stock_qty_per_unit),
+        "direct_stock_total_base_qty": _money(line.direct_stock_total_base_qty),
         "unit_price": str(line.unit_price),
         "quantity": str(line.quantity),
         "order_count": line.order_count,
@@ -910,7 +926,14 @@ def _day_detail_out(day: SalesDay) -> dict[str, Any]:
     payload["lines"] = [
         _day_line_out(line)
         for line in day.lines.select_related(
-            "menu_item", "channel", "delivery_application", "recipe", "recipe_version", "serving"
+            "menu_item",
+            "channel",
+            "delivery_application",
+            "recipe",
+            "recipe_version",
+            "serving",
+            "inventory_item",
+            "source_warehouse",
         ).order_by("sequence")
     ]
     payload["tenders"] = [
@@ -930,6 +953,7 @@ def _adjustment_out(adjustment: SalesAdjustment) -> dict[str, Any]:
         "sales_day_public_id": str(adjustment.sales_day.public_id),
         "business_date": adjustment.business_date.isoformat(),
         "reason_kind": adjustment.reason_kind,
+        "direct_stock_disposition": adjustment.direct_stock_disposition,
         "status": adjustment.status,
         "reason": adjustment.reason,
         "evidence_reference": adjustment.evidence_reference,
@@ -1611,6 +1635,7 @@ def post_adjustment(request: HttpRequest, payload: AdjustmentIn) -> Status[Any]:
     adjustment = create_sales_adjustment(
         sales_day=day,
         reason_kind=payload.reason_kind,
+        direct_stock_disposition=payload.direct_stock_disposition,
         business_date=payload.business_date,
         reason=payload.reason,
         evidence_reference=payload.evidence_reference,

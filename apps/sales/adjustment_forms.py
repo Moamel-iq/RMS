@@ -31,6 +31,7 @@ from django.utils.translation import gettext_lazy as _
 from apps.organizations.authorization import branches_with_permission
 from apps.sales.adjustment_services import adjustable_lines
 from apps.sales.models import (
+    DirectStockDisposition,
     SalesAdjustment,
     SalesAdjustmentReasonKind,
     SalesDay,
@@ -66,6 +67,16 @@ class SalesAdjustmentForm(forms.Form):
             "الإلغاء قبل التنفيذ وحده يخفض الاستهلاك النظري: الطلب لم يُطبخ أصلاً. "
             "الإرجاع بعد التنفيذ لا يخفضه — الطعام طُبخ وخرجت مكوّناته — والتصحيح "
             "المالي لا يمسّ الكمية إطلاقاً."
+        ),
+    )
+    direct_stock_disposition = forms.ChoiceField(
+        label=_("تصرف الصنف المخزني المرتجع"),
+        choices=DirectStockDisposition.choices,
+        initial=DirectStockDisposition.NOT_APPLICABLE,
+        help_text=_(
+            "يُستخدم فقط لبضاعة إعادة البيع عند الإرجاع بعد التسليم: اختر إعادة "
+            "للمخزون إذا أصبحت صالحة للبيع مجدداً، أو عدم الإعادة إذا فُتحت أو تلفت. "
+            "الإلغاء قبل التنفيذ يعيدها للمخزون تلقائياً."
         ),
     )
     business_date = forms.DateField(

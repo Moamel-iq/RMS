@@ -17,11 +17,13 @@ the same function every other module's documents use, with the same period
 validation, the same source-identity uniqueness and the same immutability
 triggers. What is new here is a *document* that calls it.
 
-**It moves no stock.** A sale of a recipe serving consumes nothing at the
-moment of sale: the ingredients left when the kitchen cooked them, through a
-production batch that already posted its own movements. A sale that also issued
-stock would count the same rice twice (ADR-027 §10), and the theoretical
-consumption this day contributes is an *explanation* rather than a movement.
+**The fulfillment route decides stock.** A recipe serving consumes nothing at
+the moment of sale: the ingredients left when the kitchen cooked them, through
+a production batch that already posted its own movements. A direct-stock resale
+item (a sealed bottle of water, for example) is different: posting the sales day
+issues its frozen base quantity and merges that exact moving-average COGS into
+this same journal. The two routes are mutually exclusive in the database, so
+rice can never be counted twice as both recipe consumption and a sales issue.
 
 ## The journals
 
@@ -103,14 +105,24 @@ from apps.core.context import audit_context, get_correlation_id
 from apps.core.models import AuditAction
 from apps.core.money import quantize_money
 from apps.core.services import record_audit_event, snapshot
+from apps.inventory.sales import (
+    DirectStockSaleLine,
+    link_sales_stock_journal,
+    plan_sales_stock,
+    post_sales_stock,
+    reverse_sales_stock,
+)
 from apps.sales.models import (
     ApplicationReceivableEntry,
+    FulfillmentSource,
     ReceivableSource,
     SalesAdjustment,
     SalesAdjustmentStatus,
     SalesDay,
     SalesDayLine,
     SalesDayStatus,
+    SalesDayStockPosting,
+    SalesDirectStockFulfillment,
     SalesDocumentSequence,
     TenderDestination,
 )
@@ -420,6 +432,8 @@ def post_sales_day(*, day: SalesDay, actor: User) -> SalesDay:
             "recipe",
             "recipe_version",
             "serving",
+            "inventory_item",
+            "source_warehouse",
             "agreement",
         ).order_by("sequence")
     )
@@ -430,19 +444,76 @@ def post_sales_day(*, day: SalesDay, actor: User) -> SalesDay:
     if not plan.posting_lines:  # pragma: no cover - an empty day is refused above
         raise ValidationError(_("This sales day posts nothing."), code="nothing_to_post")
 
+    direct_lines = [
+        DirectStockSaleLine(
+            line_key=str(line.public_id),
+            warehouse=line.source_warehouse,
+            item=line.inventory_item,
+            quantity=line.direct_stock_total_base_qty,
+            cost_center=line.channel.cost_center,
+        )
+        for line in lines
+        if line.fulfillment_source == FulfillmentSource.DIRECT_STOCK
+    ]
+    # Planning resolves every inventory-consumption account before a document
+    # number or stock effect exists.  A missing mapping therefore leaves this
+    # submitted day completely untouched.
+    stock_plan = (
+        plan_sales_stock(
+            organization=locked.organization,
+            branch=locked.branch,
+            business_date=locked.business_date,
+            lines=direct_lines,
+        )
+        if direct_lines
+        else None
+    )
+
     with audit_context(actor=actor, correlation_id=get_correlation_id()):
         number = _next_number(locked.organization, locked.business_date.year)
+        stock_posting = None
+        if stock_plan is not None:
+            stock_posting = post_sales_stock(
+                plan=stock_plan,
+                effective_at=timezone.now(),
+                idempotency_key=f"sales-stock:{locked.public_id}",
+                source_document_type=SOURCE_DOCUMENT_TYPE,
+                source_document_id=str(locked.public_id),
+                reference=number,
+                reason=f"Direct-stock fulfillment for {number}",
+            )
         entry = post_entry(
             organization=locked.organization,
             accounting_date=locked.business_date,
             document_date=locked.business_date,
-            lines=plan.posting_lines,
+            lines=[
+                *plan.posting_lines,
+                *(stock_posting.posting_lines if stock_posting is not None else ()),
+            ],
             idempotency_key=f"sales-day:{locked.public_id}",
             narration=f"{number} · {locked.branch.code} {locked.business_date.isoformat()}",
             source_document_type=SOURCE_DOCUMENT_TYPE,
             source_document_id=str(locked.public_id),
             source_event=SourceEvent.POSTED,
         )
+
+        if stock_posting is not None:
+            link_sales_stock_journal(entry=stock_posting.entry, journal=entry)
+            SalesDayStockPosting.objects.create(
+                sales_day=locked,
+                stock_entry=stock_posting.entry,
+            )
+            sales_lines_by_key = {str(line.public_id): line for line in lines}
+            for evidence in stock_posting.evidence:
+                source_line = sales_lines_by_key[evidence.line_key]
+                SalesDirectStockFulfillment.objects.create(
+                    sales_line=source_line,
+                    stock_movement=evidence.movement,
+                    consumption_account=evidence.consumption.account,
+                    cost_center=evidence.cost_center,
+                    base_quantity=-evidence.movement.base_quantity,
+                    cogs_value=evidence.cogs_value,
+                )
 
         for application_id, amount in sorted(plan.receivable_by_application.items()):
             ApplicationReceivableEntry.objects.create(
@@ -486,6 +557,9 @@ def post_sales_day(*, day: SalesDay, actor: User) -> SalesDay:
                 "gross": str(plan.gross_total),
                 "restaurant_discount": str(plan.restaurant_discount_total),
                 "commission": str(plan.commission_total),
+                "direct_stock_cogs": str(
+                    stock_posting.total_cost if stock_posting is not None else ZERO
+                ),
             },
         )
     return locked
@@ -556,12 +630,28 @@ def reverse_sales_day(*, day: SalesDay, actor: User, reason: str) -> SalesDay:
         # The reversal's own key, derived from the day rather than accepted:
         # reversing *this day* is the command, and a posted day is frozen, so a
         # retry cannot present the same key with a different payload.
-        reverse_entry(
+        stock_reversal = None
+        try:
+            stock_link = locked.direct_stock_posting
+        except SalesDayStockPosting.DoesNotExist:
+            stock_link = None
+        if stock_link is not None:
+            stock_reversal = reverse_sales_stock(
+                entry=stock_link.stock_entry,
+                idempotency_key=f"sales-stock-reversal:{locked.public_id}",
+                reason=reason.strip(),
+                effective_at=timezone.now(),
+                business_date=timezone.localdate(),
+            )
+
+        journal_reversal = reverse_entry(
             entry=entry,
             idempotency_key=f"sales-day-reversal:{locked.public_id}",
             reason=reason.strip(),
             accounting_date=timezone.localdate(),
         )
+        if stock_reversal is not None:
+            link_sales_stock_journal(entry=stock_reversal, journal=journal_reversal)
 
         original_entries = ApplicationReceivableEntry.objects.filter(
             organization=locked.organization,

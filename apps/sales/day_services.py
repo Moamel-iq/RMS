@@ -49,6 +49,7 @@ from apps.core.models import AuditAction
 from apps.core.money import quantize_money
 from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
+from apps.inventory.models import ItemType
 from apps.sales.agreements import (
     NO_AGREEMENT_NOTICE,
     commission_for,
@@ -59,7 +60,9 @@ from apps.sales.discounts import applicable_programs, split_for
 from apps.sales.models import (
     DeliveryApplication,
     DiscountProgram,
+    FulfillmentSource,
     MenuItem,
+    MenuItemBranchSetting,
     SalesChannel,
     SalesDay,
     SalesDayLine,
@@ -70,6 +73,7 @@ from apps.sales.models import (
 from apps.sales.selectors import resolve_price
 
 if TYPE_CHECKING:
+    from apps.inventory.models import InventoryItem, Warehouse
     from apps.kitchen.models import RecipeServing, RecipeVersion
     from apps.organizations.models import Branch, Organization
     from apps.users.models import User
@@ -149,8 +153,13 @@ class ResolvedLine:
     menu_item: MenuItem
     channel: SalesChannel
     delivery_application: DeliveryApplication | None
-    recipe_version: RecipeVersion
-    serving: RecipeServing
+    fulfillment_source: str
+    recipe_version: RecipeVersion | None
+    serving: RecipeServing | None
+    inventory_item: InventoryItem | None
+    source_warehouse: Warehouse | None
+    direct_stock_qty_per_unit: Decimal | None
+    direct_stock_total_base_qty: Decimal | None
     unit_price: Decimal
     quantity: Decimal
     order_count: int
@@ -268,8 +277,60 @@ def resolve_line(
     if quantity <= ZERO:
         raise ValidationError(_("A sales line needs a quantity."), code="quantity_required")
 
-    version = _effective_version(menu_item, on_date)
-    serving = _serving_on(version, menu_item.serving_code)
+    branch_setting = (
+        MenuItemBranchSetting.objects.select_related("source_warehouse")
+        .filter(menu_item=menu_item, branch=day.branch, is_available=True)
+        .first()
+    )
+    if branch_setting is None:
+        raise ValidationError(
+            _("%(item)s is not available at %(branch)s.")
+            % {"item": menu_item.code, "branch": day.branch.code},
+            code="menu_item_not_available",
+        )
+
+    version: RecipeVersion | None = None
+    serving: RecipeServing | None = None
+    inventory_item: InventoryItem | None = None
+    source_warehouse: Warehouse | None = None
+    direct_stock_qty_per_unit: Decimal | None = None
+    direct_stock_total_base_qty: Decimal | None = None
+    if menu_item.fulfillment_source == FulfillmentSource.RECIPE_SERVING:
+        version = _effective_version(menu_item, on_date)
+        serving = _serving_on(version, menu_item.serving_code)
+    elif menu_item.fulfillment_source == FulfillmentSource.DIRECT_STOCK:
+        inventory_item = menu_item.inventory_item
+        source_warehouse = branch_setting.source_warehouse
+        direct_stock_qty_per_unit = menu_item.direct_stock_base_quantity
+        if inventory_item is None or source_warehouse is None or direct_stock_qty_per_unit is None:
+            raise ValidationError(
+                _("The direct-stock item is missing its item, quantity or warehouse."),
+                code="direct_stock_configuration_incomplete",
+            )
+        if (
+            inventory_item.organization_id != day.organization_id
+            or source_warehouse.branch_id != day.branch_id
+            or not inventory_item.is_active
+            or not source_warehouse.is_active
+            or source_warehouse.is_system
+        ):
+            raise ValidationError(
+                _("The direct-stock item or source warehouse is no longer usable."),
+                code="direct_stock_configuration_unusable",
+            )
+        if inventory_item.item_type != ItemType.GOODS_FOR_RESALE or inventory_item.tracks_lots:
+            raise ValidationError(
+                _("The direct-stock item is not an eligible non-lot resale item."),
+                code="direct_stock_item_unusable",
+            )
+        direct_stock_total_base_qty = quantize_quantity(quantity * direct_stock_qty_per_unit)
+        if direct_stock_total_base_qty <= ZERO:
+            raise ValidationError(
+                _("The resolved stock quantity rounds to zero."),
+                code="direct_stock_quantity_rounds_to_zero",
+            )
+    else:  # pragma: no cover - constrained by MenuItem
+        raise ValidationError(_("Unknown fulfillment source."), code="unknown_fulfillment_source")
 
     price = resolve_price(
         menu_item,
@@ -392,8 +453,13 @@ def resolve_line(
         menu_item=menu_item,
         channel=channel,
         delivery_application=delivery_application,
+        fulfillment_source=menu_item.fulfillment_source,
         recipe_version=version,
         serving=serving,
+        inventory_item=inventory_item,
+        source_warehouse=source_warehouse,
+        direct_stock_qty_per_unit=direct_stock_qty_per_unit,
+        direct_stock_total_base_qty=direct_stock_total_base_qty,
         unit_price=price.unit_price,
         quantity=quantity,
         order_count=order_count,
@@ -461,9 +527,18 @@ def add_sales_line(
         menu_item=resolved.menu_item,
         channel=resolved.channel,
         delivery_application=resolved.delivery_application,
-        recipe=resolved.menu_item.recipe,
+        fulfillment_source=resolved.fulfillment_source,
+        recipe=(
+            resolved.menu_item.recipe
+            if resolved.fulfillment_source == FulfillmentSource.RECIPE_SERVING
+            else None
+        ),
         recipe_version=resolved.recipe_version,
         serving=resolved.serving,
+        inventory_item=resolved.inventory_item,
+        source_warehouse=resolved.source_warehouse,
+        direct_stock_qty_per_unit=resolved.direct_stock_qty_per_unit,
+        direct_stock_total_base_qty=resolved.direct_stock_total_base_qty,
         price_version_id=resolved.price_version_id,
         agreement_id=resolved.agreement_id,
         discount_program_id=resolved.discount_program_id,
@@ -692,7 +767,14 @@ def sellable_items(day: SalesDay) -> list[MenuItem]:
             branch_settings__branch=day.branch,
             branch_settings__is_available=True,
         )
-        .select_related("category", "recipe")
+        .filter(
+            Q(fulfillment_source=FulfillmentSource.RECIPE_SERVING)
+            | Q(
+                fulfillment_source=FulfillmentSource.DIRECT_STOCK,
+                branch_settings__source_warehouse__isnull=False,
+            )
+        )
+        .select_related("category", "recipe", "inventory_item")
         .order_by("display_order", "code")
     )
 

@@ -24,7 +24,9 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import AuditAction
+from apps.core.quantity import quantize_calculation
 from apps.core.services import record_audit_event, snapshot
+from apps.inventory.models import InventoryItem, ItemType, Warehouse
 from apps.sales.models import (
     CODE_PATTERN,
     CommissionBasis,
@@ -164,6 +166,89 @@ def _require_recipe_serving(recipe: Recipe | None, serving_code: str) -> str:
     return cleaned
 
 
+def _menu_fulfillment(
+    *,
+    organization: Organization,
+    fulfillment_source: str,
+    recipe: Recipe | None,
+    serving_code: str,
+    inventory_item: InventoryItem | None,
+    direct_stock_base_quantity: Decimal | None,
+) -> tuple[Recipe | None, str, InventoryItem | None, Decimal | None]:
+    """Validate the one physical source a menu item uses.
+
+    Recipe items and resale stock are deliberately exclusive.  Keeping that
+    decision here (and in the database constraint) prevents a caller from
+    creating a row that could consume both a production recipe and a bottle
+    from stores for the same sale.
+    """
+    if fulfillment_source == FulfillmentSource.RECIPE_SERVING:
+        if inventory_item is not None or direct_stock_base_quantity is not None:
+            raise ValidationError(
+                _("A recipe-served item cannot also name direct stock."),
+                code="menu_fulfillment_is_ambiguous",
+            )
+        if recipe is not None and recipe.organization_id != organization.pk:
+            raise ValidationError(
+                _("A menu item and its recipe must belong to the same organization."),
+                code="recipe_organization_mismatch",
+            )
+        return recipe, _require_recipe_serving(recipe, serving_code), None, None
+
+    if fulfillment_source != FulfillmentSource.DIRECT_STOCK:
+        raise ValidationError(_("Unknown fulfillment source."), code="unknown_fulfillment_source")
+    if recipe is not None or serving_code.strip():
+        raise ValidationError(
+            _("A direct-stock item cannot also name a recipe serving."),
+            code="menu_fulfillment_is_ambiguous",
+        )
+    if inventory_item is None or direct_stock_base_quantity is None:
+        raise ValidationError(
+            _("A direct-stock item needs an inventory item and a quantity per sale."),
+            code="direct_stock_item_required",
+        )
+    if inventory_item.organization_id != organization.pk:
+        raise ValidationError(
+            _("The resale item belongs to another organization."),
+            code="inventory_item_organization_mismatch",
+        )
+    if not inventory_item.is_active:
+        raise ValidationError(
+            _("Inventory item %(code)s is archived.") % {"code": inventory_item.code},
+            code="inventory_item_inactive",
+        )
+    if inventory_item.item_type != ItemType.GOODS_FOR_RESALE:
+        raise ValidationError(
+            _("Inventory item %(code)s must be classified as goods for resale.")
+            % {"code": inventory_item.code},
+            code="direct_stock_item_type_required",
+        )
+    if inventory_item.tracks_lots:
+        raise ValidationError(
+            _(
+                "Direct-stock sales do not yet auto-select lots. Choose a non-lot resale "
+                "item or issue the lot through inventory."
+            ),
+            code="direct_stock_lot_selection_required",
+        )
+    quantity = quantize_calculation(direct_stock_base_quantity, field="direct_stock_base_quantity")
+    if quantity <= Decimal("0"):
+        raise ValidationError(
+            _("The direct-stock quantity per sale must be positive."),
+            code="direct_stock_quantity_not_positive",
+        )
+    return None, "", inventory_item, quantity
+
+
+def _validate_menu_category(*, organization: Organization, category: MenuCategory | None) -> None:
+    """Keep menu categories inside the same tenant as their items."""
+    if category is not None and category.organization_id != organization.pk:
+        raise ValidationError(
+            _("A menu item and its category must belong to the same organization."),
+            code="menu_category_organization_mismatch",
+        )
+
+
 @transaction.atomic
 def create_menu_item(
     *,
@@ -176,30 +261,21 @@ def create_menu_item(
     name_en: str = "",
     description_ar: str = "",
     fulfillment_source: str = FulfillmentSource.RECIPE_SERVING,
+    inventory_item: InventoryItem | None = None,
+    direct_stock_base_quantity: Decimal | None = None,
     display_order: int = 1,
     notes: str = "",
 ) -> MenuItem:
-    """
-    Add something sellable to the menu.
-
-    `DIRECT_STOCK` is refused here **and** by a check constraint, so the
-    refusal survives a shell session and a CSV import. Release 1 has no
-    certified sales-and-COGS route out of a warehouse, and improvising one
-    would open a second stock-consumption path beside production (ADR-027 §10).
-    """
-    if fulfillment_source != FulfillmentSource.RECIPE_SERVING:
-        raise ValidationError(
-            _(
-                "Release 1 sells recipe servings only. Direct stock sales need an "
-                "approved cost-of-sales route that does not exist yet."
-            ),
-            code="direct_stock_deferred",
-        )
-    if recipe is not None and recipe.organization_id != organization.pk:
-        raise ValidationError(
-            _("A menu item and its recipe must belong to the same organization."),
-            code="recipe_organization_mismatch",
-        )
+    """Add a recipe serving or a certified direct-stock resale item."""
+    _validate_menu_category(organization=organization, category=category)
+    recipe, serving_code, inventory_item, direct_stock_base_quantity = _menu_fulfillment(
+        organization=organization,
+        fulfillment_source=fulfillment_source,
+        recipe=recipe,
+        serving_code=serving_code,
+        inventory_item=inventory_item,
+        direct_stock_base_quantity=direct_stock_base_quantity,
+    )
 
     item = MenuItem(
         organization=organization,
@@ -210,7 +286,9 @@ def create_menu_item(
         description_ar=description_ar.strip(),
         fulfillment_source=fulfillment_source,
         recipe=recipe,
-        serving_code=_require_recipe_serving(recipe, serving_code),
+        serving_code=serving_code,
+        inventory_item=inventory_item,
+        direct_stock_base_quantity=direct_stock_base_quantity,
         display_order=display_order,
         notes=notes.strip(),
     )
@@ -227,6 +305,9 @@ def update_menu_item(
     name_ar: str,
     recipe: Recipe | None = None,
     serving_code: str = "",
+    fulfillment_source: str = FulfillmentSource.RECIPE_SERVING,
+    inventory_item: InventoryItem | None = None,
+    direct_stock_base_quantity: Decimal | None = None,
     category: MenuCategory | None = None,
     name_en: str = "",
     description_ar: str = "",
@@ -243,18 +324,25 @@ def update_menu_item(
     is unaffected by definition (ADR-027 §4). What changes here is what the
     *next* sale resolves.
     """
-    if recipe is not None and recipe.organization_id != item.organization_id:
-        raise ValidationError(
-            _("A menu item and its recipe must belong to the same organization."),
-            code="recipe_organization_mismatch",
-        )
+    _validate_menu_category(organization=item.organization, category=category)
+    recipe, serving_code, inventory_item, direct_stock_base_quantity = _menu_fulfillment(
+        organization=item.organization,
+        fulfillment_source=fulfillment_source,
+        recipe=recipe,
+        serving_code=serving_code,
+        inventory_item=inventory_item,
+        direct_stock_base_quantity=direct_stock_base_quantity,
+    )
     previous = snapshot(item)
     item.category = category
     item.name_ar = name_ar.strip()
     item.name_en = name_en.strip()
     item.description_ar = description_ar.strip()
+    item.fulfillment_source = fulfillment_source
     item.recipe = recipe
-    item.serving_code = _require_recipe_serving(recipe, serving_code)
+    item.serving_code = serving_code
+    item.inventory_item = inventory_item
+    item.direct_stock_base_quantity = direct_stock_base_quantity
     item.display_order = display_order
     item.notes = notes.strip()
     item.is_active = is_active
@@ -277,6 +365,7 @@ def set_branch_availability(
     is_available: bool = True,
     local_name_ar: str = "",
     notes: str = "",
+    source_warehouse: Warehouse | None = None,
 ) -> MenuItemBranchSetting:
     """
     Say whether one branch sells one item.
@@ -291,6 +380,27 @@ def set_branch_availability(
             _("A menu item can only be offered at its own organization's branches."),
             code="branch_organization_mismatch",
         )
+    if item.fulfillment_source == FulfillmentSource.DIRECT_STOCK:
+        if source_warehouse is None:
+            raise ValidationError(
+                _("A direct-stock menu item needs its source warehouse."),
+                code="direct_stock_warehouse_required",
+            )
+        if source_warehouse.branch_id != branch.pk:
+            raise ValidationError(
+                _("The source warehouse must belong to the branch selling the item."),
+                code="direct_stock_warehouse_branch_mismatch",
+            )
+        if not source_warehouse.is_active or source_warehouse.is_system:
+            raise ValidationError(
+                _("The source warehouse is not usable for direct sales."),
+                code="direct_stock_warehouse_unusable",
+            )
+    elif source_warehouse is not None:
+        raise ValidationError(
+            _("A recipe-served item does not issue stock at sale time."),
+            code="recipe_item_takes_no_source_warehouse",
+        )
     setting = MenuItemBranchSetting.objects.filter(menu_item=item, branch=branch).first()
     previous = snapshot(setting) if setting is not None else None
     if setting is None:
@@ -298,6 +408,7 @@ def set_branch_availability(
     setting.is_available = is_available
     setting.local_name_ar = local_name_ar.strip()
     setting.notes = notes.strip()
+    setting.source_warehouse = source_warehouse
     setting.full_clean()
     setting.save()
     record_audit_event(

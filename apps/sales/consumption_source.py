@@ -57,6 +57,7 @@ from apps.kitchen.consumption_sources import (
 )
 from apps.kitchen.expansion import expand_recipe_version
 from apps.sales.models import (
+    FulfillmentSource,
     SalesAdjustmentLine,
     SalesAdjustmentReasonKind,
     SalesAdjustmentStatus,
@@ -147,6 +148,10 @@ class SalesQuantitySource:
                 # A draft is a proposal and a reversed day did not happen.
                 # Neither contributed an ingredient to anything.
                 sales_day__status=SalesDayStatus.POSTED,
+                # Bottled water and other direct resale goods leave inventory
+                # through the sales stock posting. They have no recipe tree
+                # and must never be counted again as theoretical kitchen use.
+                fulfillment_source=FulfillmentSource.RECIPE_SERVING,
             )
             .select_related(
                 "sales_day",
@@ -195,6 +200,8 @@ def _contributions_for(
         return []
 
     version = line.recipe_version
+    if version is None or line.serving is None or line.recipe is None:
+        return []
     fraction = quantity * line.serving.factor_of_batch
     if fraction <= ZERO:  # pragma: no cover - a constraint forbids a zero factor
         return []
@@ -214,7 +221,7 @@ def _contributions_for(
                 organization_id=day.organization_id,
                 branch_id=day.branch_id,
                 business_date=day.business_date,
-                recipe_id=line.recipe_id,
+                recipe_id=line.recipe.pk,
                 recipe_code=line.recipe.code,
                 recipe_name=line.recipe.name_ar,
                 recipe_version_id=version.pk,

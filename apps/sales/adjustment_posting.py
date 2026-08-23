@@ -2,10 +2,11 @@
 The authoritative sales-adjustment POST and REVERSE.
 
 Same shape as `posting.py` and for the same reasons: one command rather than
-three, one `transaction.atomic()`, no second ledger, and no stock movement. A
-return moves no stock either — the ingredients left when the kitchen cooked the
-plate, and where the returned food is physically thrown away that is a Waste
-document in the kitchen's own ledger (ADR-026 §4).
+three, one `transaction.atomic()`, and no second ledger. Recipe-served food does
+not move stock here — its ingredients left through production — but certified
+direct-stock resale goods may be restored to their source warehouse. That
+physical choice is explicit on the adjustment and the return reuses the exact
+book value of the original issue.
 
 ## The journal — one shape, all three reason kinds
 
@@ -101,15 +102,27 @@ from apps.accounting.validators import PostingLine
 from apps.core.context import audit_context, get_correlation_id
 from apps.core.models import AuditAction
 from apps.core.money import quantize_money
+from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
+from apps.inventory.sales import (
+    DirectStockReturnLine,
+    link_sales_stock_journal,
+    plan_sales_restock,
+    post_sales_restock,
+    reverse_sales_stock,
+)
 from apps.sales.models import (
     ApplicationReceivableEntry,
+    DirectStockDisposition,
+    FulfillmentSource,
     ReceivableSource,
     SalesAdjustment,
     SalesAdjustmentLine,
     SalesAdjustmentStatus,
+    SalesAdjustmentStockPosting,
     SalesDayLine,
     SalesDayStatus,
+    SalesDirectStockReturnFulfillment,
     TenderDestination,
 )
 from apps.sales.posting import next_document_number
@@ -397,16 +410,90 @@ def post_sales_adjustment(*, adjustment: SalesAdjustment, actor: User) -> SalesA
             "original_line__delivery_application__receivable_account",
             "original_line__sales_day",
             "original_line__sales_day__organization",
+            "original_line__inventory_item",
+            "original_line__source_warehouse",
+            "original_line__direct_stock_fulfillment",
+            "original_line__direct_stock_fulfillment__stock_movement",
+            "original_line__direct_stock_fulfillment__stock_movement__control_account",
+            "original_line__direct_stock_fulfillment__consumption_account",
+            "original_line__direct_stock_fulfillment__cost_center",
         ).order_by("sequence")
     )
     if not lines:
         raise ValidationError(_("An empty adjustment cannot be posted."), code="no_lines")
 
+    # Serialize every correction that competes for the same original line.
+    # Locking only the adjustment header leaves two different drafts free to
+    # read the same remaining quantity and both post it. Canonical PK order
+    # keeps multi-line adjustments from deadlocking each other.
+    original_ids = sorted({line.original_line_id for line in lines})
+    list(SalesDayLine.objects.select_for_update().filter(pk__in=original_ids).order_by("pk"))
     _refuse_over_adjustment_at_posting(lines)
 
     plan = build_adjustment_plan(locked, lines)
     if not plan.posting_lines:  # pragma: no cover - an empty adjustment is refused above
         raise ValidationError(_("This adjustment posts nothing."), code="nothing_to_post")
+
+    direct_lines = [
+        line
+        for line in lines
+        if line.original_line.fulfillment_source == FulfillmentSource.DIRECT_STOCK
+        and line.adjusted_quantity > ZERO
+    ]
+    if (
+        direct_lines
+        and locked.reason_kind != "CANCELLED_BEFORE_FULFILLMENT"
+        and locked.direct_stock_disposition == DirectStockDisposition.NOT_APPLICABLE
+    ):
+        raise ValidationError(
+            _(
+                "Choose whether returned direct-stock goods are restocked or not "
+                "before posting this adjustment."
+            ),
+            code="direct_stock_disposition_required",
+        )
+
+    restock_plan = None
+    must_restock = locked.reason_kind == "CANCELLED_BEFORE_FULFILLMENT" or (
+        locked.direct_stock_disposition == DirectStockDisposition.RESTOCK
+    )
+    if direct_lines and must_restock:
+        return_lines: list[DirectStockReturnLine] = []
+        for line in direct_lines:
+            original = line.original_line
+            fulfillment = original.direct_stock_fulfillment
+            factor = original.direct_stock_qty_per_unit
+            if factor is None:  # pragma: no cover - frozen-line XOR constraint
+                raise ValidationError(
+                    _("A direct-stock sales line has no quantity snapshot."),
+                    code="direct_stock_quantity_snapshot_missing",
+                )
+            return_quantity = quantize_quantity(line.adjusted_quantity * factor)
+            if return_quantity <= ZERO:
+                raise ValidationError(
+                    _("The returned base quantity rounds to zero."),
+                    code="direct_stock_return_rounds_to_zero",
+                )
+            return_lines.append(
+                DirectStockReturnLine(
+                    line_key=str(line.public_id),
+                    source_movement=fulfillment.stock_movement,
+                    fulfilled_quantity=fulfillment.base_quantity,
+                    fulfilled_cogs_value=fulfillment.cogs_value,
+                    quantity=return_quantity,
+                    control_account=fulfillment.stock_movement.control_account,
+                    consumption_account=fulfillment.consumption_account,
+                    cost_center=fulfillment.cost_center,
+                )
+            )
+        restock_plan = plan_sales_restock(
+            organization=locked.organization,
+            branch=locked.branch,
+            business_date=locked.business_date,
+            source_document_type=SOURCE_DOCUMENT_TYPE,
+            source_document_id=str(locked.public_id),
+            lines=return_lines,
+        )
 
     with audit_context(actor=actor, correlation_id=get_correlation_id()):
         number = next_document_number(
@@ -415,17 +502,45 @@ def post_sales_adjustment(*, adjustment: SalesAdjustment, actor: User) -> SalesA
             prefix="SA",
             year=locked.business_date.year,
         )
+        stock_posting = None
+        if restock_plan is not None:
+            stock_posting = post_sales_restock(
+                plan=restock_plan,
+                effective_at=timezone.now(),
+                idempotency_key=f"sales-adjustment-stock:{locked.public_id}",
+                reference=number,
+                reason=f"Direct-stock return for {number}",
+            )
         entry = post_entry(
             organization=locked.organization,
             accounting_date=locked.business_date,
             document_date=locked.business_date,
-            lines=plan.posting_lines,
+            lines=[
+                *plan.posting_lines,
+                *(stock_posting.posting_lines if stock_posting is not None else ()),
+            ],
             idempotency_key=f"sales-adjustment:{locked.public_id}",
             narration=f"{number} · {locked.branch.code} {locked.get_reason_kind_display()}",
             source_document_type=SOURCE_DOCUMENT_TYPE,
             source_document_id=str(locked.public_id),
             source_event=SourceEvent.POSTED,
         )
+
+        if stock_posting is not None:
+            link_sales_stock_journal(entry=stock_posting.entry, journal=entry)
+            SalesAdjustmentStockPosting.objects.create(
+                adjustment=locked,
+                stock_entry=stock_posting.entry,
+            )
+            adjustment_lines_by_key = {str(line.public_id): line for line in lines}
+            for evidence in stock_posting.evidence:
+                SalesDirectStockReturnFulfillment.objects.create(
+                    adjustment_line=adjustment_lines_by_key[evidence.line_key],
+                    source_fulfillment=evidence.source_movement.sales_direct_stock_fulfillment,
+                    stock_movement=evidence.movement,
+                    base_quantity=evidence.quantity,
+                    cogs_value=evidence.cogs_value,
+                )
 
         for application_id, amount in sorted(plan.receivable_by_application.items()):
             ApplicationReceivableEntry.objects.create(
@@ -441,6 +556,15 @@ def post_sales_adjustment(*, adjustment: SalesAdjustment, actor: User) -> SalesA
             )
 
         previous = snapshot(locked)
+        # The disposition is a statement about direct-stock quantity, and the
+        # header was opened before any line existed. With no direct-stock line
+        # on the adjustment it is NOT_APPLICABLE whatever the header said —
+        # `0015` holds the posted row to exactly that — and a cancellation that
+        # does carry direct-stock lines restocks by rule, never by choice.
+        if not direct_lines:
+            locked.direct_stock_disposition = DirectStockDisposition.NOT_APPLICABLE
+        elif locked.reason_kind == "CANCELLED_BEFORE_FULFILLMENT":
+            locked.direct_stock_disposition = DirectStockDisposition.RESTOCK
         locked.status = SalesAdjustmentStatus.POSTED
         locked.number = number
         locked.posted_by = actor
@@ -448,6 +572,7 @@ def post_sales_adjustment(*, adjustment: SalesAdjustment, actor: User) -> SalesA
         locked.idempotency_key = f"sales-adjustment:{locked.public_id}"
         locked.save(
             update_fields=[
+                "direct_stock_disposition",
                 "status",
                 "number",
                 "posted_by",
@@ -470,6 +595,9 @@ def post_sales_adjustment(*, adjustment: SalesAdjustment, actor: User) -> SalesA
                 "gross": str(plan.gross_total),
                 "restaurant_discount": str(plan.restaurant_discount_total),
                 "commission": str(plan.commission_total),
+                "direct_stock_restock_cogs": str(
+                    stock_posting.total_cost if stock_posting is not None else ZERO
+                ),
             },
         )
     return locked
@@ -511,12 +639,28 @@ def reverse_sales_adjustment(
         )
 
     with audit_context(actor=actor, correlation_id=get_correlation_id()):
-        reverse_entry(
+        stock_reversal = None
+        try:
+            stock_link = locked.direct_stock_posting
+        except SalesAdjustmentStockPosting.DoesNotExist:
+            stock_link = None
+        if stock_link is not None:
+            stock_reversal = reverse_sales_stock(
+                entry=stock_link.stock_entry,
+                idempotency_key=f"sales-adjustment-stock-reversal:{locked.public_id}",
+                reason=reason.strip(),
+                effective_at=timezone.now(),
+                business_date=timezone.localdate(),
+            )
+
+        journal_reversal = reverse_entry(
             entry=entry,
             idempotency_key=f"sales-adjustment-reversal:{locked.public_id}",
             reason=reason.strip(),
             accounting_date=timezone.localdate(),
         )
+        if stock_reversal is not None:
+            link_sales_stock_journal(entry=stock_reversal, journal=journal_reversal)
 
         original_entries = ApplicationReceivableEntry.objects.filter(
             organization=locked.organization,

@@ -129,13 +129,12 @@ class FulfillmentSource(models.TextChoices):
     serving on that version, and the kitchen's theoretical consumption follows
     from the pair.
 
-    `DIRECT_STOCK` — a bottle of water taken off a shelf — is **declared and
-    refused**, in the service and by a check constraint. There is no certified
-    sales-and-COGS route out of a warehouse, and improvising one would open a
-    second stock-consumption path beside production, which is exactly the kind
-    of parallel ledger this system has spent three phases avoiding. Declaring
-    the value now means enabling it later is a service branch and a dropped
-    constraint rather than a redesign of every sales line (ADR-027 §10).
+    `DIRECT_STOCK` is a stocked item sold without a recipe serving: bottled
+    water is the canonical example. The menu records the item and quantity,
+    each branch setting records the source warehouse, and a sales line freezes
+    both before the posting layer aggregates the inventory issue. The schema
+    carries that evidence independently from the service which posts it so a
+    historical line never has to re-read mutable menu master data.
     """
 
     RECIPE_SERVING = "RECIPE_SERVING", _("حصة من وصفة")
@@ -211,6 +210,27 @@ class MenuItem(TimeStampedModel):
     #: sale time. See the class docstring for why this is not a foreign key.
     serving_code = models.CharField(_("serving code"), max_length=32, blank=True)
 
+    #: Set only for `DIRECT_STOCK`. The item itself is frozen again on each
+    #: sales line, because correcting this master next month must not restate a
+    #: posted day's inventory identity.
+    inventory_item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="direct_stock_menu_items",
+        null=True,
+        blank=True,
+        verbose_name=_("direct stock item"),
+    )
+    #: Base-stock quantity fulfilled by one sold menu unit. Kept at calculation
+    #: precision; the sales line stores the final, once-quantized issue total.
+    direct_stock_base_quantity = models.DecimalField(
+        _("direct stock base quantity"),
+        max_digits=CALCULATION_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+        null=True,
+        blank=True,
+    )
+
     display_order = models.PositiveIntegerField(_("display order"), default=1)
     notes = models.TextField(_("notes"), blank=True)
     is_active = models.BooleanField(_("active"), default=True)
@@ -245,24 +265,27 @@ class MenuItem(TimeStampedModel):
                 condition=Q(code__regex=CODE_PATTERN), name="sales_menu_item_code_format"
             ),
             models.CheckConstraint(condition=~Q(name_ar=""), name="sales_menu_item_name_not_empty"),
-            # A recipe-served item without a recipe or without a serving code
-            # is an item nothing can fulfil. Refused here rather than
-            # discovered by a cashier at the till.
+            # Exactly one fulfilment route is complete. The inactive route is
+            # empty, so a later master-data correction cannot leave two
+            # plausible answers for what should leave stock.
             models.CheckConstraint(
                 condition=(
-                    ~Q(fulfillment_source=FulfillmentSource.RECIPE_SERVING)
-                    | (Q(recipe__isnull=False) & ~Q(serving_code=""))
+                    Q(
+                        fulfillment_source=FulfillmentSource.RECIPE_SERVING,
+                        recipe__isnull=False,
+                        inventory_item__isnull=True,
+                        direct_stock_base_quantity__isnull=True,
+                    )
+                    & ~Q(serving_code="")
+                    | Q(
+                        fulfillment_source=FulfillmentSource.DIRECT_STOCK,
+                        recipe__isnull=True,
+                        serving_code="",
+                        inventory_item__isnull=False,
+                        direct_stock_base_quantity__gt=Decimal("0"),
+                    )
                 ),
-                name="sales_menu_item_recipe_serving_is_complete",
-            ),
-            # Release 1 refuses `DIRECT_STOCK` **in the database**, not only in
-            # the service. Enabling direct-stock sales is then an explicit act
-            # — a migration that drops this constraint alongside the service
-            # that posts the COGS — rather than something a shell session or a
-            # CSV import can do by accident.
-            models.CheckConstraint(
-                condition=Q(fulfillment_source=FulfillmentSource.RECIPE_SERVING),
-                name="sales_menu_item_direct_stock_is_deferred",
+                name="sales_menu_item_fulfillment_route_is_complete",
             ),
         ]
 
@@ -295,6 +318,17 @@ class MenuItemBranchSetting(TimeStampedModel):
         on_delete=models.PROTECT,
         related_name="menu_item_settings",
         verbose_name=_("branch"),
+    )
+    #: Required by the database trigger for a direct-stock item and forbidden
+    #: for a recipe item. The same trigger verifies that the warehouse belongs
+    #: to this setting's branch.
+    source_warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="direct_stock_menu_settings",
+        null=True,
+        blank=True,
+        verbose_name=_("source warehouse"),
     )
     #: Present but temporarily off — sold here normally, not today. Distinct
     #: from having no row at all, which means never sold here.
@@ -1371,10 +1405,17 @@ class SalesDayLine(TimeStampedModel):
     )
 
     # --- the snapshots ----------------------------------------------------
+    fulfillment_source = models.CharField(
+        _("fulfillment source"),
+        max_length=16,
+        choices=FulfillmentSource.choices,
+    )
     recipe = models.ForeignKey(
         "kitchen.Recipe",
         on_delete=models.PROTECT,
         related_name="sales_lines",
+        null=True,
+        blank=True,
         verbose_name=_("recipe"),
     )
     #: The **exact** version in force on this line's business date, resolved
@@ -1384,13 +1425,47 @@ class SalesDayLine(TimeStampedModel):
         "kitchen.RecipeVersion",
         on_delete=models.PROTECT,
         related_name="sales_lines",
+        null=True,
+        blank=True,
         verbose_name=_("recipe version"),
     )
     serving = models.ForeignKey(
         "kitchen.RecipeServing",
         on_delete=models.PROTECT,
         related_name="sales_lines",
+        null=True,
+        blank=True,
         verbose_name=_("serving"),
+    )
+    inventory_item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        related_name="direct_stock_sales_lines",
+        null=True,
+        blank=True,
+        verbose_name=_("direct stock item"),
+    )
+    source_warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        on_delete=models.PROTECT,
+        related_name="direct_stock_sales_lines",
+        null=True,
+        blank=True,
+        verbose_name=_("source warehouse"),
+    )
+    direct_stock_qty_per_unit = models.DecimalField(
+        _("direct stock quantity per sold unit"),
+        max_digits=CALCULATION_MAX_DIGITS,
+        decimal_places=CALCULATION_PLACES,
+        null=True,
+        blank=True,
+    )
+    direct_stock_total_base_qty = models.DecimalField(
+        _("direct stock total base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+        null=True,
+        blank=True,
     )
     price_version = models.ForeignKey(
         MenuPriceVersion,
@@ -1554,6 +1629,34 @@ class SalesDayLine(TimeStampedModel):
                 ),
                 name="sales_line_manual_discount_has_a_reason",
             ),
+            # A line freezes one and only one fulfilment route. All identities
+            # on the inactive route are null, so historical consumption can be
+            # read without consulting today's menu item.
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        fulfillment_source=FulfillmentSource.RECIPE_SERVING,
+                        recipe__isnull=False,
+                        recipe_version__isnull=False,
+                        serving__isnull=False,
+                        inventory_item__isnull=True,
+                        source_warehouse__isnull=True,
+                        direct_stock_qty_per_unit__isnull=True,
+                        direct_stock_total_base_qty__isnull=True,
+                    )
+                    | Q(
+                        fulfillment_source=FulfillmentSource.DIRECT_STOCK,
+                        recipe__isnull=True,
+                        recipe_version__isnull=True,
+                        serving__isnull=True,
+                        inventory_item__isnull=False,
+                        source_warehouse__isnull=False,
+                        direct_stock_qty_per_unit__gt=Decimal("0"),
+                        direct_stock_total_base_qty__gt=Decimal("0"),
+                    )
+                ),
+                name="sales_line_fulfillment_snapshot_is_complete",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -1567,6 +1670,99 @@ class SalesDayLine(TimeStampedModel):
     @property
     def is_application_sale(self) -> bool:
         return self.delivery_application_id is not None
+
+
+class SalesDayStockPosting(TimeStampedModel):
+    """The one stock-ledger posting generated by a posted sales day."""
+
+    sales_day = models.OneToOneField(
+        SalesDay,
+        on_delete=models.PROTECT,
+        related_name="direct_stock_posting",
+        verbose_name=_("sales day"),
+    )
+    stock_entry = models.OneToOneField(
+        "inventory.StockLedgerEntry",
+        on_delete=models.PROTECT,
+        related_name="sales_day_direct_stock_posting",
+        verbose_name=_("stock ledger entry"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("sales day stock posting")
+        verbose_name_plural = _("sales day stock postings")
+        ordering = ["sales_day_id"]
+
+    def __str__(self) -> str:
+        return f"{self.sales_day} · stock entry {self.stock_entry_id}"
+
+
+class SalesDirectStockFulfillment(TimeStampedModel):
+    """
+    The exact stock movement and COGS evidence for one direct-stock sales line.
+
+    `base_quantity` and `cogs_value` are frozen allocation evidence, not
+    figures to recompute from today's movement or average. A zero-valued issue
+    is legitimate (free or fully written-down stock), so only quantity is
+    strictly positive.
+    """
+
+    sales_line = models.OneToOneField(
+        SalesDayLine,
+        on_delete=models.PROTECT,
+        related_name="direct_stock_fulfillment",
+        verbose_name=_("sales line"),
+    )
+    stock_movement = models.OneToOneField(
+        "inventory.StockMovement",
+        on_delete=models.PROTECT,
+        related_name="sales_direct_stock_fulfillment",
+        verbose_name=_("stock movement"),
+    )
+    consumption_account = models.ForeignKey(
+        "accounting.Account",
+        on_delete=models.PROTECT,
+        related_name="sales_direct_stock_fulfillments",
+        verbose_name=_("consumption account"),
+    )
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        related_name="sales_direct_stock_fulfillments",
+        verbose_name=_("cost center"),
+    )
+    base_quantity = models.DecimalField(
+        _("base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+    cogs_value = models.DecimalField(
+        _("cost of goods sold"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("direct stock fulfillment")
+        verbose_name_plural = _("direct stock fulfillments")
+        ordering = ["sales_line_id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(base_quantity__gt=Decimal("0")),
+                name="sales_direct_fulfillment_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(cogs_value__gte=Decimal("0")),
+                name="sales_direct_fulfillment_cogs_nonnegative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.sales_line_id} · movement {self.stock_movement_id}"
 
 
 class SalesTenderSummary(TimeStampedModel):
@@ -1793,6 +1989,14 @@ class SalesAdjustmentStatus(models.TextChoices):
     REVERSED = "REVERSED", _("معكوس")
 
 
+class DirectStockDisposition(models.TextChoices):
+    """What a quantity-bearing direct-stock adjustment does physically."""
+
+    NOT_APPLICABLE = "NOT_APPLICABLE", _("لا ينطبق")
+    RESTOCK = "RESTOCK", _("إرجاع إلى المخزون")
+    NO_RESTOCK = "NO_RESTOCK", _("لا يعاد إلى المخزون")
+
+
 class SalesAdjustment(TimeStampedModel):
     """
     A correction against a **posted** sales day, with its own posting
@@ -1841,6 +2045,12 @@ class SalesAdjustment(TimeStampedModel):
 
     reason_kind = models.CharField(
         _("reason kind"), max_length=32, choices=SalesAdjustmentReasonKind.choices
+    )
+    direct_stock_disposition = models.CharField(
+        _("direct stock disposition"),
+        max_length=16,
+        choices=DirectStockDisposition.choices,
+        default=DirectStockDisposition.NOT_APPLICABLE,
     )
     status = models.CharField(
         _("status"),
@@ -1934,6 +2144,16 @@ class SalesAdjustment(TimeStampedModel):
             models.CheckConstraint(condition=~Q(reason=""), name="sales_adjustment_has_a_reason"),
             models.CheckConstraint(
                 condition=~Q(evidence_reference=""), name="sales_adjustment_has_evidence"
+            ),
+            # A financial correction moves money only. Whether a
+            # quantity-bearing adjustment contains direct-stock lines is a
+            # cross-table fact and remains a service validation.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(reason_kind=SalesAdjustmentReasonKind.FINANCIAL_CORRECTION)
+                    | Q(direct_stock_disposition=DirectStockDisposition.NOT_APPLICABLE)
+                ),
+                name="sales_adjustment_financial_has_no_stock_disposition",
             ),
         ]
 
@@ -2102,6 +2322,86 @@ class SalesAdjustmentLine(TimeStampedModel):
     @property
     def is_application_adjustment(self) -> bool:
         return self.original_line.delivery_application_id is not None
+
+
+class SalesAdjustmentStockPosting(TimeStampedModel):
+    """The one stock-ledger return posting generated by an adjustment."""
+
+    adjustment = models.OneToOneField(
+        SalesAdjustment,
+        on_delete=models.PROTECT,
+        related_name="direct_stock_posting",
+        verbose_name=_("sales adjustment"),
+    )
+    stock_entry = models.OneToOneField(
+        "inventory.StockLedgerEntry",
+        on_delete=models.PROTECT,
+        related_name="sales_adjustment_direct_stock_posting",
+        verbose_name=_("stock ledger entry"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("sales adjustment stock posting")
+        verbose_name_plural = _("sales adjustment stock postings")
+        ordering = ["adjustment_id"]
+
+    def __str__(self) -> str:
+        return f"{self.adjustment} · stock entry {self.stock_entry_id}"
+
+
+class SalesDirectStockReturnFulfillment(TimeStampedModel):
+    """The returned stock movement allocated to one adjustment line."""
+
+    adjustment_line = models.OneToOneField(
+        SalesAdjustmentLine,
+        on_delete=models.PROTECT,
+        related_name="direct_stock_return_fulfillment",
+        verbose_name=_("sales adjustment line"),
+    )
+    source_fulfillment = models.ForeignKey(
+        SalesDirectStockFulfillment,
+        on_delete=models.PROTECT,
+        related_name="return_fulfillments",
+        verbose_name=_("source fulfillment"),
+    )
+    stock_movement = models.OneToOneField(
+        "inventory.StockMovement",
+        on_delete=models.PROTECT,
+        related_name="sales_direct_stock_return_fulfillment",
+        verbose_name=_("return stock movement"),
+    )
+    base_quantity = models.DecimalField(
+        _("returned base quantity"),
+        max_digits=QUANTITY_MAX_DIGITS,
+        decimal_places=QUANTITY_PLACES,
+    )
+    cogs_value = models.DecimalField(
+        _("returned cost of goods sold"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("direct stock return fulfillment")
+        verbose_name_plural = _("direct stock return fulfillments")
+        ordering = ["adjustment_line_id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(base_quantity__gt=Decimal("0")),
+                name="sales_direct_return_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(cogs_value__gte=Decimal("0")),
+                name="sales_direct_return_cogs_nonnegative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.adjustment_line_id} · movement {self.stock_movement_id}"
 
 
 # ---------------------------------------------------------------------------
@@ -2953,6 +3253,7 @@ __all__ = [
     "DeliveryApplicationSettlement",
     "DeliveryApplicationSettlementAdjustment",
     "DeliveryApplicationSettlementAllocation",
+    "DirectStockDisposition",
     "DiscountProgram",
     "FulfillmentSource",
     "MenuCategory",
@@ -2964,12 +3265,16 @@ __all__ = [
     "SalesAdjustment",
     "SalesAdjustmentLine",
     "SalesAdjustmentReasonKind",
+    "SalesAdjustmentStockPosting",
     "SalesAdjustmentStatus",
     "SalesChannel",
     "SalesChannelCategory",
     "SalesDay",
     "SalesDayLine",
+    "SalesDayStockPosting",
     "SalesDayStatus",
+    "SalesDirectStockFulfillment",
+    "SalesDirectStockReturnFulfillment",
     "SalesDocumentSequence",
     "SalesTenderSummary",
     "SettlementAdjustmentReason",

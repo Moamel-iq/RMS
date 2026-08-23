@@ -6,20 +6,20 @@
 {# is reimbursed and is part of what the application owes. A single "discount"#}
 {# figure would make them look like the same thing.                           #}
 {% extends list_base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="sales-day-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="workspace-page" id="sales-day-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:day_list' %}">{% translate "المبيعات اليومية" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ day.business_date|date:"Y-m-d" }}</span>
     </nav>
 
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">
           <span class="chip">{{ day.get_status_display }}</span>
@@ -71,31 +71,31 @@
     <div class="statrow">
       <div class="stat">
         <span class="stat__label">{% translate "إجمالي المبيعات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.gross }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.gross|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "خصم المطعم" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.restaurant_discount }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.restaurant_discount|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "خصم التطبيق" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.application_discount }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.application_discount|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "العمولات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.commission }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.commission|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "نقد" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_cash }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_cash|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "بطاقات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_card }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_card|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "ذمم التطبيقات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_application }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_application|iqd }}</code></bdi></span>
       </div>
     </div>
 
@@ -103,138 +103,153 @@
       {% translate "خصم المطعم يخفض إيراده — يُرحَّل خصماً على الإيراد لا مصروف تسويق. خصم التطبيق يُعوَّض: لا يخفض الإيراد ولا يخفض ما يدين به التطبيق، بل هو جزء منه. لذلك لا يظهر في أي قيد على المطعم." %}
     </p>
 
-    <h2 class="section-title">{% translate "سطور اليوم" %}</h2>
-    <div class="tablewrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">#</th>
-            <th scope="col">{% translate "الصنف" %}</th>
-            <th scope="col">{% translate "القناة" %}</th>
-            <th scope="col">{% translate "التطبيق" %}</th>
-            <th scope="col">{% translate "نسخة الوصفة" %}</th>
-            <th scope="col">{% translate "الحصة" %}</th>
-            <th scope="col">{% translate "الكمية" %}</th>
-            <th scope="col">{% translate "السعر" %}</th>
-            <th scope="col">{% translate "الإجمالي" %}</th>
-            <th scope="col">{% translate "خصم المطعم" %}</th>
-            <th scope="col">{% translate "خصم التطبيق" %}</th>
-            <th scope="col">{% translate "العمولة" %}</th>
-            <th scope="col">{% translate "الصافي" %}</th>
-            {% if may_edit %}<th scope="col"></th>{% endif %}
-          </tr>
-        </thead>
-        <tbody>
-          {% for line in lines %}
-            <tr>
-              <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
-              <td data-label="{% translate 'الصنف' %}">
-                <bdi dir="ltr"><code>{{ line.menu_item.code }}</code></bdi> {{ line.menu_item.name_ar }}
-              </td>
-              <td data-label="{% translate 'القناة' %}">{{ line.channel.name_ar }}</td>
-              <td data-label="{% translate 'التطبيق' %}">
-                {% if line.delivery_application %}{{ line.delivery_application.name_ar }}{% else %}—{% endif %}
-              </td>
-              {# The **stored** version, never re-resolved. This column exists so #}
-              {# an operator can see which one a line actually used.              #}
-              <td data-label="{% translate 'نسخة الوصفة' %}">
-                <bdi dir="ltr"><code>v{{ line.recipe_version.version_number }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'الحصة' %}">
-                <bdi dir="ltr"><code>{{ line.serving.code }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'الكمية' %}">
-                <bdi dir="ltr"><code>{{ line.quantity_display }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'السعر' %}"><bdi dir="ltr"><code>{{ line.unit_price }}</code></bdi></td>
-              <td data-label="{% translate 'الإجمالي' %}"><bdi dir="ltr"><code>{{ line.gross_amount }}</code></bdi></td>
-              <td data-label="{% translate 'خصم المطعم' %}"><bdi dir="ltr"><code>{{ line.restaurant_discount }}</code></bdi></td>
-              <td data-label="{% translate 'خصم التطبيق' %}"><bdi dir="ltr"><code>{{ line.application_discount }}</code></bdi></td>
-              <td data-label="{% translate 'العمولة' %}">
-                <bdi dir="ltr"><code>{{ line.commission_amount }}</code></bdi>
-                {% if line.commission_basis %}
-                  <span class="chip">{{ line.get_commission_basis_display }}</span>
-                {% endif %}
-              </td>
-              <td data-label="{% translate 'الصافي' %}"><bdi dir="ltr"><code>{{ line.net_amount }}</code></bdi></td>
-              {% if may_edit %}
-                <td>
-                  <form method="post" action="{% url 'sales:day_line_delete' line.pk %}">
-                    {% csrf_token %}
-                    <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "حذف" %}</button>
-                  </form>
-                </td>
-              {% endif %}
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="{% if may_edit %}14{% else %}13{% endif %}" class="empty">
-                {% translate "لا توجد سطور بعد." %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    {% if tender_summaries %}
-      <h2 class="section-title">{% translate "المُعلن حسب وجهة التحصيل" %}</h2>
-      <div class="tablewrap">
-        <table class="table">
+    <section class="formcard">
+      <h2>{% translate "سطور اليوم" %}</h2>
+      <div class="data-table-shell">
+        <table class="table responsive-table">
           <thead>
             <tr>
-              <th scope="col">{% translate "الوجهة" %}</th>
-              <th scope="col">{% translate "المُعلن" %}</th>
-              <th scope="col">{% translate "ملاحظات" %}</th>
+              <th scope="col">#</th>
+              <th scope="col">{% translate "الصنف" %}</th>
+              <th scope="col">{% translate "القناة" %}</th>
+              <th scope="col">{% translate "التطبيق" %}</th>
+              <th scope="col">{% translate "مصدر التنفيذ" %}</th>
+              <th scope="col">{% translate "تفاصيل التنفيذ" %}</th>
+              <th scope="col">{% translate "الكمية" %}</th>
+              <th scope="col">{% translate "السعر" %}</th>
+              <th scope="col">{% translate "الإجمالي" %}</th>
+              <th scope="col">{% translate "خصم المطعم" %}</th>
+              <th scope="col">{% translate "خصم التطبيق" %}</th>
+              <th scope="col">{% translate "العمولة" %}</th>
+              <th scope="col">{% translate "الصافي" %}</th>
+              {% if may_edit %}<th scope="col"></th>{% endif %}
             </tr>
           </thead>
           <tbody>
-            {% for summary in tender_summaries %}
+            {% for line in lines %}
               <tr>
-                <td data-label="{% translate 'الوجهة' %}">{{ summary.get_tender_display }}</td>
-                <td data-label="{% translate 'المُعلن' %}"><bdi dir="ltr"><code>{{ summary.declared_amount }}</code></bdi></td>
-                <td data-label="{% translate 'ملاحظات' %}">{{ summary.notes|default:"—" }}</td>
+                <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
+                <td data-label="{% translate 'الصنف' %}">
+                  <bdi dir="ltr"><code>{{ line.menu_item.code }}</code></bdi> {{ line.menu_item.name_ar }}
+                </td>
+                <td data-label="{% translate 'القناة' %}">{{ line.channel.name_ar }}</td>
+                <td data-label="{% translate 'التطبيق' %}">
+                  {% if line.delivery_application %}{{ line.delivery_application.name_ar }}{% else %}—{% endif %}
+                </td>
+                <td data-label="{% translate 'مصدر التنفيذ' %}">
+                  {% if line.recipe_version %}
+                    <bdi dir="ltr"><code>{{ line.recipe.code }} · v{{ line.recipe_version.version_number }}</code></bdi>
+                  {% else %}
+                    <bdi dir="ltr"><code>{{ line.inventory_item.code }}</code></bdi> {{ line.inventory_item.name_ar }}
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'تفاصيل التنفيذ' %}">
+                  {% if line.serving %}
+                    <bdi dir="ltr"><code>{{ line.serving.code }}</code></bdi>
+                  {% else %}
+                    <bdi dir="ltr"><code>{{ line.direct_stock_total_base_qty }} {{ line.inventory_item.base_unit.code }}</code></bdi>
+                    <small>· {{ line.source_warehouse.code }}</small>
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'الكمية' %}">
+                  <bdi dir="ltr"><code>{{ line.quantity_display }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'السعر' %}"><bdi dir="ltr"><code>{{ line.unit_price|iqd }}</code></bdi></td>
+                <td data-label="{% translate 'الإجمالي' %}"><bdi dir="ltr"><code>{{ line.gross_amount|iqd }}</code></bdi></td>
+                <td data-label="{% translate 'خصم المطعم' %}"><bdi dir="ltr"><code>{{ line.restaurant_discount|iqd }}</code></bdi></td>
+                <td data-label="{% translate 'خصم التطبيق' %}"><bdi dir="ltr"><code>{{ line.application_discount|iqd }}</code></bdi></td>
+                <td data-label="{% translate 'العمولة' %}">
+                  <bdi dir="ltr"><code>{{ line.commission_amount|iqd }}</code></bdi>
+                  {% if line.commission_basis %}
+                    <span class="chip">{{ line.get_commission_basis_display }}</span>
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'الصافي' %}"><bdi dir="ltr"><code>{{ line.net_amount|iqd }}</code></bdi></td>
+                {% if may_edit %}
+                  <td>
+                    <form method="post" action="{% url 'sales:day_line_delete' line.pk %}">
+                      {% csrf_token %}
+                      <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "حذف" %}</button>
+                    </form>
+                  </td>
+                {% endif %}
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="{% if may_edit %}14{% else %}13{% endif %}" class="empty">
+                  {% translate "لا توجد سطور بعد." %}
+                </td>
               </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+    </section>
+
+    {% if tender_summaries %}
+      <section class="formcard">
+        <h2>{% translate "المُعلن حسب وجهة التحصيل" %}</h2>
+        <div class="data-table-shell">
+          <table class="table responsive-table">
+            <thead>
+              <tr>
+                <th scope="col">{% translate "الوجهة" %}</th>
+                <th scope="col">{% translate "المُعلن" %}</th>
+                <th scope="col">{% translate "ملاحظات" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for summary in tender_summaries %}
+                <tr>
+                  <td data-label="{% translate 'الوجهة' %}">{{ summary.get_tender_display }}</td>
+                  <td data-label="{% translate 'المُعلن' %}"><bdi dir="ltr"><code>{{ summary.declared_amount|iqd }}</code></bdi></td>
+                  <td data-label="{% translate 'ملاحظات' %}">{{ summary.notes|default:"—" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
     {% endif %}
 
     {% if line_form %}
-      <h2 class="section-title">{% translate "إضافة سطر" %}</h2>
-      <p class="pagehead__hint">
-        {% translate "يُحلّ السطر عند الإضافة: نسخة الوصفة السارية في تاريخ العمل، والحصة على تلك النسخة، والسعر الأضيق نطاقاً، والاتفاقية السارية. إذا تعذّر أي منها يُرفض السطر بجملة تشرح السبب، ولا يُستبدل ببديل صامت." %}
-      </p>
-      <form class="formcard" method="post" novalidate>
-        {% csrf_token %}
-        {% include "components/form_error_summary.html" with form=line_form %}
-        <div class="formgrid">
-          {% for field in line_form %}
-            {% include "settings/_field.html" with field=field %}
-          {% endfor %}
-        </div>
-        <div class="formactions">
-          <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
-        </div>
-      </form>
+      <section class="formcard">
+        <h2>{% translate "إضافة سطر" %}</h2>
+        <p class="pagehead__hint">
+          {% translate "يُحلّ السطر عند الإضافة: نسخة الوصفة السارية في تاريخ العمل، والحصة على تلك النسخة، والسعر الأضيق نطاقاً، والاتفاقية السارية. إذا تعذّر أي منها يُرفض السطر بجملة تشرح السبب، ولا يُستبدل ببديل صامت." %}
+        </p>
+        <form method="post" novalidate>
+          {% csrf_token %}
+          {% include "components/form_error_summary.html" with form=line_form %}
+          <div class="formgrid">
+            {% for field in line_form %}
+              {% include "settings/_field.html" with field=field %}
+            {% endfor %}
+          </div>
+          <div class="formactions">
+            <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
+          </div>
+        </form>
+      </section>
     {% endif %}
 
     {% if tender_form %}
-      <h2 class="section-title">{% translate "تسجيل المُعلن" %}</h2>
-      <form class="formcard" method="post" novalidate>
-        {% csrf_token %}
-        <input type="hidden" name="form" value="tender">
-        {% include "components/form_error_summary.html" with form=tender_form %}
-        <div class="formgrid">
-          {% for field in tender_form %}
-            {% include "settings/_field.html" with field=field %}
-          {% endfor %}
-        </div>
-        <div class="formactions">
-          <button class="btn btn--secondary" type="submit">{% translate "حفظ المُعلن" %}</button>
-        </div>
-      </form>
+      <section class="formcard">
+        <h2>{% translate "تسجيل المُعلن" %}</h2>
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="form" value="tender">
+          {% include "components/form_error_summary.html" with form=tender_form %}
+          <div class="formgrid">
+            {% for field in tender_form %}
+              {% include "settings/_field.html" with field=field %}
+            {% endfor %}
+          </div>
+          <div class="formactions">
+            <button class="btn btn--secondary" type="submit">{% translate "حفظ المُعلن" %}</button>
+          </div>
+        </form>
+      </section>
     {% endif %}
   </div>
 {% endblock %}

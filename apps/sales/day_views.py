@@ -136,7 +136,15 @@ class SalesDayDetailView(InventoryViewMixin, View):
         context: dict[str, Any] = {
             "day": day,
             "lines": day.lines.select_related(
-                "menu_item", "channel", "delivery_application", "recipe_version", "serving"
+                "menu_item",
+                "channel",
+                "delivery_application",
+                "recipe",
+                "recipe_version",
+                "serving",
+                "inventory_item",
+                "inventory_item__base_unit",
+                "source_warehouse",
             ).order_by("sequence"),
             "totals": totals_for(day),
             "tender_summaries": day.tender_summaries.all(),

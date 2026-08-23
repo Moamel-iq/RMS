@@ -5,24 +5,27 @@
 {# the kitchen's theoretical consumption ever hears about them, and that is  #}
 {# not visible in any number on the screen.                                  #}
 {% extends list_base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="sales-adjustment-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="workspace-page" id="sales-adjustment-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:adjustment_list' %}">{% translate "المرتجعات والإلغاءات" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ adjustment.business_date|date:"Y-m-d" }}</span>
     </nav>
 
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">
           <span class="chip">{{ adjustment.get_status_display }}</span>
           <span class="chip">{{ adjustment.get_reason_kind_display }}</span>
+          {% if adjustment.direct_stock_disposition != "NOT_APPLICABLE" %}
+            <span class="chip">{{ adjustment.get_direct_stock_disposition_display }}</span>
+          {% endif %}
           {% if adjustment.number %}<bdi dir="ltr"><code>{{ adjustment.number }}</code></bdi>{% endif %}
         </p>
       </div>
@@ -44,62 +47,65 @@
       </p>
     {% endif %}
 
-    <dl class="deflist">
-      <div>
-        <dt>{% translate "اليوم المصحَّح" %}</dt>
-        <dd>
-          <a href="{% url 'sales:day_detail' adjustment.sales_day.pk %}">
-            <bdi dir="ltr"><code>{{ adjustment.sales_day.business_date|date:"Y-m-d" }}</code></bdi>
-            {% if adjustment.sales_day.number %}
-              <bdi dir="ltr"><code>{{ adjustment.sales_day.number }}</code></bdi>
-            {% endif %}
-          </a>
-        </dd>
-      </div>
-      <div>
-        <dt>{% translate "المستند" %}</dt>
-        <dd><bdi dir="ltr"><code>{{ adjustment.evidence_reference }}</code></bdi></dd>
-      </div>
-      <div>
-        <dt>{% translate "السبب" %}</dt>
-        <dd>{{ adjustment.reason }}</dd>
-      </div>
-      {% if adjustment.notes %}
-        <div>
-          <dt>{% translate "ملاحظات" %}</dt>
-          <dd>{{ adjustment.notes }}</dd>
+    <section class="formcard">
+      <h2>{% translate "بيانات التسوية" %}</h2>
+      <dl class="deflist">
+        <div class="detailgrid__row">
+          <dt>{% translate "اليوم المصحَّح" %}</dt>
+          <dd>
+            <a href="{% url 'sales:day_detail' adjustment.sales_day.pk %}">
+              <bdi dir="ltr"><code>{{ adjustment.sales_day.business_date|date:"Y-m-d" }}</code></bdi>
+              {% if adjustment.sales_day.number %}
+                <bdi dir="ltr"><code>{{ adjustment.sales_day.number }}</code></bdi>
+              {% endif %}
+            </a>
+          </dd>
         </div>
-      {% endif %}
-    </dl>
+        <div class="detailgrid__row">
+          <dt>{% translate "المستند" %}</dt>
+          <dd><bdi dir="ltr"><code>{{ adjustment.evidence_reference }}</code></bdi></dd>
+        </div>
+        <div class="detailgrid__row">
+          <dt>{% translate "السبب" %}</dt>
+          <dd>{{ adjustment.reason }}</dd>
+        </div>
+        {% if adjustment.notes %}
+          <div class="detailgrid__row">
+            <dt>{% translate "ملاحظات" %}</dt>
+            <dd>{{ adjustment.notes }}</dd>
+          </div>
+        {% endif %}
+      </dl>
+    </section>
 
     <div class="statrow">
       <div class="stat">
         <span class="stat__label">{% translate "إجمالي المرتجع" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.gross }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.gross|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "خصم المطعم المرتجع" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.restaurant_discount }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.restaurant_discount|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "خصم التطبيق" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.application_discount }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.application_discount|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "العمولات المرتجعة" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.commission }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.commission|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "نقد" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_cash }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_cash|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "بطاقات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_card }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_card|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "ذمم التطبيقات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_application }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_application|iqd }}</code></bdi></span>
       </div>
     </div>
 
@@ -117,112 +123,118 @@
       </p>
     {% endif %}
 
-    <h2 class="section-title">{% translate "سطور التسوية" %}</h2>
-    <div class="tablewrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">#</th>
-            <th scope="col">{% translate "الصنف" %}</th>
-            <th scope="col">{% translate "القناة" %}</th>
-            <th scope="col">{% translate "التطبيق" %}</th>
-            <th scope="col">{% translate "الكمية المرتجعة" %}</th>
-            <th scope="col">{% translate "السعر" %}</th>
-            <th scope="col">{% translate "الإجمالي" %}</th>
-            <th scope="col">{% translate "خصم المطعم" %}</th>
-            <th scope="col">{% translate "العمولة" %}</th>
-            <th scope="col">{% translate "الصافي" %}</th>
-            <th scope="col">{% translate "سبب السطر" %}</th>
-            {% if may_edit %}<th scope="col"></th>{% endif %}
-          </tr>
-        </thead>
-        <tbody>
-          {% for line in lines %}
+    <section class="formcard">
+      <h2>{% translate "سطور التسوية" %}</h2>
+      <div class="data-table-shell">
+        <table class="table responsive-table">
+          <thead>
             <tr>
-              <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
-              <td data-label="{% translate 'الصنف' %}">
-                <bdi dir="ltr"><code>{{ line.original_line.menu_item.code }}</code></bdi>
-                {{ line.original_line.menu_item.name_ar }}
-              </td>
-              <td data-label="{% translate 'القناة' %}">{{ line.original_line.channel.name_ar }}</td>
-              <td data-label="{% translate 'التطبيق' %}">
-                {% if line.original_line.delivery_application %}
-                  {{ line.original_line.delivery_application.name_ar }}
-                {% else %}—{% endif %}
-              </td>
-              <td data-label="{% translate 'الكمية المرتجعة' %}">
-                <bdi dir="ltr"><code>{{ line.quantity_display }}</code></bdi>
-              </td>
-              {# The **original's** price, copied and never re-resolved. #}
-              <td data-label="{% translate 'السعر' %}"><bdi dir="ltr"><code>{{ line.unit_price }}</code></bdi></td>
-              <td data-label="{% translate 'الإجمالي' %}"><bdi dir="ltr"><code>{{ line.adjusted_gross }}</code></bdi></td>
-              <td data-label="{% translate 'خصم المطعم' %}">
-                <bdi dir="ltr"><code>{{ line.adjusted_restaurant_discount }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'العمولة' %}">
-                <bdi dir="ltr"><code>{{ line.adjusted_commission }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'الصافي' %}">
-                <bdi dir="ltr"><code>{{ line.adjusted_net_amount }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'سبب السطر' %}">{{ line.line_reason|default:"—" }}</td>
-              {% if may_edit %}
-                <td>
-                  <form method="post" action="{% url 'sales:adjustment_line_delete' line.pk %}">
-                    {% csrf_token %}
-                    <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "حذف" %}</button>
-                  </form>
+              <th scope="col">#</th>
+              <th scope="col">{% translate "الصنف" %}</th>
+              <th scope="col">{% translate "القناة" %}</th>
+              <th scope="col">{% translate "التطبيق" %}</th>
+              <th scope="col">{% translate "الكمية المرتجعة" %}</th>
+              <th scope="col">{% translate "السعر" %}</th>
+              <th scope="col">{% translate "الإجمالي" %}</th>
+              <th scope="col">{% translate "خصم المطعم" %}</th>
+              <th scope="col">{% translate "العمولة" %}</th>
+              <th scope="col">{% translate "الصافي" %}</th>
+              <th scope="col">{% translate "سبب السطر" %}</th>
+              {% if may_edit %}<th scope="col"></th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in lines %}
+              <tr>
+                <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
+                <td data-label="{% translate 'الصنف' %}">
+                  <bdi dir="ltr"><code>{{ line.original_line.menu_item.code }}</code></bdi>
+                  {{ line.original_line.menu_item.name_ar }}
                 </td>
-              {% endif %}
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="{% if may_edit %}12{% else %}11{% endif %}" class="empty">
-                {% translate "لا توجد سطور بعد." %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+                <td data-label="{% translate 'القناة' %}">{{ line.original_line.channel.name_ar }}</td>
+                <td data-label="{% translate 'التطبيق' %}">
+                  {% if line.original_line.delivery_application %}
+                    {{ line.original_line.delivery_application.name_ar }}
+                  {% else %}—{% endif %}
+                </td>
+                <td data-label="{% translate 'الكمية المرتجعة' %}">
+                  <bdi dir="ltr"><code>{{ line.quantity_display }}</code></bdi>
+                </td>
+                {# The **original's** price, copied and never re-resolved. #}
+                <td data-label="{% translate 'السعر' %}"><bdi dir="ltr"><code>{{ line.unit_price|iqd }}</code></bdi></td>
+                <td data-label="{% translate 'الإجمالي' %}"><bdi dir="ltr"><code>{{ line.adjusted_gross|iqd }}</code></bdi></td>
+                <td data-label="{% translate 'خصم المطعم' %}">
+                  <bdi dir="ltr"><code>{{ line.adjusted_restaurant_discount|iqd }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'العمولة' %}">
+                  <bdi dir="ltr"><code>{{ line.adjusted_commission|iqd }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'الصافي' %}">
+                  <bdi dir="ltr"><code>{{ line.adjusted_net_amount|iqd }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'سبب السطر' %}">{{ line.line_reason|default:"—" }}</td>
+                {% if may_edit %}
+                  <td>
+                    <form method="post" action="{% url 'sales:adjustment_line_delete' line.pk %}">
+                      {% csrf_token %}
+                      <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "حذف" %}</button>
+                    </form>
+                  </td>
+                {% endif %}
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="{% if may_edit %}12{% else %}11{% endif %}" class="empty">
+                  {% translate "لا توجد سطور بعد." %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     {% if line_form %}
-      <h2 class="section-title">{% translate "إضافة سطر" %}</h2>
-      <p class="pagehead__hint">
-        {% translate "تُحتسب المبالغ نسبةً من السطر الأصلي، ويُنسخ سعره كما هو ولا يُحلّ من جديد: السعر الذي باع الصحن هو الذي يُرجعها. لا يمكن أن تتجاوز التسويات المرحّلة ما باعه السطر كميةً أو قيمةً، وقاعدة البيانات نفسها ترفض ذلك." %}
-      </p>
-      <form class="formcard" method="post" novalidate>
-        {% csrf_token %}
-        {% include "components/form_error_summary.html" with form=line_form %}
-        <div class="formgrid">
-          {% for field in line_form %}
-            {% include "settings/_field.html" with field=field %}
-          {% endfor %}
-        </div>
-        <div class="formactions">
-          <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
-        </div>
-      </form>
+      <section class="formcard">
+        <h2>{% translate "إضافة سطر" %}</h2>
+        <p class="pagehead__hint">
+          {% translate "تُحتسب المبالغ نسبةً من السطر الأصلي، ويُنسخ سعره كما هو ولا يُحلّ من جديد: السعر الذي باع الصحن هو الذي يُرجعها. لا يمكن أن تتجاوز التسويات المرحّلة ما باعه السطر كميةً أو قيمةً، وقاعدة البيانات نفسها ترفض ذلك." %}
+        </p>
+        <form method="post" novalidate>
+          {% csrf_token %}
+          {% include "components/form_error_summary.html" with form=line_form %}
+          <div class="formgrid">
+            {% for field in line_form %}
+              {% include "settings/_field.html" with field=field %}
+            {% endfor %}
+          </div>
+          <div class="formactions">
+            <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
+          </div>
+        </form>
+      </section>
     {% endif %}
 
     {% if reversal_form %}
       {# A typed reason, not a hidden constant. The reversal reason is what the #}
       {# next reader has to work from, and it must not be blank.                #}
-      <h2 class="section-title">{% translate "عكس التسوية" %}</h2>
-      <form class="formcard" method="post" novalidate
-            action="{% url 'sales:adjustment_reverse' adjustment.pk %}"
-            data-confirm="{% translate 'سيُضاف قيد عاكس وقيد ذمة عاكس. الأصل يبقى ظاهراً، ولا يُعدَّل ولا يُحذف.' %}"
-            data-confirm-title="{% translate 'تأكيد عكس التسوية' %}">
-        {% csrf_token %}
-        <div class="formgrid">
-          {% for field in reversal_form %}
-            {% include "settings/_field.html" with field=field %}
-          {% endfor %}
-        </div>
-        <div class="formactions">
-          <button class="btn btn--danger-quiet" type="submit">{% translate "عكس" %}</button>
-        </div>
-      </form>
+      <section class="formcard">
+        <h2>{% translate "عكس التسوية" %}</h2>
+        <form method="post" novalidate
+              action="{% url 'sales:adjustment_reverse' adjustment.pk %}"
+              data-confirm="{% translate 'سيُضاف قيد عاكس وقيد ذمة عاكس. الأصل يبقى ظاهراً، ولا يُعدَّل ولا يُحذف.' %}"
+              data-confirm-title="{% translate 'تأكيد عكس التسوية' %}">
+          {% csrf_token %}
+          <div class="formgrid">
+            {% for field in reversal_form %}
+              {% include "settings/_field.html" with field=field %}
+            {% endfor %}
+          </div>
+          <div class="formactions">
+            <button class="btn btn--danger-quiet" type="submit">{% translate "عكس" %}</button>
+          </div>
+        </form>
+      </section>
     {% endif %}
   </div>
 {% endblock %}

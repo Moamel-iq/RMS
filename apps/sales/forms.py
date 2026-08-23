@@ -21,12 +21,14 @@ from typing import TYPE_CHECKING, Any
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from apps.organizations.authorization import organizations_with_permission
+from apps.inventory.models import InventoryItem, ItemType, Warehouse
+from apps.organizations.authorization import accessible_warehouses, organizations_with_permission
 from apps.organizations.selectors import accessible_branches
 from apps.sales.models import (
     CommissionBasis,
     DeliveryApplication,
     DiscountProgram,
+    FulfillmentSource,
     MenuCategory,
     MenuItem,
     MenuPriceVersion,
@@ -47,9 +49,34 @@ if TYPE_CHECKING:
     from apps.organizations.models import Organization
     from apps.users.models import User
 
+    # django-stubs types ModelChoiceField by its model, but the runtime class
+    # is not subscriptable — `forms.ModelChoiceField[InventoryItem]` raises
+    # TypeError while Django imports this module — and the project does not
+    # monkeypatch that in (see apps/users/forms.py). So the parametrised base
+    # exists for mypy only; at runtime the subclasses extend the plain field.
+    _InventoryItemChoiceField = forms.ModelChoiceField[InventoryItem]
+    _WarehouseChoiceField = forms.ModelChoiceField[Warehouse]
+else:
+    _InventoryItemChoiceField = forms.ModelChoiceField
+    _WarehouseChoiceField = forms.ModelChoiceField
+
 
 def canonical_code(value: str) -> str:
     return value.strip().upper()
+
+
+class _DirectStockItemChoiceField(_InventoryItemChoiceField):
+    """Show the base unit beside the item because the entered quantity uses it."""
+
+    def label_from_instance(self, item: InventoryItem) -> str:
+        return f"{item.code} — {item.name_ar} ({item.base_unit.code})"
+
+
+class _SourceWarehouseChoiceField(_WarehouseChoiceField):
+    """Warehouse codes are branch-local, so include the branch in every option."""
+
+    def label_from_instance(self, warehouse: Warehouse) -> str:
+        return f"{warehouse.branch.code} / {warehouse.code} — {warehouse.name_ar}"
 
 
 class MenuCategoryForm(forms.Form):
@@ -116,13 +143,44 @@ class MenuItemForm(forms.Form):
     category = forms.ModelChoiceField(
         queryset=MenuCategory.objects.none(), label=_("المجموعة"), required=False
     )
-    recipe = forms.ModelChoiceField(queryset=MenuItem.objects.none(), label=_("الوصفة"))
+    fulfillment_source = forms.ChoiceField(
+        label=_("مصدر التنفيذ"),
+        choices=FulfillmentSource.choices,
+        initial=FulfillmentSource.RECIPE_SERVING,
+        widget=forms.Select(attrs={"data-fulfillment-source": ""}),
+        help_text=_(
+            "اختر حصة من وصفة للأطباق المحضّرة، أو صنفاً مخزنياً مباشراً "
+            "للماء والمشروبات والبضاعة المشتراة لإعادة البيع."
+        ),
+    )
+    recipe = forms.ModelChoiceField(
+        queryset=MenuItem.objects.none(), label=_("الوصفة"), required=False
+    )
     serving_code = forms.CharField(
         label=_("رمز الحصة"),
         max_length=32,
+        required=False,
         help_text=_(
             "رمز الحصة كما هو معرَّف على نسخ الوصفة — مثل WHOLE أو HALF. "
             "يُحلّ إلى حصة النسخة السارية في تاريخ البيع، ولا يُثبَّت على نسخة بعينها."
+        ),
+    )
+    inventory_item = _DirectStockItemChoiceField(
+        queryset=InventoryItem.objects.none(),
+        label=_("الصنف المخزني المباشر"),
+        required=False,
+        help_text=_(
+            "تظهر هنا فقط الأصناف الفعّالة المصنفة «بضاعة لإعادة البيع» والتي لا تتطلب اختيار تشغيلة."
+        ),
+    )
+    direct_stock_base_quantity = forms.DecimalField(
+        label=_("كمية المخزون لكل وحدة مباعة"),
+        required=False,
+        min_value=Decimal("0.000001"),
+        max_digits=21,
+        decimal_places=6,
+        help_text=_(
+            "بالوحدة الأساسية للصنف المخزني؛ مثال: 1 لقنينة واحدة، أو 0.500 لنصف كيلوغرام."
         ),
     )
     description_ar = forms.CharField(
@@ -166,6 +224,16 @@ class MenuItemForm(forms.Form):
             .distinct()
             .order_by("code")
         )
+        self.fields["inventory_item"].queryset = (  # type: ignore[attr-defined]
+            InventoryItem.objects.filter(
+                organization_id__in=organization_ids,
+                is_active=True,
+                item_type=ItemType.GOODS_FOR_RESALE,
+                tracks_lots=False,
+            )
+            .select_related("base_unit")
+            .order_by("code")
+        )
 
     def clean_code(self) -> str:
         code = canonical_code(self.cleaned_data["code"])
@@ -184,7 +252,40 @@ class MenuItemForm(forms.Form):
         return code
 
     def clean_serving_code(self) -> str:
-        return canonical_code(self.cleaned_data["serving_code"])
+        return canonical_code(self.cleaned_data.get("serving_code", ""))
+
+    def clean(self) -> dict[str, Any]:
+        """Validate the selected route and erase every field on the inactive route."""
+        data = super().clean() or {}
+        source = data.get("fulfillment_source")
+        organization = (
+            self.instance.organization if self.instance is not None else data.get("organization")
+        )
+
+        if source == FulfillmentSource.RECIPE_SERVING:
+            recipe = data.get("recipe")
+            if recipe is None:
+                self.add_error("recipe", _("اختر الوصفة التي تنفّذ هذا الصنف."))
+            elif organization is not None and recipe.organization_id != organization.pk:
+                self.add_error("recipe", _("الوصفة المختارة تابعة لمؤسسة أخرى."))
+            if not data.get("serving_code"):
+                self.add_error("serving_code", _("أدخل رمز الحصة المعرّف على الوصفة."))
+            data["inventory_item"] = None
+            data["direct_stock_base_quantity"] = None
+        elif source == FulfillmentSource.DIRECT_STOCK:
+            inventory_item = data.get("inventory_item")
+            if inventory_item is None:
+                self.add_error("inventory_item", _("اختر الصنف الذي سيخرج من المخزون."))
+            elif organization is not None and inventory_item.organization_id != organization.pk:
+                self.add_error("inventory_item", _("الصنف المخزني المختار تابع لمؤسسة أخرى."))
+            if data.get("direct_stock_base_quantity") is None:
+                self.add_error(
+                    "direct_stock_base_quantity",
+                    _("أدخل كمية المخزون التي تخرج مقابل وحدة مباعة واحدة."),
+                )
+            data["recipe"] = None
+            data["serving_code"] = ""
+        return data
 
     def selected_organization(self) -> Organization:
         organization: Organization = self.cleaned_data["organization"]
@@ -393,6 +494,12 @@ class BranchAvailabilityForm(forms.Form):
     """Whether one branch sells one item."""
 
     branch = forms.ModelChoiceField(queryset=MenuItem.objects.none(), label=_("الفرع"))
+    source_warehouse = _SourceWarehouseChoiceField(
+        queryset=Warehouse.objects.none(),
+        label=_("مخزن الصرف"),
+        required=False,
+        help_text=_("المخزن الفعلي الذي تُخصم منه مبيعات هذا الصنف في الفرع المختار."),
+    )
     is_available = forms.BooleanField(label=_("متاح للبيع"), required=False, initial=True)
     local_name_ar = forms.CharField(label=_("اسم محلي"), max_length=200, required=False)
     notes = forms.CharField(
@@ -405,6 +512,32 @@ class BranchAvailabilityForm(forms.Form):
         self.menu_item = menu_item
         branches = accessible_branches(actor).filter(organization_id=menu_item.organization_id)
         self.fields["branch"].queryset = branches.order_by("code")  # type: ignore[attr-defined]
+        if menu_item.fulfillment_source == FulfillmentSource.DIRECT_STOCK:
+            self.fields["source_warehouse"].required = True
+            self.fields["source_warehouse"].queryset = (  # type: ignore[attr-defined]
+                accessible_warehouses(actor)
+                .filter(
+                    branch__organization_id=menu_item.organization_id,
+                    is_system=False,
+                )
+                .select_related("branch")
+                .order_by("branch__code", "code")
+            )
+        else:
+            del self.fields["source_warehouse"]
+
+    def clean(self) -> dict[str, Any]:
+        data = super().clean() or {}
+        branch = data.get("branch")
+        warehouse = data.get("source_warehouse")
+        if (
+            self.menu_item.fulfillment_source == FulfillmentSource.DIRECT_STOCK
+            and branch is not None
+            and warehouse is not None
+            and warehouse.branch_id != branch.pk
+        ):
+            self.add_error("source_warehouse", _("اختر مخزناً تابعاً للفرع المحدد."))
+        return data
 
 
 # ---------------------------------------------------------------------------

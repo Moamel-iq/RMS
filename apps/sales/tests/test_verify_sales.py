@@ -42,7 +42,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 
 from apps.accounting.models import (
     DELIVERY_COMMISSION_EXPENSE,
@@ -327,6 +327,13 @@ def test_a_menu_item_whose_serving_lapsed_is_an_error(scenario: dict[str, Any]) 
     point.
     """
     assert verify_menu(scenario["organization"]) == []
+    # The scenario's sales lines were captured against this item, and `0015`
+    # checks each captured snapshot against the menu at the end of the
+    # transaction. In production those lines committed before the serving
+    # lapsed; inside one test transaction they would be checked *after* it,
+    # against a menu they no longer match. Settle the queued checks now, the
+    # way the commit did, so the lapse that follows is the later event it is.
+    connection.check_constraints()
     MenuItem.objects.filter(pk=scenario["menu_item"].pk).update(serving_code="GONE")
     findings = verify_menu(scenario["organization"])
     assert "menu_item_serving_is_not_offered" in _codes(findings, ERROR)
