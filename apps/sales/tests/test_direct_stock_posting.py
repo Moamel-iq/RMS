@@ -532,6 +532,11 @@ class TestDirectStockSalesDayPosting:
         assert balance.quantity == Decimal("10.000")
         assert balance.value == Decimal("20000.000")
 
+    # Transactional, as `test_direct_stock_db_guards` is: posting and reversal
+    # commit separately, so every deferred guard is checked at the moment it
+    # was written for — while the document is still POSTED — rather than all
+    # at teardown, after reversal has moved it on.
+    @pytest.mark.django_db(transaction=True)
     def test_reversal_restores_the_original_issue_value_after_average_cost_changes(
         self,
         organization: Organization,
@@ -876,6 +881,8 @@ class TestDirectStockSalesAdjustments:
             )
         assert "quantity_over_adjusted" in _error_codes(caught.value)
 
+    # Transactional for the reason given on the day-posting reversal test.
+    @pytest.mark.django_db(transaction=True)
     def test_reversing_a_restock_adjustment_reverses_its_return_movement(
         self,
         organization: Organization,
