@@ -1,10 +1,10 @@
 {% extends base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 {% block page %}
 <section class="workspace-page" id="recipe-cost-report">
   <nav class="workspace-breadcrumb"><span>{% translate "التقارير" %}</span><span>/</span><span>{% translate "كلفة الوصفات" %}</span></nav>
-  <div class="pagehead"><div><p class="pagehead__eyebrow">{% translate "تحليل الكلفة التاريخية" %}</p><h1 class="pagehead__title">{{ page_title }}</h1><p class="pagehead__hint">{{ page_hint }}</p></div><div class="pagehead__actions"><a class="btn btn--secondary" href="?{{ export_query }}" download>{% translate "تصدير CSV" %}</a></div></div>
+  <div class="pagehead"><div><p class="pagehead__eyebrow">{% translate "تحليل الكلفة التاريخية" %}</p><h1 class="pagehead__title">{{ page_title }}</h1><p class="pagehead__hint">{{ page_hint }}</p></div><div class="pagehead__actions">{% if menu_cost_rows %}<a class="btn btn--primary" href="{% url 'accounting:income_statement' %}?organization={{ menu_cost_rows.0.branch.organization.pk }}&amp;from={{ menu_cost_date|date:'Y-m-d' }}&amp;to={{ menu_cost_date|date:'Y-m-d' }}">{% translate "فتح قائمة الدخل" %}</a>{% endif %}<a class="btn btn--secondary" href="?{{ export_query }}" download>{% translate "تصدير CSV" %}</a></div></div>
 
   <div class="stats-grid">
     <article class="stat-card"><span>{% translate "لقطات مطابقة" %}</span><strong><bdi dir="ltr">{{ snapshot_count }}</bdi></strong></article>
@@ -25,14 +25,71 @@
 
   {% if applied_filters %}<p class="chips" aria-label="{% translate 'المرشحات المطبقة' %}">{% for label, value in applied_filters %}<span class="chip">{{ label }}: <bdi dir="ltr">{{ value }}</bdi></span>{% endfor %}</p>{% endif %}
 
+  <div class="formcard">
+    <div class="section-heading">
+      <div>
+        <h2>{% translate "كلفة الطبق لأصناف منيو المبيعات" %}</h2>
+        <p>{% blocktranslate with date=menu_cost_date|date:"Y-m-d" %}تقييم المخزون بتاريخ {{ date }}. الكلفة الجزئية هي مجموع المكونات المقيّمة فقط ولا يجوز اعتمادها ككلفة نهائية.{% endblocktranslate %}</p>
+      </div>
+      <p class="chips">
+        <span class="chip chip--on">{% translate "مكتملة" %}: <bdi dir="ltr">{{ menu_cost_complete_count }}</bdi></span>
+        <span class="chip{% if menu_cost_partial_count %} chip--warn{% endif %}">{% translate "تحتاج تقييماً" %}: <bdi dir="ltr">{{ menu_cost_partial_count }}</bdi></span>
+      </p>
+    </div>
+
+    {% if menu_cost_ambiguous_branches %}
+      <div class="banner banner--warn" role="alert">
+        {% translate "اختر مخزناً محدداً لهذه الفروع قبل احتساب كلفة الطبق:" %}
+        {% for branch in menu_cost_ambiguous_branches %}{{ branch.code }}{% if not forloop.last %}، {% endif %}{% endfor %}
+      </div>
+    {% endif %}
+
+    {% if menu_cost_partial_count %}
+      <div class="banner banner--warn" role="alert" id="menu-cost-missing-valuations">
+        <strong>{% translate "الصفر ليس كلفة طبق." %}</strong>
+        {% translate "عندما لا توجد أي حركة مخزنية مسعّرة لمكونات الصنف، يعرض التقرير «غير متاح» بدلاً من 0 د.ع. الرقم الجزئي الظاهر هو فقط مجموع المكونات التي لها تقييم فعلي من المخزون، وليس كلفة نهائية." %}
+      </div>
+    {% endif %}
+
+    <div class="data-table-shell" tabindex="0">
+      <table class="table responsive-table" id="sales-menu-cost-table">
+        <thead><tr><th>{% translate "صنف المبيعات" %}</th><th>{% translate "الوصفة والنسخة" %}</th><th>{% translate "الحصة" %}</th><th>{% translate "الكلفة المحتسبة" %}</th><th>{% translate "كلفة الطبق المحتسبة" %}</th><th>{% translate "حالة التقييم" %}</th></tr></thead>
+        <tbody>
+          {% for row in menu_cost_rows %}
+            <tr>
+              <td data-label="{% translate 'صنف المبيعات' %}"><strong><bdi dir="ltr"><code>{{ row.item.code }}</code></bdi> {{ row.item.name_ar }}</strong><br><span class="muted">{{ row.branch.code }} · {{ row.warehouse.code }}</span></td>
+              <td data-label="{% translate 'الوصفة والنسخة' %}">{% if row.recipe %}<bdi dir="ltr"><code>{{ row.recipe.code }}</code></bdi> {{ row.recipe.name_ar }}{% else %}—{% endif %}{% if row.version %}<br><span class="muted"><bdi dir="ltr">v{{ row.version.version_number }}</bdi> · {{ row.version.get_status_display }}</span>{% endif %}</td>
+              <td data-label="{% translate 'الحصة' %}">{% if row.serving %}<bdi dir="ltr"><code>{{ row.serving.code }}</code></bdi> {{ row.serving.name_ar }}{% else %}—{% endif %}</td>
+              <td data-label="{% translate 'الكلفة المحتسبة' %}">{% if row.known_batch_cost is not None %}<bdi dir="ltr"><code>{{ row.known_batch_cost|iqd }}</code></bdi>{% else %}<span class="chip chip--warn">{% translate "غير متاح" %}</span>{% endif %}</td>
+              <td data-label="{% translate 'كلفة الطبق المحتسبة' %}">{% if row.known_plate_cost is not None %}<strong><bdi dir="ltr"><code>{{ row.known_plate_cost|iqd }}</code></bdi></strong>{% else %}<span class="chip chip--warn">{% translate "غير متاح" %}</span>{% endif %}{% if not row.is_complete and row.known_plate_cost is not None %}<br><span class="chip chip--warn">{% translate "حد أدنى جزئي — غير معتمد" %}</span>{% endif %}</td>
+              <td data-label="{% translate 'حالة التقييم' %}">
+                {% if row.is_complete %}
+                  <span class="chip chip--on">{% translate "مكتملة وقابلة للحفظ" %}</span>
+                {% elif row.problem %}
+                  <span class="chip chip--warn">{{ row.problem }}</span>
+                {% else %}
+                  <span class="chip chip--warn">{% blocktranslate with count=row.missing_count %}{{ count }} مكوّن بلا تقييم{% endblocktranslate %}</span>
+                  <br><span class="muted">{% blocktranslate with valued=row.valued_line_count total=row.line_count percent=row.coverage_percent %}التغطية: {{ valued }} من {{ total }} مكوّن ({{ percent }}٪){% endblocktranslate %}</span>
+                  {% if row.missing_names %}<br><span class="muted">{{ row.missing_names }}{% if row.missing_more %} {% blocktranslate with count=row.missing_more %}و{{ count }} أخرى{% endblocktranslate %}{% endif %}</span>{% endif %}
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6" data-empty-state><div class="empty-state"><strong>{% translate "لا توجد أصناف منيو متاحة في النطاق المحدد." %}</strong></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="formcard"><div class="section-heading"><div><h2>{% translate "لقطات كلفة الوصفات" %}</h2><p>{% blocktranslate count total=total_rows %}لقطة واحدة{% plural %}{{ total }} لقطة{% endblocktranslate %}</p></div></div><div class="data-table-shell" tabindex="0"><table class="table responsive-table"><thead><tr><th>{% translate "الوصفة والنسخة" %}</th><th>{% translate "الفرع وأساس التقييم" %}</th><th>{% translate "الناتج والحصص" %}</th><th>{% translate "المكونات والتوسيع" %}</th><th>{% translate "تفصيل الكلفة" %}</th><th>{% translate "الإجمالي والحصة" %}</th><th>{% translate "التحقق واللقطة" %}</th><th>{% translate "إجراء" %}</th></tr></thead><tbody>
     {% for row in rows %}<tr>
       <td data-label="{% translate 'الوصفة والنسخة' %}"><strong>{{ row.recipe }}</strong><br><bdi dir="ltr">{{ row.version }}</bdi><br><span class="muted">{% translate "نفاذ" %} <bdi dir="ltr">{{ row.effective_period }}</bdi></span></td>
       <td data-label="{% translate 'الفرع وأساس التقييم' %}">{{ row.branch }}<br><span class="muted"><bdi dir="ltr">{{ row.cost_basis }}</bdi></span></td>
       <td data-label="{% translate 'الناتج والحصص' %}">{% translate "ناتج" %} <bdi dir="ltr">{{ row.output }}</bdi><br>{% translate "حصص" %} <bdi dir="ltr">{{ row.portions }}</bdi></td>
       <td data-label="{% translate 'المكونات والتوسيع' %}"><strong><bdi dir="ltr">{{ row.ingredient_count }}</bdi> {% translate "مكوّن" %}</strong><br><span class="muted">{{ row.ingredients }}</span><br><span class="chip">{% blocktranslate with count=row.nested_count %}{{ count }} وصفة فرعية{% endblocktranslate %}</span>{% if row.nested_count %}<br><span class="muted">{{ row.nested_expansion }}</span>{% endif %}</td>
-      <td data-label="{% translate 'تفصيل الكلفة' %}">{% translate "غذاء" %} <bdi dir="ltr">{{ row.food_cost }} IQD</bdi><br>{% translate "تغليف" %} <bdi dir="ltr">{{ row.packaging_cost }} IQD</bdi><br>{% translate "فاقد معتمد" %} <bdi dir="ltr">{{ row.approved_loss_cost }} IQD</bdi></td>
-      <td data-label="{% translate 'الإجمالي والحصة' %}"><strong><bdi dir="ltr">{{ row.batch_cost }} IQD</bdi></strong><br>{% translate "للحصة" %} <bdi dir="ltr">{{ row.portion_cost }} IQD</bdi></td>
+      <td data-label="{% translate 'تفصيل الكلفة' %}">{% translate "غذاء" %} <bdi dir="ltr">{{ row.food_cost|iqd }}</bdi><br>{% translate "تغليف" %} <bdi dir="ltr">{{ row.packaging_cost|iqd }}</bdi><br>{% translate "فاقد معتمد" %} <bdi dir="ltr">{{ row.approved_loss_cost|iqd }}</bdi></td>
+      <td data-label="{% translate 'الإجمالي والحصة' %}"><strong><bdi dir="ltr">{{ row.batch_cost|iqd }}</bdi></strong><br>{% translate "للحصة" %} <bdi dir="ltr">{{ row.portion_cost|iqd }}</bdi></td>
       <td data-label="{% translate 'التحقق واللقطة' %}"><span class="chip{% if row.warning_count %} chip--warn{% else %} chip--on{% endif %}">{{ row.valuation_warnings }}</span><br><bdi dir="ltr">{{ row.snapshot_date }}</bdi><br><span class="muted"><bdi dir="ltr">{{ row.created_at }}</bdi></span></td>
       <td data-label="{% translate 'إجراء' %}"><a class="btn btn--secondary btn--sm" href="{{ row.detail_url }}" hx-get="{{ row.detail_url }}" hx-target="main" hx-push-url="true">{% translate "تفاصيل الكلفة" %}</a></td>
     </tr>{% empty %}<tr><td colspan="8" data-empty-state><div class="empty-state"><strong>{% translate "لا توجد لقطات كلفة مطابقة." %}</strong><span>{% translate "غيّر الفترة أو الفرع أو المخزن، أو أنشئ لقطة كلفة معتمدة من شاشة الوصفة." %}</span></div></td></tr>{% endfor %}

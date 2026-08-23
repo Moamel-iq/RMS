@@ -37,6 +37,7 @@ from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Q, QuerySet
 from django.http import HttpRequest, HttpResponse
@@ -47,6 +48,7 @@ from django.views import View
 
 from apps.core.money import money_export, quantize_money
 from apps.kitchen.cost_reconciliation import snapshot_findings
+from apps.kitchen.costing import cost_recipe_version, preview_recipe_cost
 from apps.kitchen.kitchen_operations import (
     OperationFilters,
     custody_in,
@@ -54,7 +56,12 @@ from apps.kitchen.kitchen_operations import (
     kitchen_waste,
     readable_kitchen_warehouses,
 )
-from apps.kitchen.models import RecipeCostSnapshot, RecipeCostSnapshotLine
+from apps.kitchen.models import (
+    Recipe,
+    RecipeCostSnapshot,
+    RecipeCostSnapshotLine,
+    RecipeVersionStatus,
+)
 from apps.kitchen.permissions import VIEW_KITCHEN_REPORT, VIEW_RECIPE_COST
 from apps.kitchen.productivity import (
     ProductionFilters,
@@ -69,6 +76,7 @@ from apps.kitchen.selectors import (
     visible_cost_snapshots,
 )
 from apps.kitchen.views import KitchenViewMixin
+from apps.sales.models import MenuItem
 
 #: Anything Excel and Sheets would evaluate. Prefixed on export so a cell that
 #: begins with one is read as text — inherited from the Inventory exports,
@@ -474,7 +482,7 @@ class RecipeCostReportView(KitchenReportView):
         return report
 
     def extra_context(self) -> dict[str, Any]:
-        return getattr(
+        summary = getattr(
             self,
             "_report_summary",
             {
@@ -485,6 +493,196 @@ class RecipeCostReportView(KitchenReportView):
                 "branches": (),
             },
         )
+        return {**summary, **self._menu_cost_context()}
+
+    def _menu_cost_context(self) -> dict[str, Any]:
+        """Live cost readiness for every food item defined in Sales.
+
+        The immutable table below this panel remains the authoritative record.
+        This panel answers the operational question that comes first: which
+        menu items can be costed now, and exactly which ingredient valuations
+        still prevent a complete plate cost.  A partial number is labelled as
+        such and is never written to ``RecipeCostSnapshot``.
+        """
+        filters = self.production_filters()
+        as_of_date = filters.date_to or datetime.date.today()
+        warehouses = list(readable_kitchen_warehouses(self.actor).select_related("branch"))
+        if filters.warehouse_id is not None:
+            warehouses = [row for row in warehouses if row.pk == filters.warehouse_id]
+        if filters.branch_id is not None:
+            warehouses = [row for row in warehouses if row.branch_id == filters.branch_id]
+
+        # One valuation answer per branch.  A branch with several readable
+        # stores must be selected explicitly; silently choosing one would make
+        # the same dish show a different cost depending on queryset order.
+        by_branch: dict[int, list[Any]] = {}
+        for warehouse in warehouses:
+            by_branch.setdefault(warehouse.branch_id, []).append(warehouse)
+
+        rows: list[dict[str, Any]] = []
+        ambiguous_branches: list[Any] = []
+        for _branch_id, branch_warehouses in by_branch.items():
+            branch = branch_warehouses[0].branch
+            if len(branch_warehouses) != 1:
+                ambiguous_branches.append(branch)
+                continue
+            warehouse = branch_warehouses[0]
+            items = (
+                MenuItem.objects.filter(
+                    organization=branch.organization,
+                    is_active=True,
+                )
+                .exclude(code__startswith="DEMO-")
+                .select_related("recipe", "category")
+                .order_by("category__display_order", "display_order", "code")
+            )
+            search = self.request.GET.get("q", "").strip()
+            if search:
+                items = items.filter(
+                    Q(code__icontains=search)
+                    | Q(name_ar__icontains=search)
+                    | Q(recipe__code__icontains=search)
+                    | Q(recipe__name_ar__icontains=search)
+                )
+
+            for item in items:
+                rows.append(
+                    self._menu_item_cost_row(
+                        item=item,
+                        branch=branch,
+                        warehouse=warehouse,
+                        as_of_date=as_of_date,
+                    )
+                )
+
+        complete_count = sum(1 for row in rows if row["is_complete"])
+        return {
+            "menu_cost_rows": rows,
+            "menu_cost_date": as_of_date,
+            "menu_cost_complete_count": complete_count,
+            "menu_cost_partial_count": len(rows) - complete_count,
+            "menu_cost_ambiguous_branches": ambiguous_branches,
+        }
+
+    @staticmethod
+    def _menu_item_cost_row(
+        *, item: MenuItem, branch: Any, warehouse: Any, as_of_date: datetime.date
+    ) -> dict[str, Any]:
+        recipe = item.recipe
+        if recipe is None:
+            return {
+                "item": item,
+                "branch": branch,
+                "warehouse": warehouse,
+                "recipe": None,
+                "version": None,
+                "known_batch_cost": None,
+                "known_plate_cost": None,
+                "missing_count": 0,
+                "missing_names": "",
+                "is_complete": False,
+                "is_authoritative": False,
+                "problem": str(_("الصنف غير مربوط بوصفة.")),
+            }
+
+        # Test data keeps the sourced recipe drafts untouched and activates an
+        # identical DEMO copy after fictional review.  Prefer that frozen copy
+        # where it exists; otherwise show a draft preview, still clearly marked
+        # non-authoritative and impossible to snapshot.
+        costing_recipe = (
+            Recipe.objects.filter(
+                organization=item.organization,
+                code=f"DEMO-{recipe.code}",
+                versions__status=RecipeVersionStatus.ACTIVE,
+            )
+            .distinct()
+            .first()
+            or recipe
+        )
+        version = (
+            costing_recipe.versions.filter(status=RecipeVersionStatus.ACTIVE)
+            .order_by("-version_number")
+            .first()
+            or costing_recipe.versions.order_by("-version_number").first()
+        )
+        if version is None:
+            return {
+                "item": item,
+                "branch": branch,
+                "warehouse": warehouse,
+                "recipe": recipe,
+                "costing_recipe": costing_recipe,
+                "version": None,
+                "known_batch_cost": None,
+                "known_plate_cost": None,
+                "missing_count": 0,
+                "missing_names": "",
+                "is_complete": False,
+                "is_authoritative": False,
+                "problem": str(_("الوصفة بلا نسخة يمكن تقييمها.")),
+            }
+        try:
+            if version.status in {
+                RecipeVersionStatus.APPROVED,
+                RecipeVersionStatus.ACTIVE,
+                RecipeVersionStatus.SUPERSEDED,
+            }:
+                card = cost_recipe_version(
+                    version=version, warehouse=warehouse, as_of_date=as_of_date
+                )
+            else:
+                card = preview_recipe_cost(
+                    version=version, warehouse=warehouse, as_of_date=as_of_date
+                )
+        except ValidationError as error:
+            return {
+                "item": item,
+                "branch": branch,
+                "warehouse": warehouse,
+                "recipe": recipe,
+                "costing_recipe": costing_recipe,
+                "version": version,
+                "known_batch_cost": None,
+                "known_plate_cost": None,
+                "missing_count": 0,
+                "missing_names": "",
+                "is_complete": False,
+                "is_authoritative": False,
+                "problem": "؛ ".join(str(message) for message in error.messages),
+            }
+
+        missing_names = tuple(dict.fromkeys(row.item_name for row in card.missing))
+        valued_line_count = sum(1 for line in card.lines if line.is_valued)
+        line_count = len(card.lines)
+        has_known_cost = card.is_complete or valued_line_count > 0
+        return {
+            "item": item,
+            "branch": branch,
+            "warehouse": warehouse,
+            "recipe": recipe,
+            "costing_recipe": costing_recipe,
+            "version": version,
+            "serving": card.primary_serving,
+            # An incomplete card with no valued leaves has no cost answer at
+            # all.  Showing the costing kernel's internal zero in that case is
+            # operationally misleading: zero means free, while this state
+            # means "no purchase valuation exists".  Keep genuine zero-cost
+            # complete cards representable, but render an unavailable partial
+            # card as unavailable.
+            "known_batch_cost": card.total_material_cost if has_known_cost else None,
+            "known_plate_cost": card.plate_cost if has_known_cost else None,
+            "valued_line_count": valued_line_count,
+            "line_count": line_count,
+            "coverage_percent": (
+                round((valued_line_count / line_count) * 100) if line_count else 0
+            ),
+            "missing_count": len(card.missing),
+            "missing_names": "، ".join(missing_names[:4]),
+            "missing_more": max(len(missing_names) - 4, 0),
+            "is_complete": card.is_complete,
+            "is_authoritative": card.is_authoritative,
+            "problem": "",
+        }
 
 
 class RecipeCostReportDetailView(KitchenViewMixin, View):

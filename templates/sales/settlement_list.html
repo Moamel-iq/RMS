@@ -6,7 +6,7 @@
 {# "variance" column would throw that away before the reader ever opens a    #}
 {# row.                                                                      #}
 {% extends "settings/base_list.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block filters %}
   <label class="field">
@@ -49,13 +49,13 @@
       </td>
       {# Three separate figures. Never netted into one. #}
       <td data-label="{% translate 'المستحق' %}">
-        <bdi dir="ltr"><code>{{ settlement.expected_amount }}</code></bdi>
+        <bdi dir="ltr"><code>{{ settlement.expected_amount|iqd }}</code></bdi>
       </td>
       <td data-label="{% translate 'الكشف' %}">
-        <bdi dir="ltr"><code>{{ settlement.statement_amount }}</code></bdi>
+        <bdi dir="ltr"><code>{{ settlement.statement_amount|iqd }}</code></bdi>
       </td>
       <td data-label="{% translate 'المحوَّل' %}">
-        <bdi dir="ltr"><code>{{ settlement.remitted_amount }}</code></bdi>
+        <bdi dir="ltr"><code>{{ settlement.remitted_amount|iqd }}</code></bdi>
       </td>
       <td data-label="{% translate 'الرقم' %}">
         {% if settlement.number %}

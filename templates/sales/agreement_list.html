@@ -8,7 +8,7 @@
 {# accrued a commission is evidence. Correcting it in place would restate an  #}
 {# expense that already posted, so the only correction is ending it.          #}
 {% extends "settings/base_list.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block filters %}
   <label class="field field--check">
@@ -40,7 +40,7 @@
       </td>
       <td data-label="{% translate 'الفرع' %}"><bdi dir="ltr"><code>{{ agreement.branch.code }}</code></bdi></td>
       <td data-label="{% translate 'النسبة' %}"><bdi dir="ltr"><code>{{ agreement.percent_display }}%</code></bdi></td>
-      <td data-label="{% translate 'رسم لكل طلب' %}"><bdi dir="ltr"><code>{{ agreement.fixed_fee_per_order }}</code></bdi></td>
+      <td data-label="{% translate 'رسم لكل طلب' %}"><bdi dir="ltr"><code>{{ agreement.fixed_fee_per_order|iqd }}</code></bdi></td>
       <td data-label="{% translate 'أساس الاحتساب' %}">
         <span class="chip">{{ agreement.get_commission_basis_display }}</span>
       </td>
@@ -54,9 +54,9 @@
       </td>
       <td data-label="{% translate 'مثال محتسب' %}">
         <span class="muted">
-          {% blocktranslate with base=preview_amount %}على {{ base }}{% endblocktranslate %}
+          {% blocktranslate with base=preview_amount|iqd %}على {{ base }}{% endblocktranslate %}
         </span>
-        <bdi dir="ltr"><code>{{ agreement.preview.result.total }}</code></bdi>
+        <bdi dir="ltr"><code>{{ agreement.preview.result.total|iqd }}</code></bdi>
       </td>
       <td data-label="{% translate 'الحالة' %}">
         {% if not agreement.is_active %}

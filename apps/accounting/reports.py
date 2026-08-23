@@ -454,9 +454,14 @@ class IncomeStatement:
         return self.operating_profit + self.other_income.total - self.other_expenses.total
 
     @property
+    def cost_of_sales_missing(self) -> bool:
+        """Revenue with no COGS is incomplete for this restaurant ledger."""
+        return self.revenue.total != ZERO and self.cost_of_sales.total == ZERO
+
+    @property
     def is_approvable(self) -> bool:
-        """An unclassified balance blocks approval. It is never hidden."""
-        return not self.unmapped
+        """Unclassified balances or missing restaurant COGS block approval."""
+        return not self.unmapped and not self.cost_of_sales_missing
 
 
 def income_statement(

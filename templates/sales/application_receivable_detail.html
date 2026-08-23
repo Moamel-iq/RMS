@@ -6,20 +6,20 @@
 {# any of the three. That is the question a counterparty argument always     #}
 {# turns on and the one a stored balance could never answer.                 #}
 {% extends list_base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="application-receivable-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="workspace-page" id="application-receivable-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:receivable_list' %}">{% translate "ذمم التطبيقات" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ application.code }}</span>
     </nav>
 
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }} — {{ application.name_ar }}</h1>
         <p class="pagehead__hint">
           {% blocktranslate with as_of=as_of|date:"Y-m-d" %}حتى {{ as_of }}{% endblocktranslate %}
@@ -43,16 +43,16 @@
     <div class="statrow">
       <div class="stat">
         <span class="stat__label">{% translate "الرصيد الافتتاحي" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ opening }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ opening|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "الرصيد الختامي" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ closing }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ closing|iqd }}</code></bdi></span>
       </div>
       {% for bucket in position.buckets %}
         <div class="stat">
           <span class="stat__label"><bdi dir="ltr"><code>{{ bucket.label }}</code></bdi></span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ bucket.amount }}</code></bdi></span>
+          <span class="stat__value"><bdi dir="ltr"><code>{{ bucket.amount|iqd }}</code></bdi></span>
         </div>
       {% endfor %}
       {% if position.expected_settlement_date %}
@@ -69,86 +69,90 @@
       {% translate "لا يوجد حقل رصيد في قاعدة البيانات: كل رقم هنا مشتق من الحركات في كل مرة يُسأل عنها. الرصيد المخزَّن رقم يمكن أن يختلف مع الحركات التي أنتجته، والاختلاف يُكتشف دائماً في وسط نقاش مع الطرف الآخر." %}
     </p>
 
-    <h2 class="section-title">{% translate "حركات الذمة" %}</h2>
-    <div class="tablewrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">{% translate "التاريخ" %}</th>
-            <th scope="col">{% translate "المصدر" %}</th>
-            <th scope="col">{% translate "المستند" %}</th>
-            <th scope="col">{% translate "مدين" %}</th>
-            <th scope="col">{% translate "دائن" %}</th>
-            <th scope="col">{% translate "الرصيد" %}</th>
-            <th scope="col">{% translate "البيان" %}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for entry, balance in movements %}
+    <section class="formcard">
+      <h2>{% translate "حركات الذمة" %}</h2>
+      <div class="data-table-shell">
+        <table class="table responsive-table">
+          <thead>
             <tr>
-              <td data-label="{% translate 'التاريخ' %}">
-                <bdi dir="ltr"><code>{{ entry.business_date|date:"Y-m-d" }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'المصدر' %}">{{ entry.get_source_display }}</td>
-              <td data-label="{% translate 'المستند' %}">
-                <bdi dir="ltr"><code>{{ entry.source_document_type }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'مدين' %}">
-                {% if entry.debit %}<bdi dir="ltr"><code>{{ entry.debit }}</code></bdi>{% else %}—{% endif %}
-              </td>
-              <td data-label="{% translate 'دائن' %}">
-                {% if entry.credit %}<bdi dir="ltr"><code>{{ entry.credit }}</code></bdi>{% else %}—{% endif %}
-              </td>
-              <td data-label="{% translate 'الرصيد' %}">
-                <bdi dir="ltr"><code>{{ balance }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'البيان' %}">{{ entry.narration|default:"—" }}</td>
+              <th scope="col">{% translate "التاريخ" %}</th>
+              <th scope="col">{% translate "المصدر" %}</th>
+              <th scope="col">{% translate "المستند" %}</th>
+              <th scope="col">{% translate "مدين" %}</th>
+              <th scope="col">{% translate "دائن" %}</th>
+              <th scope="col">{% translate "الرصيد" %}</th>
+              <th scope="col">{% translate "البيان" %}</th>
             </tr>
-          {% empty %}
-            <tr>
-              <td colspan="7" class="empty">{% translate "لا توجد حركات في هذه الفترة." %}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {% for entry, balance in movements %}
+              <tr>
+                <td data-label="{% translate 'التاريخ' %}">
+                  <bdi dir="ltr"><code>{{ entry.business_date|date:"Y-m-d" }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'المصدر' %}">{{ entry.get_source_display }}</td>
+                <td data-label="{% translate 'المستند' %}">
+                  <bdi dir="ltr"><code>{{ entry.source_document_type }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'مدين' %}">
+                  {% if entry.debit %}<bdi dir="ltr"><code>{{ entry.debit|iqd }}</code></bdi>{% else %}—{% endif %}
+                </td>
+                <td data-label="{% translate 'دائن' %}">
+                  {% if entry.credit %}<bdi dir="ltr"><code>{{ entry.credit|iqd }}</code></bdi>{% else %}—{% endif %}
+                </td>
+                <td data-label="{% translate 'الرصيد' %}">
+                  <bdi dir="ltr"><code>{{ balance|iqd }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'البيان' %}">{{ entry.narration|default:"—" }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="7" class="empty">{% translate "لا توجد حركات في هذه الفترة." %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-    <h2 class="section-title">{% translate "آخر التسويات" %}</h2>
-    <div class="tablewrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">{% translate "الفترة" %}</th>
-            <th scope="col">{% translate "كشف الحساب" %}</th>
-            <th scope="col">{% translate "المحوَّل" %}</th>
-            <th scope="col">{% translate "الحالة" %}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for settlement in settlements %}
+    <section class="formcard">
+      <h2>{% translate "آخر التسويات" %}</h2>
+      <div class="data-table-shell">
+        <table class="table responsive-table">
+          <thead>
             <tr>
-              <td data-label="{% translate 'الفترة' %}">
-                <a href="{% url 'sales:settlement_detail' settlement.pk %}">
-                  <bdi dir="ltr"><code>{{ settlement.period_start|date:"Y-m-d" }} … {{ settlement.period_end|date:"Y-m-d" }}</code></bdi>
-                </a>
-              </td>
-              <td data-label="{% translate 'كشف الحساب' %}">
-                <bdi dir="ltr"><code>{{ settlement.statement_reference }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'المحوَّل' %}">
-                <bdi dir="ltr"><code>{{ settlement.remitted_amount }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'الحالة' %}">
-                <span class="chip">{{ settlement.get_status_display }}</span>
-              </td>
+              <th scope="col">{% translate "الفترة" %}</th>
+              <th scope="col">{% translate "كشف الحساب" %}</th>
+              <th scope="col">{% translate "المحوَّل" %}</th>
+              <th scope="col">{% translate "الحالة" %}</th>
             </tr>
-          {% empty %}
-            <tr>
-              <td colspan="4" class="empty">{% translate "لا توجد تسويات لهذا التطبيق بعد." %}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {% for settlement in settlements %}
+              <tr>
+                <td data-label="{% translate 'الفترة' %}">
+                  <a href="{% url 'sales:settlement_detail' settlement.pk %}">
+                    <bdi dir="ltr"><code>{{ settlement.period_start|date:"Y-m-d" }} … {{ settlement.period_end|date:"Y-m-d" }}</code></bdi>
+                  </a>
+                </td>
+                <td data-label="{% translate 'كشف الحساب' %}">
+                  <bdi dir="ltr"><code>{{ settlement.statement_reference }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'المحوَّل' %}">
+                  <bdi dir="ltr"><code>{{ settlement.remitted_amount|iqd }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'الحالة' %}">
+                  <span class="chip">{{ settlement.get_status_display }}</span>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="4" class="empty">{% translate "لا توجد تسويات لهذا التطبيق بعد." %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
 {% endblock %}

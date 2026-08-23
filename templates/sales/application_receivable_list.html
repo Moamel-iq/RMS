@@ -9,7 +9,7 @@
 {# late is a commercial problem, and no bucket here is ever written off      #}
 {# automatically (ADR-028 §9).                                               #}
 {% extends "settings/base_list.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block filters %}
   <label class="field">
@@ -39,12 +39,12 @@
         {{ position.delivery_application.name_ar }}
       </td>
       <td data-label="{% translate 'الرصيد' %}">
-        <bdi dir="ltr"><code>{{ position.balance }}</code></bdi>
+        <bdi dir="ltr"><code>{{ position.balance|iqd }}</code></bdi>
       </td>
       {% for bucket in position.buckets %}
         <td data-label="{{ bucket.label }}">
           {% if bucket.amount %}
-            <bdi dir="ltr"><code>{{ bucket.amount }}</code></bdi>
+            <bdi dir="ltr"><code>{{ bucket.amount|iqd }}</code></bdi>
           {% else %}
             <span class="muted">—</span>
           {% endif %}

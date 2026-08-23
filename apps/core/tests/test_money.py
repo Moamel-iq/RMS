@@ -29,6 +29,7 @@ from apps.core.money import (
     quantize_unit_price,
 )
 from apps.core.quantity import QUANTITY_PLACES, decimal_places_of
+from apps.core.templatetags.money_tags import iqd_filter, iqd_full_filter
 
 
 class TestPolicyConstants:
@@ -151,6 +152,12 @@ class TestRendering:
             money_export("1250.001"),
         ):
             assert isinstance(rendered, str)
+
+    def test_iqd_template_filter_groups_and_labels_operational_money(self) -> None:
+        assert iqd_filter(Decimal("1234567.000")) == "1,234,567 د.ع"
+
+    def test_iqd_full_template_filter_keeps_audit_precision(self) -> None:
+        assert iqd_full_filter(Decimal("1234567.890")) == "1,234,567.890 د.ع"
 
     def test_rendered_values_cannot_be_summed_as_money(self) -> None:
         """

@@ -447,7 +447,7 @@ class TestTheArabicSurface:
         assert snapshot.as_of_date.isoformat() in body
         assert snapshot.warehouse_code in body
         assert "كلفة الفاقد المعتمد" in body
-        assert "IQD" in body
+        assert "د.ع" in body
         assert reverse("kitchen:report_recipe_cost_detail", args=[snapshot.pk]) in body
         assert fragment.status_code == 200
         assert "<html" not in fragment.content.decode().lower()

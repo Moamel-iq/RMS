@@ -1,6 +1,6 @@
 {# أسعار المنيو — effective-dated, most specific wins, never edited in place. #}
 {% extends "settings/base_list.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block filters %}
   <label class="field field--check">
@@ -33,7 +33,7 @@
       <td data-label="{% translate 'الفرع' %}"><bdi dir="ltr"><code>{{ price.branch.code }}</code></bdi></td>
       <td data-label="{% translate 'النطاق' %}"><span class="chip">{{ price.get_scope_display }}</span></td>
       <td data-label="{% translate 'القناة' %}">{% if price.channel %}{{ price.channel.name_ar }}{% else %}—{% endif %}</td>
-      <td data-label="{% translate 'السعر' %}"><bdi dir="ltr"><code>{{ price.price_display }}</code></bdi></td>
+      <td data-label="{% translate 'السعر' %}"><bdi dir="ltr"><code>{{ price.price_display|iqd }}</code></bdi></td>
       <td data-label="{% translate 'من' %}"><bdi dir="ltr"><code>{{ price.effective_from|date:"Y-m-d" }}</code></bdi></td>
       <td data-label="{% translate 'حتى' %}">
         {% if price.effective_to %}

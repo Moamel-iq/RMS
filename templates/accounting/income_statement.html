@@ -12,7 +12,7 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-income-statement">
+  <div class="workspace-page" id="accounting-income-statement">
     <div class="pagehead">
       <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
@@ -30,19 +30,19 @@
       </p>
 
       {% if report.unmapped %}
-        <section class="card card--warn" id="income-unmapped">
-          <h2 class="card__title">{% translate "غير مصنّف" %}</h2>
+        <section class="formcard card--warn" id="income-unmapped">
+          <h2>{% translate "غير مصنّف" %}</h2>
           <p class="card__hint">
             {% translate "حسابات لها رصيد ولا تحمل مجموعة قوائم مالية. تُعرض هنا وتمنع اعتماد القائمة — حذفها كان سيُنتج قائمة متوازنة وخاطئة." %}
           </p>
-          <div class="tablewrap">
-            <table class="table">
+          <div class="data-table-shell">
+            <table class="table responsive-table">
               <thead><tr><th>{% translate "الحساب" %}</th><th>{% translate "الرصيد" %}</th><th></th></tr></thead>
               <tbody>
                 {% for account, balance in report.unmapped %}
                   <tr>
                     <td><code dir="ltr">{{ account.code }}</code> {{ account.name_ar }}</td>
-                    <td><bdi dir="ltr">{{ balance|money_full }}</bdi></td>
+                    <td><bdi dir="ltr">{{ balance|iqd_full }}</bdi></td>
                     <td class="cell-actions">
                       <a class="btn btn--secondary btn--sm" href="{% url 'accounting:account_detail' account.pk %}">{% translate "تصنيف" %}</a>
                     </td>
@@ -54,14 +54,28 @@
         </section>
       {% endif %}
 
-      <section class="card">
-        <div class="tablewrap">
+      {% if report.cost_of_sales_missing %}
+        <section class="formcard card--warn" id="income-missing-cogs" role="alert">
+          <h2>{% translate "كلفة المبيعات غير مُرحّلة" %}</h2>
+          <p class="card__hint">{% translate "توجد إيرادات مرحّلة ولكن رصيد كلفة المبيعات صفر. القائمة تعرض القيود الحالية بدقة، لكنها لا تُعتمد كربحية نهائية حتى تُرحّل دفعات الإنتاج أو قيد كلفة المبيعات." %}</p>
+        </section>
+      {% endif %}
+
+      <section class="formcard">
+        <p class="card__hint">
+          {% if report.is_approvable %}
+            <span class="chip chip--ok">{% translate "قابلة للاعتماد" %}</span>
+          {% else %}
+            <span class="chip chip--warn">{% translate "لا تُعتمد حتى تُحل تحذيرات التصنيف وكلفة المبيعات أعلاه" %}</span>
+          {% endif %}
+        </p>
+        <div class="data-table-shell">
           <table class="table" id="income-statement-table">
             <tbody>
               {% for section in trading_sections %}
                 <tr class="statement-row statement-row--section">
                   <th colspan="2">{{ section.label }}</th>
-                  <th><bdi dir="ltr">{{ section.total|money_full }}</bdi></th>
+                  <th><bdi dir="ltr">{{ section.total|iqd_full }}</bdi></th>
                 </tr>
                 {% for account, balance in section.rows %}
                   <tr>
@@ -71,18 +85,18 @@
                         <code dir="ltr">{{ account.code }}</code> {{ account.name_ar }}
                       </a>
                     </td>
-                    <td><bdi dir="ltr">{{ balance|money_full }}</bdi></td>
+                    <td><bdi dir="ltr">{{ balance|iqd_full }}</bdi></td>
                   </tr>
                 {% endfor %}
               {% endfor %}
               <tr class="statement-row statement-row--total">
                 <th colspan="2">{% translate "مجمل الربح" %}</th>
-                <th><bdi dir="ltr">{{ report.gross_profit|money_full }}</bdi></th>
+                <th><bdi dir="ltr">{{ report.gross_profit|iqd_full }}</bdi></th>
               </tr>
 
               <tr class="statement-row statement-row--section">
                 <th colspan="2">{{ report.operating_expenses.label }}</th>
-                <th><bdi dir="ltr">{{ report.operating_expenses.total|money_full }}</bdi></th>
+                <th><bdi dir="ltr">{{ report.operating_expenses.total|iqd_full }}</bdi></th>
               </tr>
               {% for account, balance in report.operating_expenses.rows %}
                 <tr>
@@ -92,45 +106,38 @@
                       <code dir="ltr">{{ account.code }}</code> {{ account.name_ar }}
                     </a>
                   </td>
-                  <td><bdi dir="ltr">{{ balance|money_full }}</bdi></td>
+                  <td><bdi dir="ltr">{{ balance|iqd_full }}</bdi></td>
                 </tr>
               {% endfor %}
               <tr class="statement-row statement-row--total">
                 <th colspan="2">{% translate "الربح التشغيلي" %}</th>
-                <th><bdi dir="ltr">{{ report.operating_profit|money_full }}</bdi></th>
+                <th><bdi dir="ltr">{{ report.operating_profit|iqd_full }}</bdi></th>
               </tr>
 
               {% for section in other_sections %}
                 <tr class="statement-row statement-row--section">
                   <th colspan="2">{{ section.label }}</th>
-                  <th><bdi dir="ltr">{{ section.total|money_full }}</bdi></th>
+                  <th><bdi dir="ltr">{{ section.total|iqd_full }}</bdi></th>
                 </tr>
                 {% for account, balance in section.rows %}
                   <tr>
                     <td></td>
                     <td><code dir="ltr">{{ account.code }}</code> {{ account.name_ar }}</td>
-                    <td><bdi dir="ltr">{{ balance|money_full }}</bdi></td>
+                    <td><bdi dir="ltr">{{ balance|iqd_full }}</bdi></td>
                   </tr>
                 {% endfor %}
               {% endfor %}
 
               <tr class="statement-row statement-row--grand">
                 <th colspan="2">{% translate "صافي الربح" %}</th>
-                <th><bdi dir="ltr">{{ report.net_profit|money_full }}</bdi></th>
+                <th><bdi dir="ltr">{{ report.net_profit|iqd_full }}</bdi></th>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="card__hint">
-          {% if report.is_approvable %}
-            <span class="chip chip--ok">{% translate "قابلة للاعتماد" %}</span>
-          {% else %}
-            <span class="chip chip--warn">{% translate "لا تُعتمد ما دام هناك حساب غير مصنّف له رصيد" %}</span>
-          {% endif %}
-        </p>
       </section>
     {% else %}
-      <section class="card"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
+      <section class="formcard"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
     {% endif %}
   </div>
 {% endblock %}
