@@ -732,6 +732,12 @@ class TestServings:
         literal or a numeric constant carrying that value is the defect. The
         check therefore reads the AST and looks only at values the code
         actually computes with.
+
+        The loaders under `management/commands` are excluded for the reason
+        `demo.py` is: they read the owner's documents and so carry the
+        vocabulary of those documents — a word list that keeps "دجاجة" from
+        folding into another name is about spelling, not a rule of the app.
+        The services, selectors and views the rule is for are all still read.
         """
         import ast
         import pathlib
@@ -741,7 +747,7 @@ class TestServings:
         offenders: list[str] = []
 
         for path in pathlib.Path("apps/kitchen").rglob("*.py"):
-            if {"tests", "migrations"} & set(path.parts) or path.name == "demo.py":
+            if {"tests", "migrations", "management"} & set(path.parts) or path.name == "demo.py":
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"))
             docstrings = {

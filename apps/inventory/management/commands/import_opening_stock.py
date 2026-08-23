@@ -38,7 +38,7 @@ from django.utils import timezone
 from apps.core.console import SeedCommand
 from apps.inventory import opening
 from apps.inventory.commands import add_opening_line, create_opening
-from apps.inventory.models import InventoryItem, Warehouse
+from apps.inventory.models import InventoryItem, StockMovement, Warehouse
 from apps.organizations.models import Branch, Organization
 from apps.users.models import User
 
@@ -105,6 +105,19 @@ class Command(SeedCommand):
                         (
                             row["item"],
                             f"وحدة الملف {row['unit']} ≠ وحدة الصنف {item.base_unit.code}",
+                        )
+                    )
+                    continue
+                if StockMovement.objects.filter(warehouse=warehouse, item=item).exists():
+                    # An opening balance is only valid as the first movement
+                    # for a valuation key.  The posting service enforces the
+                    # same invariant, but refusing the row here keeps an
+                    # imported draft reviewable and postable instead of
+                    # discovering the duplicate only after approval.
+                    skipped.append(
+                        (
+                            row["item"],
+                            "للصنف حركة مخزنية سابقة؛ لا يُكرر في الرصيد الافتتاحي",
                         )
                     )
                     continue

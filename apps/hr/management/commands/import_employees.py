@@ -27,6 +27,7 @@ importer is neither of them.
 
 from __future__ import annotations
 
+import csv
 import datetime
 import json
 import pathlib
@@ -42,6 +43,32 @@ from apps.hr.models import ContractType, Employee, EmployeePaymentMethod, WageBa
 from apps.hr.services import create_contract, create_employee
 from apps.organizations.models import Branch, Organization
 from apps.users.models import User
+
+
+def _load(path: pathlib.Path) -> dict[str, Any]:
+    """Read the payroll from CSV or JSON. CSV is what a manager can maintain."""
+    if path.suffix.lower() == ".json":
+        loaded: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return loaded
+
+    employees: list[dict[str, Any]] = []
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        for index, row in enumerate(csv.DictReader(handle), start=1):
+            name = (row.get("اسم الموظف") or "").strip()
+            if not name:
+                continue
+            employees.append(
+                {
+                    "seq": int((row.get("ت") or index) or index),
+                    "name_ar": name,
+                    "department": (row.get("القسم") or "").strip(),
+                    "job_title": (row.get("المسمى الوظيفي") or "").strip(),
+                    "basic_salary": (row.get("الراتب الأساسي") or "0").strip(),
+                    "hire_date": (row.get("تاريخ المباشرة") or "").strip(),
+                    "phone": (row.get("الهاتف") or "").strip(),
+                }
+            )
+    return {"employees": employees}
 
 
 class Command(SeedCommand):
@@ -78,7 +105,7 @@ class Command(SeedCommand):
         path = pathlib.Path(options["file"])
         if not path.is_file():
             raise CommandError(f"{path} is missing.")
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = _load(path)
 
         made = reused = contracts = 0
         skipped: list[tuple[str, str]] = []

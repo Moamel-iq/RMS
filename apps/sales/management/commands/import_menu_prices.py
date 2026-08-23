@@ -24,6 +24,7 @@ Two things it will not do:
 
 from __future__ import annotations
 
+import csv
 import datetime
 import json
 import pathlib
@@ -39,6 +40,37 @@ from apps.kitchen.models import Recipe
 from apps.organizations.models import Branch, Organization
 from apps.sales.models import MenuCategory, MenuItem
 from apps.sales.services import create_menu_category, create_menu_item, create_menu_price
+
+
+def _load(path: pathlib.Path) -> dict[str, Any]:
+    """
+    Read the menu from CSV or JSON.
+
+    CSV is the format a restaurant owner can actually maintain: it opens in
+    Excel, a new dish is a new row, and a price change is one cell. JSON stays
+    supported because the earlier transcription used it, and re-transcribing a
+    working file to change its punctuation would risk the data for nothing.
+    """
+    if path.suffix.lower() == ".json":
+        loaded: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return loaded
+
+    sections: dict[str, list[dict[str, Any]]] = {}
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            name = (row.get("اسم الطبق") or "").strip()
+            if not name:
+                continue
+            sections.setdefault((row.get("القسم") or "المنيو").strip(), []).append(
+                {
+                    "name_ar": name,
+                    "variant": (row.get("الحجم") or "").strip(),
+                    "price": (row.get("السعر") or "").strip(),
+                    "recipe": (row.get("رمز الوصفة") or "").strip(),
+                    "note_ar": (row.get("ملاحظات") or "").strip(),
+                }
+            )
+    return {"sections": [{"name_ar": k, "items": v} for k, v in sections.items()]}
 
 
 class Command(SeedCommand):
@@ -62,7 +94,7 @@ class Command(SeedCommand):
         path = pathlib.Path(options["file"])
         if not path.is_file():
             raise CommandError(f"{path} is missing.")
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = _load(path)
         effective = datetime.date.fromisoformat(options["effective_from"])
 
         made_items = made_prices = reused = 0
