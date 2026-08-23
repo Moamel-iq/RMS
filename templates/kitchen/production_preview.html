@@ -14,22 +14,22 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="production-preview">
+  <div class="workspace-page" id="production-preview">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">
           {% translate "النسخة تُحدَّد من الفرع والتاريخ معاً. المعاينة لا تُنشئ شيئاً." %}
         </p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:production_list' %}">
           {% translate "أوامر الإنتاج" %}
         </a>
       </div>
     </div>
 
-    <form class="toolbar"
+    <form class="formcard toolbar"
           method="get"
           action="{% url 'kitchen:production_preview' %}"
           hx-get="{% url 'kitchen:production_preview' %}"
@@ -48,8 +48,8 @@
     </form>
 
     {% if preview %}
-      <section class="card">
-        <h2 class="card__title">{% translate "النسخة السارية" %}</h2>
+      <section class="formcard">
+        <h2>{% translate "النسخة السارية" %}</h2>
         <dl class="deflist">
           <dt>{% translate "الوصفة" %}</dt>
           <dd>
@@ -68,7 +68,7 @@
       </section>
 
       <div class="tablewrap">
-        <table class="table">
+        <table class="table responsive-table">
           <thead>
             <tr>
               <th>{% translate "المسار" %}</th>
@@ -82,18 +82,18 @@
           <tbody>
             {% for leaf, quantity in planned %}
               <tr>
-                <td>
+                <td data-label="{% translate 'المسار' %}">
                   {% if leaf.path_display %}
                     <code dir="ltr">{{ leaf.path_display }}</code>
                   {% else %}
                     <span class="muted">{% translate "سطر مباشر" %}</span>
                   {% endif %}
                 </td>
-                <td><span class="muted" dir="ltr">{{ leaf.label_path }}</span></td>
-                <td><code>{{ leaf.line.item.code }}</code> {{ leaf.line.item.name_ar }}</td>
-                <td><code dir="ltr">{{ leaf.multiplier_display }}</code></td>
-                <td><strong dir="ltr">{{ quantity|stringformat:"f" }}</strong></td>
-                <td>{% if leaf.is_optional %}{% translate "نعم" %}{% else %}—{% endif %}</td>
+                <td data-label="{% translate 'المصدر' %}"><span class="muted" dir="ltr">{{ leaf.label_path }}</span></td>
+                <td data-label="{% translate 'الصنف' %}"><code>{{ leaf.line.item.code }}</code> {{ leaf.line.item.name_ar }}</td>
+                <td data-label="{% translate 'المعامل التراكمي' %}"><code dir="ltr">{{ leaf.multiplier_display }}</code></td>
+                <td data-label="{% translate 'الكمية المخططة' %}"><strong dir="ltr">{{ quantity|stringformat:"f" }}</strong></td>
+                <td data-label="{% translate 'الصنف اختياري' %}">{% if leaf.is_optional %}{% translate "نعم" %}{% else %}—{% endif %}</td>
               </tr>
             {% endfor %}
           </tbody>

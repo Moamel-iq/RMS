@@ -49,6 +49,27 @@
     });
   };
 
+  // A region that scrolls sideways has to be reachable by keyboard, or its
+  // hidden columns belong to mouse users only (WCAG 2.1.1). Only shells that
+  // actually overflow become tab stops: making every table a stop would put a
+  // dozen dead stops on a page whose tables all fit.
+  const markScrollableTables = (root = document) => {
+    const shells = [];
+    if (root.matches?.(".data-table-shell")) shells.push(root);
+    root.querySelectorAll?.(".data-table-shell").forEach((shell) => shells.push(shell));
+    shells.forEach((shell) => {
+      const overflows = shell.scrollWidth > shell.clientWidth + 1;
+      if (!overflows || shell.hasAttribute("tabindex")) return;
+      shell.setAttribute("tabindex", "0");
+      if (!shell.hasAttribute("role")) shell.setAttribute("role", "region");
+      if (!shell.hasAttribute("aria-label")) {
+        const heading = shell.closest("section, div")?.querySelector("h2, h3");
+        const caption = heading?.textContent.replace(/\s+/g, " ").trim();
+        if (caption) shell.setAttribute("aria-label", caption);
+      }
+    });
+  };
+
   const showToast = (message, variant = "success") => {
     let stack = document.querySelector(".toast-stack");
     if (!stack) {
@@ -117,6 +138,7 @@
     associateFieldMessages(target || document);
     initialiseItemForm(target || document);
     initialiseResponsiveTables(target || document);
+    markScrollableTables(target || document);
 
     if (target?.matches?.("dialog")) {
       if (!target.open) target.showModal();
@@ -227,4 +249,7 @@
   associateFieldMessages();
   initialiseItemForm();
   initialiseResponsiveTables();
+  markScrollableTables();
+  // A table that fits at this width may not fit at the next one.
+  window.addEventListener("resize", () => markScrollableTables(), { passive: true });
 })();

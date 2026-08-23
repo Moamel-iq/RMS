@@ -8,6 +8,7 @@ nowhere, and the navigation must not reshape itself as phases land.
 
 from __future__ import annotations
 
+import re
 from datetime import time
 
 import pytest
@@ -98,9 +99,18 @@ class TestShellRendering:
             assert str(module.label) in body, module.key
 
     def test_unbuilt_modules_are_marked_as_such(self, client: Client, user: User) -> None:
+        """
+        Exactly the modules the registry marks unavailable are muted in the rail.
+
+        Read out of the navigation data rather than asserted as "at least one",
+        because the day the last module lands the old assertion turns into a
+        demand that something be left unbuilt. The rule is about the marking
+        matching the registry — in both directions — not about progress.
+        """
         client.force_login(user)
         body = client.get(reverse("users:home")).content.decode()
-        assert "is-unavailable" in body
+        unbuilt = [module for module in MODULES if not module.available]
+        assert len(re.findall(r'rail__item[^"]*\bis-unavailable\b', body)) == len(unbuilt)
 
     def test_unbuilt_sections_are_inert(self, client: Client, user: User) -> None:
         """

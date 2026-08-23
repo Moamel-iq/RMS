@@ -23,6 +23,7 @@ from django.views.generic import CreateView, TemplateView, UpdateView
 from apps.core.build_status import BUILD_ITEMS, PHASE_LABEL
 from apps.core.views import FoundationFormViewMixin, FoundationListView, ModuleViewMixin
 from apps.users.forms import LoginForm, UserAccountCreateForm, UserAccountUpdateForm
+from apps.users.home_dashboard import home_overview, readiness_share
 from apps.users.models import User
 from apps.users.services import create_user_account, update_user_account
 
@@ -138,13 +139,23 @@ class UserUpdateView(FoundationFormViewMixin, UpdateView):
 
 
 class HomeView(ModuleViewMixin, TemplateView):
-    """Landing page. Shows the shell and the branches the user may act on."""
+    """
+    Landing page: one dashboard composed from every module's own overview.
+
+    The view decides nothing about the figures. Each module's read function is
+    called with the permissions the caller actually holds, so this page can
+    never show a number that module's own screen would hide.
+    """
 
     template_name = "home.html"
     module_key = "home"
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
+        if self.request.user.is_authenticated:
+            overview = home_overview(self.request.user)
+            context["home"] = overview
+            context["readiness_share"] = readiness_share(overview.readiness)
         # Development visibility only; removed when Phase 0 exits.
         context["build_items"] = BUILD_ITEMS
         context["build_phase_label"] = PHASE_LABEL

@@ -43,6 +43,7 @@ else:
     _ListView = ListView
 
 from apps.core.views import ModuleViewMixin
+from apps.kitchen.dashboard import kitchen_overview
 from apps.kitchen.forms import (
     RecipeCategoryForm,
     RecipeForm,
@@ -54,7 +55,7 @@ from apps.kitchen.forms import (
     StepIngredientForm,
 )
 from apps.kitchen.models import RecipeType
-from apps.kitchen.permissions import MANAGE_RECIPE, VIEW_RECIPE
+from apps.kitchen.permissions import MANAGE_RECIPE, VIEW_RECIPE, VIEW_RECIPE_COST
 from apps.kitchen.selectors import (
     manageable_organizations,
     resolve_category,
@@ -1097,3 +1098,34 @@ class ServingDeleteView(KitchenActionView):
 
     def redirect_to(self, target: Any) -> str:
         return reverse("kitchen:recipe_detail", args=[target.version.recipe_id])
+
+
+class KitchenOverviewView(KitchenViewMixin, View):
+    """
+    The module's opening screen: the recipe estate and its approval pipeline.
+
+    No live plate cost appears here — a cost needs a named version, warehouse
+    and date, and this screen names none of them. The cost panel shows stored
+    `RecipeCostSnapshot` rows instead, behind the same permission the cost
+    card itself requires, omitted rather than zeroed for everyone else.
+    """
+
+    required_permission = VIEW_RECIPE
+    template_name = "kitchen/overview.html"
+
+    @property
+    def include_cost(self) -> bool:
+        return bool(self.request.user.has_perm(VIEW_RECIPE_COST))
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        overview = kitchen_overview(self.actor, include_cost=self.include_cost)
+        return render(
+            request,
+            self.template_name,
+            {
+                "overview": overview,
+                "show_cost": self.include_cost,
+                "page_title": _("نظرة عامة على المطبخ"),
+                "page_hint": _("الوصفات ونسخها ومسار اعتمادها."),
+            },
+        )

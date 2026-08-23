@@ -12,13 +12,13 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="production-action">
+  <div class="workspace-page workspace-form-page" id="production-action">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "رجوع" %}
         </a>
@@ -29,23 +29,26 @@
       {% translate "العكس حركة مخزنية جديدة تبقى في السجل إلى الأبد. لا يُحذف الترحيل الأصلي ولا يُعدَّل، ولا يمكن عكس العكس." %}
     </p>
 
-    <dl class="deflist">
-      <dt>{% translate "الرقم" %}</dt>
-      <dd><code dir="ltr">{{ batch.number }}</code></dd>
-      {% if can_read_cost %}
-        <dt>{% translate "قيمة الناتج المرحّلة" %}</dt>
-        <dd><code dir="ltr">{{ batch.output_value }}</code></dd>
-      {% endif %}
-      <dt>{% translate "القيد المحاسبي" %}</dt>
-      <dd>
-        {% if batch.journal_entry_id %}
-          <code dir="ltr">{{ batch.journal_entry.entry_number }}</code>
-        {% else %}
-          {{ no_journal_reason }}
-          <span class="pill">{% translate "ولا قيد عكس" %}</span>
+    <section class="formcard">
+      <h2>{% translate "حركة الترحيل" %}</h2>
+      <dl class="deflist">
+        <dt>{% translate "الرقم" %}</dt>
+        <dd><code dir="ltr">{{ batch.number }}</code></dd>
+        {% if can_read_cost %}
+          <dt>{% translate "قيمة الناتج المرحّلة" %}</dt>
+          <dd><code dir="ltr">{{ batch.output_value }}</code></dd>
         {% endif %}
-      </dd>
-    </dl>
+        <dt>{% translate "القيد المحاسبي" %}</dt>
+        <dd>
+          {% if batch.journal_entry_id %}
+            <code dir="ltr">{{ batch.journal_entry.entry_number }}</code>
+          {% else %}
+            {{ no_journal_reason }}
+            <span class="pill">{% translate "ولا قيد عكس" %}</span>
+          {% endif %}
+        </dd>
+      </dl>
+    </section>
 
     <form class="formcard"
           method="post"

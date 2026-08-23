@@ -39,6 +39,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views.generic import View
 
 from apps.inventory import reports
+from apps.inventory.dashboard import inventory_overview
 from apps.inventory.permissions import VIEW_STOCK, VIEW_VALUATION
 from apps.inventory.reports import ReportFilters, ReportMode, resolve_mode
 from apps.inventory.views import InventoryViewMixin
@@ -541,3 +542,61 @@ class LocationBalanceReportView(InventoryReportView):
         self, filters: ReportFilters, *, include_valuation: bool
     ) -> list[dict[str, Any]]:
         return reports.location_balances(self.actor, filters, include_valuation=include_valuation)
+
+
+class InventoryOverviewView(InventoryViewMixin, View):
+    """
+    The module's opening screen: what is on hand, and what needs attention.
+
+    It is not an `InventoryReportView`. That base exists to pair a filtered,
+    paginated table with a CSV of the *same* query, and an overview has no
+    single query to export — exporting it would mean inventing a shape that no
+    report screen shows. The pieces here each have a report of their own, and
+    the cards link to them.
+
+    Valuation is redacted through the same permission as every report, and the
+    figures are omitted rather than zeroed, so a storekeeper without
+    `view_valuation` sees a screen with fewer cards rather than a screen
+    claiming the stock is worth nothing.
+    """
+
+    required_permission: str = VIEW_STOCK
+    template_name = "inventory/overview.html"
+
+    @property
+    def include_valuation(self) -> bool:
+        return bool(self.request.user.has_perm(VIEW_VALUATION))
+
+    def purchases(self) -> Any:
+        """
+        The supplier mix, borrowed from Procurement on Procurement's terms.
+
+        The stock screen shows where the stock came from, but the figures stay
+        Procurement's: its own read function, its own invoice scope, its own
+        cost permission. A caller without a procurement post sees no panel —
+        not a panel of zeros — and one without `view_supplier_cost` sees none
+        either, because a supplier mix without amounts is a list of names.
+        Imported inside the method so inventory never loads procurement at
+        import time; procurement already imports this module's mixins.
+        """
+        from apps.procurement.dashboard import procurement_overview
+        from apps.procurement.permissions import VIEW_SUPPLIER_COST, VIEW_SUPPLIER_INVOICE
+
+        user = self.request.user
+        if not (user.has_perm(VIEW_SUPPLIER_INVOICE) and user.has_perm(VIEW_SUPPLIER_COST)):
+            return None
+        return procurement_overview(self.actor, include_cost=True)
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        overview = inventory_overview(self.actor, include_valuation=self.include_valuation)
+        return render(
+            request,
+            self.template_name,
+            {
+                "overview": overview,
+                "purchases": self.purchases(),
+                "show_value": self.include_valuation,
+                "page_title": _("نظرة عامة على المخزون"),
+                "page_hint": _("الأرصدة والحركات في المخازن التي تصلها."),
+            },
+        )

@@ -8,9 +8,9 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="component-dependencies">
+  <div class="workspace-page" id="component-dependencies">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">
           {{ recipe.code }} v{{ version.version_number }} — {% translate "من يستعمل هذه النسخة" %}
         </h1>
@@ -18,66 +18,70 @@
           {% translate "الوصفة الأم تشير إلى هذه النسخة بعينها ولا تتغير تلقائياً. استبدال هذه النسخة مسموح ولا يُبطل الوصفات الأم: المرجع مجمّد ويبقى صالحاً." %}
         </p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
           {% translate "تفاصيل النسخة" %}
         </a>
       </div>
     </div>
 
+    {# The register is the page, so the shell round it is the card. #}
     {% if dependencies %}
-      <table class="table">
-        <caption class="visually-hidden">{% translate "الوصفات التي تستعمل هذه النسخة" %}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{% translate "الوصفة الأم" %}</th>
-            <th scope="col">{% translate "النسخة" %}</th>
-            <th scope="col">{% translate "الحالة" %}</th>
-            <th scope="col">{% translate "المعامل" %}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for component in dependencies %}
+      <div class="tablewrap">
+        <table class="table responsive-table">
+          <caption class="visually-hidden">{% translate "الوصفات التي تستعمل هذه النسخة" %}</caption>
+          <thead>
             <tr>
-              <td>
-                <a href="{% url 'kitchen:version_detail' component.version_id %}">
-                  {{ component.version.recipe.code }} — {{ component.version.recipe.name_ar }}
-                </a>
-              </td>
-              <td>v{{ component.version.version_number }}</td>
-              <td>{{ component.version.get_status_display }}</td>
-              <td><code dir="ltr">{{ component.multiplier_display }}</code></td>
+              <th scope="col">{% translate "الوصفة الأم" %}</th>
+              <th scope="col">{% translate "النسخة" %}</th>
+              <th scope="col">{% translate "الحالة" %}</th>
+              <th scope="col">{% translate "المعامل" %}</th>
             </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {% for component in dependencies %}
+              <tr>
+                <td data-label="{% translate 'الوصفة الأم' %}">
+                  <a href="{% url 'kitchen:version_detail' component.version_id %}">
+                    {{ component.version.recipe.code }} — {{ component.version.recipe.name_ar }}
+                  </a>
+                </td>
+                <td data-label="{% translate 'النسخة' %}">v{{ component.version.version_number }}</td>
+                <td data-label="{% translate 'الحالة' %}">{{ component.version.get_status_display }}</td>
+                <td data-label="{% translate 'المعامل' %}"><code dir="ltr">{{ component.multiplier_display }}</code></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
-      <p class="muted">{% translate "لا تستعمل أي وصفة هذه النسخة كوصفة فرعية." %}</p>
+      <section class="formcard">
+        <p class="empty">{% translate "لا تستعمل أي وصفة هذه النسخة كوصفة فرعية." %}</p>
+      </section>
     {% endif %}
 
     {% if still_running %}
-      <section class="formcard">
-        {# Informational, never a refusal: the exact reference is frozen and     #}
-        {# stays valid after this version is superseded. What the reader may     #}
-        {# want is a new version of each parent, which is their decision.        #}
-        <div class="alert" role="status">
-          <h2>{% translate "ما زال قيد الاستعمال" %}</h2>
-          <p>
-            {% translate "النسخ السارية التالية تحتوي هذه النسخة بعينها. استبدالها هنا لا يغيّرها هناك ولا يبطلها؛ إن أردت تحديثها فأصدر نسخة أم جديدة تتبنى البديلة." %}
-          </p>
-          <ul>
-            {% for user in still_running %}
-              <li>
-                {{ user.parent_version.recipe.code }}
-                v{{ user.parent_version.version_number }}
-                @ {{ user.branch_code }}
-                — {% translate "حتى" %}
-                {% if user.parent_effective_to %}{{ user.parent_effective_to }}{% else %}{% translate "أجل مفتوح" %}{% endif %}
-              </li>
-            {% endfor %}
-          </ul>
-        </div>
-      </section>
+      {# Informational, never a refusal: the exact reference is frozen and     #}
+      {# stays valid after this version is superseded. What the reader may     #}
+      {# want is a new version of each parent, which is their decision.        #}
+      {# The notice draws its own edge, so it carries no card around it.       #}
+      <div class="alert" role="status">
+        <h2>{% translate "ما زال قيد الاستعمال" %}</h2>
+        <p>
+          {% translate "النسخ السارية التالية تحتوي هذه النسخة بعينها. استبدالها هنا لا يغيّرها هناك ولا يبطلها؛ إن أردت تحديثها فأصدر نسخة أم جديدة تتبنى البديلة." %}
+        </p>
+        <ul>
+          {% for user in still_running %}
+            <li>
+              {{ user.parent_version.recipe.code }}
+              v{{ user.parent_version.version_number }}
+              @ {{ user.branch_code }}
+              — {% translate "حتى" %}
+              {% if user.parent_effective_to %}{{ user.parent_effective_to }}{% else %}{% translate "أجل مفتوح" %}{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
     {% endif %}
   </div>
 {% endblock %}

@@ -9,78 +9,84 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="pagehead">
-    <div>
-      <h1 class="pagehead__title">{% translate "سجل إصدارات أمر الشراء" %}</h1>
-      <p class="pagehead__hint">
-        <span dir="ltr">{{ order.number }}</span> — {{ order.supplier.name_ar }}
-      </p>
-    </div>
-    <a class="btn btn--ghost" href="{% url 'procurement:purchase_order_detail' order.pk %}">
-      {% translate "الأمر" %}
-    </a>
-  </div>
-
-  {% for entry in entries %}
-    <div class="formcard">
-      <h2>
-        {% blocktranslate with number=entry.version %}الإصدار {{ number }}{% endblocktranslate %}
-        {% if entry.is_current %}
-          <span class="chip chip--on">{% translate "الحالي" %}</span>
-        {% else %}
-          <span class="chip chip--off">{% translate "مستبدل" %}</span>
-        {% endif %}
-      </h2>
-
-      {% if entry.superseded_reason %}
-        <p><strong>{% translate "سبب التعديل" %}:</strong> {{ entry.superseded_reason }}</p>
-      {% endif %}
-      {% if entry.revised_by %}
-        <p class="muted">
-          {{ entry.revised_by.username }} —
-          <span dir="ltr">{{ entry.revised_at|date:"Y-m-d H:i" }}</span>
+  <section class="workspace-page">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{% translate "سجل إصدارات أمر الشراء" %}</h1>
+        <p class="pagehead__hint">
+          <span dir="ltr">{{ order.number }}</span> — {{ order.supplier.name_ar }}
         </p>
-      {% endif %}
-
-      {% if entry.changes %}
-        <ul>
-          {% for change in entry.changes %}
-            <li><span dir="ltr">{{ change }}</span></li>
-          {% endfor %}
-        </ul>
-      {% endif %}
-
-      <table class="table">
-        <thead>
-          <tr>
-            <th>{% translate "الصنف" %}</th>
-            <th>{% translate "الكمية" %}</th>
-            <th>{% translate "بالوحدة الأساسية" %}</th>
-            {% if may_see_cost %}
-              <th>{% translate "السعر" %}</th>
-              <th>{% translate "إجمالي السطر" %}</th>
-            {% endif %}
-          </tr>
-        </thead>
-        <tbody>
-          {% for line in entry.lines %}
-            <tr>
-              <td>{{ line.item_code }}</td>
-              {# Re-enterable exact values: never localised. #}
-              <td><span dir="ltr">{{ line.ordered_quantity }}</span></td>
-              <td><span dir="ltr">{{ line.ordered_base_quantity }}</span></td>
-              {% if may_see_cost %}
-                <td><span dir="ltr">{{ line.unit_price }}</span></td>
-                <td><span dir="ltr">{{ line.line_total }}</span></td>
-              {% endif %}
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--ghost" href="{% url 'procurement:purchase_order_detail' order.pk %}">
+          {% translate "الأمر" %}
+        </a>
+      </div>
     </div>
-  {% empty %}
-    <div class="formcard">
-      <p>{% translate "لم يُعدَّل هذا الأمر بعد. الإصدار الحالي هو الأول." %}</p>
-    </div>
-  {% endfor %}
+
+    {% for entry in entries %}
+      <div class="formcard">
+        <h2>
+          {% blocktranslate with number=entry.version %}الإصدار {{ number }}{% endblocktranslate %}
+          {% if entry.is_current %}
+            <span class="chip chip--on">{% translate "الحالي" %}</span>
+          {% else %}
+            <span class="chip chip--off">{% translate "مستبدل" %}</span>
+          {% endif %}
+        </h2>
+
+        {% if entry.superseded_reason %}
+          <p><strong>{% translate "سبب التعديل" %}:</strong> {{ entry.superseded_reason }}</p>
+        {% endif %}
+        {% if entry.revised_by %}
+          <p class="muted">
+            {{ entry.revised_by.username }} —
+            <span dir="ltr">{{ entry.revised_at|date:"Y-m-d H:i" }}</span>
+          </p>
+        {% endif %}
+
+        {% if entry.changes %}
+          <ul>
+            {% for change in entry.changes %}
+              <li><span dir="ltr">{{ change }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+
+        <div class="data-table-shell">
+          <table class="table responsive-table">
+            <thead>
+              <tr>
+                <th>{% translate "الصنف" %}</th>
+                <th>{% translate "الكمية" %}</th>
+                <th>{% translate "بالوحدة الأساسية" %}</th>
+                {% if may_see_cost %}
+                  <th>{% translate "السعر" %}</th>
+                  <th>{% translate "إجمالي السطر" %}</th>
+                {% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for line in entry.lines %}
+                <tr>
+                  <td>{{ line.item_code }}</td>
+                  {# Re-enterable exact values: never localised. #}
+                  <td><span dir="ltr">{{ line.ordered_quantity }}</span></td>
+                  <td><span dir="ltr">{{ line.ordered_base_quantity }}</span></td>
+                  {% if may_see_cost %}
+                    <td><span dir="ltr">{{ line.unit_price }}</span></td>
+                    <td><span dir="ltr">{{ line.line_total }}</span></td>
+                  {% endif %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% empty %}
+      <div class="formcard">
+        <p>{% translate "لم يُعدَّل هذا الأمر بعد. الإصدار الحالي هو الأول." %}</p>
+      </div>
+    {% endfor %}
+  </section>
 {% endblock %}

@@ -26,8 +26,8 @@
   </div>
 </div>
 
-<div class="tablewrap">
-  <table class="table" id="cash-statement-table">
+<div class="data-table-shell" tabindex="0">
+  <table class="table responsive-table" id="cash-statement-table">
     <thead><tr>
       <th>{% translate "التاريخ" %}</th>
       <th>{% translate "القيد" %}</th>
@@ -41,23 +41,23 @@
     <tbody>
       {% for row in statement.rows %}
         <tr>
-          <td><bdi dir="ltr">{{ row.line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
-          <td><a href="{% url 'accounting:journal_detail' row.line.entry.pk %}"><bdi dir="ltr">{{ row.line.entry.entry_number }}</bdi></a></td>
-          <td>
+          <td data-label="{% translate 'التاريخ' %}"><bdi dir="ltr">{{ row.line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
+          <td data-label="{% translate 'القيد' %}"><a href="{% url 'accounting:journal_detail' row.line.entry.pk %}"><bdi dir="ltr">{{ row.line.entry.entry_number }}</bdi></a></td>
+          <td data-label="{% translate 'المصدر' %}">
             {% if row.line.entry.source_document_type %}
               <code dir="ltr">{{ row.line.entry.source_document_type }}</code>
             {% else %}
               {% translate "يدوي" %}
             {% endif %}
           </td>
-          <td>{{ row.line.branch.code }}</td>
-          <td>{{ row.line.narration|default:row.line.entry.narration|truncatechars:50 }}</td>
-          <td><bdi dir="ltr">{{ row.line.debit|money_full }}</bdi></td>
-          <td><bdi dir="ltr">{{ row.line.credit|money_full }}</bdi></td>
-          <td><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
+          <td data-label="{% translate 'الفرع' %}">{{ row.line.branch.code }}</td>
+          <td data-label="{% translate 'البيان' %}">{{ row.line.narration|default:row.line.entry.narration|truncatechars:50 }}</td>
+          <td data-label="{% translate 'مدين' %}"><bdi dir="ltr">{{ row.line.debit|money_full }}</bdi></td>
+          <td data-label="{% translate 'دائن' %}"><bdi dir="ltr">{{ row.line.credit|money_full }}</bdi></td>
+          <td data-label="{% translate 'الرصيد' %}"><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
         </tr>
       {% empty %}
-        <tr><td colspan="8" class="empty">{% translate "لا حركة في هذه الفترة." %}</td></tr>
+        <tr><td colspan="8" class="empty" data-empty-state>{% translate "لا حركة في هذه الفترة." %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -40,11 +40,14 @@
   {% endfor %}
 {% endblock %}
 
-{% block page %}
+{# The grant form belongs to this screen, so it sits inside the screen root #}
+{# the base list opens: appended to `results`, not after `page`, where it    #}
+{# hung outside the shell and needed a hand-written margin to clear it.      #}
+{% block results %}
   {{ block.super }}
 
-  <div class="panel" style="margin-block-start:16px">
-    <h2 class="panel__title">{% translate "منح صلاحية فرع" %}</h2>
+  <section class="formcard">
+    <h2>{% translate "منح صلاحية فرع" %}</h2>
     <p class="muted">
       {% translate "الصلاحية علاقة بين المستخدم والفرع، لأن المحاسب قد يغطي أكثر من فرع." %}
     </p>
@@ -59,5 +62,5 @@
         <button class="btn btn--primary" type="submit">{% translate "منح" %}</button>
       </div>
     </form>
-  </div>
+  </section>
 {% endblock %}

@@ -12,14 +12,14 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="kitchen-report">
+  <section class="workspace-page" id="kitchen-report">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
       </div>
       {% if export_query %}
-        <div class="rowactions">
+        <div class="pagehead__actions">
           <a class="btn btn--secondary" href="?{{ export_query }}" download>
             {% translate "تصدير CSV" %}
           </a>
@@ -31,14 +31,16 @@
       {# Coverage is stated in words for a reader and in codes for a grep.  #}
       {# Both, always: the sentence is translated and the code is stable.   #}
       <div class="banner" role="note">
-        {% if coverage_note %}<p>{{ coverage_note }}</p>{% endif %}
-        {% if coverage_codes %}
-          <p class="chips">
-            {% for code in coverage_codes %}
-              <bdi dir="ltr"><code class="chip">{{ code }}</code></bdi>
-            {% endfor %}
-          </p>
-        {% endif %}
+        <div>
+          {% if coverage_note %}<p>{{ coverage_note }}</p>{% endif %}
+          {% if coverage_codes %}
+            <p class="chips">
+              {% for code in coverage_codes %}
+                <bdi dir="ltr"><code class="chip">{{ code }}</code></bdi>
+              {% endfor %}
+            </p>
+          {% endif %}
+        </div>
       </div>
     {% endif %}
 
@@ -86,8 +88,10 @@
       {% blocktranslate count total=total_rows %}سطر واحد{% plural %}{{ total }} سطر{% endblocktranslate %}
     </p>
 
+    {# The register is the page, so it carries the edge itself: one tablewrap #}
+    {# at the screen root rather than a card drawn around a second border.    #}
     <div class="tablewrap">
-      <table class="table">
+      <table class="table responsive-table">
         <thead>
           <tr>{% for key, header in columns %}<th scope="col">{{ header }}</th>{% endfor %}</tr>
         </thead>
@@ -132,5 +136,5 @@
         {% endif %}
       </nav>
     {% endif %}
-  </div>
+  </section>
 {% endblock %}

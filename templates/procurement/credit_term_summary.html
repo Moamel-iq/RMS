@@ -11,9 +11,9 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="procurement-credit-terms">
+  <div class="workspace-page workspace-list-page" id="procurement-credit-terms">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">{{ page_hint }}</p>
       </div>
@@ -64,79 +64,81 @@
     </p>
 
     <div class="tablewrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">{% translate "رمز المورد" %}</th>
-            <th scope="col">{% translate "اسم المورد" %}</th>
-            <th scope="col">{% translate "عدد الأيام" %}</th>
-            <th scope="col">{% translate "شرط الائتمان" %}</th>
-            <th scope="col">{% translate "الحالة" %}</th>
-            <th scope="col">{% translate "فواتير قائمة" %}</th>
-            <th scope="col">{% translate "فواتير متأخرة" %}</th>
-            <th scope="col">{% translate "أقرب استحقاق" %}</th>
-            {% if show_cost %}<th scope="col">{% translate "إجمالي المتأخر" %}</th>{% endif %}
-            <th scope="col"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in rows %}
+      <div class="data-table-shell" tabindex="0" role="region" aria-label="{{ page_title }}">
+        <table class="table responsive-table">
+          <thead>
             <tr>
-              <td data-label="{% translate 'رمز المورد' %}">
-                <bdi dir="ltr"><code>{{ row.supplier.code }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'اسم المورد' %}">{{ row.supplier.name_ar }}</td>
-              <td data-label="{% translate 'عدد الأيام' %}">
-                <bdi dir="ltr"><code>{{ row.days }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'شرط الائتمان' %}">
-                <span class="chip">{{ row.label }}</span>
-              </td>
-              <td data-label="{% translate 'الحالة' %}">
-                {% if row.supplier.is_active %}
-                  <span class="chip chip--ok">{% translate "نشط" %}</span>
-                {% else %}
-                  <span class="chip">{% translate "مؤرشف" %}</span>
-                {% endif %}
-              </td>
-              <td data-label="{% translate 'فواتير قائمة' %}">
-                <bdi dir="ltr">{{ row.open_count }}</bdi>
-              </td>
-              <td data-label="{% translate 'فواتير متأخرة' %}">
-                {% if row.has_overdue %}
-                  <span class="chip chip--bad"><bdi dir="ltr">{{ row.overdue_count }}</bdi></span>
-                {% else %}
-                  <bdi dir="ltr">0</bdi>
-                {% endif %}
-              </td>
-              <td data-label="{% translate 'أقرب استحقاق' %}">
-                {% if row.next_due %}
-                  <bdi dir="ltr"><code>{{ row.next_due|date:"Y-m-d" }}</code></bdi>
-                {% else %}—{% endif %}
-              </td>
-              {% if show_cost %}
-                <td data-label="{% translate 'إجمالي المتأخر' %}">
-                  <bdi dir="ltr"><code>{{ row.overdue_total }}</code></bdi>
+              <th scope="col">{% translate "رمز المورد" %}</th>
+              <th scope="col">{% translate "اسم المورد" %}</th>
+              <th scope="col">{% translate "عدد الأيام" %}</th>
+              <th scope="col">{% translate "شرط الائتمان" %}</th>
+              <th scope="col">{% translate "الحالة" %}</th>
+              <th scope="col">{% translate "فواتير قائمة" %}</th>
+              <th scope="col">{% translate "فواتير متأخرة" %}</th>
+              <th scope="col">{% translate "أقرب استحقاق" %}</th>
+              {% if show_cost %}<th scope="col">{% translate "إجمالي المتأخر" %}</th>{% endif %}
+              <th scope="col"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td data-label="{% translate 'رمز المورد' %}">
+                  <bdi dir="ltr"><code>{{ row.supplier.code }}</code></bdi>
                 </td>
-              {% endif %}
-              <td>
-                {% if may_manage %}
-                  <a class="btn btn--ghost"
-                     href="{% url 'procurement:supplier_update' row.supplier.pk %}">
-                    {% translate "تعديل الشروط" %}
-                  </a>
+                <td data-label="{% translate 'اسم المورد' %}">{{ row.supplier.name_ar }}</td>
+                <td data-label="{% translate 'عدد الأيام' %}">
+                  <bdi dir="ltr"><code>{{ row.days }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'شرط الائتمان' %}">
+                  <span class="chip">{{ row.label }}</span>
+                </td>
+                <td data-label="{% translate 'الحالة' %}">
+                  {% if row.supplier.is_active %}
+                    <span class="chip chip--ok">{% translate "نشط" %}</span>
+                  {% else %}
+                    <span class="chip">{% translate "مؤرشف" %}</span>
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'فواتير قائمة' %}">
+                  <bdi dir="ltr">{{ row.open_count }}</bdi>
+                </td>
+                <td data-label="{% translate 'فواتير متأخرة' %}">
+                  {% if row.has_overdue %}
+                    <span class="chip chip--bad"><bdi dir="ltr">{{ row.overdue_count }}</bdi></span>
+                  {% else %}
+                    <bdi dir="ltr">0</bdi>
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'أقرب استحقاق' %}">
+                  {% if row.next_due %}
+                    <bdi dir="ltr"><code>{{ row.next_due|date:"Y-m-d" }}</code></bdi>
+                  {% else %}—{% endif %}
+                </td>
+                {% if show_cost %}
+                  <td data-label="{% translate 'إجمالي المتأخر' %}">
+                    <bdi dir="ltr"><code>{{ row.overdue_total }}</code></bdi>
+                  </td>
                 {% endif %}
-              </td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="{% if show_cost %}10{% else %}9{% endif %}" class="empty">
-                {% translate "لا يوجد مورد مطابق. عدّل البحث أو المدة ثم أعد المحاولة." %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+                <td>
+                  {% if may_manage %}
+                    <a class="btn btn--ghost"
+                       href="{% url 'procurement:supplier_update' row.supplier.pk %}">
+                      {% translate "تعديل الشروط" %}
+                    </a>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="{% if show_cost %}10{% else %}9{% endif %}" class="empty">
+                  {% translate "لا يوجد مورد مطابق. عدّل البحث أو المدة ثم أعد المحاولة." %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 {% endblock %}

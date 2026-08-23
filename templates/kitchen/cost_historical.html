@@ -9,9 +9,9 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="cost-historical">
+  <div class="workspace-page" id="cost-historical">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">
           {{ recipe.code }} — {% translate "كلفة الوصفة بتاريخ" %}
         </h1>
@@ -19,7 +19,7 @@
           {% translate "تُحدَّد النسخة السارية في ذلك الفرع بذلك التاريخ أولاً، ثم تُسعَّر بمتوسطات التاريخ نفسه. النسخة المستبدلة ما زالت تجيب عن تواريخها هي." %}
         </p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:recipe_detail' recipe.pk %}">
           {% translate "تفاصيل الوصفة" %}
         </a>
@@ -41,14 +41,16 @@
     </form>
 
     {% if card %}
-      <p class="muted">
+      <p class="banner" role="status">
         {% blocktranslate with number=card.version.version_number %}النسخة السارية في ذلك التاريخ: v{{ number }}.{% endblocktranslate %}
       </p>
       {% include "kitchen/_cost_card.html" %}
     {% else %}
-      <p class="muted">
-        {% translate "اختر الفرع والمخزن والتاريخ. لا يوجد فرع ولا تاريخ افتراضي." %}
-      </p>
+      <section class="formcard">
+        <p class="empty">
+          {% translate "اختر الفرع والمخزن والتاريخ. لا يوجد فرع ولا تاريخ افتراضي." %}
+        </p>
+      </section>
     {% endif %}
   </div>
 {% endblock %}

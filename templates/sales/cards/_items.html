@@ -1,4 +1,35 @@
-{# الأصناف الأكثر مبيعاً — the top ten by gross. #}
-{% load i18n %}
-{% translate "الصنف" as mix_label %}
-{% include "sales/cards/_mix_table.html" with mix_label=mix_label %}
+{# الأصناف الأكثر مبيعاً — the top ten by gross, as a table: a ranked list   #}
+{# with four figures per row reads better in columns than as ten bars.       #}
+{% load i18n l10n money_tags %}
+<div class="panel__head">
+  <h2 class="panel__title">{{ card.label }}</h2>
+  <p class="pagehead__hint">{% translate "الأعلى إجمالياً في المدة — عشرة على الأكثر" %}</p>
+</div>
+{% if rows %}
+  <div class="tablewrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">{% translate "الصنف" %}</th>
+          <th scope="col">{% translate "الكمية" %}</th>
+          <th scope="col">{% translate "الإجمالي" %}</th>
+          <th scope="col">{% translate "الصافي" %}</th>
+          <th scope="col">{% translate "الحصة" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.label }}<span class="muted"><bdi dir="ltr">{{ row.code }}</bdi></span></td>
+            <td class="table__num"><bdi dir="ltr">{{ row.quantity }}</bdi></td>
+            <td class="table__num"><bdi dir="ltr">{{ row.gross|iqd }}</bdi></td>
+            <td class="table__num"><bdi dir="ltr">{{ row.net|iqd }}</bdi></td>
+            <td class="table__num"><bdi dir="ltr">{{ row.share|unlocalize }}%</bdi></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="empty">{% translate "لا توجد سطور مرحّلة في هذه المدة." %}</p>
+{% endif %}

@@ -10,43 +10,56 @@
 :root {
   color-scheme: light;
 
-  --brand-700: #8f3200;
-  --brand-600: #ad3d00;
-  --brand-500: #d6530b;
-  --brand-100: #ffeadc;
-  --brand-50: #fff7f1;
+  /* Deep teal replaces the former orange brand. The neutrals below carry a
+     warm bias toward it rather than sitting on a pure grey, so the surface
+     reads as chosen. Ratios against --surface clear WCAG AA for body text. */
+  --brand-700: #0a2c2b;
+  --brand-600: #14504f;
+  --brand-500: #1d6b69;
+  --brand-100: #e3edec;
+  --brand-50: #f2f7f6;
   --brand: var(--brand-600);
   --brand-hover: var(--brand-700);
   --brand-tint: var(--brand-50);
 
-  --success-700: #17633a;
-  --success-100: #dff4e7;
-  --warning-700: #805500;
-  --warning-100: #fff1c7;
-  --danger-700: #a92b25;
-  --danger-100: #fde7e5;
-  --info-700: #2457a7;
-  --info-100: #e4edfb;
+  --success-700: #2e6b4f;
+  --success-100: #e4efe8;
+  --warning-700: #a5710f;
+  --warning-100: #f8efd8;
+  --danger-700: #a03328;
+  --danger-100: #f8e4e1;
+  --info-700: #2d6cdf;
+  --info-100: #e5edfb;
 
-  --ink: #242522;
-  --ink-subtle: #4f555c;
-  --ink-muted: #656b73;
-  --ink-disabled: #8d9299;
-  --line-strong: #d2d0cb;
-  --line: #e3e0da;
-  --line-soft: #eeece8;
-  --control-border: #8d8982;
-  --control-border-hover: #6f6b65;
+  --ink: #22201a;
+  --ink-subtle: #4a463c;
+  --ink-muted: #6c665a;
+  --ink-disabled: #8c877a;
+  --line-strong: #cfcbbf;
+  --line: #e4e1d8;
+  --line-soft: #f2f0ea;
+  --control-border: #8c877a;
+  --control-border-hover: #6c665a;
 
   --danger: var(--danger-700);
   --danger-tint: var(--danger-100);
   --danger-line: #c66e68;
 
-  --app-bg: #f7f5f1;
+  --app-bg: #f2f0ea;
   --surface: #ffffff;
-  --surface-subtle: #fbfaf8;
-  --surface-muted: #f2f0ec;
-  --rail-bg: #292925;
+  --surface-subtle: #faf9f6;
+  --surface-muted: #f2f0ea;
+  --rail-bg: #14504f;
+
+  /* Data series: separated by lightness, not hue alone, so a colour-blind
+     reader still ranks them. Never reuse these for state — state is
+     --success/--warning/--danger and must stay distinguishable from the brand. */
+  --series-1: #14504f;
+  --series-2: #3d8b7d;
+  --series-3: #7fb0a3;
+  --series-4: #a5710f;
+  --series-5: #c79a45;
+  --series-6: #8c877a;
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -91,6 +104,130 @@
   --z-drawer: 60;
   --z-overlay: 50;
   --z-dialog: 100;
+}
+
+/*
+ * Dark theme — tokens only, never component rules.
+ *
+ * Three states, not two. An explicit choice stamps `data-theme` on <html>;
+ * the default "system" setting stamps nothing, and only the media query
+ * separates light from dark there. So the palette is declared three times:
+ * once bare above (the complete light set), once behind the media query
+ * guarded against an explicit light choice, and once behind the stamp so the
+ * toggle wins in both directions. A colour whose only definition sits inside
+ * one of these blocks never applies in the unstamped state — that is the
+ * classic half-dark page, and it is why nothing but tokens belongs here.
+ *
+ * Not an inversion: the ground is a warm near-black rather than #000, and the
+ * brand lightens so it keeps its contrast against a dark surface instead of
+ * disappearing into it.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --brand-700: #7acfc3;
+    --brand-600: #4fa79c;
+    --brand-500: #3d8b7d;
+    --brand-100: #12312f;
+    --brand-50: #16211f;
+    --brand: var(--brand-600);
+    --brand-hover: var(--brand-700);
+    --brand-tint: var(--brand-50);
+
+    --success-700: #6fbf93;
+    --success-100: #13291e;
+    --warning-700: #d9a03b;
+    --warning-100: #2e2410;
+    --danger-700: #e08074;
+    --danger-100: #301612;
+    --info-700: #7ea9f0;
+    --info-100: #141f33;
+
+    --ink: #efebe0;
+    --ink-subtle: #c9c4b6;
+    --ink-muted: #9a9486;
+    --ink-disabled: #6f6a5e;
+    --line-strong: #3b3830;
+    --line: #2c2a22;
+    --line-soft: #211f18;
+    --control-border: #4a463c;
+    --control-border-hover: #6c665a;
+
+    --danger: var(--danger-700);
+    --danger-tint: var(--danger-100);
+    --danger-line: #7a3a33;
+
+    --app-bg: #100f0b;
+    --surface: #1a1913;
+    --surface-subtle: #211f18;
+    --surface-muted: #16150f;
+    --rail-bg: #12312f;
+
+    --series-1: #4fa79c;
+    --series-2: #6fbf93;
+    --series-3: #9bd0c6;
+    --series-4: #d9a03b;
+    --series-5: #e6c079;
+    --series-6: #9a9486;
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.7);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --brand-700: #7acfc3;
+  --brand-600: #4fa79c;
+  --brand-500: #3d8b7d;
+  --brand-100: #12312f;
+  --brand-50: #16211f;
+  --brand: var(--brand-600);
+  --brand-hover: var(--brand-700);
+  --brand-tint: var(--brand-50);
+
+  --success-700: #6fbf93;
+  --success-100: #13291e;
+  --warning-700: #d9a03b;
+  --warning-100: #2e2410;
+  --danger-700: #e08074;
+  --danger-100: #301612;
+  --info-700: #7ea9f0;
+  --info-100: #141f33;
+
+  --ink: #efebe0;
+  --ink-subtle: #c9c4b6;
+  --ink-muted: #9a9486;
+  --ink-disabled: #6f6a5e;
+  --line-strong: #3b3830;
+  --line: #2c2a22;
+  --line-soft: #211f18;
+  --control-border: #4a463c;
+  --control-border-hover: #6c665a;
+
+  --danger: var(--danger-700);
+  --danger-tint: var(--danger-100);
+  --danger-line: #7a3a33;
+
+  --app-bg: #100f0b;
+  --surface: #1a1913;
+  --surface-subtle: #211f18;
+  --surface-muted: #16150f;
+  --rail-bg: #12312f;
+
+  --series-1: #4fa79c;
+  --series-2: #6fbf93;
+  --series-3: #9bd0c6;
+  --series-4: #d9a03b;
+  --series-5: #e6c079;
+  --series-6: #9a9486;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.7);
 }
 
 *,
@@ -2585,4 +2722,1548 @@ kbd {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ------------------------------------------------------------- dashboards */
+/*
+ * A section dashboard is scanned, not read: the summary comes before the
+ * detail, and state is carried by form as well as by number so what needs
+ * attention survives a glance. Everything below is built from the tokens
+ * above, so both themes follow without a second rule.
+ */
+
+.kpigrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr));
+  gap: var(--space-4);
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+
+.kpi__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.kpi__label {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.kpi__mark {
+  display: grid;
+  place-items: center;
+  inline-size: 1.875rem;
+  block-size: 1.875rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--ink-subtle);
+}
+
+/* Figures are the point of a dashboard: tabular so columns of them line up,
+   and locale-independent so a factor is never re-typed from a comma. */
+.kpi__value {
+  font-family: "Segoe UI", ui-monospace, "Cascadia Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.625rem;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.kpi__note {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+/* One card per screen may take the accent. Two competing is none emphasised. */
+.kpi--accent {
+  border-color: var(--brand);
+  box-shadow: var(--shadow-sm);
+}
+
+.kpi--accent .kpi__mark {
+  background: var(--brand-100);
+  color: var(--brand);
+}
+
+.kpi--accent .kpi__value {
+  color: var(--brand);
+}
+
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.125rem 0.4375rem;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.trend--up {
+  background: var(--success-100);
+  color: var(--success-700);
+}
+
+.trend--down {
+  background: var(--danger-100);
+  color: var(--danger-700);
+}
+
+.trend--flat {
+  background: var(--surface-muted);
+  color: var(--ink-muted);
+}
+
+/* Horizontal bars rather than a pie: length is read more accurately than
+   angle, and the labels stay horizontal in both directions. */
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.bar__name {
+  inline-size: 8.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--ink-subtle);
+}
+
+.bar__track {
+  block-size: 0.625rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.bar__fill {
+  block-size: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--series-1);
+}
+
+.bar__value {
+  font-family: "Segoe UI", ui-monospace, "Cascadia Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--ink-subtle);
+}
+
+/* A single stacked bar answers "where did it all go" in one line. */
+.meter {
+  display: flex;
+  block-size: 0.875rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.meter > span {
+  block-size: 100%;
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-block-start: var(--space-4);
+}
+
+.legend__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--ink-subtle);
+}
+
+.legend__swatch {
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  border-radius: 3px;
+  flex: none;
+}
+
+.legend__value {
+  margin-inline-start: auto;
+  font-family: "Segoe UI", ui-monospace, "Cascadia Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
+  gap: var(--space-3);
+}
+
+.tile {
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.tile__value {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.tile__label {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.dashgrid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: var(--space-4);
+}
+
+.dashgrid--even {
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 62rem) {
+  .dashgrid,
+  .dashgrid--even {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A caption strip under a panel: the one-line reading of the chart above it. */
+.panel__foot {
+  margin-block-start: var(--space-4);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--line);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+/* The composition donut: painted by conic-gradient stops the read layer
+   computes, so the template never does arithmetic. The hole is the surface. */
+.donut {
+  inline-size: 11rem;
+  block-size: 11rem;
+  border-radius: var(--radius-pill);
+  display: grid;
+  place-items: center;
+  margin-inline: auto;
+}
+
+.donut__hole {
+  inline-size: 7.25rem;
+  block-size: 7.25rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.donut__value {
+  font-family: "Segoe UI", ui-monospace, "Cascadia Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.donut__label {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+/* A strip tile carries its state on the figure alone (accounting dashboard). */
+.tile__value--warn {
+  color: var(--warning-700);
+}
+
+/* ======================================================================
+   Dashboard pages — one column, one gap.
+
+   The mockup's page is a flex column with a single gap: every block sits in
+   its own container and none leans on a neighbour's margin. `.dash` is the
+   root of every section landing page (home, inventory, procurement, kitchen,
+   HR, sales, accounting). The margins other screens rely on are zeroed here
+   so the gap alone spaces the page, and the generic `.panel + .panel` margin
+   — meant for panels stacked in a column — is switched off so it can no
+   longer push the second panel of a two-column grid down by its own height.
+   ====================================================================== */
+.dash {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.dash > .pagehead,
+.dash > .alert,
+.dash > .filterbar,
+.dash > .kpigrid,
+.dash > .dashgrid,
+.dash > .tiles,
+.dash > .panel,
+.dash > p {
+  margin: 0;
+}
+
+.dash .panel + .panel {
+  margin-block-start: 0;
+}
+
+.dash .filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+/* A panel reads as one container: a header band, a body, a footer band.
+   The bands bleed to the panel's edge so their rules run border to border,
+   which is what makes neighbouring containers read as separate things. */
+.dash .panel {
+  padding: var(--space-4);
+  box-shadow: var(--shadow-xs);
+}
+
+.dash .panel__head {
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-block-end: 1px solid var(--line);
+}
+
+.dash .panel__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.dash .panel__head .pagehead__hint {
+  margin: 2px 0 0;
+  font-size: var(--text-xs);
+}
+
+.dash .panel__foot {
+  margin: var(--space-4) calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-subtle);
+  border-block-start: 1px solid var(--line);
+  border-end-start-radius: 13px;
+  border-end-end-radius: 13px;
+  font-size: var(--text-xs);
+}
+
+/* The dashboard alert is a notice, not an error: amber, a bar on the start
+   edge, icon – text – action in one row. `role="alert"` — an actual fault,
+   such as an unbalanced posted entry — keeps the danger tone. */
+.dash .alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-inline-start: 3px solid var(--warning-700);
+  border-radius: var(--radius-lg);
+  background: var(--warning-100);
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.dash .alert > svg {
+  flex: none;
+  color: var(--warning-700);
+  margin-block-start: 2px;
+}
+
+.dash .alert > div {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.dash .alert strong {
+  color: var(--warning-700);
+  font-weight: 600;
+}
+
+.dash .alert p {
+  margin: 2px 0 0;
+  color: var(--ink-subtle);
+  font-size: var(--text-sm);
+}
+
+.dash .alert > .btn {
+  flex: none;
+  margin-inline-start: auto;
+  align-self: center;
+}
+
+.dash .alert[role="alert"] {
+  background: var(--danger-tint);
+  border-inline-start-color: var(--danger);
+}
+
+.dash .alert[role="alert"] > svg,
+.dash .alert[role="alert"] strong {
+  color: var(--danger);
+}
+
+/* ======================================================================
+   SCREENS — the mockup's language, applied to every page.
+
+   The dashboards were built against `docs/mockups/rms-ui.html` and looked
+   like it. The other two hundred screens did not, and the reason was not
+   their markup: they already spoke a full vocabulary — `workspace-page`,
+   `data-table-shell`, `banner`, `stat`, `deflist`, `filter-field` — that
+   this stylesheet never answered. Two hundred and eighty-one classes were
+   used by a template and defined by no rule, so those containers had no
+   border, no padding and no gap, and a reader saw blocks running into one
+   another with no line between them.
+
+   This section answers that vocabulary. It adds no new class: every
+   selector below already appears in a template. The primitives are the
+   dashboard's own — surface, one-pixel line, radius, header and footer
+   bands, pill, tile — so a list, a detail, a form and a dashboard read as
+   the same product.
+
+   Rules of the house that apply throughout: logical properties only (one
+   sheet serves RTL and LTR), colour only through tokens (the three-state
+   theme then follows for free), and never a second border where a parent
+   already drew one — that doubled edge is the "overlapping containers"
+   this section exists to remove.
+   ====================================================================== */
+
+/* ---------------------------------------------------------- 1. the screen */
+
+/* Every page is one column with one gap. Children keep no margins of their
+   own, so spacing comes from here and nowhere else — a block moved up or
+   down the page keeps the same distance from its neighbours. */
+.dash,
+.list-page,
+.workspace-page,
+.workspace-list-page,
+.workspace-form-page,
+.inventory-page,
+.inventory-list-page,
+.inventory-detail-page,
+.inventory-form-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.dash > *,
+.list-page > *,
+.workspace-page > *,
+.inventory-page > * {
+  margin-block: 0;
+}
+
+/* The generic stacking margin is for panels stacked in a column. Inside a
+   screen the gap already does that work, and leaving it on pushes the
+   second panel of a two-column grid down by its own height. */
+.dash .panel + .panel,
+.workspace-page .panel + .panel,
+.inventory-page .panel + .panel {
+  margin-block-start: 0;
+}
+
+/* ------------------------------------------------------ 2. the page head */
+
+.workspace-breadcrumb,
+.inventory-breadcrumb,
+.sales-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.workspace-breadcrumb a,
+.inventory-breadcrumb a,
+.sales-breadcrumb a {
+  color: var(--ink-muted);
+  text-decoration: none;
+}
+
+.workspace-breadcrumb a:hover,
+.inventory-breadcrumb a:hover,
+.sales-breadcrumb a:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+.workspace-breadcrumb [aria-current="page"],
+.inventory-breadcrumb [aria-current="page"],
+.sales-breadcrumb [aria-current="page"] {
+  color: var(--ink-subtle);
+  font-weight: 600;
+}
+
+.pagehead__copy {
+  min-inline-size: 0;
+}
+
+.pagehead__eyebrow,
+.inventory-eyebrow,
+.inventory-detail-kicker {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.pagehead__title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.result-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------- 3. the card */
+
+/* One container, five names. Each already carries a different meaning in
+   the templates — a form, a fact panel, a table shell, a hero — and they
+   are drawn identically on purpose: the reader learns one edge. */
+.formcard,
+.stat-card,
+.inventory-detail-card,
+.inventory-summary-card,
+.inventory-document-hero,
+.inventory-form-section,
+.findings,
+.timeline,
+.payslip-sheet {
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+
+/* A form is not narrower than the screen it sits on. The old cap made a
+   form page a column of white in an empty field. */
+.workspace-page .formcard,
+.inventory-page .formcard,
+.dash .formcard {
+  max-inline-size: none;
+}
+
+/* The header band. A card says what it is on a strip of its own, ruled off
+   from the body, which is what makes two stacked cards read as two things
+   rather than one long sheet. */
+.formcard > h2:first-child,
+.formcard > h3:first-child,
+.stat-card > h2:first-child,
+.inventory-detail-card > h2:first-child,
+.inventory-summary-card > h2:first-child,
+.findings > h2:first-child,
+.timeline > h2:first-child,
+.inventory-form-section__heading,
+.section-title,
+.section-heading,
+.section__title,
+.payslip-title {
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-block-end: 1px solid var(--line);
+  font-size: var(--text-md);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+/* A section title used as a bare heading between cards — not inside one —
+   is a heading, not a band. */
+.dash > .section-title,
+.workspace-page > .section-title,
+.inventory-page > .section-title,
+.dash > .section-heading,
+.workspace-page > .section-heading,
+.inventory-page > .section-heading {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: var(--text-lg);
+  font-weight: 800;
+}
+
+/* Some cards carry a `pagehead` as their header instead of a heading. */
+.formcard > .pagehead:first-child,
+.inventory-detail-card > .pagehead:first-child {
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-block-end: 1px solid var(--line);
+}
+
+.formcard > .pagehead:first-child h2,
+.formcard > .pagehead:first-child h3 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.card__hint,
+.panel__subtitle,
+.inventory-list-note,
+.report-mode-note {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.card__hint--warn,
+.card--warn {
+  color: var(--warning-700);
+}
+
+.card--warn {
+  border-color: var(--warning-700);
+}
+
+.inventory-form-section + .inventory-form-section {
+  margin-block-start: 0;
+}
+
+.inventory-detail-grid,
+.detail-grid,
+.workspace-two-column {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.inventory-detail-card--wide,
+.formcard--wide {
+  grid-column: 1 / -1;
+}
+
+/* --------------------------------------------------------- 4. tables */
+
+/* The shell scrolls; it does not draw. Whoever wraps it — `tablewrap` on a
+   list page, a card on a detail page — has already drawn the edge, and a
+   second border inside the first is the doubled line this section removes. */
+.data-table-shell {
+  overflow-x: auto;
+}
+
+.formcard > .data-table-shell,
+.inventory-detail-card > .data-table-shell,
+.panel > .data-table-shell {
+  margin-inline: calc(-1 * var(--space-4));
+  margin-block-end: calc(-1 * var(--space-4));
+  border-block-start: 1px solid var(--line);
+}
+
+.data-table-shell:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+/* The list page's shell is the card: header strip, table, footer strip. */
+.tablewrap > .list-statusbar {
+  padding: var(--space-3) var(--space-4);
+  border-block-end: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.list-statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.active-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-inline-size: 0;
+}
+
+.list-statusbar__hint {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.list-feedback {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-xs);
+}
+
+.list-feedback[hidden] {
+  display: none;
+}
+
+.table thead th,
+.data-table thead th {
+  background: var(--surface-subtle);
+  border-block-end: 1px solid var(--line);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink-muted);
+}
+
+.table tbody td {
+  border-block-end: 1px solid var(--line);
+  font-size: var(--text-sm);
+  vertical-align: middle;
+}
+
+.table tbody tr:last-child td {
+  border-block-end: 0;
+}
+
+.table tbody tr:hover {
+  background: var(--surface-subtle);
+}
+
+.table tbody tr:hover .rowactions .btn {
+  border-color: var(--line-strong);
+}
+
+/* Numbers line up under one another or they cannot be compared. */
+.table__num,
+.data-table .num,
+.inventory-number,
+.stat__value,
+.summary-row__value,
+.statement-row__value {
+  font-variant-numeric: tabular-nums;
+}
+
+.cell-actions,
+.rowactions-cell {
+  inline-size: 1%;
+  white-space: nowrap;
+}
+
+.cell-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.subrow td {
+  background: var(--surface-subtle);
+}
+
+.chart-row--child td:first-child,
+.chart-cell--indent {
+  padding-inline-start: var(--space-8);
+}
+
+.chart-row--level-0 > td:first-child {
+  font-weight: 700;
+}
+
+.tree-toggle {
+  border: 0;
+  background: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.statement-row--section > td {
+  font-weight: 700;
+  background: var(--surface-subtle);
+}
+
+.statement-row--total > td,
+.statement-row--grand > td {
+  font-weight: 700;
+  border-block-start: 1px solid var(--line-strong);
+}
+
+.statement-row--grand > td {
+  font-size: var(--text-md);
+}
+
+/* A wide table on a narrow screen becomes one card per row: every cell
+   carries its own column name in `data-label`, which is why the templates
+   set it. Without this the reader scrolls a ten-column table sideways on
+   a phone and loses which column they are in. */
+@media (max-width: 45rem) {
+  /* Only a table whose cells carry their column name may lose its head. Forty-two
+     tables in this repository do not label their cells, and stacking those would
+     leave a column of anonymous numbers — worse than the sideways scroll it was
+     meant to spare the reader. Where `:has` is unsupported the table simply keeps
+     its head and scrolls, which is the safe half of the choice. */
+  .responsive-table:has(td[data-label]) thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .responsive-table:has(td[data-label]) tbody tr {
+    display: block;
+    padding: var(--space-2) 0;
+    border-block-end: 1px solid var(--line);
+  }
+
+  .responsive-table:has(td[data-label]) tbody td {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    border: 0;
+    padding-block: var(--space-1);
+    white-space: normal;
+    text-align: start;
+  }
+
+  .responsive-table:has(td[data-label]) tbody td[data-label]::before {
+    content: attr(data-label);
+    flex: none;
+    color: var(--ink-muted);
+    font-size: var(--text-xs);
+    font-weight: 600;
+  }
+
+  .responsive-table:has(td[data-label]) tbody td[data-empty-state]::before {
+    content: none;
+  }
+}
+
+/* ------------------------------------------------------- 5. pills */
+
+.chip--ok,
+.chip--on {
+  color: var(--success-700);
+  background: var(--success-100);
+}
+
+.chip--warn {
+  color: var(--warning-700);
+  background: var(--warning-100);
+}
+
+.chip--bad,
+.chip--off {
+  color: var(--danger-700);
+  background: var(--danger-100);
+}
+
+.chip--muted,
+.chip--quiet,
+.chip--neutral {
+  color: var(--ink-muted);
+  background: var(--surface-muted);
+}
+
+.chip-list,
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.badge,
+.item-type-badge,
+.inventory-status,
+.inventory-item-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+  color: var(--ink-subtle);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------- 6. banners and notices */
+
+/* A notice is a statement about this screen, not an error: amber, a bar on
+   the start edge, and the reason under the claim. `banner--bad` and
+   `alert--danger` keep the red, because those are faults. */
+.banner,
+.notice,
+.findings > .finding,
+.blocker {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  border-inline-start: 3px solid var(--info-700);
+  background: var(--info-100);
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.banner > svg,
+.notice > svg {
+  flex: none;
+  margin-block-start: 2px;
+  color: var(--info-700);
+}
+
+.banner strong,
+.notice strong {
+  font-weight: 700;
+}
+
+.banner p,
+.notice p {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-subtle);
+}
+
+.banner p:first-child {
+  margin-block-start: 0;
+}
+
+.banner--ok {
+  border-inline-start-color: var(--success-700);
+  background: var(--success-100);
+}
+
+.banner--warn,
+.banner--warning,
+.blocker {
+  border-inline-start-color: var(--warning-700);
+  background: var(--warning-100);
+}
+
+.banner--bad,
+.alert--danger {
+  border-inline-start-color: var(--danger-700);
+  background: var(--danger-100);
+}
+
+.banner .btn,
+.notice .btn {
+  margin-inline-start: auto;
+  align-self: center;
+  flex: none;
+}
+
+.blocker-list,
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.blocker__count {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.blocker__message {
+  color: var(--ink-subtle);
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+/* ------------------------------------------------------- 7. figures */
+
+/* The dashboard's KPI, in the shape the operational screens ask for. */
+.stats-grid,
+.statrow,
+.factgrid,
+.summary-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+  gap: var(--space-3);
+}
+
+.stat,
+.summary-row__item,
+.factgrid > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  min-inline-size: 0;
+}
+
+.stat__label,
+.summary-row__label {
+  order: -1;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.stat__value,
+.summary-row__value {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.stat--strong .stat__value {
+  color: var(--brand);
+}
+
+.stat__hint {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+/* A stat sitting inside a card already has that card's ground under it. */
+.stat-card > .stat,
+.panel .stat,
+.formcard .stat {
+  background: var(--surface-subtle);
+}
+
+/* ------------------------------------------------- 8. definition lists */
+
+.deflist,
+.detail-list,
+.datalist,
+.inventory-detail-list,
+.detailgrid {
+  display: grid;
+  grid-template-columns: minmax(8rem, auto) 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  align-items: baseline;
+}
+
+.deflist dt,
+.detail-list dt,
+.datalist dt,
+.inventory-detail-list dt,
+.detailgrid dt {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.deflist dd,
+.detail-list dd,
+.datalist dd,
+.inventory-detail-list dd,
+.detailgrid dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.deflist dt:not(:first-of-type),
+.detail-list dt:not(:first-of-type),
+.datalist dt:not(:first-of-type),
+.inventory-detail-list dt:not(:first-of-type),
+.detailgrid dt:not(:first-of-type) {
+  border-block-start: 1px solid var(--line-soft);
+  padding-block-start: var(--space-2);
+}
+
+.deflist dd:not(:first-of-type),
+.detail-list dd:not(:first-of-type),
+.datalist dd:not(:first-of-type),
+.inventory-detail-list dd:not(:first-of-type),
+.detailgrid dd:not(:first-of-type) {
+  border-block-start: 1px solid var(--line-soft);
+  padding-block-start: var(--space-2);
+}
+
+.detailgrid__row {
+  display: contents;
+}
+
+/* -------------------------------------------------------- 9. forms */
+
+.filter-field,
+.field--check,
+.field--checkbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-inline-size: 0;
+}
+
+.field--check,
+.field--checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.filter-field__label,
+.field__hint,
+.formrow__label--inline {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.field__hint,
+.helptext {
+  font-weight: 400;
+}
+
+.helptext {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.fielderror,
+.formcard__errors {
+  margin: var(--space-1) 0 0;
+  color: var(--danger);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.inline-form,
+.inventory-inline-form,
+.formcard--inline,
+.inventory-quick-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.formcard--inline {
+  padding: var(--space-3) var(--space-4);
+}
+
+.inventory-form__fields,
+.inventory-quick-form__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+  gap: var(--space-4);
+  inline-size: 100%;
+}
+
+.inventory-form__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.inventory-table-input {
+  inline-size: 100%;
+  min-inline-size: 6rem;
+}
+
+.inventory-choice,
+.inventory-checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.inventory-choice-wrap,
+.inventory-tracking-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+/* ------------------------------------------- 10. the list page's furniture */
+
+.toolbar__filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr));
+  gap: var(--space-3);
+  padding-block-start: var(--space-3);
+}
+
+.toolbar__submit {
+  flex: none;
+}
+
+.toolbar__search-icon {
+  position: absolute;
+  inset-inline-start: var(--space-3);
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 1.8;
+  pointer-events: none;
+}
+
+.filter-disclosure {
+  min-inline-size: 0;
+}
+
+.filter-disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  block-size: var(--control-height);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--ink-subtle);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.filter-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.filter-disclosure > summary svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+
+.filter-disclosure[open] > summary {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.filter-disclosure__dot {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: var(--brand-tint);
+  color: var(--brand);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.filter-reset {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  text-decoration: underline;
+}
+
+.inventory-loading {
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.inventory-loading.htmx-request {
+  display: inline-flex;
+}
+
+.inventory-loading__spinner {
+  inline-size: 0.85rem;
+  block-size: 0.85rem;
+  border: 2px solid var(--line-strong);
+  border-block-start-color: var(--brand);
+  border-radius: var(--radius-pill);
+  animation: inventory-spin 0.7s linear infinite;
+}
+
+@keyframes inventory-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inventory-loading__spinner {
+    animation: none;
+  }
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-block-start: 1px solid var(--line);
+  background: var(--surface-subtle);
+  flex-wrap: wrap;
+}
+
+.pagination__edge {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.pagination__status {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--ink-muted);
+}
+
+.empty-state strong,
+.empty-state__title {
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.empty-state span,
+.empty-state__description {
+  font-size: var(--text-sm);
+}
+
+.empty-state__icon {
+  color: var(--ink-disabled);
+}
+
+/* ------------------------------------------------------- 11. timeline */
+
+.timeline__item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+  padding-block: var(--space-3);
+  border-block-end: 1px solid var(--line-soft);
+}
+
+.timeline__item:last-child {
+  border-block-end: 0;
+  padding-block-end: 0;
+}
+
+.timeline__when,
+.history-line {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline__what {
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.timeline__who,
+.timeline__why {
+  grid-column: 2;
+  color: var(--ink-subtle);
+  font-size: var(--text-xs);
+}
+
+/* -------------------------------------------------- 12. tabs and utilities */
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  border-block-end: 1px solid var(--line);
+}
+
+.tab {
+  padding: var(--space-2) var(--space-4);
+  border-block-end: 2px solid transparent;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.tab.is-current,
+.tab[aria-current="page"] {
+  border-block-end-color: var(--brand);
+  color: var(--brand);
+}
+
+.visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.inventory-document-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.inventory-unit,
+.inventory-item-unit,
+.inventory-item-code,
+.inventory-shelf-life {
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.payslip-signatures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  gap: var(--space-8);
+  margin-block-start: var(--space-8);
+}
+
+@media print {
+  .no-print {
+    display: none;
+  }
+}
+
+/* --------------------------------------------- 13. the content area itself */
+
+/* The page block is a column with one gap, whether or not the template
+   wrapped its blocks in a screen. Eighty pages carry no wrapper — they put
+   their heading, their filters and their cards straight into the page block
+   — and adding a class to eighty files would still leave the eighty-first to
+   be forgotten. Spacing belongs to the container that holds the page. */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  align-items: stretch;
+}
+
+/* The page head brought its own bottom margin from the days when nothing
+   else spaced the page. Inside the column it would double the gap. */
+.content > .pagehead,
+.dash > .pagehead,
+.workspace-page > .pagehead,
+.inventory-page > .pagehead,
+.list-page > .pagehead {
+  margin-block-end: 0;
+}
+
+/* Same for the two form blocks: the card's own footer band spaces them. */
+.content > .formactions,
+.workspace-page > .formactions {
+  margin-block-start: 0;
+}
+
+/* ------------------------------------------------ 14. the card's foot band */
+
+/* A form's buttons are the card's footer, drawn like the dashboard's:
+   flush to the card's edge, on the quieter ground, ruled off from the body.
+   The old rule left them floating inside the padding with a hairline above,
+   which read as a divider in the middle of the form rather than its end. */
+.formcard > .formactions,
+.formcard > .inventory-form__actions {
+  margin: var(--space-4) calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-subtle);
+  border-block-start: 1px solid var(--line);
+  border-end-start-radius: calc(var(--radius-lg) - 1px);
+  border-end-end-radius: calc(var(--radius-lg) - 1px);
+}
+
+/* A form card whose only content is the actions has nothing to rule off. */
+.formcard > .formactions:first-child {
+  margin-block-start: calc(-1 * var(--space-4));
+  border-block-start: 0;
+}
+
+/* --------------------------------------------- 15. a card inside a card */
+
+/* Some forms group their fields into sections, and a few detail pages nest a
+   card inside a card. Two identical edges inside one another is the doubled
+   border this work removes — but the nesting itself is meaningful, so the
+   inner one becomes a sub-panel instead: the quieter ground, a softer line,
+   no shadow of its own. The reader sees one card containing parts, which is
+   what the markup says. */
+.formcard .formcard,
+.formcard .inventory-form-section,
+.formcard .stat-card,
+.formcard .inventory-detail-card,
+.panel .formcard,
+.panel .inventory-form-section,
+.panel .stat-card,
+.inventory-detail-card .formcard,
+.inventory-detail-card .inventory-form-section {
+  background: var(--surface-subtle);
+  border-color: var(--line-soft);
+  box-shadow: none;
+}
+
+/* Its heading is a caption, not a second header band: a band inside a band
+   reads as two cards fighting for the same title. */
+.formcard .formcard > h2:first-child,
+.formcard .inventory-form-section > .inventory-form-section__heading,
+.panel .formcard > h2:first-child,
+.panel .inventory-form-section > .inventory-form-section__heading,
+.inventory-detail-card .inventory-form-section > .inventory-form-section__heading {
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  border-block-end: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  letter-spacing: 0.03em;
 }

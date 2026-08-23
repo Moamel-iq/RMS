@@ -11,7 +11,7 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-supplier-liabilities">
+  <div class="workspace-page" id="accounting-supplier-liabilities">
     <div class="pagehead">
       <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
@@ -60,8 +60,8 @@
       </span>
     </form>
 
-    <section class="card {% if not reconciled %}card--warn{% endif %}" id="supplier-reconciliation">
-      <h2 class="card__title">{% translate "المطابقة مع دفتر الأستاذ" %}</h2>
+    <section class="formcard {% if not reconciled %}card--warn{% endif %}" id="supplier-reconciliation">
+      <h2>{% translate "المطابقة مع دفتر الأستاذ" %}</h2>
       <div class="summary-row">
         <div class="summary-row__item">
           <span class="summary-row__label">{% translate "رصيد الذمم من المستندات" %}</span>
@@ -98,10 +98,13 @@
       {% endif %}
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "الأعمار حسب المورد" %}</h2>
-      <div class="tablewrap">
-        <table class="table" id="supplier-aging-table">
+    <section class="formcard">
+      <h2>{% translate "الأعمار حسب المورد" %}</h2>
+      <p class="card__hint">
+        {% translate "الأعمار تُحسب من تاريخ الاستحقاق المثبَّت على الفاتورة نفسها، لا من شروط السداد الحالية — إعادة التفاوض في آذار يجب ألّا تعيد ترتيب أعمار كانون الثاني." %}
+      </p>
+      <div class="data-table-shell">
+        <table class="table responsive-table" id="supplier-aging-table">
           <thead><tr>
             <th>{% translate "المورد" %}</th>
             <th>{% translate "غير مستحق" %}</th>
@@ -131,9 +134,6 @@
           </tbody>
         </table>
       </div>
-      <p class="card__hint">
-        {% translate "الأعمار تُحسب من تاريخ الاستحقاق المثبَّت على الفاتورة نفسها، لا من شروط السداد الحالية — إعادة التفاوض في آذار يجب ألّا تعيد ترتيب أعمار كانون الثاني." %}
-      </p>
     </section>
   </div>
 {% endblock %}

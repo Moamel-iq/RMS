@@ -83,7 +83,7 @@ def test_every_dashboard_card_answers_as_a_fragment(
     assert not failures, "dashboard cards that did not answer as fragments:\n  " + "\n  ".join(
         failures
     )
-    assert len(CARDS) == 15
+    assert len(CARDS) == 16
 
 
 def test_every_report_export_is_csv_with_a_bom(

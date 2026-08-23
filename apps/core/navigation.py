@@ -127,9 +127,18 @@ MODULES: tuple[Module, ...] = (
         label=_("المخزون"),
         icon_name="box",
         phase=_("المرحلة ١"),
-        url_name="inventory:item_list",
+        url_name="inventory:overview",
         available=True,
         sections=(
+            # The module opens on its summary; every deeper screen is reached
+            # from it. Matched by exact url name, so it never steals the active
+            # state from the list it links to.
+            Section(
+                label=_("نظرة عامة"),
+                url_name="inventory:overview",
+                available=True,
+                group=_("نظرة عامة"),
+            ),
             # Navigation follows the operator's workflow instead of the order
             # in which Phase 1 happened to be implemented. `active_prefixes`
             # keeps create, detail and action screens anchored to their list.
@@ -331,9 +340,18 @@ MODULES: tuple[Module, ...] = (
         label=_("المشتريات"),
         icon_name="cart",
         phase=_("المرحلة ٢"),
-        url_name="procurement:supplier_list",
+        url_name="procurement:overview",
         available=True,
         sections=(
+            # The module opens on its summary; every deeper screen is reached
+            # from it. Matched by exact url name, so it never steals the active
+            # state from the list it links to.
+            Section(
+                label=_("نظرة عامة"),
+                url_name="procurement:overview",
+                available=True,
+                group=_("نظرة عامة"),
+            ),
             # Task 2.1 — the supplier master. Built and reachable.
             Section(
                 label=_("الموردون"),
@@ -457,9 +475,18 @@ MODULES: tuple[Module, ...] = (
         label=_("المطبخ والوصفات"),
         icon_name="chef",
         phase=_("المرحلة ٣"),
-        url_name="kitchen:recipe_list",
+        url_name="kitchen:overview",
         available=True,
         sections=(
+            # The module opens on its summary; every deeper screen is reached
+            # from it. Matched by exact url name, so it never steals the active
+            # state from the list it links to.
+            Section(
+                label=_("نظرة عامة"),
+                url_name="kitchen:overview",
+                available=True,
+                group=_("نظرة عامة"),
+            ),
             # Task 3.1 — the recipe master and its draft structure. Built and
             # reachable. Everything below stays inert until its own task
             # lands: showing the shape of the finished module is deliberate,
@@ -830,9 +857,18 @@ MODULES: tuple[Module, ...] = (
         label=_("الموارد البشرية"),
         icon_name="people",
         phase=_("المرحلة ٦"),
-        url_name="hr:employee_list",
+        url_name="hr:overview",
         available=True,
         sections=(
+            # The module opens on its summary; every deeper screen is reached
+            # from it. Matched by exact url name, so it never steals the active
+            # state from the list it links to.
+            Section(
+                label=_("نظرة عامة"),
+                url_name="hr:overview",
+                available=True,
+                group=_("نظرة عامة"),
+            ),
             Section(
                 label=_("الموظفون"),
                 url_name="hr:employee_list",

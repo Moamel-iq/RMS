@@ -33,8 +33,8 @@
   <th>{% translate "الرمز" %}</th>
   <th>{% translate "الاسم" %}</th>
   <th>{% translate "المجموعة" %}</th>
-  <th>{% translate "الوصفة" %}</th>
-  <th>{% translate "رمز الحصة" %}</th>
+  <th>{% translate "مصدر التنفيذ" %}</th>
+  <th>{% translate "تفاصيل التنفيذ" %}</th>
   <th>{% translate "الحالة" %}</th>
   <th>{% translate "إجراءات" %}</th>
 {% endblock %}
@@ -47,11 +47,24 @@
       </td>
       <td data-label="{% translate 'الاسم' %}">{{ item.name_ar }}</td>
       <td data-label="{% translate 'المجموعة' %}">{{ item.category.name_ar|default:"—" }}</td>
-      <td data-label="{% translate 'الوصفة' %}">
-        {% if item.recipe %}<bdi dir="ltr"><code>{{ item.recipe.code }}</code></bdi> {{ item.recipe.name_ar }}{% else %}—{% endif %}
+      <td data-label="{% translate 'مصدر التنفيذ' %}">
+        <span class="chip">{{ item.get_fulfillment_source_display }}</span>
       </td>
-      <td data-label="{% translate 'رمز الحصة' %}">
-        {% if item.serving_code %}<bdi dir="ltr"><code>{{ item.serving_code }}</code></bdi>{% else %}—{% endif %}
+      <td data-label="{% translate 'تفاصيل التنفيذ' %}">
+        {% if item.fulfillment_source == "DIRECT_STOCK" %}
+          {% if item.inventory_item %}
+            <bdi dir="ltr"><code>{{ item.inventory_item.code }}</code></bdi>
+            {{ item.inventory_item.name_ar }}
+            <span class="muted">· <bdi dir="ltr">{{ item.direct_stock_base_quantity|floatformat:"-6" }} {{ item.inventory_item.base_unit.code }}</bdi></span>
+          {% else %}
+            —
+          {% endif %}
+        {% elif item.recipe %}
+          <bdi dir="ltr"><code>{{ item.recipe.code }}</code></bdi> {{ item.recipe.name_ar }}
+          <span class="muted">· <bdi dir="ltr"><code>{{ item.serving_code }}</code></bdi></span>
+        {% else %}
+          —
+        {% endif %}
       </td>
       <td data-label="{% translate 'الحالة' %}">
         {% if item.is_active %}
@@ -63,6 +76,6 @@
       {% include "inventory/_rowactions.html" with row=item owner_id=item.organization_id edit_url="sales:menu_item_update" archive_url="sales:menu_item_archive" reactivate_url="sales:menu_item_reactivate" extra_url="sales:menu_item_detail" extra_label=_("التوفّر والأسعار") %}
     </tr>
   {% empty %}
-    <tr><td colspan="7">{% translate "لا توجد أصناف منيو بعد. الصنف يشير إلى وصفة ورمز حصة معرَّف على نسخها." %}</td></tr>
+    <tr><td colspan="7">{% translate "لا توجد أصناف منيو بعد. أضف طبقاً من وصفة أو بضاعة إعادة بيع تُصرف مباشرة من المخزون." %}</td></tr>
   {% endfor %}
 {% endblock %}

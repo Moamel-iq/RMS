@@ -4,16 +4,16 @@
 {# stays a balance until a settlement or an authorized adjustment clears it   #}
 {# (ADR-028 §9); a control that aged it away would remove the argument        #}
 {# without settling it.                                                       #}
-{% load i18n %}
+{% load i18n money_tags %}
 <h2 class="section-title">{{ card.label }}</h2>
 <div class="statrow">
   <div class="stat">
     <span class="stat__label">{% translate "الرصيد القائم" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.outstanding }}</code></bdi></span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.outstanding|iqd }}</code></bdi></span>
   </div>
   <div class="stat">
     <span class="stat__label">{% translate "متأخر أكثر من ٩٠ يوماً" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.overdue }}</code></bdi></span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.overdue|iqd }}</code></bdi></span>
     <span class="stat__hint"><bdi dir="ltr"><code>{{ summary.overdue_share }}%</code></bdi></span>
   </div>
   <div class="stat">
@@ -22,7 +22,7 @@
   </div>
   <div class="stat">
     <span class="stat__label">{% translate "المسوّى في المدة" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.settled_in_period }}</code></bdi></span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.settled_in_period|iqd }}</code></bdi></span>
   </div>
   <div class="stat">
     <span class="stat__label">{% translate "تسويات مفتوحة" %}</span>
@@ -32,7 +32,7 @@
   {# 100 and a remittance over by 100 is two arguments, not agreement.         #}
   <div class="stat">
     <span class="stat__label">{% translate "فروق غير مفسّرة (مفتوحة)" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.unexplained_open }}</code></bdi></span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.unexplained_open|iqd }}</code></bdi></span>
   </div>
 </div>
 
@@ -59,7 +59,7 @@
                 {{ position.delivery_application.name_ar }}
               </a>
             </td>
-            <td data-label="{% translate 'الرصيد' %}"><bdi dir="ltr"><code>{{ position.balance }}</code></bdi></td>
+            <td data-label="{% translate 'الرصيد' %}"><bdi dir="ltr"><code>{{ position.balance|iqd }}</code></bdi></td>
             <td data-label="{% translate 'أقدم مبلغ مفتوح' %}">
               {% if position.oldest_open_date %}
                 <bdi dir="ltr"><code>{{ position.oldest_open_date|date:"Y-m-d" }}</code></bdi>
@@ -71,7 +71,7 @@
               {% else %}<span class="muted">—</span>{% endif %}
             </td>
             {% for bucket in position.buckets %}
-              <td data-label="{{ bucket.label }}"><bdi dir="ltr"><code>{{ bucket.amount }}</code></bdi></td>
+              <td data-label="{{ bucket.label }}"><bdi dir="ltr"><code>{{ bucket.amount|iqd }}</code></bdi></td>
             {% endfor %}
           </tr>
         {% endfor %}

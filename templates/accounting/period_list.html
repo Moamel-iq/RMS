@@ -9,7 +9,7 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-periods">
+  <div class="workspace-page" id="accounting-periods">
     <div class="pagehead">
       <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
@@ -41,8 +41,8 @@
     </form>
 
     {% for year in years %}
-      <section class="card">
-        <h2 class="card__title">
+      <section class="formcard">
+        <h2>
           {% translate "السنة المالية" %} <bdi dir="ltr">{{ year.fiscal_year.year }}</bdi>
           {% if year.is_closed %}
             <span class="chip chip--muted">{% translate "مقفلة بالكامل" %}</span>
@@ -53,8 +53,8 @@
         <p class="card__hint">
           {% blocktranslate with open=year.open_count soft=year.soft_closed_count closed=year.closed_count %}مفتوحة {{ open }} · مغلقة مبدئياً {{ soft }} · مقفلة {{ closed }}{% endblocktranslate %}
         </p>
-        <div class="tablewrap">
-          <table class="table">
+        <div class="data-table-shell">
+          <table class="table responsive-table">
             <thead><tr>
               <th>{% translate "الفترة" %}</th><th>{% translate "من" %}</th>
               <th>{% translate "إلى" %}</th><th>{% translate "الحالة" %}</th><th></th>
@@ -82,7 +82,7 @@
         </div>
       </section>
     {% empty %}
-      <section class="card">
+      <section class="formcard">
         <p class="empty">{% translate "لم تُفتح سنة مالية لهذه المؤسسة بعد." %}</p>
       </section>
     {% endfor %}

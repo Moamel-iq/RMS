@@ -1,0 +1,177 @@
+{# The module's opening screen. Summary first, detail behind a link.          #}
+{#                                                                           #}
+{# No live plate cost renders here: a cost needs a named version, warehouse  #}
+{# and date, and a dashboard names none of them. The cost panel shows the    #}
+{# stored snapshots instead — each carrying its own date and warehouse — and #}
+{# only behind the same permission the cost card requires.                   #}
+{% extends "shell.html" %}
+{% load i18n l10n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="kitchen-overview" class="dash">
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--primary" href="{% url 'kitchen:recipe_list' %}">{% translate "افتح الوصفات" %}</a>
+      </div>
+    </div>
+
+    {# The one alert, and only while it is true: nothing approved, nothing    #}
+    {# sellable. It disappears the day the first version activates.           #}
+    {% if not overview.sellable and overview.recipe_count %}
+      <div class="alert" role="status">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" aria-hidden="true" style="flex:none; margin-block-start:2px">
+          <path d="M12 9v4M12 17h.01"/>
+          <path d="M10.3 3.9L2.4 17.5A2 2 0 004.1 20.5h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/>
+        </svg>
+        <div>
+          <strong>{% translate "لا نسخة وصفة فعّالة — المنيو لا يستطيع البيع بعد" %}</strong>
+          <p>
+            {% blocktranslate with drafts=overview.draft_version_count trimmed %}
+              {{ drafts }} نسخة ما تزال مسودة. الاعتماد يحتاج خطوات الطريقة وتوقيعات
+              المراجعة الثلاث ثم التفعيل.
+            {% endblocktranslate %}
+          </p>
+        </div>
+        <a class="btn btn--quiet" href="{% url 'kitchen:recipe_list' %}">{% translate "افتح الوصفات" %}</a>
+      </div>
+    {% endif %}
+
+    <div class="kpigrid">
+      <div class="kpi kpi--accent">
+        <div class="kpi__head"><span class="kpi__label">{% translate "وصفات فعّالة" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3v8a3 3 0 006 0V3"/><path d="M9 11v10"/><path d="M17 3c-1.5 2-2 4-2 6v3h3V3z"/><path d="M18 12v9"/></svg></span></div>
+        <div class="kpi__value"><bdi dir="ltr">{{ overview.recipe_count }}</bdi></div>
+        <div class="kpi__note">
+          {% blocktranslate with portions=overview.portion_count batches=overview.batch_count trimmed %}
+            {{ portions }} طبق تقديم · {{ batches }} وصفة إنتاج
+          {% endblocktranslate %}
+        </div>
+      </div>
+
+      <div class="kpi">
+        <div class="kpi__head"><span class="kpi__label">{% translate "نسخ فعّالة للبيع" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 6L9 17l-5-5"/></svg></span></div>
+        <div class="kpi__value"><bdi dir="ltr">{{ overview.active_version_count }}</bdi></div>
+        <div class="kpi__note">{% translate "نسخة معتمدة ومفعّلة يُباع عليها" %}</div>
+      </div>
+
+      <div class="kpi">
+        <div class="kpi__head"><span class="kpi__label">{% translate "مسودات قيد العمل" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></span></div>
+        <div class="kpi__value"><bdi dir="ltr">{{ overview.draft_version_count }}</bdi></div>
+        <div class="kpi__note">
+          {% if overview.draft_version_count %}<span class="trend trend--down">{% translate "غير معتمدة" %}</span>{% endif %}
+          {% translate "تنتظر الخطوات والمراجعات" %}
+        </div>
+      </div>
+    </div>
+
+    <div class="dashgrid">
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">{% translate "مسار الاعتماد" %}</h2>
+        <p class="pagehead__hint">{% translate "النسخ بترتيب دورة الحياة، لا بالحجم" %}</p>
+      </div>
+      <div class="bars">
+        {% for slice in overview.statuses %}
+          <div class="bar">
+            <span class="bar__name">{{ slice.label }}</span>
+            <div class="bar__track">
+              <div class="bar__fill"
+                   style="inline-size: {% widthratio slice.count overview.recipe_count 100 %}%;
+                          background: var(--series-{% cycle '4' '5' '2' '1' '6' '3' %});"></div>
+            </div>
+            <span class="bar__value"><bdi dir="ltr">{{ slice.count }}</bdi></span>
+          </div>
+        {% empty %}
+          <p class="empty">{% translate "لا نسخ وصفات بعد." %}</p>
+        {% endfor %}
+      </div>
+      {% if overview.draft_version_count and not overview.sellable %}
+        <p class="panel__foot">{% translate "كل النسخ ما تزال في أول المسار — الاعتماد يفتح البيع." %}</p>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">{% translate "تركيبة الوصفات" %}</h2>
+        <p class="pagehead__hint">{% translate "أطباق تقديم مقابل وصفات إنتاج" %}</p>
+      </div>
+      <div class="meter" role="img" aria-label="{% translate 'نسبة أطباق التقديم إلى وصفات الإنتاج' %}">
+        <span style="inline-size: {% widthratio overview.portion_count overview.recipe_count 100 %}%; background: var(--series-1);"></span>
+        <span style="inline-size: {% widthratio overview.batch_count overview.recipe_count 100 %}%; background: var(--series-4);"></span>
+      </div>
+      <div class="legend">
+        <div class="legend__row">
+          <span class="legend__swatch" style="background: var(--series-1);" aria-hidden="true"></span>
+          {% translate "أطباق تقديم" %}
+          <span class="legend__value"><bdi dir="ltr">{{ overview.portion_count }}</bdi></span>
+        </div>
+        <div class="legend__row">
+          <span class="legend__swatch" style="background: var(--series-4);" aria-hidden="true"></span>
+          {% translate "وصفات إنتاج داخلي" %}
+          <span class="legend__value"><bdi dir="ltr">{{ overview.batch_count }}</bdi></span>
+        </div>
+      </div>
+      <p class="panel__foot">{% translate "وصفات الإنتاج تُطبخ للمخزن ولا تُعرض في المنيو." %}</p>
+    </section>
+    </div>
+
+    {% if show_cost %}
+      <section class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">{% translate "آخر لقطات الكلفة المسجّلة" %}</h2>
+          <p class="pagehead__hint">
+            {% translate "كل لقطة مجمّدة بتاريخها ومخزنها. الحساب الحي من بطاقة الكلفة على النسخة نفسها." %}
+          </p>
+        </div>
+        <div class="tablewrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">{% translate "الوصفة" %}</th>
+                <th scope="col">{% translate "بتاريخ" %}</th>
+                <th scope="col">{% translate "المخزن" %}</th>
+                <th scope="col">{% translate "كلفة المواد" %}</th>
+                <th scope="col">{% translate "كلفة الطبق" %}</th>
+                <th scope="col">{% translate "الصفة" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in overview.snapshots %}
+                <tr>
+                  <td>{{ row.recipe_name }}<span class="muted"><bdi dir="ltr">{{ row.recipe_code }}</bdi></span></td>
+                  <td><bdi dir="ltr">{{ row.as_of_date|date:"Y-m-d" }}</bdi></td>
+                  <td><bdi dir="ltr">{{ row.warehouse_code }}</bdi></td>
+                  <td class="table__num"><bdi dir="ltr">{{ row.total_material_cost|money }}</bdi></td>
+                  <td class="table__num">
+                    {% if row.plate_cost is not None %}<bdi dir="ltr">{{ row.plate_cost|money }}</bdi>{% else %}—{% endif %}
+                  </td>
+                  <td>
+                    {% if row.is_authoritative %}
+                      <span class="status-badge status-badge--success">{% translate "معتمدة" %}</span>
+                    {% else %}
+                      <span class="status-badge status-badge--neutral">{% translate "معاينة" %}</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="6" class="empty">
+                    {% translate "لا لقطة كلفة مسجّلة بعد — افتح بطاقة الكلفة على نسخة وسجّل أول لقطة." %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endif %}
+
+  </div>
+{% endblock %}

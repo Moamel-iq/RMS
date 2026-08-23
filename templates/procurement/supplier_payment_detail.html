@@ -7,162 +7,170 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="pagehead">
-    <div>
-      <h1 class="pagehead__title">
-        {% if payment.number %}<span dir="ltr">{{ payment.number }}</span>{% else %}{% translate "مسودة دفعة" %}{% endif %}
-      </h1>
-      <p class="pagehead__hint">
-        {{ payment.supplier.name_ar }} —
-        <span class="chip">{{ payment.get_status_display }}</span>
+  <section class="workspace-page">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">
+          {% if payment.number %}<span dir="ltr">{{ payment.number }}</span>{% else %}{% translate "مسودة دفعة" %}{% endif %}
+        </h1>
+        <p class="pagehead__hint">
+          {{ payment.supplier.name_ar }} —
+          <span class="chip">{{ payment.get_status_display }}</span>
+        </p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--ghost" href="{% url 'procurement:supplier_payment_list' %}">{% translate "رجوع" %}</a>
+      </div>
+    </div>
+
+    <div class="formcard">
+      <dl class="detailgrid">
+        <dt>{% translate "المورد" %}</dt><dd>{{ payment.supplier.code }} — {{ payment.supplier.name_ar }}</dd>
+        <dt>{% translate "الفرع" %}</dt><dd>{{ payment.branch.name_ar }}</dd>
+        <dt>{% translate "طريقة الدفع" %}</dt><dd>{{ payment.get_method_display }}</dd>
+        <dt>{% translate "تاريخ الدفع" %}</dt><dd><span dir="ltr">{{ payment.paid_at|date:"Y-m-d" }}</span></dd>
+        <dt>{% translate "المرجع" %}</dt>
+        <dd>{% if payment.reference %}<span dir="ltr">{{ payment.reference }}</span>{% else %}—{% endif %}</dd>
+        <dt>{% translate "سجّلها" %}</dt><dd>{{ payment.created_by.username }}</dd>
+        {% if may_see_cost %}
+          <dt>{% translate "المبلغ" %}</dt>
+          <dd><span dir="ltr">{{ payment.amount|money_full }}</span></dd>
+          <dt>{% translate "المخصص على الفواتير" %}</dt>
+          <dd><span dir="ltr">{{ allocated|money_full }}</span></dd>
+          {% if payment.status == "POSTED" %}
+            <dt>{% translate "السلفة القائمة" %}</dt>
+            <dd><span dir="ltr">{{ advance|money_full }}</span></dd>
+          {% endif %}
+        {% endif %}
+        {% if payment.journal_entry_id %}
+          <dt>{% translate "القيد المحاسبي" %}</dt>
+          <dd><span dir="ltr">{{ payment.journal_entry.entry_number }}</span></dd>
+        {% endif %}
+        {% if payment.reversal_journal_entry_id %}
+          <dt>{% translate "قيد العكس" %}</dt>
+          <dd><span dir="ltr">{{ payment.reversal_journal_entry.entry_number }}</span></dd>
+          <dt>{% translate "سبب العكس" %}</dt>
+          <dd>{{ payment.reversal_reason }}</dd>
+        {% endif %}
+      </dl>
+      <p class="muted">
+        {% translate "الترحيل: مدين ذمة المورد بالمخصص، مدين سلف الموردين بالباقي، دائن الصندوق أو المصرف بكامل المبلغ — والحساب يُحلّ من طريقة الدفع عبر دور محاسبي مؤرّخ، لا برقم حساب مكتوب في الشيفرة." %}
       </p>
     </div>
-    <a class="btn btn--ghost" href="{% url 'procurement:supplier_payment_list' %}">{% translate "رجوع" %}</a>
-  </div>
 
-  <div class="formcard">
-    <dl class="detailgrid">
-      <dt>{% translate "المورد" %}</dt><dd>{{ payment.supplier.code }} — {{ payment.supplier.name_ar }}</dd>
-      <dt>{% translate "الفرع" %}</dt><dd>{{ payment.branch.name_ar }}</dd>
-      <dt>{% translate "طريقة الدفع" %}</dt><dd>{{ payment.get_method_display }}</dd>
-      <dt>{% translate "تاريخ الدفع" %}</dt><dd><span dir="ltr">{{ payment.paid_at|date:"Y-m-d" }}</span></dd>
-      <dt>{% translate "المرجع" %}</dt>
-      <dd>{% if payment.reference %}<span dir="ltr">{{ payment.reference }}</span>{% else %}—{% endif %}</dd>
-      <dt>{% translate "سجّلها" %}</dt><dd>{{ payment.created_by.username }}</dd>
-      {% if may_see_cost %}
-        <dt>{% translate "المبلغ" %}</dt>
-        <dd><span dir="ltr">{{ payment.amount|money_full }}</span></dd>
-        <dt>{% translate "المخصص على الفواتير" %}</dt>
-        <dd><span dir="ltr">{{ allocated|money_full }}</span></dd>
-        {% if payment.status == "POSTED" %}
-          <dt>{% translate "السلفة القائمة" %}</dt>
-          <dd><span dir="ltr">{{ advance|money_full }}</span></dd>
-        {% endif %}
-      {% endif %}
-      {% if payment.journal_entry_id %}
-        <dt>{% translate "القيد المحاسبي" %}</dt>
-        <dd><span dir="ltr">{{ payment.journal_entry.entry_number }}</span></dd>
-      {% endif %}
-      {% if payment.reversal_journal_entry_id %}
-        <dt>{% translate "قيد العكس" %}</dt>
-        <dd><span dir="ltr">{{ payment.reversal_journal_entry.entry_number }}</span></dd>
-        <dt>{% translate "سبب العكس" %}</dt>
-        <dd>{{ payment.reversal_reason }}</dd>
-      {% endif %}
-    </dl>
-    <p class="muted">
-      {% translate "الترحيل: مدين ذمة المورد بالمخصص، مدين سلف الموردين بالباقي، دائن الصندوق أو المصرف بكامل المبلغ — والحساب يُحلّ من طريقة الدفع عبر دور محاسبي مؤرّخ، لا برقم حساب مكتوب في الشيفرة." %}
-    </p>
-  </div>
-
-  <table class="table">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>{% translate "الفاتورة" %}</th>
-        {% if may_see_cost %}<th>{% translate "المبلغ المخصص" %}</th>{% endif %}
-        <th>{% translate "ملاحظة" %}</th>
-        {% if may_edit %}<th>{% translate "إجراءات" %}</th>{% endif %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for allocation in allocations %}
-        <tr>
-          <td>{{ allocation.sequence }}</td>
-          <td><span dir="ltr">{{ allocation.invoice.number }}</span></td>
-          {% if may_see_cost %}
-            <td><span dir="ltr">{{ allocation.allocated_amount|money_full }}</span></td>
-          {% endif %}
-          <td>{{ allocation.note|default:"—" }}</td>
-          {% if may_edit %}
-            <td>
-              <div class="rowactions">
-                <form method="post" action="{% url 'procurement:payment_allocation_delete' payment.pk allocation.pk %}">
-                  {% csrf_token %}
-                  <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
-                </form>
-              </div>
-            </td>
-          {% endif %}
-        </tr>
-      {% empty %}
-        <tr><td colspan="5">{% translate "بلا تخصيص — تقف الدفعة كاملة سلفة للمورد عند الترحيل." %}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  {% if may_edit %}
-    <form class="formcard" method="post" novalidate>
-      {% csrf_token %}
-      <h2>{% translate "تخصيص على فاتورة" %}</h2>
-      <p class="muted">
-        {% translate "القائمة مرتّبة بالأقدم استحقاقاً أولاً — اقتراح ظاهر تُغيّره بحرية، لا قاعدة تُطبَّق بصمت." %}
-      </p>
-      {% if form.non_field_errors %}
-        <div class="alert" role="alert">
-          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
-        </div>
-      {% endif %}
-      <div class="formgrid">
-        {% for field in form %}
-          <label class="field">
-            <span class="field__label">{{ field.label }}</span>
-            {{ field }}
-            {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
-            {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
-          </label>
-        {% endfor %}
-      </div>
-      <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
-    </form>
-  {% endif %}
-
-  <div class="formcard">
-    <h2>{% translate "الترحيل" %}</h2>
-    {% if payment.status == "DRAFT" %}
-      <p class="muted">
-        {% translate "الترحيل يُخرج المال ويُنشئ القيد. التخصيص اختياري — الباقي غير المخصص يقف سلفة للمورد، أصلاً لا ذمة سالبة." %}
-      </p>
-      {% if may_post %}
-        <form method="post" action="{% url 'procurement:supplier_payment_post' payment.pk %}">
-          {% csrf_token %}
-          <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
-        </form>
-      {% endif %}
-    {% elif payment.status == "POSTED" %}
-      <p class="muted">
-        {% translate "مرحّلة. الدفعة المرحّلة لا تُعدَّل؛ تُصحَّح بالعكس ثم بتسجيل دفعة جديدة، فتعود ذمم الفواتير كما كانت." %}
-      </p>
-      {% if may_reverse %}
-        <form method="post" action="{% url 'procurement:supplier_payment_reverse' payment.pk %}">
-          {% csrf_token %}
-          <label class="field">
-            <span class="field__label">{% translate "سبب العكس" %}</span>
-            <input type="text" name="reason" required>
-          </label>
-          <button class="btn btn--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
-        </form>
-      {% endif %}
-    {% else %}
-      <p class="muted">
-        {% translate "معكوسة. السجل باقٍ كما هو؛ التصحيح يكون بدفعة جديدة." %}
-      </p>
-    {% endif %}
-  </div>
-
-  <div class="formcard">
-    <h2>{% translate "المسار الزمني" %}</h2>
-    <table class="table">
-      <tbody>
-        {% for event in timeline %}
+    <div class="tablewrap">
+      <table class="table responsive-table">
+        <thead>
           <tr>
-            <td>{{ event.label }}</td>
-            <td><span dir="ltr">{{ event.at|date:"Y-m-d H:i" }}</span></td>
-            <td>{{ event.who|default:"—" }}</td>
-            <td>{{ event.note|default:"" }}</td>
+            <th>#</th>
+            <th>{% translate "الفاتورة" %}</th>
+            {% if may_see_cost %}<th>{% translate "المبلغ المخصص" %}</th>{% endif %}
+            <th>{% translate "ملاحظة" %}</th>
+            {% if may_edit %}<th>{% translate "إجراءات" %}</th>{% endif %}
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+        </thead>
+        <tbody>
+          {% for allocation in allocations %}
+            <tr>
+              <td>{{ allocation.sequence }}</td>
+              <td><span dir="ltr">{{ allocation.invoice.number }}</span></td>
+              {% if may_see_cost %}
+                <td><span dir="ltr">{{ allocation.allocated_amount|money_full }}</span></td>
+              {% endif %}
+              <td>{{ allocation.note|default:"—" }}</td>
+              {% if may_edit %}
+                <td>
+                  <div class="rowactions">
+                    <form method="post" action="{% url 'procurement:payment_allocation_delete' payment.pk allocation.pk %}">
+                      {% csrf_token %}
+                      <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                    </form>
+                  </div>
+                </td>
+              {% endif %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" data-empty-state>{% translate "بلا تخصيص — تقف الدفعة كاملة سلفة للمورد عند الترحيل." %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if may_edit %}
+      <form class="formcard" method="post" novalidate>
+        <h2>{% translate "تخصيص على فاتورة" %}</h2>
+        {% csrf_token %}
+        <p class="muted">
+          {% translate "القائمة مرتّبة بالأقدم استحقاقاً أولاً — اقتراح ظاهر تُغيّره بحرية، لا قاعدة تُطبَّق بصمت." %}
+        </p>
+        {% if form.non_field_errors %}
+          <div class="alert" role="alert">
+            {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+          </div>
+        {% endif %}
+        <div class="formgrid">
+          {% for field in form %}
+            <label class="field">
+              <span class="field__label">{{ field.label }}</span>
+              {{ field }}
+              {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
+              {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+            </label>
+          {% endfor %}
+        </div>
+        <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+      </form>
+    {% endif %}
+
+    <div class="formcard">
+      <h2>{% translate "الترحيل" %}</h2>
+      {% if payment.status == "DRAFT" %}
+        <p class="muted">
+          {% translate "الترحيل يُخرج المال ويُنشئ القيد. التخصيص اختياري — الباقي غير المخصص يقف سلفة للمورد، أصلاً لا ذمة سالبة." %}
+        </p>
+        {% if may_post %}
+          <form method="post" action="{% url 'procurement:supplier_payment_post' payment.pk %}">
+            {% csrf_token %}
+            <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+          </form>
+        {% endif %}
+      {% elif payment.status == "POSTED" %}
+        <p class="muted">
+          {% translate "مرحّلة. الدفعة المرحّلة لا تُعدَّل؛ تُصحَّح بالعكس ثم بتسجيل دفعة جديدة، فتعود ذمم الفواتير كما كانت." %}
+        </p>
+        {% if may_reverse %}
+          <form method="post" action="{% url 'procurement:supplier_payment_reverse' payment.pk %}">
+            {% csrf_token %}
+            <label class="field">
+              <span class="field__label">{% translate "سبب العكس" %}</span>
+              <input type="text" name="reason" required>
+            </label>
+            <button class="btn btn--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
+          </form>
+        {% endif %}
+      {% else %}
+        <p class="muted">
+          {% translate "معكوسة. السجل باقٍ كما هو؛ التصحيح يكون بدفعة جديدة." %}
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="formcard">
+      <h2>{% translate "المسار الزمني" %}</h2>
+      <div class="data-table-shell">
+        <table class="table responsive-table">
+          <tbody>
+            {% for event in timeline %}
+              <tr>
+                <td>{{ event.label }}</td>
+                <td><span dir="ltr">{{ event.at|date:"Y-m-d H:i" }}</span></td>
+                <td>{{ event.who|default:"—" }}</td>
+                <td>{{ event.note|default:"" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 {% endblock %}

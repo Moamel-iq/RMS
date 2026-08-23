@@ -10,20 +10,20 @@
 {# distinction is what tells an operator whether to add the offer or turn it #}
 {# back on.                                                                  #}
 {% extends list_base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="sales-menu-item-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="workspace-page" id="sales-menu-item-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:menu_item_list' %}">{% translate "أصناف المنيو" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ item.code }}</span>
     </nav>
 
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ item.name_ar }}</h1>
         <p class="pagehead__hint">{{ page_hint }}</p>
       </div>
@@ -35,92 +35,131 @@
       </div>
     </div>
 
-    <dl class="factgrid">
-      <div><dt>{% translate "الرمز" %}</dt><dd><bdi dir="ltr"><code>{{ item.code }}</code></bdi></dd></div>
-      <div><dt>{% translate "المجموعة" %}</dt><dd>{{ item.category.name_ar|default:"—" }}</dd></div>
-      <div>
-        <dt>{% translate "الوصفة" %}</dt>
-        <dd>{% if item.recipe %}<bdi dir="ltr"><code>{{ item.recipe.code }}</code></bdi> {{ item.recipe.name_ar }}{% else %}—{% endif %}</dd>
-      </div>
-      <div><dt>{% translate "رمز الحصة" %}</dt><dd><bdi dir="ltr"><code>{{ item.serving_code }}</code></bdi></dd></div>
-      <div><dt>{% translate "مصدر التنفيذ" %}</dt><dd>{{ item.get_fulfillment_source_display }}</dd></div>
-      <div>
-        <dt>{% translate "الحالة" %}</dt>
-        <dd>{% if item.is_active %}{% translate "فعّال" %}{% else %}{% translate "مؤرشف" %}{% endif %}</dd>
-      </div>
-    </dl>
+    <section class="formcard">
+      <h2>{% translate "بيانات الصنف" %}</h2>
+      <dl class="factgrid">
+        <div><dt>{% translate "الرمز" %}</dt><dd><bdi dir="ltr"><code>{{ item.code }}</code></bdi></dd></div>
+        <div><dt>{% translate "المجموعة" %}</dt><dd>{{ item.category.name_ar|default:"—" }}</dd></div>
+        <div><dt>{% translate "مصدر التنفيذ" %}</dt><dd>{{ item.get_fulfillment_source_display }}</dd></div>
+        {% if item.fulfillment_source == "DIRECT_STOCK" %}
+          <div>
+            <dt>{% translate "الصنف المخزني" %}</dt>
+            <dd>
+              {% if item.inventory_item %}
+                <bdi dir="ltr"><code>{{ item.inventory_item.code }}</code></bdi> {{ item.inventory_item.name_ar }}
+              {% else %}—{% endif %}
+            </dd>
+          </div>
+          <div>
+            <dt>{% translate "الكمية لكل وحدة مباعة" %}</dt>
+            <dd>
+              {% if item.inventory_item %}
+                <bdi dir="ltr">{{ item.direct_stock_base_quantity|floatformat:"-6" }} {{ item.inventory_item.base_unit.code }}</bdi>
+              {% else %}—{% endif %}
+            </dd>
+          </div>
+        {% else %}
+          <div>
+            <dt>{% translate "الوصفة" %}</dt>
+            <dd>{% if item.recipe %}<bdi dir="ltr"><code>{{ item.recipe.code }}</code></bdi> {{ item.recipe.name_ar }}{% else %}—{% endif %}</dd>
+          </div>
+          <div><dt>{% translate "رمز الحصة" %}</dt><dd>{% if item.serving_code %}<bdi dir="ltr"><code>{{ item.serving_code }}</code></bdi>{% else %}—{% endif %}</dd></div>
+        {% endif %}
+        <div>
+          <dt>{% translate "الحالة" %}</dt>
+          <dd>{% if item.is_active %}{% translate "فعّال" %}{% else %}{% translate "مؤرشف" %}{% endif %}</dd>
+        </div>
+      </dl>
+    </section>
 
     <p class="banner" role="note">
-      {% translate "نسخة الوصفة تُحلّ عند البيع من تاريخ العملية، لا من تاريخ اليوم. الأسعار المعروضة هنا هي السارية اليوم فقط، وكل سطر مبيعات مرحّل يحتفظ بالسعر والنسخة والحصة التي استُخدمت فعلاً." %}
+      {% if item.fulfillment_source == "DIRECT_STOCK" %}
+        {% translate "عند البيع تُثبَّت هوية الصنف المخزني والكمية ومخزن الصرف على سطر المبيعات، ثم يُخصم المخزون وتُثبت كلفة البضاعة عند الترحيل." %}
+      {% else %}
+        {% translate "نسخة الوصفة تُحلّ عند البيع من تاريخ العملية، لا من تاريخ اليوم. كل سطر مبيعات يحتفظ بالنسخة والحصة التي استُخدمت فعلاً." %}
+      {% endif %}
+      {% translate "الأسعار المعروضة هنا هي السارية اليوم فقط." %}
     </p>
 
-    <h2 class="section-title">{% translate "التوفّر والأسعار حسب الفرع" %}</h2>
-    <div class="tablewrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">{% translate "الفرع" %}</th>
-            <th scope="col">{% translate "التوفّر" %}</th>
-            <th scope="col">{% translate "الاسم المحلي" %}</th>
-            <th scope="col">{% translate "الأسعار السارية اليوم" %}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in rows %}
+    <section class="formcard">
+      <h2>{% translate "التوفّر والأسعار حسب الفرع" %}</h2>
+      <div class="data-table-shell">
+        <table class="table responsive-table">
+          <thead>
             <tr>
-              <td data-label="{% translate 'الفرع' %}">
-                <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name_ar }}
-              </td>
-              <td data-label="{% translate 'التوفّر' %}">
-                {% if not row.offered %}
-                  <span class="chip">{% translate "غير معروض في هذا الفرع" %}</span>
-                {% elif row.available %}
-                  <span class="chip chip--on">{% translate "متاح" %}</span>
-                {% else %}
-                  <span class="chip chip--off">{% translate "موقوف مؤقتاً" %}</span>
-                {% endif %}
-              </td>
-              <td data-label="{% translate 'الاسم المحلي' %}">{{ row.setting.local_name_ar|default:"—" }}</td>
-              <td data-label="{% translate 'الأسعار السارية اليوم' %}">
-                {% for price in row.prices %}
-                  <div>
-                    <span class="chip">{{ price.get_scope_display }}</span>
-                    <bdi dir="ltr"><code>{{ price.price_display }}</code></bdi>
-                    {% if price.channel %}<span class="muted">{{ price.channel.name_ar }}</span>{% endif %}
-                  </div>
-                {% empty %}
-                  <span class="muted">{% translate "لا يوجد سعر ساري — لا يمكن بيع الصنف في هذا الفرع اليوم." %}</span>
-                {% endfor %}
-              </td>
+              <th scope="col">{% translate "الفرع" %}</th>
+              <th scope="col">{% translate "التوفّر" %}</th>
+              <th scope="col">{% translate "الاسم المحلي" %}</th>
+              <th scope="col">{% translate "مخزن الصرف" %}</th>
+              <th scope="col">{% translate "الأسعار السارية اليوم" %}</th>
             </tr>
-          {% empty %}
-            <tr><td colspan="4" class="empty">{% translate "لا توجد فروع متاحة لك في هذه المؤسسة." %}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td data-label="{% translate 'الفرع' %}">
+                  <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name_ar }}
+                </td>
+                <td data-label="{% translate 'التوفّر' %}">
+                  {% if not row.offered %}
+                    <span class="chip">{% translate "غير معروض في هذا الفرع" %}</span>
+                  {% elif row.available %}
+                    <span class="chip chip--on">{% translate "متاح" %}</span>
+                  {% else %}
+                    <span class="chip chip--off">{% translate "موقوف مؤقتاً" %}</span>
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'الاسم المحلي' %}">{{ row.setting.local_name_ar|default:"—" }}</td>
+                <td data-label="{% translate 'مخزن الصرف' %}">
+                  {% if row.setting.source_warehouse %}
+                    <bdi dir="ltr"><code>{{ row.setting.source_warehouse.code }}</code></bdi>
+                    {{ row.setting.source_warehouse.name_ar }}
+                  {% else %}—{% endif %}
+                </td>
+                <td data-label="{% translate 'الأسعار السارية اليوم' %}">
+                  {% for price in row.prices %}
+                    <div>
+                      <span class="chip">{{ price.get_scope_display }}</span>
+                      <bdi dir="ltr"><code>{{ price.price_display|iqd }}</code></bdi>
+                      {% if price.channel %}<span class="muted">{{ price.channel.name_ar }}</span>{% endif %}
+                    </div>
+                  {% empty %}
+                    <span class="muted">{% translate "لا يوجد سعر ساري — لا يمكن بيع الصنف في هذا الفرع اليوم." %}</span>
+                  {% endfor %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="5" class="empty">{% translate "لا توجد فروع متاحة لك في هذه المؤسسة." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     {% if availability_form %}
-      <h2 class="section-title">{% translate "تحديث التوفّر" %}</h2>
-      <form class="formcard" method="post" novalidate>
-        {% csrf_token %}
-        {% include "components/form_error_summary.html" with form=availability_form %}
-        <div class="formgrid">
-          {% for field in availability_form %}
-            {% if field.field.widget.input_type == "checkbox" %}
-              <div class="formrow formrow--check" data-field>
-                {{ field }}
-                <label class="formrow__label formrow__label--inline" for="{{ field.id_for_label }}">{{ field.label }}</label>
-              </div>
-            {% else %}
-              {% include "settings/_field.html" with field=field %}
-            {% endif %}
-          {% endfor %}
-        </div>
-        <div class="formactions">
-          <button class="btn btn--primary" type="submit">{% translate "حفظ التوفّر" %}</button>
-        </div>
-      </form>
+      <section class="formcard">
+        <h2>{% translate "تحديث التوفّر" %}</h2>
+        <form method="post" novalidate
+              hx-post="{{ request.path }}" hx-target="#sales-menu-item-detail" hx-swap="outerHTML">
+          {% csrf_token %}
+          {% include "components/form_error_summary.html" with form=availability_form %}
+          <div class="formgrid">
+            {% for field in availability_form %}
+              {% if field.field.widget.input_type == "checkbox" %}
+                <div class="formrow formrow--check" data-field>
+                  {{ field }}
+                  <label class="formrow__label formrow__label--inline" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                </div>
+              {% else %}
+                {% include "settings/_field.html" with field=field %}
+              {% endif %}
+            {% endfor %}
+          </div>
+          <div class="formactions">
+            <button class="btn btn--primary" type="submit">{% translate "حفظ التوفّر" %}</button>
+          </div>
+        </form>
+      </section>
     {% endif %}
   </div>
 {% endblock %}

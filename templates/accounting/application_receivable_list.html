@@ -9,7 +9,7 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-application-receivables">
+  <div class="workspace-page" id="accounting-application-receivables">
     <div class="pagehead">
       <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
@@ -51,8 +51,8 @@
       </span>
     </form>
 
-    <section class="card {% if not reconciled %}card--warn{% endif %}" id="application-reconciliation">
-      <h2 class="card__title">{% translate "المطابقة مع دفتر الأستاذ" %}</h2>
+    <section class="formcard {% if not reconciled %}card--warn{% endif %}" id="application-reconciliation">
+      <h2>{% translate "المطابقة مع دفتر الأستاذ" %}</h2>
       <div class="summary-row">
         <div class="summary-row__item">
           <span class="summary-row__label">{% translate "رصيد سجل الذمم" %}</span>
@@ -79,10 +79,10 @@
       {% endif %}
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "الأرصدة والأعمار حسب التطبيق" %}</h2>
-      <div class="tablewrap">
-        <table class="table" id="application-positions-table">
+    <section class="formcard">
+      <h2>{% translate "الأرصدة والأعمار حسب التطبيق" %}</h2>
+      <div class="data-table-shell">
+        <table class="table responsive-table" id="application-positions-table">
           <thead><tr>
             <th>{% translate "التطبيق" %}</th>
             <th>{% translate "الرصيد" %}</th>

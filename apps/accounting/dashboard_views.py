@@ -27,6 +27,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 
+from apps.accounting.dashboard import accounting_overview, trial_balance_table
 from apps.accounting.models import (
     Account,
     AccountingPeriod,
@@ -50,7 +51,7 @@ from apps.accounting.selectors import (
     trial_balance_totals,
 )
 from apps.accounting.views import AccountingViewMixin
-from apps.core.money import money_audit
+from apps.core.money import money_audit, money_display
 from apps.organizations.authorization import organizations_with_permission
 from apps.organizations.models import Organization
 
@@ -65,6 +66,9 @@ class Card:
     compute: Callable[[Organization], dict[str, Any]]
     url_name: str | None = None
     permission: str = VIEW_JOURNAL
+    #: A card that is a panel rather than one figure names its own fragment
+    #: template; the default renders `value` / `hint` / `state` as a tile.
+    template: str | None = None
 
 
 def _current_period(organization: Organization) -> dict[str, Any]:
@@ -162,7 +166,7 @@ def _cash_balance(organization: Organization) -> dict[str, Any]:
         ),
         Decimal("0"),
     )
-    return {"value": money_audit(total), "hint": _("مجموع أرصدة الصناديق"), "state": "ok"}
+    return {"value": money_display(total), "hint": _("مجموع أرصدة الصناديق"), "state": "ok"}
 
 
 def _bank_balance(organization: Organization) -> dict[str, Any]:
@@ -175,7 +179,7 @@ def _bank_balance(organization: Organization) -> dict[str, Any]:
         ),
         Decimal("0"),
     )
-    return {"value": money_audit(total), "hint": _("مجموع الأرصدة البنكية"), "state": "ok"}
+    return {"value": money_display(total), "hint": _("مجموع الأرصدة البنكية"), "state": "ok"}
 
 
 def _system_reader() -> Any:
@@ -204,7 +208,7 @@ def _supplier_liabilities(organization: Organization) -> dict[str, Any]:
     )
     total = sum((row.get("net_position") or Decimal("0") for row in rows), Decimal("0"))
     return {
-        "value": money_audit(total),
+        "value": money_display(total),
         "hint": _("مشتقّة من مستندات المشتريات — لا جدول أرصدة"),
         "state": "ok",
     }
@@ -218,7 +222,7 @@ def _application_receivables(organization: Organization) -> dict[str, Any]:
     )
     total = sum((position.balance for position in positions), Decimal("0"))
     return {
-        "value": money_audit(total),
+        "value": money_display(total),
         "hint": _("من سجل ذمم المبيعات المُلحَق"),
         "state": "ok",
     }
@@ -265,7 +269,7 @@ def _net_profit(organization: Organization) -> dict[str, Any]:
         date_to=today,
     )
     return {
-        "value": money_audit(report.net_profit),
+        "value": money_display(report.net_profit),
         "hint": _("من بداية السنة حتى تاريخه"),
         "state": "ok" if report.is_approvable else "warn",
     }
@@ -291,11 +295,34 @@ def _balance_sheet_state(organization: Organization) -> dict[str, Any]:
     }
 
 
+def _trial_balance_rows(organization: Organization) -> dict[str, Any]:
+    """
+    The trial balance panel: the one read that grows with the ledger, which
+    is why it stays a fragment while the headline renders with the page.
+    """
+    table = trial_balance_table(organization)
+    return {
+        "table": table,
+        "value": _("متوازن") if table.is_balanced else _("غير متوازن"),
+        "hint": _("مجموع المدين = مجموع الدائن")
+        if table.is_balanced
+        else _("الفرق: %(amount)s") % {"amount": money_audit(table.difference)},
+        "state": "ok" if table.is_balanced else "warn",
+    }
+
+
 #: The cards this checkpoint can compute. Later checkpoints append their own —
 #: cash, bank, supplier liabilities, application receivables, expense vouchers,
 #: accruals, prepayments, net profit, balance-sheet status — and each appears
 #: on the page by adding one row here.
 CARDS: tuple[Card, ...] = (
+    Card(
+        "trial_balance_rows",
+        _("ميزان المراجعة"),
+        _trial_balance_rows,
+        "accounting:trial_balance",
+        template="accounting/cards/_trial_balance.html",
+    ),
     Card("period", _("الفترة الحالية"), _current_period, "accounting:journal_list"),
     Card("trial_balance", _("ميزان المراجعة"), _trial_balance, "accounting:journal_list"),
     Card(
@@ -342,13 +369,30 @@ CARDS: tuple[Card, ...] = (
 
 CARDS_BY_KEY = {card.key: card for card in CARDS}
 
+#: The cards the page still fetches as fragments, in the strip under the
+#: panels: treasury and the statements — each a real computation over the
+#: ledger, worth its own frame. The rest of the registry now feeds the
+#: headline and the gaps panel directly and answers at its endpoint for
+#: anything that still asks.
+STRIP_KEYS: tuple[str, ...] = (
+    "cash",
+    "bank",
+    "application_receivables",
+    "accruals",
+    "net_profit",
+    "balance_sheet",
+)
+
 
 class AccountingDashboardView(AccountingViewMixin, View):
     """
-    The module landing page: card frames only.
+    The module landing page.
 
-    The frames carry `hx-get` at `card_view`; no figure is computed here, so
-    the page itself is fast whatever the ledger contains.
+    The headline — counts, two role balances, the gaps, the periods — renders
+    with the page: each is a count or a one-query balance, cheaper than the
+    round trip that would isolate it. The trial balance and the treasury and
+    statement cards keep their own `hx-get`, so the one read that grows with
+    the ledger, and the two that build a statement, never hold the rest.
     """
 
     required_permission = VIEW_JOURNAL
@@ -363,6 +407,18 @@ class AccountingDashboardView(AccountingViewMixin, View):
             else organizations.first()
         )
 
+        def frame(card: Card) -> dict[str, Any]:
+            return {
+                "card": card,
+                "url": (
+                    reverse("accounting:dashboard_card", args=[card.key])
+                    + f"?organization={organization.pk}"
+                    if organization is not None
+                    else None
+                ),
+                "drill": reverse(card.url_name) if card.url_name else None,
+            }
+
         visible = [
             card
             for card in CARDS
@@ -374,19 +430,9 @@ class AccountingDashboardView(AccountingViewMixin, View):
             {
                 "organization": organization,
                 "organizations": organizations,
-                "cards": [
-                    {
-                        "card": card,
-                        "url": (
-                            reverse("accounting:dashboard_card", args=[card.key])
-                            + f"?organization={organization.pk}"
-                            if organization is not None
-                            else None
-                        ),
-                        "drill": reverse(card.url_name) if card.url_name else None,
-                    }
-                    for card in visible
-                ],
+                "overview": accounting_overview(organization) if organization else None,
+                "table_card": frame(CARDS_BY_KEY["trial_balance_rows"]),
+                "strip_cards": [frame(card) for card in visible if card.key in STRIP_KEYS],
                 "as_of": timezone.localdate(),
                 "page_title": _("لوحة المحاسبة"),
                 "page_hint": _(
@@ -441,7 +487,7 @@ class DashboardCardView(AccountingViewMixin, View):
 
         return render(
             request,
-            self.template_name,
+            card.template or self.template_name,
             {
                 "card": card,
                 "payload": payload,

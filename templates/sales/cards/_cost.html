@@ -8,20 +8,20 @@
 {# others, and the uncosted count sits beside them. A margin computed over    #}
 {# part of the revenue and presented as if it covered all of it is wrong in   #}
 {# the direction that looks good, which is the direction nobody checks.       #}
-{% load i18n %}
+{% load i18n money_tags %}
 <h2 class="section-title">{{ card.label }}</h2>
 <div class="statrow">
   <div class="stat">
     <span class="stat__label">{% translate "كلفة الطعام" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.food_cost }}</code></bdi></span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.food_cost|iqd }}</code></bdi></span>
   </div>
   <div class="stat">
     <span class="stat__label">{% translate "صافي مبيعات مُكلَّفة" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.costed_net }}</code></bdi></span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.costed_net|iqd }}</code></bdi></span>
   </div>
   <div class="stat stat--strong">
     <span class="stat__label">{% translate "مجمل الربح" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.gross_profit }}</code></bdi></span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.gross_profit|iqd }}</code></bdi></span>
   </div>
   <div class="stat">
     <span class="stat__label">{% translate "نسبة كلفة الطعام" %}</span>
@@ -44,7 +44,7 @@
   </div>
   <div class="stat">
     <span class="stat__label">{% translate "إجمالي السطور غير المكلّفة" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.uncosted_gross }}</code></bdi></span>
+    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.uncosted_gross|iqd }}</code></bdi></span>
   </div>
 </div>
 

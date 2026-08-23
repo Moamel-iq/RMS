@@ -31,6 +31,9 @@ from apps.kitchen import (
 app_name = "kitchen"
 
 urlpatterns = [
+    # Mounted at the module root, like inventory and sales: opening the module
+    # lands on the summary, and every deeper screen is reached from it.
+    path("", views.KitchenOverviewView.as_view(), name="overview"),
     # Recipes
     path("recipes/", views.RecipeListView.as_view(), name="recipe_list"),
     path("recipes/new/", views.RecipeCreateView.as_view(), name="recipe_create"),

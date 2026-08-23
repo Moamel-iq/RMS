@@ -15,6 +15,10 @@ from apps.inventory.models import InventoryDocumentType
 app_name = "inventory"
 
 urlpatterns = [
+    # --- overview ----------------------------------------------------------
+    # Mounted at the module root: opening the module lands on the summary, and
+    # every deeper screen is reached from it.
+    path("", report_views.InventoryOverviewView.as_view(), name="overview"),
     # --- categories --------------------------------------------------------
     path("categories/", views.ItemCategoryListView.as_view(), name="category_list"),
     path("categories/new/", views.ItemCategoryCreateView.as_view(), name="category_create"),

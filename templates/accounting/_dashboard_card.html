@@ -1,16 +1,14 @@
-{# One dashboard card's contents, swapped into its own frame.               #}
+{# One strip card's contents, swapped into its own tile.                    #}
 {#                                                                          #}
-{# The frame stays; only the inside is replaced. A card that could not be   #}
-{# computed says so here rather than raising, so the other cards on the     #}
-{# page keep their figures.                                                 #}
+{# The tile stays; only the inside is replaced. A card that could not be    #}
+{# computed says so here rather than raising, so the other cards keep their #}
+{# figures. State colours the figure and never the label: the warning is    #}
+{# about the number.                                                        #}
 {% load i18n %}
 
-<h2 class="card__title">{{ card.label }}</h2>
-<p class="card__value card__value--{{ payload.state }}" aria-live="polite">
-  <bdi dir="auto">{{ payload.value }}</bdi>
-</p>
-<p class="card__hint">{{ payload.hint }}</p>
-<p class="card__meta">
-  <span class="muted"><bdi dir="ltr">{{ as_of|date:"Y-m-d" }}</bdi></span>
-  {% if drill %}<a href="{{ drill }}">{% translate "تفصيل" %}</a>{% endif %}
-</p>
+<span class="tile__value{% if payload.state == 'warn' %} tile__value--warn{% elif payload.state == 'muted' %} muted{% endif %}"
+      aria-live="polite"><bdi dir="auto">{{ payload.value }}</bdi></span>
+<span class="tile__label">
+  {{ card.label }} · {{ payload.hint }}
+  {% if drill %}· <a href="{{ drill }}">{% translate "تفصيل" %}</a>{% endif %}
+</span>

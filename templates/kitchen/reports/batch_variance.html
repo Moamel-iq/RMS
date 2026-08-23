@@ -11,41 +11,46 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="kitchen-batch-variance">
+  <section class="workspace-page" id="kitchen-batch-variance">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">{{ page_hint }}</p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "الدفعة" %}
         </a>
       </div>
     </div>
 
-    <dl class="deflist">
-      <dt>{% translate "الرقم" %}</dt>
-      <dd><code dir="ltr">{{ batch.number|default:"—" }}</code></dd>
-      <dt>{% translate "الوصفة" %}</dt>
-      <dd>{{ batch.recipe.code }} — {{ batch.recipe.name_ar }}</dd>
-      <dt>{% translate "النسخة" %}</dt>
-      <dd><code dir="ltr">v{{ batch.recipe_version.version_number }}</code></dd>
-      <dt>{% translate "المعامل" %}</dt>
-      <dd><code dir="ltr">{{ batch.multiplier_display }}</code></dd>
-    </dl>
+    <section class="formcard">
+      <dl class="deflist">
+        <dt>{% translate "الرقم" %}</dt>
+        <dd><code dir="ltr">{{ batch.number|default:"—" }}</code></dd>
+        <dt>{% translate "الوصفة" %}</dt>
+        <dd>{{ batch.recipe.code }} — {{ batch.recipe.name_ar }}</dd>
+        <dt>{% translate "النسخة" %}</dt>
+        <dd><code dir="ltr">v{{ batch.recipe_version.version_number }}</code></dd>
+        <dt>{% translate "المعامل" %}</dt>
+        <dd><code dir="ltr">{{ batch.multiplier_display }}</code></dd>
+      </dl>
+    </section>
 
     {% for path, rows in groups %}
-      <section class="panel">
-        <h2 class="panel__title">
+      {# One card per component path. The heading is the first child so the   #}
+      {# stylesheet draws it as the card's header band, and the table sits in #}
+      {# a shell — a `tablewrap` here would draw a second edge inside this.   #}
+      <section class="formcard">
+        <h2>
           {% if path == "-" %}
             {% translate "سطور الوصفة نفسها" %}
           {% else %}
             {% translate "المسار" %} <code dir="ltr">{{ path }}</code>
           {% endif %}
         </h2>
-        <div class="tablewrap">
-          <table class="table">
+        <div class="data-table-shell" tabindex="0">
+          <table class="table responsive-table">
             <thead>
               <tr>
                 <th scope="col">{% translate "الصنف" %}</th>
@@ -58,17 +63,17 @@
             <tbody>
               {% for row in rows %}
                 <tr>
-                  <td>{{ row.line.item_code }} — {{ row.line.item_name }}</td>
-                  <td><bdi dir="ltr">{{ row.line.base_unit_code }}</bdi></td>
-                  <td><code dir="ltr">{{ row.planned }}</code></td>
-                  <td>
+                  <td data-label="{% translate 'الصنف' %}">{{ row.line.item_code }} — {{ row.line.item_name }}</td>
+                  <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ row.line.base_unit_code }}</bdi></td>
+                  <td data-label="{% translate 'المخطط' %}"><code dir="ltr">{{ row.planned }}</code></td>
+                  <td data-label="{% translate 'الفعلي القابل للمقارنة' %}">
                     {% if row.is_comparable %}
                       <code dir="ltr">{{ row.comparable_actual }}</code>
                     {% else %}
                       <span class="muted">{{ row.statement }}</span>
                     {% endif %}
                   </td>
-                  <td>
+                  <td data-label="{% translate 'الانحراف' %}">
                     {% if row.is_comparable %}
                       <code dir="ltr">{{ row.variance }}</code>
                     {% else %}
@@ -84,5 +89,5 @@
     {% empty %}
       <p class="empty">{% translate "لا توجد متطلبات في هذه الدفعة." %}</p>
     {% endfor %}
-  </div>
+  </section>
 {% endblock %}

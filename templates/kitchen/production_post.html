@@ -16,15 +16,15 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="production-action">
+  <div class="workspace-page workspace-form-page" id="production-action">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">
           {% translate "الترحيل يستهلك كل سطر فعلي ويُدخل الناتج بقيمة ما خرج بالضبط. لا يمكن التراجع إلا بعكسٍ يبقى في السجل." %}
         </p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "رجوع إلى المسودة" %}
         </a>
@@ -40,11 +40,11 @@
       </ul>
     {% endif %}
 
-    <section class="panel">
-      <h2 class="panel__title">{% translate "ما سيخرج" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "ما سيخرج" %}</h2>
       {% if plan %}
-        <div class="tablewrap">
-          <table class="table">
+        <div class="data-table-shell">
+          <table class="table responsive-table">
             <thead>
               <tr>
                 <th scope="col">{% translate "الصنف" %}</th>
@@ -56,16 +56,23 @@
             <tbody>
               {% for row in plan.consumptions %}
                 <tr>
-                  <td>{{ row.item.code }} — {{ row.item.name_ar }}</td>
-                  <td><code dir="ltr">{{ row.quantity }}</code> {{ row.item.base_unit.code }}</td>
-                  <td>{% if row.lot %}<code dir="ltr">{{ row.lot.code }}</code>{% else %}—{% endif %}</td>
-                  <td>{% if row.location %}<code dir="ltr">{{ row.location.code }}</code>{% else %}—{% endif %}</td>
+                  <td data-label="{% translate 'الصنف' %}">{{ row.item.code }} — {{ row.item.name_ar }}</td>
+                  <td data-label="{% translate 'الكمية' %}"><code dir="ltr">{{ row.quantity }}</code> {{ row.item.base_unit.code }}</td>
+                  <td data-label="{% translate 'اللوط' %}">{% if row.lot %}<code dir="ltr">{{ row.lot.code }}</code>{% else %}—{% endif %}</td>
+                  <td data-label="{% translate 'الموقع' %}">{% if row.location %}<code dir="ltr">{{ row.location.code }}</code>{% else %}—{% endif %}</td>
                 </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
+      {% else %}
+        <p class="empty">{% translate "لا توجد خطة ترحيل بعد." %}</p>
+      {% endif %}
+    </section>
 
+    <section class="formcard">
+      <h2>{% translate "الناتج" %}</h2>
+      {% if plan %}
         <dl class="deflist">
           <dt>{% translate "الناتج" %}</dt>
           <dd>
@@ -74,8 +81,6 @@
             {{ plan.output_item.base_unit.code }}
           </dd>
         </dl>
-      {% else %}
-        <p class="empty">{% translate "لا توجد خطة ترحيل بعد." %}</p>
       {% endif %}
 
       <p class="pagehead__hint">

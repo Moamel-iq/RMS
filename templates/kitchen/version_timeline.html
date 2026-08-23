@@ -2,6 +2,8 @@
 {# `fragment_base_template` is `kitchen/_bare.html` for an HTMX swap and     #}
 {# `shell.html` otherwise, so the same evidence is reachable with and        #}
 {# without JavaScript. `extends` must be the first tag, so this note leads.  #}
+{# The screen root and the cards belong to the partial, so the page and the  #}
+{# swapped fragment are byte-for-byte the same block.                        #}
 {% extends fragment_base_template|default:"shell.html" %}
 {% load i18n %}
 

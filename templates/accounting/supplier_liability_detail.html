@@ -10,8 +10,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-supplier-statement">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="workspace-page" id="accounting-supplier-statement">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:supplier_liability_list' %}">{% translate "ذمم الموردين" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ supplier.name_ar }}</span>
@@ -29,10 +29,10 @@
       </div>
     </div>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "كشف الحساب" %}</h2>
-      <div class="tablewrap">
-        <table class="table" id="supplier-statement-table">
+    <section class="formcard">
+      <h2>{% translate "كشف الحساب" %}</h2>
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table" id="supplier-statement-table">
           <thead>
             <tr>
               {% for column in rows.0.keys %}<th>{{ column }}</th>{% endfor %}
@@ -42,17 +42,17 @@
             {% for row in rows %}
               <tr>
                 {% for key, value in row.items %}
-                  <td>
+                  <td data-label="{{ key }}">
                     {% if row|is_ltr_cell:key %}<bdi dir="ltr">{{ value }}</bdi>{% else %}{{ value }}{% endif %}
                   </td>
                 {% endfor %}
               </tr>
             {% empty %}
-              <tr><td class="empty">{% translate "لا مستندات مُرحَّلة لهذا المورد." %}</td></tr>
+              <tr><td class="empty" data-empty-state>{% translate "لا مستندات مُرحَّلة لهذا المورد." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
-  </div>
+  </section>
 {% endblock %}

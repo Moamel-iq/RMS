@@ -4,7 +4,7 @@
 {# two screens cannot disagree about whether a day is clean. There is no      #}
 {# acknowledge control here either — the only honest response to a finding is #}
 {# to change a document through its own service.                              #}
-{% load i18n %}
+{% load i18n money_tags %}
 <h2 class="section-title">{{ card.label }}</h2>
 <div class="statrow">
   <div class="stat">
@@ -53,7 +53,7 @@
             </td>
             <td data-label="{% translate 'فرق الصندوق' %}">
               {% if row.cash_variance is None %}<span class="muted">—</span>
-              {% else %}<bdi dir="ltr"><code>{{ row.cash_variance }}</code></bdi>{% endif %}
+              {% else %}<bdi dir="ltr"><code>{{ row.cash_variance|iqd }}</code></bdi>{% endif %}
             </td>
             <td data-label="{% translate 'النتائج' %}">
               {% for finding in row.findings %}

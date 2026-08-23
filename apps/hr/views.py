@@ -14,6 +14,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 
 from apps.core.selectors import audit_trail_for
+from apps.hr.dashboard import hr_overview
 from apps.hr.forms import EmployeeContractForm, EmployeeDocumentForm, EmployeeForm
 from apps.hr.models import ContractStatus, Employee, EmployeeContract, EmployeeStatus
 from apps.hr.permissions import (
@@ -425,3 +426,34 @@ class ContractApproveView(HumanResourcesMixin, View):
         else:
             messages.success(request, _("اعتمد العقد وتجمّدت نسخة الأجر."))
         return _redirect(request, reverse("hr:contract_detail", args=[contract.pk]))
+
+
+class HrOverviewView(HumanResourcesMixin, View):
+    """
+    The module's opening screen: headcount, contracts, and — with the salary
+    permission — the monthly payroll as an aggregate.
+
+    No individual salary renders here under any permission. The aggregate is
+    the management fact; the person-level figure belongs to the employee
+    screens that audit their own access.
+    """
+
+    required_permission = VIEW_EMPLOYEE
+    template_name = "hr/overview.html"
+
+    @property
+    def include_salary(self) -> bool:
+        return bool(self.request.user.has_perm(VIEW_EMPLOYEE_SALARY))
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        overview = hr_overview(self.actor, include_salary=self.include_salary)
+        return render(
+            request,
+            self.template_name,
+            {
+                "overview": overview,
+                "show_salary": self.include_salary,
+                "page_title": _("نظرة عامة على الموارد البشرية"),
+                "page_hint": _("الملاك الوظيفي والعقود، والرواتب مجاميع لا أفراداً."),
+            },
+        )

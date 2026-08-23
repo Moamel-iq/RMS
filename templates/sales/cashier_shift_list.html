@@ -9,7 +9,7 @@
 {# with a word beside it would make "short" and "over" a reading exercise on #}
 {# the one column somebody scans down a page of.                             #}
 {% extends "settings/base_list.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block filters %}
   <label class="field">
@@ -52,20 +52,20 @@
       {# Recorded, never posted: the restaurant's own money moved from a safe #}
       {# into a drawer is not an economic event.                             #}
       <td data-label="{% translate 'العهدة' %}">
-        <bdi dir="ltr"><code>{{ shift.opening_float }}</code></bdi>
+        <bdi dir="ltr"><code>{{ shift.opening_float|iqd }}</code></bdi>
       </td>
       <td data-label="{% translate 'المتوقَّع' %}">
         {% if shift.status == "OPEN" %}
           <span class="muted">{% translate "لم يُقفل" %}</span>
         {% else %}
-          <bdi dir="ltr"><code>{{ shift.expected_cash }}</code></bdi>
+          <bdi dir="ltr"><code>{{ shift.expected_cash|iqd }}</code></bdi>
         {% endif %}
       </td>
       <td data-label="{% translate 'المعدود' %}">
         {% if shift.status == "OPEN" %}
           <span class="muted">—</span>
         {% else %}
-          <bdi dir="ltr"><code>{{ shift.counted_cash }}</code></bdi>
+          <bdi dir="ltr"><code>{{ shift.counted_cash|iqd }}</code></bdi>
         {% endif %}
       </td>
       <td data-label="{% translate 'الفرق' %}">
@@ -74,7 +74,7 @@
         {% elif shift.variance_amount == 0 %}
           <span class="chip chip--ok">{% translate "مطابق" %}</span>
         {% else %}
-          <bdi dir="ltr"><code>{{ shift.variance_amount }}</code></bdi>
+          <bdi dir="ltr"><code>{{ shift.variance_amount|iqd }}</code></bdi>
           {% if shift.is_short %}
             <span class="chip chip--bad">{% translate "عجز" %}</span>
           {% else %}

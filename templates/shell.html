@@ -123,6 +123,16 @@
         </button>
 
         <div class="topbar__actions">
+          {# Three states, matching app.css: an explicit stamp wins over the #}
+          {# operating system, and clearing it returns to following the OS.  #}
+          <button type="button" class="iconbtn" data-theme-toggle
+                  aria-label="{% translate 'تبديل الوضع الليلي' %}"
+                  title="{% translate 'تبديل الوضع الليلي' %}">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M20 13.5A8 8 0 0110.5 4 8.5 8.5 0 1020 13.5z"/>
+            </svg>
+          </button>
           {% with branch_count=user_branches|length %}
             <details class="topbar-menu scope-menu">
               <summary aria-label="{% translate 'نطاق العمل' %}">

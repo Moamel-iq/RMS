@@ -13,7 +13,7 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-chart-tree">
+  <div class="workspace-page" id="accounting-chart-tree">
     <div class="pagehead">
       <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
@@ -53,45 +53,43 @@
       </span>
     </form>
 
-    <section class="card">
-      <div class="tablewrap">
-        <table class="table" id="chart-tree-table">
-          <thead>
-            <tr>
-              <th>{% translate "الرمز" %}</th>
-              <th>{% translate "الاسم" %}</th>
-              <th>{% translate "الصنف" %}</th>
-              <th>{% translate "قابل للترحيل" %}</th>
-              <th>{% translate "الرصيد" %}</th>
-              <th></th>
+    <div class="tablewrap">
+      <table class="table responsive-table" id="chart-tree-table">
+        <thead>
+          <tr>
+            <th>{% translate "الرمز" %}</th>
+            <th>{% translate "الاسم" %}</th>
+            <th>{% translate "الصنف" %}</th>
+            <th>{% translate "قابل للترحيل" %}</th>
+            <th>{% translate "الرصيد" %}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for node in roots %}
+            <tr class="chart-row chart-row--level-0">
+              <td>
+                <button class="tree-toggle" type="button"
+                        hx-get="{% url 'accounting:chart_children' node.account.pk %}{% if include_archived %}?archived=1{% endif %}"
+                        hx-target="closest tr"
+                        hx-swap="afterend"
+                        hx-indicator="#chart-loading"
+                        aria-label="{% translate 'افتح الفروع' %}">+</button>
+                <code dir="ltr">{{ node.account.code }}</code>
+              </td>
+              <td>{{ node.account.name_ar }}</td>
+              <td>{{ node.account.get_account_class_display }}</td>
+              <td>{% if node.account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
+              <td><bdi dir="ltr">{{ node.balance|money_full }}</bdi></td>
+              <td class="cell-actions">
+                <a class="btn btn--secondary btn--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {% for node in roots %}
-              <tr class="chart-row chart-row--level-0">
-                <td>
-                  <button class="tree-toggle" type="button"
-                          hx-get="{% url 'accounting:chart_children' node.account.pk %}{% if include_archived %}?archived=1{% endif %}"
-                          hx-target="closest tr"
-                          hx-swap="afterend"
-                          hx-indicator="#chart-loading"
-                          aria-label="{% translate 'افتح الفروع' %}">+</button>
-                  <code dir="ltr">{{ node.account.code }}</code>
-                </td>
-                <td>{{ node.account.name_ar }}</td>
-                <td>{{ node.account.get_account_class_display }}</td>
-                <td>{% if node.account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
-                <td><bdi dir="ltr">{{ node.balance|money_full }}</bdi></td>
-                <td class="cell-actions">
-                  <a class="btn btn--secondary btn--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
-                </td>
-              </tr>
-            {% empty %}
-              <tr><td colspan="6" class="empty">{% translate "لا يوجد دليل حسابات لهذه المؤسسة بعد." %}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
+          {% empty %}
+            <tr><td colspan="6" class="empty">{% translate "لا يوجد دليل حسابات لهذه المؤسسة بعد." %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 {% endblock %}

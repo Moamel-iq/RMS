@@ -15,16 +15,16 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="production-allocate">
+  <div class="workspace-page" id="production-allocate">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">
           {{ actual.item.code }} — <code dir="ltr">{{ actual.quantity_display }}</code>
           {{ actual.item.base_unit.code }}
         </p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "رجوع إلى المسودة" %}
         </a>
@@ -37,11 +37,11 @@
       </p>
     {% endif %}
 
-    <section class="panel">
-      <h2 class="panel__title">{% translate "التخصيصات الحالية" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "التخصيصات الحالية" %}</h2>
       {% if allocations %}
-        <div class="tablewrap">
-          <table class="table">
+        <div class="data-table-shell">
+          <table class="table responsive-table">
             <thead>
               <tr>
                 <th scope="col">#</th>
@@ -53,17 +53,17 @@
             <tbody>
               {% for row in allocations %}
                 <tr>
-                  <td>{{ row.allocation_order }}</td>
-                  <td>{% if row.lot_id %}<code dir="ltr">{{ row.lot.code }}</code>{% else %}—{% endif %}</td>
-                  <td>{% if row.location_id %}<code dir="ltr">{{ row.location.code }}</code>{% else %}—{% endif %}</td>
-                  <td><code dir="ltr">{{ row.quantity_display }}</code></td>
+                  <td data-label="#">{{ row.allocation_order }}</td>
+                  <td data-label="{% translate 'اللوط' %}">{% if row.lot_id %}<code dir="ltr">{{ row.lot.code }}</code>{% else %}—{% endif %}</td>
+                  <td data-label="{% translate 'الموقع' %}">{% if row.location_id %}<code dir="ltr">{{ row.location.code }}</code>{% else %}—{% endif %}</td>
+                  <td data-label="{% translate 'الكمية' %}"><code dir="ltr">{{ row.quantity_display }}</code></td>
                 </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
         {% if can_draft %}
-          <form method="post" action="{{ request.path }}">
+          <form class="formactions" method="post" action="{{ request.path }}">
             {% csrf_token %}
             <input type="hidden" name="clear" value="1">
             <button class="btn btn--danger" type="submit">{% translate "امسح التخصيصات" %}</button>

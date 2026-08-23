@@ -1,37 +1,40 @@
-{# One mix table, shared by القنوات, التطبيقات and الأصناف.                    #}
+{# One mix, shared by القنوات and التطبيقات.                                   #}
 {#                                                                           #}
-{# Three cards, one table: the columns are identical and three copies would   #}
-{# be three chances for one of them to drift. `mix_label` names the first     #}
-{# column so the header still reads as the thing it lists.                    #}
-{% load i18n %}
-<h2 class="section-title">{{ card.label }}</h2>
+{# Bars rather than a table: the reader wants to see which channel dominates, #}
+{# and length is read more accurately than a column of digits. Length is the #}
+{# encoding; colour only separates neighbouring bands. The share is computed  #}
+{# by the read layer against gross, so the bars sum to the period.            #}
+{% load i18n l10n money_tags %}
+<div class="panel__head">
+  <h2 class="panel__title">{{ card.label }}</h2>
+  <p class="pagehead__hint">
+    {% blocktranslate with what=mix_label trimmed %}
+      الإجمالي والحصة لكل {{ what }} في المدة
+    {% endblocktranslate %}
+  </p>
+</div>
 {% if rows %}
-  <div class="tablewrap">
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ mix_label }}</th>
-          <th scope="col">{% translate "الإجمالي" %}</th>
-          <th scope="col">{% translate "الصافي" %}</th>
-          <th scope="col">{% translate "الكمية" %}</th>
-          <th scope="col">{% translate "الحصة" %}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-          <tr>
-            <td data-label="{{ mix_label }}">
-              <bdi dir="ltr"><code>{{ row.code }}</code></bdi> {{ row.label }}
-            </td>
-            <td data-label="{% translate 'الإجمالي' %}"><bdi dir="ltr"><code>{{ row.gross }}</code></bdi></td>
-            <td data-label="{% translate 'الصافي' %}"><bdi dir="ltr"><code>{{ row.net }}</code></bdi></td>
-            <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ row.quantity }}</code></bdi></td>
-            <td data-label="{% translate 'الحصة' %}"><bdi dir="ltr"><code>{{ row.share }}%</code></bdi></td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="bars">
+    {% for row in rows %}
+      <div class="bar">
+        <span class="bar__name" title="{{ row.label }}">
+          {{ row.label }}
+          <span class="muted">· {{ row.line_count }} {% translate "سطراً" %}</span>
+        </span>
+        <div class="bar__track">
+          <div class="bar__fill"
+               style="inline-size: {{ row.share|unlocalize }}%;
+                      background: var(--series-{% cycle '1' '2' '3' '4' '5' '6' %});"></div>
+        </div>
+        <span class="bar__value"><bdi dir="ltr">{{ row.gross|iqd }}</bdi></span>
+      </div>
+    {% endfor %}
   </div>
+  <p class="panel__foot">
+    {% blocktranslate with label=rows.0.label share=rows.0.share|unlocalize trimmed %}
+      {{ label }} وحدها {{ share }}% من إجمالي المدة.
+    {% endblocktranslate %}
+  </p>
 {% else %}
   <p class="empty">{% translate "لا توجد سطور مرحّلة في هذه المدة." %}</p>
 {% endif %}

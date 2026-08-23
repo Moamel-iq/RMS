@@ -9,7 +9,7 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-trial-balance">
+  <div class="workspace-page" id="accounting-trial-balance">
     <div class="pagehead">
       <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
@@ -22,8 +22,8 @@
         {% include "accounting/_report_filters.html" %}
       {% endwith %}
 
-      <section class="card {% if not report.is_balanced %}card--warn{% endif %}">
-        <h2 class="card__title">
+      <section class="formcard {% if not report.is_balanced %}card--warn{% endif %}">
+        <h2>
           {% if report.is_balanced %}
             <span class="chip chip--ok">{% translate "متوازن" %}</span>
           {% else %}
@@ -32,8 +32,8 @@
             </span>
           {% endif %}
         </h2>
-        <div class="tablewrap">
-          <table class="table" id="trial-balance-table">
+        <div class="data-table-shell">
+          <table class="table responsive-table" id="trial-balance-table">
             <thead><tr>
               <th>{% translate "الرمز" %}</th>
               <th>{% translate "الحساب" %}</th>
@@ -79,7 +79,7 @@
         </div>
       </section>
     {% else %}
-      <section class="card"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
+      <section class="formcard"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
     {% endif %}
   </div>
 {% endblock %}

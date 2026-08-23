@@ -11,9 +11,9 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="cost-card">
+  <div class="workspace-page" id="cost-card">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">
           {{ recipe.code }} v{{ version.version_number }} —
           {% translate "كلفة الوصفة والطبق" %}
@@ -22,7 +22,7 @@
           {% translate "الكلفة مشتقّة، لا مخزّنة: مخزن واحد، تاريخ واحد، ونسخة واحدة بعينها. متوسط المخزن حسب تاريخ الترحيل هو الأساس الوحيد المعتمد. كلفة الطبق مشتقّة من الحصة الأساسية للنسخة." %}
         </p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
           {% translate "تفاصيل النسخة" %}
         </a>
@@ -54,9 +54,11 @@
     {% if card %}
       {% include "kitchen/_cost_card.html" %}
     {% else %}
-      <p class="muted">
-        {% translate "اختر المخزن والتاريخ لعرض بطاقة الكلفة. لا يوجد تاريخ افتراضي." %}
-      </p>
+      <section class="formcard">
+        <p class="empty">
+          {% translate "اختر المخزن والتاريخ لعرض بطاقة الكلفة. لا يوجد تاريخ افتراضي." %}
+        </p>
+      </section>
     {% endif %}
 
     {% if snapshots %}

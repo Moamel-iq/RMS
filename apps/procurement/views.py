@@ -82,6 +82,7 @@ from apps.procurement.credit_terms import (
     create_credit_term_draft,
     update_credit_term_draft,
 )
+from apps.procurement.dashboard import procurement_overview
 from apps.procurement.forms import (
     CreditAllocationForm,
     CreditReturnAllocationForm,
@@ -3731,5 +3732,37 @@ class CreditTermListView(InventoryViewMixin, View):
                     "overdue": request.GET.get("overdue", ""),
                 },
                 "today": today,
+            },
+        )
+
+
+class ProcurementOverviewView(InventoryViewMixin, View):
+    """
+    The module's opening screen: what was bought, from whom, and what is owed.
+
+    Scope is the invoice selector's, which is narrower than the rest of this
+    module by design — an invoice is a debt, so reaching a branch is not
+    enough. Cost is redacted through `view_supplier_cost` and omitted rather
+    than zeroed, matching the API.
+    """
+
+    module_key = "procurement"
+    required_permission: str = VIEW_SUPPLIER_INVOICE
+    template_name = "procurement/overview.html"
+
+    @property
+    def include_cost(self) -> bool:
+        return bool(self.request.user.has_perm(VIEW_SUPPLIER_COST))
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        overview = procurement_overview(self.actor, include_cost=self.include_cost)
+        return render(
+            request,
+            self.template_name,
+            {
+                "overview": overview,
+                "show_cost": self.include_cost,
+                "page_title": _("نظرة عامة على المشتريات"),
+                "page_hint": _("الفواتير والموردون في المؤسسات التي تملك صلاحية عليها."),
             },
         )

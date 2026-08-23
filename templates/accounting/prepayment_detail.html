@@ -9,8 +9,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-prepayment-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="workspace-page" id="accounting-prepayment-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:deferral_list' %}?tab=prepayments">{% translate "المستحقات والمقدمات" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ page_title }}</span>
@@ -36,17 +36,17 @@
     </div>
 
     {% if is_own_draft and prepayment.status == "DRAFT" %}
-      <p class="chip chip--muted">{% translate "أنت من أنشأ هذا المقدَّم، فالاعتماد لشخص آخر." %}</p>
+      <p class="banner">{% translate "أنت من أنشأ هذا المقدَّم، فالاعتماد لشخص آخر." %}</p>
     {% endif %}
 
-    <section class="card {% if not schedule_matches %}card--warn{% endif %}">
-      <h2 class="card__title">{% translate "بيانات المقدَّم" %}</h2>
+    <section class="formcard {% if not schedule_matches %}card--warn{% endif %}">
+      <h2>{% translate "بيانات المقدَّم" %}</h2>
       <dl class="datalist">
-        <div><dt>{% translate "الفرع" %}</dt><dd>{{ prepayment.branch.code }}</dd></div>
-        <div><dt>{% translate "الحالة" %}</dt><dd>{{ prepayment.get_status_display }}</dd></div>
-        <div><dt>{% translate "الإجمالي" %}</dt><dd><bdi dir="ltr">{{ prepayment.total_amount|money_full }}</bdi></dd></div>
-        <div><dt>{% translate "مجموع الجدول" %}</dt><dd><bdi dir="ltr">{{ scheduled_total|money_full }}</bdi></dd></div>
-        <div>
+        <div class="detailgrid__row"><dt>{% translate "الفرع" %}</dt><dd>{{ prepayment.branch.code }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الحالة" %}</dt><dd>{{ prepayment.get_status_display }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الإجمالي" %}</dt><dd><bdi dir="ltr">{{ prepayment.total_amount|money_full }}</bdi></dd></div>
+        <div class="detailgrid__row"><dt>{% translate "مجموع الجدول" %}</dt><dd><bdi dir="ltr">{{ scheduled_total|money_full }}</bdi></dd></div>
+        <div class="detailgrid__row">
           <dt>{% translate "المطابقة" %}</dt>
           <dd>
             {% if schedule_matches %}
@@ -56,13 +56,13 @@
             {% endif %}
           </dd>
         </div>
-        <div><dt>{% translate "من" %}</dt><dd><bdi dir="ltr">{{ prepayment.start_date|date:"Y-m-d" }}</bdi></dd></div>
-        <div><dt>{% translate "إلى" %}</dt><dd><bdi dir="ltr">{{ prepayment.end_date|date:"Y-m-d" }}</bdi></dd></div>
-        <div><dt>{% translate "التواتر" %}</dt><dd>{{ prepayment.get_frequency_display }}</dd></div>
-        <div><dt>{% translate "عدد الفترات" %}</dt><dd><bdi dir="ltr">{{ prepayment.period_count }}</bdi></dd></div>
-        <div><dt>{% translate "حساب المصروف" %}</dt><dd><code dir="ltr">{{ prepayment.expense_account.code }}</code> {{ prepayment.expense_account.name_ar }}</dd></div>
-        <div><dt>{% translate "حساب المقدَّم" %}</dt><dd><code dir="ltr">{{ prepayment.prepaid_account.code }}</code> {{ prepayment.prepaid_account.name_ar }}</dd></div>
-        <div>
+        <div class="detailgrid__row"><dt>{% translate "من" %}</dt><dd><bdi dir="ltr">{{ prepayment.start_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div class="detailgrid__row"><dt>{% translate "إلى" %}</dt><dd><bdi dir="ltr">{{ prepayment.end_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div class="detailgrid__row"><dt>{% translate "التواتر" %}</dt><dd>{{ prepayment.get_frequency_display }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "عدد الفترات" %}</dt><dd><bdi dir="ltr">{{ prepayment.period_count }}</bdi></dd></div>
+        <div class="detailgrid__row"><dt>{% translate "حساب المصروف" %}</dt><dd><code dir="ltr">{{ prepayment.expense_account.code }}</code> {{ prepayment.expense_account.name_ar }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "حساب المقدَّم" %}</dt><dd><code dir="ltr">{{ prepayment.prepaid_account.code }}</code> {{ prepayment.prepaid_account.name_ar }}</dd></div>
+        <div class="detailgrid__row">
           <dt>{% translate "مصدر الدفع" %}</dt>
           <dd>
             {% if prepayment.cashbox %}{{ prepayment.cashbox.name_ar }}
@@ -71,15 +71,15 @@
           </dd>
         </div>
         {% if prepayment.journal_entry %}
-          <div><dt>{% translate "قيد الدفعة" %}</dt><dd><a href="{% url 'accounting:journal_detail' prepayment.journal_entry.pk %}"><bdi dir="ltr">{{ prepayment.journal_entry.entry_number }}</bdi></a></dd></div>
+          <div class="detailgrid__row"><dt>{% translate "قيد الدفعة" %}</dt><dd><a href="{% url 'accounting:journal_detail' prepayment.journal_entry.pk %}"><bdi dir="ltr">{{ prepayment.journal_entry.entry_number }}</bdi></a></dd></div>
         {% endif %}
       </dl>
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "جدول الاستهلاك" %}</h2>
-      <div class="tablewrap">
-        <table class="table" id="prepayment-schedule">
+    <section class="formcard">
+      <h2>{% translate "جدول الاستهلاك" %}</h2>
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table" id="prepayment-schedule">
           <thead><tr>
             <th>#</th><th>{% translate "من" %}</th><th>{% translate "إلى" %}</th>
             <th>{% translate "المبلغ" %}</th><th>{% translate "الحالة" %}</th>
@@ -88,17 +88,17 @@
           <tbody>
             {% for line in lines %}
               <tr>
-                <td><bdi dir="ltr">{{ line.sequence }}</bdi></td>
-                <td><bdi dir="ltr">{{ line.period_start|date:"Y-m-d" }}</bdi></td>
-                <td><bdi dir="ltr">{{ line.period_end|date:"Y-m-d" }}</bdi></td>
-                <td><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td>
-                <td>
+                <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
+                <td data-label="{% translate 'من' %}"><bdi dir="ltr">{{ line.period_start|date:"Y-m-d" }}</bdi></td>
+                <td data-label="{% translate 'إلى' %}"><bdi dir="ltr">{{ line.period_end|date:"Y-m-d" }}</bdi></td>
+                <td data-label="{% translate 'المبلغ' %}"><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td>
+                <td data-label="{% translate 'الحالة' %}">
                   {% if line.status == "POSTED" %}<span class="chip chip--ok">{{ line.get_status_display }}</span>
                   {% elif line.status == "REVERSED" %}<span class="chip chip--warn">{{ line.get_status_display }}</span>
                   {% elif line.period_end <= today %}<span class="chip chip--warn">{% translate "مستحق" %}</span>
                   {% else %}<span class="chip chip--muted">{{ line.get_status_display }}</span>{% endif %}
                 </td>
-                <td>
+                <td data-label="{% translate 'القيد' %}">
                   {% if line.journal_entry %}
                     <a href="{% url 'accounting:journal_detail' line.journal_entry.pk %}"><bdi dir="ltr">{{ line.journal_entry.entry_number }}</bdi></a>
                   {% else %}—{% endif %}
@@ -120,7 +120,7 @@
                 {% endif %}
               </tr>
             {% empty %}
-              <tr><td colspan="7" class="empty">{% translate "لا جدول." %}</td></tr>
+              <tr><td colspan="7" class="empty" data-empty-state>{% translate "لا جدول." %}</td></tr>
             {% endfor %}
           </tbody>
           <tfoot>
@@ -133,5 +133,5 @@
         </table>
       </div>
     </section>
-  </div>
+  </section>
 {% endblock %}

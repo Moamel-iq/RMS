@@ -9,8 +9,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-period-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="workspace-page" id="accounting-period-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:period_list' %}">{% translate "الفترات المحاسبية" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page"><bdi dir="ltr">{{ period }}</bdi></span>
@@ -46,8 +46,8 @@
       </div>
     </div>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "حالة الفترة" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "حالة الفترة" %}</h2>
       <dl class="datalist">
         <div><dt>{% translate "المؤسسة" %}</dt><dd>{{ period.fiscal_year.organization.code }}</dd></div>
         <div><dt>{% translate "السنة المالية" %}</dt><dd><bdi dir="ltr">{{ period.fiscal_year.year }}</bdi></dd></div>
@@ -65,8 +65,8 @@
       </dl>
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "حركة الفترة" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "حركة الفترة" %}</h2>
       <div class="summary-row">
         <div class="summary-row__item">
           <span class="summary-row__label">{% translate "قيود مُرحَّلة" %}</span>
@@ -87,17 +87,17 @@
       </div>
     </section>
 
-    <section class="card" id="period-blockers"
+    <section class="formcard" id="period-blockers"
              hx-get="{% url 'accounting:period_precheck' period.pk %}"
              hx-trigger="load"
              hx-swap="innerHTML">
-      <h2 class="card__title">{% translate "فحص ما قبل الإغلاق" %}</h2>
+      <h2>{% translate "فحص ما قبل الإغلاق" %}</h2>
       <p class="card__hint muted" aria-live="polite">{% translate "جارٍ جمع المعوّقات…" %}</p>
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "سجل الأحداث" %}</h2>
-      <ul class="timeline">
+    <section class="timeline">
+      <h2>{% translate "سجل الأحداث" %}</h2>
+      <ul class="checklist">
         {% for event in timeline %}
           <li class="timeline__item">
             <span class="timeline__when"><bdi dir="ltr">{{ event.occurred_at|date:"Y-m-d H:i" }}</bdi></span>

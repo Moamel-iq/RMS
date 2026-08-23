@@ -6,7 +6,7 @@
 {# application owes — it is part of what it owes. A screen showing one        #}
 {# "discount" column would make those two look like the same thing.           #}
 {% extends "settings/base_list.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block filters %}
   <label class="field field--check">
@@ -46,11 +46,11 @@
         {% if program.discount_percent is not None %}
           <bdi dir="ltr"><code>{{ program.percent_display }}%</code></bdi>
         {% else %}
-          <bdi dir="ltr"><code>{{ program.discount_amount }}</code></bdi>
+          <bdi dir="ltr"><code>{{ program.discount_amount|iqd }}</code></bdi>
         {% endif %}
         {% if program.maximum_amount %}
           <span class="muted">
-            {% blocktranslate with cap=program.maximum_amount %}بحد أقصى {{ cap }}{% endblocktranslate %}
+            {% blocktranslate with cap=program.maximum_amount|iqd %}بحد أقصى {{ cap }}{% endblocktranslate %}
           </span>
         {% endif %}
       </td>

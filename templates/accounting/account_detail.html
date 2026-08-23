@@ -9,8 +9,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-account-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="workspace-page" id="accounting-account-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:chart_tree' %}">{% translate "دليل الحسابات" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page"><bdi dir="ltr">{{ account.code }}</bdi></span>
@@ -40,13 +40,13 @@
       </div>
     </div>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "التعريف" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "التعريف" %}</h2>
       <dl class="datalist">
-        <div><dt>{% translate "المؤسسة" %}</dt><dd>{{ account.organization.code }} — {{ account.organization.name_ar }}</dd></div>
-        <div><dt>{% translate "الاسم بالإنجليزية" %}</dt><dd><bdi dir="ltr">{{ account.name_en }}</bdi></dd></div>
-        <div><dt>{% translate "الصنف" %}</dt><dd>{{ account.get_account_class_display }}</dd></div>
-        <div>
+        <div class="detailgrid__row"><dt>{% translate "المؤسسة" %}</dt><dd>{{ account.organization.code }} — {{ account.organization.name_ar }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الاسم بالإنجليزية" %}</dt><dd><bdi dir="ltr">{{ account.name_en }}</bdi></dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الصنف" %}</dt><dd>{{ account.get_account_class_display }}</dd></div>
+        <div class="detailgrid__row">
           <dt>{% translate "المسار" %}</dt>
           <dd>
             {% for parent in parents %}
@@ -56,24 +56,24 @@
             <code dir="ltr">{{ account.code }}</code>
           </dd>
         </div>
-        <div><dt>{% translate "قابل للترحيل" %}</dt><dd>{% if account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا — حساب تجميعي" %}{% endif %}</dd></div>
-        <div><dt>{% translate "يتطلب مركز كلفة" %}</dt><dd>{% if account.requires_cost_center %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</dd></div>
-        <div><dt>{% translate "سياسة القيد اليدوي" %}</dt><dd>{{ account.get_manual_posting_policy_display }}</dd></div>
-        <div><dt>{% translate "حساب نظامي" %}</dt><dd>{% if account.is_system %}{% translate "نعم — لا يُعاد استخدامه لغرض آخر" %}{% else %}{% translate "لا" %}{% endif %}</dd></div>
-        <div>
+        <div class="detailgrid__row"><dt>{% translate "قابل للترحيل" %}</dt><dd>{% if account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا — حساب تجميعي" %}{% endif %}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "يتطلب مركز كلفة" %}</dt><dd>{% if account.requires_cost_center %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "سياسة القيد اليدوي" %}</dt><dd>{{ account.get_manual_posting_policy_display }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "حساب نظامي" %}</dt><dd>{% if account.is_system %}{% translate "نعم — لا يُعاد استخدامه لغرض آخر" %}{% else %}{% translate "لا" %}{% endif %}</dd></div>
+        <div class="detailgrid__row">
           <dt>{% translate "الحالة" %}</dt>
           <dd>
             {% if account.is_active %}<span class="chip chip--ok">{% translate "فعّال" %}</span>
             {% else %}<span class="chip chip--muted">{% translate "مؤرشف" %}{% if account.archived_at %} · <bdi dir="ltr">{{ account.archived_at|date:"Y-m-d" }}</bdi>{% endif %}</span>{% endif %}
           </dd>
         </div>
-        <div><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ balance|money_full }}</bdi></dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ balance|money_full }}</bdi></dd></div>
       </dl>
     </section>
 
     {% if children %}
-      <section class="card">
-        <h2 class="card__title">{% translate "الحسابات تحته" %}</h2>
+      <section class="formcard">
+        <h2>{% translate "الحسابات تحته" %}</h2>
         <ul class="chip-list">
           {% for child in children %}
             <li><a class="chip" href="{% url 'accounting:account_detail' child.pk %}">
@@ -84,11 +84,11 @@
       </section>
     {% endif %}
 
-    <section class="card">
-      <h2 class="card__title">{% translate "تصنيف القوائم المالية" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "تصنيف القوائم المالية" %}</h2>
       {% if account.is_postable %}
         {% if may_map_report %}
-          <form method="post" action="{% url 'accounting:account_report_mapping' account.pk %}" class="formcard formcard--inline">
+          <form method="post" action="{% url 'accounting:account_report_mapping' account.pk %}" class="inline-form">
             {% csrf_token %}
             {% for field in mapping_form %}
               <label class="field">
@@ -111,11 +111,11 @@
       {% endif %}
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "الأدوار المرتبطة" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "الأدوار المرتبطة" %}</h2>
       {% if role_mappings %}
-        <div class="tablewrap">
-          <table class="table">
+        <div class="data-table-shell" tabindex="0">
+          <table class="table responsive-table">
             <thead><tr>
               <th>{% translate "الدور" %}</th><th>{% translate "الإصدار" %}</th>
               <th>{% translate "من" %}</th><th>{% translate "حتى" %}</th>
@@ -123,10 +123,10 @@
             <tbody>
               {% for mapping in role_mappings %}
                 <tr>
-                  <td><a href="{% url 'accounting:role_detail' mapping.account_role.pk %}"><code dir="ltr">{{ mapping.account_role.code }}</code></a></td>
-                  <td><bdi dir="ltr">{{ mapping.version }}</bdi></td>
-                  <td><bdi dir="ltr">{{ mapping.effective_from|date:"Y-m-d" }}</bdi></td>
-                  <td>{% if mapping.effective_to %}<bdi dir="ltr">{{ mapping.effective_to|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}</td>
+                  <td data-label="{% translate 'الدور' %}"><a href="{% url 'accounting:role_detail' mapping.account_role.pk %}"><code dir="ltr">{{ mapping.account_role.code }}</code></a></td>
+                  <td data-label="{% translate 'الإصدار' %}"><bdi dir="ltr">{{ mapping.version }}</bdi></td>
+                  <td data-label="{% translate 'من' %}"><bdi dir="ltr">{{ mapping.effective_from|date:"Y-m-d" }}</bdi></td>
+                  <td data-label="{% translate 'حتى' %}">{% if mapping.effective_to %}<bdi dir="ltr">{{ mapping.effective_to|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}</td>
                 </tr>
               {% endfor %}
             </tbody>
@@ -137,12 +137,15 @@
       {% endif %}
     </section>
 
-    <section class="card">
-      <h2 class="card__title">
+    <section class="formcard">
+      <h2>
         {% blocktranslate with count=recent_limit %}آخر {{ count }} سطراً مُرحَّلاً{% endblocktranslate %}
       </h2>
-      <div class="tablewrap">
-        <table class="table">
+      <p class="card__hint">
+        <a href="{% url 'accounting:account_activity' account.pk %}">{% translate "عرض الحركة كاملة برصيد متحرك" %}</a>
+      </p>
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead><tr>
             <th>{% translate "التاريخ" %}</th>
             <th>{% translate "القيد" %}</th>
@@ -155,23 +158,20 @@
           <tbody>
             {% for line in recent_lines %}
               <tr>
-                <td><bdi dir="ltr">{{ line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
-                <td><a href="{% url 'accounting:journal_detail' line.entry.pk %}"><bdi dir="ltr">{{ line.entry.entry_number }}</bdi></a></td>
-                <td>{{ line.branch.code }}</td>
-                <td>{% if line.cost_center %}{{ line.cost_center.code }}{% else %}—{% endif %}</td>
-                <td><bdi dir="ltr">{{ line.debit|money_full }}</bdi></td>
-                <td><bdi dir="ltr">{{ line.credit|money_full }}</bdi></td>
-                <td>{{ line.narration|default:line.entry.narration }}</td>
+                <td data-label="{% translate 'التاريخ' %}"><bdi dir="ltr">{{ line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
+                <td data-label="{% translate 'القيد' %}"><a href="{% url 'accounting:journal_detail' line.entry.pk %}"><bdi dir="ltr">{{ line.entry.entry_number }}</bdi></a></td>
+                <td data-label="{% translate 'الفرع' %}">{{ line.branch.code }}</td>
+                <td data-label="{% translate 'مركز الكلفة' %}">{% if line.cost_center %}{{ line.cost_center.code }}{% else %}—{% endif %}</td>
+                <td data-label="{% translate 'مدين' %}"><bdi dir="ltr">{{ line.debit|money_full }}</bdi></td>
+                <td data-label="{% translate 'دائن' %}"><bdi dir="ltr">{{ line.credit|money_full }}</bdi></td>
+                <td data-label="{% translate 'البيان' %}">{{ line.narration|default:line.entry.narration }}</td>
               </tr>
             {% empty %}
-              <tr><td colspan="7" class="empty">{% translate "لم يُرحَّل شيء على هذا الحساب بعد." %}</td></tr>
+              <tr><td colspan="7" class="empty" data-empty-state>{% translate "لم يُرحَّل شيء على هذا الحساب بعد." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-      <p class="card__hint">
-        <a href="{% url 'accounting:account_activity' account.pk %}">{% translate "عرض الحركة كاملة برصيد متحرك" %}</a>
-      </p>
     </section>
-  </div>
+  </section>
 {% endblock %}

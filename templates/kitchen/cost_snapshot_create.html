@@ -8,9 +8,9 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="cost-snapshot-create">
+  <div class="workspace-page workspace-form-page" id="cost-snapshot-create">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">
           {{ recipe.code }} v{{ version.version_number }} — {% translate "حفظ لقطة كلفة" %}
         </h1>
@@ -18,7 +18,7 @@
           {% translate "اللقطة سجل دائم لا يُعدَّل ولا يُحذف. التصحيح لقطة جديدة. نفس مفتاح التكرار لنفس الطلب يعيد اللقطة الأصلية بدل إنشاء ثانية." %}
         </p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:cost_card' version.pk %}">
           {% translate "بطاقة الكلفة" %}
         </a>

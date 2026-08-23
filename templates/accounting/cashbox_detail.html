@@ -9,8 +9,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-cashbox-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="workspace-page" id="accounting-cashbox-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:cashbox_list' %}">{% translate "الصناديق" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page"><bdi dir="ltr">{{ cashbox.code }}</bdi></span>
@@ -37,32 +37,32 @@
       </div>
     </div>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "التعريف" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "التعريف" %}</h2>
       <dl class="datalist">
-        <div><dt>{% translate "المؤسسة" %}</dt><dd>{{ cashbox.organization.code }}</dd></div>
-        <div><dt>{% translate "الفرع" %}</dt><dd>{{ cashbox.branch.code }} — {{ cashbox.branch.name_ar }}</dd></div>
-        <div>
+        <div class="detailgrid__row"><dt>{% translate "المؤسسة" %}</dt><dd>{{ cashbox.organization.code }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الفرع" %}</dt><dd>{{ cashbox.branch.code }} — {{ cashbox.branch.name_ar }}</dd></div>
+        <div class="detailgrid__row">
           <dt>{% translate "حساب النقدية" %}</dt>
           <dd><a href="{% url 'accounting:account_detail' cashbox.account.pk %}">
             <code dir="ltr">{{ cashbox.account.code }}</code> {{ cashbox.account.name_ar }}
           </a></dd>
         </div>
-        <div><dt>{% translate "مستعمَل من" %}</dt><dd><bdi dir="ltr">{{ cashbox.opened_on|date:"Y-m-d" }}</bdi></dd></div>
-        <div><dt>{% translate "المسؤول" %}</dt><dd>{{ cashbox.responsible_note|default:"—" }}</dd></div>
-        <div><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ current_balance|money_full }}</bdi></dd></div>
-        <div>
+        <div class="detailgrid__row"><dt>{% translate "مستعمَل من" %}</dt><dd><bdi dir="ltr">{{ cashbox.opened_on|date:"Y-m-d" }}</bdi></dd></div>
+        <div class="detailgrid__row"><dt>{% translate "المسؤول" %}</dt><dd>{{ cashbox.responsible_note|default:"—" }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ current_balance|money_full }}</bdi></dd></div>
+        <div class="detailgrid__row">
           <dt>{% translate "آخر مطابقة" %}</dt>
           <dd>{% if cashbox.last_reconciled_on %}<bdi dir="ltr">{{ cashbox.last_reconciled_on|date:"Y-m-d" }}</bdi>{% else %}{% translate "لم تُسجَّل" %}{% endif %}</dd>
         </div>
-        <div>
+        <div class="detailgrid__row">
           <dt>{% translate "الحالة" %}</dt>
           <dd>{% if cashbox.is_active %}<span class="chip chip--ok">{% translate "فعّال" %}</span>{% else %}<span class="chip chip--muted">{% translate "مؤرشف" %}</span>{% endif %}</dd>
         </div>
       </dl>
 
       {% if may_manage %}
-        <form method="post" action="{% url 'accounting:cashbox_reconcile' cashbox.pk %}" class="formcard formcard--inline">
+        <form method="post" action="{% url 'accounting:cashbox_reconcile' cashbox.pk %}" class="inline-form">
           {% csrf_token %}
           <label class="field">
             <span class="field__label">{% translate "تسجيل مطابقة حتى" %}</span>
@@ -76,8 +76,8 @@
       {% endif %}
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "كشف الحركة" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "كشف الحركة" %}</h2>
       <form class="toolbar" method="get"
             hx-get="{% url 'accounting:cashbox_detail' cashbox.pk %}"
             hx-target="#accounting-cashbox-detail"
@@ -100,11 +100,11 @@
       {% include "accounting/_statement_table.html" %}
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "إقفالات الكاشير" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "إقفالات الكاشير" %}</h2>
       <p class="card__hint">{% translate "تملكها المبيعات. تُقرأ من هنا وتُدار من شاشتها." %}</p>
-      <div class="tablewrap">
-        <table class="table">
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead><tr>
             <th>{% translate "تاريخ العمل" %}</th>
             <th>{% translate "الحالة" %}</th>
@@ -113,18 +113,18 @@
           <tbody>
             {% for shift in shifts %}
               <tr>
-                <td><bdi dir="ltr">{{ shift.business_date|date:"Y-m-d" }}</bdi></td>
-                <td>{{ shift.get_status_display }}</td>
+                <td data-label="{% translate 'تاريخ العمل' %}"><bdi dir="ltr">{{ shift.business_date|date:"Y-m-d" }}</bdi></td>
+                <td data-label="{% translate 'الحالة' %}">{{ shift.get_status_display }}</td>
                 <td class="cell-actions">
                   <a class="btn btn--secondary btn--sm" href="{% url 'sales:shift_detail' shift.pk %}">{% translate "فتح" %}</a>
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="3" class="empty">{% translate "لا إقفالات مسجَّلة لهذا الفرع." %}</td></tr>
+              <tr><td colspan="3" class="empty" data-empty-state>{% translate "لا إقفالات مسجَّلة لهذا الفرع." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
-  </div>
+  </section>
 {% endblock %}

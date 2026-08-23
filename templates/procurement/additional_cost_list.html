@@ -14,9 +14,9 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="procurement-additional-costs">
+  <div class="workspace-page workspace-list-page" id="procurement-additional-costs">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">{{ page_hint }}</p>
       </div>
@@ -87,82 +87,84 @@
     </p>
 
     <div class="tablewrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">{% translate "الفاتورة" %}</th>
-            <th scope="col">{% translate "المورد" %}</th>
-            <th scope="col">{% translate "الوصف" %}</th>
-            <th scope="col">{% translate "الحساب المباشر" %}</th>
-            <th scope="col">{% translate "مركز الكلفة" %}</th>
-            {% if show_cost %}<th scope="col">{% translate "المبلغ" %}</th>{% endif %}
-            <th scope="col">{% translate "تاريخ الفاتورة" %}</th>
-            <th scope="col">{% translate "تاريخ الاستحقاق" %}</th>
-            <th scope="col">{% translate "حالة الفاتورة" %}</th>
-            <th scope="col">{% translate "القيد" %}</th>
-            <th scope="col"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in rows %}
+      <div class="data-table-shell" tabindex="0" role="region" aria-label="{{ page_title }}">
+        <table class="table responsive-table">
+          <thead>
             <tr>
-              <td data-label="{% translate 'الفاتورة' %}">
-                <a href="{% url 'procurement:supplier_invoice_detail' row.invoice_id %}">
-                  <bdi dir="ltr"><code>{{ row.invoice.number|default:"—" }}</code></bdi>
-                </a>
-              </td>
-              <td data-label="{% translate 'المورد' %}">{{ row.invoice.supplier.name_ar }}</td>
-              <td data-label="{% translate 'الوصف' %}">{{ row.description|default:"—" }}</td>
-              <td data-label="{% translate 'الحساب المباشر' %}">
-                {% if row.account_id %}
-                  <bdi dir="ltr"><code>{{ row.account.code }}</code></bdi> {{ row.account.name_ar }}
-                {% else %}—{% endif %}
-              </td>
-              <td data-label="{% translate 'مركز الكلفة' %}">
-                {% if row.cost_center_id %}{{ row.cost_center.name_ar }}{% else %}—{% endif %}
-              </td>
-              {% if show_cost %}
-                <td data-label="{% translate 'المبلغ' %}">
-                  <bdi dir="ltr"><code>{{ row.net_amount }}</code></bdi>
-                </td>
-              {% endif %}
-              <td data-label="{% translate 'تاريخ الفاتورة' %}">
-                <bdi dir="ltr"><code>{{ row.invoice.invoice_date|date:"Y-m-d" }}</code></bdi>
-              </td>
-              <td data-label="{% translate 'تاريخ الاستحقاق' %}">
-                <bdi dir="ltr"><code>{{ row.invoice.due_date|date:"Y-m-d" }}</code></bdi>
-                {% if row.invoice.due_date < today and row.invoice.status == "POSTED" %}
-                  <span class="chip chip--bad">{% translate "متأخر" %}</span>
-                {% endif %}
-              </td>
-              <td data-label="{% translate 'حالة الفاتورة' %}">
-                <span class="chip">{{ row.invoice.get_status_display }}</span>
-              </td>
-              <td data-label="{% translate 'القيد' %}">
-                {% if row.journal_line_id %}
-                  <span class="chip chip--ok">{% translate "مرحّل" %}</span>
-                {% else %}—{% endif %}
-              </td>
-              <td>
-                {% if row.invoice.status in editable_statuses %}
-                  <a class="btn btn--ghost"
-                     href="{% url 'procurement:supplier_invoice_detail' row.invoice_id %}">
-                    {% translate "تعديل في الفاتورة" %}
+              <th scope="col">{% translate "الفاتورة" %}</th>
+              <th scope="col">{% translate "المورد" %}</th>
+              <th scope="col">{% translate "الوصف" %}</th>
+              <th scope="col">{% translate "الحساب المباشر" %}</th>
+              <th scope="col">{% translate "مركز الكلفة" %}</th>
+              {% if show_cost %}<th scope="col">{% translate "المبلغ" %}</th>{% endif %}
+              <th scope="col">{% translate "تاريخ الفاتورة" %}</th>
+              <th scope="col">{% translate "تاريخ الاستحقاق" %}</th>
+              <th scope="col">{% translate "حالة الفاتورة" %}</th>
+              <th scope="col">{% translate "القيد" %}</th>
+              <th scope="col"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td data-label="{% translate 'الفاتورة' %}">
+                  <a href="{% url 'procurement:supplier_invoice_detail' row.invoice_id %}">
+                    <bdi dir="ltr"><code>{{ row.invoice.number|default:"—" }}</code></bdi>
                   </a>
-                {% else %}
-                  <span class="muted">{% translate "للقراءة فقط" %}</span>
+                </td>
+                <td data-label="{% translate 'المورد' %}">{{ row.invoice.supplier.name_ar }}</td>
+                <td data-label="{% translate 'الوصف' %}">{{ row.description|default:"—" }}</td>
+                <td data-label="{% translate 'الحساب المباشر' %}">
+                  {% if row.account_id %}
+                    <bdi dir="ltr"><code>{{ row.account.code }}</code></bdi> {{ row.account.name_ar }}
+                  {% else %}—{% endif %}
+                </td>
+                <td data-label="{% translate 'مركز الكلفة' %}">
+                  {% if row.cost_center_id %}{{ row.cost_center.name_ar }}{% else %}—{% endif %}
+                </td>
+                {% if show_cost %}
+                  <td data-label="{% translate 'المبلغ' %}">
+                    <bdi dir="ltr"><code>{{ row.net_amount }}</code></bdi>
+                  </td>
                 {% endif %}
-              </td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="{% if show_cost %}11{% else %}10{% endif %}" class="empty">
-                {% translate "لا توجد تكاليف إضافية مطابقة. تُضاف التكلفة الإضافية كسطر «مصروف أو حساب مباشر» على فاتورة مورد بحالة مسودة." %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+                <td data-label="{% translate 'تاريخ الفاتورة' %}">
+                  <bdi dir="ltr"><code>{{ row.invoice.invoice_date|date:"Y-m-d" }}</code></bdi>
+                </td>
+                <td data-label="{% translate 'تاريخ الاستحقاق' %}">
+                  <bdi dir="ltr"><code>{{ row.invoice.due_date|date:"Y-m-d" }}</code></bdi>
+                  {% if row.invoice.due_date < today and row.invoice.status == "POSTED" %}
+                    <span class="chip chip--bad">{% translate "متأخر" %}</span>
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'حالة الفاتورة' %}">
+                  <span class="chip">{{ row.invoice.get_status_display }}</span>
+                </td>
+                <td data-label="{% translate 'القيد' %}">
+                  {% if row.journal_line_id %}
+                    <span class="chip chip--ok">{% translate "مرحّل" %}</span>
+                  {% else %}—{% endif %}
+                </td>
+                <td>
+                  {% if row.invoice.status in editable_statuses %}
+                    <a class="btn btn--ghost"
+                       href="{% url 'procurement:supplier_invoice_detail' row.invoice_id %}">
+                      {% translate "تعديل في الفاتورة" %}
+                    </a>
+                  {% else %}
+                    <span class="muted">{% translate "للقراءة فقط" %}</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="{% if show_cost %}11{% else %}10{% endif %}" class="empty">
+                  {% translate "لا توجد تكاليف إضافية مطابقة. تُضاف التكلفة الإضافية كسطر «مصروف أو حساب مباشر» على فاتورة مورد بحالة مسودة." %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
 
     {% if is_paginated %}

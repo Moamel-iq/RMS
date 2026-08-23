@@ -13,15 +13,15 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="kitchen-batch-consumption">
+  <section class="workspace-page" id="kitchen-batch-consumption">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">
           {{ page_title }} — <bdi dir="ltr"><code>{{ batch.number|default:"—" }}</code></bdi>
         </h1>
         <p class="pagehead__hint">{{ page_hint }}</p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "الدفعة" %}
         </a>
@@ -37,22 +37,26 @@
       </p>
     {% endif %}
 
-    <dl class="deflist">
-      <dt>{% translate "الوصفة" %}</dt>
-      <dd>{{ batch.recipe.code }} — {{ batch.recipe.name_ar }}</dd>
-      <dt>{% translate "النسخة" %}</dt>
-      <dd><bdi dir="ltr"><code>v{{ batch.recipe_version.version_number }}</code></bdi></dd>
-      <dt>{% translate "المخزن" %}</dt>
-      <dd>{{ batch.warehouse.code }}</dd>
-      <dt>{% translate "تاريخ العمل" %}</dt>
-      <dd><bdi dir="ltr"><code>{{ batch.planned_business_date|date:"Y-m-d" }}</code></bdi></dd>
-      <dt>{% translate "الحالة" %}</dt>
-      <dd>{{ batch.get_status_display }}</dd>
-    </dl>
+    {# The batch identity is a fact list, so it gets a card of its own rather #}
+    {# than sitting loose on the screen root.                                 #}
+    <section class="formcard">
+      <dl class="deflist">
+        <dt>{% translate "الوصفة" %}</dt>
+        <dd>{{ batch.recipe.code }} — {{ batch.recipe.name_ar }}</dd>
+        <dt>{% translate "النسخة" %}</dt>
+        <dd><bdi dir="ltr"><code>v{{ batch.recipe_version.version_number }}</code></bdi></dd>
+        <dt>{% translate "المخزن" %}</dt>
+        <dd>{{ batch.warehouse.code }}</dd>
+        <dt>{% translate "تاريخ العمل" %}</dt>
+        <dd><bdi dir="ltr"><code>{{ batch.planned_business_date|date:"Y-m-d" }}</code></bdi></dd>
+        <dt>{% translate "الحالة" %}</dt>
+        <dd>{{ batch.get_status_display }}</dd>
+      </dl>
+    </section>
 
     {# ---- The evidence checks ------------------------------------------ #}
-    <section class="card">
-      <h2 class="card__title">{% translate "مطابقة الأدلة" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "مطابقة الأدلة" %}</h2>
       <ul class="checklist">
         <li>
           {% if report.quantity_matches %}
@@ -76,22 +80,25 @@
       </ul>
 
       {% if not report.quantity_matches %}
-        <div class="alert" role="alert">
-          <p>{% translate "فروق الكميات لكل صنف:" %}</p>
-          <ul>
-            {% for item_id, difference in report.quantity_differences.items %}
-              <li><bdi dir="ltr"><code>item {{ item_id }}: {{ difference }}</code></bdi></li>
-            {% endfor %}
-          </ul>
+        {# `notice` inside a card, not `alert`: the card already draws the edge. #}
+        <div class="notice banner--bad" role="alert">
+          <div>
+            <p>{% translate "فروق الكميات لكل صنف:" %}</p>
+            <ul>
+              {% for item_id, difference in report.quantity_differences.items %}
+                <li><bdi dir="ltr"><code>item {{ item_id }}: {{ difference }}</code></bdi></li>
+              {% endfor %}
+            </ul>
+          </div>
         </div>
       {% endif %}
     </section>
 
     {# ---- What actually went in ---------------------------------------- #}
-    <section class="card">
-      <h2 class="card__title">{% translate "المستهلك الفعلي" %}</h2>
-      <div class="tablewrap">
-        <table class="table">
+    <section class="formcard">
+      <h2>{% translate "المستهلك الفعلي" %}</h2>
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead>
             <tr>
               <th scope="col">{% translate "المسار" %}</th>
@@ -147,9 +154,9 @@
     </section>
 
     {# ---- Attribution, outside the arithmetic -------------------------- #}
-    <section class="card" id="kitchen-batch-links">
-      <h2 class="card__title">{% translate "الروابط التفسيرية" %}</h2>
-      <p class="banner" role="note">{{ link_statement }}</p>
+    <section class="formcard" id="kitchen-batch-links">
+      <h2>{% translate "الروابط التفسيرية" %}</h2>
+      <p class="notice" role="note">{{ link_statement }}</p>
 
       {% if may_link %}
         <div class="rowactions">
@@ -166,8 +173,8 @@
         </div>
       {% endif %}
 
-      <div class="tablewrap">
-        <table class="table">
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead>
             <tr>
               <th scope="col">{% translate "النوع" %}</th>
@@ -217,5 +224,5 @@
         </table>
       </div>
     </section>
-  </div>
+  </section>
 {% endblock %}

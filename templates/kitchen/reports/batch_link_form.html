@@ -11,15 +11,15 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="kitchen-batch-links">
+  <section class="workspace-page workspace-form-page" id="kitchen-batch-links">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">
           {{ page_title }} — <bdi dir="ltr"><code>{{ batch.number|default:"—" }}</code></bdi>
         </h1>
         <p class="pagehead__hint">{{ link_statement }}</p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_consumption' batch.pk %}">
           {% translate "رجوع" %}
         </a>
@@ -48,7 +48,9 @@
       {% csrf_token %}
 
       {% if form.non_field_errors %}
-        <div class="alert" role="alert">
+        {# The card already draws the edge, so the summary uses the in-card    #}
+        {# error style rather than `alert`, which draws one of its own.        #}
+        <div class="formcard__errors" role="alert">
           {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
@@ -69,7 +71,7 @@
 
     {% if links %}
       <div class="tablewrap">
-        <table class="table">
+        <table class="table responsive-table">
           <thead>
             <tr>
               <th scope="col">{% translate "النوع" %}</th>
@@ -95,5 +97,5 @@
         </table>
       </div>
     {% endif %}
-  </div>
+  </section>
 {% endblock %}

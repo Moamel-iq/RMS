@@ -13,6 +13,8 @@ from apps.hr.permissions import VIEW_ADVANCE, VIEW_DEDUCTION, VIEW_LEAVE, VIEW_O
 app_name = "hr"
 
 urlpatterns = [
+    # Mounted at the module root, like the other modules: the summary first.
+    path("", views.HrOverviewView.as_view(), name="overview"),
     path("employees/", views.EmployeeListView.as_view(), name="employee_list"),
     path("employees/new/", views.EmployeeCreateView.as_view(), name="employee_create"),
     path("employees/<int:pk>/", views.EmployeeDetailView.as_view(), name="employee_detail"),

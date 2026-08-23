@@ -8,83 +8,85 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="pagehead">
-    <div>
-      <h1 class="pagehead__title">{{ recipe.code }} — {% translate "أي نسخة تسري؟" %}</h1>
-      <p class="pagehead__hint">
-        {% translate "المدى شامل للطرفين. النسخة المستبدَلة تبقى تجيب عن أيامها هي، وهذا هو سبب وجود التأريخ الفعّال." %}
-      </p>
+  <section class="workspace-page">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ recipe.code }} — {% translate "أي نسخة تسري؟" %}</h1>
+        <p class="pagehead__hint">
+          {% translate "المدى شامل للطرفين. النسخة المستبدَلة تبقى تجيب عن أيامها هي، وهذا هو سبب وجود التأريخ الفعّال." %}
+        </p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--ghost" href="{% url 'kitchen:recipe_versions' recipe.pk %}">{% translate "سجل النسخ" %}</a>
+      </div>
     </div>
-    <div class="rowactions">
-      <a class="btn btn--ghost" href="{% url 'kitchen:recipe_versions' recipe.pk %}">{% translate "سجل النسخ" %}</a>
-    </div>
-  </div>
 
-  <form class="toolbar" method="get"
-        hx-get="{{ request.path }}"
-        hx-target="#resolver-answer"
-        hx-select="#resolver-answer"
-        hx-swap="outerHTML"
-        hx-trigger="submit, change from:find select, change from:find input[type=date]">
-    {% for field in form %}
-      <label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-      {{ field }}
-    {% endfor %}
-    <button class="btn btn--ghost" type="submit">{% translate "استعلم" %}</button>
-  </form>
+    <form class="toolbar" method="get"
+          hx-get="{{ request.path }}"
+          hx-target="#resolver-answer"
+          hx-select="#resolver-answer"
+          hx-swap="outerHTML"
+          hx-trigger="submit, change from:find select, change from:find input[type=date]">
+      {% for field in form %}
+        <label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+      {% endfor %}
+      <button class="btn btn--ghost" type="submit">{% translate "استعلم" %}</button>
+    </form>
 
-  <div id="resolver-answer">
-    {% if problem %}
-      <section class="formcard">
+    {# The swap target draws no edge: the answer inside it is already a card #}
+    {# or a notice, and a wrapper round it would be a second border.         #}
+    <div id="resolver-answer">
+      {% if problem %}
         <div class="alert" role="alert"><p>{{ problem }}</p></div>
-      </section>
-    {% elif resolved %}
+      {% elif resolved %}
+        <section class="formcard">
+          <h2>{% translate "النسخة السارية" %}</h2>
+          <dl class="formgrid">
+            <div><dt class="muted">{% translate "النسخة" %}</dt>
+              <dd><a href="{% url 'kitchen:version_detail' resolved.pk %}">v{{ resolved.version_number }}</a></dd></div>
+            <div><dt class="muted">{% translate "الحالة" %}</dt><dd>{{ resolved.get_status_display }}</dd></div>
+            <div><dt class="muted">{% translate "من" %}</dt>
+              <dd><code dir="ltr">{{ resolved.effective_from|date:"Y-m-d" }}</code></dd></div>
+            <div><dt class="muted">{% translate "إلى" %}</dt>
+              <dd>{% if resolved.effective_to %}<code dir="ltr">{{ resolved.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</dd></div>
+            <div><dt class="muted">{% translate "مرجع الاعتماد" %}</dt>
+              <dd><code dir="ltr">{{ resolved.approval_reference }}</code></dd></div>
+          </dl>
+        </section>
+      {% else %}
+        <section class="formcard">
+          <p class="empty">{% translate "اختر فرعاً وتاريخاً. لا يوجد تاريخ افتراضي: سؤال عن كلفة تموز يجب أن يذكر تموز." %}</p>
+        </section>
+      {% endif %}
+    </div>
+
+    {% if timeline %}
       <section class="formcard">
-        <h2>{% translate "النسخة السارية" %}</h2>
-        <dl class="formgrid">
-          <div><dt class="muted">{% translate "النسخة" %}</dt>
-            <dd><a href="{% url 'kitchen:version_detail' resolved.pk %}">v{{ resolved.version_number }}</a></dd></div>
-          <div><dt class="muted">{% translate "الحالة" %}</dt><dd>{{ resolved.get_status_display }}</dd></div>
-          <div><dt class="muted">{% translate "من" %}</dt>
-            <dd><code dir="ltr">{{ resolved.effective_from|date:"Y-m-d" }}</code></dd></div>
-          <div><dt class="muted">{% translate "إلى" %}</dt>
-            <dd>{% if resolved.effective_to %}<code dir="ltr">{{ resolved.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</dd></div>
-          <div><dt class="muted">{% translate "مرجع الاعتماد" %}</dt>
-            <dd><code dir="ltr">{{ resolved.approval_reference }}</code></dd></div>
-        </dl>
-      </section>
-    {% else %}
-      <section class="formcard">
-        <p class="muted">{% translate "اختر فرعاً وتاريخاً. لا يوجد تاريخ افتراضي: سؤال عن كلفة تموز يجب أن يذكر تموز." %}</p>
+        <h2>{% translate "الخط الزمني" %}</h2>
+        <div class="data-table-shell" tabindex="0">
+          <table class="table responsive-table">
+            <thead><tr>
+              <th>{% translate "النسخة" %}</th>
+              <th>{% translate "الفرع" %}</th>
+              <th>{% translate "من" %}</th>
+              <th>{% translate "إلى" %}</th>
+              <th>{% translate "الحالة" %}</th>
+            </tr></thead>
+            <tbody>
+              {% for row in timeline %}
+                <tr>
+                  <td data-label="{% translate 'النسخة' %}"><a href="{% url 'kitchen:version_detail' row.version.pk %}">v{{ row.version.version_number }}</a></td>
+                  <td data-label="{% translate 'الفرع' %}"><code>{{ row.branch.code }}</code></td>
+                  <td data-label="{% translate 'من' %}"><code dir="ltr">{{ row.effective_from|date:"Y-m-d" }}</code></td>
+                  <td data-label="{% translate 'إلى' %}">{% if row.effective_to %}<code dir="ltr">{{ row.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</td>
+                  <td data-label="{% translate 'الحالة' %}">{{ row.version.get_status_display }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </section>
     {% endif %}
-  </div>
-
-  {% if timeline %}
-    <section class="formcard">
-      <h2>{% translate "الخط الزمني" %}</h2>
-      <div class="tablewrap">
-        <table class="table">
-          <thead><tr>
-            <th>{% translate "النسخة" %}</th>
-            <th>{% translate "الفرع" %}</th>
-            <th>{% translate "من" %}</th>
-            <th>{% translate "إلى" %}</th>
-            <th>{% translate "الحالة" %}</th>
-          </tr></thead>
-          <tbody>
-            {% for row in timeline %}
-              <tr>
-                <td><a href="{% url 'kitchen:version_detail' row.version.pk %}">v{{ row.version.version_number }}</a></td>
-                <td><code>{{ row.branch.code }}</code></td>
-                <td><code dir="ltr">{{ row.effective_from|date:"Y-m-d" }}</code></td>
-                <td>{% if row.effective_to %}<code dir="ltr">{{ row.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</td>
-                <td>{{ row.version.get_status_display }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  {% endif %}
+  </section>
 {% endblock %}

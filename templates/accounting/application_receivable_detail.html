@@ -8,8 +8,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-application-statement">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="workspace-page" id="accounting-application-statement">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:application_receivable_list' %}">{% translate "ذمم التطبيقات" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ application.name_ar }}</span>
@@ -28,8 +28,8 @@
     </div>
 
     {% if position %}
-      <section class="card">
-        <h2 class="card__title">{% translate "الوضع الحالي" %}</h2>
+      <section class="formcard">
+        <h2>{% translate "الوضع الحالي" %}</h2>
         <div class="summary-row">
           <div class="summary-row__item">
             <span class="summary-row__label">{% translate "الرصيد" %}</span>
@@ -56,10 +56,10 @@
       </section>
     {% endif %}
 
-    <section class="card">
-      <h2 class="card__title">{% translate "سجل الذمم" %}</h2>
-      <div class="tablewrap">
-        <table class="table" id="application-ledger-table">
+    <section class="formcard">
+      <h2>{% translate "سجل الذمم" %}</h2>
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table" id="application-ledger-table">
           <thead><tr>
             <th>{% translate "تاريخ العمل" %}</th>
             <th>{% translate "المصدر" %}</th>
@@ -71,22 +71,22 @@
           <tbody>
             {% for row in rows %}
               <tr>
-                <td><bdi dir="ltr">{{ row.entry.business_date|date:"Y-m-d" }}</bdi></td>
-                <td>{{ row.entry.get_source_display }}</td>
-                <td>
+                <td data-label="{% translate 'تاريخ العمل' %}"><bdi dir="ltr">{{ row.entry.business_date|date:"Y-m-d" }}</bdi></td>
+                <td data-label="{% translate 'المصدر' %}">{{ row.entry.get_source_display }}</td>
+                <td data-label="{% translate 'المستند' %}">
                   <code dir="ltr">{{ row.entry.source_document_type }}</code>
                   <bdi dir="ltr">{{ row.entry.source_document_id }}</bdi>
                 </td>
-                <td><bdi dir="ltr">{{ row.entry.debit|money_full }}</bdi></td>
-                <td><bdi dir="ltr">{{ row.entry.credit|money_full }}</bdi></td>
-                <td><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
+                <td data-label="{% translate 'مدين' %}"><bdi dir="ltr">{{ row.entry.debit|money_full }}</bdi></td>
+                <td data-label="{% translate 'دائن' %}"><bdi dir="ltr">{{ row.entry.credit|money_full }}</bdi></td>
+                <td data-label="{% translate 'الرصيد' %}"><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
               </tr>
             {% empty %}
-              <tr><td colspan="6" class="empty">{% translate "لا حركة على هذا التطبيق." %}</td></tr>
+              <tr><td colspan="6" class="empty" data-empty-state>{% translate "لا حركة على هذا التطبيق." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
-  </div>
+  </section>
 {% endblock %}

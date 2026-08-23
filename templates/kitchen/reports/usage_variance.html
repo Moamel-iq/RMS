@@ -14,21 +14,23 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="kitchen-usage-variance">
+  <section class="workspace-page" id="kitchen-usage-variance">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">{{ page_hint }}</p>
       </div>
     </div>
 
     <div class="banner" role="note">
-      {% for notice in notices %}<p>{{ notice }}</p>{% endfor %}
-      <p class="chips">
-        {% for code in coverage_codes %}
-          <bdi dir="ltr"><code class="chip">{{ code }}</code></bdi>
-        {% endfor %}
-      </p>
+      <div>
+        {% for notice in notices %}<p>{{ notice }}</p>{% endfor %}
+        <p class="chips">
+          {% for code in coverage_codes %}
+            <bdi dir="ltr"><code class="chip">{{ code }}</code></bdi>
+          {% endfor %}
+        </p>
+      </div>
     </div>
 
     <form class="toolbar"
@@ -72,22 +74,23 @@
     {% endif %}
 
     {# ---- Output 1: complete ------------------------------------------- #}
-    <section class="card">
-      <h2 class="card__title">
-        {% translate "١. انحراف الإنتاج القياسي — متاح ومكتمل" %}
-      </h2>
+    {# The heading is the card's first child so the stylesheet draws it as a #}
+    {# header band, and the warnings inside a card use `notice` rather than  #}
+    {# `banner`/`alert`: those draw a full edge and would double the card's. #}
+    <section class="formcard">
+      <h2>{% translate "١. انحراف الإنتاج القياسي — متاح ومكتمل" %}</h2>
       <p class="muted">
         {% translate "الجانبان وقائع مرحّلة عن الدفعة نفسها: ما طلبته النسخة المجمّدة مقابل ما دخل فعلاً. لا تدخل المبيعات في هذا الرقم ولا يحتاجها." %}
       </p>
 
       {% if not analysis.identity_holds %}
-        <p class="alert" role="alert">
+        <p class="notice banner--bad" role="alert">
           {% translate "تحذير: برهان تصنيف الحركات لا يتوازن في هذه الفترة، فأرقام الاستهلاك الفعلي أدناه غير موثوقة حتى يُعالج ذلك. راجع تقرير تدفق مخزن المطبخ." %}
         </p>
       {% endif %}
 
-      <div class="tablewrap">
-        <table class="table">
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead>
             <tr>
               <th scope="col">{% translate "الدفعة" %}</th>
@@ -162,19 +165,17 @@
     </section>
 
     {# ---- Output 2: partial -------------------------------------------- #}
-    <section class="card">
-      <h2 class="card__title">
-        {% translate "٢. تشخيص جزئي للاستهلاك — ليس الانحراف النهائي" %}
-      </h2>
-      <p class="alert" role="alert">
+    <section class="formcard">
+      <h2>{% translate "٢. تشخيص جزئي للاستهلاك — ليس الانحراف النهائي" %}</h2>
+      <p class="notice banner--bad" role="alert">
         {% translate "لا يجوز اعتبار الرصيد غير المُفسَّر أدناه انحراف استهلاك نهائياً: الجانب النظري لا يشمل كميات المبيعات المعتمدة، وهي غير موجودة قبل المرحلة الرابعة." %}
       </p>
       <p class="muted">
         {% translate "مكافئ وجبات الموظفين والوجبات المجانية معروض بجانب الرصيد ولا يُطرح منه: مكوّنات تلك الوجبات خرجت أصلاً مع دفعة الإنتاج التي طبختها، وطرحها هنا يخصم الكمية مرتين." %}
       </p>
 
-      <div class="tablewrap">
-        <table class="table">
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead>
             <tr>
               <th scope="col">{% translate "الصنف" %}</th>
@@ -228,10 +229,15 @@
     </section>
 
     {# ---- The source that is missing, named ---------------------------- #}
-    <section class="card">
-      <h2 class="card__title">{% translate "تغطية المصادر النظرية" %}</h2>
-      <div class="tablewrap">
-        <table class="table">
+    {# The note that used to close this card now opens it: the table shell   #}
+    {# bleeds to the card's edge and has to be the last child to do so.      #}
+    <section class="formcard">
+      <h2>{% translate "تغطية المصادر النظرية" %}</h2>
+      <p class="muted">
+        {% translate "المصدر المعروض بحالة DEFERRED_TO_PHASE_4 ليس خطأ: محوّل المبيعات غير موجود لأن بياناته غير موجودة. عرضه بالاسم أصدق من حذفه من الجدول." %}
+      </p>
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead>
             <tr>
               <th scope="col">{% translate "المصدر" %}</th>
@@ -257,9 +263,6 @@
           </tbody>
         </table>
       </div>
-      <p class="muted">
-        {% translate "المصدر المعروض بحالة DEFERRED_TO_PHASE_4 ليس خطأ: محوّل المبيعات غير موجود لأن بياناته غير موجودة. عرضه بالاسم أصدق من حذفه من الجدول." %}
-      </p>
     </section>
-  </div>
+  </section>
 {% endblock %}

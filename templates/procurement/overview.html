@@ -1,0 +1,164 @@
+{# The module's opening screen. Summary first, detail behind a link.          #}
+{#                                                                           #}
+{# Redaction is structural, matching the API: the view omits cost keys rather #}
+{# than blanking them, so `show_cost` removes whole cards and columns. Counts #}
+{# stay — how many invoices are waiting is not money.                        #}
+{% extends "shell.html" %}
+{% load i18n l10n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="procurement-overview" class="dash">
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--secondary" href="{% url 'procurement:supplier_list' %}">
+          {% translate "الموردون" %}
+        </a>
+        <a class="btn btn--primary" href="{% url 'procurement:supplier_invoice_list' %}">
+          {% translate "فواتير الموردين" %}
+        </a>
+      </div>
+    </div>
+
+    {# Concentration is a risk, not an achievement, so it only speaks when it #}
+    {# is high enough to matter. A permanent banner stops being read.         #}
+    {% if overview.top_share and overview.top_share >= 40 %}
+      <div class="alert" role="status">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" aria-hidden="true" style="flex:none; margin-block-start:2px">
+          <path d="M12 9v4M12 17h.01"/>
+          <path d="M10.3 3.9L2.4 17.5A2 2 0 004.1 20.5h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/>
+        </svg>
+        <div>
+          <strong>
+            {% blocktranslate with share=overview.top_share|unlocalize name=overview.rows.0.name trimmed %}
+              {{ name }} وحده {{ share }}% من المشتريات المرحّلة
+            {% endblocktranslate %}
+          </strong>
+          <p>{% translate "تركّز المورّدين خطر توريد: انقطاع مورد واحد يوقف مطبخاً." %}</p>
+        </div>
+        <a class="btn btn--quiet" href="{% url 'procurement:supplier_list' %}">
+          {% translate "افتح الموردين" %}
+        </a>
+      </div>
+    {% endif %}
+
+    <div class="kpigrid">
+      {% if show_cost %}
+        <div class="kpi kpi--accent">
+          <div class="kpi__head"><span class="kpi__label">{% translate "قيمة المشتريات المرحّلة" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6"/></svg></span></div>
+          <div class="kpi__value"><bdi dir="ltr">{{ overview.posted_total|money }}</bdi></div>
+          <div class="kpi__note">{% translate "من الفواتير المرحّلة، بلا المعكوسة" %}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi__head"><span class="kpi__label">{% translate "ذمم الموردين" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h5M9.5 14.5h5"/></svg></span></div>
+          <div class="kpi__value"><bdi dir="ltr">{{ overview.payable_total|money }}</bdi></div>
+          <div class="kpi__note">{% translate "قبل الدفعات المرحّلة" %}</div>
+        </div>
+      {% endif %}
+
+      <div class="kpi">
+        <div class="kpi__head"><span class="kpi__label">{% translate "فواتير مرحّلة" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 6L9 17l-5-5"/></svg></span></div>
+        <div class="kpi__value"><bdi dir="ltr">{{ overview.posted_count }}</bdi></div>
+        <div class="kpi__note">
+          {% blocktranslate with total=overview.invoice_count trimmed %}
+            من {{ total }} فاتورة قائمة
+          {% endblocktranslate %}
+        </div>
+      </div>
+
+      <div class="kpi">
+        <div class="kpi__head"><span class="kpi__label">{% translate "بانتظار إجراء" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5l3 2"/></svg></span></div>
+        <div class="kpi__value"><bdi dir="ltr">{{ overview.draft_count|add:overview.approved_count }}</bdi></div>
+        <div class="kpi__note">
+          {% if overview.draft_count or overview.approved_count %}<span class="trend trend--down">{% translate "يحتاج قراراً" %}</span>{% endif %}
+          {% blocktranslate with draft=overview.draft_count approved=overview.approved_count trimmed %}
+            {{ draft }} مسودة · {{ approved }} معتمدة لم تُرحَّل
+          {% endblocktranslate %}
+        </div>
+      </div>
+
+      <div class="kpi">
+        <div class="kpi__head"><span class="kpi__label">{% translate "موردون فعّالون" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v5H4z"/><path d="M6 9v11h12V9"/><path d="M10 13h4"/></svg></span></div>
+        <div class="kpi__value"><bdi dir="ltr">{{ overview.supplier_count }}</bdi></div>
+        <div class="kpi__note">{% translate "ضمن نطاقك" %}</div>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">
+          {% if show_cost %}{% translate "الموردون حسب القيمة" %}{% else %}{% translate "الموردون حسب عدد الفواتير" %}{% endif %}
+        </h2>
+        <p class="pagehead__hint">{% translate "من الفواتير المرحّلة" %}</p>
+      </div>
+
+      {% if show_cost and overview.rows %}
+        {# Length encodes the share; colour only separates the bands. #}
+        <div class="bars">
+          {% for row in overview.rows %}
+            <div class="bar">
+              <span class="bar__name" title="{{ row.name }}">{{ row.name }}</span>
+              <div class="bar__track">
+                <div class="bar__fill"
+                     style="inline-size: {{ row.share|unlocalize }}%;
+                            background: var(--series-{% cycle '1' '2' '2' '3' '3' '6' %});"></div>
+              </div>
+              <span class="bar__value"><bdi dir="ltr">{{ row.total|money }}</bdi></span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="tablewrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">{% translate "المورد" %}</th>
+              <th scope="col">{% translate "فواتير" %}</th>
+              {% if show_cost %}
+                <th scope="col">{% translate "القيمة" %}</th>
+                <th scope="col">{% translate "الحصة" %}</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in overview.rows %}
+              <tr>
+                <td>
+                  {{ row.name }}
+                  <span class="muted"><bdi dir="ltr">{{ row.code }}</bdi></span>
+                </td>
+                <td class="table__num"><bdi dir="ltr">{{ row.invoice_count }}</bdi></td>
+                {% if show_cost %}
+                  <td class="table__num"><bdi dir="ltr">{{ row.total|money }}</bdi></td>
+                  <td class="table__num"><bdi dir="ltr">{{ row.share|unlocalize }}%</bdi></td>
+                {% endif %}
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="{% if show_cost %}4{% else %}2{% endif %}" class="empty">
+                  {% translate "لا فاتورة مرحّلة ضمن نطاقك بعد." %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if show_cost and overview.top_share is not None %}
+        <p class="panel__foot">
+          {% blocktranslate with name=overview.rows.0.name share=overview.top_share|unlocalize trimmed %}
+            {{ name }} وحده {{ share }}% من قيمة الفترة.
+          {% endblocktranslate %}
+        </p>
+      {% endif %}
+    </section>
+
+  </div>
+{% endblock %}

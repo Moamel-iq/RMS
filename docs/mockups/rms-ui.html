@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>واجهة خان مندي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* ============================================================================
+   خان مندي — نظام التصميم
+   قاعدة 60-30-10: المحايد يملأ السطح، والبنية ثانوية، والتيل للفعل وحده.
+   ألوان البيانات متمايزة بالدرجة لا بالصبغة، فتُقرأ عند عمى الألوان.
+   خصائص منطقية فقط — ورقة واحدة تخدم RTL و LTR (ADR: قواعد الواجهة).
+   ========================================================================= */
+:root{
+  --gray-50:#FAF9F6; --gray-100:#F2F0EA; --gray-200:#E4E1D8;
+  --gray-300:#CFCBBF; --gray-500:#8C877A; --gray-700:#4A463C; --gray-900:#22201A;
+  --ground:var(--gray-100); --surface:#FFFFFF; --surface-2:var(--gray-50);
+  --ink:var(--gray-900); --ink-2:var(--gray-700); --muted:var(--gray-500);
+  --border:var(--gray-200); --border-2:var(--gray-300);
+  --primary:#14504F; --primary-hover:#0F3E3D; --primary-active:#0A2C2B;
+  --primary-wash:#E3EDEC; --on-primary:#FFFFFF;
+  --ok:#2E6B4F; --ok-wash:#E4EFE8;
+  --info:#2D6CDF; --info-wash:#E5EDFB;
+  --warn:#A5710F; --warn-wash:#F8EFD8;
+  --danger:#A03328; --danger-wash:#F8E4E1;
+  --c1:#14504F; --c2:#3D8B7D; --c3:#7FB0A3; --c4:#A5710F; --c5:#C79A45; --c6:#8C877A;
+  --e1:0 1px 2px rgba(34,32,26,.06);
+  --e2:0 2px 6px -1px rgba(34,32,26,.08), 0 1px 2px rgba(34,32,26,.05);
+  --r-sm:4px; --r-md:8px; --r-lg:12px; --r-full:999px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px;
+  --sidebar:248px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --gray-50:#1C1B17; --gray-100:#16150F; --gray-200:#2C2A22;
+    --gray-300:#3B3830; --gray-500:#9A9486; --gray-700:#C9C4B6; --gray-900:#EFEBE0;
+    --ground:#100F0B; --surface:#1A1913; --surface-2:#211F18;
+    --border:#2C2A22; --border-2:#3B3830;
+    --primary:#4FA79C; --primary-hover:#63BCB0; --primary-active:#7ACFC3;
+    --primary-wash:#12312F; --on-primary:#0A2422;
+    --ok:#6FBF93; --ok-wash:#13291E; --info:#7EA9F0; --info-wash:#141F33;
+    --warn:#D9A03B; --warn-wash:#2E2410; --danger:#E08074; --danger-wash:#301612;
+    --c1:#4FA79C; --c2:#6FBF93; --c3:#9BD0C6; --c4:#D9A03B; --c5:#E6C079; --c6:#9A9486;
+    --e1:0 1px 2px rgba(0,0,0,.4);
+    --e2:0 2px 6px -1px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --gray-50:#1C1B17; --gray-100:#16150F; --gray-200:#2C2A22;
+  --gray-300:#3B3830; --gray-500:#9A9486; --gray-700:#C9C4B6; --gray-900:#EFEBE0;
+  --ground:#100F0B; --surface:#1A1913; --surface-2:#211F18;
+  --border:#2C2A22; --border-2:#3B3830;
+  --primary:#4FA79C; --primary-hover:#63BCB0; --primary-active:#7ACFC3;
+  --primary-wash:#12312F; --on-primary:#0A2422;
+  --ok:#6FBF93; --ok-wash:#13291E; --info:#7EA9F0; --info-wash:#141F33;
+  --warn:#D9A03B; --warn-wash:#2E2410; --danger:#E08074; --danger-wash:#301612;
+  --c1:#4FA79C; --c2:#6FBF93; --c3:#9BD0C6; --c4:#D9A03B; --c5:#E6C079; --c6:#9A9486;
+  --e1:0 1px 2px rgba(0,0,0,.4);
+  --e2:0 2px 6px -1px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; direction:rtl; text-align:start;
+  background:var(--ground); color:var(--ink);
+  font-family:"IBM Plex Sans Arabic","Segoe UI",system-ui,sans-serif;
+  font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+}
+.shell{display:grid; grid-template-columns:var(--sidebar) 1fr; min-block-size:100vh}
+.side{
+  background:var(--surface); border-inline-end:1px solid var(--border);
+  display:flex; flex-direction:column; gap:var(--s-5); padding:var(--s-5) var(--s-4);
+  position:sticky; inset-block-start:0; block-size:100vh; overflow-y:auto;
+}
+.brand{display:flex; align-items:center; gap:var(--s-3); padding-inline:var(--s-2)}
+.brand .mark{inline-size:36px; block-size:36px; border-radius:var(--r-md); flex:none;
+  background:var(--primary); color:var(--on-primary); display:grid; place-items:center; font-weight:700; font-size:15px}
+.brand b{font-size:15px; font-weight:600; display:block; line-height:1.25}
+.brand small{color:var(--muted); font-size:11px}
+.nav-label{font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.08em; padding-inline:var(--s-2); margin-block-end:var(--s-2)}
+.nav{display:flex; flex-direction:column; gap:2px}
+.nav button{
+  display:flex; align-items:center; gap:var(--s-3); inline-size:100%;
+  padding:10px var(--s-3); border:0; border-radius:var(--r-md); background:transparent;
+  color:var(--ink-2); font:inherit; font-size:13.5px; font-weight:500; cursor:pointer; text-align:start;
+}
+.nav button:hover{background:var(--gray-100); color:var(--ink)}
+.nav button[aria-current="page"]{background:var(--primary-wash); color:var(--primary); font-weight:600}
+.nav button[aria-current="page"] .ico{color:var(--primary)}
+.nav button:focus-visible,.iconbtn:focus-visible,.btn:focus-visible,.seg button:focus-visible{outline:2px solid var(--primary); outline-offset:2px}
+.ico{inline-size:18px; block-size:18px; flex:none; color:var(--muted)}
+.side-foot{margin-block-start:auto; border-block-start:1px solid var(--border); padding-block-start:var(--s-4)}
+.who{display:flex; align-items:center; gap:var(--s-3)}
+.avatar{inline-size:34px; block-size:34px; border-radius:var(--r-full); background:var(--c2); color:#fff; display:grid; place-items:center; font-weight:600; font-size:13px}
+.who b{font-size:13px; font-weight:600; display:block; line-height:1.2}
+.who small{font-size:11px; color:var(--muted)}
+.main{display:flex; flex-direction:column; min-inline-size:0}
+.topbar{display:flex; align-items:center; gap:var(--s-4); flex-wrap:wrap;
+  padding:var(--s-4) var(--s-5); background:var(--surface);
+  border-block-end:1px solid var(--border); position:sticky; inset-block-start:0; z-index:5}
+.topbar h1{font-size:19px; font-weight:600; margin:0}
+.crumb{color:var(--muted); font-size:12px; margin-block-start:2px}
+.spacer{margin-inline-start:auto}
+.seg{display:flex; background:var(--gray-100); border-radius:var(--r-md); padding:3px; gap:2px}
+.seg button{border:0; background:transparent; color:var(--ink-2); cursor:pointer;
+  padding:6px 12px; border-radius:var(--r-sm); font:inherit; font-size:12.5px; font-weight:500}
+.seg button[aria-pressed="true"]{background:var(--surface); color:var(--ink); box-shadow:var(--e1); font-weight:600}
+.iconbtn{inline-size:36px; block-size:36px; border-radius:var(--r-md); border:1px solid var(--border);
+  background:var(--surface); color:var(--ink-2); cursor:pointer; display:grid; place-items:center}
+.iconbtn:hover{background:var(--gray-100); color:var(--ink)}
+.btn{border:0; border-radius:var(--r-md); cursor:pointer; font:inherit; font-size:13px; font-weight:600;
+  padding:8px 14px; background:var(--primary); color:var(--on-primary); white-space:nowrap}
+.btn:hover{background:var(--primary-hover)}
+.btn:active{background:var(--primary-active)}
+.btn.ghost{background:transparent; color:var(--primary); border:1px solid var(--border-2)}
+.btn.ghost:hover{background:var(--primary-wash)}
+.page{padding:var(--s-5); display:none; flex-direction:column; gap:var(--s-5)}
+.page.on{display:flex}
+.alert{display:flex; align-items:flex-start; gap:var(--s-3); padding:var(--s-3) var(--s-4);
+  border-radius:var(--r-lg); background:var(--warn-wash); border-inline-start:3px solid var(--warn)}
+.alert.info{background:var(--info-wash); border-inline-start-color:var(--info)}
+.alert.info .ico,.alert.info b{color:var(--info)}
+.alert .ico{color:var(--warn); margin-block-start:2px}
+.alert b{color:var(--warn); font-weight:600}
+.alert p{margin:2px 0 0; color:var(--ink-2); font-size:13px}
+.alert .act{margin-inline-start:auto; align-self:center}
+.kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:var(--s-4)}
+.kpi{background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+  padding:var(--s-4); box-shadow:var(--e1); display:flex; flex-direction:column; gap:var(--s-2)}
+.kpi .top{display:flex; align-items:center; justify-content:space-between; gap:var(--s-2)}
+.kpi .lab{font-size:12.5px; color:var(--muted); font-weight:500}
+.kpi .box{inline-size:30px; block-size:30px; border-radius:var(--r-md); display:grid; place-items:center; background:var(--gray-100); color:var(--ink-2)}
+.kpi .val{font-family:"IBM Plex Mono",monospace; font-size:26px; font-weight:600; line-height:1.1; letter-spacing:-.02em; font-variant-numeric:tabular-nums}
+.kpi .sub{font-size:11.5px; color:var(--muted)}
+.kpi.accent{border-color:var(--primary); box-shadow:var(--e2)}
+.kpi.accent .box{background:var(--primary-wash); color:var(--primary)}
+.kpi.accent .val{color:var(--primary)}
+.trend{display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:600; padding:2px 7px; border-radius:var(--r-full)}
+.trend.up{background:var(--ok-wash); color:var(--ok)}
+.trend.down{background:var(--danger-wash); color:var(--danger)}
+.trend.flat{background:var(--gray-100); color:var(--muted)}
+.grid{display:grid; grid-template-columns:1.6fr 1fr; gap:var(--s-4)}
+.grid.even{grid-template-columns:1fr 1fr}
+.card{background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+  box-shadow:var(--e1); display:flex; flex-direction:column; overflow:hidden}
+.card > header{display:flex; align-items:center; gap:var(--s-3); padding:var(--s-4); border-block-end:1px solid var(--border)}
+.card h2{font-size:14.5px; font-weight:600; margin:0}
+.card header small{color:var(--muted); font-size:11.5px; display:block; margin-block-start:1px}
+.card .body{padding:var(--s-4)}
+.card > footer{padding:var(--s-3) var(--s-4); border-block-start:1px solid var(--border);
+  display:flex; align-items:center; gap:var(--s-3); background:var(--surface-2)}
+.card > footer small{color:var(--muted); font-size:12px}
+.bars{display:flex; flex-direction:column; gap:var(--s-3)}
+.bar-row{display:grid; grid-template-columns:auto 1fr auto; gap:var(--s-3); align-items:center}
+.bar-row .n{font-size:12.5px; color:var(--ink-2); inline-size:132px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.track{background:var(--gray-100); border-radius:var(--r-full); block-size:10px; overflow:hidden}
+.fill{block-size:100%; border-radius:var(--r-full); background:var(--c1)}
+.bar-row .v{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-2); font-variant-numeric:tabular-nums}
+.legend{display:flex; flex-direction:column; gap:var(--s-3); margin-block-start:var(--s-4); inline-size:100%}
+.legend div{display:flex; align-items:center; gap:var(--s-2); font-size:12.5px; color:var(--ink-2)}
+.dot{inline-size:10px; block-size:10px; border-radius:3px; flex:none}
+.legend .v{margin-inline-start:auto; font-family:"IBM Plex Mono",monospace; font-size:12px}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse; inline-size:100%; min-inline-size:600px}
+thead th{text-align:start; font-size:11.5px; font-weight:600; color:var(--muted); letter-spacing:.04em;
+  padding:10px var(--s-4); background:var(--surface-2); border-block-end:1px solid var(--border); white-space:nowrap}
+tbody td{padding:11px var(--s-4); border-block-end:1px solid var(--border); font-size:13px; vertical-align:middle}
+tbody tr:last-child td{border-block-end:0}
+tbody tr:hover{background:var(--surface-2)}
+td.num{text-align:end; font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums}
+.code{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--muted); display:block}
+.pill{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600; padding:3px 9px; border-radius:var(--r-full); white-space:nowrap}
+.pill.ok{background:var(--ok-wash); color:var(--ok)}
+.pill.warn{background:var(--warn-wash); color:var(--warn)}
+.pill.danger{background:var(--danger-wash); color:var(--danger)}
+.pill.info{background:var(--info-wash); color:var(--info)}
+.meter{block-size:8px; border-radius:var(--r-full); background:var(--gray-100); overflow:hidden; display:flex}
+.meter span{block-size:100%}
+.tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:var(--s-3)}
+.tile{border:1px solid var(--border); border-radius:var(--r-md); padding:var(--s-3) var(--s-4); background:var(--surface-2)}
+.tile b{display:block; font-size:13px; font-weight:600}
+.tile small{color:var(--muted); font-size:11.5px}
+@media (max-width:1080px){
+  .shell{grid-template-columns:1fr}
+  .side{position:static; block-size:auto; flex-direction:row; align-items:center; overflow-x:auto; border-inline-end:0; border-block-end:1px solid var(--border)}
+  .side .nav{flex-direction:row}
+  .nav-label,.side-foot{display:none}
+  .grid,.grid.even{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><div class="mark">خم</div><div><b>خان مندي</b><small>فرع البنوك · 011</small></div></div>
+    <div>
+      <div class="nav-label">الأقسام</div>
+      <nav class="nav" id="nav">
+        <button type="button" data-p="home" aria-current="page"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 20V9l7-5 7 5v11"/><path d="M9 20v-6h6v6"/></svg>الرئيسية</button>
+        <button type="button" data-p="inv"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>المخزون</button>
+        <button type="button" data-p="pur"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v5H4z"/><path d="M6 9v11h12V9"/><path d="M10 13h4"/></svg>المشتريات</button>
+        <button type="button" data-p="kit"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3v8a3 3 0 006 0V3"/><path d="M9 11v10"/><path d="M17 3c-1.5 2-2 4-2 6v3h3V3z"/><path d="M18 12v9"/></svg>المطبخ والوصفات</button>
+        <button type="button" data-p="sal"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19h16"/><path d="M6 19V9"/><path d="M11 19V5"/><path d="M16 19v-7"/></svg>المبيعات</button>
+        <button type="button" data-p="acc"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h5M9.5 14.5h5"/></svg>المحاسبة</button>
+        <button type="button" data-p="hr"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M17 11h4M19 9v4"/></svg>الموارد البشرية</button>
+        <button type="button" data-p="rep"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V6a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z"/><path d="M8 12h8M8 16h5"/></svg>التقارير</button>
+      </nav>
+    </div>
+    <div class="side-foot"><div class="who"><div class="avatar">م</div><div><b>مؤمل</b><small>مدير النظام</small></div></div></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div><h1 id="ttl">الرئيسية</h1><div class="crumb" id="crumb">نظرة عامة · 1–19 آب 2026</div></div>
+      <div class="spacer"></div>
+      <div class="seg" role="group" aria-label="المدى الزمني">
+        <button type="button">اليوم</button><button type="button">الأسبوع</button>
+        <button type="button" aria-pressed="true">الشهر</button><button type="button">السنة</button>
+      </div>
+      <button class="iconbtn" id="theme" type="button" title="تبديل الوضع الليلي" aria-label="تبديل الوضع الليلي">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 13.5A8 8 0 0110.5 4 8.5 8.5 0 1020 13.5z"/></svg></button>
+    </div>
+
+    <!-- ==================== الرئيسية ==================== -->
+    <div class="page on" id="p-home">
+      <div class="alert info" role="status">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+        <div><b>كلفة المواد 42.5% من المبيعات</b><p>رقم صحّي في المتوسط، لكنه يخفي تبايناً: أطباق اللحم فوق 50% وأطباق الدجاج تحت 37%.</p></div>
+        <div class="act"><button class="btn ghost" type="button">افتح تحليل الكلفة</button></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi accent"><div class="top"><span class="lab">المبيعات</span><span class="box">₪</span></div><div class="val">99,492,000</div><div class="sub">‏1–19 آب · 14,734 وحدة</div></div>
+        <div class="kpi"><div class="top"><span class="lab">المشتريات</span><span class="box">📥</span></div><div class="val">60,541,950</div><div class="sub">‏60 فاتورة · 11 مورداً</div></div>
+        <div class="kpi"><div class="top"><span class="lab">كلفة المواد</span><span class="box">%</span></div><div class="val">42,311,536</div><div class="sub"><span class="trend flat">42.5%</span> من المبيعات</div></div>
+        <div class="kpi"><div class="top"><span class="lab">العمولات</span><span class="box">↗</span></div><div class="val">15,650,440</div><div class="sub"><span class="trend down">15.7%</span> تطبيقات ووكالة ودليفري</div></div>
+        <div class="kpi"><div class="top"><span class="lab">الرواتب الشهرية</span><span class="box">👥</span></div><div class="val">27,625,000</div><div class="sub">‏36 موظفاً · 9 أقسام</div></div>
+      </div>
+      <div class="grid">
+        <section class="card">
+          <header><div><h2>المبيعات حسب القناة</h2><small>‏1–19 آب 2026</small></div></header>
+          <div class="body bars">
+            <div class="bar-row"><span class="n">ديليفري تطبيق</span><div class="track"><div class="fill" style="inline-size:100%"></div></div><span class="v">53,479,500</span></div>
+            <div class="bar-row"><span class="n">الصالة</span><div class="track"><div class="fill" style="inline-size:56.8%; background:var(--c2)"></div></div><span class="v">30,354,000</span></div>
+            <div class="bar-row"><span class="n">سفري</span><div class="track"><div class="fill" style="inline-size:16.8%; background:var(--c3)"></div></div><span class="v">8,999,000</span></div>
+            <div class="bar-row"><span class="n">دليفري خاص</span><div class="track"><div class="fill" style="inline-size:12.5%; background:var(--c6)"></div></div><span class="v">6,659,500</span></div>
+          </div>
+          <footer><small>التطبيقات وحدها 53.75% من المبيعات — وعليها عمولة 15%.</small></footer>
+        </section>
+        <section class="card">
+          <header><div><h2>إلى أين يذهب الدينار</h2><small>لكل 100 دينار مبيعات</small></div></header>
+          <div class="body">
+            <div class="meter" style="block-size:14px">
+              <span style="inline-size:42.5%; background:var(--c1)"></span>
+              <span style="inline-size:8.1%; background:var(--c4)"></span>
+              <span style="inline-size:7%; background:var(--c5)"></span>
+              <span style="inline-size:0.7%; background:var(--c6)"></span>
+              <span style="inline-size:41.7%; background:var(--gray-300)"></span>
+            </div>
+            <div class="legend">
+              <div><span class="dot" style="background:var(--c1)"></span>كلفة المواد<span class="v">42.5%</span></div>
+              <div><span class="dot" style="background:var(--c4)"></span>عمولة التطبيقات<span class="v">8.1%</span></div>
+              <div><span class="dot" style="background:var(--c5)"></span>عمولة الوكالة<span class="v">7.0%</span></div>
+              <div><span class="dot" style="background:var(--c6)"></span>عمولة الدليفري<span class="v">0.7%</span></div>
+              <div><span class="dot" style="background:var(--gray-300)"></span>المتبقي قبل التشغيل<span class="v">41.7%</span></div>
+            </div>
+          </div>
+          <footer><small>المتبقي يتحمّل الرواتب والغاز والحطب والإيجار — والرواتب وحدها 27.8%.</small></footer>
+        </section>
+      </div>
+    </div>
+
+    <!-- ==================== المخزون ==================== -->
+    <div class="page" id="p-inv">
+      <div class="alert" role="status">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L2.4 17.5A2 2 0 004.1 20.5h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+        <div><b>مئة صنف فعّال بلا رصيد</b><p>‏182 صنفاً فعّالاً في السجل، و82 منها فقط له رصيد. الباقي لم تصله حركة شراء أو جرد بعد.</p></div>
+        <div class="act"><button class="btn ghost" type="button">اعرض القائمة</button></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi accent"><div class="top"><span class="lab">قيمة المخزون</span><span class="box">📦</span></div><div class="val">60,683,789</div><div class="sub"><span class="trend up">▲ 100%</span> بعد ترحيل فواتير آب</div></div>
+        <div class="kpi"><div class="top"><span class="lab">أصناف لها رصيد</span><span class="box">≡</span></div><div class="val">82</div><div class="sub">من 182 صنفاً فعّالاً · 45%</div></div>
+        <div class="kpi"><div class="top"><span class="lab">حركات المخزون</span><span class="box">⇄</span></div><div class="val">183</div><div class="sub">‏168 استلام · 15 رصيد افتتاحي</div></div>
+        <div class="kpi"><div class="top"><span class="lab">فواتير مرحّلة</span><span class="box">🧾</span></div><div class="val">60</div><div class="sub">‏60,541,950 د.ع</div></div>
+        <div class="kpi"><div class="top"><span class="lab">فروقات الأسعار</span><span class="box">◷</span></div><div class="val">2,851</div><div class="sub"><span class="trend flat">تنزيلات موردين</span> في 14 فاتورة</div></div>
+      </div>
+      <div class="grid">
+        <section class="card">
+          <header><div><h2>المشتريات حسب المورد</h2><small>‏1–19 آب 2026 · 60 فاتورة</small></div><div class="spacer"></div><button class="btn ghost" type="button">التفاصيل</button></header>
+          <div class="body bars">
+            <div class="bar-row"><span class="n">لحوم ابو فهد الشمري</span><div class="track"><div class="fill" style="inline-size:100%"></div></div><span class="v">29,897,950</span></div>
+            <div class="bar-row"><span class="n">مصطفى / كاز</span><div class="track"><div class="fill" style="inline-size:26.7%; background:var(--c2)"></div></div><span class="v">7,980,000</span></div>
+            <div class="bar-row"><span class="n">دجاج الريان</span><div class="track"><div class="fill" style="inline-size:26.3%; background:var(--c2)"></div></div><span class="v">7,875,000</span></div>
+            <div class="bar-row"><span class="n">خان مندي المنصور</span><div class="track"><div class="fill" style="inline-size:18.1%; background:var(--c3)"></div></div><span class="v">5,415,250</span></div>
+            <div class="bar-row"><span class="n">علي عمر — مشتريات</span><div class="track"><div class="fill" style="inline-size:11.3%; background:var(--c3)"></div></div><span class="v">3,380,000</span></div>
+            <div class="bar-row"><span class="n">الرياحين بلاست</span><div class="track"><div class="fill" style="inline-size:8%; background:var(--c6)"></div></div><span class="v">2,394,000</span></div>
+          </div>
+          <footer><small>اللحم وحده 49.4% من قيمة مشتريات الشهر.</small></footer>
+        </section>
+        <section class="card">
+          <header><div><h2>القيمة حسب نوع الصنف</h2><small>الرصيد الحالي</small></div></header>
+          <div class="body" style="display:grid; place-items:center">
+            <svg viewBox="0 0 200 200" width="170" height="170" role="img" aria-label="مادة أولية 99.2 بالمئة وبضاعة لإعادة البيع 0.8 بالمئة">
+              <circle cx="100" cy="100" r="72" fill="none" stroke="var(--gray-100)" stroke-width="26"/>
+              <circle cx="100" cy="100" r="72" fill="none" stroke="var(--c1)" stroke-width="26" stroke-dasharray="449 3" transform="rotate(-90 100 100)"/>
+              <circle cx="100" cy="100" r="72" fill="none" stroke="var(--c4)" stroke-width="26" stroke-dasharray="3.6 449" stroke-dashoffset="-449" transform="rotate(-90 100 100)"/>
+              <text x="100" y="94" text-anchor="middle" font-size="21" font-weight="600" fill="var(--ink)" font-family="IBM Plex Mono">60.7م</text>
+              <text x="100" y="114" text-anchor="middle" font-size="10.5" fill="var(--muted)">قيمة المخزون</text>
+            </svg>
+            <div class="legend">
+              <div><span class="dot" style="background:var(--c1)"></span>مادة أولية<span class="v">60,186,389</span></div>
+              <div><span class="dot" style="background:var(--c4)"></span>بضاعة لإعادة البيع<span class="v">497,400</span></div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <section class="card">
+        <header><div><h2>أعلى الأرصدة قيمةً</h2><small>مخزن رئيسي</small></div><div class="spacer"></div><button class="btn ghost" type="button">تصدير</button></header>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>كلفة الوحدة</th><th>القيمة</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td>لحم لشه (طلي) بدون زوائد<span class="code">STK-0102</span></td><td class="num">1,359.100</td><td>كغ</td><td class="num">22,000</td><td class="num">29,900,200</td><td><span class="pill ok">متوفر</span></td></tr>
+            <tr><td>كاز<span class="code">STK-0056</span></td><td class="num">6,850.000</td><td>لتر</td><td class="num">1,164.96</td><td class="num">7,980,000</td><td><span class="pill ok">متوفر</span></td></tr>
+            <tr><td>مندي دجاج الريان 1400غم<span class="code">STK-0103</span></td><td class="num">1,250.000</td><td>قطعة</td><td class="num">6,300</td><td class="num">7,875,000</td><td><span class="pill ok">متوفر</span></td></tr>
+            <tr><td>تمن مندي<span class="code">STK-1000</span></td><td class="num">1,050.000</td><td>كغ</td><td class="num">2,166.67</td><td class="num">2,275,000</td><td><span class="pill ok">متوفر</span></td></tr>
+            <tr><td>سيلفون 45سم*2كغم<span class="code">STK-0039</span></td><td class="num">72.000</td><td>قطعة</td><td class="num">14,166.67</td><td class="num">1,020,000</td><td><span class="pill warn">قارب الحد</span></td></tr>
+            <tr><td>لبن سطل<span class="code">STK-0104</span></td><td class="num">46.000</td><td>قطعة</td><td class="num">19,760.87</td><td class="num">909,000</td><td><span class="pill warn">قارب الحد</span></td></tr>
+            <tr><td>بهارات رقبة<span class="code">STK-0006</span></td><td class="num">1.000</td><td>كغ</td><td class="num">7,169</td><td class="num">7,169</td><td><span class="pill danger">كمية رمزية</span></td></tr>
+          </tbody></table></div>
+        <footer><small>‏7 من 82 صنفاً لها رصيد.</small><div class="spacer"></div><button class="btn ghost" type="button">عرض الكل</button></footer>
+      </section>
+    </div>
+
+    <!-- ==================== المشتريات ==================== -->
+    <div class="page" id="p-pur">
+      <div class="kpis">
+        <div class="kpi accent"><div class="top"><span class="lab">قيمة المشتريات</span><span class="box">🧾</span></div><div class="val">60,541,950</div><div class="sub">‏1–19 آب · 168 سطراً</div></div>
+        <div class="kpi"><div class="top"><span class="lab">فواتير مرحّلة</span><span class="box">✓</span></div><div class="val">60</div><div class="sub">من 60 · لا مسودات</div></div>
+        <div class="kpi"><div class="top"><span class="lab">موردون</span><span class="box">🏬</span></div><div class="val">11</div><div class="sub">أكبرهم 49.4% من القيمة</div></div>
+        <div class="kpi"><div class="top"><span class="lab">ذمم الموردين</span><span class="box">₪</span></div><div class="val">60,541,950</div><div class="sub"><span class="trend down">مستحق</span> لم يُسدَّد بعد</div></div>
+        <div class="kpi"><div class="top"><span class="lab">تنزيلات الموردين</span><span class="box">↓</span></div><div class="val">2,851</div><div class="sub">في 14 فاتورة · مكسب</div></div>
+      </div>
+      <div class="grid even">
+        <section class="card">
+          <header><div><h2>تركّز المورّدين</h2><small>خطر التوريد</small></div></header>
+          <div class="body">
+            <div class="meter" style="block-size:14px">
+              <span style="inline-size:49.4%; background:var(--c1)"></span>
+              <span style="inline-size:13.2%; background:var(--c2)"></span>
+              <span style="inline-size:13%; background:var(--c3)"></span>
+              <span style="inline-size:24.4%; background:var(--gray-300)"></span>
+            </div>
+            <div class="legend">
+              <div><span class="dot" style="background:var(--c1)"></span>لحوم ابو فهد<span class="v">49.4%</span></div>
+              <div><span class="dot" style="background:var(--c2)"></span>مصطفى / كاز<span class="v">13.2%</span></div>
+              <div><span class="dot" style="background:var(--c3)"></span>دجاج الريان<span class="v">13.0%</span></div>
+              <div><span class="dot" style="background:var(--gray-300)"></span>ثمانية موردين<span class="v">24.4%</span></div>
+            </div>
+          </div>
+          <footer><small>ثلاثة موردين يغطّون 75.6% من المشتريات — انقطاع أحدهم يوقف مطبخاً.</small></footer>
+        </section>
+        <section class="card">
+          <header><div><h2>مسار الفاتورة</h2><small>الحالة المحاسبية</small></div></header>
+          <div class="body tiles">
+            <div class="tile"><b>60,544,801</b><small>قيمة الاستلام</small></div>
+            <div class="tile"><b>60,541,950</b><small>قيمة الفواتير</small></div>
+            <div class="tile"><b style="color:var(--ok)">صفر</b><small>بضاعة مستلمة غير مفوترة — مقفلة</small></div>
+            <div class="tile"><b>2,851</b><small>فرق سعر · مكسب</small></div>
+          </div>
+          <footer><small>حساب البضاعة المستلمة غير المفوترة أُقفل بالكامل: كل استلام قابله فاتورة.</small></footer>
+        </section>
+      </div>
+      <section class="card">
+        <header><div><h2>الموردون</h2><small>‏1–19 آب 2026</small></div></header>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>المورد</th><th>فواتير</th><th>القيمة</th><th>الحصة</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td>لحوم ابو فهد الشمري<span class="code">S-000006</span></td><td class="num">18</td><td class="num">29,897,950</td><td class="num">49.4%</td><td><span class="pill danger">تركّز عالٍ</span></td></tr>
+            <tr><td>مصطفى / كاز<span class="code">S-000019</span></td><td class="num">6</td><td class="num">7,980,000</td><td class="num">13.2%</td><td><span class="pill ok">طبيعي</span></td></tr>
+            <tr><td>دجاج الريان / سما كربلاء<span class="code">S-000005</span></td><td class="num">10</td><td class="num">7,875,000</td><td class="num">13.0%</td><td><span class="pill ok">طبيعي</span></td></tr>
+            <tr><td>خان مندي المنصور<span class="code">S-000002</span></td><td class="num">5</td><td class="num">5,415,250</td><td class="num">8.9%</td><td><span class="pill ok">طبيعي</span></td></tr>
+            <tr><td>علي عمر — مشتريات<span class="code">S-000011</span></td><td class="num">6</td><td class="num">3,380,000</td><td class="num">5.6%</td><td><span class="pill info">شراء مباشر</span></td></tr>
+            <tr><td>الرياحين بلاست<span class="code">S-000016</span></td><td class="num">3</td><td class="num">2,394,000</td><td class="num">4.0%</td><td><span class="pill ok">طبيعي</span></td></tr>
+          </tbody></table></div>
+        <footer><small>‏6 من 11 مورداً.</small><div class="spacer"></div><button class="btn ghost" type="button">عرض الكل</button></footer>
+      </section>
+    </div>
+
+    <!-- ==================== المطبخ والوصفات ==================== -->
+    <div class="page" id="p-kit">
+      <div class="alert" role="status">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L2.4 17.5A2 2 0 004.1 20.5h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+        <div><b>‏22 وصفة مسودة — لا شيء معتمد للبيع</b><p>الكلفة محسوبة كاملة، لكن الاعتماد يحتاج خطوات الطريقة وثلاث توقيعات مراجعة.</p></div>
+        <div class="act"><button class="btn ghost" type="button">ابدأ الاعتماد</button></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi accent"><div class="top"><span class="lab">وصفات مكلَّفة</span><span class="box">✓</span></div><div class="val">22 / 22</div><div class="sub">لا صنف بلا كلفة وحدة</div></div>
+        <div class="kpi"><div class="top"><span class="lab">أصناف المنيو</span><span class="box">📋</span></div><div class="val">26</div><div class="sub">‏20 بوصفة · 6 بيع مباشر</div></div>
+        <div class="kpi"><div class="top"><span class="lab">أعلى نسبة كلفة</span><span class="box">▲</span></div><div class="val">62.6%</div><div class="sub">فخذ مندي · 46,952 د.ع</div></div>
+        <div class="kpi"><div class="top"><span class="lab">أدنى نسبة كلفة</span><span class="box">▼</span></div><div class="val">17.4%</div><div class="sub">خبز يمني · 174 د.ع</div></div>
+        <div class="kpi"><div class="top"><span class="lab">وصفات معتمدة</span><span class="box">◷</span></div><div class="val">0</div><div class="sub"><span class="trend down">مسودة</span> غير متاحة للبيع</div></div>
+      </div>
+      <div class="grid">
+        <section class="card">
+          <header><div><h2>نسبة الكلفة إلى سعر البيع</h2><small>أعلى عشرة أطباق</small></div></header>
+          <div class="body bars">
+            <div class="bar-row"><span class="n">فخذ مندي</span><div class="track"><div class="fill" style="inline-size:62.6%; background:var(--danger)"></div></div><span class="v">62.6%</span></div>
+            <div class="bar-row"><span class="n">كبسة لحم</span><div class="track"><div class="fill" style="inline-size:59.9%; background:var(--danger)"></div></div><span class="v">59.9%</span></div>
+            <div class="bar-row"><span class="n">ضلوع مندي</span><div class="track"><div class="fill" style="inline-size:58.7%; background:var(--danger)"></div></div><span class="v">58.7%</span></div>
+            <div class="bar-row"><span class="n">مضغوط لحم</span><div class="track"><div class="fill" style="inline-size:58.4%; background:var(--danger)"></div></div><span class="v">58.4%</span></div>
+            <div class="bar-row"><span class="n">كتف مندي</span><div class="track"><div class="fill" style="inline-size:56.8%; background:var(--warn)"></div></div><span class="v">56.8%</span></div>
+            <div class="bar-row"><span class="n">مدفون لحم</span><div class="track"><div class="fill" style="inline-size:52.5%; background:var(--warn)"></div></div><span class="v">52.5%</span></div>
+            <div class="bar-row"><span class="n">مندي لحم</span><div class="track"><div class="fill" style="inline-size:51%; background:var(--warn)"></div></div><span class="v">51.0%</span></div>
+            <div class="bar-row"><span class="n">مدفون دجاج</span><div class="track"><div class="fill" style="inline-size:36.6%; background:var(--c2)"></div></div><span class="v">36.6%</span></div>
+            <div class="bar-row"><span class="n">مندي دجاج</span><div class="track"><div class="fill" style="inline-size:32.6%; background:var(--c2)"></div></div><span class="v">32.6%</span></div>
+            <div class="bar-row"><span class="n">حنيذ دجاج</span><div class="track"><div class="fill" style="inline-size:28.6%; background:var(--ok)"></div></div><span class="v">28.6%</span></div>
+          </div>
+          <footer><small>الحدّ الفاصل ليس صدفة: كيلو اللشة 22,000 مقابل حبة دجاج 6,300.</small></footer>
+        </section>
+        <section class="card">
+          <header><div><h2>لحم مقابل دجاج</h2><small>متوسط نسبة الكلفة</small></div></header>
+          <div class="body">
+            <div class="tiles" style="grid-template-columns:1fr">
+              <div class="tile"><b style="font-size:24px; font-family:'IBM Plex Mono',monospace; color:var(--danger)">54.9%</b><small>متوسط أطباق اللحم — تسعة أطباق</small></div>
+              <div class="tile"><b style="font-size:24px; font-family:'IBM Plex Mono',monospace; color:var(--ok)">31.6%</b><small>متوسط أطباق الدجاج — ستة أطباق</small></div>
+              <div class="tile"><b style="font-size:24px; font-family:'IBM Plex Mono',monospace">23.3</b><small>نقطة مئوية فرق بينهما</small></div>
+            </div>
+          </div>
+          <footer><small>كل طبق لحم مباع بدل طبق دجاج يكلّف نحو ربع سعره ربحاً.</small></footer>
+        </section>
+      </div>
+      <section class="card">
+        <header><div><h2>بطاقات الكلفة</h2><small>مخزن رئيسي · 21 آب 2026</small></div><div class="spacer"></div><button class="btn ghost" type="button">تصدير</button></header>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>الطبق</th><th>كلفة الطبق</th><th>سعر الصالة</th><th>سعر التطبيقات</th><th>الكلفة %</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td>فخذ مندي<span class="code">P-MANDI-FAKHD</span></td><td class="num">46,952</td><td class="num">75,000</td><td class="num">75,000</td><td class="num">62.6%</td><td><span class="pill danger">مسودة</span></td></tr>
+            <tr><td>كتف مندي<span class="code">P-MANDI-KATIF</span></td><td class="num">35,214</td><td class="num">62,000</td><td class="num">62,000</td><td class="num">56.8%</td><td><span class="pill danger">مسودة</span></td></tr>
+            <tr><td>ضلوع مندي<span class="code">P-MANDI-DHULOO</span></td><td class="num">23,476</td><td class="num">40,000</td><td class="num">42,000</td><td class="num">58.7%</td><td><span class="pill danger">مسودة</span></td></tr>
+            <tr><td>كبسة لحم<span class="code">P-KABSA-LAHM</span></td><td class="num">14,986</td><td class="num">25,000</td><td class="num">25,000</td><td class="num">59.9%</td><td><span class="pill danger">مسودة</span></td></tr>
+            <tr><td>مندي لحم<span class="code">P-MANDI-LAHM</span></td><td class="num">11,738</td><td class="num">23,000</td><td class="num">25,000</td><td class="num">51.0%</td><td><span class="pill danger">مسودة</span></td></tr>
+            <tr><td>مندي دجاج (حبة)<span class="code">P-MANDI-DAJAJ-FULL</span></td><td class="num">8,145</td><td class="num">25,000</td><td class="num">25,000</td><td class="num">32.6%</td><td><span class="pill danger">مسودة</span></td></tr>
+            <tr><td>حنيذ دجاج (حبة)<span class="code">P-HANEETH-DAJAJ-FULL</span></td><td class="num">7,155</td><td class="num">25,000</td><td class="num">25,000</td><td class="num">28.6%</td><td><span class="pill danger">مسودة</span></td></tr>
+            <tr><td>خبز يمني ملوح<span class="code">P-KHUBZ-MALOOH</span></td><td class="num">174</td><td class="num">1,000</td><td class="num">1,000</td><td class="num">17.4%</td><td><span class="pill danger">مسودة</span></td></tr>
+          </tbody></table></div>
+        <footer><small>‏8 من 22 وصفة.</small><div class="spacer"></div><button class="btn ghost" type="button">عرض الكل</button></footer>
+      </section>
+    </div>
+
+    <!-- ==================== المبيعات ==================== -->
+    <div class="page" id="p-sal">
+      <div class="kpis">
+        <div class="kpi accent"><div class="top"><span class="lab">المبيعات</span><span class="box">₪</span></div><div class="val">99,492,000</div><div class="sub">‏1–19 آب · 14,734 وحدة</div></div>
+        <div class="kpi"><div class="top"><span class="lab">طلبات التطبيقات</span><span class="box">🛵</span></div><div class="val">2,310</div><div class="sub">متوسط 26,029 د.ع للطلب</div></div>
+        <div class="kpi"><div class="top"><span class="lab">عمولة التطبيقات</span><span class="box">15%</span></div><div class="val">8,020,050</div><div class="sub">‏6 شركات · اتفاقيات مؤرَّخة</div></div>
+        <div class="kpi"><div class="top"><span class="lab">عمولة الوكالة</span><span class="box">7%</span></div><div class="val">6,964,440</div><div class="sub">من إجمالي المبيعات</div></div>
+        <div class="kpi"><div class="top"><span class="lab">الهدايا</span><span class="box">🎁</span></div><div class="val">1,454,000</div><div class="sub">‏576 وحدة مجانية</div></div>
+      </div>
+      <div class="grid">
+        <section class="card">
+          <header><div><h2>شركات التطبيقات</h2><small>مبيعات وعدد طلبات · 1–19 آب</small></div></header>
+          <div class="body bars">
+            <div class="bar-row"><span class="n">طلبات · 1,057 طلباً</span><div class="track"><div class="fill" style="inline-size:100%"></div></div><span class="v">29,106,000</span></div>
+            <div class="bar-row"><span class="n">بلي · 729 طلباً</span><div class="track"><div class="fill" style="inline-size:57%; background:var(--c2)"></div></div><span class="v">16,593,500</span></div>
+            <div class="bar-row"><span class="n">توترز · 265 طلباً</span><div class="track"><div class="fill" style="inline-size:22.3%; background:var(--c3)"></div></div><span class="v">6,498,000</span></div>
+            <div class="bar-row"><span class="n">طلباتي · 37 طلباً</span><div class="track"><div class="fill" style="inline-size:3.2%; background:var(--c6)"></div></div><span class="v">944,500</span></div>
+            <div class="bar-row"><span class="n">على السريع · 16 طلباً</span><div class="track"><div class="fill" style="inline-size:0.9%; background:var(--c6)"></div></div><span class="v">268,000</span></div>
+            <div class="bar-row"><span class="n">مزاجك · 4 طلبات</span><div class="track"><div class="fill" style="inline-size:0.2%; background:var(--c6)"></div></div><span class="v">57,000</span></div>
+          </div>
+          <footer><small>طلبات وبلي معاً 85.5% من مبيعات التطبيقات.</small></footer>
+        </section>
+        <section class="card">
+          <header><div><h2>أسعار التطبيقات أعلى</h2><small>قائمتا أسعار</small></div></header>
+          <div class="body">
+            <div class="tiles" style="grid-template-columns:1fr">
+              <div class="tile"><b>‏23,000 ← 25,000</b><small>مندي لحم · مدفون لحم · حنيذ لحم</small></div>
+              <div class="tile"><b>‏13,000 ← 14,000</b><small>نصف حبة مندي · نصف حبة مدفون</small></div>
+              <div class="tile"><b>‏40,000 ← 42,000</b><small>ضلوع مندي · ضلوع بدبس الرمان</small></div>
+            </div>
+          </div>
+          <footer><small>الفارق يمتصّ عمولة الـ15% جزئياً — ولا يغطّيها كاملة.</small></footer>
+        </section>
+      </div>
+      <section class="card">
+        <header><div><h2>أعلى الأصناف مبيعاً</h2><small>‏1–19 آب 2026</small></div></header>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>الصنف</th><th>الكمية</th><th>المبيعات</th><th>القناة</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td>مندي لحم</td><td class="num">413</td><td class="num">10,325,000</td><td><span class="pill info">تطبيقات</span></td><td><span class="pill ok">مربوط</span></td></tr>
+            <tr><td>نصف حبة مندي دجاج</td><td class="num">580</td><td class="num">8,120,000</td><td><span class="pill info">تطبيقات</span></td><td><span class="pill ok">مربوط</span></td></tr>
+            <tr><td>مندي لحم</td><td class="num">349</td><td class="num">7,912,000</td><td><span class="pill">صالة</span></td><td><span class="pill ok">مربوط</span></td></tr>
+            <tr><td>حبة مندي دجاج</td><td class="num">211</td><td class="num">5,275,000</td><td><span class="pill info">تطبيقات</span></td><td><span class="pill ok">مربوط</span></td></tr>
+            <tr><td>طبق خان مندي</td><td class="num">108</td><td class="num">3,780,000</td><td><span class="pill info">تطبيقات</span></td><td><span class="pill danger">بلا صنف منيو</span></td></tr>
+            <tr><td>فاصوليا</td><td class="num">582</td><td class="num">1,114,000</td><td><span class="pill">صالة</span></td><td><span class="pill danger">بلا صنف منيو</span></td></tr>
+            <tr><td>بخاري لحم</td><td class="num">39</td><td class="num">912,000</td><td><span class="pill">صالة</span></td><td><span class="pill danger">بلا صنف منيو</span></td></tr>
+          </tbody></table></div>
+        <footer><small>‏19.8% من المبيعات أصناف ليست في المنيو بعد — 19,703,500 د.ع.</small></footer>
+      </section>
+    </div>
+
+    <!-- ==================== المحاسبة ==================== -->
+    <div class="page" id="p-acc">
+      <div class="kpis">
+        <div class="kpi accent"><div class="top"><span class="lab">قيود مرحّلة</span><span class="box">📒</span></div><div class="val">122</div><div class="sub">‏259 سطراً · كلها متزنة</div></div>
+        <div class="kpi"><div class="top"><span class="lab">المخزون</span><span class="box">📦</span></div><div class="val">60,683,789</div><div class="sub">مدين · حساب 1-03-01-001</div></div>
+        <div class="kpi"><div class="top"><span class="lab">ذمم الموردين</span><span class="box">₪</span></div><div class="val">60,541,950</div><div class="sub">دائن · حساب 2-01-01-001</div></div>
+        <div class="kpi"><div class="top"><span class="lab">دليل الحسابات</span><span class="box">≡</span></div><div class="val">105</div><div class="sub">حساباً · 6 مراكز كلفة</div></div>
+        <div class="kpi"><div class="top"><span class="lab">قيود غير متزنة</span><span class="box">✓</span></div><div class="val" style="color:var(--ok)">0</div><div class="sub"><span class="trend up">سليم</span> مدين = دائن</div></div>
+      </div>
+      <section class="card">
+        <header><div><h2>ميزان المراجعة</h2><small>الحسابات المتحرّكة · 1–21 آب 2026</small></div><div class="spacer"></div><button class="btn ghost" type="button">تصدير</button></header>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>الحساب</th><th>الرمز</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
+          <tbody>
+            <tr><td>مخزون المواد والسلع</td><td class="code" style="display:table-cell">1-03-01-001</td><td class="num">60,683,789</td><td class="num">—</td><td class="num">60,683,789</td></tr>
+            <tr><td>ذمم الموردين</td><td class="code" style="display:table-cell">2-01-01-001</td><td class="num">—</td><td class="num">60,541,950</td><td class="num">(60,541,950)</td></tr>
+            <tr><td>بضاعة مستلمة غير مفوترة</td><td class="code" style="display:table-cell">2-01-02-001</td><td class="num">60,544,801</td><td class="num">60,544,801</td><td class="num">0</td></tr>
+            <tr><td>أرصدة افتتاحية — مخزون</td><td class="code" style="display:table-cell">3-02-01-001</td><td class="num">—</td><td class="num">138,988</td><td class="num">(138,988)</td></tr>
+            <tr><td>تسوية فروقات أسعار المشتريات</td><td class="code" style="display:table-cell">8-01-03-001</td><td class="num">—</td><td class="num">2,851</td><td class="num">(2,851)</td></tr>
+          </tbody></table></div>
+        <footer><small>حساب البضاعة المستلمة غير المفوترة صافيه صفر — كل استلام قابله فاتورة.</small></footer>
+      </section>
+      <div class="grid even">
+        <section class="card">
+          <header><div><h2>ما لم يُسجَّل بعد</h2><small>فجوات القيد</small></div></header>
+          <div class="body tiles" style="grid-template-columns:1fr">
+            <div class="tile"><b style="color:var(--warn)">المبيعات</b><small>‏99,492,000 د.ع لم تدخل الدفتر — الوصفات مسودة</small></div>
+            <div class="tile"><b style="color:var(--warn)">الرواتب</b><small>‏27,625,000 د.ع شهرياً — لم يُسجَّل موظف</small></div>
+            <div class="tile"><b style="color:var(--warn)">المصاريف التشغيلية</b><small>غاز وحطب وإيجار وكهرباء</small></div>
+          </div>
+          <footer><small>الدفتر اليوم يعكس المشتريات والمخزون وحدهما.</small></footer>
+        </section>
+        <section class="card">
+          <header><div><h2>الفترات المحاسبية</h2><small>السنة المالية 2026</small></div></header>
+          <div class="body tiles" style="grid-template-columns:1fr 1fr">
+            <div class="tile"><b>12</b><small>فترة معرَّفة</small></div>
+            <div class="tile"><b>آب 2026</b><small>الفترة المفتوحة</small></div>
+            <div class="tile"><b>6</b><small>مراكز كلفة</small></div>
+            <div class="tile"><b>40</b><small>دور حساب</small></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ==================== الموارد البشرية ==================== -->
+    <div class="page" id="p-hr">
+      <div class="alert" role="status">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L2.4 17.5A2 2 0 004.1 20.5h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+        <div><b>الرواتب 27.8% من المبيعات</b><p>‏27,625,000 شهرياً مقابل 99,492,000 مبيعات — ومعها كلفة المواد 42.5% يبقى 29.7% للتشغيل والربح.</p></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi accent"><div class="top"><span class="lab">الرواتب الشهرية</span><span class="box">₪</span></div><div class="val">27,625,000</div><div class="sub">‏27.8% من المبيعات</div></div>
+        <div class="kpi"><div class="top"><span class="lab">الموظفون</span><span class="box">👥</span></div><div class="val">36</div><div class="sub">‏9 أقسام</div></div>
+        <div class="kpi"><div class="top"><span class="lab">متوسط الراتب</span><span class="box">Ø</span></div><div class="val">767,361</div><div class="sub">أعلى قسم: الإدارة</div></div>
+        <div class="kpi"><div class="top"><span class="lab">أكبر قسم</span><span class="box">▲</span></div><div class="val">9</div><div class="sub">الصالة · 6,400,000 د.ع</div></div>
+        <div class="kpi"><div class="top"><span class="lab">مسجَّل في النظام</span><span class="box">◷</span></div><div class="val" style="color:var(--warn)">0</div><div class="sub"><span class="trend down">بانتظار الإدخال</span></div></div>
+      </div>
+      <section class="card">
+        <header><div><h2>الأقسام</h2><small>عدد وكلفة شهرية</small></div></header>
+        <div class="body bars">
+          <div class="bar-row"><span class="n">الصالة · 9 موظفين</span><div class="track"><div class="fill" style="inline-size:100%"></div></div><span class="v">6,400,000</span></div>
+          <div class="bar-row"><span class="n">الطبخ · 6</span><div class="track"><div class="fill" style="inline-size:81.6%; background:var(--c2)"></div></div><span class="v">5,225,000</span></div>
+          <div class="bar-row"><span class="n">التجهيز · 7</span><div class="track"><div class="fill" style="inline-size:75%; background:var(--c2)"></div></div><span class="v">4,800,000</span></div>
+          <div class="bar-row"><span class="n">التنظيف · 6</span><div class="track"><div class="fill" style="inline-size:56.3%; background:var(--c3)"></div></div><span class="v">3,600,000</span></div>
+          <div class="bar-row"><span class="n">الإدارة · 2</span><div class="track"><div class="fill" style="inline-size:48.4%; background:var(--c3)"></div></div><span class="v">3,100,000</span></div>
+          <div class="bar-row"><span class="n">الكاشير · 3</span><div class="track"><div class="fill" style="inline-size:32.8%; background:var(--c6)"></div></div><span class="v">2,100,000</span></div>
+          <div class="bar-row"><span class="n">المخبز · 1</span><div class="track"><div class="fill" style="inline-size:12.5%; background:var(--c6)"></div></div><span class="v">800,000</span></div>
+          <div class="bar-row"><span class="n">الصيانة · 1</span><div class="track"><div class="fill" style="inline-size:12.5%; background:var(--c6)"></div></div><span class="v">800,000</span></div>
+          <div class="bar-row"><span class="n">المستودع · 1</span><div class="track"><div class="fill" style="inline-size:12.5%; background:var(--c6)"></div></div><span class="v">800,000</span></div>
+        </div>
+        <footer><small>الأرقام مجاميع أقسام فقط — لا أسماء ولا رواتب فردية في الواجهة.</small></footer>
+      </section>
+    </div>
+
+    <!-- ==================== التقارير ==================== -->
+    <div class="page" id="p-rep">
+      <div class="kpis">
+        <div class="kpi accent"><div class="top"><span class="lab">تقارير جاهزة</span><span class="box">📄</span></div><div class="val">6</div><div class="sub">مبنية على بيانات مرحّلة</div></div>
+        <div class="kpi"><div class="top"><span class="lab">تنتظر بيانات</span><span class="box">◷</span></div><div class="val">4</div><div class="sub">مبيعات ورواتب ومصاريف</div></div>
+        <div class="kpi"><div class="top"><span class="lab">آخر ترحيل</span><span class="box">⟳</span></div><div class="val">21 آب</div><div class="sub">‏60 فاتورة · 183 حركة</div></div>
+        <div class="kpi"><div class="top"><span class="lab">الفترة</span><span class="box">📆</span></div><div class="val">1–19 آب</div><div class="sub">‏2026</div></div>
+      </div>
+      <div class="grid even">
+        <section class="card">
+          <header><div><h2>جاهزة الآن</h2><small>بيانات مرحّلة كاملة</small></div></header>
+          <div class="body tiles" style="grid-template-columns:1fr">
+            <div class="tile"><b>بطاقة كلفة الوصفة والطبق</b><small>‏22 وصفة · مخزن وتاريخ محدَّدان</small></div>
+            <div class="tile"><b>ميزان المراجعة</b><small>‏122 قيداً · متزن</small></div>
+            <div class="tile"><b>أرصدة المخزون والتقييم</b><small>‏82 صنفاً · متوسط متحرك</small></div>
+            <div class="tile"><b>المشتريات حسب المورد</b><small>‏60 فاتورة · 11 مورداً</small></div>
+            <div class="tile"><b>دفتر الأستاذ المخزني</b><small>‏183 حركة مرحّلة</small></div>
+            <div class="tile"><b>مطابقة الاستلام بالفاتورة</b><small>فروقات الأسعار 2,851</small></div>
+          </div>
+        </section>
+        <section class="card">
+          <header><div><h2>تنتظر بيانات</h2><small>ما ينقصها</small></div></header>
+          <div class="body tiles" style="grid-template-columns:1fr">
+            <div class="tile"><b style="color:var(--warn)">قائمة الدخل</b><small>تحتاج المبيعات والرواتب والمصاريف</small></div>
+            <div class="tile"><b style="color:var(--warn)">تحليل هامش الطبق</b><small>يحتاج ترحيل المبيعات</small></div>
+            <div class="tile"><b style="color:var(--warn)">الاستهلاك النظري مقابل الفعلي</b><small>يحتاج أوامر إنتاج مرحّلة</small></div>
+            <div class="tile"><b style="color:var(--warn)">كشف الرواتب</b><small>يحتاج إدخال 36 موظفاً</small></div>
+          </div>
+          <footer><small>كل تقرير هنا مبنيّ ومنتظر بياناته — لا يحتاج تطويراً جديداً.</small></footer>
+        </section>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  var TITLES = {
+    home:["الرئيسية","نظرة عامة · 1–19 آب 2026"],
+    inv:["لوحة المخزون","الرئيسية ← المخزون ← نظرة عامة"],
+    pur:["لوحة المشتريات","الرئيسية ← المشتريات ← نظرة عامة"],
+    kit:["لوحة المطبخ والوصفات","الرئيسية ← المطبخ ← نظرة عامة"],
+    sal:["لوحة المبيعات","الرئيسية ← المبيعات ← نظرة عامة"],
+    acc:["لوحة المحاسبة","الرئيسية ← المحاسبة ← نظرة عامة"],
+    hr:["لوحة الموارد البشرية","الرئيسية ← الموارد البشرية ← نظرة عامة"],
+    rep:["التقارير","الرئيسية ← التقارير"]
+  };
+  document.getElementById("nav").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-p]"); if (!b) return;
+    var key = b.dataset.p;
+    this.querySelectorAll("button").forEach(function (x) { x.removeAttribute("aria-current"); });
+    b.setAttribute("aria-current", "page");
+    document.querySelectorAll(".page").forEach(function (p) { p.classList.remove("on"); });
+    document.getElementById("p-" + key).classList.add("on");
+    document.getElementById("ttl").textContent = TITLES[key][0];
+    document.getElementById("crumb").textContent = TITLES[key][1];
+    window.scrollTo({ top: 0, behavior: "instant" });
+  });
+  document.getElementById("theme").addEventListener("click", function () {
+    var r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === "dark" ? "light" : "dark";
+  });
+  document.querySelectorAll(".seg").forEach(function (g) {
+    g.addEventListener("click", function (e) {
+      var b = e.target.closest("button"); if (!b) return;
+      g.querySelectorAll("button").forEach(function (x) { x.removeAttribute("aria-pressed"); });
+      b.setAttribute("aria-pressed", "true");
+    });
+  });
+</script>
+
+</body>
+</html>

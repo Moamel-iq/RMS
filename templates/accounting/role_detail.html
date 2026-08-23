@@ -9,8 +9,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-role-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="workspace-page" id="accounting-role-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:role_list' %}">{% translate "الأدوار المحاسبية" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page"><bdi dir="ltr">{{ role.code }}</bdi></span>
@@ -28,21 +28,21 @@
       </div>
     </div>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "تعريف الدور" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "تعريف الدور" %}</h2>
       <dl class="datalist">
-        <div><dt>{% translate "الاسم بالعربية" %}</dt><dd>{{ role.name_ar }}</dd></div>
-        <div><dt>{% translate "الاسم بالإنجليزية" %}</dt><dd><bdi dir="ltr">{{ role.name_en }}</bdi></dd></div>
-        <div><dt>{% translate "المجال" %}</dt><dd>{{ role.get_domain_display }}</dd></div>
-        <div><dt>{% translate "نطاق الربط" %}</dt><dd>{{ role.get_mapping_scope_display }}</dd></div>
-        <div><dt>{% translate "مفردة نظام" %}</dt><dd>{% if role.is_system %}{% translate "نعم — لا تُعدَّل ولا تُحذف" %}{% else %}{% translate "لا" %}{% endif %}</dd></div>
-        <div><dt>{% translate "الحالة" %}</dt><dd>{% if role.is_active %}{% translate "فعّال" %}{% else %}{% translate "موقوف" %}{% endif %}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الاسم بالعربية" %}</dt><dd>{{ role.name_ar }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الاسم بالإنجليزية" %}</dt><dd><bdi dir="ltr">{{ role.name_en }}</bdi></dd></div>
+        <div class="detailgrid__row"><dt>{% translate "المجال" %}</dt><dd>{{ role.get_domain_display }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "نطاق الربط" %}</dt><dd>{{ role.get_mapping_scope_display }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "مفردة نظام" %}</dt><dd>{% if role.is_system %}{% translate "نعم — لا تُعدَّل ولا تُحذف" %}{% else %}{% translate "لا" %}{% endif %}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الحالة" %}</dt><dd>{% if role.is_active %}{% translate "فعّال" %}{% else %}{% translate "موقوف" %}{% endif %}</dd></div>
       </dl>
     </section>
 
     {% if unresolved %}
-      <section class="card card--warn">
-        <h2 class="card__title">{% translate "مؤسسات بلا ربط سارٍ" %}</h2>
+      <section class="formcard card--warn">
+        <h2>{% translate "مؤسسات بلا ربط سارٍ" %}</h2>
         <p class="card__hint">
           {% translate "أي مستند يحلّ هذا الدور في هذه المؤسسات سيفشل عند الترحيل، لا عند الإدخال." %}
         </p>
@@ -52,12 +52,12 @@
       </section>
     {% endif %}
 
-    <section class="card">
-      <h2 class="card__title">
+    <section class="formcard">
+      <h2>
         {% blocktranslate with day=as_of|date:"Y-m-d" %}الحساب السارٍ في {{ day }}{% endblocktranslate %}
       </h2>
-      <div class="tablewrap">
-        <table class="table">
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead>
             <tr>
               <th>{% translate "المؤسسة" %}</th>
@@ -68,8 +68,8 @@
           <tbody>
             {% for row in resolutions %}
               <tr>
-                <td>{{ row.organization.code }} — {{ row.organization.name_ar }}</td>
-                <td>
+                <td data-label="{% translate 'المؤسسة' %}">{{ row.organization.code }} — {{ row.organization.name_ar }}</td>
+                <td data-label="{% translate 'الحساب السارٍ' %}">
                   {% if row.account %}
                     <a href="{% url 'accounting:account_detail' row.account.pk %}">
                       <code dir="ltr">{{ row.account.code }}</code> — {{ row.account.name_ar }}
@@ -78,7 +78,7 @@
                     <span class="chip chip--warn">{% translate "غير مربوط" %}</span>
                   {% endif %}
                 </td>
-                <td>
+                <td data-label="{% translate 'الإصدارات' %}">
                   {% for mapping in row.history %}
                     <div class="history-line">
                       <span class="muted">v{{ mapping.version }}</span>
@@ -94,11 +94,11 @@
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="3" class="empty">{% translate "لا توجد مؤسسات في نطاقك." %}</td></tr>
+              <tr><td colspan="3" class="empty" data-empty-state>{% translate "لا توجد مؤسسات في نطاقك." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
-  </div>
+  </section>
 {% endblock %}

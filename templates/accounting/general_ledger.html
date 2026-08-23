@@ -9,7 +9,7 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-general-ledger">
+  <div class="workspace-page" id="accounting-general-ledger">
     <div class="pagehead">
       <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
@@ -48,7 +48,7 @@
         </label>
       </form>
 
-      <section class="card">
+      <section class="formcard">
         <div class="summary-row">
           <div class="summary-row__item">
             <span class="summary-row__label">{% translate "رصيد افتتاحي" %}</span>
@@ -68,8 +68,8 @@
           </div>
         </div>
 
-        <div class="tablewrap">
-          <table class="table" id="general-ledger-table">
+        <div class="data-table-shell">
+          <table class="table responsive-table" id="general-ledger-table">
             <thead><tr>
               <th>{% translate "التاريخ" %}</th>
               <th>{% translate "رقم القيد" %}</th>
@@ -108,7 +108,7 @@
         </div>
       </section>
     {% else %}
-      <section class="card"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
+      <section class="formcard"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
     {% endif %}
   </div>
 {% endblock %}

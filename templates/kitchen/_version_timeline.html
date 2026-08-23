@@ -1,92 +1,100 @@
 {# The signatures and the effective scope, as an HTMX-refreshable fragment.   #}
 {# Included by the version detail card and served on its own route so a       #}
 {# reader with no JavaScript reaches exactly the same evidence in the shell.  #}
+{# The root is the screen shell so the standalone route lands on a page and   #}
+{# the swapped fragment lands as one stack of cards inside the detail page.   #}
 {% load i18n %}
 
-<section class="formcard" id="version-timeline">
-  <h2>{% translate "التوقيعات" %}</h2>
-  <div class="tablewrap">
-    <table class="table">
-      <thead><tr>
-        <th>{% translate "المراجعة" %}</th>
-        <th>{% translate "المراجع" %}</th>
-        <th>{% translate "القرار" %}</th>
-        <th>{% translate "الوقت" %}</th>
-        <th>{% translate "الدليل" %}</th>
-        <th>{% translate "السبب" %}</th>
-      </tr></thead>
-      <tbody>
-        {% for review in reviews %}
-          <tr>
-            <td>{{ review.get_review_type_display }}</td>
-            <td>{{ review.reviewer }}</td>
-            <td>
-              <span class="chip {% if review.decision == 'APPROVED' %}chip--on{% else %}chip--off{% endif %}">
-                {{ review.get_decision_display }}
-              </span>
-            </td>
-            <td><code dir="ltr">{{ review.reviewed_at|date:"Y-m-d H:i" }}</code></td>
-            <td>
-              {% if review.evidence_reference %}
-                <code dir="ltr">{{ review.evidence_reference }}</code> · {{ review.get_evidence_kind_display }}
-              {% else %}—{% endif %}
-            </td>
-            <td>{{ review.reason|default:"—" }}</td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="6">{% translate "لم تُسجَّل مراجعات بعد." %}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <h2>{% translate "نطاق السريان" %}</h2>
-  <div class="tablewrap">
-    <table class="table">
-      <thead><tr>
-        <th>{% translate "الفرع" %}</th>
-        <th>{% translate "من" %}</th>
-        <th>{% translate "إلى" %}</th>
-        <th>{% translate "على مستوى المؤسسة" %}</th>
-      </tr></thead>
-      <tbody>
-        {% for scope in scopes %}
-          <tr>
-            <td><code>{{ scope.branch.code }}</code> {{ scope.branch.name_ar }}</td>
-            <td><code dir="ltr">{{ scope.effective_from|date:"Y-m-d" }}</code></td>
-            <td>{% if scope.effective_to %}<code dir="ltr">{{ scope.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</td>
-            <td>{% if scope.is_organization_wide %}✓{% else %}—{% endif %}</td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="4">{% translate "لا نطاق سريان — النسخة غير مفعّلة." %}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  {% if timeline %}
-    <h2>{% translate "الخط الزمني للوصفة" %}</h2>
-    <div class="tablewrap">
-      <table class="table">
+<div class="workspace-page" id="version-timeline">
+  <section class="formcard">
+    <h2>{% translate "التوقيعات" %}</h2>
+    <div class="data-table-shell" tabindex="0">
+      <table class="table responsive-table">
         <thead><tr>
-          <th>{% translate "النسخة" %}</th>
-          <th>{% translate "الفرع" %}</th>
-          <th>{% translate "من" %}</th>
-          <th>{% translate "إلى" %}</th>
-          <th>{% translate "الحالة" %}</th>
+          <th>{% translate "المراجعة" %}</th>
+          <th>{% translate "المراجع" %}</th>
+          <th>{% translate "القرار" %}</th>
+          <th>{% translate "الوقت" %}</th>
+          <th>{% translate "الدليل" %}</th>
+          <th>{% translate "السبب" %}</th>
         </tr></thead>
         <tbody>
-          {% for row in timeline %}
+          {% for review in reviews %}
             <tr>
-              <td><a href="{% url 'kitchen:version_detail' row.version.pk %}">v{{ row.version.version_number }}</a></td>
-              <td><code>{{ row.branch.code }}</code></td>
-              <td><code dir="ltr">{{ row.effective_from|date:"Y-m-d" }}</code></td>
-              <td>{% if row.effective_to %}<code dir="ltr">{{ row.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</td>
-              <td>{{ row.version.get_status_display }}</td>
+              <td data-label="{% translate 'المراجعة' %}">{{ review.get_review_type_display }}</td>
+              <td data-label="{% translate 'المراجع' %}">{{ review.reviewer }}</td>
+              <td data-label="{% translate 'القرار' %}">
+                <span class="chip {% if review.decision == 'APPROVED' %}chip--on{% else %}chip--off{% endif %}">
+                  {{ review.get_decision_display }}
+                </span>
+              </td>
+              <td data-label="{% translate 'الوقت' %}"><code dir="ltr">{{ review.reviewed_at|date:"Y-m-d H:i" }}</code></td>
+              <td data-label="{% translate 'الدليل' %}">
+                {% if review.evidence_reference %}
+                  <code dir="ltr">{{ review.evidence_reference }}</code> · {{ review.get_evidence_kind_display }}
+                {% else %}—{% endif %}
+              </td>
+              <td data-label="{% translate 'السبب' %}">{{ review.reason|default:"—" }}</td>
             </tr>
+          {% empty %}
+            <tr><td colspan="6" data-empty-state>{% translate "لم تُسجَّل مراجعات بعد." %}</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+  </section>
+
+  <section class="formcard">
+    <h2>{% translate "نطاق السريان" %}</h2>
+    <div class="data-table-shell" tabindex="0">
+      <table class="table responsive-table">
+        <thead><tr>
+          <th>{% translate "الفرع" %}</th>
+          <th>{% translate "من" %}</th>
+          <th>{% translate "إلى" %}</th>
+          <th>{% translate "على مستوى المؤسسة" %}</th>
+        </tr></thead>
+        <tbody>
+          {% for scope in scopes %}
+            <tr>
+              <td data-label="{% translate 'الفرع' %}"><code>{{ scope.branch.code }}</code> {{ scope.branch.name_ar }}</td>
+              <td data-label="{% translate 'من' %}"><code dir="ltr">{{ scope.effective_from|date:"Y-m-d" }}</code></td>
+              <td data-label="{% translate 'إلى' %}">{% if scope.effective_to %}<code dir="ltr">{{ scope.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</td>
+              <td data-label="{% translate 'على مستوى المؤسسة' %}">{% if scope.is_organization_wide %}✓{% else %}—{% endif %}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" data-empty-state>{% translate "لا نطاق سريان — النسخة غير مفعّلة." %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if timeline %}
+    <section class="formcard">
+      <h2>{% translate "الخط الزمني للوصفة" %}</h2>
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
+          <thead><tr>
+            <th>{% translate "النسخة" %}</th>
+            <th>{% translate "الفرع" %}</th>
+            <th>{% translate "من" %}</th>
+            <th>{% translate "إلى" %}</th>
+            <th>{% translate "الحالة" %}</th>
+          </tr></thead>
+          <tbody>
+            {% for row in timeline %}
+              <tr>
+                <td data-label="{% translate 'النسخة' %}"><a href="{% url 'kitchen:version_detail' row.version.pk %}">v{{ row.version.version_number }}</a></td>
+                <td data-label="{% translate 'الفرع' %}"><code>{{ row.branch.code }}</code></td>
+                <td data-label="{% translate 'من' %}"><code dir="ltr">{{ row.effective_from|date:"Y-m-d" }}</code></td>
+                <td data-label="{% translate 'إلى' %}">{% if row.effective_to %}<code dir="ltr">{{ row.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</td>
+                <td data-label="{% translate 'الحالة' %}">{{ row.version.get_status_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
   {% endif %}
-</section>
+</div>

@@ -1,0 +1,77 @@
+{# ميزان المراجعة — the moving accounts, swapped into the panel frame.       #}
+{#                                                                           #}
+{# The largest by movement are shown; the totals at the foot run over every  #}
+{# moving account, so the two columns still prove the ledger when rows are   #}
+{# held back. A credit balance sits in parentheses — the ledger's notation — #}
+{# never behind a minus sign that reads as a loss.                           #}
+{% load i18n l10n money_tags %}
+<div class="panel__head">
+  <div>
+    <h2 class="panel__title">{{ card.label }}</h2>
+    <p class="pagehead__hint">
+      {% blocktranslate with day=as_of|date:"Y-m-d" trimmed %}
+        الحسابات المتحرّكة · حتى {{ day }}
+      {% endblocktranslate %}
+    </p>
+  </div>
+  {% if drill %}<a class="btn btn--quiet" href="{{ drill }}">{% translate "التقرير الكامل" %}</a>{% endif %}
+</div>
+{% with table=payload.table %}
+  {% if table and table.rows %}
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">{% translate "الحساب" %}</th>
+            <th scope="col">{% translate "الرمز" %}</th>
+            <th scope="col">{% translate "مدين" %}</th>
+            <th scope="col">{% translate "دائن" %}</th>
+            <th scope="col">{% translate "الرصيد" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in table.rows %}
+            <tr>
+              <td>{{ row.name }}</td>
+              <td class="table__num"><bdi dir="ltr">{{ row.code }}</bdi></td>
+              <td class="table__num">{% if row.debits %}<bdi dir="ltr">{{ row.debits|money }}</bdi>{% else %}—{% endif %}</td>
+              <td class="table__num">{% if row.credits %}<bdi dir="ltr">{{ row.credits|money }}</bdi>{% else %}—{% endif %}</td>
+              <td class="table__num">
+                <bdi dir="ltr">{% if row.is_credit %}({{ row.magnitude|money }}){% else %}{{ row.magnitude|money }}{% endif %}</bdi>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row" colspan="2">{% translate "الإجمالي" %}</th>
+            <td class="table__num"><bdi dir="ltr">{{ table.total_debits|money }}</bdi></td>
+            <td class="table__num"><bdi dir="ltr">{{ table.total_credits|money }}</bdi></td>
+            <td class="table__num">
+              {% if table.is_balanced %}
+                <span class="trend trend--up">{% translate "متوازن" %}</span>
+              {% else %}
+                <span class="trend trend--down"><bdi dir="ltr">{{ table.difference|money }}</bdi></span>
+              {% endif %}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="panel__foot">
+      {% if table.hidden_count %}
+        {% blocktranslate with shown=table.rows|length total=table.account_count trimmed %}
+          {{ shown }} من {{ total }} حساباً متحرّكاً — الأكبر حركةً هنا، والباقي في التقرير الكامل. المجموعان يشملان الكل.
+        {% endblocktranslate %}
+      {% else %}
+        {% blocktranslate with total=table.account_count trimmed %}
+          {{ total }} حساباً متحرّكاً — من كل القيود المُرحَّلة.
+        {% endblocktranslate %}
+      {% endif %}
+    </p>
+  {% elif table %}
+    <p class="empty">{% translate "لا قيد مُرحَّلاً بعد." %}</p>
+  {% else %}
+    <p class="empty">{{ payload.hint }}</p>
+  {% endif %}
+{% endwith %}

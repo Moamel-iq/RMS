@@ -10,8 +10,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-account-activity">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="workspace-page" id="accounting-account-activity">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:chart_tree' %}">{% translate "دليل الحسابات" %}</a>
       <span aria-hidden="true">/</span>
       <a href="{% url 'accounting:account_detail' account.pk %}"><bdi dir="ltr">{{ account.code }}</bdi></a>
@@ -46,7 +46,7 @@
       </span>
     </form>
 
-    <section class="card">
+    <section class="formcard">
       <div class="summary-row">
         <div class="summary-row__item">
           <span class="summary-row__label">{% translate "رصيد افتتاحي" %}</span>
@@ -58,8 +58,8 @@
         </div>
       </div>
 
-      <div class="tablewrap">
-        <table class="table" id="account-activity-table">
+      <div class="data-table-shell">
+        <table class="table responsive-table" id="account-activity-table">
           <thead><tr>
             <th>{% translate "التاريخ" %}</th>
             <th>{% translate "القيد" %}</th>

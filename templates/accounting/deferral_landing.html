@@ -8,7 +8,7 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-deferrals">
+  <div class="workspace-page" id="accounting-deferrals">
     <div class="pagehead">
       <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
@@ -40,10 +40,10 @@
     </nav>
 
     {% if tab == "prepayments" %}
-      <section class="card">
-        <h2 class="card__title">{% translate "المقدمات" %}</h2>
-        <div class="tablewrap">
-          <table class="table" id="prepayment-table">
+      <section class="formcard">
+        <h2>{% translate "المقدمات" %}</h2>
+        <div class="data-table-shell">
+          <table class="table responsive-table" id="prepayment-table">
             <thead><tr>
               <th>{% translate "الرقم" %}</th><th>{% translate "الوصف" %}</th>
               <th>{% translate "الفرع" %}</th><th>{% translate "الإجمالي" %}</th>
@@ -70,8 +70,8 @@
         </div>
       </section>
 
-      <section class="card">
-        <h2 class="card__title">{% translate "أقساط الاستهلاك" %}</h2>
+      <section class="formcard">
+        <h2>{% translate "أقساط الاستهلاك" %}</h2>
         <form class="toolbar" method="get"
               hx-get="{% url 'accounting:deferral_list' %}"
               hx-target="#accounting-deferrals" hx-swap="outerHTML" hx-push-url="true"
@@ -87,8 +87,8 @@
             </select>
           </label>
         </form>
-        <div class="tablewrap">
-          <table class="table" id="schedule-table">
+        <div class="data-table-shell">
+          <table class="table responsive-table" id="schedule-table">
             <thead><tr>
               <th>{% translate "المقدَّم" %}</th><th>#</th>
               <th>{% translate "من" %}</th><th>{% translate "إلى" %}</th>
@@ -116,10 +116,10 @@
         </div>
       </section>
     {% else %}
-      <section class="card">
-        <h2 class="card__title">{% translate "المستحقات" %}</h2>
-        <div class="tablewrap">
-          <table class="table" id="accrual-table">
+      <section class="formcard">
+        <h2>{% translate "المستحقات" %}</h2>
+        <div class="data-table-shell">
+          <table class="table responsive-table" id="accrual-table">
             <thead><tr>
               <th>{% translate "الرقم" %}</th><th>{% translate "الوصف" %}</th>
               <th>{% translate "الفرع" %}</th><th>{% translate "التاريخ" %}</th>

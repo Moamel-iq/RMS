@@ -116,16 +116,22 @@ def test_inventory_page_marks_both_module_and_section_as_current(
 ) -> None:
     client.force_login(inventory_manager)
     body = client.get(reverse("inventory:item_list")).content.decode()
+    # The rail marks the *module* current and links to its landing page — the
+    # overview, as Sales and Accounting already do. The subnav marks the
+    # *section* current and links to the screen itself. Two links, two hrefs.
+    module_url = reverse("inventory:overview")
     item_url = reverse("inventory:item_list")
 
-    current_links = [
-        tag
-        for tag in _tags(body, "a")
-        if tag.get("aria-current") == "page" and tag.get("href") == item_url
-    ]
+    current_links = [tag for tag in _tags(body, "a") if tag.get("aria-current") == "page"]
 
-    assert any("rail__item" in _class_tokens(tag) for tag in current_links)
-    assert any("subnav__item" in _class_tokens(tag) for tag in current_links)
+    assert any(
+        "rail__item" in _class_tokens(tag) and tag.get("href") == module_url
+        for tag in current_links
+    )
+    assert any(
+        "subnav__item" in _class_tokens(tag) and tag.get("href") == item_url
+        for tag in current_links
+    )
 
 
 def test_confirmation_dialog_is_named_described_and_keyboard_operable(
@@ -158,6 +164,7 @@ def test_inventory_navigation_is_grouped_and_all_workflow_destinations_resolve()
     inventory = MODULES_BY_KEY["inventory"]
     sections_by_url = {section.url_name: section for section in inventory.sections}
     expected_destinations = {
+        "inventory:overview",
         "inventory:item_list",
         "inventory:category_list",
         "inventory:package_unit_list",
@@ -189,6 +196,7 @@ def test_inventory_navigation_is_grouped_and_all_workflow_destinations_resolve()
         "inventory:report_locations",
     }
     expected_groups = {
+        "نظرة عامة",
         "البيانات الأساسية",
         "الرصيد والحركة",
         "الحركات المخزنية",

@@ -4,7 +4,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#f8f6f2">
+    <meta name="theme-color" content="#f2f0ea">
     <script>
       (function (root) {
         root.classList.add("has-js");
@@ -12,6 +12,14 @@
           if (window.matchMedia("(min-width: 1101px)").matches &&
               window.localStorage.getItem("khan-mandi:navigation-collapsed") === "true") {
             root.classList.add("nav-collapsed-pref");
+          }
+          /* Stamp the saved theme before first paint. Doing this after the
+             stylesheet loads would show one theme and then swap to the other.
+             No stamp means "follow the system", which the media query in
+             app.css already answers. */
+          var theme = window.localStorage.getItem("khan-mandi:theme");
+          if (theme === "dark" || theme === "light") {
+            root.dataset.theme = theme;
           }
         } catch (_error) {
           /* Storage may be unavailable; the expanded shell remains usable. */
@@ -25,6 +33,23 @@
     {# remain scoped, while lists, forms, reports and dashboards are global. #}
     <link rel="stylesheet" href="{% static 'css/inventory.css' %}?v=20260819-golden-all-1">
     {# htmx is vendored, not loaded from a CDN: no third-party request on a login page. #}
+    <script>
+      /* Inline rather than in app-shell.js: that file only loads inside a
+         module, and the toggle belongs on every page including sign-in. */
+      document.addEventListener("click", function (event) {
+        if (!event.target.closest("[data-theme-toggle]")) { return; }
+        var root = document.documentElement;
+        var dark = root.dataset.theme
+          ? root.dataset.theme === "dark"
+          : window.matchMedia("(prefers-color-scheme: dark)").matches;
+        root.dataset.theme = dark ? "light" : "dark";
+        try {
+          window.localStorage.setItem("khan-mandi:theme", root.dataset.theme);
+        } catch (_error) {
+          /* Storage may be unavailable; the choice still applies to this page. */
+        }
+      });
+    </script>
     <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
     {% if active_module %}<script src="{% static 'js/app-shell.js' %}?v=20260819-golden-all-1" defer></script>{% endif %}
     {% if active_module %}<script src="{% static 'js/inventory-htmx.js' %}?v=20260819-golden-all-1" defer></script>{% endif %}

@@ -10,8 +10,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-expense-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="workspace-page" id="accounting-expense-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:expense_list' %}">{% translate "المصروفات" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ page_title }}</span>
@@ -49,18 +49,18 @@
     </div>
 
     {% if is_own_draft and voucher.status == "DRAFT" %}
-      <p class="chip chip--muted">
+      <p class="banner">
         {% translate "أنت من أنشأ هذا السند، فلا يمكنك اعتماده. الاعتماد لشخص آخر." %}
       </p>
     {% endif %}
 
-    <section class="card">
-      <h2 class="card__title">{% translate "بيانات السند" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "بيانات السند" %}</h2>
       <dl class="datalist">
-        <div><dt>{% translate "الفرع" %}</dt><dd>{{ voucher.branch.code }} — {{ voucher.branch.name_ar }}</dd></div>
-        <div><dt>{% translate "تاريخ العملية" %}</dt><dd><bdi dir="ltr">{{ voucher.business_date|date:"Y-m-d" }}</bdi></dd></div>
-        <div><dt>{% translate "تاريخ المصروف" %}</dt><dd><bdi dir="ltr">{{ voucher.expense_date|date:"Y-m-d" }}</bdi></dd></div>
-        <div>
+        <div class="detailgrid__row"><dt>{% translate "الفرع" %}</dt><dd>{{ voucher.branch.code }} — {{ voucher.branch.name_ar }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "تاريخ العملية" %}</dt><dd><bdi dir="ltr">{{ voucher.business_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div class="detailgrid__row"><dt>{% translate "تاريخ المصروف" %}</dt><dd><bdi dir="ltr">{{ voucher.expense_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div class="detailgrid__row">
           <dt>{% translate "مصدر الدفع" %}</dt>
           <dd>
             {% if voucher.cashbox %}
@@ -70,16 +70,16 @@
             {% else %}—{% endif %}
           </dd>
         </div>
-        <div><dt>{% translate "المستفيد" %}</dt><dd>{{ voucher.beneficiary }}</dd></div>
-        <div><dt>{% translate "السبب" %}</dt><dd>{{ voucher.reason }}</dd></div>
-        <div><dt>{% translate "المستند" %}</dt><dd>{{ voucher.evidence_reference|default:"—" }}</dd></div>
-        <div><dt>{% translate "الحالة" %}</dt><dd>{{ voucher.get_status_display }}</dd></div>
-        <div><dt>{% translate "المبلغ" %}</dt><dd><bdi dir="ltr">{{ voucher.total_amount|money_full }}</bdi></dd></div>
-        <div><dt>{% translate "أنشأه" %}</dt><dd>{% if voucher.created_by %}{{ voucher.created_by.get_full_name|default:voucher.created_by.username }}{% else %}—{% endif %}</dd></div>
-        <div><dt>{% translate "اعتمده" %}</dt><dd>{% if voucher.approved_by %}{{ voucher.approved_by.get_full_name|default:voucher.approved_by.username }}{% else %}—{% endif %}</dd></div>
-        <div><dt>{% translate "رحّله" %}</dt><dd>{% if voucher.posted_by %}{{ voucher.posted_by.get_full_name|default:voucher.posted_by.username }}{% else %}—{% endif %}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "المستفيد" %}</dt><dd>{{ voucher.beneficiary }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "السبب" %}</dt><dd>{{ voucher.reason }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "المستند" %}</dt><dd>{{ voucher.evidence_reference|default:"—" }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "الحالة" %}</dt><dd>{{ voucher.get_status_display }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "المبلغ" %}</dt><dd><bdi dir="ltr">{{ voucher.total_amount|money_full }}</bdi></dd></div>
+        <div class="detailgrid__row"><dt>{% translate "أنشأه" %}</dt><dd>{% if voucher.created_by %}{{ voucher.created_by.get_full_name|default:voucher.created_by.username }}{% else %}—{% endif %}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "اعتمده" %}</dt><dd>{% if voucher.approved_by %}{{ voucher.approved_by.get_full_name|default:voucher.approved_by.username }}{% else %}—{% endif %}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "رحّله" %}</dt><dd>{% if voucher.posted_by %}{{ voucher.posted_by.get_full_name|default:voucher.posted_by.username }}{% else %}—{% endif %}</dd></div>
         {% if voucher.journal_entry %}
-          <div>
+          <div class="detailgrid__row">
             <dt>{% translate "القيد" %}</dt>
             <dd><a href="{% url 'accounting:journal_detail' voucher.journal_entry.pk %}">
               <bdi dir="ltr">{{ voucher.journal_entry.entry_number }}</bdi>
@@ -87,7 +87,7 @@
           </div>
         {% endif %}
         {% if voucher.reversal_entry %}
-          <div>
+          <div class="detailgrid__row">
             <dt>{% translate "قيد العكس" %}</dt>
             <dd><a href="{% url 'accounting:journal_detail' voucher.reversal_entry.pk %}">
               <bdi dir="ltr">{{ voucher.reversal_entry.entry_number }}</bdi>
@@ -97,10 +97,10 @@
       </dl>
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "السطور" %}</h2>
-      <div class="tablewrap">
-        <table class="table" id="expense-lines">
+    <section class="formcard">
+      <h2>{% translate "السطور" %}</h2>
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table" id="expense-lines">
           <thead><tr>
             <th>#</th>
             <th>{% translate "الحساب" %}</th>
@@ -112,15 +112,15 @@
           <tbody>
             {% for line in lines %}
               <tr>
-                <td><bdi dir="ltr">{{ line.sequence }}</bdi></td>
-                <td>
+                <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
+                <td data-label="{% translate 'الحساب' %}">
                   <a href="{% url 'accounting:account_detail' line.account.pk %}">
                     <code dir="ltr">{{ line.account.code }}</code> {{ line.account.name_ar }}
                   </a>
                 </td>
-                <td>{% if line.cost_center %}{{ line.cost_center.code }}{% else %}—{% endif %}</td>
-                <td>{{ line.description|default:"—" }}</td>
-                <td><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td>
+                <td data-label="{% translate 'مركز الكلفة' %}">{% if line.cost_center %}{{ line.cost_center.code }}{% else %}—{% endif %}</td>
+                <td data-label="{% translate 'البيان' %}">{{ line.description|default:"—" }}</td>
+                <td data-label="{% translate 'المبلغ' %}"><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td>
                 {% if may_edit %}
                   <td class="cell-actions">
                     <form method="post" action="{% url 'accounting:expense_line_delete' line.pk %}" class="inline-form">
@@ -130,7 +130,7 @@
                 {% endif %}
               </tr>
             {% empty %}
-              <tr><td colspan="6" class="empty">{% translate "لا سطور بعد." %}</td></tr>
+              <tr><td colspan="6" class="empty" data-empty-state>{% translate "لا سطور بعد." %}</td></tr>
             {% endfor %}
           </tbody>
           <tfoot>
@@ -145,9 +145,9 @@
     </section>
 
     {% if may_edit and line_form %}
-      <section class="card" id="expense-line-form">
-        <h2 class="card__title">{% translate "إضافة سطر" %}</h2>
-        <form class="formcard formcard--inline" method="post"
+      <section class="formcard" id="expense-line-form">
+        <h2>{% translate "إضافة سطر" %}</h2>
+        <form class="inline-form" method="post"
               action="{% url 'accounting:expense_detail' voucher.pk %}" novalidate>
           {% csrf_token %}
           {% if line_form.non_field_errors %}
@@ -167,9 +167,9 @@
       </section>
     {% endif %}
 
-    <section class="card">
-      <h2 class="card__title">{% translate "سجل الأحداث" %}</h2>
-      <ul class="timeline">
+    <section class="timeline">
+      <h2>{% translate "سجل الأحداث" %}</h2>
+      <ul class="checklist">
         {% for event in timeline %}
           <li class="timeline__item">
             <span class="timeline__when"><bdi dir="ltr">{{ event.occurred_at|date:"Y-m-d H:i" }}</bdi></span>
@@ -182,5 +182,5 @@
         {% endfor %}
       </ul>
     </section>
-  </div>
+  </section>
 {% endblock %}

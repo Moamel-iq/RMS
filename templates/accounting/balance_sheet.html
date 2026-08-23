@@ -10,7 +10,7 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-balance-sheet">
+  <div class="workspace-page" id="accounting-balance-sheet">
     <div class="pagehead">
       <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
@@ -27,8 +27,8 @@
         {% blocktranslate with day=as_of|date:"Y-m-d" %}بتاريخ {{ day }}{% endblocktranslate %}
       </p>
 
-      <section class="card {% if not report.is_balanced %}card--warn{% endif %}" id="balance-equation">
-        <h2 class="card__title">{% translate "المعادلة المحاسبية" %}</h2>
+      <section class="formcard {% if not report.is_balanced %}card--warn{% endif %}" id="balance-equation">
+        <h2>{% translate "المعادلة المحاسبية" %}</h2>
         <div class="summary-row">
           <div class="summary-row__item">
             <span class="summary-row__label">{% translate "الأصول" %}</span>
@@ -57,8 +57,8 @@
       </section>
 
       {% if report.unmapped %}
-        <section class="card card--warn" id="balance-unmapped">
-          <h2 class="card__title">{% translate "غير مصنّف" %}</h2>
+        <section class="formcard card--warn" id="balance-unmapped">
+          <h2>{% translate "غير مصنّف" %}</h2>
           <p class="card__hint">
             {% translate "حسابات لها رصيد ولا تحمل مجموعة قوائم مالية. تُعرض ولا تُحذف." %}
           </p>
@@ -75,8 +75,15 @@
         </section>
       {% endif %}
 
-      <section class="card">
-        <div class="tablewrap">
+      <section class="formcard">
+        <p class="card__hint">
+          {% if report.is_approvable %}
+            <span class="chip chip--ok">{% translate "قابلة للاعتماد" %}</span>
+          {% else %}
+            <span class="chip chip--warn">{% translate "لا تُعتمد: إمّا غير متوازنة أو فيها حساب غير مصنّف له رصيد" %}</span>
+          {% endif %}
+        </p>
+        <div class="data-table-shell">
           <table class="table" id="balance-sheet-table">
             <tbody>
               {% for section in sections %}
@@ -118,16 +125,9 @@
             </tbody>
           </table>
         </div>
-        <p class="card__hint">
-          {% if report.is_approvable %}
-            <span class="chip chip--ok">{% translate "قابلة للاعتماد" %}</span>
-          {% else %}
-            <span class="chip chip--warn">{% translate "لا تُعتمد: إمّا غير متوازنة أو فيها حساب غير مصنّف له رصيد" %}</span>
-          {% endif %}
-        </p>
       </section>
     {% else %}
-      <section class="card"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
+      <section class="formcard"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
     {% endif %}
   </div>
 {% endblock %}

@@ -5,15 +5,20 @@
 
 {% block page %}
   {% if active_module.key == "home" %}
+  <div id="home-dashboard" class="dash">
 
-    <div class="panel">
-      <h1 class="panel__title">
-        {% blocktranslate with name=user.get_username %}أهلاً {{ name }}{% endblocktranslate %}
-      </h1>
-      <p class="muted">
-        {% translate "الوحدات التشغيلية لم تُبنَ بعد. اختر وحدة من الشريط الجانبي لمعرفة ما ستحتويه." %}
-      </p>
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">
+          {% blocktranslate with name=user.get_username %}أهلاً {{ name }}{% endblocktranslate %}
+        </h1>
+        <p class="pagehead__hint">
+          {% translate "نظرة موحّدة على الأقسام التي تملك صلاحية عليها — كل رقم من صفحة قسمه." %}
+        </p>
+      </div>
     </div>
+
+    {% if home %}{% include "home/_dashboard.html" %}{% endif %}
 
     {# Development visibility only. Remove with Phase 0 exit. #}
     <div class="panel">
@@ -49,6 +54,7 @@
       {% endif %}
     </div>
 
+  </div>
   {% else %}
 
     {# A previewed module. The content area must say what the sidebar says, #}

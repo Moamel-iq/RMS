@@ -9,14 +9,14 @@
 {# Declared and derived are both shown on every leg. Which of the two is      #}
 {# wrong decides who fixes it, and a difference column alone would never say. #}
 {% extends list_base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="daily-reconciliation">
+  <div class="workspace-page" id="daily-reconciliation">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">{{ page_hint }}</p>
       </div>
@@ -67,9 +67,12 @@
       </div>
     </div>
 
+    {# One day is one card. The leg table closes it: a table shell that is the #}
+    {# card's last child sits flush inside its edge, and anything after it would #}
+    {# be pulled up over the last row.                                           #}
     {% for row in rows %}
-      <section class="card">
-        <h2 class="section-title">
+      <section class="formcard">
+        <h2>
           <bdi dir="ltr"><code>{{ row.business_date|date:"Y-m-d" }}</code></bdi>
           · <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name_ar }}
           {% if row.is_clean %}
@@ -79,35 +82,6 @@
           {% endif %}
         </h2>
 
-        <div class="tablewrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th scope="col">{% translate "الوجهة" %}</th>
-                <th scope="col">{% translate "المُعلن" %}</th>
-                <th scope="col">{% translate "المشتق من السطور" %}</th>
-                <th scope="col">{% translate "الفرق" %}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for leg in row.legs %}
-                <tr>
-                  <td data-label="{% translate 'الوجهة' %}">{{ leg.label }}</td>
-                  <td data-label="{% translate 'المُعلن' %}"><bdi dir="ltr"><code>{{ leg.declared }}</code></bdi></td>
-                  <td data-label="{% translate 'المشتق من السطور' %}"><bdi dir="ltr"><code>{{ leg.derived }}</code></bdi></td>
-                  <td data-label="{% translate 'الفرق' %}">
-                    {% if leg.agrees %}
-                      <span class="chip chip--ok">—</span>
-                    {% else %}
-                      <bdi dir="ltr"><code>{{ leg.difference }}</code></bdi>
-                    {% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-
         <div class="statrow">
           <div class="stat">
             <span class="stat__label">{% translate "النقد المعدود" %}</span>
@@ -115,7 +89,7 @@
               {% if row.counted_cash is None %}
                 <span class="muted">{% translate "لم يُعدّ" %}</span>
               {% else %}
-                <bdi dir="ltr"><code>{{ row.counted_cash }}</code></bdi>
+                <bdi dir="ltr"><code>{{ row.counted_cash|iqd }}</code></bdi>
               {% endif %}
             </span>
           </div>
@@ -125,17 +99,17 @@
               {% if row.cash_variance is None %}
                 <span class="muted">—</span>
               {% else %}
-                <bdi dir="ltr"><code>{{ row.cash_variance }}</code></bdi>
+                <bdi dir="ltr"><code>{{ row.cash_variance|iqd }}</code></bdi>
               {% endif %}
             </span>
           </div>
           <div class="stat">
             <span class="stat__label">{% translate "المرتجعات المرحّلة" %}</span>
-            <span class="stat__value"><bdi dir="ltr"><code>{{ row.adjustments_total }}</code></bdi></span>
+            <span class="stat__value"><bdi dir="ltr"><code>{{ row.adjustments_total|iqd }}</code></bdi></span>
           </div>
           <div class="stat">
             <span class="stat__label">{% translate "حركة ذمم التطبيقات" %}</span>
-            <span class="stat__value"><bdi dir="ltr"><code>{{ row.receivable_movement }}</code></bdi></span>
+            <span class="stat__value"><bdi dir="ltr"><code>{{ row.receivable_movement|iqd }}</code></bdi></span>
           </div>
           {# Only cancellations reduce theoretical consumption. A return does #}
           {# not: الطعام طُبخ فعلاً وخرجت مكوّناته، وطرحه يصنع فرقاً غير مفسّر #}
@@ -148,7 +122,7 @@
 
         {% if row.findings %}
           <h3 class="section-title">{% translate "النتائج" %}</h3>
-          <ul class="findings">
+          <ul>
             {% for finding in row.findings %}
               <li>
                 {% if finding.severity == "ERROR" %}
@@ -173,6 +147,35 @@
             · <a href="{% url 'sales:shift_detail' row.shift.pk %}">{% translate "فتح الصندوق" %}</a>
           {% endif %}
         </p>
+
+        <div class="data-table-shell">
+          <table class="table responsive-table">
+            <thead>
+              <tr>
+                <th scope="col">{% translate "الوجهة" %}</th>
+                <th scope="col">{% translate "المُعلن" %}</th>
+                <th scope="col">{% translate "المشتق من السطور" %}</th>
+                <th scope="col">{% translate "الفرق" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for leg in row.legs %}
+                <tr>
+                  <td data-label="{% translate 'الوجهة' %}">{{ leg.label }}</td>
+                  <td data-label="{% translate 'المُعلن' %}"><bdi dir="ltr"><code>{{ leg.declared|iqd }}</code></bdi></td>
+                  <td data-label="{% translate 'المشتق من السطور' %}"><bdi dir="ltr"><code>{{ leg.derived }}</code></bdi></td>
+                  <td data-label="{% translate 'الفرق' %}">
+                    {% if leg.agrees %}
+                      <span class="chip chip--ok">—</span>
+                    {% else %}
+                      <bdi dir="ltr"><code>{{ leg.difference|iqd }}</code></bdi>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </section>
     {% empty %}
       <p class="empty">

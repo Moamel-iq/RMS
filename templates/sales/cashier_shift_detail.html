@@ -6,20 +6,20 @@
 {# place the mistake would be made is cheaper than discovering a doubled cash#}
 {# account a quarter later (ADR-027 §8).                                     #}
 {% extends list_base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="cashier-shift-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="workspace-page" id="cashier-shift-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:shift_list' %}">{% translate "إقفال الكاشير" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ shift.business_date|date:"Y-m-d" }}</span>
     </nav>
 
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">
           <span class="chip">{{ shift.get_status_display }}</span>
@@ -78,23 +78,23 @@
     <div class="statrow">
       <div class="stat">
         <span class="stat__label">{% translate "العهدة الافتتاحية" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.opening_float }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.opening_float|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">
           {% if shift.status == "OPEN" %}{% translate "النقد المتوقَّع الآن" %}{% else %}{% translate "النقد المتوقَّع" %}{% endif %}
         </span>
         <span class="stat__value">
-          <bdi dir="ltr"><code>{% if shift.status == "OPEN" %}{{ expected_cash_now }}{% else %}{{ shift.expected_cash }}{% endif %}</code></bdi>
+          <bdi dir="ltr"><code>{% if shift.status == "OPEN" %}{{ expected_cash_now|iqd }}{% else %}{{ shift.expected_cash|iqd }}{% endif %}</code></bdi>
         </span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "النقد المعدود" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.counted_cash }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.counted_cash|iqd }}</code></bdi></span>
       </div>
       <div class="stat">
         <span class="stat__label">{% translate "الفرق" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.variance_amount }}</code></bdi></span>
+        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.variance_amount|iqd }}</code></bdi></span>
       </div>
     </div>
 
@@ -112,72 +112,78 @@
       </p>
     {% endif %}
 
-    <h2 class="section-title">{% translate "العدّ حسب وجهة التحصيل" %}</h2>
-    <div class="tablewrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">{% translate "الوجهة" %}</th>
-            <th scope="col">{% translate "المتوقَّع" %}</th>
-            <th scope="col">{% translate "المعدود" %}</th>
-            <th scope="col">{% translate "الفرق" %}</th>
-            <th scope="col">{% translate "ملاحظات" %}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for entry in count_rows %}
+    <section class="formcard">
+      <h2>{% translate "العدّ حسب وجهة التحصيل" %}</h2>
+      <div class="data-table-shell">
+        <table class="table responsive-table">
+          <thead>
             <tr>
-              <td data-label="{% translate 'الوجهة' %}">{{ entry.row.get_tender_display }}</td>
-              <td data-label="{% translate 'المتوقَّع' %}"><bdi dir="ltr"><code>{{ entry.expected }}</code></bdi></td>
-              <td data-label="{% translate 'المعدود' %}"><bdi dir="ltr"><code>{{ entry.row.counted_amount }}</code></bdi></td>
-              <td data-label="{% translate 'الفرق' %}"><bdi dir="ltr"><code>{{ entry.row.variance_amount }}</code></bdi></td>
-              <td data-label="{% translate 'ملاحظات' %}">{{ entry.row.notes|default:"—" }}</td>
+              <th scope="col">{% translate "الوجهة" %}</th>
+              <th scope="col">{% translate "المتوقَّع" %}</th>
+              <th scope="col">{% translate "المعدود" %}</th>
+              <th scope="col">{% translate "الفرق" %}</th>
+              <th scope="col">{% translate "ملاحظات" %}</th>
             </tr>
-          {% empty %}
-            <tr>
-              <td colspan="5" class="empty">{% translate "لم يُسجَّل عدّ بعد." %}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {% for entry in count_rows %}
+              <tr>
+                <td data-label="{% translate 'الوجهة' %}">{{ entry.row.get_tender_display }}</td>
+                <td data-label="{% translate 'المتوقَّع' %}"><bdi dir="ltr"><code>{{ entry.expected|iqd }}</code></bdi></td>
+                <td data-label="{% translate 'المعدود' %}"><bdi dir="ltr"><code>{{ entry.row.counted_amount|iqd }}</code></bdi></td>
+                <td data-label="{% translate 'الفرق' %}"><bdi dir="ltr"><code>{{ entry.row.variance_amount|iqd }}</code></bdi></td>
+                <td data-label="{% translate 'ملاحظات' %}">{{ entry.row.notes|default:"—" }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="empty">{% translate "لم يُسجَّل عدّ بعد." %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
     <p class="pagehead__hint">
       {% translate "البطاقات تُعدّ ولا تُرحَّل: خلاف بين إجمالي البطاقات وشريط الجهاز نتيجةٌ حقيقية تُكتشف في يومها، لكنه خلاف على رصيد مقاصة لم يحوّله المُصدِر بعد، والاعتراف بفرقه اعترافٌ بفرق على مالٍ لم يعدّه أحد. وذمم التطبيقات ليست في الدرج أصلاً: تُسدَّد بتسوية لا بعدّ، ولذلك لا يُعرض لها صندوق يُملأ." %}
     </p>
 
     {% if count_form %}
-      <h2 class="section-title">{% translate "تسجيل عدّ" %}</h2>
-      <form class="formcard" method="post" novalidate>
-        {% csrf_token %}
-        {% include "components/form_error_summary.html" with form=count_form %}
-        <div class="formgrid">
-          {% for field in count_form %}
-            {% include "settings/_field.html" with field=field %}
-          {% endfor %}
-        </div>
-        <div class="formactions">
-          <button class="btn btn--primary" type="submit">{% translate "حفظ العدّ" %}</button>
-        </div>
-      </form>
+      <section class="formcard">
+        <h2>{% translate "تسجيل عدّ" %}</h2>
+        <form method="post" novalidate>
+          {% csrf_token %}
+          {% include "components/form_error_summary.html" with form=count_form %}
+          <div class="formgrid">
+            {% for field in count_form %}
+              {% include "settings/_field.html" with field=field %}
+            {% endfor %}
+          </div>
+          <div class="formactions">
+            <button class="btn btn--primary" type="submit">{% translate "حفظ العدّ" %}</button>
+          </div>
+        </form>
+      </section>
     {% endif %}
 
     {% if close_form %}
-      <h2 class="section-title" id="close-form">{% translate "إقفال الصندوق" %}</h2>
-      <p class="pagehead__hint">
-        {% translate "يُشترط أن يكون يوم المبيعات مرحّلاً: المتوقَّع المشتق من مسودة هدفٌ يمكن أن يتحرك بعد العدّ، ويصبح الفرق فرقاً بين عدّ وشيء ما زال يُحرَّر. عند الإقفال تُختم الأرقام ولا تعود قابلة للتعديل — العودة تكون بإعادة فتح مُسجَّلة." %}
-      </p>
-      <form class="formcard" method="post" action="{% url 'sales:shift_close' shift.pk %}" novalidate>
-        {% csrf_token %}
-        {% include "components/form_error_summary.html" with form=close_form %}
-        <div class="formgrid">
-          {% for field in close_form %}
-            {% include "settings/_field.html" with field=field %}
-          {% endfor %}
-        </div>
-        <div class="formactions">
-          <button class="btn btn--secondary" type="submit">{% translate "إقفال" %}</button>
-        </div>
-      </form>
+      <section class="formcard">
+        <h2 id="close-form">{% translate "إقفال الصندوق" %}</h2>
+        <p class="pagehead__hint">
+          {% translate "يُشترط أن يكون يوم المبيعات مرحّلاً: المتوقَّع المشتق من مسودة هدفٌ يمكن أن يتحرك بعد العدّ، ويصبح الفرق فرقاً بين عدّ وشيء ما زال يُحرَّر. عند الإقفال تُختم الأرقام ولا تعود قابلة للتعديل — العودة تكون بإعادة فتح مُسجَّلة." %}
+        </p>
+        <form method="post" action="{% url 'sales:shift_close' shift.pk %}" novalidate>
+          {% csrf_token %}
+          {% include "components/form_error_summary.html" with form=close_form %}
+          <div class="formgrid">
+            {% for field in close_form %}
+              {% include "settings/_field.html" with field=field %}
+            {% endfor %}
+          </div>
+          <div class="formactions">
+            <button class="btn btn--secondary" type="submit">{% translate "إقفال" %}</button>
+          </div>
+        </form>
+      </section>
     {% endif %}
   </div>
 {% endblock %}

@@ -1,7 +1,9 @@
 {# لوحة المبيعات — the module's landing page.                                #}
 {#                                                                           #}
 {# Nothing on this page writes. Every figure is read back out of a posted     #}
-{# document, and the only controls are the period and the branch.            #}
+{# document, and the only controls are the period and the branch — real      #}
+{# controls, which is why there is no decorative "today / week / month"     #}
+{# strip: a button that changes nothing does not belong on a working screen. #}
 {#                                                                           #}
 {# The headline renders with the page; every card below fetches itself with   #}
 {# its own hx-get on load, so the reconciliation and cost cards — the two     #}
@@ -11,16 +13,20 @@
 {# card tells the reader a number exists and that they are not trusted with   #}
 {# it, which is a different statement from the one intended.                  #}
 {% extends list_base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n l10n money_tags %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="sales-dashboard" class="list-page">
+  <div id="sales-dashboard" class="list-page dash">
     <div class="pagehead">
       <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--secondary" href="{% url 'sales:menu_item_list' %}">{% translate "المنيو" %}</a>
+        <a class="btn btn--primary" href="{% url 'sales:day_list' %}">{% translate "أيام المبيعات" %}</a>
       </div>
     </div>
 
@@ -57,104 +63,141 @@
       <button class="btn btn--secondary" type="submit">{% translate "عرض" %}</button>
     </form>
 
+    {# One alert, and only while it is true: nothing posted in the window. #}
+    {% if not headline.day_count %}
+      <div class="alert" role="status">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" aria-hidden="true" style="flex:none; margin-block-start:2px">
+          <path d="M12 9v4M12 17h.01"/>
+          <path d="M10.3 3.9L2.4 17.5A2 2 0 004.1 20.5h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/>
+        </svg>
+        <div>
+          <strong>{% translate "لا يوم مبيعات مرحّلاً في هذه المدة" %}</strong>
+          <p>
+            {% blocktranslate with drafts=headline.draft_day_count trimmed %}
+              {{ drafts }} يوم غير مرحّل. الإيراد والعمولات تُقرأ من الأيام المرحّلة وحدها.
+            {% endblocktranslate %}
+          </p>
+        </div>
+        <a class="btn btn--quiet" href="{% url 'sales:day_list' %}">{% translate "افتح أيام المبيعات" %}</a>
+      </div>
+    {% endif %}
+
     {# --- the headline ---------------------------------------------------- #}
-    <section class="card">
-      <h2 class="section-title">{% translate "الإيراد" %}</h2>
-      <div class="statrow">
-        <div class="stat">
-          <span class="stat__label">{% translate "إجمالي المبيعات" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.gross }}</code></bdi></span>
+    <div class="kpigrid">
+      <div class="kpi kpi--accent">
+        <div class="kpi__head">
+          <span class="kpi__label">{% translate "صافي الإيراد" %}</span>
+          <span class="kpi__mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M4 19h16"/><path d="M6 19V9"/><path d="M11 19V5"/><path d="M16 19v-7"/>
+            </svg>
+          </span>
         </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "خصومات المطعم" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.restaurant_discount }}</code></bdi></span>
-          <span class="stat__hint"><bdi dir="ltr"><code>{{ headline.discount_share }}%</code></bdi></span>
-        </div>
-        {# Shown and never subtracted: the application reimburses it, so it     #}
-        {# reduces neither الإيراد ولا الذمة (ADR-028 §3).                      #}
-        <div class="stat">
-          <span class="stat__label">{% translate "خصومات ممولة من التطبيق" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.application_discount }}</code></bdi></span>
-          <span class="stat__hint">{% translate "تُعرض ولا تُطرح" %}</span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "المرتجعات والإلغاءات" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.returns_gross }}</code></bdi></span>
-          <span class="stat__hint"><bdi dir="ltr"><code>{{ headline.returns_share }}%</code></bdi></span>
-        </div>
-        <div class="stat stat--strong">
-          <span class="stat__label">{% translate "صافي الإيراد" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.net_revenue }}</code></bdi></span>
+        <div class="kpi__value"><bdi dir="ltr">{{ headline.net_revenue|iqd }}</bdi></div>
+        <div class="kpi__note">
+          {% blocktranslate with gross=headline.gross|iqd qty=headline.quantity trimmed %}
+            الإجمالي {{ gross }} · {{ qty }} وحدة
+          {% endblocktranslate %}
         </div>
       </div>
 
-      <h2 class="section-title">{% translate "الوجهات" %}</h2>
-      <div class="statrow">
-        <div class="stat">
-          <span class="stat__label">{% translate "مبيعات نقدية" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.cash_sales }}</code></bdi></span>
+      <div class="kpi">
+        <div class="kpi__head">
+          <span class="kpi__label">{% translate "الطلبات" %}</span>
+          <span class="kpi__mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6"/>
+            </svg>
+          </span>
         </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "مبيعات بطاقة" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.card_sales }}</code></bdi></span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "مبيعات التطبيقات" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.application_sales }}</code></bdi></span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "عمولات التطبيقات" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.commission }}</code></bdi></span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "رسوم أخرى" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.other_fees }}</code></bdi></span>
+        <div class="kpi__value"><bdi dir="ltr">{{ headline.order_count }}</bdi></div>
+        <div class="kpi__note">
+          {% blocktranslate with days=headline.day_count lines=headline.line_count trimmed %}
+            {{ days }} يوم مرحّل · {{ lines }} سطراً
+          {% endblocktranslate %}
         </div>
       </div>
 
-      <h2 class="section-title">{% translate "المستندات" %}</h2>
-      <div class="statrow">
-        <div class="stat">
-          <span class="stat__label">{% translate "أيام مرحّلة" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.day_count }}</code></bdi></span>
+      <div class="kpi">
+        <div class="kpi__head">
+          <span class="kpi__label">{% translate "عمولات التطبيقات" %}</span>
+          <span class="kpi__mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M5 17l6-6 4 4 5-5"/><path d="M14 10h6v6"/>
+            </svg>
+          </span>
         </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "أيام غير مرحّلة" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.draft_day_count }}</code></bdi></span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "أيام معكوسة" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.reversed_day_count }}</code></bdi></span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "عدد السطور" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.line_count }}</code></bdi></span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "الكمية المباعة" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.quantity }}</code></bdi></span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "عدد الطلبات" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ headline.order_count }}</code></bdi></span>
+        <div class="kpi__value"><bdi dir="ltr">{{ headline.commission|iqd }}</bdi></div>
+        <div class="kpi__note">
+          <span class="trend trend--flat"><bdi dir="ltr">{{ headline.commission_share|unlocalize }}%</bdi></span>
+          {% translate "من مبيعات التطبيقات" %}
         </div>
       </div>
-    </section>
+
+      <div class="kpi">
+        <div class="kpi__head">
+          <span class="kpi__label">{% translate "المرتجعات والإلغاءات" %}</span>
+          <span class="kpi__mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M9 14l-4-4 4-4"/><path d="M5 10h9a5 5 0 010 10h-3"/>
+            </svg>
+          </span>
+        </div>
+        <div class="kpi__value"><bdi dir="ltr">{{ headline.returns_gross|iqd }}</bdi></div>
+        <div class="kpi__note">
+          <span class="trend {% if headline.returns_gross %}trend--down{% else %}trend--flat{% endif %}">
+            <bdi dir="ltr">{{ headline.returns_share|unlocalize }}%</bdi>
+          </span>
+          {% translate "من الإجمالي" %}
+        </div>
+      </div>
+
+      <div class="kpi">
+        <div class="kpi__head">
+          <span class="kpi__label">{% translate "خصومات المطعم" %}</span>
+          <span class="kpi__mark" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M5 19L19 5"/><circle cx="7.5" cy="7.5" r="2.5"/><circle cx="16.5" cy="16.5" r="2.5"/>
+            </svg>
+          </span>
+        </div>
+        <div class="kpi__value"><bdi dir="ltr">{{ headline.restaurant_discount|iqd }}</bdi></div>
+        <div class="kpi__note">
+          <span class="trend trend--flat"><bdi dir="ltr">{{ headline.discount_share|unlocalize }}%</bdi></span>
+          {% translate "من الإجمالي · خصم التطبيق يُعرض ولا يُطرح" %}
+        </div>
+      </div>
+    </div>
+
+    {# --- the tenders and the documents, as one quiet strip ---------------- #}
+    <div class="tiles">
+      <div class="tile"><span class="tile__value"><bdi dir="ltr">{{ headline.cash_sales|iqd }}</bdi></span><span class="tile__label">{% translate "مبيعات نقدية" %}</span></div>
+      <div class="tile"><span class="tile__value"><bdi dir="ltr">{{ headline.card_sales|iqd }}</bdi></span><span class="tile__label">{% translate "مبيعات بطاقة" %}</span></div>
+      <div class="tile"><span class="tile__value"><bdi dir="ltr">{{ headline.application_sales|iqd }}</bdi></span><span class="tile__label">{% translate "مبيعات التطبيقات" %}</span></div>
+      <div class="tile"><span class="tile__value"><bdi dir="ltr">{{ headline.application_discount|iqd }}</bdi></span><span class="tile__label">{% translate "خصم ممول من التطبيق — يُعرض ولا يُطرح" %}</span></div>
+      <div class="tile"><span class="tile__value"><bdi dir="ltr">{{ headline.other_fees|iqd }}</bdi></span><span class="tile__label">{% translate "رسوم أخرى" %}</span></div>
+      <div class="tile"><span class="tile__value"><bdi dir="ltr">{{ headline.draft_day_count }}</bdi> / <bdi dir="ltr">{{ headline.reversed_day_count }}</bdi></span><span class="tile__label">{% translate "أيام غير مرحّلة / معكوسة" %}</span></div>
+    </div>
 
     {# --- the independently loaded cards ---------------------------------- #}
     {# Each fetches itself. `hx-trigger="load"` rather than a click, because   #}
     {# a card the reader has to ask for is a card nobody reads; and each has   #}
-    {# its own target, so one slow card never holds another.                  #}
-    {% for card in cards %}
-      <section class="card"
-               id="dashboard-card-{{ card.slug }}"
-               hx-get="{% url 'sales:dashboard_card' card.slug %}?{{ card_query }}"
-               hx-trigger="load"
-               hx-swap="innerHTML">
-        <h2 class="section-title">{{ card.label }}</h2>
-        <p class="muted" role="status">{% translate "جارٍ التحميل…" %}</p>
-      </section>
-    {% endfor %}
+    {# its own target, so one slow card never holds another. The top-items     #}
+    {# card spans the row: a ranked table wants the width.                     #}
+    <div class="dashgrid dashgrid--even">
+      {% for card in cards %}
+        <section class="panel"
+                 id="dashboard-card-{{ card.slug }}"
+                 {% if card.slug == "items" %}style="grid-column: 1 / -1"{% endif %}
+                 hx-get="{% url 'sales:dashboard_card' card.slug %}?{{ card_query }}"
+                 hx-trigger="load"
+                 hx-swap="innerHTML">
+          <div class="panel__head"><h2 class="panel__title">{{ card.label }}</h2></div>
+          <p class="muted" role="status">{% translate "جارٍ التحميل…" %}</p>
+        </section>
+      {% endfor %}
+    </div>
 
     {% if not may_read_cost %}
       {# Not a blanked figure and not an apology — a statement that the card   #}

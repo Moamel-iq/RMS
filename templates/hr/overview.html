@@ -1,0 +1,134 @@
+{# The module's opening screen. Headcount always; money only as aggregates,  #}
+{# only behind the salary permission, and never per person: an overview that #}
+{# listed individual salaries would be the one page worth photographing.     #}
+{% extends "shell.html" %}
+{% load i18n l10n money_tags %}
+
+{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block page %}
+  <div id="hr-overview" class="dash">
+
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__hint">{{ page_hint }}</p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--secondary" href="{% url 'hr:employee_list' %}">{% translate "الموظفون" %}</a>
+        <a class="btn btn--primary" href="{% url 'hr:employee_create' %}">{% translate "موظف جديد" %}</a>
+      </div>
+    </div>
+
+    {% if not overview.total_count %}
+      <div class="alert" role="status">
+        <div>
+          <strong>{% translate "لا موظف مسجَّلاً بعد" %}</strong>
+          <p>{% translate "أدخل الموظفين وعقودهم ليحسب النظام كشف الرواتب من العقود المعتمدة." %}</p>
+        </div>
+        <a class="btn btn--quiet" href="{% url 'hr:employee_create' %}">{% translate "ابدأ الإدخال" %}</a>
+      </div>
+    {% endif %}
+
+    <div class="kpigrid">
+      {% if show_salary %}
+        <div class="kpi kpi--accent">
+          <div class="kpi__head"><span class="kpi__label">{% translate "الرواتب الشهرية" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h5M9.5 14.5h5"/></svg></span></div>
+          <div class="kpi__value"><bdi dir="ltr">{{ overview.monthly_payroll|money }}</bdi></div>
+          <div class="kpi__note">{% translate "من العقود المعتمدة وحدها" %}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi__head"><span class="kpi__label">{% translate "متوسط الراتب" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19h16"/><path d="M6 19V9"/><path d="M11 19V5"/><path d="M16 19v-7"/></svg></span></div>
+          <div class="kpi__value"><bdi dir="ltr">{{ overview.average_salary|money }}</bdi></div>
+          <div class="kpi__note">{% translate "مجموع الرواتب ÷ الملاك النشط" %}</div>
+        </div>
+      {% endif %}
+
+      <div class="kpi">
+        <div class="kpi__head"><span class="kpi__label">{% translate "الملاك النشط" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M17 11h4M19 9v4"/></svg></span></div>
+        <div class="kpi__value"><bdi dir="ltr">{{ overview.active_count }}</bdi></div>
+        <div class="kpi__note">
+          {% blocktranslate with total=overview.total_count leave=overview.on_leave_count trimmed %}
+            من {{ total }} مسجَّلاً · {{ leave }} في إجازة
+          {% endblocktranslate %}
+        </div>
+      </div>
+
+      <div class="kpi">
+        <div class="kpi__head"><span class="kpi__label">{% translate "عقود معتمدة" %}</span><span class="kpi__mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V6a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z"/><path d="M8 12h8M8 16h5"/></svg></span></div>
+        <div class="kpi__value"><bdi dir="ltr">{{ overview.approved_contract_count }}</bdi></div>
+        <div class="kpi__note">
+          {% blocktranslate with drafts=overview.draft_contract_count trimmed %}
+            و{{ drafts }} مسودة تنتظر الاعتماد
+          {% endblocktranslate %}
+        </div>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">{% translate "الأقسام" %}</h2>
+        <p class="pagehead__hint">
+          {% if show_salary %}{% translate "العدد والكلفة الشهرية — مجاميع لا أفراداً" %}{% else %}{% translate "العدد لكل قسم" %}{% endif %}
+        </p>
+      </div>
+      {% if overview.departments %}
+        <div class="bars" style="margin-block-end: var(--space-4)">
+          {% for row in overview.departments %}
+            <div class="bar">
+              <span class="bar__name" title="{{ row.name }}">{{ row.name }} · {{ row.headcount }}</span>
+              <div class="bar__track">
+                <div class="bar__fill"
+                     style="inline-size: {% if show_salary %}{{ row.share|unlocalize }}{% else %}{% widthratio row.headcount overview.active_count 100 %}{% endif %}%;
+                            background: var(--series-{% cycle '1' '2' '2' '3' '3' '6' %});"></div>
+              </div>
+              <span class="bar__value">
+                {% if show_salary %}<bdi dir="ltr">{{ row.monthly_salary|money }}</bdi>{% else %}<bdi dir="ltr">{{ row.headcount }}</bdi>{% endif %}
+              </span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      <div class="tablewrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">{% translate "القسم" %}</th>
+              <th scope="col">{% translate "الملاك" %}</th>
+              {% if show_salary %}
+                <th scope="col">{% translate "الرواتب الشهرية" %}</th>
+                <th scope="col">{% translate "الحصة" %}</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in overview.departments %}
+              <tr>
+                <td>{{ row.name }}</td>
+                <td class="table__num"><bdi dir="ltr">{{ row.headcount }}</bdi></td>
+                {% if show_salary %}
+                  <td class="table__num"><bdi dir="ltr">{{ row.monthly_salary|money }}</bdi></td>
+                  <td class="table__num"><bdi dir="ltr">{{ row.share|unlocalize }}%</bdi></td>
+                {% endif %}
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="{% if show_salary %}4{% else %}2{% endif %}" class="empty">
+                  {% translate "لا أقسام بعد — تُشتق الأقسام من سجلات الموظفين." %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if overview.departments %}
+        <p class="panel__foot">
+          {% blocktranslate with name=overview.departments.0.name count_h=overview.departments.0.headcount trimmed %}
+            {{ name }} أكبر الأقسام ملاكاً ({{ count_h }}).
+          {% endblocktranslate %}
+        </p>
+      {% endif %}
+    </section>
+
+  </div>
+{% endblock %}

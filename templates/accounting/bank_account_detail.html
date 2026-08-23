@@ -9,8 +9,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="accounting-bank-detail">
-    <nav class="sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="workspace-page" id="accounting-bank-detail">
+    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:bank_account_list' %}">{% translate "الحسابات البنكية" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page"><bdi dir="ltr">{{ bank.code }}</bdi></span>
@@ -37,29 +37,29 @@
       </div>
     </div>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "التعريف" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "التعريف" %}</h2>
       <dl class="datalist">
-        <div><dt>{% translate "المؤسسة" %}</dt><dd>{{ bank.organization.code }}</dd></div>
-        <div><dt>{% translate "المصرف" %}</dt><dd>{{ bank.bank_name }}</dd></div>
-        <div><dt>{% translate "رقم الحساب" %}</dt><dd><bdi dir="ltr">{{ bank.masked_account_number }}</bdi></dd></div>
-        {% if bank.iban %}<div><dt>IBAN</dt><dd><bdi dir="ltr">{{ bank.iban }}</bdi></dd></div>{% endif %}
-        <div><dt>{% translate "الفرع" %}</dt><dd>{% if bank.branch %}{{ bank.branch.code }}{% else %}{% translate "على مستوى المؤسسة" %}{% endif %}</dd></div>
-        <div>
+        <div class="detailgrid__row"><dt>{% translate "المؤسسة" %}</dt><dd>{{ bank.organization.code }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "المصرف" %}</dt><dd>{{ bank.bank_name }}</dd></div>
+        <div class="detailgrid__row"><dt>{% translate "رقم الحساب" %}</dt><dd><bdi dir="ltr">{{ bank.masked_account_number }}</bdi></dd></div>
+        {% if bank.iban %}<div class="detailgrid__row"><dt>IBAN</dt><dd><bdi dir="ltr">{{ bank.iban }}</bdi></dd></div>{% endif %}
+        <div class="detailgrid__row"><dt>{% translate "الفرع" %}</dt><dd>{% if bank.branch %}{{ bank.branch.code }}{% else %}{% translate "على مستوى المؤسسة" %}{% endif %}</dd></div>
+        <div class="detailgrid__row">
           <dt>{% translate "الحساب المحاسبي" %}</dt>
           <dd><a href="{% url 'accounting:account_detail' bank.account.pk %}">
             <code dir="ltr">{{ bank.account.code }}</code> {{ bank.account.name_ar }}
           </a></dd>
         </div>
-        <div><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ current_balance|money_full }}</bdi></dd></div>
-        <div>
+        <div class="detailgrid__row"><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ current_balance|money_full }}</bdi></dd></div>
+        <div class="detailgrid__row">
           <dt>{% translate "آخر مطابقة" %}</dt>
           <dd>{% if bank.last_reconciled_on %}<bdi dir="ltr">{{ bank.last_reconciled_on|date:"Y-m-d" }}</bdi>{% else %}{% translate "لم تُسجَّل" %}{% endif %}</dd>
         </div>
       </dl>
 
       {% if may_manage %}
-        <form method="post" action="{% url 'accounting:bank_account_reconcile' bank.pk %}" class="formcard formcard--inline">
+        <form method="post" action="{% url 'accounting:bank_account_reconcile' bank.pk %}" class="inline-form">
           {% csrf_token %}
           <label class="field">
             <span class="field__label">{% translate "تسجيل مطابقة حتى" %}</span>
@@ -70,8 +70,8 @@
       {% endif %}
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "كشف الحركة" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "كشف الحركة" %}</h2>
       <form class="toolbar" method="get"
             hx-get="{% url 'accounting:bank_account_detail' bank.pk %}"
             hx-target="#accounting-bank-detail"
@@ -94,16 +94,16 @@
       {% include "accounting/_statement_table.html" %}
     </section>
 
-    <section class="card">
-      <h2 class="card__title">
+    <section class="formcard">
+      <h2>
         {% translate "بنود غير مطابقة" %}
         <span class="chip">{{ unreconciled|length }}</span>
       </h2>
       <p class="card__hint">
         {% translate "السطور المُرحَّلة بعد تاريخ آخر مطابقة. مشتقّة من التواريخ، لا علامة مخزّنة على السطر — دفتر الأستاذ مُلحَق فقط ولا يقبل علامة تتغيّر." %}
       </p>
-      <div class="tablewrap">
-        <table class="table">
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead><tr>
             <th>{% translate "التاريخ" %}</th><th>{% translate "القيد" %}</th>
             <th>{% translate "مدين" %}</th><th>{% translate "دائن" %}</th>
@@ -111,24 +111,24 @@
           <tbody>
             {% for row in unreconciled %}
               <tr>
-                <td><bdi dir="ltr">{{ row.line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
-                <td><a href="{% url 'accounting:journal_detail' row.line.entry.pk %}"><bdi dir="ltr">{{ row.line.entry.entry_number }}</bdi></a></td>
-                <td><bdi dir="ltr">{{ row.line.debit|money_full }}</bdi></td>
-                <td><bdi dir="ltr">{{ row.line.credit|money_full }}</bdi></td>
+                <td data-label="{% translate 'التاريخ' %}"><bdi dir="ltr">{{ row.line.entry.accounting_date|date:"Y-m-d" }}</bdi></td>
+                <td data-label="{% translate 'القيد' %}"><a href="{% url 'accounting:journal_detail' row.line.entry.pk %}"><bdi dir="ltr">{{ row.line.entry.entry_number }}</bdi></a></td>
+                <td data-label="{% translate 'مدين' %}"><bdi dir="ltr">{{ row.line.debit|money_full }}</bdi></td>
+                <td data-label="{% translate 'دائن' %}"><bdi dir="ltr">{{ row.line.credit|money_full }}</bdi></td>
               </tr>
             {% empty %}
-              <tr><td colspan="4" class="empty">{% translate "كل الحركة داخل هذه الفترة مطابَقة." %}</td></tr>
+              <tr><td colspan="4" class="empty" data-empty-state>{% translate "كل الحركة داخل هذه الفترة مطابَقة." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "دفعات الموردين" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "دفعات الموردين" %}</h2>
       <p class="card__hint">{% translate "تملكها المشتريات. تُقرأ من هنا وتُدار من شاشتها." %}</p>
-      <div class="tablewrap">
-        <table class="table">
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead><tr>
             <th>{% translate "التاريخ" %}</th><th>{% translate "المورد" %}</th>
             <th>{% translate "المبلغ" %}</th><th>{% translate "الحالة" %}</th>
@@ -136,24 +136,24 @@
           <tbody>
             {% for payment in payments %}
               <tr>
-                <td><bdi dir="ltr">{{ payment.business_date|date:"Y-m-d" }}</bdi></td>
-                <td>{{ payment.supplier.name_ar }}</td>
-                <td><bdi dir="ltr">{{ payment.amount|money_full }}</bdi></td>
-                <td>{{ payment.get_status_display }}</td>
+                <td data-label="{% translate 'التاريخ' %}"><bdi dir="ltr">{{ payment.business_date|date:"Y-m-d" }}</bdi></td>
+                <td data-label="{% translate 'المورد' %}">{{ payment.supplier.name_ar }}</td>
+                <td data-label="{% translate 'المبلغ' %}"><bdi dir="ltr">{{ payment.amount|money_full }}</bdi></td>
+                <td data-label="{% translate 'الحالة' %}">{{ payment.get_status_display }}</td>
               </tr>
             {% empty %}
-              <tr><td colspan="4" class="empty">{% translate "لا دفعات." %}</td></tr>
+              <tr><td colspan="4" class="empty" data-empty-state>{% translate "لا دفعات." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
 
-    <section class="card">
-      <h2 class="card__title">{% translate "تسويات تطبيقات التوصيل" %}</h2>
+    <section class="formcard">
+      <h2>{% translate "تسويات تطبيقات التوصيل" %}</h2>
       <p class="card__hint">{% translate "تملكها المبيعات. تُقرأ من هنا وتُدار من شاشتها." %}</p>
-      <div class="tablewrap">
-        <table class="table">
+      <div class="data-table-shell" tabindex="0">
+        <table class="table responsive-table">
           <thead><tr>
             <th>{% translate "التطبيق" %}</th><th>{% translate "حتى" %}</th>
             <th>{% translate "الحالة" %}</th><th></th>
@@ -161,19 +161,19 @@
           <tbody>
             {% for settlement in settlements %}
               <tr>
-                <td>{{ settlement.delivery_application.name_ar }}</td>
-                <td><bdi dir="ltr">{{ settlement.period_end|date:"Y-m-d" }}</bdi></td>
-                <td>{{ settlement.get_status_display }}</td>
+                <td data-label="{% translate 'التطبيق' %}">{{ settlement.delivery_application.name_ar }}</td>
+                <td data-label="{% translate 'حتى' %}"><bdi dir="ltr">{{ settlement.period_end|date:"Y-m-d" }}</bdi></td>
+                <td data-label="{% translate 'الحالة' %}">{{ settlement.get_status_display }}</td>
                 <td class="cell-actions">
                   <a class="btn btn--secondary btn--sm" href="{% url 'sales:settlement_detail' settlement.pk %}">{% translate "فتح" %}</a>
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="4" class="empty">{% translate "لا تسويات." %}</td></tr>
+              <tr><td colspan="4" class="empty" data-empty-state>{% translate "لا تسويات." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
-  </div>
+  </section>
 {% endblock %}

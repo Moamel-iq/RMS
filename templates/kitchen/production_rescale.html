@@ -16,30 +16,33 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="production-action">
+  <div class="workspace-page workspace-form-page" id="production-action">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         <p class="pagehead__hint">
           {% translate "المتطلبات لا يُعاد توسيعها. تُعاد الكميات المخططة من الأساس المجمَّد للوصفة، فلا يتراكم خطأ تقريب مع كل تغيير." %}
         </p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "رجوع إلى المسودة" %}
         </a>
       </div>
     </div>
 
-    <dl class="deflist">
-      <dt>{% translate "المعامل الحالي" %}</dt>
-      <dd><code dir="ltr">{{ batch.multiplier_display }}</code></dd>
-      <dt>{% translate "الناتج المتوقع الحالي" %}</dt>
-      <dd>
-        <code dir="ltr">{{ batch.expected_output_display }}</code>
-        {{ batch.expected_output_unit_code }}
-      </dd>
-    </dl>
+    <section class="formcard">
+      <h2>{% translate "الوضع الحالي" %}</h2>
+      <dl class="deflist">
+        <dt>{% translate "المعامل الحالي" %}</dt>
+        <dd><code dir="ltr">{{ batch.multiplier_display }}</code></dd>
+        <dt>{% translate "الناتج المتوقع الحالي" %}</dt>
+        <dd>
+          <code dir="ltr">{{ batch.expected_output_display }}</code>
+          {{ batch.expected_output_unit_code }}
+        </dd>
+      </dl>
+    </section>
 
     <form class="formcard"
           method="post"

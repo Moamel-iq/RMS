@@ -13,13 +13,13 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="production-create">
+  <div class="workspace-page workspace-form-page" id="production-create">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">{{ page_title }}</h1>
         {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         <a class="btn btn--ghost" href="{% url 'kitchen:production_preview' %}">
           {% translate "معاينة قبل الإنشاء" %}
         </a>

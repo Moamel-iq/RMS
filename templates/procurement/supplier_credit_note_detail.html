@@ -7,120 +7,188 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="pagehead">
-    <div>
-      <h1 class="pagehead__title">
-        {% if credit_note.number %}<span dir="ltr">{{ credit_note.number }}</span>{% else %}{% translate "مسودة إشعار" %}{% endif %}
-      </h1>
-      <p class="pagehead__hint">
-        {{ credit_note.supplier.name_ar }} —
-        <span class="chip">{{ credit_note.get_status_display }}</span>
+  <section class="workspace-page">
+    <div class="pagehead">
+      <div class="pagehead__copy">
+        <h1 class="pagehead__title">
+          {% if credit_note.number %}<span dir="ltr">{{ credit_note.number }}</span>{% else %}{% translate "مسودة إشعار" %}{% endif %}
+        </h1>
+        <p class="pagehead__hint">
+          {{ credit_note.supplier.name_ar }} —
+          <span class="chip">{{ credit_note.get_status_display }}</span>
+        </p>
+      </div>
+      <div class="pagehead__actions">
+        <a class="btn btn--ghost" href="{% url 'procurement:supplier_credit_note_list' %}">{% translate "رجوع" %}</a>
+      </div>
+    </div>
+
+    <div class="formcard">
+      <dl class="detailgrid">
+        <dt>{% translate "المورد" %}</dt><dd>{{ credit_note.supplier.code }} — {{ credit_note.supplier.name_ar }}</dd>
+        <dt>{% translate "المرتجع المُسوّى" %}</dt>
+        <dd>
+          <a href="{% url 'procurement:supplier_return_detail' credit_note.supplier_return.pk %}">
+            <span dir="ltr">{{ credit_note.supplier_return.number }}</span>
+          </a>
+        </dd>
+        <dt>{% translate "مستند المورد" %}</dt>
+        <dd><span dir="ltr">{{ credit_note.supplier_document_number }}</span></dd>
+        <dt>{% translate "تاريخ الإشعار" %}</dt><dd><span dir="ltr">{{ credit_note.credit_date|date:"Y-m-d" }}</span></dd>
+        <dt>{% translate "السبب" %}</dt><dd>{{ credit_note.reason|default:"—" }}</dd>
+        <dt>{% translate "سجّله" %}</dt><dd>{{ credit_note.created_by.username }}</dd>
+        {% if may_see_cost %}
+          <dt>{% translate "المبلغ المعتمد" %}</dt>
+          <dd><span dir="ltr">{{ credit_note.amount|money_full }}</span></dd>
+          <dt>{% translate "القيمة الدفترية للمرتجع" %}</dt>
+          <dd><span dir="ltr">{{ book_value|money_full }}</span></dd>
+          {% if credit_note.status == "POSTED" %}
+            <dt>{% translate "الرصيد غير المخصص" %}</dt>
+            <dd><span dir="ltr">{{ unallocated|money_full }}</span></dd>
+          {% endif %}
+        {% endif %}
+        {% if credit_note.journal_entry_id %}
+          <dt>{% translate "القيد المحاسبي" %}</dt>
+          <dd><span dir="ltr">{{ credit_note.journal_entry.entry_number }}</span></dd>
+        {% endif %}
+        {% if credit_note.reversal_journal_entry_id %}
+          <dt>{% translate "قيد العكس" %}</dt>
+          <dd><span dir="ltr">{{ credit_note.reversal_journal_entry.entry_number }}</span></dd>
+          <dt>{% translate "سبب العكس" %}</dt>
+          <dd>{{ credit_note.reversal_reason }}</dd>
+        {% endif %}
+      </dl>
+      <p class="muted">
+        {% translate "الترحيل يقفل مطالبة المرتجع بقيمتها الدفترية، يخفّض ذمة المورد بالمبلغ المعتمد، ويعترف بالفرق في حساب فروقات المرتجعات — بورقة المورد لا بالتوقع. لا يتحرك مخزون." %}
       </p>
     </div>
-    <a class="btn btn--ghost" href="{% url 'procurement:supplier_credit_note_list' %}">{% translate "رجوع" %}</a>
-  </div>
 
-  <div class="formcard">
-    <dl class="detailgrid">
-      <dt>{% translate "المورد" %}</dt><dd>{{ credit_note.supplier.code }} — {{ credit_note.supplier.name_ar }}</dd>
-      <dt>{% translate "المرتجع المُسوّى" %}</dt>
-      <dd>
-        <a href="{% url 'procurement:supplier_return_detail' credit_note.supplier_return.pk %}">
-          <span dir="ltr">{{ credit_note.supplier_return.number }}</span>
-        </a>
-      </dd>
-      <dt>{% translate "مستند المورد" %}</dt>
-      <dd><span dir="ltr">{{ credit_note.supplier_document_number }}</span></dd>
-      <dt>{% translate "تاريخ الإشعار" %}</dt><dd><span dir="ltr">{{ credit_note.credit_date|date:"Y-m-d" }}</span></dd>
-      <dt>{% translate "السبب" %}</dt><dd>{{ credit_note.reason|default:"—" }}</dd>
-      <dt>{% translate "سجّله" %}</dt><dd>{{ credit_note.created_by.username }}</dd>
-      {% if may_see_cost %}
-        <dt>{% translate "المبلغ المعتمد" %}</dt>
-        <dd><span dir="ltr">{{ credit_note.amount|money_full }}</span></dd>
-        <dt>{% translate "القيمة الدفترية للمرتجع" %}</dt>
-        <dd><span dir="ltr">{{ book_value|money_full }}</span></dd>
-        {% if credit_note.status == "POSTED" %}
-          <dt>{% translate "الرصيد غير المخصص" %}</dt>
-          <dd><span dir="ltr">{{ unallocated|money_full }}</span></dd>
-        {% endif %}
-      {% endif %}
-      {% if credit_note.journal_entry_id %}
-        <dt>{% translate "القيد المحاسبي" %}</dt>
-        <dd><span dir="ltr">{{ credit_note.journal_entry.entry_number }}</span></dd>
-      {% endif %}
-      {% if credit_note.reversal_journal_entry_id %}
-        <dt>{% translate "قيد العكس" %}</dt>
-        <dd><span dir="ltr">{{ credit_note.reversal_journal_entry.entry_number }}</span></dd>
-        <dt>{% translate "سبب العكس" %}</dt>
-        <dd>{{ credit_note.reversal_reason }}</dd>
-      {% endif %}
-    </dl>
-    <p class="muted">
-      {% translate "الترحيل يقفل مطالبة المرتجع بقيمتها الدفترية، يخفّض ذمة المورد بالمبلغ المعتمد، ويعترف بالفرق في حساب فروقات المرتجعات — بورقة المورد لا بالتوقع. لا يتحرك مخزون." %}
-    </p>
-  </div>
-
-  <div class="formcard">
-    <h2>{% translate "التسوية على أسطر المرتجع" %}</h2>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>{% translate "الصنف" %}</th>
-          <th>{% translate "الكمية المعتمدة" %}</th>
-          <th>{% translate "المتبقي من السطر" %}</th>
-          {% if may_see_cost %}<th>{% translate "المبلغ المعتمد" %}</th>{% endif %}
-          {% if may_see_cost %}<th>{% translate "القيمة الدفترية المسوّاة" %}</th>{% endif %}
-          {% if may_edit %}<th>{% translate "إجراءات" %}</th>{% endif %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in settlements %}
-          <tr>
-            <td>{{ row.allocation.sequence }}</td>
-            <td>{{ row.line.item.code }} — {{ row.line.item.name_ar }}</td>
-            <td><span dir="ltr">{{ row.allocation.credited_base_quantity|quantity }}</span></td>
-            <td><span dir="ltr">{{ row.remaining_quantity|quantity }}</span></td>
-            {% if may_see_cost %}
-              <td><span dir="ltr">{{ row.allocation.allocated_credit_amount|money_full }}</span></td>
-              <td>
-                {% if row.allocation.settled_book_value is not None %}
-                  <span dir="ltr">{{ row.allocation.settled_book_value|money_full }}</span>
-                {% else %}
-                  <span class="muted">{% translate "تُحسب عند الترحيل" %}</span>
+    <div class="formcard">
+      <h2>{% translate "التسوية على أسطر المرتجع" %}</h2>
+      <div class="data-table-shell">
+        <table class="table responsive-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>{% translate "الصنف" %}</th>
+              <th>{% translate "الكمية المعتمدة" %}</th>
+              <th>{% translate "المتبقي من السطر" %}</th>
+              {% if may_see_cost %}<th>{% translate "المبلغ المعتمد" %}</th>{% endif %}
+              {% if may_see_cost %}<th>{% translate "القيمة الدفترية المسوّاة" %}</th>{% endif %}
+              {% if may_edit %}<th>{% translate "إجراءات" %}</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in settlements %}
+              <tr>
+                <td>{{ row.allocation.sequence }}</td>
+                <td>{{ row.line.item.code }} — {{ row.line.item.name_ar }}</td>
+                <td><span dir="ltr">{{ row.allocation.credited_base_quantity|quantity }}</span></td>
+                <td><span dir="ltr">{{ row.remaining_quantity|quantity }}</span></td>
+                {% if may_see_cost %}
+                  <td><span dir="ltr">{{ row.allocation.allocated_credit_amount|money_full }}</span></td>
+                  <td>
+                    {% if row.allocation.settled_book_value is not None %}
+                      <span dir="ltr">{{ row.allocation.settled_book_value|money_full }}</span>
+                    {% else %}
+                      <span class="muted">{% translate "تُحسب عند الترحيل" %}</span>
+                    {% endif %}
+                  </td>
                 {% endif %}
-              </td>
-            {% endif %}
-            {% if may_edit %}
-              <td>
-                <div class="rowactions">
-                  <form method="post" action="{% url 'procurement:credit_return_allocation_delete' credit_note.pk row.allocation.pk %}">
-                    {% csrf_token %}
-                    <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
-                  </form>
-                </div>
-              </td>
-            {% endif %}
+                {% if may_edit %}
+                  <td>
+                    <div class="rowactions">
+                      <form method="post" action="{% url 'procurement:credit_return_allocation_delete' credit_note.pk row.allocation.pk %}">
+                        {% csrf_token %}
+                        <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                      </form>
+                    </div>
+                  </td>
+                {% endif %}
+              </tr>
+            {% empty %}
+              <tr><td colspan="7" data-empty-state>{% translate "لم تُسجَّل تسوية بعد — الترحيل يرفض إشعاراً لا يسوّي شيئاً." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">
+        {% translate "التسوية جزئية وصريحة: قد يغطي الإشعار جزءاً من سطر، وقد يُسوّى السطر عبر أكثر من إشعار، والحد كميته المرتجعة وقيمته الدفترية. القيمة المسوّاة تُحسب عند الترحيل بنصيب نسبي من المتبقي، وآخر تسوية تأخذ المتبقي بالضبط فلا يبقى كسر في حساب التسوية." %}
+      </p>
+      {% if may_edit %}
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="allocation_type" value="RETURN">
+          {% if return_form.non_field_errors %}
+            <div class="alert" role="alert">
+              {% for error in return_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+            </div>
+          {% endif %}
+          <div class="formgrid">
+            {% for field in return_form %}
+              <label class="field">
+                <span class="field__label">{{ field.label }}</span>
+                {{ field }}
+                {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
+                {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+              </label>
+            {% endfor %}
+          </div>
+          <button class="btn btn--primary" type="submit">{% translate "إضافة تسوية" %}</button>
+        </form>
+      {% endif %}
+    </div>
+
+    <div class="tablewrap">
+      <table class="table responsive-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>{% translate "الفاتورة" %}</th>
+            {% if may_see_cost %}<th>{% translate "المبلغ المخصص" %}</th>{% endif %}
+            <th>{% translate "ملاحظة" %}</th>
+            {% if may_edit %}<th>{% translate "إجراءات" %}</th>{% endif %}
           </tr>
-        {% empty %}
-          <tr><td colspan="7">{% translate "لم تُسجَّل تسوية بعد — الترحيل يرفض إشعاراً لا يسوّي شيئاً." %}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="muted">
-      {% translate "التسوية جزئية وصريحة: قد يغطي الإشعار جزءاً من سطر، وقد يُسوّى السطر عبر أكثر من إشعار، والحد كميته المرتجعة وقيمته الدفترية. القيمة المسوّاة تُحسب عند الترحيل بنصيب نسبي من المتبقي، وآخر تسوية تأخذ المتبقي بالضبط فلا يبقى كسر في حساب التسوية." %}
-    </p>
+        </thead>
+        <tbody>
+          {% for allocation in allocations %}
+            <tr>
+              <td>{{ allocation.sequence }}</td>
+              <td><span dir="ltr">{{ allocation.invoice.number }}</span></td>
+              {% if may_see_cost %}
+                <td><span dir="ltr">{{ allocation.allocated_amount|money_full }}</span></td>
+              {% endif %}
+              <td>{{ allocation.note|default:"—" }}</td>
+              {% if may_edit %}
+                <td>
+                  <div class="rowactions">
+                    <form method="post" action="{% url 'procurement:credit_allocation_delete' credit_note.pk allocation.pk %}">
+                      {% csrf_token %}
+                      <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                    </form>
+                  </div>
+                </td>
+              {% endif %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" data-empty-state>{% translate "بلا تخصيص — يقف الإشعار رصيداً دائناً للمورد." %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
     {% if may_edit %}
-      <form method="post" novalidate>
+      <form class="formcard" method="post" novalidate>
+        <h2>{% translate "تخصيص على فاتورة" %}</h2>
         {% csrf_token %}
-        <input type="hidden" name="allocation_type" value="RETURN">
-        {% if return_form.non_field_errors %}
+        <input type="hidden" name="allocation_type" value="INVOICE">
+        {% if form.non_field_errors %}
           <div class="alert" role="alert">
-            {% for error in return_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+            {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
           </div>
         {% endif %}
         <div class="formgrid">
-          {% for field in return_form %}
+          {% for field in form %}
             <label class="field">
               <span class="field__label">{{ field.label }}</span>
               {{ field }}
@@ -129,117 +197,59 @@
             </label>
           {% endfor %}
         </div>
-        <button class="btn btn--primary" type="submit">{% translate "إضافة تسوية" %}</button>
+        <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
       </form>
     {% endif %}
-  </div>
 
-  <table class="table">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>{% translate "الفاتورة" %}</th>
-        {% if may_see_cost %}<th>{% translate "المبلغ المخصص" %}</th>{% endif %}
-        <th>{% translate "ملاحظة" %}</th>
-        {% if may_edit %}<th>{% translate "إجراءات" %}</th>{% endif %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for allocation in allocations %}
-        <tr>
-          <td>{{ allocation.sequence }}</td>
-          <td><span dir="ltr">{{ allocation.invoice.number }}</span></td>
-          {% if may_see_cost %}
-            <td><span dir="ltr">{{ allocation.allocated_amount|money_full }}</span></td>
-          {% endif %}
-          <td>{{ allocation.note|default:"—" }}</td>
-          {% if may_edit %}
-            <td>
-              <div class="rowactions">
-                <form method="post" action="{% url 'procurement:credit_allocation_delete' credit_note.pk allocation.pk %}">
-                  {% csrf_token %}
-                  <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
-                </form>
-              </div>
-            </td>
-          {% endif %}
-        </tr>
-      {% empty %}
-        <tr><td colspan="5">{% translate "بلا تخصيص — يقف الإشعار رصيداً دائناً للمورد." %}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  {% if may_edit %}
-    <form class="formcard" method="post" novalidate>
-      {% csrf_token %}
-      <input type="hidden" name="allocation_type" value="INVOICE">
-      <h2>{% translate "تخصيص على فاتورة" %}</h2>
-      {% if form.non_field_errors %}
-        <div class="alert" role="alert">
-          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
-        </div>
+    <div class="formcard">
+      <h2>{% translate "الترحيل" %}</h2>
+      {% if credit_note.status == "DRAFT" %}
+        <p class="muted">
+          {% translate "الترحيل يُنشئ القيد: مدين ذمة المورد بالمبلغ المعتمد، دائن تسوية المرتجعات بالقيمة الدفترية، والفرق إلى فروقات المرتجعات. التخصيص اختياري — الباقي يقف رصيداً دائناً." %}
+        </p>
+        {% if may_post %}
+          <form method="post" action="{% url 'procurement:supplier_credit_note_post' credit_note.pk %}">
+            {% csrf_token %}
+            <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+          </form>
+        {% endif %}
+      {% elif credit_note.status == "POSTED" %}
+        <p class="muted">
+          {% translate "مرحّل. الإشعار المرحّل لا يُعدَّل؛ يُصحَّح بالعكس ثم بتسجيل إشعار جديد، فتعود المطالبة قائمة." %}
+        </p>
+        {% if may_reverse %}
+          <form method="post" action="{% url 'procurement:supplier_credit_note_reverse' credit_note.pk %}">
+            {% csrf_token %}
+            <label class="field">
+              <span class="field__label">{% translate "سبب العكس" %}</span>
+              <input type="text" name="reason" required>
+            </label>
+            <button class="btn btn--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
+          </form>
+        {% endif %}
+      {% else %}
+        <p class="muted">
+          {% translate "معكوس. السجل باقٍ كما هو؛ التصحيح يكون بإشعار جديد، والمرتجع عاد قابلاً للتسوية." %}
+        </p>
       {% endif %}
-      <div class="formgrid">
-        {% for field in form %}
-          <label class="field">
-            <span class="field__label">{{ field.label }}</span>
-            {{ field }}
-            {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
-            {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
-          </label>
-        {% endfor %}
+    </div>
+
+    <div class="formcard">
+      <h2>{% translate "المسار الزمني" %}</h2>
+      <div class="data-table-shell">
+        <table class="table responsive-table">
+          <tbody>
+            {% for event in timeline %}
+              <tr>
+                <td>{{ event.label }}</td>
+                <td><span dir="ltr">{{ event.at|date:"Y-m-d H:i" }}</span></td>
+                <td>{{ event.who|default:"—" }}</td>
+                <td>{{ event.note|default:"" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
-      <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
-    </form>
-  {% endif %}
-
-  <div class="formcard">
-    <h2>{% translate "الترحيل" %}</h2>
-    {% if credit_note.status == "DRAFT" %}
-      <p class="muted">
-        {% translate "الترحيل يُنشئ القيد: مدين ذمة المورد بالمبلغ المعتمد، دائن تسوية المرتجعات بالقيمة الدفترية، والفرق إلى فروقات المرتجعات. التخصيص اختياري — الباقي يقف رصيداً دائناً." %}
-      </p>
-      {% if may_post %}
-        <form method="post" action="{% url 'procurement:supplier_credit_note_post' credit_note.pk %}">
-          {% csrf_token %}
-          <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
-        </form>
-      {% endif %}
-    {% elif credit_note.status == "POSTED" %}
-      <p class="muted">
-        {% translate "مرحّل. الإشعار المرحّل لا يُعدَّل؛ يُصحَّح بالعكس ثم بتسجيل إشعار جديد، فتعود المطالبة قائمة." %}
-      </p>
-      {% if may_reverse %}
-        <form method="post" action="{% url 'procurement:supplier_credit_note_reverse' credit_note.pk %}">
-          {% csrf_token %}
-          <label class="field">
-            <span class="field__label">{% translate "سبب العكس" %}</span>
-            <input type="text" name="reason" required>
-          </label>
-          <button class="btn btn--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
-        </form>
-      {% endif %}
-    {% else %}
-      <p class="muted">
-        {% translate "معكوس. السجل باقٍ كما هو؛ التصحيح يكون بإشعار جديد، والمرتجع عاد قابلاً للتسوية." %}
-      </p>
-    {% endif %}
-  </div>
-
-  <div class="formcard">
-    <h2>{% translate "المسار الزمني" %}</h2>
-    <table class="table">
-      <tbody>
-        {% for event in timeline %}
-          <tr>
-            <td>{{ event.label }}</td>
-            <td><span dir="ltr">{{ event.at|date:"Y-m-d H:i" }}</span></td>
-            <td>{{ event.who|default:"—" }}</td>
-            <td>{{ event.note|default:"" }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+    </div>
+  </section>
 {% endblock %}

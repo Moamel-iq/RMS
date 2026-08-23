@@ -10,15 +10,15 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="kitchen-meal-detail">
+  <div class="workspace-page" id="kitchen-meal-detail">
     <div class="pagehead">
-      <div>
+      <div class="pagehead__copy">
         <h1 class="pagehead__title">
           {{ record.get_meal_type_display }} — {{ record.recipe.name_ar }}
         </h1>
         <p class="pagehead__hint">{{ meal_statement }}</p>
       </div>
-      <div class="rowactions">
+      <div class="pagehead__actions">
         {% if can_record and record.is_recorded %}
           <a class="btn btn--danger" href="{% url 'kitchen:meal_cancel' record.pk %}">
             {% translate "إلغاء السجل" %}
@@ -34,55 +34,58 @@
       </p>
     {% endif %}
 
-    <dl class="deflist">
-      <dt>{% translate "النوع" %}</dt>
-      <dd>{{ record.get_meal_type_display }}</dd>
-      <dt>{% translate "الفرع" %}</dt>
-      <dd>{{ record.branch.code }} — {{ record.branch.name_ar }}</dd>
-      <dt>{% translate "تاريخ الاستهلاك" %}</dt>
-      <dd><code dir="ltr">{{ record.consumed_on|date:"Y-m-d" }}</code></dd>
-      <dt>{% translate "الوصفة" %}</dt>
-      <dd>{{ record.recipe.code }} — {{ record.recipe.name_ar }}</dd>
-      <dt>{% translate "النسخة المجمّدة" %}</dt>
-      <dd>
-        <code dir="ltr">v{{ record.recipe_version.version_number }}</code>
-        <span class="muted">{% translate "محسومة بتاريخ الاستهلاك ولا يُعاد حسابها" %}</span>
-      </dd>
-      <dt>{% translate "الحصة" %}</dt>
-      <dd>{% if record.serving_id %}{{ record.serving.name_ar }}{% else %}{% translate "وحدة الناتج" %}{% endif %}</dd>
-      <dt>{% translate "عدد الحصص" %}</dt>
-      <dd><code dir="ltr">{{ record.quantity_display }}</code></dd>
-      <dt>{% translate "الكمية بوحدة الناتج" %}</dt>
-      <dd>
-        <code dir="ltr">{{ record.output_display }}</code>
-        <bdi dir="ltr">{{ record.output_unit_code }}</bdi>
-      </dd>
-      <dt>{% translate "المستفيد أو الوردية" %}</dt>
-      <dd>{{ record.beneficiary|default:"—" }}</dd>
-      <dt>{% translate "السبب" %}</dt>
-      <dd>{{ record.reason|default:"—" }}</dd>
-      <dt>{% translate "أثر المخزون" %}</dt>
-      <dd>{% translate "لا حركة مخزنية ولا قيد محاسبي" %}</dd>
-      {% if record.replaces_id %}
-        <dt>{% translate "يستبدل السجل" %}</dt>
+    <section class="formcard">
+      <h2>{% translate "التعريف" %}</h2>
+      <dl class="deflist">
+        <dt>{% translate "النوع" %}</dt>
+        <dd>{{ record.get_meal_type_display }}</dd>
+        <dt>{% translate "الفرع" %}</dt>
+        <dd>{{ record.branch.code }} — {{ record.branch.name_ar }}</dd>
+        <dt>{% translate "تاريخ الاستهلاك" %}</dt>
+        <dd><code dir="ltr">{{ record.consumed_on|date:"Y-m-d" }}</code></dd>
+        <dt>{% translate "الوصفة" %}</dt>
+        <dd>{{ record.recipe.code }} — {{ record.recipe.name_ar }}</dd>
+        <dt>{% translate "النسخة المجمّدة" %}</dt>
         <dd>
-          <a href="{% url 'kitchen:meal_detail' record.replaces_id %}">
-            <code dir="ltr">{{ record.replaces.public_id }}</code>
-          </a>
+          <code dir="ltr">v{{ record.recipe_version.version_number }}</code>
+          <span class="muted">{% translate "محسومة بتاريخ الاستهلاك ولا يُعاد حسابها" %}</span>
         </dd>
-      {% endif %}
-    </dl>
+        <dt>{% translate "الحصة" %}</dt>
+        <dd>{% if record.serving_id %}{{ record.serving.name_ar }}{% else %}{% translate "وحدة الناتج" %}{% endif %}</dd>
+        <dt>{% translate "عدد الحصص" %}</dt>
+        <dd><code dir="ltr">{{ record.quantity_display }}</code></dd>
+        <dt>{% translate "الكمية بوحدة الناتج" %}</dt>
+        <dd>
+          <code dir="ltr">{{ record.output_display }}</code>
+          <bdi dir="ltr">{{ record.output_unit_code }}</bdi>
+        </dd>
+        <dt>{% translate "المستفيد أو الوردية" %}</dt>
+        <dd>{{ record.beneficiary|default:"—" }}</dd>
+        <dt>{% translate "السبب" %}</dt>
+        <dd>{{ record.reason|default:"—" }}</dd>
+        <dt>{% translate "أثر المخزون" %}</dt>
+        <dd>{% translate "لا حركة مخزنية ولا قيد محاسبي" %}</dd>
+        {% if record.replaces_id %}
+          <dt>{% translate "يستبدل السجل" %}</dt>
+          <dd>
+            <a href="{% url 'kitchen:meal_detail' record.replaces_id %}">
+              <code dir="ltr">{{ record.replaces.public_id }}</code>
+            </a>
+          </dd>
+        {% endif %}
+      </dl>
+    </section>
 
     {% if record.notes %}
-      <section class="panel">
-        <h2 class="panel__title">{% translate "ملاحظات" %}</h2>
+      <section class="formcard">
+        <h2>{% translate "ملاحظات" %}</h2>
         <p>{{ record.notes }}</p>
       </section>
     {% endif %}
 
-    <section class="panel">
-      <h2 class="panel__title">{% translate "سجل التدقيق" %}</h2>
-      <ul class="timeline">
+    <section class="formcard">
+      <h2>{% translate "سجل التدقيق" %}</h2>
+      <ul class="checklist">
         {% for event in timeline %}
           <li>
             <span class="pill">{{ event.get_action_display }}</span>

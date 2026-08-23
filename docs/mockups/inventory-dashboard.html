@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة المخزون — خان مندي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* ============================================================================
+   خان مندي — نظام التصميم
+   الرموز مشتقة من دليل الأنماط: تيل أساسي، سطح دافئ، تدرّج رمادي من 50 إلى 900،
+   أربع مستويات ارتفاع، أنصاف أقطار 4/8/12/16/كامل.
+   قاعدة 60-30-10: المحايد يملأ السطح، والثانوي يحمل البنية، والتيل للفعل وحده.
+   خصائص منطقية فقط (inline-start / inline-end) — ورقة واحدة تخدم RTL و LTR.
+   ========================================================================= */
+:root {
+  /* --- سطوح ومحايدات (60%) --- */
+  --gray-50:#FAF9F6; --gray-100:#F2F0EA; --gray-200:#E4E1D8;
+  --gray-300:#CFCBBF; --gray-500:#8C877A; --gray-700:#4A463C; --gray-900:#22201A;
+  --ground:var(--gray-100); --surface:#FFFFFF; --surface-2:var(--gray-50);
+  --ink:var(--gray-900); --ink-2:var(--gray-700); --muted:var(--gray-500);
+  --border:var(--gray-200); --border-2:var(--gray-300);
+
+  /* --- الأساسي: فعل وتأكيد (10%) --- */
+  --primary:#14504F; --primary-hover:#0F3E3D; --primary-active:#0A2C2B;
+  --primary-wash:#E3EDEC; --on-primary:#FFFFFF;
+
+  /* --- دلالات --- */
+  --ok:#2E6B4F;    --ok-wash:#E4EFE8;
+  --info:#2D6CDF;  --info-wash:#E5EDFB;
+  --warn:#A5710F;  --warn-wash:#F8EFD8;
+  --danger:#A03328;--danger-wash:#F8E4E1;
+
+  /* --- ألوان البيانات: متمايزة في الدرجة لا في الصبغة وحدها --- */
+  --c1:#14504F; --c2:#3D8B7D; --c3:#7FB0A3; --c4:#A5710F; --c5:#C79A45; --c6:#8C877A;
+
+  /* --- ارتفاع --- */
+  --e1:0 1px 2px rgba(34,32,26,.06);
+  --e2:0 2px 6px -1px rgba(34,32,26,.08), 0 1px 2px rgba(34,32,26,.05);
+  --e3:0 8px 20px -6px rgba(34,32,26,.12), 0 2px 4px rgba(34,32,26,.05);
+
+  --r-sm:4px; --r-md:8px; --r-lg:12px; --r-xl:16px; --r-full:999px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px;
+  --sidebar:248px;
+}
+html[data-theme="dark"] {
+  --gray-50:#1C1B17; --gray-100:#16150F; --gray-200:#2C2A22;
+  --gray-300:#3B3830; --gray-500:#9A9486; --gray-700:#C9C4B6; --gray-900:#EFEBE0;
+  --ground:#100F0B; --surface:#1A1913; --surface-2:#211F18;
+  --ink:var(--gray-900); --ink-2:var(--gray-700); --muted:var(--gray-500);
+  --border:#2C2A22; --border-2:#3B3830;
+  --primary:#4FA79C; --primary-hover:#63BCB0; --primary-active:#7ACFC3;
+  --primary-wash:#12312F; --on-primary:#0A2422;
+  --ok:#6FBF93; --ok-wash:#13291E;
+  --info:#7EA9F0; --info-wash:#141F33;
+  --warn:#D9A03B; --warn-wash:#2E2410;
+  --danger:#E08074; --danger-wash:#301612;
+  --c1:#4FA79C; --c2:#6FBF93; --c3:#9BD0C6; --c4:#D9A03B; --c5:#E6C079; --c6:#9A9486;
+  --e1:0 1px 2px rgba(0,0,0,.4);
+  --e2:0 2px 6px -1px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4);
+  --e3:0 10px 24px -8px rgba(0,0,0,.7), 0 2px 4px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"IBM Plex Sans Arabic","Segoe UI",system-ui,sans-serif;
+  font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums; direction:ltr; unicode-bidi:embed}
+
+/* ===== الهيكل: منطقة مشتركة لكل مجموعة (Law of Common Region) ===== */
+.shell{display:grid; grid-template-columns:var(--sidebar) 1fr; min-block-size:100vh}
+
+/* ===== الشريط الجانبي — ثابت المكان (Jakob's Law) ===== */
+.side{
+  background:var(--surface); border-inline-end:1px solid var(--border);
+  display:flex; flex-direction:column; gap:var(--s-5); padding:var(--s-5) var(--s-4);
+  position:sticky; inset-block-start:0; block-size:100vh; overflow-y:auto;
+}
+.brand{display:flex; align-items:center; gap:var(--s-3); padding-inline:var(--s-2)}
+.brand .mark{
+  inline-size:36px; block-size:36px; border-radius:var(--r-md); flex:none;
+  background:var(--primary); color:var(--on-primary);
+  display:grid; place-items:center; font-weight:700; font-size:15px;
+}
+.brand b{font-size:15px; font-weight:600; display:block; line-height:1.25}
+.brand small{color:var(--muted); font-size:11px}
+.nav-label{font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.08em; padding-inline:var(--s-2); margin-block-end:var(--s-2)}
+.nav{display:flex; flex-direction:column; gap:2px}
+/* Fitts's Law: هدف كبير ومساحة نقر تمتد لعرض الشريط كله */
+.nav a{
+  display:flex; align-items:center; gap:var(--s-3);
+  padding:10px var(--s-3); border-radius:var(--r-md);
+  color:var(--ink-2); text-decoration:none; font-size:13.5px; font-weight:500;
+  transition:background .12s ease, color .12s ease;
+}
+.nav a:hover{background:var(--gray-100); color:var(--ink)}
+.nav a[aria-current]{background:var(--primary-wash); color:var(--primary); font-weight:600}
+.nav a[aria-current] .ico{color:var(--primary)}
+.ico{inline-size:18px; block-size:18px; flex:none; color:var(--muted)}
+.side-foot{margin-block-start:auto; border-block-start:1px solid var(--border); padding-block-start:var(--s-4)}
+
+/* ===== أعلى الصفحة ===== */
+.main{display:flex; flex-direction:column; min-inline-size:0}
+.topbar{
+  display:flex; align-items:center; gap:var(--s-4); flex-wrap:wrap;
+  padding:var(--s-4) var(--s-5); background:var(--surface);
+  border-block-end:1px solid var(--border); position:sticky; inset-block-start:0; z-index:5;
+}
+.topbar h1{font-size:19px; font-weight:600; margin:0}
+.crumb{color:var(--muted); font-size:12px; margin-block-start:2px}
+.spacer{margin-inline-start:auto}
+.seg{display:flex; background:var(--gray-100); border-radius:var(--r-md); padding:3px; gap:2px}
+.seg button{
+  border:0; background:transparent; color:var(--ink-2); cursor:pointer;
+  padding:6px 12px; border-radius:var(--r-sm); font:inherit; font-size:12.5px; font-weight:500;
+}
+.seg button[aria-pressed="true"]{background:var(--surface); color:var(--ink); box-shadow:var(--e1); font-weight:600}
+.iconbtn{
+  inline-size:36px; block-size:36px; border-radius:var(--r-md); border:1px solid var(--border);
+  background:var(--surface); color:var(--ink-2); cursor:pointer; display:grid; place-items:center;
+}
+.iconbtn:hover{background:var(--gray-100); color:var(--ink)}
+.who{display:flex; align-items:center; gap:var(--s-3)}
+.avatar{inline-size:34px; block-size:34px; border-radius:var(--r-full); background:var(--c2); color:#fff; display:grid; place-items:center; font-weight:600; font-size:13px}
+.who b{font-size:13px; font-weight:600; display:block; line-height:1.2}
+.who small{font-size:11px; color:var(--muted)}
+
+.page{padding:var(--s-5); display:flex; flex-direction:column; gap:var(--s-5)}
+
+/* ===== تنبيه واحد بارز (Von Restorff) ===== */
+.alert{
+  display:flex; align-items:flex-start; gap:var(--s-3);
+  padding:var(--s-3) var(--s-4); border-radius:var(--r-lg);
+  background:var(--warn-wash); border:1px solid transparent;
+  border-inline-start:3px solid var(--warn);
+}
+.alert .ico{color:var(--warn); margin-block-start:2px}
+.alert b{color:var(--warn); font-weight:600}
+.alert p{margin:2px 0 0; color:var(--ink-2); font-size:13px}
+.alert .act{margin-inline-start:auto; align-self:center}
+.btn{
+  border:0; border-radius:var(--r-md); cursor:pointer; font:inherit; font-size:13px; font-weight:600;
+  padding:8px 14px; background:var(--primary); color:var(--on-primary); white-space:nowrap;
+}
+.btn:hover{background:var(--primary-hover)}
+.btn:active{background:var(--primary-active)}
+.btn.ghost{background:transparent; color:var(--primary); border:1px solid var(--border-2)}
+.btn.ghost:hover{background:var(--primary-wash)}
+
+/* ===== صف المؤشرات — خمس بطاقات (Miller's Law: تحت السبعة) ===== */
+.kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:var(--s-4)}
+.kpi{
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+  padding:var(--s-4); box-shadow:var(--e1); display:flex; flex-direction:column; gap:var(--s-2);
+}
+.kpi .top{display:flex; align-items:center; justify-content:space-between; gap:var(--s-2)}
+.kpi .lab{font-size:12.5px; color:var(--muted); font-weight:500}
+.kpi .box{inline-size:30px; block-size:30px; border-radius:var(--r-md); display:grid; place-items:center; background:var(--gray-100); color:var(--ink-2)}
+.kpi .val{font-family:"IBM Plex Mono",monospace; font-size:26px; font-weight:600; line-height:1.1; letter-spacing:-.02em}
+.kpi .sub{font-size:11.5px; color:var(--muted)}
+.trend{display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:600; padding:2px 7px; border-radius:var(--r-full)}
+.trend.up{background:var(--ok-wash); color:var(--ok)}
+.trend.down{background:var(--danger-wash); color:var(--danger)}
+.trend.flat{background:var(--gray-100); color:var(--muted)}
+.kpi.accent{border-color:var(--primary); box-shadow:var(--e2)}
+.kpi.accent .box{background:var(--primary-wash); color:var(--primary)}
+.kpi.accent .val{color:var(--primary)}
+
+/* ===== شبكة الرسوم ===== */
+.grid{display:grid; grid-template-columns:1.6fr 1fr; gap:var(--s-4)}
+.card{
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+  box-shadow:var(--e1); display:flex; flex-direction:column; overflow:hidden;
+}
+.card > header{
+  display:flex; align-items:center; gap:var(--s-3);
+  padding:var(--s-4); border-block-end:1px solid var(--border);
+}
+.card h2{font-size:14.5px; font-weight:600; margin:0}
+.card header small{color:var(--muted); font-size:11.5px; display:block; margin-block-start:1px}
+.card .body{padding:var(--s-4)}
+
+/* شريط أفقي: طول الشريط هو الترميز، واللون ثانوي */
+.bars{display:flex; flex-direction:column; gap:var(--s-3)}
+.bar-row{display:grid; grid-template-columns:auto 1fr auto; gap:var(--s-3); align-items:center}
+.bar-row .n{font-size:12.5px; color:var(--ink-2); inline-size:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.track{background:var(--gray-100); border-radius:var(--r-full); block-size:10px; overflow:hidden}
+.fill{block-size:100%; border-radius:var(--r-full); background:var(--c1)}
+.bar-row .v{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-2); font-variant-numeric:tabular-nums}
+
+.legend{display:flex; flex-direction:column; gap:var(--s-3); margin-block-start:var(--s-4)}
+.legend div{display:flex; align-items:center; gap:var(--s-2); font-size:12.5px; color:var(--ink-2)}
+.dot{inline-size:10px; block-size:10px; border-radius:3px; flex:none}
+.legend .v{margin-inline-start:auto; font-family:"IBM Plex Mono",monospace; font-size:12px}
+
+/* ===== جدول ===== */
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse; inline-size:100%; min-inline-size:640px}
+thead th{
+  text-align:start; font-size:11.5px; font-weight:600; color:var(--muted); letter-spacing:.04em;
+  padding:10px var(--s-4); background:var(--surface-2); border-block-end:1px solid var(--border); white-space:nowrap;
+}
+tbody td{padding:11px var(--s-4); border-block-end:1px solid var(--border); font-size:13px; vertical-align:middle}
+tbody tr:last-child td{border-block-end:0}
+tbody tr:hover{background:var(--surface-2)}
+td.num{text-align:end; font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums}
+.code{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--muted); display:block}
+.pill{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600; padding:3px 9px; border-radius:var(--r-full); white-space:nowrap}
+.pill.ok{background:var(--ok-wash); color:var(--ok)}
+.pill.warn{background:var(--warn-wash); color:var(--warn)}
+.pill.danger{background:var(--danger-wash); color:var(--danger)}
+.pill.info{background:var(--info-wash); color:var(--info)}
+.card > footer{padding:var(--s-3) var(--s-4); border-block-start:1px solid var(--border); display:flex; align-items:center; gap:var(--s-3); background:var(--surface-2)}
+.card > footer small{color:var(--muted); font-size:12px}
+
+@media (max-width:1080px){
+  .shell{grid-template-columns:1fr}
+  .side{position:static; block-size:auto; flex-direction:row; align-items:center; overflow-x:auto; border-inline-end:0; border-block-end:1px solid var(--border)}
+  .side .nav{flex-direction:row}
+  .nav-label,.side-foot{display:none}
+  .grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ===================== الشريط الجانبي ===================== -->
+  <aside class="side">
+    <div class="brand">
+      <div class="mark">خم</div>
+      <div><b>خان مندي</b><small>فرع البنوك · 011</small></div>
+    </div>
+
+    <div>
+      <div class="nav-label">الأقسام</div>
+      <nav class="nav">
+        <a href="#"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>الرئيسية</a>
+        <a href="#" aria-current="page"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>المخزون</a>
+        <a href="#"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v5H4z"/><path d="M6 9v11h12V9"/><path d="M10 13h4"/></svg>المشتريات</a>
+        <a href="#"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 20V9l7-5 7 5v11"/><path d="M9 20v-6h6v6"/></svg>المطبخ والوصفات</a>
+        <a href="#"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19h16"/><path d="M6 19V9"/><path d="M11 19V5"/><path d="M16 19v-7"/></svg>المبيعات</a>
+        <a href="#"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h5M9.5 14.5h5"/></svg>المحاسبة</a>
+        <a href="#"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M17 11h4M19 9v4"/></svg>الموارد البشرية</a>
+        <a href="#"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V6a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z"/><path d="M8 12h8M8 16h5"/></svg>التقارير</a>
+      </nav>
+    </div>
+
+    <div class="side-foot">
+      <div class="who">
+        <div class="avatar">م</div>
+        <div><b>مؤمل</b><small>مدير النظام</small></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===================== المحتوى ===================== -->
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <h1>لوحة المخزون</h1>
+        <div class="crumb">الرئيسية ← المخزون ← نظرة عامة</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="seg" role="group" aria-label="المدى الزمني">
+        <button type="button">اليوم</button>
+        <button type="button">الأسبوع</button>
+        <button type="button" aria-pressed="true">الشهر</button>
+        <button type="button">السنة</button>
+      </div>
+      <button class="iconbtn" id="theme" type="button" title="تبديل الوضع الليلي" aria-label="تبديل الوضع الليلي">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 13.5A8 8 0 0110.5 4 8.5 8.5 0 1020 13.5z"/></svg>
+      </button>
+      <button class="btn" type="button">+ حركة مخزون</button>
+    </div>
+
+    <div class="page">
+
+      <!-- عنصر واحد مختلف عمداً — العين تقع عليه أولاً -->
+      <div class="alert" role="status">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L2.4 17.5A2 2 0 004.1 20.5h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+        <div>
+          <b>مئة صنف فعّال بلا رصيد</b>
+          <p>‏182 صنفاً فعّالاً في السجل، و82 منها فقط له رصيد. الباقي لم تصله حركة شراء أو جرد بعد.</p>
+        </div>
+        <div class="act"><button class="btn ghost" type="button">اعرض القائمة</button></div>
+      </div>
+
+      <!-- ===== المؤشرات ===== -->
+      <div class="kpis">
+        <div class="kpi accent">
+          <div class="top"><span class="lab">قيمة المخزون</span>
+            <span class="box"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l9-4 9 4v10l-9 4-9-4V7z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg></span></div>
+          <div class="val">60,683,789</div>
+          <div class="sub"><span class="trend up">▲ 100%</span> بعد ترحيل فواتير آب</div>
+        </div>
+        <div class="kpi">
+          <div class="top"><span class="lab">أصناف لها رصيد</span>
+            <span class="box"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span></div>
+          <div class="val">82</div>
+          <div class="sub">من 182 صنفاً فعّالاً · 45%</div>
+        </div>
+        <div class="kpi">
+          <div class="top"><span class="lab">حركات المخزون</span>
+            <span class="box"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 7h10l-3-3M17 17H7l3 3"/></svg></span></div>
+          <div class="val">183</div>
+          <div class="sub">‏168 استلام · 15 رصيد افتتاحي</div>
+        </div>
+        <div class="kpi">
+          <div class="top"><span class="lab">فواتير مرحّلة</span>
+            <span class="box"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6"/></svg></span></div>
+          <div class="val">60</div>
+          <div class="sub">‏60,541,950 د.ع · 11 مورداً</div>
+        </div>
+        <div class="kpi">
+          <div class="top"><span class="lab">فروقات الأسعار</span>
+            <span class="box"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5l3 2"/></svg></span></div>
+          <div class="val">2,851</div>
+          <div class="sub"><span class="trend flat">تنزيلات موردين</span> في 14 فاتورة</div>
+        </div>
+      </div>
+
+      <!-- ===== الرسوم ===== -->
+      <div class="grid">
+        <section class="card">
+          <header>
+            <div><h2>المشتريات حسب المورد</h2><small>‏1–19 آب 2026 · 60 فاتورة مرحّلة</small></div>
+            <div class="spacer"></div><button class="btn ghost" type="button">التفاصيل</button>
+          </header>
+          <div class="body bars">
+            <div class="bar-row"><span class="n">لحوم ابو فهد الشمري</span><div class="track"><div class="fill" style="inline-size:100%"></div></div><span class="v">29,897,950</span></div>
+            <div class="bar-row"><span class="n">مصطفى / كاز</span><div class="track"><div class="fill" style="inline-size:26.7%; background:var(--c2)"></div></div><span class="v">7,980,000</span></div>
+            <div class="bar-row"><span class="n">دجاج الريان</span><div class="track"><div class="fill" style="inline-size:26.3%; background:var(--c2)"></div></div><span class="v">7,875,000</span></div>
+            <div class="bar-row"><span class="n">خان مندي المنصور</span><div class="track"><div class="fill" style="inline-size:18.1%; background:var(--c3)"></div></div><span class="v">5,415,250</span></div>
+            <div class="bar-row"><span class="n">موظف المشتريات علي عمر</span><div class="track"><div class="fill" style="inline-size:11.3%; background:var(--c3)"></div></div><span class="v">3,380,000</span></div>
+            <div class="bar-row"><span class="n">الرياحين بلاست</span><div class="track"><div class="fill" style="inline-size:8%; background:var(--c6)"></div></div><span class="v">2,394,000</span></div>
+          </div>
+          <footer><small>اللحم وحده نصف المشتريات — 49.4% من قيمة الشهر.</small></footer>
+        </section>
+
+        <section class="card">
+          <header><div><h2>القيمة حسب نوع الصنف</h2><small>الرصيد الحالي</small></div></header>
+          <div class="body" style="display:grid; place-items:center">
+            <svg viewBox="0 0 200 200" width="180" height="180" role="img" aria-label="مادة أولية 99.2% وبضاعة لإعادة البيع 0.8%">
+              <circle cx="100" cy="100" r="72" fill="none" stroke="var(--gray-100)" stroke-width="26"/>
+              <circle cx="100" cy="100" r="72" fill="none" stroke="var(--c1)" stroke-width="26"
+                      stroke-dasharray="449 3" stroke-dashoffset="0" transform="rotate(-90 100 100)" stroke-linecap="butt"/>
+              <circle cx="100" cy="100" r="72" fill="none" stroke="var(--c4)" stroke-width="26"
+                      stroke-dasharray="3.6 449" stroke-dashoffset="-449" transform="rotate(-90 100 100)"/>
+              <text x="100" y="94" text-anchor="middle" font-size="21" font-weight="600" fill="var(--ink)" font-family="IBM Plex Mono">60.7م</text>
+              <text x="100" y="114" text-anchor="middle" font-size="10.5" fill="var(--muted)" font-family="IBM Plex Sans Arabic">قيمة المخزون</text>
+            </svg>
+            <div class="legend" style="inline-size:100%">
+              <div><span class="dot" style="background:var(--c1)"></span>مادة أولية<span class="v">60,186,389</span></div>
+              <div><span class="dot" style="background:var(--c4)"></span>بضاعة لإعادة البيع<span class="v">497,400</span></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ===== الجدول ===== -->
+      <section class="card">
+        <header>
+          <div><h2>أعلى الأرصدة قيمةً</h2><small>مخزن رئيسي · محدَّث بعد ترحيل 21 آب</small></div>
+          <div class="spacer"></div>
+          <button class="btn ghost" type="button">تصدير</button>
+        </header>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th>الصنف</th><th>الكمية</th><th>الوحدة</th><th>كلفة الوحدة</th><th>القيمة</th><th>الحالة</th>
+            </tr></thead>
+            <tbody>
+              <tr><td>لحم لشه (طلي) بدون زوائد<span class="code">STK-0102</span></td><td class="num">1,359.100</td><td>كغ</td><td class="num">22,000</td><td class="num">29,900,200</td><td><span class="pill ok">متوفر</span></td></tr>
+              <tr><td>كاز<span class="code">STK-0056</span></td><td class="num">6,850.000</td><td>لتر</td><td class="num">1,164.96</td><td class="num">7,980,000</td><td><span class="pill ok">متوفر</span></td></tr>
+              <tr><td>مندي دجاج الريان 1400غم<span class="code">STK-0103</span></td><td class="num">1,250.000</td><td>قطعة</td><td class="num">6,300</td><td class="num">7,875,000</td><td><span class="pill ok">متوفر</span></td></tr>
+              <tr><td>تمن مندي<span class="code">STK-1000</span></td><td class="num">1,050.000</td><td>كغ</td><td class="num">2,166.67</td><td class="num">2,275,000</td><td><span class="pill ok">متوفر</span></td></tr>
+              <tr><td>سيلفون 45سم*2كغم<span class="code">STK-0039</span></td><td class="num">72.000</td><td>قطعة</td><td class="num">14,166.67</td><td class="num">1,020,000</td><td><span class="pill warn">قارب الحد</span></td></tr>
+              <tr><td>صينية 30<span class="code">STK-0158</span></td><td class="num">2,100.000</td><td>قطعة</td><td class="num">478.86</td><td class="num">1,005,600</td><td><span class="pill ok">متوفر</span></td></tr>
+              <tr><td>لبن سطل<span class="code">STK-0104</span></td><td class="num">46.000</td><td>قطعة</td><td class="num">19,760.87</td><td class="num">909,000</td><td><span class="pill warn">قارب الحد</span></td></tr>
+              <tr><td>بهارات رقبة<span class="code">STK-0006</span></td><td class="num">1.000</td><td>كغ</td><td class="num">7,169</td><td class="num">7,169</td><td><span class="pill danger">كمية رمزية</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <footer><small>‏8 من 82 صنفاً لها رصيد.</small><div class="spacer"></div><button class="btn ghost" type="button">عرض الكل</button></footer>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  // تبديل الوضع الليلي — تحت عتبة دوهرتي: استجابة فورية بلا انتظار
+  document.getElementById("theme").addEventListener("click", function () {
+    var r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === "dark" ? "light" : "dark";
+  });
+  document.querySelectorAll(".seg").forEach(function (g) {
+    g.addEventListener("click", function (e) {
+      var b = e.target.closest("button"); if (!b) return;
+      g.querySelectorAll("button").forEach(function (x) { x.removeAttribute("aria-pressed"); });
+      b.setAttribute("aria-pressed", "true");
+    });
+  });
+</script>
+</body>
+</html>
