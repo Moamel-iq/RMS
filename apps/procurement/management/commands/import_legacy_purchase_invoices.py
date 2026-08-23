@@ -296,6 +296,7 @@ class Command(BaseCommand):
                 unit_code=unit_code,
                 category=category,
                 source_name=str(source_line["item_name"]),
+                stock_code=source_line.get("stock_code"),
                 stats=stats,
             )
             quantity = Decimal(str(source_line["quantity"]))
@@ -308,8 +309,19 @@ class Command(BaseCommand):
                 unit_price=effective_unit_price,
                 description=name,
                 note=(
-                    f"وحدة PDF: {source_unit}; سعر ظاهر: {source_line['unit_price']}; "
+                    f"وحدة PDF: {source_line.get('source_unit_name', source_unit)}; "
+                    f"سعر ظاهر: {source_line['unit_price']}; "
                     f"إجمالي ظاهر: {stated_line_total}"
+                    + (
+                        f"; أُدخل بوحدة {source_unit} بقرار المالك"
+                        if source_line.get("source_unit_name")
+                        else ""
+                    )
+                    + (
+                        f"; الصنف في المصدر: {source_line['source_item_name']}"
+                        if source_line.get("source_item_name")
+                        else ""
+                    )
                 ),
             )
             if line.line_amount != stated_line_total:
@@ -335,7 +347,30 @@ class Command(BaseCommand):
         category: ItemCategory,
         source_name: str,
         stats: dict[str, int],
+        stock_code: str | None = None,
     ) -> InventoryItem:
+        # A line that names its stock code resolves to that row or stops the
+        # import. `EXISTING_ITEM_CODES` below still holds the `ING-*` codes of
+        # the item master this command was written against, which the real
+        # `STK-*` register has since replaced; falling through to the generated
+        # `PUR-*` branch would mint a duplicate of an item the branch already
+        # stocks, and the owner's standing rule is that a missing item is
+        # reported, never invented.
+        if stock_code:
+            item = (
+                InventoryItem.objects.select_related("base_unit")
+                .filter(organization=category.organization, code=stock_code, is_active=True)
+                .first()
+            )
+            if item is None:
+                raise CommandError(f"Stock item {stock_code} is missing or archived.")
+            if item.base_unit.code != unit_code:
+                raise CommandError(
+                    f"Item {stock_code} is stocked in {item.base_unit.code}, "
+                    f"but the invoice buys it in {unit_code} ({source_name})."
+                )
+            return item
+
         existing_code = EXISTING_ITEM_CODES.get(name)
         if existing_code is not None:
             try:
