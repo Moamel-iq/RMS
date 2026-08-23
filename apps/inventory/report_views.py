@@ -558,6 +558,11 @@ class InventoryOverviewView(InventoryViewMixin, View):
     figures are omitted rather than zeroed, so a storekeeper without
     `view_valuation` sees a screen with fewer cards rather than a screen
     claiming the stock is worth nothing.
+
+    The supplier mix on this screen is Procurement's: the template carries a
+    frame that `procurement:supplier_mix_card` fills on its own terms, so this
+    module never imports that one — its boundary test forbids it, and the
+    figures stay with the module that answers for them.
     """
 
     required_permission: str = VIEW_STOCK
@@ -567,26 +572,6 @@ class InventoryOverviewView(InventoryViewMixin, View):
     def include_valuation(self) -> bool:
         return bool(self.request.user.has_perm(VIEW_VALUATION))
 
-    def purchases(self) -> Any:
-        """
-        The supplier mix, borrowed from Procurement on Procurement's terms.
-
-        The stock screen shows where the stock came from, but the figures stay
-        Procurement's: its own read function, its own invoice scope, its own
-        cost permission. A caller without a procurement post sees no panel —
-        not a panel of zeros — and one without `view_supplier_cost` sees none
-        either, because a supplier mix without amounts is a list of names.
-        Imported inside the method so inventory never loads procurement at
-        import time; procurement already imports this module's mixins.
-        """
-        from apps.procurement.dashboard import procurement_overview
-        from apps.procurement.permissions import VIEW_SUPPLIER_COST, VIEW_SUPPLIER_INVOICE
-
-        user = self.request.user
-        if not (user.has_perm(VIEW_SUPPLIER_INVOICE) and user.has_perm(VIEW_SUPPLIER_COST)):
-            return None
-        return procurement_overview(self.actor, include_cost=True)
-
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         overview = inventory_overview(self.actor, include_valuation=self.include_valuation)
         return render(
@@ -594,7 +579,6 @@ class InventoryOverviewView(InventoryViewMixin, View):
             self.template_name,
             {
                 "overview": overview,
-                "purchases": self.purchases(),
                 "show_value": self.include_valuation,
                 "page_title": _("نظرة عامة على المخزون"),
                 "page_hint": _("الأرصدة والحركات في المخازن التي تصلها."),

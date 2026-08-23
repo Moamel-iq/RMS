@@ -3766,3 +3766,29 @@ class ProcurementOverviewView(InventoryViewMixin, View):
                 "page_hint": _("الفواتير والموردون في المؤسسات التي تملك صلاحية عليها."),
             },
         )
+
+
+class SupplierMixCardView(InventoryViewMixin, View):
+    """
+    The supplier mix as a fragment another screen may frame.
+
+    The inventory dashboard shows where the stock came from, but the figures
+    stay Procurement's: this view answers with Procurement's own read, its own
+    invoice scope and its own cost permission, and the framing screen knows
+    nothing but a URL name — so `apps.inventory` never imports this module,
+    which its boundary test forbids. A caller without `view_supplier_cost`, or
+    with no posted invoice in reach, gets an empty body: the frame disappears
+    rather than showing a panel of names without amounts or a panel of zeros.
+    """
+
+    module_key = "procurement"
+    required_permission: str = VIEW_SUPPLIER_INVOICE
+    template_name = "procurement/cards/_supplier_mix.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if not request.user.has_perm(VIEW_SUPPLIER_COST):
+            return HttpResponse("")
+        overview = procurement_overview(self.actor, include_cost=True)
+        if not overview.rows:
+            return HttpResponse("")
+        return render(request, self.template_name, {"purchases": overview})

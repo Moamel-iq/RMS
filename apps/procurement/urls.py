@@ -16,6 +16,8 @@ urlpatterns = [
     # Mounted at the module root, like inventory: opening the module lands on
     # the summary, and every deeper screen is reached from it.
     path("", views.ProcurementOverviewView.as_view(), name="overview"),
+    # A fragment the inventory dashboard frames; the figures stay this module's.
+    path("cards/supplier-mix/", views.SupplierMixCardView.as_view(), name="supplier_mix_card"),
     path("suppliers/", views.SupplierListView.as_view(), name="supplier_list"),
     path("suppliers/new/", views.SupplierCreateView.as_view(), name="supplier_create"),
     path("suppliers/<int:pk>/", views.SupplierUpdateView.as_view(), name="supplier_update"),

@@ -1,0 +1,38 @@
+{# المشتريات حسب المورد — Procurement's supplier mix, framed by other screens.  #}
+{#                                                                             #}
+{# Rendered only for a caller Procurement itself would show it to, and only    #}
+{# when at least one posted invoice is in reach; otherwise the view answers     #}
+{# with nothing and the frame disappears. Length is the encoding; colour only  #}
+{# separates the bands.                                                        #}
+{% load i18n l10n money_tags %}
+<section class="panel" id="card-supplier-mix">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">{% translate "المشتريات حسب المورد" %}</h2>
+      <p class="pagehead__hint">
+        {% blocktranslate with invoices=purchases.posted_count trimmed %}
+          من {{ invoices }} فاتورة مرحّلة — أرقام قسم المشتريات بصلاحياته
+        {% endblocktranslate %}
+      </p>
+    </div>
+  </div>
+  <div class="bars">
+    {% for row in purchases.rows %}
+      <div class="bar">
+        <span class="bar__name" title="{{ row.name }}">{{ row.name }}</span>
+        <div class="bar__track">
+          <div class="bar__fill"
+               style="inline-size: {{ row.share|unlocalize }}%;
+                      background: var(--series-{% cycle '1' '2' '2' '3' '3' '6' %});"></div>
+        </div>
+        <span class="bar__value"><bdi dir="ltr">{{ row.total|money }}</bdi></span>
+      </div>
+    {% endfor %}
+  </div>
+  <p class="panel__foot">
+    {% blocktranslate with name=purchases.rows.0.name share=purchases.top_share|unlocalize trimmed %}
+      {{ name }} وحده {{ share }}% من قيمة المشتريات المرحّلة.
+    {% endblocktranslate %}
+    <a class="linkish" href="{% url 'procurement:overview' %}">{% translate "التفاصيل" %}</a>
+  </p>
+</section>

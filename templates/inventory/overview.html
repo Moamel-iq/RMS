@@ -116,38 +116,13 @@
     </div>
 
     <div class="dashgrid">
-      {% if purchases and purchases.rows %}
-        <section class="panel">
-          <div class="panel__head">
-            <h2 class="panel__title">{% translate "المشتريات حسب المورد" %}</h2>
-            <p class="pagehead__hint">
-              {% blocktranslate with invoices=purchases.posted_count trimmed %}
-                من {{ invoices }} فاتورة مرحّلة — أرقام قسم المشتريات بصلاحياته
-              {% endblocktranslate %}
-            </p>
-          </div>
-          {# Length is the encoding; colour only separates the bands. #}
-          <div class="bars">
-            {% for row in purchases.rows %}
-              <div class="bar">
-                <span class="bar__name" title="{{ row.name }}">{{ row.name }}</span>
-                <div class="bar__track">
-                  <div class="bar__fill"
-                       style="inline-size: {{ row.share|unlocalize }}%;
-                              background: var(--series-{% cycle '1' '2' '2' '3' '3' '6' %});"></div>
-                </div>
-                <span class="bar__value"><bdi dir="ltr">{{ row.total|money }}</bdi></span>
-              </div>
-            {% endfor %}
-          </div>
-          <p class="panel__foot">
-            {% blocktranslate with name=purchases.rows.0.name share=purchases.top_share|unlocalize trimmed %}
-              {{ name }} وحده {{ share }}% من قيمة المشتريات المرحّلة.
-            {% endblocktranslate %}
-            <a class="linkish" href="{% url 'procurement:overview' %}">{% translate "التفاصيل" %}</a>
-          </p>
-        </section>
-      {% endif %}
+      {# Where the stock came from, on Procurement's terms: the frame is filled #}
+      {# by Procurement's own fragment, so this module never imports that one. #}
+      {# With nothing to show the fragment is empty and the frame goes away.   #}
+      <div id="card-supplier-mix"
+           hx-get="{% url 'procurement:supplier_mix_card' %}"
+           hx-trigger="load"
+           hx-swap="outerHTML"></div>
 
       {% if show_value and overview.type_slices %}
         <section class="panel">

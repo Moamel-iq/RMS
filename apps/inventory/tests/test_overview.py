@@ -196,16 +196,26 @@ def test_the_supplier_mix_is_borrowed_on_procurements_terms(
 ) -> None:
     """
     The stock screen may show where stock came from, but only to a caller
-    Procurement itself would show it to. With no posted invoice the panel is
-    simply absent for everyone; the gate is still the caller's post.
+    Procurement itself would show it to. The screen carries a frame and
+    nothing else; Procurement's own fragment answers it, on Procurement's own
+    permissions, so this module never imports that one. With no posted
+    invoice the fragment is empty for everyone; the gate is still the post.
     """
     _stock(organization, main_store, rice)
     url = reverse("inventory:overview")
+    card = reverse("procurement:supplier_mix_card")
 
     keeper_body = client_for(storekeeper).get(url).content.decode()
     manager_body = client_for(manager).get(url).content.decode()
-
-    # No invoice is posted here, so the panel has no rows and renders for
-    # nobody — and the storekeeper would not see it even if it had rows.
+    # The frame is the screen's; the figures are not.
+    assert card in keeper_body and card in manager_body
     assert "المشتريات حسب المورد" not in keeper_body
     assert "المشتريات حسب المورد" not in manager_body
+
+    # A storekeeper holds no procurement post: refused, not emptied.
+    assert client_for(storekeeper).get(card).status_code == 403
+    # A manager does, but no invoice is posted here: an empty fragment, so
+    # the frame disappears rather than drawing a panel of nothing.
+    answer = client_for(manager).get(card)
+    assert answer.status_code == 200
+    assert answer.content == b""
