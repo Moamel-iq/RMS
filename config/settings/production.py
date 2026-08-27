@@ -19,14 +19,13 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
 # Startup validation
 # ---------------------------------------------------------------------------
 
-_REQUIRED = (
-    "DJANGO_SECRET_KEY",
-    "DJANGO_ALLOWED_HOSTS",
-    "DB_NAME",
-    "DB_USER",
-    "DB_PASSWORD",
-    "DB_HOST",
-)
+# Annotated because the database half is appended below: without it the
+# inferred type is the two-element literal and every append is an error.
+_REQUIRED: tuple[str, ...] = ("DJANGO_SECRET_KEY", "DJANGO_ALLOWED_HOSTS")
+if env.str("DATABASE_URL", default=""):
+    _REQUIRED += ("DATABASE_URL",)
+else:
+    _REQUIRED += ("DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST")
 
 _missing = [name for name in _REQUIRED if not env.str(name, default="")]
 if _missing:
@@ -64,6 +63,14 @@ SECURE_HSTS_PRELOAD = True
 # Set only when running behind a proxy that terminates TLS.
 if env.bool("DJANGO_USE_PROXY_SSL_HEADER", default=False):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# collectstatic runs while building the deploy image. WhiteNoise serves its
+# fingerprinted output without exposing user-uploaded media files.
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # Persistent connections; the pool is sized by the deployment platform.
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=60)  # noqa: F405

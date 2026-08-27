@@ -10,3 +10,5 @@ django-ninja
 django-environ
 django-simple-history
 psycopg[binary]
+gunicorn
+whitenoise

@@ -95,6 +95,9 @@ LOGOUT_REDIRECT_URL = "users:login"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serves the immutable files built by collectstatic in production. It must
+    # follow SecurityMiddleware so security headers apply to static responses.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     # Must sit after SessionMiddleware and before CommonMiddleware, which
     # relies on the active locale. Replaces django.middleware.locale.
@@ -150,18 +153,24 @@ TEMPLATES = [
 # invariants rely on database-level CHECK/UNIQUE constraints and transactional
 # behaviour that must be identical in development, CI, and production.
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": env.str("DB_NAME"),
-        "USER": env.str("DB_USER"),
-        "PASSWORD": env.str("DB_PASSWORD"),
-        "HOST": env.str("DB_HOST", default="127.0.0.1"),
-        "PORT": env.str("DB_PORT", default="5432"),
-        "ATOMIC_REQUESTS": False,
-        "CONN_MAX_AGE": env.int("DB_CONN_MAX_AGE", default=0),
+_database_url = env.str("DATABASE_URL", default="")
+if _database_url:
+    # Managed platforms such as Render provide one private connection URL.
+    # Keep the explicit variables below as the local-development fallback.
+    DATABASES = {"default": env.db("DATABASE_URL")}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": env.str("DB_NAME"),
+            "USER": env.str("DB_USER"),
+            "PASSWORD": env.str("DB_PASSWORD"),
+            "HOST": env.str("DB_HOST", default="127.0.0.1"),
+            "PORT": env.str("DB_PORT", default="5432"),
+            "ATOMIC_REQUESTS": False,
+            "CONN_MAX_AGE": env.int("DB_CONN_MAX_AGE", default=0),
+        }
     }
-}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -206,12 +215,12 @@ LOCALE_PATHS = [BASE_DIR / "locale"]
 # Static and media files
 # ---------------------------------------------------------------------------
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
-MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(env.str("DJANGO_MEDIA_ROOT", default=str(BASE_DIR / "media")))
 
 
 # ---------------------------------------------------------------------------

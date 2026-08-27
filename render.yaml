@@ -1,0 +1,74 @@
+# Render Blueprint for the production restaurant system.
+# It creates paid resources only when you explicitly apply this Blueprint in
+# your own Render account. No secret is stored in this file.
+services:
+  - type: web
+    name: khan-mandi-rms-web
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    numInstances: 1
+    healthCheckPath: /healthz/
+    preDeployCommand: python manage.py migrate --noinput
+    maxShutdownDelaySeconds: 60
+    disk:
+      name: private-media
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: khan-mandi-rms-web.onrender.com
+      - key: DJANGO_USE_PROXY_SSL_HEADER
+        value: "true"
+      - key: DJANGO_SECURE_HSTS_SECONDS
+        value: "31536000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: khan-mandi-rms-db
+          property: connectionString
+      - key: DJANGO_MEDIA_ROOT
+        value: /var/data/media
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: DB_CONN_MAX_AGE
+        value: "60"
+
+  # The outbox currently processes bounded, idempotent batches. Ten minutes
+  # keeps costs low for this small deployment while avoiding a permanent worker.
+  - type: cron
+    name: khan-mandi-rms-outbox
+    runtime: docker
+    region: frankfurt
+    schedule: "*/10 * * * *"
+    dockerCommand: python manage.py process_automation_outbox --limit 100
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: khan-mandi-rms-web.onrender.com
+      - key: DJANGO_USE_PROXY_SSL_HEADER
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: khan-mandi-rms-db
+          property: connectionString
+
+databases:
+  - name: khan-mandi-rms-db
+    region: frankfurt
+    plan: basic-1gb
+    postgresMajorVersion: "18"
+    databaseName: khan_mandi
+    user: khan_mandi
+    connectionPool: pgbouncer
+    ipAllowList: []
