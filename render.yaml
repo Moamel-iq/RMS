@@ -10,7 +10,6 @@ services:
     numInstances: 1
     healthCheckPath: /healthz/
     preDeployCommand: python manage.py migrate --noinput
-    maxShutdownDelaySeconds: 60
     disk:
       name: private-media
       mountPath: /var/data
