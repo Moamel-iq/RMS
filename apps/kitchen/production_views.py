@@ -248,8 +248,9 @@ class ProductionPreviewView(ProductionViewMixin, View):
     create command, deliberately: a preview computed a second way is a preview
     that can disagree with the thing it previews.
 
-    `GET` with no parameters renders the selector alone. No figures, no guessed
-    date, nothing that could be mistaken for an answer.
+    `GET` with no parameters renders the selector alone. Today's date is offered
+    as an editable starting point, but no figures are shown until every selector
+    is supplied.
     """
 
     template_name = "kitchen/production_preview.html"

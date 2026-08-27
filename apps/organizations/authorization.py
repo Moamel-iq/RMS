@@ -284,6 +284,35 @@ def organizations_with_permission(user: User, permission: str) -> QuerySet[Organ
     ).distinct()
 
 
+def organizations_with_organization_permission(
+    user: User, permission: str
+) -> QuerySet[Organization]:
+    """Organizations where ``user`` holds an organization-level permission.
+
+    This is intentionally stricter than :func:`organizations_with_permission`:
+    a branch post never authorizes changing users, roles, or organization-wide
+    settings.  The query is the bulk equivalent of
+    :func:`has_organization_permission`, so settings screens use the same
+    scope rule as their command services.
+    """
+    if not _active(user):
+        return Organization.objects.none()
+
+    base = Organization.objects.filter(is_active=True)
+    if user.is_superuser:
+        return base
+
+    roles = roles_granting(permission)
+    if not roles:
+        return Organization.objects.none()
+
+    return base.filter(
+        memberships__user=user,
+        memberships__is_active=True,
+        memberships__role__in=roles,
+    ).distinct()
+
+
 def branches_with_permission(user: User, permission: str) -> QuerySet[Branch]:
     """Branches where a post the caller holds carries this permission."""
     if not _active(user):

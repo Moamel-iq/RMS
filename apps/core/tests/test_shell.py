@@ -61,6 +61,13 @@ class TestNavigationDefinition:
                 if section.available:
                     assert section.url_name, f"{module.key}:{section.label}"
 
+    def test_reports_center_contains_only_available_destinations(self) -> None:
+        reports = MODULES_BY_KEY["reports"]
+
+        assert reports.available
+        assert reports.url_name
+        assert all(section.available and section.url_name for section in reports.sections)
+
     def test_unavailable_items_declare_no_url(self) -> None:
         """A URL on an inert item invites someone to wire it up by accident."""
         for module in MODULES:
@@ -240,8 +247,10 @@ class TestShellRendering:
         """These are the only sections with an implementation behind them."""
         settings_module = MODULES_BY_KEY["settings"]
         available = [s for s in settings_module.sections if s.available]
-        # Seven foundation screens plus the roles screen (ADR-034).
-        assert len(available) == 8
+        # Seven foundation screens, the roles screen (ADR-034) and financial
+        # periods — which Settings used to advertise as "coming soon" while the
+        # Accounting module opened the built screen.
+        assert len(available) == 9
         for section in available:
             assert section.url_name is not None
             assert reverse(section.url_name)
@@ -257,10 +266,17 @@ class TestShellRendering:
             for s in settings_module.sections
             if s.available and not str(s.url_name).startswith("admin:")
         ]
-        # Six foundation screens plus the roles screen (ADR-034).
-        assert len(native) == 7
+        # Six foundation screens, the roles screen (ADR-034) and periods.
+        assert len(native) == 8
         for section in native:
-            assert reverse(str(section.url_name)).startswith("/settings/")
+            url = reverse(str(section.url_name))
+            if section.url_name == "accounting:period_list":
+                # Deliberately not a settings screen: financial periods are an
+                # accounting act, and Settings links to the built screen rather
+                # than claiming a second one is coming.
+                assert url.startswith("/accounting/")
+                continue
+            assert url.startswith("/settings/")
 
 
 class TestShellShowsBranchAccess:

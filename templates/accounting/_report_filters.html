@@ -49,6 +49,7 @@
   {% block extra_filters %}{% endblock %}
   <button class="btn btn--secondary toolbar__submit" type="submit">{% translate "تطبيق" %}</button>
   <a class="btn btn--secondary" href="{{ request.path }}?{{ filter_query }}&export=csv">{% translate "تصدير CSV" %}</a>
+  <a class="btn btn--secondary" href="{{ request.path }}?{{ filter_query }}&print=1" target="_blank" rel="noopener">{% translate "PDF / طباعة" %}</a>
   <span class="inventory-loading" id="report-loading" role="status" aria-live="polite">
     {% translate "جارٍ الحساب…" %}
   </span>

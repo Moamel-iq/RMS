@@ -2,11 +2,12 @@
 
 from django.conf import settings
 from django.conf.urls.static import static
-from django.contrib import admin
 from django.db import DatabaseError, connections
 from django.http import JsonResponse
 from django.urls import URLPattern, URLResolver, include, path
 
+from apps.hr.views import EmployeeDocumentRawMediaBlockView
+from config.admin import site
 from config.api import api
 
 
@@ -20,9 +21,8 @@ def healthz(_request: object) -> JsonResponse:
 
 
 urlpatterns: list[URLPattern | URLResolver] = [
-    # The platform polls this before it sends traffic to a new release.
     path("healthz/", healthz, name="healthz"),
-    path("admin/", admin.site.urls),
+    path("admin/", site.urls),
     path("api/v1/", api.urls),
     path("settings/", include("apps.organizations.urls")),
     path("settings/", include("apps.units.urls")),
@@ -33,6 +33,12 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("sales/", include("apps.sales.urls")),
     path("accounting/", include("apps.accounting.urls")),
     path("hr/", include("apps.hr.urls")),
+    # This precedes Django's DEBUG media helper, so a guessed HR attachment
+    # URL can never bypass EmployeeDocumentDownloadView's tenant and PII check.
+    path(
+        "media/hr/employee-documents/<path:path>",
+        EmployeeDocumentRawMediaBlockView.as_view(),
+    ),
     path("", include("apps.users.urls")),
 ]
 

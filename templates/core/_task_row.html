@@ -1,0 +1,28 @@
+{% load i18n %}
+<li class="timeline__item" id="task-{{ task.pk }}">
+  <div class="timeline__meta">
+    <span class="chip{% if task.severity == 'CRITICAL' or task.severity == 'HIGH' %} chip--off{% elif task.status == 'ACKNOWLEDGED' %} chip--on{% endif %}">
+      {{ task.get_severity_display }}
+    </span>
+    <span>{{ task.organization.code }}{% if task.branch %} · {{ task.branch.code }}{% endif %}</span>
+  </div>
+  <div>
+    <strong>{{ task.title }}</strong>
+    {% if task.summary %}<p>{{ task.summary }}</p>{% endif %}
+    <small>
+      {% translate "الحالة" %}: {{ task.get_status_display }}
+      {% if task.assignee_role %} · {% translate "الدور" %}: {{ task.assignee_role }}{% endif %}
+      {% if task.due_at %} · {% translate "الموعد" %}: <bdi dir="ltr">{{ task.due_at|date:"Y-m-d H:i" }}</bdi>{% endif %}
+    </small>
+  </div>
+  <div class="timeline__actions">
+    {% if task.status == 'OPEN' %}
+      <form method="post" action="{% url 'core:task_acknowledge' task.pk %}"
+            hx-post="{% url 'core:task_acknowledge' task.pk %}"
+            hx-target="#task-{{ task.pk }}" hx-swap="outerHTML">
+        {% csrf_token %}
+        <button class="btn btn--secondary btn--sm" type="submit">{% translate "استلام المهمة" %}</button>
+      </form>
+    {% endif %}
+  </div>
+</li>

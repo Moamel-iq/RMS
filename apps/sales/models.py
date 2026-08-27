@@ -1324,6 +1324,14 @@ class SalesDay(TimeStampedModel):
             ("manage_sales_adjustments", _("Can record returns and cancellations")),
             ("close_cashier_shift", _("Can open and close a cashier shift")),
             ("approve_cashier_closing", _("Can approve a cashier closing")),
+            (
+                "submit_daily_financial_close",
+                _("Can submit a daily financial close for review"),
+            ),
+            (
+                "approve_daily_financial_close",
+                _("Can approve a daily financial close"),
+            ),
         ]
         constraints = [
             # One document per branch per day. Two would each be a partial
@@ -1351,6 +1359,15 @@ class SalesDay(TimeStampedModel):
                 condition=~Q(status="REVERSED") | ~Q(reversal_reason=""),
                 name="sales_day_reversal_has_a_reason",
             ),
+            # A submitted day is the maker's frozen declaration.  A posting by
+            # that same person is not an independent review, even if the user
+            # happens to hold both permissions.
+            models.CheckConstraint(
+                condition=Q(posted_by__isnull=True)
+                | Q(submitted_by__isnull=True)
+                | ~Q(posted_by=models.F("submitted_by")),
+                name="sales_day_poster_is_not_submitter",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -1363,6 +1380,121 @@ class SalesDay(TimeStampedModel):
     @property
     def is_posted(self) -> bool:
         return self.status == SalesDayStatus.POSTED
+
+
+class DailyFinancialCloseStatus(models.TextChoices):
+    """The review state of one immutable daily-close attempt."""
+
+    SUBMITTED = "SUBMITTED", _("بانتظار المراجعة")
+    BLOCKED = "BLOCKED", _("متوقف بسبب استثناءات")
+    APPROVED = "APPROVED", _("معتمد")
+
+
+class DailyFinancialClose(TimeStampedModel):
+    """
+    A captured end-of-day control record, not a replacement for its sources.
+
+    A SalesDay, its tender declarations, and a CashierShift remain the source
+    documents.  This row freezes the comparison that a reviewer actually saw,
+    including every exception, so a later correction never erases evidence of
+    what blocked (or permitted) the original posting.  Corrections create a
+    new attempt; attempts are never overwritten.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="daily_financial_closes",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="daily_financial_closes",
+        verbose_name=_("branch"),
+    )
+    sales_day = models.ForeignKey(
+        SalesDay,
+        on_delete=models.PROTECT,
+        related_name="daily_financial_closes",
+        verbose_name=_("sales day"),
+    )
+    business_date = models.DateField(_("business date"))
+    attempt_number = models.PositiveSmallIntegerField(_("attempt number"))
+    status = models.CharField(
+        _("status"),
+        max_length=12,
+        choices=DailyFinancialCloseStatus.choices,
+    )
+    #: An immutable, structured evidence copy of the declared, derived and
+    #: counted amounts.  Monetary values are serialised as fixed Decimal
+    #: strings by the service; JSON floats would silently lose IQD precision.
+    reconciliation_snapshot = models.JSONField(_("reconciliation snapshot"), default=dict)
+    exception_count = models.PositiveSmallIntegerField(_("exception count"), default=0)
+
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="daily_financial_closes_submitted",
+        verbose_name=_("submitted by"),
+    )
+    submitted_at = models.DateTimeField(_("submitted at"))
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="daily_financial_closes_reviewed",
+        null=True,
+        blank=True,
+        verbose_name=_("reviewed by"),
+    )
+    reviewed_at = models.DateTimeField(_("reviewed at"), null=True, blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("daily financial close")
+        verbose_name_plural = _("daily financial closes")
+        ordering = ["-business_date", "branch__code", "-attempt_number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sales_day", "attempt_number"],
+                name="sales_daily_close_attempt_unique_per_day",
+            ),
+            models.CheckConstraint(
+                condition=Q(attempt_number__gte=1),
+                name="sales_daily_close_attempt_is_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(reviewed_by__isnull=True, reviewed_at__isnull=True)
+                    | Q(reviewed_by__isnull=False, reviewed_at__isnull=False)
+                ),
+                name="sales_daily_close_review_is_complete",
+            ),
+            models.CheckConstraint(
+                condition=Q(reviewed_by__isnull=True) | ~Q(reviewed_by=models.F("submitted_by")),
+                name="sales_daily_close_reviewer_is_not_submitter",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(status=DailyFinancialCloseStatus.APPROVED, reviewed_by__isnull=False)
+                    | Q(
+                        status__in=[
+                            DailyFinancialCloseStatus.SUBMITTED,
+                            DailyFinancialCloseStatus.BLOCKED,
+                        ],
+                        reviewed_by__isnull=True,
+                    )
+                ),
+                name="sales_daily_close_state_has_right_reviewer",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["branch", "business_date"], name="sales_close_branch_date_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.branch.code} {self.business_date.isoformat()} #{self.attempt_number}"
 
 
 class SalesDayLine(TimeStampedModel):

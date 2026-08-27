@@ -1,0 +1,55 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{% block page %}
+  <section class="list-page" aria-labelledby="automation-monitoring-title">
+    <header class="pagehead">
+      <div>
+        <p class="eyebrow">{% translate "الأتمتة والضبط" %}</p>
+        <h1 id="automation-monitoring-title">{{ page_title }}</h1>
+        <p>{{ page_hint }}</p>
+      </div>
+    </header>
+
+    <div class="tiles" aria-label="{% translate 'مؤشرات طابور الأتمتة' %}">
+      <article class="tile"><span>{% translate "بانتظار المعالجة" %}</span><strong dir="ltr">{{ metrics.pending }}</strong></article>
+      <article class="tile"><span>{% translate "قيد المعالجة" %}</span><strong dir="ltr">{{ metrics.processing }}</strong></article>
+      <article class="tile"><span>{% translate "طابور ميت" %}</span><strong dir="ltr">{{ metrics.dead_letters }}</strong></article>
+      <article class="tile"><span>{% translate "أقدم رسالة (ث)" %}</span><strong dir="ltr">{{ metrics.oldest_pending_seconds|default:"—" }}</strong></article>
+    </div>
+
+    <div class="formcard">
+      <div class="formcard__head"><h2>{% translate "آخر الرسائل" %}</h2></div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th>{% translate "الوقت" %}</th><th>{% translate "النوع" %}</th><th>{% translate "النطاق" %}</th>
+            <th>{% translate "الحالة" %}</th><th>{% translate "المحاولات" %}</th><th>{% translate "سبب الفشل" %}</th><th></th>
+          </tr></thead>
+          <tbody>
+            {% for event in events %}
+              <tr>
+                <td><bdi dir="ltr">{{ event.created_at|date:"Y-m-d H:i" }}</bdi></td>
+                <td><code>{{ event.event_type }}</code></td>
+                <td>{{ event.organization.code }}{% if event.branch %} · {{ event.branch.code }}{% endif %}</td>
+                <td>{{ event.get_status_display }}</td>
+                <td dir="ltr">{{ event.attempt_count }}</td>
+                <td>{{ event.last_error|default:"—" }}</td>
+                <td>
+                  {% if event.status == dead_letter_status and may_replay %}
+                    <form method="post">
+                      {% csrf_token %}<input type="hidden" name="event_id" value="{{ event.pk }}">
+                      <button class="btn btn--secondary btn--sm" type="submit">{% translate "إعادة تشغيل" %}</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="7" class="empty">{% translate "لا توجد رسائل ضمن نطاقك." %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+{% endblock %}

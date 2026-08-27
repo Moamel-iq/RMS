@@ -420,6 +420,18 @@ def post_sales_day(*, day: SalesDay, actor: User) -> SalesDay:
         raise ValidationError(
             _("Only a submitted sales day can be posted."), code="day_not_submitted"
         )
+    if locked.submitted_by_id == actor.pk:
+        raise ValidationError(
+            _("The person who submitted a sales day cannot post it."),
+            code="poster_is_submitter",
+        )
+
+    # The close is evaluated before a document number, journal, receivable or
+    # stock effect exists. Historical days remain untouched; newly controlled
+    # days need their latest close approved by a different person.
+    from apps.sales.daily_close_services import require_approved_daily_financial_close
+
+    require_approved_daily_financial_close(sales_day=locked)
 
     lines = list(
         locked.lines.select_related(

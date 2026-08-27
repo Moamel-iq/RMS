@@ -92,11 +92,28 @@
   const commandEmpty = commandDialog?.querySelector("[data-command-empty]");
   let lastCommandTrigger = null;
 
+  /*
+   * Arabic is written more than one way — أ إ آ for ا, ة for ه, ى for ي, both
+   * digit sets, tashkeel, and the yeh and kaf of Persian and Kurdish keyboards.
+   * `searchable-select.js` already folds all of it for the combobox; the
+   * palette borrows that rather than keeping a second, weaker rule. Loading
+   * order is not assumed: the fallback is the behaviour this had before.
+   */
+  const text = () => window.KhanMandiText;
+  const foldTerm = (value) => text()?.foldQuery?.(value) ?? value.toLocaleLowerCase("ar");
+  const foldLabel = (value) => text()?.fold?.(value) ?? value.toLocaleLowerCase("ar");
+  const termMatches = (haystack, needle) =>
+    text()?.matches?.(haystack, needle) ?? haystack.includes(needle);
+
   const filterCommands = () => {
-    const term = commandInput?.value.trim().toLocaleLowerCase("ar") || "";
+    const term = foldTerm(commandInput?.value.trim() || "");
     let visible = 0;
     commandItems.forEach((item) => {
-      const matches = !term || item.textContent.toLocaleLowerCase("ar").includes(term);
+      // The label and the module it belongs to are both searchable, so
+      // "مبيعات يوم" finds the sales-day screen from either word.
+      const label = item.dataset.commandText || foldLabel(item.textContent);
+      item.dataset.commandText = label;
+      const matches = !term || termMatches(label, term);
       item.hidden = !matches;
       if (matches) visible += 1;
     });
@@ -191,6 +208,8 @@
   const confirmButton = confirmDialog?.querySelector("[data-confirm-accept]");
   let pendingForm = null;
   let pendingSubmitter = null;
+  //: An htmx request held back until the reader answers the dialog.
+  let pendingRequest = null;
 
   document.addEventListener("submit", (event) => {
     const form = event.target.closest("form[data-confirm]");
@@ -199,13 +218,96 @@
     event.preventDefault();
     pendingForm = form;
     pendingSubmitter = event.submitter || null;
-    confirmTitle.textContent = form.dataset.confirmTitle || "تأكيد الإجراء";
-    confirmMessage.textContent = form.dataset.confirm || "هل تريد متابعة هذا الإجراء؟";
+    dressConfirm(form, form.dataset.confirm);
     if (!confirmDialog.open) confirmDialog.showModal();
-    window.requestAnimationFrame(() => confirmButton.focus());
+    window.requestAnimationFrame(focusConfirmDefault);
+  });
+
+  /**
+   * Where focus lands when the dialog opens.
+   *
+   * On a destructive act it is Cancel: a reader who hits Enter out of habit
+   * should not post a journal, terminate an employee or delete a line. On an
+   * ordinary confirmation it is the action, because that is the answer being
+   * asked for. Either way focus is inside the dialog, and both buttons are one
+   * Tab apart.
+   */
+  const focusConfirmDefault = () => {
+    const danger = confirmDialog?.dataset.severity !== "primary";
+    const target = danger
+      ? confirmDialog?.querySelector("[data-confirm-cancel]")
+      : confirmButton;
+    target?.focus();
+  };
+
+  /**
+   * Fill the shared dialog from an element's confirmation contract.
+   *
+   * `hx-confirm` alone produces the browser's own prompt: one line, no
+   * severity, no document identity, no amount, and a button that says OK. On an
+   * approval, a termination or a posting that is not a confirmation anybody can
+   * act on — so every element that carries `hx-confirm` is drawn here instead,
+   * with whatever context it declares.
+   */
+  const dressConfirm = (source, message) => {
+    const data = source.dataset;
+    confirmTitle.textContent = data.confirmTitle || "تأكيد الإجراء";
+    confirmMessage.textContent = message || data.confirm || "هل تريد متابعة هذا الإجراء؟";
+
+    const facts = confirmDialog.querySelector("[data-confirm-facts]");
+    const rows = [
+      ["subject", data.confirmSubject],
+      ["amount", data.confirmAmount],
+      ["period", data.confirmPeriod],
+    ];
+    let shown = 0;
+    rows.forEach(([name, value]) => {
+      const row = confirmDialog.querySelector(`[data-confirm-${name}-row]`);
+      const cell = confirmDialog.querySelector(`[data-confirm-${name}]`);
+      if (!row || !cell) return;
+      row.hidden = !value;
+      cell.textContent = value || "";
+      if (value) shown += 1;
+    });
+    if (facts) facts.hidden = shown === 0;
+
+    const reasonNote = confirmDialog.querySelector("[data-confirm-reason-note]");
+    if (reasonNote) reasonNote.hidden = data.confirmReason !== "required";
+
+    // Severity decides the colour of the last button and nothing else: the
+    // wording is the real signal, so it is always the verb of the act.
+    const severity = data.confirmSeverity || "danger";
+    confirmButton.className = severity === "danger" ? "btn btn--danger" : "btn btn--primary";
+    confirmButton.textContent = data.confirmAccept || "متابعة";
+    confirmDialog.dataset.severity = severity;
+  };
+
+  /*
+   * htmx asks before it sends. Answering the question here keeps one dialog,
+   * one set of words and one keyboard contract for every module — Inventory and
+   * Sales already used it; HR and Procurement asked through the browser.
+   */
+  document.addEventListener("htmx:confirm", (event) => {
+    const question = event.detail.question;
+    if (!question || !confirmDialog) return;
+    event.preventDefault();
+    const source = event.detail.elt;
+    dressConfirm(source, question);
+    pendingForm = null;
+    pendingSubmitter = null;
+    pendingRequest = () => event.detail.issueRequest(true);
+    if (!confirmDialog.open) confirmDialog.showModal();
+    window.requestAnimationFrame(focusConfirmDefault);
   });
 
   confirmButton?.addEventListener("click", () => {
+    if (pendingRequest) {
+      const issue = pendingRequest;
+      pendingRequest = null;
+      confirmDialog.close();
+      issue();
+      return;
+    }
     if (!pendingForm) return;
     const form = pendingForm;
     const submitter = pendingSubmitter;
@@ -220,9 +322,11 @@
   confirmDialog?.querySelector("[data-confirm-cancel]")?.addEventListener("click", () => {
     pendingForm = null;
     pendingSubmitter = null;
+    pendingRequest = null;
     confirmDialog.close();
   });
   confirmDialog?.addEventListener("cancel", () => {
+    pendingRequest = null;
     pendingForm = null;
     pendingSubmitter = null;
   });

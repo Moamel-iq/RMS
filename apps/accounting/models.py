@@ -19,6 +19,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 
@@ -108,6 +109,14 @@ class AccountingSettings(TimeStampedModel):
         _("fiscal year start month"),
         default=1,
         help_text=_("Changing this re-buckets every posted entry. See ADR-013."),
+    )
+    #: A date is safer than a switch: it leaves the control's effective window
+    #: visible and prevents a later toggle from changing what earlier days were
+    #: expected to satisfy.  The migration supplies its deployment date, so
+    #: existing posted history is never rewritten.
+    daily_close_enforced_from = models.DateField(
+        _("daily close enforced from"),
+        default=timezone.localdate,
     )
 
     history = HistoricalRecords()

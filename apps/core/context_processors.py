@@ -13,6 +13,7 @@ from django.http import HttpRequest
 
 from apps.core.navigation import DEFAULT_MODULE_KEY, MODULES_BY_KEY
 from apps.core.navigation_access import visible_modules_for
+from apps.core.printing import logo_static_path
 from apps.organizations.selectors import accessible_branches
 
 
@@ -67,6 +68,28 @@ def shell(request: HttpRequest) -> dict[str, Any]:
         # no query.
         "user_branches": accessible_branches(user).select_related("organization"),
         "filter_query": _filter_query(request),
+        # Paper needs to say who issued the page and under what letterhead.
+        # The screen already knows both; only the printed heading uses them.
+        **_print_identity(user),
+    }
+
+
+def _print_identity(user: Any) -> dict[str, Any]:
+    """
+    The letterhead for a printed screen.
+
+    One branch is named outright; several are named by their organization,
+    because a sheet that claimed one branch while showing another's rows would
+    be worse than a sheet that claims neither.
+    """
+    branches = list(accessible_branches(user).select_related("organization")[:2])
+    organization = branches[0].organization if branches else None
+    return {
+        "print_logo": logo_static_path(),
+        "print_organization": f"{organization.code} — {organization.name_ar}"
+        if organization
+        else "",
+        "print_branch": f"{branches[0].code} — {branches[0].name_ar}" if len(branches) == 1 else "",
     }
 
 

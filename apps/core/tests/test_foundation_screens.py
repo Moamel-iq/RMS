@@ -38,7 +38,7 @@ FOUNDATION_LIST_URLS = [
 
 @pytest.fixture
 def staff() -> User:
-    return User.objects.create_user(username="admin.user", password=PASSWORD, is_staff=True)
+    return User.objects.create_superuser(username="admin.user", password=PASSWORD)
 
 
 @pytest.fixture
@@ -70,7 +70,9 @@ class TestAccessControl:
         assert reverse("users:login") in response["Location"]
 
     @pytest.mark.parametrize("url_name", FOUNDATION_LIST_URLS)
-    def test_non_staff_is_refused(self, client: Client, plain_user: User, url_name: str) -> None:
+    def test_unprivileged_user_is_refused(
+        self, client: Client, plain_user: User, url_name: str
+    ) -> None:
         """
         These screens create users, branches, and the units every quantity is
         measured in. A signed-in cashier must not reach them.
@@ -79,7 +81,7 @@ class TestAccessControl:
         assert client.get(reverse(url_name)).status_code == 403
 
     @pytest.mark.parametrize("url_name", FOUNDATION_LIST_URLS)
-    def test_staff_may_enter(self, client: Client, staff: User, url_name: str) -> None:
+    def test_superuser_may_enter(self, client: Client, staff: User, url_name: str) -> None:
         client.force_login(staff)
         assert client.get(reverse(url_name)).status_code == 200
 
@@ -282,6 +284,7 @@ class TestUnitScreens:
 
 class TestUserScreens:
     def test_create_account(self, client: Client, staff: User) -> None:
+        organization = create_organization(code="USERORG", name_ar="مستخدم", name_en="User Org")
         client.force_login(staff)
         response = client.post(
             reverse("users:user_create"),
@@ -292,6 +295,7 @@ class TestUserScreens:
                 "last_name": "المخزن",
                 "password1": PASSWORD,
                 "password2": PASSWORD,
+                "organization": organization.pk,
             },
         )
         assert response.status_code == 302
@@ -299,20 +303,32 @@ class TestUserScreens:
         assert created.phone == "+9647701234567"
 
     def test_mismatched_passwords_are_refused(self, client: Client, staff: User) -> None:
+        organization = create_organization(code="MISMATCH", name_ar="تجربة", name_en="Test")
         client.force_login(staff)
         response = client.post(
             reverse("users:user_create"),
-            {"username": "mismatch", "password1": PASSWORD, "password2": "different"},
+            {
+                "username": "mismatch",
+                "password1": PASSWORD,
+                "password2": "different",
+                "organization": organization.pk,
+            },
         )
         assert response.status_code == 200
         assert "password2" in response.context["form"].errors
         assert not User.objects.filter(username="mismatch").exists()
 
     def test_the_password_is_never_in_the_audit_snapshot(self, client: Client, staff: User) -> None:
+        organization = create_organization(code="HASHORG", name_ar="تشفير", name_en="Hash Org")
         client.force_login(staff)
         client.post(
             reverse("users:user_create"),
-            {"username": "hashed", "password1": PASSWORD, "password2": PASSWORD},
+            {
+                "username": "hashed",
+                "password1": PASSWORD,
+                "password2": PASSWORD,
+                "organization": organization.pk,
+            },
         )
         created = User.objects.get(username="hashed")
         event = AuditEvent.objects.get(target_type="users.User", target_id=str(created.pk))
@@ -324,6 +340,7 @@ class TestAccessScreen:
     def test_granting_access(self, client: Client, staff: User, branch: Branch) -> None:
         client.force_login(staff)
         target = User.objects.create_user(username="grantee", password=PASSWORD)
+        grant_branch_access(user=target, branch=branch, role=Role.VIEWER)
         client.post(
             reverse("organizations:access_list"),
             {"user": target.pk, "branch": branch.pk, "role": Role.STOREKEEPER},

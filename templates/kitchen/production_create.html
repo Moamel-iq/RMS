@@ -1,8 +1,8 @@
 {# Drafting one batch from the version in force at a branch on a date.       #}
 {#                                                                           #}
-{# `تاريخ الإنتاج` has no default, deliberately. A field pre-filled with     #}
-{# today teaches the operator that the question does not need a date, and a  #}
-{# batch drafted on Monday for Sunday's production must use Sunday's recipe. #}
+{# `تاريخ الإنتاج` starts with today's local date to remove routine typing,  #}
+{# but remains editable: a batch drafted on Monday for Sunday must use       #}
+{# Sunday's recipe.                                                          #}
 {#                                                                           #}
 {# The idempotency key is asked for rather than generated: a key the server  #}
 {# invented would make every double-click a second decision, which is        #}

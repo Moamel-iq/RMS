@@ -28,6 +28,7 @@ class UnitListView(FoundationListView):
     create_url_name = "units:unit_create"
     create_label = _("وحدة جديدة")
     search_fields = ("code", "name_ar", "name_en")
+    superuser_only = True
 
     def get_queryset(self) -> QuerySet[UnitOfMeasure]:
         queryset = super().get_queryset()
@@ -48,6 +49,7 @@ class UnitCreateView(FoundationFormViewMixin, CreateView):
     form_class = UnitCreateForm
     template_name = "settings/base_form.html"
     success_url = reverse_lazy("units:unit_list")
+    superuser_only = True
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -75,6 +77,7 @@ class UnitUpdateView(FoundationFormViewMixin, UpdateView):
     form_class = UnitUpdateForm
     template_name = "settings/base_form.html"
     success_url = reverse_lazy("units:unit_list")
+    superuser_only = True
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)

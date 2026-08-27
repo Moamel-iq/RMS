@@ -47,6 +47,12 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 
 from apps.core.money import money_export, quantize_money
+from apps.core.printing import (
+    PrintableReportMixin,
+    PrintSheet,
+    SheetFilter,
+    sheet_from_columns,
+)
 from apps.kitchen.cost_reconciliation import snapshot_findings
 from apps.kitchen.costing import cost_recipe_version, preview_recipe_cost
 from apps.kitchen.kitchen_operations import (
@@ -89,7 +95,7 @@ def _safe(value: Any) -> str:
     return f"'{text}" if text[:1] in _FORMULA_LEAD else text
 
 
-class KitchenReportView(KitchenViewMixin, View):
+class KitchenReportView(PrintableReportMixin, KitchenViewMixin, View):
     """A scoped, filtered, paginated Kitchen report with a CSV on the same query."""
 
     required_permission: str = VIEW_KITCHEN_REPORT
@@ -225,6 +231,57 @@ class KitchenReportView(KitchenViewMixin, View):
         params.pop("page", None)
         return params.urlencode()
 
+    def _print_query(self) -> str:
+        params = self.request.GET.copy()
+        params["print"] = "1"
+        params.pop("page", None)
+        params.pop("export", None)
+        return params.urlencode()
+
+    def print_sheet(self, context: dict[str, Any], filters: Any = None) -> PrintSheet:
+        """
+        Every row, and the coverage statement above them.
+
+        A kitchen report that covers only some recipes says so on the screen
+        and in the export; paper is where that sentence matters most, because
+        paper is what gets filed and read a month later.
+        """
+        columns = self.active_columns()
+        numeric = {
+            key
+            for key, _label in columns
+            if any(
+                word in key
+                for word in (
+                    "quantity",
+                    "cost",
+                    "amount",
+                    "total",
+                    "value",
+                    "price",
+                    "share",
+                    "count",
+                )
+            )
+        }
+        note = str(self.coverage_note) if self.coverage_note else str(self.page_hint or "")
+        if self.coverage_codes:
+            covered = "، ".join(str(code) for code in self.coverage_codes)
+            covered_label = str(_("تغطية التقرير"))
+            line = f"{covered_label}: {covered}"
+            note = f"{note} — {line}" if note else line
+        return sheet_from_columns(
+            title=str(self.page_title),
+            columns=columns,
+            rows=context["rows"],
+            numeric_keys=numeric,
+            filters=[
+                SheetFilter(label=str(label), value=value)
+                for label, value in self.applied_filters()
+            ],
+            note=note,
+        )
+
     def export_csv(self, rows: list[dict[str, Any]]) -> HttpResponse:
         columns = self.active_columns()
         response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
@@ -250,6 +307,8 @@ class KitchenReportView(KitchenViewMixin, View):
         rows = self.report_rows(include_cost=self.include_cost)
         if request.GET.get("export") == "csv":
             return self.export_csv(rows)
+        if self.wants_print(request):
+            return self.render_print(request, {"rows": rows}, None)
 
         paginator = Paginator(rows, self.paginate_by)
         page = paginator.get_page(request.GET.get("page"))
@@ -289,6 +348,7 @@ class KitchenReportView(KitchenViewMixin, View):
                 "warehouses": readable_kitchen_warehouses(self.actor),
                 "show_cost": self.include_cost,
                 "export_query": self._export_query(),
+                "print_query": self._print_query(),
                 "coverage_codes": list(self.coverage_codes),
                 "filter_extras_template": self.filter_extras_template,
                 "applied_filters": self.applied_filters(),

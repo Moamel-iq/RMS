@@ -107,7 +107,7 @@
             <th>{% translate "مركز الكلفة" %}</th>
             <th>{% translate "البيان" %}</th>
             <th>{% translate "المبلغ" %}</th>
-            {% if may_edit %}<th></th>{% endif %}
+            {% if may_edit %}<th scope="col"><span class="sr-only">إجراءات</span></th>{% endif %}
           </tr></thead>
           <tbody>
             {% for line in lines %}
@@ -137,7 +137,7 @@
             <tr>
               <th colspan="4">{% translate "المجموع" %}</th>
               <th><bdi dir="ltr">{{ voucher.total_amount|money_full }}</bdi></th>
-              {% if may_edit %}<th></th>{% endif %}
+              {% if may_edit %}<th scope="col"><span class="sr-only">إجراءات</span></th>{% endif %}
             </tr>
           </tfoot>
         </table>

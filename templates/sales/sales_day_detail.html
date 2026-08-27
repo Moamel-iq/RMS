@@ -42,6 +42,18 @@
             <button class="btn btn--ghost" type="submit">{% translate "إعادة للمسودة" %}</button>
           </form>
         {% endif %}
+        {% if may_submit_daily_close %}
+          <form method="post" action="{% url 'sales:day_daily_close_submit' day.pk %}">
+            {% csrf_token %}
+            <button class="btn btn--secondary" type="submit">{% translate "إرسال الإقفال المالي" %}</button>
+          </form>
+        {% endif %}
+        {% if may_approve_daily_close %}
+          <form method="post" action="{% url 'sales:day_daily_close_approve' day.pk %}">
+            {% csrf_token %}
+            <button class="btn btn--primary" type="submit">{% translate "اعتماد الإقفال المالي" %}</button>
+          </form>
+        {% endif %}
         {% if may_post %}
           <form method="post" action="{% url 'sales:day_post' day.pk %}"
                 data-confirm="{% translate 'سيُكتب قيد متوازن وذمم التطبيقات، وتصبح كميات اليوم جزءاً من الاستهلاك النظري. التصحيح بعدها يكون بالعكس وإصدار يوم بديل.' %}"
@@ -61,6 +73,34 @@
         {% endif %}
       </div>
     </div>
+
+    {% if daily_close_required and day.status == "SUBMITTED" %}
+      {% if not latest_daily_close %}
+        <p class="banner banner--warn" role="note">
+          {% translate "قبل الترحيل: أغلق وردية الكاشير على هذا اليوم المُرسل، ثم أرسل الإقفال المالي للمراجعة." %}
+        </p>
+      {% elif latest_daily_close.status == "BLOCKED" %}
+        <section class="formcard" aria-labelledby="daily-close-exceptions">
+          <h2 id="daily-close-exceptions">{% translate "استثناءات الإقفال المالي" %}</h2>
+          <p class="banner banner--bad" role="note">
+            {% blocktranslate with attempt=latest_daily_close.attempt_number %}محاولة الإقفال رقم {{ attempt }} محفوظة ومتوقفة. صحّح المصدر (اليوم أو الوردية) ثم أرسل محاولة جديدة؛ لا يمكن شطب الاستثناءات أو تجاوزها بصمت.{% endblocktranslate %}
+          </p>
+          <ul>
+            {% for exception in latest_daily_close.reconciliation_snapshot.exceptions %}
+              <li><bdi dir="ltr"><code>{{ exception.code }}</code></bdi>{% if exception.tender %} — {{ exception.tender }}{% endif %}{% if exception.difference %} — <bdi dir="ltr">{{ exception.difference }} {% translate "دينار عراقي" %}</bdi>{% endif %}</li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% elif latest_daily_close.status == "SUBMITTED" %}
+        <p class="banner banner--warn" role="note">
+          {% translate "الإقفال المالي محفوظ وينتظر مراجعة شخص آخر قبل الترحيل." %}
+        </p>
+      {% elif latest_daily_close.status == "APPROVED" %}
+        <p class="banner banner--good" role="note">
+          {% translate "الإقفال المالي معتمد؛ يمكن للمخوّل المختلف عن مُرسل اليوم ترحيله." %}
+        </p>
+      {% endif %}
+    {% endif %}
 
     {% if day.status == "REVERSED" %}
       <p class="banner banner--bad" role="note">
@@ -122,7 +162,7 @@
               <th scope="col">{% translate "خصم التطبيق" %}</th>
               <th scope="col">{% translate "العمولة" %}</th>
               <th scope="col">{% translate "الصافي" %}</th>
-              {% if may_edit %}<th scope="col"></th>{% endif %}
+              {% if may_edit %}<th scope="col"><span class="sr-only">إجراءات</span></th>{% endif %}
             </tr>
           </thead>
           <tbody>

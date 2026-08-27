@@ -4,7 +4,24 @@
 {% block page %}
 <section class="workspace-page" id="recipe-cost-report">
   <nav class="workspace-breadcrumb"><span>{% translate "التقارير" %}</span><span>/</span><span>{% translate "كلفة الوصفات" %}</span></nav>
-  <div class="pagehead"><div><p class="pagehead__eyebrow">{% translate "تحليل الكلفة التاريخية" %}</p><h1 class="pagehead__title">{{ page_title }}</h1><p class="pagehead__hint">{{ page_hint }}</p></div><div class="pagehead__actions">{% if menu_cost_rows %}<a class="btn btn--primary" href="{% url 'accounting:income_statement' %}?organization={{ menu_cost_rows.0.branch.organization.pk }}&amp;from={{ menu_cost_date|date:'Y-m-d' }}&amp;to={{ menu_cost_date|date:'Y-m-d' }}">{% translate "فتح قائمة الدخل" %}</a>{% endif %}<a class="btn btn--secondary" href="?{{ export_query }}" download>{% translate "تصدير CSV" %}</a></div></div>
+  <div class="pagehead">
+    <div class="pagehead__copy">
+      <p class="pagehead__eyebrow">{% translate "تحليل الكلفة التاريخية" %}</p>
+      <h1 class="pagehead__title">{{ page_title }}</h1>
+      <p class="pagehead__hint">{{ page_hint }}</p>
+    </div>
+    <div class="pagehead__actions">
+      <a class="btn btn--primary" href="{% url 'accounting:income_statement' %}">
+        {% translate "التقرير المالي الشامل" %}
+      </a>
+      <a class="btn btn--secondary" href="?{{ export_query }}" download>{% translate "تصدير CSV" %}</a>
+      {% if print_query %}
+        <a class="btn btn--secondary" href="?{{ print_query }}" target="_blank" rel="noopener">
+          {% translate "PDF / طباعة" %}
+        </a>
+      {% endif %}
+    </div>
+  </div>
 
   <div class="stats-grid">
     <article class="stat-card"><span>{% translate "لقطات مطابقة" %}</span><strong><bdi dir="ltr">{{ snapshot_count }}</bdi></strong></article>

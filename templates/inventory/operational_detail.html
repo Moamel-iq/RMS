@@ -75,6 +75,7 @@
     </form>
   {% endif %}
 
+  <div id="operational-lines-workspace" aria-live="polite">
   <section aria-labelledby="document-lines-title">
     <h2 class="section__title" id="document-lines-title">{% translate "سطور المستند" %}</h2>
     <div class="tablewrap responsive-table">
@@ -211,23 +212,49 @@
   {% endif %}
 
   {% if is_draft and can_prepare %}
-    <form class="formcard" method="post" novalidate>
+    <form class="formcard document-line-form" method="post" action="{{ request.path }}" novalidate
+          hx-post="{{ request.path }}" hx-target="#operational-lines-workspace" hx-swap="outerHTML"
+          hx-disabled-elt="find button[type='submit']" hx-indicator="#document-line-saving">
       {% csrf_token %}
       <h2 class="section__title">{% translate "إضافة سطر" %}</h2>
       {% include "components/form_error_summary.html" with form=line_form %}
 
-      <div class="formgrid">
-        {% for field in line_form %}
-          {% include "settings/_field.html" with field=field %}
-        {% endfor %}
+      <p class="document-line-form__intro">
+        {% if is_receipt %}
+          {% translate "للتسجيل السريع: اختر الصنف، ثم أدخل الكمية وكلفة الوحدة." %}
+        {% else %}
+          {% translate "للتسجيل السريع: اختر الصنف ثم أدخل الكمية." %}
+        {% endif %}
+      </p>
+      <div class="formgrid document-line-form__primary">
+        {% include "settings/_field.html" with field=line_form.item %}
+        {% if is_return %}{% include "settings/_field.html" with field=line_form.source_issue_line %}{% endif %}
+        {% include "settings/_field.html" with field=line_form.base_quantity %}
+        {% if is_receipt %}{% include "settings/_field.html" with field=line_form.unit_cost %}{% endif %}
+        {% if is_waste %}
+          {% include "settings/_field.html" with field=line_form.reason_code %}
+          {% include "settings/_field.html" with field=line_form.line_comment %}
+        {% endif %}
       </div>
+      <details class="document-line-form__more"{% if line_form.lot_code.errors or line_form.lot_expiry.errors or line_form.package_conversion.errors or line_form.entered_package_quantity.errors or line_form.measured_base_quantity.errors %} open{% endif %}>
+        <summary>{% translate "خيارات إضافية: دفعة أو إدخال بالعبوات" %}</summary>
+        <p>{% translate "استخدمها فقط للصنف الذي يتتبع الدفعات أو عند العد بالعبوات." %}</p>
+        <div class="formgrid">
+          {% include "settings/_field.html" with field=line_form.lot_code %}
+          {% include "settings/_field.html" with field=line_form.lot_expiry %}
+          {% include "settings/_field.html" with field=line_form.package_conversion %}
+          {% include "settings/_field.html" with field=line_form.entered_package_quantity %}
+          {% include "settings/_field.html" with field=line_form.measured_base_quantity %}
+        </div>
+      </details>
       <div class="formactions">
+        <span class="htmx-indicator document-line-form__saving" id="document-line-saving" role="status">
+          {% translate "جارٍ إضافة السطر…" %}
+        </span>
         <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
       </div>
     </form>
-    <p class="muted">
-      {% translate "لتقصير قائمة العبوات وسطور الصرف، اختر الصنف ثم أعد فتح الصفحة مع ?item=رقم الصنف." %}
-    </p>
   {% endif %}
+  </div>
   </section>
 {% endblock %}

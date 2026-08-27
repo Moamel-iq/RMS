@@ -1,22 +1,18 @@
 """
 المطابقة اليومية — one branch, one business date, every figure compared.
 
-**Report only.** No model, no persisted status, no repair action, and that is
-the spec's decision rather than an omission (task 4.0 §2 and assumption §8.5).
-A `SalesDailyReconciliation` row would record no fact the documents do not
-already carry: the day carries what was declared and what its lines say, the
-shift carries what was counted, the adjustments carry what came back, and the
-ledger carries what posted. Storing the comparison would create a second place
-for the same truth to live, and the stored one is always the one that goes
-stale — the reconciliation for the 3rd would still say "clean" a week after
-somebody reversed the day it reconciled.
+**Report only.** This module still writes no model or repair action.  The
+financial-close workflow persists `DailyFinancialClose` attempts separately:
+those are immutable evidence snapshots of what a reviewer saw *before posting*,
+not a cached version of this read-time report.  This report continues to derive
+its figures from the source documents, so a later reversal or correction is
+visible rather than hidden behind a historical "clean" flag.
 
-There is also no "resolve" or "acknowledge" action, for the same reason there is
-no `--fix` in any verifier in this system (RCP-050): a finding here is a
-statement that two documents disagree, and the only honest response is to change
-a document, which is a service call with its own permission and its own audit
-trail. A button that marked a difference as seen would let a real shortage be
-closed by clicking.
+There is no "resolve" or "acknowledge" action here, for the same reason there
+is no `--fix` in any verifier in this system (RCP-050): a finding here is a
+statement that two documents disagree.  Daily-close exceptions are captured by
+their workflow before a sales posting; after posting, correction remains a
+document service with its own permission and audit trail.
 
 ## The three legs, and what each side of them is
 

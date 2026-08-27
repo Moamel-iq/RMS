@@ -9,10 +9,12 @@ from decimal import Decimal
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import DatabaseError, IntegrityError, transaction
 from django.test import Client
 from django.urls import reverse
 
+from apps.core.models import AuditAction, AuditEvent
 from apps.hr.models import (
     ContractStatus,
     ContractType,
@@ -34,6 +36,7 @@ from apps.hr.permissions import (
     scope_of,
 )
 from apps.hr.services import (
+    add_employee_document,
     approve_contract,
     create_contract,
     create_employee,
@@ -343,6 +346,44 @@ def test_viewer_sees_the_employee_but_not_personal_salary_or_contract_details(
     )
 
 
+def test_employee_documents_use_a_personal_data_gate_and_audited_download(
+    employee: Employee,
+    maker: User,
+    viewer: User,
+    client_for: Callable[[User], Client],
+) -> None:
+    document = add_employee_document(
+        employee=employee,
+        actor=maker,
+        document_type="هوية",
+        title="هوية الموظف",
+        reference="ID-HR-SECRET-1",
+        file=SimpleUploadedFile("identity.pdf", b"not-a-real-pdf"),
+        issue_date=None,
+        expiry_date=None,
+        notes="",
+    )
+    download_url = reverse("hr:employee_document_download", args=[employee.pk, document.pk])
+
+    viewer_page = client_for(viewer).get(reverse("hr:employee_detail", args=[employee.pk]))
+    assert "هوية الموظف" not in viewer_page.content.decode()
+    assert client_for(viewer).get(download_url).status_code == 403
+
+    response = client_for(maker).get(download_url)
+    assert response.status_code == 200
+    assert "attachment" in response.headers["Content-Disposition"]
+    # The attachment is a FileResponse, so the body arrives as a stream;
+    # getvalue() joins the chunks the same way iterating the response would.
+    assert b"not-a-real-pdf" == response.getvalue()
+    assert client_for(maker).get(document.file.url).status_code == 404
+    assert AuditEvent.objects.filter(
+        action=AuditAction.DOCUMENT_DOWNLOADED,
+        target_type="hr.EmployeeDocument",
+        target_id=str(document.pk),
+        organization=employee.organization,
+    ).exists()
+
+
 def test_an_out_of_scope_employee_is_indistinguishable_from_a_missing_row(
     employee: Employee,
     other_organization: Organization,
@@ -422,3 +463,41 @@ def test_every_hr_permission_is_scoped_and_the_role_matrix_separates_sensitive_d
     assert VIEW_EMPLOYEE_SALARY in permissions_for_role(Role.ACCOUNTANT)
     assert MANAGE_CONTRACT not in permissions_for_role(Role.ACCOUNTANT)
     assert APPROVE_CONTRACT in permissions_for_role(Role.ACCOUNTING_MANAGER)
+
+
+def test_the_employee_and_contract_pages_are_drawn_inside_the_shell(
+    employee: Employee,
+    policy: PayrollPolicy,
+    maker: User,
+    checker: User,
+    client_for: Callable[[User], Client],
+) -> None:
+    """
+    Both pages once overrode `block content`, which is the whole document —
+    so they rendered without navigation, top bar, skip link, `<main>` or the
+    confirmation dialog, and a keyboard reader arriving at an employee file
+    had no way back out. They fill `block page`, like every other screen.
+    """
+    contract = approve_contract(
+        contract=_contract(
+            employee=employee,
+            policy=policy,
+            actor=maker,
+            start=datetime.date(2026, 1, 1),
+        ),
+        actor=checker,
+    )
+    client = client_for(checker)
+    pages = {
+        "employee": reverse("hr:employee_detail", args=[employee.pk]),
+        "contract": reverse("hr:contract_detail", args=[contract.pk]),
+    }
+    for name, url in pages.items():
+        body = client.get(url).content.decode()
+        assert 'class="topbar"' in body, name
+        assert 'id="main-content"' in body, name
+        assert "skip-link" in body, name
+        assert "data-shell-nav" in body, name
+        assert "data-confirm-dialog" in body, name
+        # And the page still carries its own title, not the bare system name.
+        assert "<title>" in body and "· نظام خان مندي" in body, name

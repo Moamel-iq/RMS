@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load i18n static %}
 
 {% block content %}
   <a class="skip-link" href="#main-content">{% translate "تخطَّ إلى المحتوى الرئيسي" %}</a>
@@ -116,13 +116,41 @@
           </div>
         </div>
 
-        <button class="command-trigger" type="button" data-command-open aria-haspopup="dialog">
+        {# The label is hidden at mobile widths, so the name, the tooltip and #}
+        {# the shortcut are stated on the button itself and never hidden.      #}
+        <button class="command-trigger" type="button" data-command-open aria-haspopup="dialog"
+                aria-label="{% translate 'انتقل إلى شاشة… (Ctrl K)' %}"
+                title="{% translate 'انتقل إلى شاشة… (Ctrl K)' %}"
+                aria-keyshortcuts="Control+K">
           <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           <span>{% translate "انتقل إلى شاشة…" %}</span>
           <kbd>Ctrl K</kbd>
         </button>
 
         <div class="topbar__actions">
+          {# Any screen can go on paper. The options are the reader's, kept #}
+          {# between visits, and shared with the report sheets.             #}
+          <details class="topbar-menu print-menu no-print" data-print-menu>
+            <summary class="iconbtn" aria-label="{% translate 'طباعة أو حفظ PDF' %}" title="{% translate 'طباعة أو حفظ PDF' %}">
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 8V4h10v4M7 18H5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M7 15h10v5H7z"/>
+              </svg>
+            </summary>
+            <div class="topbar-menu__panel print-menu__panel">
+              <div class="topbar-menu__heading"><strong>{% translate "طباعة / حفظ PDF" %}</strong></div>
+              <fieldset class="printbar__options" data-print-toolbar>
+                <legend class="sr-only">{% translate "ما يظهر في الورقة" %}</legend>
+                <label><input type="checkbox" data-print-part="logo" checked> {% translate "الشعار" %}</label>
+                <label><input type="checkbox" data-print-part="issuer" checked> {% translate "المؤسسة والفرع" %}</label>
+                <label><input type="checkbox" data-print-part="period" checked> {% translate "الفترة والمرشحات" %}</label>
+                <label><input type="checkbox" data-print-part="stamp" checked> {% translate "وقت الطباعة ومن طبعها" %}</label>
+                <label><input type="checkbox" data-print-part="signature" checked> {% translate "حقل التوقيع" %}</label>
+                <label><input type="checkbox" data-print-landscape> {% translate "ورقة أفقية" %}</label>
+                <button class="btn btn--primary btn--sm" type="button" data-print-now>{% translate "طباعة / حفظ PDF" %}</button>
+              </fieldset>
+              <p class="topbar-menu__empty">{% translate "في نافذة الطباعة اختر «حفظ بصيغة PDF»." %}</p>
+            </div>
+          </details>
           {# Three states, matching app.css: an explicit stamp wins over the #}
           {# operating system, and clearing it returns to following the OS.  #}
           <button type="button" class="iconbtn" data-theme-toggle
@@ -192,6 +220,41 @@
       </header>
 
       <main class="content" id="main-content" tabindex="-1">
+        {# What paper needs and a screen does not: who issued this, which #}
+        {# screen it is, over what filters, when it was taken and by whom. #}
+        {# Rendered on every page so no screen is left unprintable.        #}
+        <div class="printhead print-only" aria-hidden="true">
+          <div class="printhead__identity">
+            <div class="printhead__logo" data-part="logo">
+              {% if print_logo %}
+                <img src="{% static print_logo %}" alt="{% translate 'شعار خان مندي' %}" width="96" height="96">
+              {% else %}
+                <span class="printhead__wordmark">{% translate "خان مندي" %}</span>
+              {% endif %}
+            </div>
+            <div>
+              <p class="printhead__issuer" data-part="issuer">
+                {% if print_organization %}{{ print_organization }}{% endif %}
+                {% if print_branch %}<span>{{ print_branch }}</span>{% endif %}
+              </p>
+              {# The screen's own heading when it has one — a document says #}
+              {# "فاتورة مورد 2026-102", not "المشتريات". `print-sheet.js`  #}
+              {# refines it from the page's <h1> for the screens that set no  #}
+              {# `page_title`.                                               #}
+              <h2 class="printhead__title" data-print-title>
+                {% if page_title %}{{ page_title }}{% else %}{{ active_module.label }}{% if active_section %} — {{ active_section.label }}{% endif %}{% endif %}
+              </h2>
+              <p class="printhead__where">{{ active_module.label }}{% if active_section %} — {{ active_section.label }}{% endif %}</p>
+              {% if filter_query %}
+                <p class="printhead__filters" data-part="period">{% translate "المرشحات" %}: <bdi dir="ltr">{{ filter_query }}</bdi></p>
+              {% endif %}
+            </div>
+          </div>
+          <p class="printhead__stamp" data-part="stamp">
+            {% translate "طُبع" %}: {% now "Y-m-d H:i" %}
+            {% if user.is_authenticated %} — {% translate "بواسطة" %} {{ user.get_full_name|default:user.username }}{% endif %}
+          </p>
+        </div>
         {% if messages %}
           <div class="toast-stack" aria-live="polite" aria-atomic="false">
             {% for message in messages %}
@@ -205,6 +268,14 @@
           </div>
         {% endif %}
         {% block page %}{% endblock %}
+
+        <div class="printfoot print-only" aria-hidden="true">
+          <div class="sheet__signature" data-part="signature">
+            <div class="sheet__sign"><span>{% translate "أعدّه" %}</span></div>
+            <div class="sheet__sign"><span>{% translate "راجعه" %}</span></div>
+            <div class="sheet__sign"><span>{% translate "اعتمده" %}</span></div>
+          </div>
+        </div>
       </main>
     </div>
   </div>
@@ -231,7 +302,9 @@
           </a>
         {% endif %}
         {% for section in module.sections %}
-          {% if section.available %}
+          {# A module's landing section is the module row above it; listing both #}
+          {# gave the palette twenty entries that go to the same screen.         #}
+          {% if section.available and section.url_name != module.url_name %}
             {% if section.url_name != "admin:index" or user.is_staff %}
               <a class="command-item" href="{% url section.url_name %}" data-command-item>
                 <span class="command-item__module">{{ module.label }}</span>

@@ -9,13 +9,14 @@
 {% extends list_base_template|default:"shell.html" %}
 {% load i18n money_tags %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{% translate "التقرير المالي الشامل" %} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
   <div class="workspace-page" id="accounting-income-statement">
     <div class="pagehead">
       <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
+        <p class="pagehead__eyebrow">{% translate "قائمة الدخل والأداء التشغيلي" %}</p>
+        <h1 class="pagehead__title">{% translate "التقرير المالي الشامل" %}</h1>
         <p class="pagehead__hint">{{ page_hint }}</p>
       </div>
     </div>
@@ -29,6 +30,46 @@
         {% blocktranslate with start=date_from|date:"Y-m-d" end=date_to|date:"Y-m-d" %}من {{ start }} إلى {{ end }}{% endblocktranslate %}
       </p>
 
+      <section class="financial-overview" aria-labelledby="financial-overview-title">
+        <div class="financial-overview__head">
+          <div>
+            <h2 id="financial-overview-title">{% translate "ملخص الأداء المالي" %}</h2>
+            <p>{% translate "المبيعات والمصاريف والأرباح من القيود المُرحّلة ضمن الفترة المختارة." %}</p>
+          </div>
+          {% if report.is_approvable %}
+            <span class="chip chip--ok">{% translate "الأرقام قابلة للاعتماد" %}</span>
+          {% else %}
+            <span class="chip chip--warn">{% translate "توجد ملاحظات قبل الاعتماد" %}</span>
+          {% endif %}
+        </div>
+        <div class="financial-metrics">
+          <article class="financial-metric">
+            <span class="financial-metric__label">{% translate "المبيعات والإيرادات" %}</span>
+            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.revenue.total|iqd_full }}</bdi></strong>
+          </article>
+          <article class="financial-metric financial-metric--outflow">
+            <span class="financial-metric__label">{% translate "كلفة المبيعات" %}</span>
+            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.cost_of_sales.total|iqd_full }}</bdi></strong>
+          </article>
+          <article class="financial-metric financial-metric--strong">
+            <span class="financial-metric__label">{% translate "مجمل الربح" %}</span>
+            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.gross_profit|iqd_full }}</bdi></strong>
+          </article>
+          <article class="financial-metric financial-metric--outflow">
+            <span class="financial-metric__label">{% translate "المصاريف التشغيلية" %}</span>
+            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.operating_expenses.total|iqd_full }}</bdi></strong>
+          </article>
+          <article class="financial-metric financial-metric--strong">
+            <span class="financial-metric__label">{% translate "الربح التشغيلي" %}</span>
+            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.operating_profit|iqd_full }}</bdi></strong>
+          </article>
+          <article class="financial-metric financial-metric--net">
+            <span class="financial-metric__label">{% translate "صافي الربح" %}</span>
+            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.net_profit|iqd_full }}</bdi></strong>
+          </article>
+        </div>
+      </section>
+
       {% if report.unmapped %}
         <section class="formcard card--warn" id="income-unmapped">
           <h2>{% translate "غير مصنّف" %}</h2>
@@ -37,7 +78,7 @@
           </p>
           <div class="data-table-shell">
             <table class="table responsive-table">
-              <thead><tr><th>{% translate "الحساب" %}</th><th>{% translate "الرصيد" %}</th><th></th></tr></thead>
+              <thead><tr><th>{% translate "الحساب" %}</th><th>{% translate "الرصيد" %}</th><th scope="col"><span class="sr-only">إجراءات</span></th></tr></thead>
               <tbody>
                 {% for account, balance in report.unmapped %}
                   <tr>
@@ -61,14 +102,13 @@
         </section>
       {% endif %}
 
-      <section class="formcard">
-        <p class="card__hint">
-          {% if report.is_approvable %}
-            <span class="chip chip--ok">{% translate "قابلة للاعتماد" %}</span>
-          {% else %}
-            <span class="chip chip--warn">{% translate "لا تُعتمد حتى تُحل تحذيرات التصنيف وكلفة المبيعات أعلاه" %}</span>
-          {% endif %}
-        </p>
+      <section class="formcard financial-detail">
+        <div class="section-heading">
+          <div>
+            <h2>{% translate "تفاصيل قائمة الدخل" %}</h2>
+            <p>{% translate "يمكن فتح كل حساب لمراجعة حركته في دفتر الأستاذ." %}</p>
+          </div>
+        </div>
         <div class="data-table-shell">
           <table class="table" id="income-statement-table">
             <tbody>

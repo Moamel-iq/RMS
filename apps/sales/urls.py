@@ -188,6 +188,16 @@ urlpatterns: list[URLPattern] = [
         name="day_post",
     ),
     path(
+        "days/<int:pk>/daily-close/submit/",
+        day_views.SalesDayTransitionView.as_view(action="submit_daily_close"),
+        name="day_daily_close_submit",
+    ),
+    path(
+        "days/<int:pk>/daily-close/approve/",
+        day_views.SalesDayTransitionView.as_view(action="approve_daily_close"),
+        name="day_daily_close_approve",
+    ),
+    path(
         "days/<int:pk>/reverse/",
         day_views.SalesDayTransitionView.as_view(action="reverse"),
         name="day_reverse",

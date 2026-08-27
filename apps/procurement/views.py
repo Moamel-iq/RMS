@@ -3372,12 +3372,19 @@ class SupplierPaymentDetailView(InventoryViewMixin, View):
         may_edit = has_organization_permission(
             self.actor, CREATE_SUPPLIER_PAYMENT, payment.organization
         )
+        allocated = payment_allocated_total(payment)
         return {
+            # The allocation form swaps this detail panel.  An HTMX response
+            # must therefore contain the panel alone, never another shell.
+            "form_base_template": (
+                "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
+            ),
             "payment": payment,
             "allocations": payment.allocations.select_related("invoice").order_by("sequence"),
             "form": form or PaymentAllocationForm(actor=self.actor, payment=payment),
             "page_title": payment.number or _("مسودة دفعة"),
-            "allocated": payment_allocated_total(payment),
+            "allocated": allocated,
+            "unallocated": (payment.amount or Decimal("0")) - allocated,
             "advance": advance_remainder(payment),
             "may_edit": may_edit and payment.is_editable,
             "may_post": has_organization_permission(
@@ -3413,6 +3420,12 @@ class SupplierPaymentDetailView(InventoryViewMixin, View):
                     form.add_error(None, message)
             else:
                 messages.success(request, _("تمت إضافة التخصيص."))
+                if self.is_htmx():
+                    return render(
+                        request,
+                        self.template_name,
+                        self.context(resolve_supplier_payment(self.actor, payment.pk)),
+                    )
                 return HttpResponseRedirect(
                     reverse("procurement:supplier_payment_detail", args=[payment.pk])
                 )
@@ -3435,6 +3448,14 @@ class PaymentAllocationDeleteView(InventoryViewMixin, View):
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
         else:
             messages.success(request, _("تم حذف التخصيص."))
+        if self.is_htmx():
+            detail = SupplierPaymentDetailView()
+            detail.request = request
+            return render(
+                request,
+                detail.template_name,
+                detail.context(resolve_supplier_payment(self.actor, payment.pk)),
+            )
         return HttpResponseRedirect(
             reverse("procurement:supplier_payment_detail", args=[payment.pk])
         )
@@ -3478,6 +3499,14 @@ class SupplierPaymentTransitionView(InventoryViewMixin, View):
                 messages.success(request, _("تم عكس الدفعة. عادت الذمة والسلفة كما كانتا."))
         except ValidationError as error:
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        if self.is_htmx():
+            detail = SupplierPaymentDetailView()
+            detail.request = request
+            return render(
+                request,
+                detail.template_name,
+                detail.context(resolve_supplier_payment(self.actor, payment.pk)),
+            )
         return HttpResponseRedirect(
             reverse("procurement:supplier_payment_detail", args=[payment.pk])
         )

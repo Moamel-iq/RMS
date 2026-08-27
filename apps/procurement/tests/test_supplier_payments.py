@@ -543,6 +543,38 @@ class TestTheSurface:
         payment.refresh_from_db()
         assert payment.status == SupplierPaymentStatus.POSTED
 
+    def test_allocation_uses_an_htmx_panel_swap(
+        self,
+        organization: Organization,
+        grocery: Supplier,
+        branch: Branch,
+        keeper: User,
+        manager: User,
+        mapped: None,
+        client: Client,
+    ) -> None:
+        invoice = _posted_invoice(
+            organization=organization,
+            supplier=grocery,
+            branch=branch,
+            actor=keeper,
+            amount="500.000",
+            reference="INV-HTMX",
+        )
+        payment = _draft_payment(supplier=grocery, branch=branch, actor=keeper, amount="500.000")
+        client.force_login(manager)
+
+        response = client.post(
+            reverse("procurement:supplier_payment_detail", args=[payment.pk]),
+            data={"invoice": invoice.pk, "allocated_amount": "500.000", "note": ""},
+            HTTP_HX_REQUEST="true",
+        )
+
+        assert response.status_code == 200
+        assert b'id="supplier-payment-detail"' in response.content
+        assert b"hx-post=" in response.content
+        assert payment.allocations.count() == 1
+
     def test_the_api_drives_the_lifecycle_and_money_is_strings(
         self,
         organization: Organization,

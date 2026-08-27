@@ -24,7 +24,7 @@
 
   --success-700: #2e6b4f;
   --success-100: #e4efe8;
-  --warning-700: #a5710f;
+  --warning-700: #8a5e0c;
   --warning-100: #f8efd8;
   --danger-700: #a03328;
   --danger-100: #f8e4e1;
@@ -47,6 +47,7 @@
 
   --app-bg: #f2f0ea;
   --surface: #ffffff;
+  --topbar-surface: rgba(255, 255, 255, 0.97);
   --surface-subtle: #faf9f6;
   --surface-muted: #f2f0ea;
   --rail-bg: #14504f;
@@ -151,7 +152,7 @@
     --line-strong: #3b3830;
     --line: #2c2a22;
     --line-soft: #211f18;
-    --control-border: #4a463c;
+    --control-border: #6d685c;
     --control-border-hover: #6c665a;
 
     --danger: var(--danger-700);
@@ -160,6 +161,7 @@
 
     --app-bg: #100f0b;
     --surface: #1a1913;
+    --topbar-surface: rgba(26, 25, 19, 0.97);
     --surface-subtle: #211f18;
     --surface-muted: #16150f;
     --rail-bg: #12312f;
@@ -205,7 +207,7 @@
   --line-strong: #3b3830;
   --line: #2c2a22;
   --line-soft: #211f18;
-  --control-border: #4a463c;
+  --control-border: #6d685c;
   --control-border-hover: #6c665a;
 
   --danger: var(--danger-700);
@@ -214,6 +216,7 @@
 
   --app-bg: #100f0b;
   --surface: #1a1913;
+  --topbar-surface: rgba(26, 25, 19, 0.97);
   --surface-subtle: #211f18;
   --surface-muted: #16150f;
   --rail-bg: #12312f;
@@ -1009,6 +1012,7 @@ a.subnav__item:hover {
 .formrow input[type="email"],
 .formrow input[type="password"],
 .formrow input[type="time"],
+.formrow input[type="date"],
 .formrow input[type="number"],
 .formrow select,
 .formrow textarea {
@@ -1022,6 +1026,19 @@ a.subnav__item:hover {
   color: var(--ink);
   text-align: start;
   padding: 10px 14px;
+}
+
+/* Keep the native picker (it is accessible and familiar) while making its
+   trigger read as part of the shared form control in both LTR and RTL screens. */
+.formrow input[type="date"] {
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.formrow input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.82;
 }
 
 .formrow input:focus,
@@ -1058,6 +1075,104 @@ a.subnav__item:hover {
   margin-block-start: 24px;
   padding-block-start: 20px;
   border-block-start: 1px solid var(--line);
+}
+
+/* Opening-balance lines are usually entered directly in base units. Keep that
+   four-field flow visible and move the batch and package cases out of its way. */
+.opening-line-form__intro,
+.document-line-form__intro {
+  margin: 0 0 var(--space-5);
+  color: var(--ink-subtle);
+}
+
+.opening-line-form__more,
+.document-line-form__more,
+.invoice-line-form__more,
+.payment-allocation-form__more {
+  margin-block-start: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+
+.opening-line-form__more > summary,
+.document-line-form__more > summary,
+.invoice-line-form__more > summary,
+.payment-allocation-form__more > summary {
+  color: var(--ink-subtle);
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.opening-line-form__more > p,
+.document-line-form__more > p,
+.invoice-line-form__more > p,
+.payment-allocation-form__more > p {
+  margin: var(--space-2) 0 var(--space-4);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+.opening-line-feedback,
+.document-line-feedback {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-inline-start: 4px solid var(--success-700);
+  border-radius: var(--radius-sm);
+  color: var(--success-700);
+  background: var(--success-100);
+  font-weight: 700;
+}
+
+.opening-line-form__saving,
+.document-line-form__saving {
+  align-self: center;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+/* Supplier invoices and payments lead with the few facts needed to review
+   them. Accounting evidence, matching and exceptional details stay close,
+   but do not compete with the normal flow. */
+.invoice-summary-grid,
+.payment-summary-grid {
+  margin-block: var(--space-5);
+}
+
+.invoice-total-card__amount,
+.payment-total-card__amount {
+  margin: 0 0 var(--space-4);
+  color: var(--brand-700);
+  font-size: clamp(1.35rem, 3vw, 1.9rem);
+  font-weight: 800;
+}
+
+.invoice-disclosure,
+.invoice-advanced,
+.payment-disclosure {
+  margin-block: var(--space-5);
+}
+
+.invoice-advanced {
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-subtle);
+}
+
+.invoice-disclosure > summary,
+.invoice-advanced > summary,
+.payment-disclosure > summary {
+  color: var(--ink-subtle);
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.invoice-disclosure__body,
+.invoice-advanced__body,
+.payment-disclosure__body {
+  margin-block-start: var(--space-4);
 }
 
 /* --------------------------------------------------------- build status */
@@ -1550,7 +1665,7 @@ html.nav-collapsed-pref .subnav {
   padding-inline: var(--space-5);
   justify-content: space-between;
   gap: var(--space-4);
-  background: rgba(255, 255, 255, 0.97);
+  background: var(--topbar-surface);
   border-block-end: 1px solid var(--line);
   box-shadow: var(--shadow-xs);
 }
@@ -2031,7 +2146,9 @@ kbd {
 .formrow--invalid :where(input, select, textarea),
 .formrow :where(input, select, textarea)[aria-invalid="true"] {
   border-color: var(--danger-line);
-  background: #fffafa;
+  /* A literal here outranked the token rule above it and painted a near-white
+     field under near-white text in the dark theme. */
+  background: var(--danger-tint);
 }
 
 .formcard {
@@ -2246,7 +2363,7 @@ kbd {
 
 .toast {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
@@ -2427,7 +2544,7 @@ kbd {
 }
 
 .command-item--module {
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   margin-block-start: var(--space-2);
   border-block-start: 1px solid var(--line-soft);
   border-radius: 0;
@@ -2838,7 +2955,7 @@ kbd {
 
 .bar {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-3);
 }
@@ -2938,20 +3055,28 @@ kbd {
   color: var(--ink-muted);
 }
 
+/* `minmax(0, …)` on every track, deliberately: a `1fr` column refuses to go
+   below its own min-content width, so a single wide table turned the Sales
+   dashboard into a 1,677px page inside a 1,250px window — the reader panned
+   the entire screen instead of scrolling one card. */
 .dashgrid {
   display: grid;
-  grid-template-columns: 1.6fr 1fr;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
   gap: var(--space-4);
 }
 
+.dashgrid > * {
+  min-inline-size: 0;
+}
+
 .dashgrid--even {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
 @media (max-width: 62rem) {
   .dashgrid,
   .dashgrid--even {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -3382,8 +3507,98 @@ kbd {
 /* The shell scrolls; it does not draw. Whoever wraps it — `tablewrap` on a
    list page, a card on a detail page — has already drawn the edge, and a
    second border inside the first is the doubled line this section removes. */
+/* The facts a confirmation states: which document, how much, which period.
+   A definition list rather than a sentence, because the reader is checking
+   values, not reading prose. */
+.dialog__facts {
+  display: grid;
+  gap: var(--space-2);
+  margin-block-start: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  font-size: var(--text-sm);
+}
+
+.dialog__facts > div {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+}
+
+.dialog__facts dt {
+  color: var(--ink-muted);
+}
+
+.dialog__facts dd {
+  margin: 0;
+  font-weight: 700;
+  text-align: end;
+}
+
+.dialog__reason {
+  margin-block-start: var(--space-3);
+  color: var(--warning-700);
+  font-size: var(--text-sm);
+}
+
+.dialog--confirm[data-severity="warning"] .dialog__icon--warning {
+  background: var(--warning-100);
+  color: var(--warning-700);
+}
+
+/* A card that could not load says so where the figures would have been, with
+   what is known about when they were last true and a way to ask again. */
+.card-failure {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--danger-100);
+  color: var(--ink);
+}
+
+.card-failure__reason {
+  margin: 0;
+  font-weight: 700;
+  color: var(--danger-700);
+}
+
+.card-failure__stamp {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
 .data-table-shell {
   overflow-x: auto;
+}
+
+/* A register whose first column is the identity — the employee, the item, the
+   document — keeps that column in view while the rest scrolls under it. Without
+   it a reader who scrolls to the result column no longer knows whose result it
+   is, which on an attendance sheet is the whole question. */
+.table[data-sticky-identity] :where(th, td):first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
+.table[data-sticky-identity] thead :where(th):first-child {
+  z-index: 2;
+  background: var(--surface-muted);
+}
+
+/* The pinned column needs an edge, or the columns sliding under it look joined. */
+.table[data-sticky-identity] :where(th, td):first-child::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: 1px;
+  background: var(--line);
 }
 
 .formcard > .data-table-shell,
@@ -3521,6 +3736,93 @@ kbd {
 
 .statement-row--grand > td {
   font-size: var(--text-md);
+}
+
+/* Financial performance: put the decision figures before the account-level
+   evidence. The detailed income statement remains immediately below it. */
+.financial-overview {
+  margin-block: var(--space-5);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--surface) 0%, var(--brand-50) 100%);
+}
+
+.financial-overview__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-block-end: var(--space-4);
+}
+
+.financial-overview__head h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.financial-overview__head p {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+.financial-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+  gap: var(--space-3);
+}
+
+.financial-metric {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.financial-metric__label {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.financial-metric__value {
+  color: var(--ink);
+  font-size: clamp(1.15rem, 2.4vw, 1.55rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.financial-metric--outflow {
+  border-inline-start: 4px solid var(--warning-700);
+}
+
+.financial-metric--strong {
+  border-inline-start: 4px solid var(--brand);
+}
+
+.financial-metric--net {
+  border-color: var(--brand);
+  border-inline-start: 4px solid var(--brand);
+  background: var(--brand-50);
+}
+
+.financial-detail {
+  max-inline-size: none;
+}
+
+@media (max-width: 42rem) {
+  .financial-overview {
+    padding: var(--space-4);
+  }
+
+  .financial-overview__head {
+    flex-direction: column;
+  }
 }
 
 /* A wide table on a narrow screen becomes one card per row: every cell
@@ -3775,7 +4077,7 @@ kbd {
 .inventory-detail-list,
 .detailgrid {
   display: grid;
-  grid-template-columns: minmax(8rem, auto) 1fr;
+  grid-template-columns: minmax(8rem, auto) minmax(0, 1fr);
   gap: var(--space-2) var(--space-4);
   margin: 0;
   align-items: baseline;
@@ -4085,7 +4387,7 @@ kbd {
 
 .timeline__item {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: var(--space-1) var(--space-3);
   padding-block: var(--space-3);
   border-block-end: 1px solid var(--line-soft);
@@ -4383,4 +4685,741 @@ kbd {
   font-size: 0.7rem;
   font-weight: 800;
   vertical-align: middle;
+}
+
+/* ------------------------------------------------------------------
+   17. Searchable select (combobox)
+   `static/js/searchable-select.js` wraps a native <select> that offers
+   enough options to be worth searching. The text box is the control the
+   reader uses; the native select stays in the form, out of sight and out
+   of the tab order, so the posted value and the no-script page are
+   unchanged. The list is positioned by the script from the box's own
+   rectangle (fixed), which is why no inset appears here.
+   ------------------------------------------------------------------ */
+.combo {
+  position: relative;
+  inline-size: 100%;
+}
+
+/* `input.combo__input` ties the `.formrow input[type="text"]` padding rule and wins by order. */
+.combo > input.combo__input {
+  padding-inline-end: calc(var(--space-3) + 1.25rem);
+  cursor: text;
+}
+
+.combo::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: var(--space-3);
+  inset-block-start: 50%;
+  inline-size: 0.55rem;
+  block-size: 0.55rem;
+  /* The two borders are physical on purpose. A rotation angle is physical
+     geometry, so a logical border pair plus one fixed angle draws a chevron
+     that points down in one direction and sideways in the other. Right+bottom
+     rotated 45deg points down in both. */
+  border-right: 2px solid var(--ink-muted);
+  border-bottom: 2px solid var(--ink-muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.combo.is-open::after {
+  transform: translateY(-30%) rotate(225deg);
+}
+
+/* Present for the form and for scripts that address it; absent from the screen.
+   `.combo > select` outranks the `.formrow select` sizing rules above. */
+.combo > .combo__native {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: 1px;
+  min-inline-size: 0;
+  block-size: 1px;
+  min-block-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.combo__list {
+  z-index: var(--z-dialog);
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.combo__option,
+.combo__group,
+.combo__empty {
+  padding: 0.5rem var(--space-3);
+  border-radius: var(--radius-sm);
+  text-align: start;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.combo__option {
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.combo__option.is-active {
+  background: var(--brand-50);
+  color: var(--brand-700);
+}
+
+.combo__option[aria-selected="true"] {
+  font-weight: 700;
+}
+
+.combo__option[aria-selected="true"]::before {
+  content: "✓";
+  margin-inline-end: var(--space-2);
+  color: var(--brand-500);
+}
+
+.combo__option.is-disabled {
+  color: var(--ink-disabled);
+  cursor: not-allowed;
+}
+
+.combo__option--blank {
+  color: var(--ink-muted);
+}
+
+.combo__group {
+  padding-block-start: var(--space-2);
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.combo__empty {
+  color: var(--ink-muted);
+}
+
+/* ------------------------------------------------------------------
+   18. Printed sheets
+   `apps/core/printing.py` renders every statement into one paper layout
+   (`templates/print/sheet.html`). These rules serve both the screen
+   preview and the printed page: the reader sees on screen exactly what
+   the printer will put on paper, minus the toolbar.
+   ------------------------------------------------------------------ */
+.printbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  max-inline-size: 60rem;
+  margin: var(--space-5) auto 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.printbar__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.printbar__options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0 var(--space-2);
+  border: 0;
+}
+
+.printbar__options legend {
+  padding: 0;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.printbar__options label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.printbar__hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+/* The sheet itself. A4 with a margin the printer can honour; the same box
+   is what the screen shows, so nothing is discovered at the printer. */
+.sheet {
+  /* Paper is white and ink is dark whatever theme the screen is in — this is
+     a preview of a printed page, not a screen, and a reader who sees a dark
+     sheet and prints a white one has been shown the wrong thing. */
+  --paper: #ffffff;
+  --paper-shade: #f1efe9;
+  --paper-ink: #1b1a16;
+  --paper-ink-soft: #4a463c;
+  --paper-ink-muted: #6c665a;
+  --paper-line: #b8b3a6;
+
+  box-sizing: border-box;
+  inline-size: min(100%, 21cm);
+  min-block-size: 24cm;
+  margin: var(--space-5) auto var(--space-8);
+  padding: 1.4cm 1.2cm;
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--paper-ink);
+  font-size: 11pt;
+  line-height: 1.5;
+}
+
+.sheet__head {
+  padding-block-end: var(--space-3);
+  border-block-end: 2px solid var(--paper-ink);
+}
+
+.sheet__identity {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+/* The mark is sized by its content and never squeezed; the titles take what
+   is left and wrap inside it. Without `min-inline-size: 0` a long title keeps
+   the flex row wider than the page and the mark is pushed off the sheet. */
+.sheet__logo {
+  flex: none;
+  max-inline-size: 4cm;
+}
+
+.sheet__titles {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.sheet__logo img {
+  block-size: auto;
+  max-inline-size: 3cm;
+}
+
+.sheet__wordmark {
+  display: inline-block;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--paper-ink);
+  border-radius: var(--radius-sm);
+  font-weight: 800;
+  font-size: var(--text-lg);
+}
+
+.sheet__titles {
+  flex: 1;
+}
+
+.sheet__issuer {
+  margin: 0;
+  font-weight: 700;
+}
+
+.sheet__branch {
+  margin-inline-start: var(--space-2);
+  color: var(--paper-ink-soft);
+  font-weight: 400;
+}
+
+.sheet__title {
+  margin: var(--space-1) 0 0;
+  font-size: 16pt;
+  line-height: 1.25;
+}
+
+.sheet__subtitle,
+.sheet__period {
+  margin: var(--space-1) 0 0;
+  color: var(--paper-ink-soft);
+  font-size: 10pt;
+}
+
+.sheet__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-3) 0 0;
+  font-size: 9.5pt;
+}
+
+.sheet__filter {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.sheet__filter dt {
+  color: var(--paper-ink-muted);
+}
+
+.sheet__filter dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.sheet__stamp {
+  margin: var(--space-2) 0 0;
+  color: var(--paper-ink-muted);
+  font-size: 9pt;
+}
+
+.sheet__body {
+  margin-block-start: var(--space-4);
+}
+
+.sheet__table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 10pt;
+}
+
+.sheet__table th,
+.sheet__table td {
+  padding: 0.18cm 0.2cm;
+  border: 1px solid var(--paper-line);
+  text-align: start;
+  vertical-align: top;
+}
+
+.sheet__table thead th {
+  background: var(--paper-shade);
+  font-weight: 700;
+}
+
+.sheet__table tfoot th {
+  background: var(--paper-shade);
+  font-weight: 800;
+}
+
+/* A code is one token: `1-01-01-001` split over two lines is read as two
+   codes, and re-typed as neither. */
+.sheet__code {
+  white-space: nowrap;
+}
+
+.sheet__table .sheet__num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sheet__table .sheet__seq {
+  inline-size: 1.2cm;
+  color: var(--paper-ink-muted);
+  text-align: center;
+}
+
+.sheet__empty,
+.sheet__note {
+  margin: var(--space-4) 0 0;
+  color: var(--paper-ink-soft);
+  font-size: 10pt;
+}
+
+.sheet__foot {
+  margin-block-start: var(--space-8);
+}
+
+.sheet__signature {
+  display: flex;
+  gap: var(--space-6);
+}
+
+.sheet__sign {
+  flex: 1;
+  padding-block-start: var(--space-8);
+  border-block-start: 1px solid var(--paper-ink);
+  color: var(--paper-ink-soft);
+  font-size: 10pt;
+  text-align: center;
+}
+
+/* The reader's choices, applied to the screen preview and to the paper. */
+.print-without-logo .sheet__logo,
+.print-without-issuer .sheet__issuer,
+.print-without-period [data-part="period"],
+.print-without-stamp .sheet__stamp,
+.print-without-signature .sheet__signature {
+  display: none;
+}
+
+@page {
+  size: A4;
+  margin: 1.4cm 1.2cm;
+}
+
+/* ------------------------------------------------------------------
+   19. Any screen on paper
+   The sheet (section 18) is the full statement, unpaginated, for the
+   reports that can build one. This section is the other half of the
+   answer: every screen in the system prints as itself, with the
+   application's chrome removed and the letterhead the shell renders
+   into every page shown. One rule set, 200-odd screens, no template
+   left to remember.
+   ------------------------------------------------------------------ */
+.print-only {
+  display: none;
+}
+
+/* Applied for a moment before printing, to measure the table at the size the
+   printer will use. The declarations mirror the ones in the print block; a
+   measurement taken at screen typography would be a measurement of the wrong
+   page. */
+.is-print-measuring .table,
+.is-print-measuring .sheet__table {
+  font-size: 8.5pt;
+}
+
+.is-print-measuring .table th,
+.is-print-measuring .table td,
+.is-print-measuring .sheet__table th,
+.is-print-measuring .sheet__table td {
+  padding: 0.1cm 0.14cm;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.is-print-measuring .table bdi,
+.is-print-measuring .table code,
+.is-print-measuring .table__num,
+.is-print-measuring .sheet__table .sheet__num,
+.is-print-measuring .sheet__table .sheet__code {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.is-print-measuring .data-table-shell,
+.is-print-measuring .table-scroll {
+  overflow: visible;
+}
+
+.printhead__wordmark {
+  display: inline-block;
+  padding: 0.2cm 0.3cm;
+  border: 2px solid #1b1a16;
+  border-radius: var(--radius-sm);
+  font-weight: 800;
+}
+
+.print-menu__panel {
+  min-inline-size: 16rem;
+}
+
+.print-menu__panel .printbar__options {
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--space-3);
+}
+
+@media print {
+  /* Paper is white and ink is black whichever theme the screen was in. A
+     reader who prints from the dark theme must not get a black page — and
+     the printer drops backgrounds anyway, leaving pale text on white. The
+     tokens are overridden once, here, so every card, table and chip on every
+     screen prints legibly without a rule of its own. */
+  /* `:root:not([data-theme="light"])` is the selector the dark theme uses, so
+     the paper palette has to match its weight to win; source order decides,
+     and this block is last. */
+  :root,
+  :root:not([data-theme="light"]),
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    --surface: #ffffff;
+    --surface-subtle: #ffffff;
+    --surface-muted: #f1efe9;
+    --ink: #1b1a16;
+    --ink-subtle: #3a3730;
+    --ink-muted: #5a554a;
+    --line: #c9c4b7;
+    --line-soft: #e2ded4;
+    --line-strong: #8c877a;
+    --shadow-xs: none;
+    --shadow-sm: none;
+    --shadow-lg: none;
+    --shadow-card: none;
+    /* The application's own canvas — the tone the cards sit on — is a screen
+       device. On paper it would print as a grey field around every card. */
+    --app-bg: #ffffff;
+    --app-bg-soft: #ffffff;
+    /* The status tints: pale on paper whatever they are on screen. In the
+       dark theme they are deep colours, and a banner or a chip carrying one
+       would print as a dark block with dark text inside it. */
+    --success-100: #e4efe8;
+    --warning-100: #f8efd8;
+    --danger-100: #f8e4e1;
+    --info-100: #e5edfb;
+    --brand-100: #e3edec;
+    --brand-50: #f2f7f6;
+  }
+
+  body {
+    background: #ffffff;
+    color: var(--ink);
+  }
+
+
+
+  /* The application, removed: rail, top bar, filter toolbars, paging,
+     row actions and anything that only exists to be clicked. */
+  .no-print,
+  .skip-link,
+  .toast-stack,
+  .command-trigger,
+  .shell__backdrop,
+  /* Named here rather than marked in the markup: the shell's class
+     attributes are a tested contract, and a print rule has no business
+     changing them. */
+  .shell__nav,
+  .topbar,
+  .toolbar,
+  .filter-disclosure,
+  .pagination,
+  .list-statusbar,
+  .inventory-loading,
+  .workspace-breadcrumb,
+  .pagehead__actions,
+  .rowactions,
+  .cell-actions,
+  .formactions,
+  .printbar,
+  [data-confirm-dialog],
+  [data-command-dialog] {
+    display: none !important;
+  }
+
+  /* The letterhead and the signature block, which exist only on paper. */
+  .print-only {
+    display: block;
+  }
+
+  .printhead {
+    margin-block-end: var(--space-4);
+    padding-block-end: var(--space-2);
+    border-block-end: 2px solid #1b1a16;
+  }
+
+  .printhead__identity {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+  }
+
+  .printhead__logo img {
+    block-size: auto;
+    max-inline-size: 2.4cm;
+  }
+
+  .printhead__issuer {
+    margin: 0;
+    font-weight: 700;
+  }
+
+  .printhead__issuer span {
+    margin-inline-start: var(--space-2);
+    font-weight: 400;
+  }
+
+  .printhead__title {
+    margin: 0.1cm 0 0;
+    font-size: 14pt;
+  }
+
+  .printhead__where,
+  .printhead__filters,
+  .printhead__stamp {
+    margin: 0.1cm 0 0;
+    color: var(--ink-muted);
+    font-size: 9pt;
+  }
+
+  .printfoot {
+    margin-block-start: var(--space-8);
+  }
+
+  /* The reader's choices reach the page furniture too. */
+  .print-without-logo .printhead__logo,
+  .print-without-issuer .printhead__issuer,
+  .print-without-issuer .printhead__where,
+  .print-without-period .printhead__filters,
+  .print-without-stamp .printhead__stamp,
+  .print-without-signature .printfoot {
+    display: none;
+  }
+
+  /* The shell is a layout for a viewport; paper has none of it. */
+  .shell,
+  .shell__main,
+  .content {
+    display: block;
+    margin: 0;
+    padding: 0;
+    max-inline-size: none;
+  }
+
+  /* A table clipped by its scroll box is a table with columns missing. */
+  .data-table-shell,
+  .table-scroll,
+  .responsive-table {
+    overflow: visible !important;
+    max-inline-size: none;
+  }
+
+  table {
+    inline-size: 100%;
+    border-collapse: collapse;
+  }
+
+  /* On screen a cell never wraps and the table scrolls sideways instead.
+     Paper cannot scroll, so a table that kept `white-space: nowrap` would
+     run its last columns off the sheet. Wrapping, a smaller face and a
+     tighter cell are what make a wide register fit A4. */
+  .table,
+  .sheet__table {
+    font-size: 8.5pt;
+  }
+
+  .table th,
+  .table td,
+  .sheet__table th,
+  .sheet__table td {
+    padding: 0.1cm 0.14cm;
+    white-space: normal;
+    /* `break-word`, never `anywhere`: a cell may wrap between its words, but a
+       figure or a code broken mid-token (13, / 000 — P-MANDI- / FAKHD) is a
+       different value on paper than it is on screen. */
+    overflow-wrap: break-word;
+  }
+
+  /* Money, quantities and codes are written inside a bidi isolate on these
+     screens, which makes it the one handle that reaches every one of them. */
+  .table bdi,
+  .table code,
+  .table__num {
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  /* A figure may not wrap — 33,875,999.997 broken over two lines reads as two
+     numbers — so the number columns keep `nowrap` and take the width they
+     need. Everything else yields instead. */
+  .sheet__table .sheet__num,
+  .sheet__table .sheet__code {
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  .sheet__table .sheet__seq {
+    inline-size: 0.9cm;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr,
+  .formcard,
+  .panel,
+  .stat-card,
+  .tile {
+    break-inside: avoid;
+  }
+
+  /* Cards are drawn with shadows and rounded frames for a screen; on paper
+     a hairline is enough and shadows print as grey smudges. */
+  .formcard,
+  .panel,
+  .card,
+  .stat-card {
+    box-shadow: none;
+    border: 1px solid #b8b3a6;
+  }
+
+  /* A status chip carries its meaning in colour on screen, and most printers
+     drop backgrounds. On paper the word inside the chip is the meaning, so it
+     is drawn as an outlined label in the paper palette rather than a tinted
+     box that could print as dark-on-dark. */
+  .chip,
+  .badge,
+  .pill {
+    border: 1px solid var(--line-strong);
+    background: #ffffff !important;
+    color: var(--ink) !important;
+  }
+
+  a[href]::after {
+    content: "";
+  }
+
+  /* The sheet is exactly the page box. A width of its own — even one that
+     matches a paper size — is how content ends up wider than the printable
+     area, and the printer answers that by cutting the last columns off. */
+  .sheet {
+    inline-size: 100%;
+    max-inline-size: 100%;
+    min-block-size: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .sheet__table {
+    max-inline-size: 100%;
+  }
+
+  /* The heading repeats on every page, and no row is split across two. */
+  .sheet__table thead {
+    display: table-header-group;
+  }
+
+  .sheet__table tfoot {
+    display: table-footer-group;
+  }
+
+  /* Keep a short statement's sign-off on the same page as its figures. The
+     screen preview has generous space for handwriting, but in the print
+     dialog the browser header and footer reduce the usable landscape height.
+     The former two 2rem gaps could leave a signature by itself on page two. */
+  .sheet__note {
+    margin-block-start: 0.15cm;
+    font-size: 8.5pt;
+  }
+
+  .sheet__foot {
+    margin-block-start: 0;
+  }
+
+  .sheet__sign {
+    padding-block-start: 0.25cm;
+  }
+
+  .sheet__table tr,
+  .sheet__sign,
+  .sheet__foot {
+    break-inside: avoid;
+  }
 }

@@ -39,36 +39,11 @@ services:
       - key: DB_CONN_MAX_AGE
         value: "60"
 
-  # The outbox currently processes bounded, idempotent batches. Ten minutes
-  # keeps costs low for this small deployment while avoiding a permanent worker.
-  - type: cron
-    name: khan-mandi-rms-outbox
-    runtime: docker
-    region: frankfurt
-    schedule: "*/10 * * * *"
-    dockerCommand: python manage.py process_automation_outbox --limit 100
-    envVars:
-      - key: DJANGO_SETTINGS_MODULE
-        value: config.settings.production
-      - key: DJANGO_SECRET_KEY
-        generateValue: true
-      - key: DJANGO_DEBUG
-        value: "false"
-      - key: DJANGO_ALLOWED_HOSTS
-        value: khan-mandi-rms-web.onrender.com
-      - key: DJANGO_USE_PROXY_SSL_HEADER
-        value: "true"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: khan-mandi-rms-db
-          property: connectionString
-
 databases:
   - name: khan-mandi-rms-db
     region: frankfurt
-    plan: basic-1gb
+    plan: basic-256mb
     postgresMajorVersion: "18"
     databaseName: khan_mandi
     user: khan_mandi
-    connectionPool: pgbouncer
     ipAllowList: []

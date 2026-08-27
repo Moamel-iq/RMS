@@ -127,7 +127,9 @@ def test_a_superuser_and_staff_see_everything_built() -> None:
         assert module.key in visible, module.key
         if module.available:
             assert visible[module.key].sections == module.sections
-    assert visible["settings"] is MODULES_BY_KEY["settings"]
+    # `visible_modules_for` returns a filtered copy of every available module,
+    # so identity is not the contract — the sections a superuser sees are.
+    assert visible["settings"].sections == MODULES_BY_KEY["settings"].sections
 
 
 def test_a_screen_without_a_declared_permission_stays_visible() -> None:

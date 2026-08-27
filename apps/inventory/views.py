@@ -1475,6 +1475,13 @@ class OpeningDetailView(InventoryViewMixin, View):
             "back_url": reverse("inventory:opening_list"),
         }
 
+    def _line_workspace(
+        self, request: HttpRequest, document: Any, line_form: Any, feedback: str = ""
+    ) -> HttpResponse:
+        context = self._context(document, line_form)
+        context["opening_line_feedback"] = feedback
+        return render(request, "inventory/_opening_lines_workspace.html", context)
+
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         """Adding one line, from the embedded form."""
         document = self._document()
@@ -1507,8 +1514,25 @@ class OpeningDetailView(InventoryViewMixin, View):
                 for message in error.messages:
                     form.add_error(None, message)
             else:
+                if self.is_htmx():
+                    return self._line_workspace(
+                        request,
+                        document,
+                        self._line_form(document),
+                        str(_("أُضيف السطر.")),
+                    )
                 messages.success(request, _("أُضيف السطر."))
                 return HttpResponseRedirect(reverse("inventory:opening_detail", args=[document.pk]))
+        if self.is_htmx():
+            return self._line_workspace(request, document, form)
+        form.fields["item"].widget.attrs.update(
+            {
+                "hx-get": request.path,
+                "hx-trigger": "change",
+                "hx-target": "#operational-lines-workspace",
+                "hx-swap": "outerHTML",
+            }
+        )
         return render(request, self.template_name, self._context(document, form))
 
 
@@ -1750,6 +1774,8 @@ class OperationalDetailView(InventoryViewMixin, View):
             "line_form": line_form,
             "is_draft": document.status == InventoryDocumentStatus.DRAFT,
             "is_posted": document.status == InventoryDocumentStatus.POSTED,
+            "is_receipt": document.document_type == InventoryDocumentType.RECEIPT,
+            "is_return": document.document_type == InventoryDocumentType.RETURN_IN,
             "is_waste": document.document_type == InventoryDocumentType.WASTE,
             "can_prepare": has_warehouse_permission(
                 self.actor, CREATE_DRAFT_MOVEMENT, document.warehouse
@@ -1768,6 +1794,21 @@ class OperationalDetailView(InventoryViewMixin, View):
             },
         }
 
+    def _line_workspace(
+        self, request: HttpRequest, document: Any, line_form: Any, feedback: str = ""
+    ) -> HttpResponse:
+        line_form.fields["item"].widget.attrs.update(
+            {
+                "hx-get": request.path,
+                "hx-trigger": "change",
+                "hx-target": "#operational-lines-workspace",
+                "hx-swap": "outerHTML",
+            }
+        )
+        context = self._context(document, line_form)
+        context["operational_line_feedback"] = feedback
+        return render(request, "inventory/_operational_lines_workspace.html", context)
+
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         document = self._document()
         # An item chosen on a previous submit narrows the conversion and
@@ -1776,11 +1817,18 @@ class OperationalDetailView(InventoryViewMixin, View):
         raw_item = request.GET.get("item", "").strip()
         if raw_item.isdigit():
             selected = resolve_item(self.actor, int(raw_item))
-        return render(
-            request,
-            self.template_name,
-            self._context(document, self._line_form(document, selected_item=selected)),
+        line_form = self._line_form(document, selected_item=selected)
+        if self.is_htmx():
+            return self._line_workspace(request, document, line_form)
+        line_form.fields["item"].widget.attrs.update(
+            {
+                "hx-get": request.path,
+                "hx-trigger": "change",
+                "hx-target": "#operational-lines-workspace",
+                "hx-swap": "outerHTML",
+            }
         )
+        return render(request, self.template_name, self._context(document, line_form))
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         document = self._document()
@@ -1815,10 +1863,19 @@ class OperationalDetailView(InventoryViewMixin, View):
                 for message in error.messages:
                     form.add_error(None, message)
             else:
+                if self.is_htmx():
+                    return self._line_workspace(
+                        request,
+                        document,
+                        self._line_form(document),
+                        str(_("أُضيف السطر.")),
+                    )
                 messages.success(request, _("أُضيف السطر."))
                 return HttpResponseRedirect(
                     reverse(f"inventory:{self.document_type.lower()}_detail", args=[document.pk])
                 )
+        if self.is_htmx():
+            return self._line_workspace(request, document, form)
         return render(request, self.template_name, self._context(document, form))
 
 

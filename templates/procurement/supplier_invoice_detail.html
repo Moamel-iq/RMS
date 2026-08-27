@@ -3,44 +3,127 @@
 {# response carrying the shell would nest a document inside the page it    #}
 {# was swapped into.                                                       #}
 {% extends form_base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 {% block page %}
 <section class="workspace-page" id="supplier-invoice-detail">
   <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}"><a href="{% url 'procurement:supplier_invoice_list' %}">{% translate "فواتير الموردين" %}</a><span aria-hidden="true">/</span><span aria-current="page">{{ page_title }}</span></nav>
   <div class="pagehead">
-    <div><p class="pagehead__eyebrow">{{ invoice.supplier.code }} — {{ invoice.supplier.name_ar }}</p><h1 class="pagehead__title">{% if invoice.number %}<bdi dir="ltr">{{ invoice.number }}</bdi>{% else %}{% translate "مسودة فاتورة" %}{% endif %}</h1><p class="pagehead__hint"><bdi dir="ltr">{{ invoice.supplier_invoice_number }}</bdi> · <span class="chip">{{ invoice.get_status_display }}</span>{% if invoice.status == "APPROVED" and blocking %} · <span class="chip chip--off">{% translate "بانتظار المطابقة" %}</span>{% endif %}</p></div>
-    <div class="pagehead__actions">{% if may_edit %}<a class="btn btn--secondary" href="{% url 'procurement:supplier_invoice_update' invoice.pk %}">{% translate "تعديل المسودة" %}</a>{% endif %}{% if may_manage_charges and may_see_cost %}<a class="btn btn--primary" href="{% url 'procurement:supplier_invoice_charge_create' invoice.pk %}">{% translate "إضافة تكلفة" %}</a>{% endif %}{% if may_see_cost %}<a class="btn btn--ghost" href="{% url 'procurement:supplier_invoice_charge_list' %}">{% translate "كل التكاليف" %}</a>{% endif %}<a class="btn btn--ghost" href="{% url 'procurement:supplier_invoice_list' %}">{% translate "رجوع" %}</a></div>
+    <div>
+      <p class="pagehead__eyebrow">{{ invoice.supplier.code }} — {{ invoice.supplier.name_ar }}</p>
+      <h1 class="pagehead__title">{% if invoice.number %}<bdi dir="ltr">{{ invoice.number }}</bdi>{% else %}{% translate "مسودة فاتورة" %}{% endif %}</h1>
+      <p class="pagehead__hint">
+        <span class="chip">{{ invoice.get_status_display }}</span>
+        · {% translate "فاتورة المورد" %} <bdi dir="ltr">{{ invoice.supplier_invoice_number }}</bdi>
+        {% if invoice.status == "APPROVED" and blocking %} · <span class="chip chip--off">{% translate "بانتظار المطابقة" %}</span>{% endif %}
+      </p>
+    </div>
+    <div class="pagehead__actions">
+      <a class="btn btn--ghost" href="{% url 'procurement:supplier_invoice_list' %}">{% translate "رجوع" %}</a>
+      {% if may_edit %}<a class="btn btn--primary" href="{% url 'procurement:supplier_invoice_update' invoice.pk %}">{% translate "تعديل المسودة" %}</a>{% endif %}
+    </div>
   </div>
 
-  <div class="formcard">
-    <h2>{% translate "بيانات الفاتورة" %}</h2>
-    <dl class="detailgrid">
-      <dt>{% translate "المورد" %}</dt><dd>{{ invoice.supplier.code }} — {{ invoice.supplier.name_ar }}</dd>
-      <dt>{% translate "رقم فاتورة المورد" %}</dt><dd><bdi dir="ltr">{{ invoice.supplier_invoice_number }}</bdi></dd>
-      <dt>{% translate "مرجع / دليل المورد" %}</dt><dd>{{ invoice.supplier_reference|default:"—" }}</dd>
-      <dt>{% translate "الفرع المحاسبي" %}</dt><dd>{{ invoice.branch.code }} — {{ invoice.branch.name_ar }}</dd>
-      <dt>{% translate "تاريخ الفاتورة" %}</dt><dd><bdi dir="ltr">{{ invoice.invoice_date|date:"Y-m-d" }}</bdi></dd>
-      <dt>{% translate "التاريخ المحاسبي" %}</dt><dd><bdi dir="ltr">{{ invoice.business_date|date:"Y-m-d" }}</bdi></dd>
-      <dt>{% translate "الاستحقاق" %}</dt><dd><bdi dir="ltr">{{ invoice.due_date|date:"Y-m-d" }}</bdi></dd>
-      <dt>{% translate "شرط الائتمان المثبّت" %}</dt><dd>{{ invoice.credit_term_name }} · <bdi dir="ltr">{{ invoice.credit_term_net_days }} {% translate "يوم" %}{% if invoice.credit_term_version %} · v{{ invoice.credit_term_version }}{% endif %}</bdi></dd>
-      <dt>{% translate "العملة" %}</dt><dd><bdi dir="ltr">{{ invoice.currency_code }}</bdi></dd>
-      <dt>{% translate "أنشأها" %}</dt><dd>{{ invoice.created_by.username }}</dd><dt>{% translate "اعتمدها" %}</dt><dd>{{ invoice.approved_by.username|default:"—" }}</dd><dt>{% translate "رحّلها" %}</dt><dd>{{ invoice.posted_by.username|default:"—" }}</dd><dt>{% translate "عكسها" %}</dt><dd>{{ invoice.reversed_by.username|default:"—" }}</dd>
-      {% if may_see_cost %}<dt>{% translate "إجمالي الأسطر" %}</dt><dd><bdi dir="ltr">{{ invoice.lines_total|stringformat:"f" }} {{ invoice.currency_code }}</bdi></dd><dt>{% translate "نقل قديم موزع على الأسطر" %}</dt><dd><bdi dir="ltr">{{ invoice.freight_amount|stringformat:"f" }} {{ invoice.currency_code }}</bdi></dd><dt>{% translate "التكاليف الفعلية المنظمة" %}</dt><dd><bdi dir="ltr">{{ invoice.charges_total|stringformat:"f" }} {{ invoice.currency_code }}</bdi></dd><dt>{% translate "الخصم" %}</dt><dd><bdi dir="ltr">{{ invoice.discount_amount|stringformat:"f" }} {{ invoice.currency_code }}</bdi></dd><dt>{% translate "صافي الفاتورة" %}</dt><dd><strong><bdi dir="ltr">{{ invoice.total_amount|stringformat:"f" }} {{ invoice.currency_code }}</bdi></strong></dd>{% if invoice.status == "POSTED" %}<dt>{% translate "المتبقي على الذمة" %}</dt><dd><strong><bdi dir="ltr">{{ outstanding|stringformat:"f" }} {{ invoice.currency_code }}</bdi></strong></dd>{% endif %}{% endif %}
-      {% if invoice.journal_entry_id %}<dt>{% translate "القيد" %}</dt><dd><a href="{% url 'accounting:journal_detail' invoice.journal_entry.pk %}"><bdi dir="ltr">{{ invoice.journal_entry.entry_number }}</bdi></a></dd>{% endif %}
-      {% if invoice.reversal_journal_entry_id %}<dt>{% translate "قيد العكس" %}</dt><dd><a href="{% url 'accounting:journal_detail' invoice.reversal_journal_entry.pk %}"><bdi dir="ltr">{{ invoice.reversal_journal_entry.entry_number }}</bdi></a></dd><dt>{% translate "سبب العكس" %}</dt><dd>{{ invoice.reversal_reason }}</dd>{% endif %}
-      <dt>{% translate "ملاحظات" %}</dt><dd>{{ invoice.notes|default:"—" }}</dd>
-    </dl>
-    <p class="muted">{% translate "الفاتورة لا تحرّك كمية مخزون. التكلفة الواصلة وحدها تضيف قيمة بلا كمية إلى مواضع الاستلام المطابقة، وتبقى كل كمية من الاستلام نفسه." %}</p>
+  <div class="workspace-two-column invoice-summary-grid">
+    <section class="formcard">
+      <h2>{% translate "ملخص الفاتورة" %}</h2>
+      <dl class="detail-list">
+        <dt>{% translate "المورد" %}</dt><dd>{{ invoice.supplier.code }} — {{ invoice.supplier.name_ar }}</dd>
+        <dt>{% translate "رقم الفاتورة" %}</dt><dd><bdi dir="ltr">{{ invoice.supplier_invoice_number }}</bdi></dd>
+        <dt>{% translate "تاريخ الفاتورة" %}</dt><dd><bdi dir="ltr">{{ invoice.invoice_date|date:"Y-m-d" }}</bdi></dd>
+        <dt>{% translate "الاستحقاق" %}</dt><dd><bdi dir="ltr">{{ invoice.due_date|date:"Y-m-d" }}</bdi></dd>
+      </dl>
+    </section>
+    {% if may_see_cost %}
+      <section class="formcard invoice-total-card">
+        <h2>{% translate "إجمالي الفاتورة" %}</h2>
+        <p class="invoice-total-card__amount"><bdi dir="ltr">{{ invoice.total_amount|stringformat:"f" }} {{ invoice.currency_code }}</bdi></p>
+        <dl class="detail-list">
+          <dt>{% translate "إجمالي الأسطر" %}</dt><dd><bdi dir="ltr">{{ invoice.lines_total|stringformat:"f" }} {{ invoice.currency_code }}</bdi></dd>
+          {% if invoice.charges_total %}<dt>{% translate "تكاليف إضافية" %}</dt><dd><bdi dir="ltr">{{ invoice.charges_total|stringformat:"f" }} {{ invoice.currency_code }}</bdi></dd>{% endif %}
+          {% if invoice.discount_amount %}<dt>{% translate "الخصم" %}</dt><dd><bdi dir="ltr">{{ invoice.discount_amount|stringformat:"f" }} {{ invoice.currency_code }}</bdi></dd>{% endif %}
+          {% if invoice.status == "POSTED" %}<dt>{% translate "المتبقي على الذمة" %}</dt><dd><strong><bdi dir="ltr">{{ outstanding|stringformat:"f" }} {{ invoice.currency_code }}</bdi></strong></dd>{% endif %}
+        </dl>
+      </section>
+    {% endif %}
   </div>
+
+  <details class="invoice-disclosure">
+    <summary>{% translate "تفاصيل إضافية" %}</summary>
+    <div class="invoice-disclosure__body">
+      <dl class="detail-list">
+        {% if invoice.supplier_reference %}<dt>{% translate "مرجع المورد" %}</dt><dd>{{ invoice.supplier_reference }}</dd>{% endif %}
+        <dt>{% translate "الفرع المحاسبي" %}</dt><dd>{{ invoice.branch.code }} — {{ invoice.branch.name_ar }}</dd>
+        <dt>{% translate "التاريخ المحاسبي" %}</dt><dd><bdi dir="ltr">{{ invoice.business_date|date:"Y-m-d" }}</bdi></dd>
+        <dt>{% translate "شرط الائتمان" %}</dt><dd>{{ invoice.credit_term_name }} · <bdi dir="ltr">{{ invoice.credit_term_net_days }} {% translate "يوم" %}</bdi></dd>
+        <dt>{% translate "العملة" %}</dt><dd><bdi dir="ltr">{{ invoice.currency_code }}</bdi></dd>
+        {% if invoice.notes %}<dt>{% translate "ملاحظات" %}</dt><dd>{{ invoice.notes }}</dd>{% endif %}
+        <dt>{% translate "أنشأها" %}</dt><dd>{{ invoice.created_by.username }}</dd>
+        {% if invoice.approved_by %}<dt>{% translate "اعتمدها" %}</dt><dd>{{ invoice.approved_by.username }}</dd>{% endif %}
+        {% if invoice.posted_by %}<dt>{% translate "رحّلها" %}</dt><dd>{{ invoice.posted_by.username }}</dd>{% endif %}
+        {% if invoice.journal_entry_id %}<dt>{% translate "القيد" %}</dt><dd><a href="{% url 'accounting:journal_detail' invoice.journal_entry.pk %}"><bdi dir="ltr">{{ invoice.journal_entry.entry_number }}</bdi></a></dd>{% endif %}
+        {% if invoice.reversal_journal_entry_id %}<dt>{% translate "قيد العكس" %}</dt><dd><a href="{% url 'accounting:journal_detail' invoice.reversal_journal_entry.pk %}"><bdi dir="ltr">{{ invoice.reversal_journal_entry.entry_number }}</bdi></a></dd>{% endif %}
+      </dl>
+    </div>
+  </details>
 
   {% if blocking %}<div class="formcard"><h2>{% translate "ما يمنع الترحيل" %}</h2><p class="muted">{% translate "أسطر البضاعة لا تُرحّل قبل مطابقتها بالكامل باستلام مرحّل. لا توجد فاتورة قبل الاستلام ولا تخمين لحساب GRNI أو فرق السعر." %}</p><ul>{% for line in blocking %}<li>{% translate "سطر" %} {{ line.sequence }} — {{ line.target_label }}</li>{% endfor %}</ul></div>{% endif %}
 
-  <div class="formcard"><h2>{% translate "أسطر الفاتورة" %}</h2><div class="data-table-shell" tabindex="0"><table class="table responsive-table"><thead><tr><th>#</th><th>{% translate "النوع" %}</th><th>{% translate "البيان" %}</th><th>{% translate "الكمية" %}</th>{% if may_see_cost %}<th>{% translate "السعر" %}</th><th>{% translate "الإجمالي" %}</th><th>{% translate "إضافي" %}</th><th>{% translate "خصم" %}</th><th>{% translate "الصافي" %}</th>{% endif %}<th>{% translate "الدليل" %}</th>{% if may_edit %}<th>{% translate "إجراء" %}</th>{% endif %}</tr></thead><tbody>
-    {% for line in lines %}<tr><td data-label="#">{{ line.sequence }}</td><td data-label="{% translate 'النوع' %}"><span class="chip">{{ line.get_line_type_display }}</span></td><td data-label="{% translate 'البيان' %}"><strong>{{ line.target_label }}</strong><br><span class="muted">{{ line.description }}</span></td><td data-label="{% translate 'الكمية' %}"><bdi dir="ltr">{{ line.quantity|stringformat:"f" }}</bdi></td>{% if may_see_cost %}<td data-label="{% translate 'السعر' %}"><bdi dir="ltr">{{ line.unit_price|stringformat:"f" }}</bdi></td><td data-label="{% translate 'الإجمالي' %}"><bdi dir="ltr">{{ line.line_amount|stringformat:"f" }}</bdi></td><td data-label="{% translate 'إضافي' %}"><bdi dir="ltr">{{ line.allocated_freight|stringformat:"f" }}</bdi></td><td data-label="{% translate 'خصم' %}"><bdi dir="ltr">{{ line.allocated_discount|stringformat:"f" }}</bdi></td><td data-label="{% translate 'الصافي' %}"><bdi dir="ltr">{{ line.net_amount|stringformat:"f" }}</bdi></td>{% endif %}<td data-label="{% translate 'الدليل' %}">{% if line.receipt_line_id %}<a href="{% url 'procurement:goods_receipt_detail' line.receipt_line.receipt_id %}"><bdi dir="ltr">{{ line.receipt_line.receipt.number }}</bdi></a>{% else %}—{% endif %}</td>{% if may_edit %}<td data-label="{% translate 'إجراء' %}"><form method="post" action="{% url 'procurement:supplier_invoice_line_delete' invoice.pk line.pk %}" hx-post="{% url 'procurement:supplier_invoice_line_delete' invoice.pk line.pk %}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML" hx-confirm="{% translate 'حذف هذا السطر؟' %}">{% csrf_token %}<button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button></form></td>{% endif %}</tr>
-    {% empty %}<tr><td colspan="11" data-empty-state>{% translate "لم تُسجَّل أسطر بعد." %}</td></tr>{% endfor %}
-  </tbody></table></div></div>
+  <section class="formcard invoice-lines-card" aria-labelledby="invoice-lines-title">
+    <h2 id="invoice-lines-title">{% translate "أسطر الفاتورة" %}</h2>
+    <div class="data-table-shell" tabindex="0">
+      <table class="table responsive-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>{% translate "البيان" %}</th>
+            <th>{% translate "الكمية" %}</th>
+            {% if may_see_cost %}<th>{% translate "السعر" %}</th><th>{% translate "الإجمالي" %}</th>{% endif %}
+            {% if may_edit %}<th>{% translate "إجراء" %}</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in lines %}
+            <tr>
+              <td data-label="#">{{ line.sequence }}</td>
+              <td data-label="{% translate 'البيان' %}">
+                <strong>{{ line.target_label }}</strong>
+                {% if line.description %}<br><span class="muted">{{ line.description }}</span>{% endif %}
+                {% if line.receipt_line_id %}<br><a class="muted" href="{% url 'procurement:goods_receipt_detail' line.receipt_line.receipt_id %}">{% translate "الاستلام" %} <bdi dir="ltr">{{ line.receipt_line.receipt.number }}</bdi></a>{% endif %}
+              </td>
+              <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr">{{ line.quantity|stringformat:"f" }}</bdi></td>
+              {% if may_see_cost %}
+                <td data-label="{% translate 'السعر' %}"><bdi dir="ltr">{{ line.unit_price|stringformat:"f" }}</bdi></td>
+                <td data-label="{% translate 'الإجمالي' %}"><strong><bdi dir="ltr">{{ line.net_amount|stringformat:"f" }}</bdi></strong></td>
+              {% endif %}
+              {% if may_edit %}
+                <td data-label="{% translate 'إجراء' %}">
+                  <form method="post" action="{% url 'procurement:supplier_invoice_line_delete' invoice.pk line.pk %}"
+                        hx-post="{% url 'procurement:supplier_invoice_line_delete' invoice.pk line.pk %}"
+                        hx-target="#supplier-invoice-detail" hx-swap="outerHTML"
+                        hx-confirm="{% translate 'يُحذف السطر من المسودة ويُعاد احتساب إجمالي الفاتورة.' %}"
+              data-confirm-title="{% translate 'حذف سطر من فاتورة' %}"
+              data-confirm-subject="{{ invoice.supplier.name_ar }} — {% translate 'فاتورة' %} {{ invoice.supplier_invoice_number }}"
+              data-confirm-severity="danger"
+              data-confirm-accept="{% translate 'حذف السطر' %}">
+                    {% csrf_token %}
+                    <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                  </form>
+                </td>
+              {% endif %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="{% if may_see_cost %}{% if may_edit %}6{% else %}5{% endif %}{% else %}{% if may_edit %}4{% else %}3{% endif %}{% endif %}" data-empty-state>{% translate "لم تُسجَّل أسطر بعد. أضف أول بند أدناه." %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <details class="invoice-advanced">
+    <summary>{% translate "التكاليف والمطابقة والتفاصيل المحاسبية" %}</summary>
+    <div class="invoice-advanced__body">
 
   {% if may_see_cost %}<div class="formcard"><div class="pagehead"><div><h2>{% translate "التكاليف الإضافية الفعلية" %}</h2><p class="muted">{% translate "المباشرة تُحمّل على الحساب ومركز التكلفة؛ والواصلة تُوزع فقط على المطابقة الحية." %}</p></div>{% if may_manage_charges %}<div class="pagehead__actions"><a class="btn btn--primary btn--sm" href="{% url 'procurement:supplier_invoice_charge_create' invoice.pk %}">{% translate "إضافة تكلفة" %}</a></div>{% endif %}</div><div class="data-table-shell" tabindex="0"><table class="table responsive-table"><thead><tr><th>#</th><th>{% translate "النوع" %}</th><th>{% translate "البيان" %}</th><th>{% translate "المعالجة" %}</th><th>{% translate "الأساس / الحساب" %}</th><th>{% translate "المبلغ" %}</th><th>{% translate "إجراء" %}</th></tr></thead><tbody>{% for charge in charges %}<tr><td data-label="#">{{ charge.line_order }}</td><td data-label="{% translate 'النوع' %}">{{ charge.get_category_display }}</td><td data-label="{% translate 'البيان' %}"><strong>{{ charge.description }}</strong>{% if charge.evidence_reference %}<br><span class="muted">{{ charge.evidence_reference }}</span>{% endif %}</td><td data-label="{% translate 'المعالجة' %}"><span class="chip">{{ charge.get_treatment_display }}</span></td><td data-label="{% translate 'الأساس / الحساب' %}">{% if charge.treatment == "LANDED_COST" %}{{ charge.get_allocation_basis_display }}{% else %}<bdi dir="ltr">{{ charge.direct_account.code }}</bdi> · {{ charge.cost_center.code }}{% endif %}</td><td data-label="{% translate 'المبلغ' %}"><strong><bdi dir="ltr">{{ charge.amount|stringformat:"f" }} {{ invoice.currency_code }}</bdi></strong></td><td data-label="{% translate 'إجراء' %}"><a class="btn btn--secondary btn--sm" href="{% url 'procurement:supplier_invoice_charge_detail' charge.pk %}">{% translate "فتح" %}</a>{% if charge.treatment == "LANDED_COST" %}<a class="btn btn--ghost btn--sm" href="{% url 'procurement:supplier_invoice_charge_allocation' charge.pk %}">{% translate "التوزيع" %}</a>{% endif %}</td></tr>{% empty %}<tr><td colspan="7" data-empty-state>{% translate "لا توجد تكاليف فعلية منظمة على هذه الفاتورة." %}</td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
 
@@ -57,16 +140,73 @@
 
   {% if postings %}<div class="formcard"><h2>{% translate "أجيال الترحيل" %}</h2><ul>{% for posting in postings %}<li><bdi dir="ltr">#{{ posting.generation }}</bdi> · <span class="chip">{{ posting.get_status_display }}</span> · {{ posting.posted_by.username }} · <a href="{% url 'accounting:journal_detail' posting.journal_entry_id %}"><bdi dir="ltr">{{ posting.journal_entry.entry_number }}</bdi></a>{% if posting.landed_cost_value %} · {% translate "تكلفة واصلة" %} <bdi dir="ltr">{{ posting.landed_cost_value|stringformat:"f" }}</bdi> · {% translate "قيد مخزون" %} <bdi dir="ltr">#{{ posting.stock_entry_id }}</bdi>{% endif %}{% if posting.reversal_journal_entry_id %} ← <a href="{% url 'accounting:journal_detail' posting.reversal_journal_entry_id %}"><bdi dir="ltr">{{ posting.reversal_journal_entry.entry_number }}</bdi></a>{% if posting.reversal_stock_entry_id %} · {% translate "عكس مخزون" %} <bdi dir="ltr">#{{ posting.reversal_stock_entry_id }}</bdi>{% endif %}{% endif %}</li>{% endfor %}</ul></div>{% endif %}
 
-  {% if may_edit %}<div class="workspace-two-column"><form class="formcard" method="post" novalidate hx-post="{{ request.path }}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">{% csrf_token %}<input type="hidden" name="line_type" value="INVENTORY"><h2>{% translate "إضافة سطر بضاعة" %}</h2>{% include "components/form_error_summary.html" with form=item_form %}<div class="formgrid">{% for field in item_form %}<div class="formrow"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="helptext">{{ field.help_text }}</p>{% endif %}{% for error in field.errors %}<p class="fielderror">{{ error }}</p>{% endfor %}</div>{% endfor %}</div><button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button></form>
-    <form class="formcard" method="post" novalidate hx-post="{{ request.path }}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">{% csrf_token %}<input type="hidden" name="line_type" value="ACCOUNT"><h2>{% translate "إضافة مصروف / أصل مباشر" %}</h2><p class="muted">{% translate "الحسابات المحمية وحسابات المخزون وGRNI والذمم والإيراد وحقوق الملكية مرفوضة من الخدمة." %}</p>{% include "components/form_error_summary.html" with form=account_form %}<div class="formgrid">{% for field in account_form %}<div class="formrow"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="helptext">{{ field.help_text }}</p>{% endif %}{% for error in field.errors %}<p class="fielderror">{{ error }}</p>{% endfor %}</div>{% endfor %}</div><button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button></form></div>{% endif %}
+    </div>
+  </details>
+
+  {% if may_edit %}
+    <form class="formcard invoice-line-form" method="post" novalidate
+          hx-post="{{ request.path }}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML"
+          hx-disabled-elt="find button[type=submit]">
+      {% csrf_token %}
+      <input type="hidden" name="line_type" value="INVENTORY">
+      <h2>{% translate "إضافة بند بضاعة" %}</h2>
+      <p class="muted">{% translate "اختر الصنف ثم أدخل الكمية والسعر." %}</p>
+      {% include "components/form_error_summary.html" with form=item_form %}
+      <div class="formgrid invoice-line-form__primary">
+        {% include "settings/_field.html" with field=item_form.item %}
+        {% include "settings/_field.html" with field=item_form.base_quantity %}
+        {% include "settings/_field.html" with field=item_form.unit_price %}
+      </div>
+      <details class="invoice-line-form__more"{% if item_form.receipt_line.errors or item_form.description.errors or item_form.note.errors %} open{% endif %}>
+        <summary>{% translate "خيارات إضافية: ربط الاستلام أو إضافة ملاحظة" %}</summary>
+        <div class="formgrid">
+          {% include "settings/_field.html" with field=item_form.receipt_line %}
+          {% include "settings/_field.html" with field=item_form.description %}
+          {% include "settings/_field.html" with field=item_form.note %}
+        </div>
+      </details>
+      <div class="formactions"><button class="btn btn--primary" type="submit">{% translate "إضافة البند" %}</button></div>
+    </form>
+
+    <details class="formcard invoice-disclosure"{% if account_form.errors %} open{% endif %}>
+      <summary>{% translate "إضافة مصروف أو أصل مباشر" %}</summary>
+      <div class="invoice-disclosure__body">
+        <p class="muted">{% translate "استخدمه فقط لما لا يُسجل كبضاعة." %}</p>
+        <form method="post" novalidate hx-post="{{ request.path }}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+          {% csrf_token %}
+          <input type="hidden" name="line_type" value="ACCOUNT">
+          {% include "components/form_error_summary.html" with form=account_form %}
+          <div class="formgrid">
+            {% for field in account_form %}{% include "settings/_field.html" with field=field %}{% endfor %}
+          </div>
+          <div class="formactions"><button class="btn btn--secondary" type="submit">{% translate "إضافة المصروف" %}</button></div>
+        </form>
+      </div>
+    </details>
+  {% endif %}
 
   <div class="formcard"><h2>{% translate "الإجراءات" %}</h2>
-    {% if invoice.status == "DRAFT" %}<p class="muted">{% translate "الاعتماد يثبت شرط الائتمان وتاريخ الاستحقاق ويجمّد البناء التجاري." %}</p>{% if may_approve %}<form method="post" action="{% url 'procurement:supplier_invoice_approve' invoice.pk %}" hx-post="{% url 'procurement:supplier_invoice_approve' invoice.pk %}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML" hx-confirm="{% translate 'اعتماد هذه الفاتورة؟' %}">{% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "اعتماد" %}</button></form>{% endif %}
-    {% elif invoice.status == "APPROVED" %}{% if may_post %}<form method="post" action="{% url 'procurement:supplier_invoice_post' invoice.pk %}" hx-post="{% url 'procurement:supplier_invoice_post' invoice.pk %}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML" hx-confirm="{% translate 'ترحيل الفاتورة وإنشاء الذمة؟' %}">{% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button></form>{% endif %}{% if may_return %}<form method="post" action="{% url 'procurement:supplier_invoice_return' invoice.pk %}" hx-post="{% url 'procurement:supplier_invoice_return' invoice.pk %}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML">{% csrf_token %}<label class="field"><span class="field__label">{% translate "سبب الإعادة إلى المسودة" %}</span><input type="text" name="reason" required></label><button class="btn btn--ghost" type="submit">{% translate "إعادة إلى المسودة" %}</button></form>{% endif %}
+    {% if invoice.status == "DRAFT" %}<p class="muted">{% translate "الاعتماد يثبت شرط الائتمان وتاريخ الاستحقاق ويجمّد البناء التجاري." %}</p>{% if may_approve %}<form method="post" action="{% url 'procurement:supplier_invoice_approve' invoice.pk %}" hx-post="{% url 'procurement:supplier_invoice_approve' invoice.pk %}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML" hx-confirm="{% translate 'الاعتماد يقفل الفاتورة عن التعديل ويجعلها جاهزة للترحيل.' %}"
+              data-confirm-title="{% translate 'اعتماد فاتورة مورد' %}"
+              data-confirm-subject="{{ invoice.supplier.name_ar }} — {% translate 'فاتورة' %} {{ invoice.supplier_invoice_number }}"
+              data-confirm-amount="{{ invoice.total_amount|money }}"
+              data-confirm-severity="warning"
+              data-confirm-accept="{% translate 'اعتماد الفاتورة' %}">{% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "اعتماد" %}</button></form>{% endif %}
+    {% elif invoice.status == "APPROVED" %}{% if may_post %}<form method="post" action="{% url 'procurement:supplier_invoice_post' invoice.pk %}" hx-post="{% url 'procurement:supplier_invoice_post' invoice.pk %}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML" hx-confirm="{% translate 'الترحيل يُنشئ قيداً محاسبياً وذمة على المطعم. لا يُلغى إلا بعكس القيد.' %}"
+              data-confirm-title="{% translate 'ترحيل فاتورة مورد' %}"
+              data-confirm-subject="{{ invoice.supplier.name_ar }} — {% translate 'فاتورة' %} {{ invoice.supplier_invoice_number }}"
+              data-confirm-amount="{{ invoice.total_amount|money }}"
+              data-confirm-severity="danger"
+              data-confirm-accept="{% translate 'ترحيل الفاتورة' %}">{% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button></form>{% endif %}{% if may_return %}<form method="post" action="{% url 'procurement:supplier_invoice_return' invoice.pk %}" hx-post="{% url 'procurement:supplier_invoice_return' invoice.pk %}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML">{% csrf_token %}<label class="field"><span class="field__label">{% translate "سبب الإعادة إلى المسودة" %}</span><input type="text" name="reason" required></label><button class="btn btn--ghost" type="submit">{% translate "إعادة إلى المسودة" %}</button></form>{% endif %}
     {% elif invoice.status == "POSTED" %}<p class="muted">{% translate "الفاتورة المرحّلة غير قابلة للتعديل. العكس يعكس القيد نفسه ويحرر المطابقة الحية في معاملة واحدة." %}</p>{% if may_reverse %}<form method="post" action="{% url 'procurement:supplier_invoice_reverse' invoice.pk %}" hx-post="{% url 'procurement:supplier_invoice_reverse' invoice.pk %}" hx-target="#supplier-invoice-detail" hx-swap="outerHTML">{% csrf_token %}<label class="field"><span class="field__label">{% translate "سبب العكس" %}</span><input type="text" name="reason" required></label><button class="btn btn--ghost" type="submit">{% translate "عكس الترحيل" %}</button></form>{% endif %}
     {% else %}<p class="muted">{% translate "معكوسة. بقيت الوثيقة والقيود ودليل العكس مقروءة؛ التصحيح التجاري يكون بوثيقة بديلة." %}</p>{% endif %}
   </div>
 
-  <div class="formcard"><h2>{% translate "المسار الزمني" %}</h2><div class="data-table-shell"><table class="table responsive-table"><tbody>{% for event in timeline %}<tr><td data-label="{% translate 'الحدث' %}">{{ event.label }}</td><td data-label="{% translate 'الوقت' %}"><bdi dir="ltr">{{ event.at|date:"Y-m-d H:i" }}</bdi></td><td data-label="{% translate 'المنفذ' %}">{{ event.who|default:"—" }}</td><td data-label="{% translate 'الملاحظة' %}">{{ event.note|default:"" }}</td></tr>{% endfor %}</tbody></table></div></div>
+  <details class="invoice-disclosure">
+    <summary>{% translate "المسار الزمني" %}</summary>
+    <div class="invoice-disclosure__body data-table-shell">
+      <table class="table responsive-table"><tbody>{% for event in timeline %}<tr><td data-label="{% translate 'الحدث' %}">{{ event.label }}</td><td data-label="{% translate 'الوقت' %}"><bdi dir="ltr">{{ event.at|date:"Y-m-d H:i" }}</bdi></td><td data-label="{% translate 'المنفذ' %}">{{ event.who|default:"—" }}</td><td data-label="{% translate 'الملاحظة' %}">{{ event.note|default:"" }}</td></tr>{% endfor %}</tbody></table>
+    </div>
+  </details>
 </section>
 {% endblock %}

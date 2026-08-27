@@ -7,16 +7,31 @@ from typing import Any
 from django import forms
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import (
+    FileResponse,
+    Http404,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseBase,
+    HttpResponseRedirect,
+)
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 
+from apps.core.models import AuditAction
 from apps.core.selectors import audit_trail_for
+from apps.core.services import record_audit_event
 from apps.hr.dashboard import hr_overview
 from apps.hr.forms import EmployeeContractForm, EmployeeDocumentForm, EmployeeForm
-from apps.hr.models import ContractStatus, Employee, EmployeeContract, EmployeeStatus
+from apps.hr.models import (
+    ContractStatus,
+    Employee,
+    EmployeeContract,
+    EmployeeDocument,
+    EmployeeStatus,
+)
 from apps.hr.permissions import (
     APPROVE_CONTRACT,
     MANAGE_CONTRACT,
@@ -202,8 +217,14 @@ class EmployeeDetailView(HumanResourcesMixin, View):
                     if may_contract
                     else EmployeeContract.objects.none()
                 ),
-                "documents": employee.documents.select_related("created_by"),
-                "document_form": EmployeeDocumentForm(),
+                # A document normally contains identity or health/payroll
+                # evidence.  It is not part of the general employee profile.
+                "documents": (
+                    employee.documents.select_related("created_by")
+                    if may_personal
+                    else EmployeeDocument.objects.none()
+                ),
+                "document_form": EmployeeDocumentForm() if may_manage and may_personal else None,
                 "timeline": audit_trail_for(employee)[:50],
                 "may_personal": may_personal,
                 "may_salary": may_salary,
@@ -236,6 +257,45 @@ class EmployeeDocumentCreateView(HumanResourcesMixin, View):
         else:
             messages.error(request, _("تعذر حفظ المستند؛ راجع الحقول."))
         return _redirect(request, reverse("hr:employee_detail", args=[employee.pk]))
+
+
+class EmployeeDocumentDownloadView(HumanResourcesMixin, View):
+    """Serve HR attachments only after the personal-data permission check."""
+
+    required_permission = VIEW_EMPLOYEE
+
+    # HttpResponseBase, not HttpResponse: an attachment streams, and
+    # FileResponse descends from StreamingHttpResponse rather than from
+    # HttpResponse. Django's dispatch contract is the base class either way.
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        employee = resolve_employee(self.actor, self.kwargs["pk"])
+        require_organization_permission(self.actor, VIEW_EMPLOYEE_PERSONAL, employee.organization)
+        document = employee.documents.filter(pk=self.kwargs["document_pk"]).first()
+        if document is None or not document.file:
+            raise Http404
+        # The guard above already settled this: a FieldFile is falsy exactly
+        # when it has no stored name, so an unnamed file never reaches here.
+        stored_name = document.file.name or ""
+        record_audit_event(
+            action=AuditAction.DOCUMENT_DOWNLOADED,
+            target=document,
+            branch=employee.branch,
+            organization=employee.organization,
+            reason="employee document downloaded",
+            metadata={"employee_id": employee.pk, "document_id": document.pk},
+        )
+        return FileResponse(
+            document.file.open("rb"),
+            as_attachment=True,
+            filename=stored_name.rsplit("/", maxsplit=1)[-1],
+        )
+
+
+class EmployeeDocumentRawMediaBlockView(View):
+    """Prevent Django's DEBUG media helper from bypassing HR authorization."""
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        raise Http404
 
 
 class EmployeeStatusView(HumanResourcesMixin, View):

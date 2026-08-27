@@ -31,13 +31,16 @@ from apps.accounting.services import (
     open_fiscal_year,
 )
 from apps.inventory.commands import add_opening_line, create_opening, submit_opening
+from apps.inventory.forms import OpeningLineForm
 from apps.inventory.models import (
     InventoryItem,
     OpeningStockDocument,
     OpeningStockStatus,
+    PackageUnit,
     Warehouse,
 )
 from apps.inventory.opening import OpeningLineInput
+from apps.inventory.services import create_item_conversion
 from apps.organizations.models import Branch, Organization, Role
 from apps.organizations.services import grant_branch_access, grant_organization_access
 from apps.users.models import User
@@ -109,6 +112,64 @@ def submitted(
 
 
 class TestOpeningScreens:
+    def test_opening_line_form_keeps_the_common_entry_short_and_clear(
+        self, manager: User, branch: Branch, main_store: Warehouse, rice: InventoryItem
+    ) -> None:
+        form = OpeningLineForm(
+            data={
+                "warehouse": main_store.pk,
+                "item": rice.pk,
+                "base_quantity": "",
+                "unit_cost": "1500",
+            },
+            actor=manager,
+            branch=branch,
+        )
+
+        assert form.is_valid() is False
+        assert form.errors["base_quantity"] == ["أدخل الكمية."]
+
+    def test_an_opening_line_is_added_with_htmx_without_a_page_redirect(
+        self,
+        manager: User,
+        client_for: Any,
+        organization: Organization,
+        branch: Branch,
+        main_store: Warehouse,
+        rice: InventoryItem,
+        mapped: None,
+    ) -> None:
+        document = create_opening(
+            actor=manager,
+            organization=organization,
+            branch=branch,
+            cutoff_at=CUTOFF,
+            evidence_reference="HTMX-OPENING",
+        )
+
+        response = client_for(manager).post(
+            reverse("inventory:opening_detail", args=[document.pk]),
+            {
+                "warehouse": main_store.pk,
+                "item": rice.pk,
+                "lot_code": "",
+                "lot_expiry": "",
+                "package_conversion": "",
+                "entered_package_quantity": "",
+                "measured_base_quantity": "",
+                "base_quantity": "100.000",
+                "unit_cost": "1500",
+            },
+            headers={"HX-Request": "true"},
+        )
+
+        assert response.status_code == 200
+        assert document.lines.count() == 1
+        body = response.content.decode()
+        assert 'id="opening-lines-workspace"' in body
+        assert "أُضيف السطر." in body
+        assert "hx-post" in body
+
     def test_the_full_lifecycle_through_the_screens(
         self,
         manager: User,
@@ -340,3 +401,48 @@ class TestProvenanceRegression:
         assert response.status_code == 403
         submitted.refresh_from_db()
         assert submitted.status == OpeningStockStatus.SUBMITTED
+
+
+class TestALineFormRefusesRatherThanCrashes:
+    """
+    An unparsable package count reached `None % 1` and raised TypeError.
+
+    `_decimal` records its own error and returns None — a comma decimal, which
+    an Arabic keyboard produces by default, is the everyday case. The count is
+    then unknown rather than fractional, but the fractional check asked anyway
+    and the reader got a server error instead of the sentence telling them to
+    use a decimal point.
+    """
+
+    def test_a_comma_decimal_package_count_is_a_field_error_not_a_crash(
+        self,
+        manager: User,
+        branch: Branch,
+        main_store: Warehouse,
+        rice: InventoryItem,
+        carton: PackageUnit,
+    ) -> None:
+        conversion = create_item_conversion(
+            item=rice,
+            package_unit=carton,
+            factor_to_base=Decimal("25"),
+            effective_from=datetime.date(2026, 1, 1),
+            allows_fractional=False,
+        )
+
+        form = OpeningLineForm(
+            data={
+                "warehouse": main_store.pk,
+                "item": rice.pk,
+                "package_conversion": conversion.pk,
+                "entered_package_quantity": "1,5",
+                "base_quantity": "",
+                "unit_cost": "1500",
+            },
+            actor=manager,
+            branch=branch,
+        )
+
+        # The call itself is the assertion: this raised TypeError before.
+        assert form.is_valid() is False
+        assert form.errors["entered_package_quantity"] == ["استخدم النقطة العشرية لا الفاصلة."]

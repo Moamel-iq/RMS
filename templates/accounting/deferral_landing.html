@@ -47,7 +47,7 @@
             <thead><tr>
               <th>{% translate "الرقم" %}</th><th>{% translate "الوصف" %}</th>
               <th>{% translate "الفرع" %}</th><th>{% translate "الإجمالي" %}</th>
-              <th>{% translate "الفترات" %}</th><th>{% translate "الحالة" %}</th><th></th>
+              <th>{% translate "الفترات" %}</th><th>{% translate "الحالة" %}</th><th scope="col"><span class="sr-only">إجراءات</span></th>
             </tr></thead>
             <tbody>
               {% for prepayment in prepayments %}
@@ -124,7 +124,7 @@
               <th>{% translate "الرقم" %}</th><th>{% translate "الوصف" %}</th>
               <th>{% translate "الفرع" %}</th><th>{% translate "التاريخ" %}</th>
               <th>{% translate "المبلغ" %}</th><th>{% translate "الحالة" %}</th>
-              <th>{% translate "عكس تلقائي" %}</th><th></th>
+              <th>{% translate "عكس تلقائي" %}</th><th scope="col"><span class="sr-only">إجراءات</span></th>
             </tr></thead>
             <tbody>
               {% for accrual in accruals %}

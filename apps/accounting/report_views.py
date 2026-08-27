@@ -34,6 +34,9 @@ from apps.accounting.reports import (
     trial_balance,
 )
 from apps.accounting.views import AccountingViewMixin
+from apps.core.money import money_audit_with_currency
+from apps.core.printing import PrintableReportMixin, PrintSheet, SheetFilter, sheet_from_table
+from apps.core.templatetags.report_tags import render_value
 from apps.inventory.report_views import neutralise, safe_filename
 from apps.organizations.authorization import OutOfScope, organizations_with_permission
 from apps.organizations.models import Organization
@@ -42,7 +45,7 @@ from apps.organizations.selectors import accessible_branches
 ZERO = Decimal("0")
 
 
-class AccountingReportView(AccountingViewMixin, View):
+class AccountingReportView(PrintableReportMixin, AccountingViewMixin, View):
     """
     Shared chrome for the four reports: scope, filters, fragment contract, CSV.
 
@@ -139,6 +142,8 @@ class AccountingReportView(AccountingViewMixin, View):
 
         if request.GET.get("export") == "csv":
             return self.export_csv(context, filters)
+        if self.wants_print(request):
+            return self.render_print(request, context, filters)
         return render(request, self.template_name, context)
 
     def _base(self, request: HttpRequest) -> str:
@@ -147,6 +152,65 @@ class AccountingReportView(AccountingViewMixin, View):
             if request.headers.get("HX-Request") == "true"
             else "shell.html"
         )
+
+    #: Arabic names for the filters, so a sheet says "من 2026-08-01" and never
+    #: "date_from=2026-08-01".
+    FILTER_LABELS: dict[str, Any] = {
+        "branch": _("الفرع"),
+        "cost_center": _("مركز الكلفة"),
+        "from": _("من"),
+        "to": _("إلى"),
+        "account_class": _("صنف الحساب"),
+        "code_from": _("من رمز"),
+        "code_to": _("إلى رمز"),
+        "include_zero": _("يشمل الأرصدة الصفرية"),
+    }
+
+    def print_sheet(self, context: dict[str, Any], filters: ReportFilters) -> PrintSheet:
+        """
+        The sheet is the export, on paper.
+
+        `csv_rows` is where each report already says what its columns and rows
+        are; printing from anywhere else would be a second answer to a question
+        that has one.
+        """
+        headers, rows = self.csv_rows(context)
+        branch = filters.branch
+        return sheet_from_table(
+            title=str(self.page_title),
+            headers=headers,
+            table=rows,
+            renderer=_ledger_value,
+            organization_label=f"{filters.organization.code} — {filters.organization.name_ar}",
+            branch_label=f"{branch.code} — {branch.name_ar}" if branch else "",
+            period_label=self.period_label(filters),
+            filters=self.sheet_filters(filters),
+            note=str(self.page_hint),
+        )
+
+    def period_label(self, filters: ReportFilters) -> str:
+        if filters.date_from and filters.date_to:
+            return str(_("الفترة من %(from)s إلى %(to)s")) % {
+                "from": filters.date_from.isoformat(),
+                "to": filters.date_to.isoformat(),
+            }
+        if filters.date_to:
+            return str(_("حتى %(to)s")) % {"to": filters.date_to.isoformat()}
+        if filters.date_from:
+            return str(_("من %(from)s")) % {"from": filters.date_from.isoformat()}
+        return ""
+
+    def sheet_filters(self, filters: ReportFilters) -> list[SheetFilter]:
+        skip = {"organization", "from", "to", "branch"}
+        out: list[SheetFilter] = []
+        for key, value in filters.as_query().items():
+            if key in skip:
+                continue
+            label = self.FILTER_LABELS.get(key, key)
+            if key == "cost_center" and filters.cost_center is not None:
+                value = f"{filters.cost_center.code} — {filters.cost_center.name_ar}"
+            out.append(SheetFilter(label=str(label), value=str(value)))
+        return out
 
     def export_csv(self, context: dict[str, Any], filters: ReportFilters) -> HttpResponse:
         """
@@ -178,6 +242,19 @@ class AccountingReportView(AccountingViewMixin, View):
         for row in rows:
             writer.writerow([neutralise(cell) for cell in row])
         return response
+
+
+def _ledger_value(value: Any) -> Any:
+    """
+    Money the way the ledger screens write it — grouped, at stored precision.
+
+    `money_audit_with_currency` is what `money_full` puts on the trial balance and the general
+    ledger, so the paper and the screen carry the same figure in the same shape.
+    Everything else falls through to the shared report renderer.
+    """
+    if isinstance(value, Decimal):
+        return money_audit_with_currency(value)
+    return render_value(value)
 
 
 def _date(raw: str) -> datetime.date | None:
@@ -311,7 +388,7 @@ class GeneralLedgerView(AccountingReportView):
 class IncomeStatementView(AccountingReportView):
     template_name = "accounting/income_statement.html"
     export_stem = "income-statement"
-    page_title = _("قائمة الدخل")
+    page_title = _("التقرير المالي الشامل")
     page_hint = _(
         "التصنيف من ربط القوائم المالية، لا من رمز الحساب. الحسابات غير المصنّفة "
         "ذات الرصيد تُعرض في قسم «غير مصنّف» وتمنع الاعتماد — ولا تُحذف."

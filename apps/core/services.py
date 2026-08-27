@@ -21,7 +21,7 @@ from apps.core.models import AuditAction, AuditEvent
 if TYPE_CHECKING:
     # Type-check only. A runtime import would make apps.core depend on
     # apps.organizations, and core must stay beneath every domain app.
-    from apps.organizations.models import Branch
+    from apps.organizations.models import Branch, Organization
 
 #: Fields never copied into an audit snapshot. A password hash in the audit log
 #: would survive every rotation and defeat the point of rotating it.
@@ -75,6 +75,7 @@ def record_audit_event(
     target_type: str = "",
     target_id: str = "",
     branch: Branch | None = None,
+    organization: Organization | None = None,
     previous_state: dict[str, Any] | None = None,
     new_state: dict[str, Any] | None = None,
     reason: str = "",
@@ -99,6 +100,20 @@ def record_audit_event(
     if not target_type:
         raise ValueError("record_audit_event requires either target or target_type")
 
+    # The audit boundary must not depend on which module happened to call the
+    # recorder.  Prefer an explicit organization; otherwise derive it from a
+    # branch or a normal organization/branch relation on the target.
+    if organization is None and branch is not None:
+        organization = branch.organization
+    if organization is None and target is not None:
+        candidate = getattr(target, "organization", None)
+        if candidate is not None:
+            organization = candidate
+        elif (target_branch := getattr(target, "branch", None)) is not None:
+            organization = target_branch.organization
+        elif target._meta.label_lower == "organizations.organization":
+            organization = target  # type: ignore[assignment]
+
     actor = get_actor()
 
     return AuditEvent.objects.create(
@@ -106,6 +121,7 @@ def record_audit_event(
         actor=actor,
         actor_label=str(actor) if actor is not None else "",
         branch=branch,
+        organization=organization,
         correlation_id=get_correlation_id(),
         target_type=target_type,
         target_id=target_id,

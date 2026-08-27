@@ -38,6 +38,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import View
 
+from apps.core.printing import PrintableReportMixin, PrintSheet, SheetFilter, sheet_from_columns
 from apps.inventory import reports
 from apps.inventory.dashboard import inventory_overview
 from apps.inventory.permissions import VIEW_STOCK, VIEW_VALUATION
@@ -90,7 +91,7 @@ def safe_filename(stem: str, *, extension: str = "csv") -> str:
     return f"{cleaned or 'report'}-{stamp}.{extension}"
 
 
-class InventoryReportView(InventoryViewMixin, View):
+class InventoryReportView(PrintableReportMixin, InventoryViewMixin, View):
     """
     A scoped, filtered, paginated report with a CSV export on the same query.
 
@@ -174,6 +175,8 @@ class InventoryReportView(InventoryViewMixin, View):
 
         if request.GET.get("export") == "csv":
             return self.export_csv(rows, filters)
+        if self.wants_print(request):
+            return self.render_print(request, {"rows": rows}, filters)
 
         paginator = Paginator(rows, self.paginate_by)
         page = paginator.get_page(request.GET.get("page"))
@@ -199,6 +202,7 @@ class InventoryReportView(InventoryViewMixin, View):
                 "modes": [(mode.value, mode.label) for mode in ReportMode],
                 "branches": accessible_branches(self.actor),
                 "export_query": self._export_query(filters),
+                "print_query": self._print_query(filters),
                 "htmx_list": True,
                 "inventory_ui": True,
                 "list_base_template": (
@@ -211,6 +215,76 @@ class InventoryReportView(InventoryViewMixin, View):
         pairs = dict(filters.as_query())
         pairs["export"] = "csv"
         return urlencode(pairs)
+
+    def _print_query(self, filters: ReportFilters) -> str:
+        pairs = dict(filters.as_query())
+        pairs["print"] = "1"
+        return urlencode(pairs)
+
+    # -- printed sheet -----------------------------------------------------
+
+    #: Arabic names for the filters a sheet carries in its heading.
+    FILTER_LABELS: dict[str, Any] = {
+        "branch_id": _("الفرع"),
+        "warehouse_id": _("المخزن"),
+        "category_id": _("المجموعة"),
+        "item_id": _("الصنف"),
+        "cost_center_id": _("مركز الكلفة"),
+        "reason_code_id": _("سبب الحركة"),
+        "include_inactive": _("يشمل غير الفعّال"),
+        "within_days": _("خلال أيام"),
+        "q": _("بحث"),
+        "mode": _("وضع التقرير"),
+    }
+
+    def print_sheet(self, context: dict[str, Any], filters: ReportFilters) -> PrintSheet:
+        """
+        The whole report on paper — not the page the screen happens to show.
+
+        The screen paginates because a browser must; paper does not, and a
+        statement that stopped at row fifty without saying so would be read as
+        complete.
+        """
+        columns = self.active_columns()
+        numeric = {
+            key
+            for key, _label in columns
+            if any(
+                word in key
+                for word in ("quantity", "value", "cost", "amount", "total", "price", "days")
+            )
+        }
+        return sheet_from_columns(
+            title=str(self.page_title),
+            columns=columns,
+            rows=context["rows"],
+            numeric_keys=numeric,
+            period_label=self._period_label(filters),
+            filters=self._sheet_filters(filters),
+            note=str(self.page_hint),
+        )
+
+    def _period_label(self, filters: ReportFilters) -> str:
+        if filters.date_from and filters.date_to:
+            return str(_("الفترة من %(from)s إلى %(to)s")) % {
+                "from": filters.date_from.isoformat(),
+                "to": filters.date_to.isoformat(),
+            }
+        if filters.date_to:
+            return str(_("حتى %(to)s")) % {"to": filters.date_to.isoformat()}
+        if filters.date_from:
+            return str(_("من %(from)s")) % {"from": filters.date_from.isoformat()}
+        return ""
+
+    def _sheet_filters(self, filters: ReportFilters) -> list[SheetFilter]:
+        out: list[SheetFilter] = []
+        if self.supports_modes:
+            out.append(SheetFilter(label=str(_("وضع التقرير")), value=str(filters.mode.label)))
+        for key, value in filters.as_query().items():
+            if key in {"date_from", "date_to", "mode"}:
+                continue
+            out.append(SheetFilter(label=str(self.FILTER_LABELS.get(key, key)), value=str(value)))
+        return out
 
     # -- export ------------------------------------------------------------
 

@@ -1,5 +1,5 @@
 {% extends "shell.html" %}
-{% load i18n %}
+{% load i18n %}{% block title %}{{ page_title|default:'قسيمة الراتب' }} · {% translate "نظام خان مندي" %}{% endblock %}
 {% block page %}
 <style>
   .payslip-sheet{max-width:960px;margin-inline:auto}.payslip-title{text-align:center}.payslip-signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:2rem;margin-top:3rem;text-align:center}.payslip-signatures span{display:block;border-top:1px solid var(--border);padding-top:.75rem}.payslip-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}.payslip-meta div{padding:.75rem;border:1px solid var(--border);border-radius:12px}.payslip-meta dt{color:var(--muted);font-size:.82rem}.payslip-meta dd{margin:.25rem 0 0;font-weight:700}

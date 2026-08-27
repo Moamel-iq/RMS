@@ -1,0 +1,39 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{% block page %}
+  <section class="list-page" aria-labelledby="task-inbox-title">
+    <header class="pagehead">
+      <div>
+        <p class="eyebrow">{% translate "الأتمتة والضبط" %}</p>
+        <h1 id="task-inbox-title">{{ page_title }}</h1>
+        <p>{{ page_hint }}</p>
+      </div>
+      <form method="get" class="toolbar" aria-label="{% translate 'تصفية المهام' %}">
+        <label>
+          <span>{% translate "الحالة" %}</span>
+          <select name="status" onchange="this.form.submit()">
+            <option value="">{% translate "المهام النشطة" %}</option>
+            {% for value, label in statuses %}
+              <option value="{{ value }}"{% if selected_status == value %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+    </header>
+
+    <div class="formcard">
+      <div class="formcard__head">
+        <h2>{% translate "المهام ضمن نطاقك" %}</h2>
+        <span class="chip">{{ tasks|length }}</span>
+      </div>
+      <ul class="timeline" aria-live="polite">
+        {% for task in tasks %}
+          {% include "core/_task_row.html" with task=task %}
+        {% empty %}
+          <li class="empty">{% translate "لا توجد مهام نشطة ضمن نطاقك." %}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+{% endblock %}

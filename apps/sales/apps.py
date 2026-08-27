@@ -40,3 +40,8 @@ class SalesConfig(AppConfig):
         from apps.sales.consumption_source import register_with_kitchen
 
         register_with_kitchen()
+
+        # Registers only the Sales handler with the shared automation worker.
+        # The worker imports no domain models itself, so Core remains below
+        # every domain app and retries cannot create circular dependencies.
+        from apps.sales import automation_handlers  # noqa: F401

@@ -321,7 +321,11 @@ class ItemConversionForm(ScopedForm):
 
     scope_permission = MANAGE_CONVERSIONS
 
-    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    item = forms.ModelChoiceField(
+        queryset=InventoryItem.objects.none(),
+        label=_("الصنف"),
+        error_messages={"required": _("اختر الصنف.")},
+    )
     package_unit = forms.ModelChoiceField(
         queryset=PackageUnit.objects.none(), label=_("وحدة التعبئة")
     )
@@ -634,8 +638,16 @@ class OpeningLineForm(ScopedForm):
 
     scope_permission = CREATE_OPENING_STOCK
 
-    warehouse = forms.ModelChoiceField(queryset=Warehouse.objects.none(), label=_("المخزن"))
-    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.none(),
+        label=_("المخزن"),
+        error_messages={"required": _("اختر المخزن.")},
+    )
+    item = forms.ModelChoiceField(
+        queryset=InventoryItem.objects.none(),
+        label=_("الصنف"),
+        error_messages={"required": _("اختر الصنف.")},
+    )
     lot_code = forms.CharField(
         label=_("رمز الدفعة"),
         max_length=64,
@@ -660,21 +672,28 @@ class OpeningLineForm(ScopedForm):
         help_text=_("للعبوات المتغيرة فقط: قراءة الميزان بوحدة الأساس."),
     )
     base_quantity = forms.CharField(
-        label=_("الكمية بوحدة الأساس"),
+        label=_("الكمية"),
         required=False,
-        help_text=_("للإدخال المباشر بلا عبوة. نقطة عشرية، لا فاصلة."),
+        help_text=_("بوحدة الأساس. استخدم النقطة للفاصلة العشرية."),
     )
     unit_cost = forms.CharField(
-        label=_("كلفة الوحدة"), help_text=_("دينار عراقي لوحدة الأساس الواحدة. نقطة عشرية.")
+        label=_("كلفة الوحدة"),
+        help_text=_("دينار عراقي لكل وحدة أساس."),
+        error_messages={"required": _("أدخل كلفة الوحدة.")},
     )
 
     def __init__(self, *args: Any, actor: User, branch: Branch, **kwargs: Any) -> None:
         super().__init__(*args, actor=actor, **kwargs)
         from apps.organizations.authorization import accessible_warehouses
 
-        self.fields["warehouse"].queryset = (  # type: ignore[attr-defined]
+        warehouses = (
             accessible_warehouses(actor).filter(branch=branch, is_system=False).order_by("code")
         )
+        self.fields["warehouse"].queryset = warehouses  # type: ignore[attr-defined]
+        if not self.is_bound:
+            available_warehouses = list(warehouses[:2])
+            if len(available_warehouses) == 1:
+                self.fields["warehouse"].initial = available_warehouses[0]
         self.fields["item"].queryset = (  # type: ignore[attr-defined]
             visible_items(actor)
             .filter(organization_id=branch.organization_id, is_active=True)
@@ -724,6 +743,69 @@ class OpeningLineForm(ScopedForm):
             self.add_error("unit_cost", _("يجب أن تكون الكلفة أكبر من صفر."))
             return None
         return value
+
+    def clean(self) -> dict[str, Any]:
+        """Keep the usual direct entry short, with specific field errors."""
+        cleaned_data: dict[str, Any] = super().clean()  # type: ignore[assignment]
+        item = cleaned_data.get("item")
+        conversion = cleaned_data.get("package_conversion")
+        package_quantity = cleaned_data.get("entered_package_quantity")
+        measured_quantity = cleaned_data.get("measured_base_quantity")
+        base_quantity = cleaned_data.get("base_quantity")
+        raw_package_quantity = str(self.data.get("entered_package_quantity", "") or "").strip()
+        raw_measured_quantity = str(self.data.get("measured_base_quantity", "") or "").strip()
+        raw_base_quantity = str(self.data.get("base_quantity", "") or "").strip()
+
+        if conversion is None:
+            if package_quantity is not None or measured_quantity is not None:
+                self.add_error(
+                    "package_conversion",
+                    _("اختر عبوة الإدخال قبل إدخال كمية العبوات."),
+                )
+            elif base_quantity is None and not raw_base_quantity:
+                self.add_error("base_quantity", _("أدخل الكمية."))
+        else:
+            if item is not None and conversion.item_id != item.pk:
+                self.add_error("package_conversion", _("العبوة المختارة لا تخص هذا الصنف."))
+            if base_quantity is not None:
+                self.add_error("base_quantity", _("استخدم الكمية أو العبوات، وليس كليهما."))
+            if (package_quantity is None and not raw_package_quantity) or (
+                package_quantity is not None and package_quantity <= 0
+            ):
+                self.add_error("entered_package_quantity", _("أدخل عدد العبوات أكبر من صفر."))
+            elif (
+                package_quantity is not None
+                # `_decimal` returns None after recording its own error — a
+                # comma decimal, a non-finite value, anything unparsable. The
+                # count is then unknown, not fractional, and asking whether it
+                # divides by one raised TypeError on a form the reader had
+                # already been told how to fix.
+                and not conversion.allows_fractional
+                and package_quantity % 1 != 0
+            ):
+                self.add_error("entered_package_quantity", _("هذه العبوة لا تقبل أجزاءً."))
+
+            if conversion.conversion_type == ConversionType.VARIABLE:
+                if (measured_quantity is None and not raw_measured_quantity) or (
+                    measured_quantity is not None and measured_quantity <= 0
+                ):
+                    self.add_error("measured_base_quantity", _("أدخل الكمية الموزونة."))
+            elif measured_quantity is not None:
+                self.add_error(
+                    "measured_base_quantity",
+                    _("الكمية الموزونة للعبوات متغيرة الوزن فقط."),
+                )
+
+        lot_code = str(cleaned_data.get("lot_code") or "").strip()
+        if item is not None and item.tracks_lots:
+            if not lot_code:
+                self.add_error("lot_code", _("أدخل رمز الدفعة لهذا الصنف."))
+            if item.tracks_expiry and cleaned_data.get("lot_expiry") is None:
+                self.add_error("lot_expiry", _("أدخل تاريخ انتهاء الدفعة."))
+        elif lot_code:
+            self.add_error("lot_code", _("هذا الصنف لا يتتبع الدفعات."))
+
+        return cleaned_data
 
 
 class ReasonForm(forms.Form):
@@ -825,7 +907,11 @@ class OperationalLineForm(ScopedForm):
 
     scope_permission = CREATE_DRAFT_MOVEMENT
 
-    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    item = forms.ModelChoiceField(
+        queryset=InventoryItem.objects.none(),
+        label=_("الصنف"),
+        error_messages={"required": _("اختر الصنف.")},
+    )
     lot_code = forms.CharField(
         label=_("رمز الدفعة"),
         max_length=64,
@@ -850,14 +936,14 @@ class OperationalLineForm(ScopedForm):
         help_text=_("للعبوات المتغيرة فقط: قراءة الميزان بوحدة الأساس."),
     )
     base_quantity = forms.CharField(
-        label=_("الكمية بوحدة الأساس"),
+        label=_("الكمية"),
         required=False,
-        help_text=_("للإدخال المباشر بلا عبوة. نقطة عشرية، لا فاصلة."),
+        help_text=_("بوحدة الأساس. استخدم النقطة للفاصلة العشرية."),
     )
     unit_cost = forms.CharField(
         label=_("كلفة الوحدة"),
         required=False,
-        help_text=_("دينار عراقي لوحدة الأساس الواحدة. نقطة عشرية."),
+        help_text=_("دينار عراقي لكل وحدة أساس."),
     )
     source_issue_line = forms.ModelChoiceField(
         queryset=InventoryMovementDocumentLine.objects.none(),
@@ -910,6 +996,8 @@ class OperationalLineForm(ScopedForm):
 
         if document.document_type == InventoryDocumentType.RECEIPT:
             del self.fields["source_issue_line"]
+            self.fields["unit_cost"].required = True
+            self.fields["unit_cost"].error_messages["required"] = _("أدخل كلفة الوحدة.")
         else:
             del self.fields["unit_cost"]
 
@@ -936,6 +1024,9 @@ class OperationalLineForm(ScopedForm):
             self.fields["source_issue_line"].required = True
         elif "source_issue_line" in self.fields:
             del self.fields["source_issue_line"]
+
+        if selected_item is not None and not self.is_bound:
+            self.fields["item"].initial = selected_item
 
     def _decimal(self, raw: str, field: str) -> Decimal | None:
         text = (raw or "").strip()
@@ -973,6 +1064,71 @@ class OperationalLineForm(ScopedForm):
             self.add_error("unit_cost", _("يجب أن تكون الكلفة أكبر من صفر."))
             return None
         return value
+
+    def clean(self) -> dict[str, Any]:
+        """Make the direct entry path clear before service validation runs."""
+        cleaned_data: dict[str, Any] = super().clean()  # type: ignore[assignment]
+        item = cleaned_data.get("item")
+        conversion = cleaned_data.get("package_conversion")
+        package_quantity = cleaned_data.get("entered_package_quantity")
+        measured_quantity = cleaned_data.get("measured_base_quantity")
+        base_quantity = cleaned_data.get("base_quantity")
+        raw_package_quantity = str(self.data.get("entered_package_quantity", "") or "").strip()
+        raw_measured_quantity = str(self.data.get("measured_base_quantity", "") or "").strip()
+        raw_base_quantity = str(self.data.get("base_quantity", "") or "").strip()
+
+        if conversion is None:
+            if package_quantity is not None or measured_quantity is not None:
+                self.add_error(
+                    "package_conversion",
+                    _("اختر عبوة الإدخال قبل إدخال كمية العبوات."),
+                )
+            elif base_quantity is None and not raw_base_quantity:
+                self.add_error("base_quantity", _("أدخل الكمية."))
+            elif base_quantity is not None and base_quantity <= 0:
+                self.add_error("base_quantity", _("يجب أن تكون الكمية أكبر من صفر."))
+        else:
+            if item is not None and conversion.item_id != item.pk:
+                self.add_error("package_conversion", _("العبوة المختارة لا تخص هذا الصنف."))
+            if base_quantity is not None:
+                self.add_error("base_quantity", _("استخدم الكمية أو العبوات، وليس كليهما."))
+            if (package_quantity is None and not raw_package_quantity) or (
+                package_quantity is not None and package_quantity <= 0
+            ):
+                self.add_error("entered_package_quantity", _("أدخل عدد العبوات أكبر من صفر."))
+            elif (
+                package_quantity is not None
+                # `_decimal` returns None after recording its own error — a
+                # comma decimal, a non-finite value, anything unparsable. The
+                # count is then unknown, not fractional, and asking whether it
+                # divides by one raised TypeError on a form the reader had
+                # already been told how to fix.
+                and not conversion.allows_fractional
+                and package_quantity % 1 != 0
+            ):
+                self.add_error("entered_package_quantity", _("هذه العبوة لا تقبل أجزاءً."))
+
+            if conversion.conversion_type == ConversionType.VARIABLE:
+                if (measured_quantity is None and not raw_measured_quantity) or (
+                    measured_quantity is not None and measured_quantity <= 0
+                ):
+                    self.add_error("measured_base_quantity", _("أدخل الكمية الموزونة."))
+            elif measured_quantity is not None:
+                self.add_error(
+                    "measured_base_quantity",
+                    _("الكمية الموزونة للعبوات متغيرة الوزن فقط."),
+                )
+
+        lot_code = str(cleaned_data.get("lot_code") or "").strip()
+        if item is not None and item.tracks_lots:
+            if not lot_code:
+                self.add_error("lot_code", _("أدخل رمز الدفعة لهذا الصنف."))
+            if item.tracks_expiry and cleaned_data.get("lot_expiry") is None:
+                self.add_error("lot_expiry", _("أدخل تاريخ انتهاء الدفعة."))
+        elif lot_code:
+            self.add_error("lot_code", _("هذا الصنف لا يتتبع الدفعات."))
+
+        return cleaned_data
 
 
 # ---------------------------------------------------------------------------

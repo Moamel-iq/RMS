@@ -11,6 +11,9 @@
   {% if export_query %}
     <a class="btn btn--secondary" href="?{{ export_query }}" download>{% translate "تصدير CSV" %}</a>
   {% endif %}
+  {% if print_query %}
+    <a class="btn btn--secondary" href="?{{ print_query }}" target="_blank" rel="noopener">{% translate "PDF / طباعة" %}</a>
+  {% endif %}
 {% endblock %}
 
 {% block filters %}

@@ -13,6 +13,9 @@ import pytest
 from django.core.exceptions import ValidationError
 
 from apps.core.money import (
+    _ISOLATE_END,
+    _NO_BREAK_SPACE,
+    _RTL_ISOLATE_START,
     CASH_ROUNDING_ENABLED,
     CURRENCY_CODE,
     MONEY_DISPLAY_PLACES,
@@ -29,7 +32,12 @@ from apps.core.money import (
     quantize_unit_price,
 )
 from apps.core.quantity import QUANTITY_PLACES, decimal_places_of
-from apps.core.templatetags.money_tags import iqd_filter, iqd_full_filter
+from apps.core.templatetags.money_tags import (
+    iqd_filter,
+    iqd_full_filter,
+    money_filter,
+    money_full_filter,
+)
 
 
 class TestPolicyConstants:
@@ -154,10 +162,22 @@ class TestRendering:
             assert isinstance(rendered, str)
 
     def test_iqd_template_filter_groups_and_labels_operational_money(self) -> None:
-        assert iqd_filter(Decimal("1234567.000")) == "1,234,567 د.ع"
+        assert iqd_filter(Decimal("1234567.000")) == (
+            f"{_RTL_ISOLATE_START}1,234,567 دينار{_NO_BREAK_SPACE}عراقي{_ISOLATE_END}"
+        )
 
     def test_iqd_full_template_filter_keeps_audit_precision(self) -> None:
-        assert iqd_full_filter(Decimal("1234567.890")) == "1,234,567.890 د.ع"
+        assert iqd_full_filter(Decimal("1234567.890")) == (
+            f"{_RTL_ISOLATE_START}1,234,567.890 دينار{_NO_BREAK_SPACE}عراقي{_ISOLATE_END}"
+        )
+
+    def test_standard_money_filters_also_name_the_currency(self) -> None:
+        assert money_filter(Decimal("1250.001")) == (
+            f"{_RTL_ISOLATE_START}1,250 دينار{_NO_BREAK_SPACE}عراقي{_ISOLATE_END}"
+        )
+        assert money_full_filter(Decimal("1250.001")) == (
+            f"{_RTL_ISOLATE_START}1,250.001 دينار{_NO_BREAK_SPACE}عراقي{_ISOLATE_END}"
+        )
 
     def test_rendered_values_cannot_be_summed_as_money(self) -> None:
         """

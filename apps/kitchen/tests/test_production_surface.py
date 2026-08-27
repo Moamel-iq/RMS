@@ -27,6 +27,7 @@ import pytest
 from django.conf import settings
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.inventory.models import InventoryItem, Warehouse
 from apps.kitchen.models import (
@@ -131,6 +132,18 @@ def _client(user: User) -> Client:
 
 
 class TestScreensRender:
+    def test_create_and_preview_suggest_the_current_local_date(
+        self, manager_client: Client
+    ) -> None:
+        expected_date = timezone.localdate().isoformat()
+
+        for route_name in ("kitchen:production_create", "kitchen:production_preview"):
+            response = _arabic(manager_client).get(reverse(route_name))
+            body = response.content.decode()
+
+            assert response.status_code == 200
+            assert f'name="planned_business_date" value="{expected_date}"' in body, route_name
+
     def test_the_list_renders_and_shows_the_draft(
         self, manager_client: Client, production_draft: ProductionBatch
     ) -> None:

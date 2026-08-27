@@ -51,7 +51,7 @@ from apps.accounting.selectors import (
     trial_balance_totals,
 )
 from apps.accounting.views import AccountingViewMixin
-from apps.core.money import money_audit, money_display
+from apps.core.money import money_audit_with_currency, money_with_currency
 from apps.organizations.authorization import organizations_with_permission
 from apps.organizations.models import Organization
 
@@ -166,7 +166,11 @@ def _cash_balance(organization: Organization) -> dict[str, Any]:
         ),
         Decimal("0"),
     )
-    return {"value": money_display(total), "hint": _("مجموع أرصدة الصناديق"), "state": "ok"}
+    return {
+        "value": money_with_currency(total),
+        "hint": _("مجموع أرصدة الصناديق"),
+        "state": "ok",
+    }
 
 
 def _bank_balance(organization: Organization) -> dict[str, Any]:
@@ -179,7 +183,11 @@ def _bank_balance(organization: Organization) -> dict[str, Any]:
         ),
         Decimal("0"),
     )
-    return {"value": money_display(total), "hint": _("مجموع الأرصدة البنكية"), "state": "ok"}
+    return {
+        "value": money_with_currency(total),
+        "hint": _("مجموع الأرصدة البنكية"),
+        "state": "ok",
+    }
 
 
 def _system_reader() -> Any:
@@ -208,7 +216,7 @@ def _supplier_liabilities(organization: Organization) -> dict[str, Any]:
     )
     total = sum((row.get("net_position") or Decimal("0") for row in rows), Decimal("0"))
     return {
-        "value": money_display(total),
+        "value": money_with_currency(total),
         "hint": _("مشتقّة من مستندات المشتريات — لا جدول أرصدة"),
         "state": "ok",
     }
@@ -222,7 +230,7 @@ def _application_receivables(organization: Organization) -> dict[str, Any]:
     )
     total = sum((position.balance for position in positions), Decimal("0"))
     return {
-        "value": money_display(total),
+        "value": money_with_currency(total),
         "hint": _("من سجل ذمم المبيعات المُلحَق"),
         "state": "ok",
     }
@@ -269,7 +277,7 @@ def _net_profit(organization: Organization) -> dict[str, Any]:
         date_to=today,
     )
     return {
-        "value": money_display(report.net_profit),
+        "value": money_with_currency(report.net_profit),
         "hint": _("من بداية السنة حتى تاريخه"),
         "state": "ok" if report.is_approvable else "warn",
     }
@@ -290,7 +298,7 @@ def _balance_sheet_state(organization: Organization) -> dict[str, Any]:
         }
     return {
         "value": _("غير متوازنة"),
-        "hint": _("الفرق: %(amount)s") % {"amount": money_audit(report.difference)},
+        "hint": _("الفرق: %(amount)s") % {"amount": money_audit_with_currency(report.difference)},
         "state": "warn",
     }
 
@@ -306,7 +314,7 @@ def _trial_balance_rows(organization: Organization) -> dict[str, Any]:
         "value": _("متوازن") if table.is_balanced else _("غير متوازن"),
         "hint": _("مجموع المدين = مجموع الدائن")
         if table.is_balanced
-        else _("الفرق: %(amount)s") % {"amount": money_audit(table.difference)},
+        else _("الفرق: %(amount)s") % {"amount": money_audit_with_currency(table.difference)},
         "state": "ok" if table.is_balanced else "warn",
     }
 

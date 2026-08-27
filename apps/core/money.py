@@ -64,6 +64,10 @@ MONEY_ROUNDING = ROUND_HALF_UP
 #: The trading currency. Multi-currency is not modelled; if it ever is, the
 #: exchange rate is a rate and uses RATE_PLACES.
 CURRENCY_CODE = "IQD"
+_RTL_ISOLATE_START = "\u2067"
+_ISOLATE_END = "\u2069"
+_NO_BREAK_SPACE = "\u00a0"
+CURRENCY_LABEL = f"دينار{_NO_BREAK_SPACE}عراقي"
 
 _MONEY_EXPONENT = Decimal(1).scaleb(-MONEY_PLACES)
 _DISPLAY_EXPONENT = Decimal(1).scaleb(-MONEY_DISPLAY_PLACES)
@@ -182,6 +186,16 @@ def money_audit(value: object, *, field: str = "amount") -> str:
     eye will chase a difference that only exists in the rounding.
     """
     return _render(value, MONEY_PLACES, grouped=True, field=field)
+
+
+def money_with_currency(value: object, *, field: str = "amount") -> str:
+    """Operational money with a right-to-left Iraqi-dinar suffix."""
+    return f"{_RTL_ISOLATE_START}{money_display(value, field=field)} {CURRENCY_LABEL}{_ISOLATE_END}"
+
+
+def money_audit_with_currency(value: object, *, field: str = "amount") -> str:
+    """Audit-precision money with a right-to-left Iraqi-dinar suffix."""
+    return f"{_RTL_ISOLATE_START}{money_audit(value, field=field)} {CURRENCY_LABEL}{_ISOLATE_END}"
 
 
 def money_export(value: object, *, field: str = "amount") -> str:

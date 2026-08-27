@@ -114,6 +114,8 @@ MANAGE_APPLICATION_SETTLEMENTS = f"{APP_LABEL}.manage_application_settlements"
 
 CLOSE_CASHIER_SHIFT = f"{APP_LABEL}.close_cashier_shift"
 APPROVE_CASHIER_CLOSING = f"{APP_LABEL}.approve_cashier_closing"
+SUBMIT_DAILY_FINANCIAL_CLOSE = f"{APP_LABEL}.submit_daily_financial_close"
+APPROVE_DAILY_FINANCIAL_CLOSE = f"{APP_LABEL}.approve_daily_financial_close"
 
 
 # --- What is actually granted -----------------------------------------------
@@ -334,6 +336,20 @@ _TABLE: tuple[_Declared, ...] = (
         PermissionScope.BRANCH,
         frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
     ),
+    # The financial close preserves the review evidence that the sales poster
+    # relies on. A cashier may submit what was counted; the manager or finance
+    # reviewer approves a clean snapshot. The service also enforces that the
+    # two actors differ for the particular attempt.
+    _Declared(
+        SUBMIT_DAILY_FINANCIAL_CLOSE,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER, _ACCOUNTANT, _CASHIER}),
+    ),
+    _Declared(
+        APPROVE_DAILY_FINANCIAL_CLOSE,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
+    ),
     # **Reversing** an approved shift is not here. It requires
     # `REVERSE_DAILY_SALES`, read off the already-migrated labels exactly as the
     # adjustment's reversal is: `close_cashier_shift` reads "Can open and close
@@ -401,6 +417,7 @@ def sync_role_groups() -> None:
 
 __all__ = [
     "ALL_PERMISSIONS",
+    "APPROVE_DAILY_FINANCIAL_CLOSE",
     "APPROVE_CASHIER_CLOSING",
     "APP_LABEL",
     "CLOSE_CASHIER_SHIFT",
@@ -417,6 +434,7 @@ __all__ = [
     "REVERSE_DAILY_SALES",
     "ROLE_PERMISSIONS",
     "SUBMIT_DAILY_SALES",
+    "SUBMIT_DAILY_FINANCIAL_CLOSE",
     "VIEW_APPLICATION_RECEIVABLES",
     "VIEW_SALES",
     "VIEW_SALES_COST",

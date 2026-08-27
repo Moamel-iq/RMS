@@ -1,0 +1,37 @@
+{% extends "settings/base_list.html" %}
+{% load i18n %}
+
+{% block columns %}
+  <th>{% translate "الوقت" %}</th>
+  <th>{% translate "المستخدم" %}</th>
+  <th>{% translate "النطاق" %}</th>
+  <th>{% translate "التغيير" %}</th>
+  <th>{% translate "المنشئ" %}</th>
+  <th>{% translate "الحالة" %}</th>
+  <th>{% translate "إجراء" %}</th>
+{% endblock %}
+
+{% block rows %}
+  {% for row in access_requests %}
+    <tr>
+      <td><bdi dir="ltr">{{ row.created_at|date:"Y-m-d H:i" }}</bdi></td>
+      <td>{{ row.target_user.username }}</td>
+      <td>{{ row.organization.code }}{% if row.branch %} · {{ row.branch.code }}{% endif %}</td>
+      <td>{{ row.get_action_display }}{% if row.requested_role %} · {{ row.requested_role }}{% endif %}</td>
+      <td>{{ row.requested_by.username }}</td>
+      <td><span class="chip{% if row.status == pending_status %} chip--neutral{% else %} chip--on{% endif %}">{{ row.get_status_display }}</span></td>
+      <td class="table__actions">
+        {% if row.status == pending_status %}
+          {% if row.requested_by_id == request.user.id %}
+            <form method="post" action="{% url 'organizations:access_request_cancel' row.pk %}">{% csrf_token %}<input type="hidden" name="reason" value="{% translate 'أُلغي من منشئ الطلب' %}"><button class="linkish" type="submit">{% translate "إلغاء" %}</button></form>
+          {% elif row.target_user_id != request.user.id %}
+            <form method="post" action="{% url 'organizations:access_request_approve' row.pk %}">{% csrf_token %}<button class="linkish" type="submit">{% translate "اعتماد" %}</button></form>
+            <form method="post" action="{% url 'organizations:access_request_reject' row.pk %}">{% csrf_token %}<input type="hidden" name="reason" value="{% translate 'رُفض بعد المراجعة' %}"><button class="linkish" type="submit">{% translate "رفض" %}</button></form>
+          {% else %}—{% endif %}
+        {% else %}{{ row.reviewed_by.username|default:"—" }}{% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="7"><p class="empty">{% translate "لا توجد طلبات تغيير صلاحيات." %}</p></td></tr>
+  {% endfor %}
+{% endblock %}

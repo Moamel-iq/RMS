@@ -15,7 +15,7 @@ AUDIT_PAGE_SIZE = 50
 
 def audit_events() -> QuerySet[AuditEvent]:
     """Every recorded event, newest first."""
-    return AuditEvent.objects.select_related("actor", "branch").all()
+    return AuditEvent.objects.select_related("actor", "branch", "organization").all()
 
 
 def audit_trail_for(instance: models.Model) -> QuerySet[AuditEvent]:
@@ -23,7 +23,7 @@ def audit_trail_for(instance: models.Model) -> QuerySet[AuditEvent]:
     target_type = f"{instance._meta.app_label}.{instance._meta.object_name}"
     return AuditEvent.objects.filter(
         target_type=target_type, target_id=str(instance.pk)
-    ).select_related("actor", "branch")
+    ).select_related("actor", "branch", "organization")
 
 
 def events_for_correlation(correlation_id: uuid.UUID | str) -> QuerySet[AuditEvent]:
@@ -34,10 +34,10 @@ def events_for_correlation(correlation_id: uuid.UUID | str) -> QuerySet[AuditEve
     """
     return (
         AuditEvent.objects.filter(correlation_id=correlation_id)
-        .select_related("actor", "branch")
+        .select_related("actor", "branch", "organization")
         .order_by("occurred_at", "id")
     )
 
 
 def events_for_actor(user_id: int) -> QuerySet[AuditEvent]:
-    return AuditEvent.objects.filter(actor_id=user_id).select_related("branch")
+    return AuditEvent.objects.filter(actor_id=user_id).select_related("branch", "organization")

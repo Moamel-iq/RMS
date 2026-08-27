@@ -45,16 +45,23 @@ from apps.accounting.models import (
     SALES_RETURNS,
     SALES_REVENUE,
     Account,
+    AccountingSettings,
     AccountRole,
     CostCenter,
     JournalEntry,
     JournalLine,
 )
 from apps.accounting.services import create_account, create_account_mapping, open_fiscal_year
+from apps.core.automation import process_due_events
+from apps.core.models import AutomationException, AutomationTask
 from apps.kitchen.models import Recipe, RecipeServing, RecipeVersion
 from apps.organizations.models import Branch, Organization
 from apps.sales.adjustment_posting import post_sales_adjustment
 from apps.sales.adjustment_services import add_adjustment_line, create_sales_adjustment
+from apps.sales.daily_close_services import (
+    approve_daily_financial_close,
+    submit_daily_financial_close,
+)
 from apps.sales.daily_reconciliation import ADVISORY, COVERAGE_LIMITATION, reconcile_day
 from apps.sales.day_services import (
     add_sales_line,
@@ -67,11 +74,13 @@ from apps.sales.models import (
     CashierShift,
     CashierShiftStatus,
     CashierTenderCount,
+    DailyFinancialCloseStatus,
     MenuItem,
     SalesAdjustmentReasonKind,
     SalesChannel,
     SalesChannelCategory,
     SalesDay,
+    SalesDayStatus,
     TenderDestination,
 )
 from apps.sales.posting import post_sales_day
@@ -903,7 +912,7 @@ class TestTheRefusals:
         )
         with pytest.raises(ValidationError) as caught:
             close_cashier_shift(shift=shift, sales_day=draft_day, actor=manager)
-        assert caught.value.code == "day_not_posted"
+        assert caught.value.code == "day_not_submitted"
 
     def test_an_application_receivable_cannot_be_counted(
         self, organization: Organization, branch: Branch, cashier: User, manager: User
@@ -1274,3 +1283,185 @@ class TestTheDailyReconciliation:
 
         assert ADVISORY == KITCHEN_ADVISORY
         assert COVERAGE_LIMITATION == KITCHEN_LIMITATION
+
+
+@pytest.mark.django_db
+class TestDailyFinancialClose:
+    """The new control is a pre-posting workflow, not a report annotation."""
+
+    def _submitted_day(
+        self,
+        *,
+        organization: Organization,
+        branch: Branch,
+        menu_item: MenuItem,
+        hall: SalesChannel,
+        cashier: User,
+    ) -> SalesDay:
+        day = create_sales_day(
+            organization=organization,
+            branch=branch,
+            business_date=BUSINESS_DATE,
+            actor=cashier,
+        )
+        add_sales_line(day=day, menu_item=menu_item, channel=hall, quantity=Decimal("2.000"))
+        set_tender_summary(day=day, tender=TenderDestination.CASH, declared_amount=Decimal("20000"))
+        submit_sales_day(day=day, actor=cashier)
+        return day
+
+    def _enforce_from_the_test_day(self, organization: Organization) -> None:
+        AccountingSettings.objects.filter(organization=organization).update(
+            daily_close_enforced_from=BUSINESS_DATE
+        )
+
+    def test_clean_close_needs_an_independent_reviewer_before_sales_posts(
+        self,
+        chart: dict[str, str],
+        organization: Organization,
+        branch: Branch,
+        menu_item: MenuItem,
+        hall: SalesChannel,
+        cashier: User,
+        manager: User,
+        accounting_manager: User,
+    ) -> None:
+        self._enforce_from_the_test_day(organization)
+        day = self._submitted_day(
+            organization=organization,
+            branch=branch,
+            menu_item=menu_item,
+            hall=hall,
+            cashier=cashier,
+        )
+
+        with pytest.raises(ValidationError) as same_actor:
+            post_sales_day(day=day, actor=cashier)
+        assert same_actor.value.code == "poster_is_submitter"
+
+        with pytest.raises(ValidationError) as missing_close:
+            post_sales_day(day=day, actor=accounting_manager)
+        assert missing_close.value.code == "daily_financial_close_required"
+
+        shift = _shift(organization, branch, cashier, cashier)
+        set_tender_count(
+            shift=shift,
+            tender=TenderDestination.CASH,
+            counted_amount=Decimal("25000"),
+            actor=cashier,
+        )
+        closed = close_cashier_shift(shift=shift, sales_day=day, actor=cashier)
+        assert closed.status == CashierShiftStatus.CLOSED
+        assert closed.expected_cash == Decimal("25000.000")
+
+        close = submit_daily_financial_close(sales_day=day, actor=cashier)
+        assert close.status == DailyFinancialCloseStatus.SUBMITTED
+        assert close.exception_count == 0
+
+        with pytest.raises(ValidationError) as self_review:
+            approve_daily_financial_close(close=close, actor=cashier)
+        assert self_review.value.code == "daily_close_reviewer_is_submitter"
+
+        approved = approve_daily_financial_close(close=close, actor=manager)
+        assert approved.status == DailyFinancialCloseStatus.APPROVED
+        assert approved.reviewed_by_id == manager.pk
+
+        # The evidence snapshot cannot be rewritten after a reviewer relied on
+        # it, even through a raw queryset update that bypasses the service.
+        with pytest.raises(Exception, match="immutable"), transaction.atomic():
+            type(approved).objects.filter(pk=approved.pk).update(
+                reconciliation_snapshot={"rewritten": True}
+            )
+
+        posted = post_sales_day(day=day, actor=accounting_manager)
+        assert posted.status == SalesDayStatus.POSTED
+
+    def test_mismatched_declaration_is_saved_as_a_blocked_exception(
+        self,
+        chart: dict[str, str],
+        organization: Organization,
+        branch: Branch,
+        menu_item: MenuItem,
+        hall: SalesChannel,
+        cashier: User,
+        accounting_manager: User,
+    ) -> None:
+        self._enforce_from_the_test_day(organization)
+        day = create_sales_day(
+            organization=organization,
+            branch=branch,
+            business_date=BUSINESS_DATE,
+            actor=cashier,
+        )
+        add_sales_line(day=day, menu_item=menu_item, channel=hall, quantity=Decimal("2.000"))
+        # This is the live risk seen in the current data: sales lines exist but
+        # the declared tender says zero. It must remain visible as evidence.
+        set_tender_summary(day=day, tender=TenderDestination.CASH, declared_amount=Decimal("0"))
+        submit_sales_day(day=day, actor=cashier)
+        shift = _shift(organization, branch, cashier, cashier)
+        set_tender_count(
+            shift=shift,
+            tender=TenderDestination.CASH,
+            counted_amount=Decimal("25000"),
+            actor=cashier,
+        )
+        close_cashier_shift(shift=shift, sales_day=day, actor=cashier)
+
+        close = submit_daily_financial_close(sales_day=day, actor=cashier)
+        assert close.status == DailyFinancialCloseStatus.BLOCKED
+        assert close.exception_count == 1
+        assert (
+            close.reconciliation_snapshot["exceptions"][0]["code"] == "tender_declaration_mismatch"
+        )
+
+        # The frozen close remains the evidence, while the outbox creates one
+        # current, owned exception and inbox task for the SalesDay. Retrying
+        # the worker must not create another task for the same open condition.
+        process_due_events(limit=10)
+        persisted = AutomationException.objects.get(
+            organization=organization,
+            branch=branch,
+            code="tender_declaration_mismatch",
+            target_id=str(day.pk),
+            status="OPEN",
+        )
+        assert persisted.is_blocking is True
+        assert persisted.amount == Decimal("20000.000")
+        assert AutomationTask.objects.filter(exception=persisted, status="OPEN").count() == 1
+        process_due_events(limit=10)
+        assert AutomationTask.objects.filter(exception=persisted, status="OPEN").count() == 1
+
+        with pytest.raises(ValidationError) as refused:
+            post_sales_day(day=day, actor=accounting_manager)
+        assert refused.value.code == "daily_financial_close_not_approved"
+
+    def test_missing_cashier_close_becomes_a_blocking_owned_exception(
+        self,
+        organization: Organization,
+        branch: Branch,
+        menu_item: MenuItem,
+        hall: SalesChannel,
+        cashier: User,
+    ) -> None:
+        self._enforce_from_the_test_day(organization)
+        day = self._submitted_day(
+            organization=organization,
+            branch=branch,
+            menu_item=menu_item,
+            hall=hall,
+            cashier=cashier,
+        )
+
+        close = submit_daily_financial_close(sales_day=day, actor=cashier)
+        assert close.status == DailyFinancialCloseStatus.BLOCKED
+        assert close.reconciliation_snapshot["exceptions"] == [{"code": "cashier_shift_missing"}]
+
+        process_due_events(limit=10)
+        persisted = AutomationException.objects.get(
+            organization=organization,
+            branch=branch,
+            code="cashier_shift_missing",
+            target_id=str(day.pk),
+            status="OPEN",
+        )
+        assert persisted.is_blocking is True
+        assert AutomationTask.objects.filter(exception=persisted, status="OPEN").count() == 1

@@ -47,7 +47,7 @@ def branch(organization: Organization) -> Branch:
 
 @pytest.fixture
 def staff() -> Client:
-    user = User.objects.create_user(username="admin", password=PASSWORD, is_staff=True)
+    user = User.objects.create_superuser(username="admin", password=PASSWORD)
     client = Client()
     client.force_login(user)
     return client

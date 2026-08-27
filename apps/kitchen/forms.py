@@ -25,6 +25,7 @@ from typing import Any
 
 from django import forms
 from django.db.models import QuerySet
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.quantity import FACTOR_PLACES
@@ -909,11 +910,10 @@ class ProductionBatchCreateForm(ScopedForm):
     """
     Which recipe, at which branch and warehouse, for which business date.
 
-    `planned_business_date` has **no initial value**, deliberately. A field
-    pre-filled with today teaches the operator that the question does not need a
-    date, and a batch drafted on Monday for Sunday's production must use Sunday's
-    recipe — the resolver answers per branch per date, and defaulting would answer
-    confidently for the wrong day.
+    `planned_business_date` starts at today's local business date as a practical
+    suggestion. It remains editable: a batch drafted on Monday for Sunday's
+    production must use Sunday's recipe, because the resolver answers per branch
+    per date.
 
     The recipe list is narrowed to batch recipes with an output item, because
     producing a portion recipe would create stock of an item that deliberately
@@ -933,7 +933,10 @@ class ProductionBatchCreateForm(ScopedForm):
     planned_business_date = forms.DateField(
         label=_("تاريخ الإنتاج"),
         widget=forms.DateInput(attrs={"type": "date"}),
-        help_text=_("النسخة السارية تُحدَّد بهذا التاريخ وبهذا الفرع، لا بتاريخ اليوم."),
+        initial=timezone.localdate,
+        help_text=_(
+            "يبدأ بتاريخ اليوم. غيّره للدفعات المخططة لتاريخ آخر؛ النسخة السارية تُحدَّد بهذا التاريخ والفرع."
+        ),
     )
     multiplier = forms.DecimalField(
         label=_("المعامل"),
@@ -1031,7 +1034,9 @@ class ProductionPreviewForm(ScopedForm):
     recipe = forms.ModelChoiceField(queryset=Recipe.objects.none(), label=_("الوصفة"))
     branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع"))
     planned_business_date = forms.DateField(
-        label=_("تاريخ الإنتاج"), widget=forms.DateInput(attrs={"type": "date"})
+        label=_("تاريخ الإنتاج"),
+        widget=forms.DateInput(attrs={"type": "date"}),
+        initial=timezone.localdate,
     )
     multiplier = forms.DecimalField(
         label=_("المعامل"), min_value=Decimal("0.000001"), decimal_places=6

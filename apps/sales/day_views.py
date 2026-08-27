@@ -34,6 +34,11 @@ from apps.organizations.authorization import (
     require_branch_permission,
     require_organization_permission,
 )
+from apps.sales.daily_close_services import (
+    approve_daily_financial_close,
+    daily_close_is_required,
+    submit_daily_financial_close,
+)
 from apps.sales.day_forms import SalesDayForm, SalesLineForm, TenderSummaryForm
 from apps.sales.day_services import (
     add_sales_line,
@@ -44,11 +49,13 @@ from apps.sales.day_services import (
     submit_sales_day,
     totals_for,
 )
-from apps.sales.models import SalesDay, SalesDayLine, SalesDayStatus
+from apps.sales.models import DailyFinancialCloseStatus, SalesDay, SalesDayLine, SalesDayStatus
 from apps.sales.permissions import (
+    APPROVE_DAILY_FINANCIAL_CLOSE,
     CREATE_DAILY_SALES,
     POST_DAILY_SALES,
     REVERSE_DAILY_SALES,
+    SUBMIT_DAILY_FINANCIAL_CLOSE,
     SUBMIT_DAILY_SALES,
     VIEW_SALES,
 )
@@ -133,6 +140,12 @@ class SalesDayDetailView(InventoryViewMixin, View):
         may_edit = day.is_editable and has_branch_permission(
             self.actor, CREATE_DAILY_SALES, day.branch
         )
+        daily_close_required = daily_close_is_required(sales_day=day)
+        latest_daily_close = day.daily_financial_closes.order_by("-attempt_number").first()
+        close_is_approved = (
+            latest_daily_close is not None
+            and latest_daily_close.status == DailyFinancialCloseStatus.APPROVED
+        )
         context: dict[str, Any] = {
             "day": day,
             "lines": day.lines.select_related(
@@ -151,7 +164,17 @@ class SalesDayDetailView(InventoryViewMixin, View):
             "may_edit": may_edit,
             "may_submit": day.status == SalesDayStatus.DRAFT
             and has_branch_permission(self.actor, SUBMIT_DAILY_SALES, day.branch),
+            "daily_close_required": daily_close_required,
+            "latest_daily_close": latest_daily_close,
+            "may_submit_daily_close": day.status == SalesDayStatus.SUBMITTED
+            and has_branch_permission(self.actor, SUBMIT_DAILY_FINANCIAL_CLOSE, day.branch),
+            "may_approve_daily_close": latest_daily_close is not None
+            and latest_daily_close.status == DailyFinancialCloseStatus.SUBMITTED
+            and latest_daily_close.submitted_by_id != self.actor.pk
+            and has_branch_permission(self.actor, APPROVE_DAILY_FINANCIAL_CLOSE, day.branch),
             "may_post": day.status == SalesDayStatus.SUBMITTED
+            and day.submitted_by_id != self.actor.pk
+            and (not daily_close_required or close_is_approved)
             and has_branch_permission(self.actor, POST_DAILY_SALES, day.branch),
             "may_return": day.status == SalesDayStatus.SUBMITTED
             and has_branch_permission(self.actor, CREATE_DAILY_SALES, day.branch),
@@ -284,6 +307,26 @@ class SalesDayTransitionView(InventoryViewMixin, View):
                 require_branch_permission(self.actor, SUBMIT_DAILY_SALES, day.branch)
                 submit_sales_day(day=day, actor=self.actor)
                 messages.success(request, _("تم إرسال اليوم للترحيل."))
+            elif self.action == "submit_daily_close":
+                require_branch_permission(self.actor, SUBMIT_DAILY_FINANCIAL_CLOSE, day.branch)
+                close = submit_daily_financial_close(sales_day=day, actor=self.actor)
+                if close.status == DailyFinancialCloseStatus.BLOCKED:
+                    messages.error(
+                        request,
+                        _("تم حفظ محاولة الإقفال، لكنها متوقفة بسبب الاستثناءات الظاهرة."),
+                    )
+                else:
+                    messages.success(request, _("تم إرسال الإقفال المالي للمراجعة."))
+            elif self.action == "approve_daily_close":
+                require_branch_permission(self.actor, APPROVE_DAILY_FINANCIAL_CLOSE, day.branch)
+                latest = day.daily_financial_closes.order_by("-attempt_number").first()
+                if latest is None:
+                    raise ValidationError(
+                        _("There is no daily financial close to approve."),
+                        code="daily_close_missing",
+                    )
+                approve_daily_financial_close(close=latest, actor=self.actor)
+                messages.success(request, _("تم اعتماد الإقفال المالي."))
             elif self.action == "return":
                 require_branch_permission(self.actor, CREATE_DAILY_SALES, day.branch)
                 return_sales_day_to_draft(day=day, actor=self.actor, reason=reason)

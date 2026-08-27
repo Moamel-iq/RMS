@@ -21,11 +21,13 @@ from django.views import View
 from django.views.generic import FormView
 
 from apps.core.views import FoundationFormViewMixin, FoundationListView, FoundationViewMixin
+from apps.organizations.authorization import organizations_with_organization_permission
 from apps.organizations.forms import RoleDefinitionForm, RoleLifecycleForm
 from apps.organizations.models import Role, RoleDefinition
 from apps.organizations.permission_catalog import matrix
 from apps.organizations.permissions import role_group_name
 from apps.organizations.roles import CONFIGURABLE_APP_LABELS
+from apps.organizations.security_permissions import MANAGE_ROLES
 from apps.organizations.services import (
     archive_role_definition,
     create_role_definition,
@@ -33,6 +35,7 @@ from apps.organizations.services import (
     role_definition_member_count,
     update_role_definition,
 )
+from apps.users.models import User
 
 
 def _builtin_permission_codes(role: Role) -> set[str]:
@@ -47,6 +50,12 @@ def _builtin_permission_codes(role: Role) -> set[str]:
     }
 
 
+def _actor(request: HttpRequest) -> User:
+    """The signed-in caller. Every screen here refuses an anonymous request first."""
+    user: User = request.user  # type: ignore[assignment]
+    return user
+
+
 class RoleListView(FoundationListView):
     model = RoleDefinition
     template_name = "settings/role_list.html"
@@ -59,9 +68,15 @@ class RoleListView(FoundationListView):
     create_url_name = "organizations:role_create"
     create_label = _("دور جديد")
     search_fields = ("code", "name_ar", "name_en", "organization__code")
+    required_permission = MANAGE_ROLES
 
     def get_queryset(self) -> QuerySet[RoleDefinition]:
-        return super().get_queryset().select_related("organization")
+        return (
+            super()
+            .get_queryset()
+            .filter(organization__in=self.authorized_organizations())
+            .select_related("organization")
+        )
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -96,10 +111,12 @@ class RoleFormView(FoundationFormViewMixin, _RoleFormView):
     success_url = reverse_lazy("organizations:role_list")
     definition: RoleDefinition | None = None
     page_title: Any = _("دور جديد")
+    required_permission = MANAGE_ROLES
 
     def get_form_kwargs(self) -> dict[str, Any]:
         kwargs = super().get_form_kwargs()
         kwargs["definition"] = self.definition
+        kwargs["actor"] = self.request.user
         return kwargs
 
     def selected_codes(self, form: RoleDefinitionForm) -> set[str]:
@@ -146,6 +163,7 @@ class RoleCreateView(RoleFormView):
                 description=data["description"],
                 based_on=data["based_on"],
                 permissions=data["permissions"],
+                actor=_actor(self.request),
             )
         except ValidationError as error:
             return self.refuse(form, error)
@@ -157,7 +175,12 @@ class RoleUpdateView(RoleFormView):
 
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Any:
         self.definition = get_object_or_404(
-            RoleDefinition.objects.select_related("organization"), pk=kwargs["pk"]
+            RoleDefinition.objects.select_related("organization").filter(
+                organization__in=organizations_with_organization_permission(
+                    _actor(request), MANAGE_ROLES
+                )
+            ),
+            pk=kwargs["pk"],
         )
         return super().dispatch(request, *args, **kwargs)
 
@@ -196,6 +219,7 @@ class RoleUpdateView(RoleFormView):
                 name_en=data["name_en"],
                 description=data["description"],
                 permissions=data["permissions"],
+                actor=_actor(self.request),
             )
         except ValidationError as error:
             return self.refuse(form, error)
@@ -206,19 +230,29 @@ class RoleLifecycleView(FoundationViewMixin, View):
     """Archive or reactivate, with a reason; refused while anyone holds the post."""
 
     action: str = "archive"
+    required_permission = MANAGE_ROLES
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        definition = get_object_or_404(RoleDefinition, pk=kwargs["pk"])
+        definition = get_object_or_404(
+            RoleDefinition.objects.filter(
+                organization__in=organizations_with_organization_permission(
+                    _actor(request), MANAGE_ROLES
+                )
+            ),
+            pk=kwargs["pk"],
+        )
         form = RoleLifecycleForm(request.POST)
         target = reverse("organizations:role_update", args=[definition.pk])
         if not form.is_valid():
             return redirect(target)
         try:
             if self.action == "archive":
-                archive_role_definition(definition=definition, reason=form.cleaned_data["reason"])
+                archive_role_definition(
+                    definition=definition, reason=form.cleaned_data["reason"], actor=_actor(request)
+                )
             else:
                 reactivate_role_definition(
-                    definition=definition, reason=form.cleaned_data["reason"]
+                    definition=definition, reason=form.cleaned_data["reason"], actor=_actor(request)
                 )
         except ValidationError as error:
             from django.contrib import messages

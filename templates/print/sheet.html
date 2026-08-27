@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% load i18n static %}
+
+{# The paper layout, one for every statement in the system.                    #}
+{#                                                                             #}
+{# The toolbar is the reader's control over the heading: each part is rendered #}
+{# and then shown or hidden by a class on <body>, remembered per reader. It is #}
+{# `no-print` itself, so it never reaches the page.                            #}
+
+{% block title %}{{ sheet.title }} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block content %}
+  <div class="printbar no-print" data-print-toolbar>
+    <div class="printbar__actions">
+      <button class="btn btn--primary" type="button" data-print-now>{% translate "طباعة / حفظ PDF" %}</button>
+      <button class="btn btn--ghost" type="button" data-print-back>{% translate "رجوع" %}</button>
+    </div>
+    <fieldset class="printbar__options">
+      <legend>{% translate "ما يظهر في الورقة" %}</legend>
+      <label><input type="checkbox" data-print-part="logo" checked> {% translate "الشعار" %}</label>
+      <label><input type="checkbox" data-print-part="issuer" checked> {% translate "المؤسسة والفرع" %}</label>
+      <label><input type="checkbox" data-print-part="period" checked> {% translate "الفترة والمرشحات" %}</label>
+      <label><input type="checkbox" data-print-part="stamp" checked> {% translate "وقت الطباعة ومن طبعها" %}</label>
+      <label><input type="checkbox" data-print-part="signature" checked> {% translate "حقل التوقيع" %}</label>
+      <label><input type="checkbox" data-print-landscape> {% translate "ورقة أفقية" %}</label>
+    </fieldset>
+    <p class="printbar__hint">
+      {% translate "في نافذة الطباعة اختر «حفظ بصيغة PDF» لتحصل على الملف. اختياراتك محفوظة للمرات القادمة." %}
+      {% translate "ولإخفاء التاريخ والرابط أعلى الورقة وأسفلها: «إعدادات أخرى» ثم أزل علامة «الترويسات والتذييلات»." %}
+    </p>
+  </div>
+
+  <article class="sheet" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+    <header class="sheet__head">
+      <div class="sheet__identity">
+        <div class="sheet__logo" data-part="logo">
+          {% if logo_path %}
+            <img src="{% static logo_path %}" alt="{% translate 'شعار خان مندي' %}" width="120" height="120">
+          {% else %}
+            <span class="sheet__wordmark">{% translate "خان مندي" %}</span>
+          {% endif %}
+        </div>
+        <div class="sheet__titles">
+          <p class="sheet__issuer" data-part="issuer">
+            {% if sheet.organization_label %}{{ sheet.organization_label }}{% endif %}
+            {% if sheet.branch_label %}<span class="sheet__branch">{{ sheet.branch_label }}</span>{% endif %}
+          </p>
+          <h1 class="sheet__title">{{ sheet.title }}</h1>
+          {% if sheet.subtitle %}<p class="sheet__subtitle">{{ sheet.subtitle }}</p>{% endif %}
+          {% if sheet.period_label %}
+            <p class="sheet__period" data-part="period">{{ sheet.period_label }}</p>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if sheet.filters %}
+        <dl class="sheet__filters" data-part="period">
+          {% for filter in sheet.filters %}
+            <div class="sheet__filter">
+              <dt>{{ filter.label }}</dt>
+              <dd>{{ filter.value }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
+      {% endif %}
+
+      <p class="sheet__stamp" data-part="stamp">
+        {% translate "طُبع" %}: <time datetime="{{ printed_at|date:'c' }}">{{ printed_at|date:"Y-m-d H:i" }}</time>
+        {% if printed_by %} — {% translate "بواسطة" %} {{ printed_by }}{% endif %}
+      </p>
+    </header>
+
+    <div class="sheet__body">
+      {% if sheet.body_template %}
+        {% include sheet.body_template with context=sheet.body_context only %}
+      {% elif sheet.rows %}
+        <table class="sheet__table">
+          <thead>
+            <tr>
+              <th class="sheet__seq">#</th>
+              {% for column in sheet.columns %}
+                <th{% if column.numeric %} class="sheet__num"{% endif %}>{{ column.label }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in sheet.rows %}
+              <tr>
+                <td class="sheet__seq">{{ forloop.counter }}</td>
+                {% for cell in row %}
+                  <td{% if cell.numeric %} class="sheet__num"{% elif cell.code %} class="sheet__code"{% endif %}>{{ cell.value }}</td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+          {% if sheet.totals %}
+            <tfoot>
+              <tr>
+                <th scope="col"><span class="sr-only">إجراءات</span></th>
+                {% for cell in sheet.totals %}
+                  {% if forloop.first %}
+                    <th>{{ sheet.totals_label }}</th>
+                  {% else %}
+                    <th{% if cell.numeric %} class="sheet__num"{% endif %}>{{ cell.value }}</th>
+                  {% endif %}
+                {% endfor %}
+              </tr>
+            </tfoot>
+          {% endif %}
+        </table>
+      {% else %}
+        <p class="sheet__empty">{{ sheet.empty_message }}</p>
+      {% endif %}
+
+      {% if sheet.note %}<p class="sheet__note">{{ sheet.note }}</p>{% endif %}
+    </div>
+
+    <footer class="sheet__foot">
+      <div class="sheet__signature" data-part="signature">
+        <div class="sheet__sign"><span>{% translate "أعدّه" %}</span></div>
+        <div class="sheet__sign"><span>{% translate "راجعه" %}</span></div>
+        <div class="sheet__sign"><span>{% translate "اعتمده" %}</span></div>
+      </div>
+    </footer>
+  </article>
+{% endblock %}

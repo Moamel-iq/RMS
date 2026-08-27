@@ -442,6 +442,49 @@ class TestThereIsStillNoMovementWritePath:
 
 
 class TestScreens:
+    def test_a_receipt_line_is_added_with_htmx_without_a_page_redirect(
+        self,
+        manager: User,
+        client_for: Any,
+        organization: Organization,
+        branch: Branch,
+        main_store: Warehouse,
+        rice: InventoryItem,
+        mapped: None,
+    ) -> None:
+        document = create_document(
+            actor=manager,
+            organization=organization,
+            branch=branch,
+            warehouse=main_store,
+            document_type=InventoryDocumentType.RECEIPT,
+            effective_at=WHEN,
+            evidence_reference="HTMX-RECEIPT",
+        )
+        detail = reverse("inventory:inventory_receipt_detail", args=[document.pk])
+
+        response = client_for(manager).post(
+            detail,
+            {
+                "item": rice.pk,
+                "lot_code": "",
+                "lot_expiry": "",
+                "package_conversion": "",
+                "entered_package_quantity": "",
+                "measured_base_quantity": "",
+                "base_quantity": "20.000",
+                "unit_cost": "1000",
+            },
+            headers={"HX-Request": "true"},
+        )
+
+        assert response.status_code == 200
+        assert document.lines.count() == 1
+        body = response.content.decode()
+        assert 'id="operational-lines-workspace"' in body
+        assert "أُضيف السطر." in body
+        assert "hx-post" in body
+
     def test_the_full_lifecycle_through_the_screens(
         self,
         manager: User,

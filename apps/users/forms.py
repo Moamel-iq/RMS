@@ -13,6 +13,8 @@ from django import forms
 from django.contrib.auth.forms import AuthenticationForm, UserChangeForm, UserCreationForm
 from django.utils.translation import gettext_lazy as _
 
+from apps.organizations.models import Organization
+from apps.organizations.security_permissions import MANAGE_USERS
 from apps.users.models import User
 from apps.users.phone import normalize_iraqi_mobile
 
@@ -52,18 +54,32 @@ class UserAccountCreateForm(PhoneNormalizingMixin, forms.ModelForm):
     password2 = forms.CharField(
         label=_("تأكيد كلمة المرور"), widget=forms.PasswordInput, strip=False
     )
+    organization = forms.ModelChoiceField(
+        queryset=Organization.objects.none(),
+        label=_("المؤسسة"),
+        help_text=_("ينشأ الحساب ضمن هذه المؤسسة بصلاحية اطلاع فقط، ثم تُمنح له مهامه."),
+    )
 
     class Meta:
         model = User
-        fields = ("username", "phone", "first_name", "last_name", "is_staff")
+        fields = ("username", "phone", "first_name", "last_name")
         labels = {
             "username": _("اسم المستخدم"),
             "phone": _("رقم الهاتف"),
             "first_name": _("الاسم الأول"),
             "last_name": _("الاسم الأخير"),
-            "is_staff": _("يدخل إلى شاشات الإعدادات"),
         }
         help_texts = {"phone": _("رقم موبايل عراقي. يُخزَّن بصيغة ‎+9647XXXXXXXXX.")}
+
+    def __init__(self, *args: object, actor: User | None = None, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        if actor is None:
+            return
+        from apps.organizations.authorization import organizations_with_organization_permission
+
+        self.fields["organization"].queryset = organizations_with_organization_permission(  # type: ignore[attr-defined]
+            actor, MANAGE_USERS
+        )
 
     def clean(self) -> dict[str, object]:
         # super().clean() is typed as possibly None; cleaned_data is the
@@ -83,13 +99,12 @@ class UserAccountUpdateForm(PhoneNormalizingMixin, forms.ModelForm):
 
     class Meta:
         model = User
-        fields = ("phone", "first_name", "last_name", "is_active", "is_staff")
+        fields = ("phone", "first_name", "last_name", "is_active")
         labels = {
             "phone": _("رقم الهاتف"),
             "first_name": _("الاسم الأول"),
             "last_name": _("الاسم الأخير"),
             "is_active": _("فعّال"),
-            "is_staff": _("يدخل إلى شاشات الإعدادات"),
         }
 
 

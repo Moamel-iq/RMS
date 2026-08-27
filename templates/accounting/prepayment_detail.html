@@ -83,7 +83,7 @@
           <thead><tr>
             <th>#</th><th>{% translate "من" %}</th><th>{% translate "إلى" %}</th>
             <th>{% translate "المبلغ" %}</th><th>{% translate "الحالة" %}</th>
-            <th>{% translate "القيد" %}</th>{% if may_manage %}<th></th>{% endif %}
+            <th>{% translate "القيد" %}</th>{% if may_manage %}<th scope="col"><span class="sr-only">إجراءات</span></th>{% endif %}
           </tr></thead>
           <tbody>
             {% for line in lines %}
@@ -127,7 +127,7 @@
             <tr>
               <th colspan="3">{% translate "مجموع الجدول" %}</th>
               <th><bdi dir="ltr">{{ scheduled_total|money_full }}</bdi></th>
-              <th colspan="{% if may_manage %}3{% else %}2{% endif %}"></th>
+              <th scope="col"><span class="sr-only">إجراءات</span></th>
             </tr>
           </tfoot>
         </table>

@@ -1,5 +1,5 @@
 {% extends "shell.html" %}
-{% load i18n %}
+{% load i18n %}{% block title %}{{ page_title|default:'كشف الموظف' }} · {% translate "نظام خان مندي" %}{% endblock %}
 {% block page %}
 <section class="workspace-page" id="employee-statement">
   <nav class="workspace-breadcrumb"><a href="{% url 'hr:statement_list' %}" hx-get="{% url 'hr:statement_list' %}" hx-target="main" hx-push-url="true">{% translate "كشوف الموظفين" %}</a><span>/</span><span><bdi dir="ltr">{{ employee.code }}</bdi></span></nav>

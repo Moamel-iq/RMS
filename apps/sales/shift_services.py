@@ -20,15 +20,13 @@ variance change whenever a later document did — a variance that moves after
 somebody signed it is not evidence of anything. The freeze is enforced by
 `0012`'s allowlist trigger, not merely by this module's discipline.
 
-## Why the day must already be posted
+## Why the day must already be submitted
 
-`close_cashier_shift` refuses unless the named `SalesDay` is `POSTED`, with code
-`day_not_posted`. A draft day's lines can still change — a line added, a
-quantity corrected, a tender summary re-entered — so an expected figure derived
-from one is a target that can move *after* the count. The variance would then
-be the difference between a count and something still being edited, which is
-not a control, and the first person to notice would be told the till was short
-by an amount nobody could reproduce.
+`close_cashier_shift` refuses unless the named `SalesDay` is `SUBMITTED` or
+`POSTED`. A submitted day's figures are frozen by the SalesDay database guard,
+so the count has a stable target without first letting the sales journal reach
+the ledger. This makes the daily close a real pre-posting control rather than
+an after-the-fact report.
 
 ## What a shift may never do
 
@@ -210,7 +208,7 @@ def expected_by_tender(shift: CashierShift) -> dict[str, Decimal]:
     """
     totals: dict[str, Decimal] = dict.fromkeys(COUNTABLE_TENDERS, ZERO)
     day = shift.sales_day
-    if day is None or day.status != SalesDayStatus.POSTED:
+    if day is None or day.status not in {SalesDayStatus.SUBMITTED, SalesDayStatus.POSTED}:
         return totals
 
     for line in day.lines.select_related("channel").all():
@@ -294,9 +292,9 @@ def close_cashier_shift(
     """
     Declare the count, stamp what was expected, and compute the variance.
 
-    Refuses unless `sales_day` is `POSTED` (`day_not_posted`) — see the module
-    docstring for why an expectation derived from a draft is a moving target
-    rather than a control.
+    Refuses unless `sales_day` is `SUBMITTED` or `POSTED` (`day_not_submitted`)
+    — see the module docstring for why an expectation derived from a draft is a
+    moving target rather than a control.
 
     Everything this writes is then frozen by `0012`'s allowlist trigger. The way
     back is `reopen_cashier_shift`, which needs a reason and stays on the
@@ -308,24 +306,28 @@ def close_cashier_shift(
     if locked.status != CashierShiftStatus.OPEN:
         raise ValidationError(_("Only an open shift can be closed."), code="shift_not_open")
 
-    if sales_day.status != SalesDayStatus.POSTED:
+    # The caller may still hold the in-memory draft instance from before
+    # `submit_sales_day` returned its locked replacement. Read and lock the
+    # authoritative row before using its frozen figures.
+    locked_day = SalesDay.objects.select_for_update().get(pk=sales_day.pk)
+    if locked_day.status not in {SalesDayStatus.SUBMITTED, SalesDayStatus.POSTED}:
         raise ValidationError(
             _(
-                "The sales day must be posted before the drawer is reconciled against "
+                "The sales day must be submitted before the drawer is reconciled against "
                 "it: a draft can still change after the count."
             ),
-            code="day_not_posted",
+            code="day_not_submitted",
         )
-    if sales_day.branch_id != locked.branch_id:
+    if locked_day.branch_id != locked.branch_id:
         raise ValidationError(
             _("That sales day belongs to another branch."), code="day_out_of_branch"
         )
-    if sales_day.business_date != locked.business_date:
+    if locked_day.business_date != locked.business_date:
         raise ValidationError(
             _("That sales day is not this shift's business date."), code="day_date_mismatch"
         )
 
-    locked.sales_day = sales_day
+    locked.sales_day = locked_day
     expected = expected_by_tender(locked)
     counts = {row.tender: row for row in locked.tender_counts.all()}
 
@@ -381,7 +383,7 @@ def close_cashier_shift(
             "expected_cash": str(locked.expected_cash),
             "counted_cash": str(locked.counted_cash),
             "variance": str(locked.variance_amount),
-            "sales_day": sales_day.number or str(sales_day.public_id),
+            "sales_day": locked_day.number or str(locked_day.public_id),
         },
     )
     return locked
@@ -446,7 +448,7 @@ def candidate_days(shift: CashierShift) -> list[SalesDay]:
         SalesDay.objects.filter(
             branch_id=shift.branch_id,
             business_date=shift.business_date,
-            status=SalesDayStatus.POSTED,
+            status__in=[SalesDayStatus.SUBMITTED, SalesDayStatus.POSTED],
         ).select_related("branch")
     )
 

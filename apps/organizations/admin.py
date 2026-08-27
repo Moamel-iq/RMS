@@ -9,6 +9,7 @@ from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 
 from apps.organizations.models import (
+    AccessChangeRequest,
     Branch,
     BranchMembership,
     Organization,
@@ -66,12 +67,23 @@ class BranchAdmin(admin.ModelAdmin):
 
 @admin.register(BranchMembership)
 class BranchMembershipAdmin(admin.ModelAdmin):
+    """Read-only evidence; the maker-checker service owns all changes."""
+
     list_display = ("user", "branch", "role", "is_active", "created_at")
     list_filter = ("is_active", "role", "branch")
     search_fields = ("user__username", "user__phone", "branch__code")
     ordering = ("branch__code", "user__username")
     list_select_related = ("user", "branch")
     autocomplete_fields = ("user", "branch")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
 
 
 @admin.register(OrganizationMembership)
@@ -90,6 +102,35 @@ class OrganizationMembershipAdmin(admin.ModelAdmin):
     search_fields = ("user__username", "user__phone", "organization__code")
     ordering = ("organization__code", "user__username")
     list_select_related = ("user", "organization")
+    actions = None
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+
+@admin.register(AccessChangeRequest)
+class AccessChangeRequestAdmin(admin.ModelAdmin):
+    """Emergency admins may inspect requests, never mutate their outcome."""
+
+    list_display = (
+        "id",
+        "organization",
+        "branch",
+        "target_user",
+        "action",
+        "status",
+        "requested_by",
+        "reviewed_by",
+    )
+    list_filter = ("organization", "action", "status")
+    search_fields = ("target_user__username", "requested_by__username", "reviewed_by__username")
+    list_select_related = ("organization", "branch", "target_user", "requested_by", "reviewed_by")
     actions = None
 
     def has_add_permission(self, request: HttpRequest) -> bool:

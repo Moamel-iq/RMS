@@ -1,19 +1,16 @@
 """
 المطابقة اليومية — the sales reconciliation screen.
 
-**Read-only, and there is nothing here that could be otherwise.** No form, no
-POST handler, no resolve action, no export of a stored verdict — because
-`daily_reconciliation` stores nothing to export. Every figure is derived from
-documents that already exist, and the only way to change one is to change a
-document through its own service, with its own permission and its own audit
-trail.
+**Read-only.** No form, no POST handler and no resolve action live on this
+report. `DailyFinancialClose` persists a separate immutable snapshot for the
+pre-posting control; this screen intentionally continues to derive its figures
+from live source documents, so a later reversal or correction is never hidden
+by a stored verdict.
 
-That includes the absence of an "acknowledge" or "mark reviewed" control, and
-the absence is the point. A finding here says two documents disagree; a button
-that recorded somebody having seen it would let a real shortage be closed by
-clicking, and the finding would be gone from the screen while the disagreement
-stayed in the ledger. The same refusal `verify_kitchen` makes by having no
-`--fix` (RCP-050).
+That includes the absence of an "acknowledge" or "mark reviewed" control. A
+finding here says two documents disagree; a button that merely recorded someone
+having seen it would let a real shortage be closed by clicking. The same refusal
+`verify_kitchen` makes by having no `--fix` (RCP-050).
 
 Guarded by `VIEW_SALES_REPORTS` and by nothing narrower. It records nothing, and
 a permission of its own would be a grant that protects no state; the rows it can

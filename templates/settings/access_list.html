@@ -1,16 +1,13 @@
 {% extends "settings/base_list.html" %}
 {% load i18n %}
 
-{% block pageactions %}{% endblock %}
-
 {% block columns %}
   <th>{% translate "المستخدم" %}</th>
   <th>{% translate "الفرع" %}</th>
   <th>{% translate "الدور" %}</th>
   <th>{% translate "الحالة" %}</th>
-  <th></th>
+  <th scope="col"><span class="sr-only">إجراءات</span></th>
 {% endblock %}
-
 {% block rows %}
   {% for membership in memberships %}
     <tr>
@@ -24,43 +21,9 @@
           <span class="chip chip--off">{% translate "مسحوب" %}</span>
         {% endif %}
       </td>
-      <td class="table__actions">
-        {% if membership.is_active %}
-          <form method="post">
-            {% csrf_token %}
-            <button class="linkish" type="submit" name="revoke" value="{{ membership.pk }}">
-              {% translate "سحب" %}
-            </button>
-          </form>
-        {% endif %}
-      </td>
+      <td class="table__actions">—</td>
     </tr>
   {% empty %}
     <tr><td colspan="5"><p class="empty">{% translate "لا توجد صلاحيات ممنوحة." %}</p></td></tr>
   {% endfor %}
-{% endblock %}
-
-{# The grant form belongs to this screen, so it sits inside the screen root #}
-{# the base list opens: appended to `results`, not after `page`, where it    #}
-{# hung outside the shell and needed a hand-written margin to clear it.      #}
-{% block results %}
-  {{ block.super }}
-
-  <section class="formcard">
-    <h2>{% translate "منح صلاحية فرع" %}</h2>
-    <p class="muted">
-      {% translate "الصلاحية علاقة بين المستخدم والفرع، لأن المحاسب قد يغطي أكثر من فرع." %}
-    </p>
-    <form method="post" style="margin-block-start:16px">
-      {% csrf_token %}
-      <div class="formgrid">
-        {% for field in form %}
-          {% include "settings/_field.html" with field=field %}
-        {% endfor %}
-      </div>
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "منح" %}</button>
-      </div>
-    </form>
-  </section>
 {% endblock %}

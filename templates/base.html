@@ -28,7 +28,7 @@
     </script>
     <title>{% block title %}{% translate "نظام خان مندي" %}{% endblock %}</title>
     {# Keep shell markup and CSS on the same revision during local development. #}
-    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260819-golden-all-1">
+    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260826-ux-1">
     {# Shared workspace components live here; inventory-specific selectors #}
     {# remain scoped, while lists, forms, reports and dashboards are global. #}
     <link rel="stylesheet" href="{% static 'css/inventory.css' %}?v=20260819-golden-all-1">
@@ -51,8 +51,12 @@
       });
     </script>
     <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
-    {% if active_module %}<script src="{% static 'js/app-shell.js' %}?v=20260819-golden-all-1" defer></script>{% endif %}
-    {% if active_module %}<script src="{% static 'js/inventory-htmx.js' %}?v=20260819-golden-all-1" defer></script>{% endif %}
+    {% if active_module %}<script src="{% static 'js/app-shell.js' %}?v=20260826-ux-1" defer></script>{% endif %}
+    {% if active_module %}<script src="{% static 'js/inventory-htmx.js' %}?v=20260826-ux-1" defer></script>{% endif %}
+    {# Every select with enough options becomes a searchable combobox; the native control stays for the form. #}
+    {% if active_module %}<script src="{% static 'js/searchable-select.js' %}?v=20260826-ux-1" defer></script>{% endif %}
+    {# The print options belong to every screen, not only to the report sheets. #}
+    <script src="{% static 'js/print-sheet.js' %}?v=20260826-ux-1" defer></script>
     {% block head %}{% endblock %}
   </head>
   <body{% if active_module %} data-module="{{ active_module.key }}"{% endif %}>

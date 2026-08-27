@@ -25,6 +25,11 @@ urlpatterns = [
         name="employee_document_create",
     ),
     path(
+        "employees/<int:pk>/documents/<int:document_pk>/download/",
+        views.EmployeeDocumentDownloadView.as_view(),
+        name="employee_document_download",
+    ),
+    path(
         "employees/<int:pk>/archive/",
         views.EmployeeStatusView.as_view(action="archive"),
         name="employee_archive",

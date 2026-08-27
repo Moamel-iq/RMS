@@ -32,19 +32,14 @@ _YES = _("نعم")
 _NO = _("لا")
 
 
-@register.filter(name="cell")
-def cell(row: dict[str, Any], key: str) -> Any:
+def render_value(value: Any) -> Any:
     """
-    One report cell, by column key.
+    How a report value is written, wherever it is written.
 
-    A key the row does not carry renders as a dash rather than blank. That is
-    the valuation-redaction case: a storekeeper's row has no `value` key at
-    all, and a blank cell would suggest the number is zero.
+    Screens, exports and printed sheets share this so that one figure reads
+    the same in all three; a number that changed shape between the screen and
+    the paper would be read as a different number.
     """
-    if not isinstance(row, dict) or key not in row:
-        return MISSING
-
-    value = row[key]
     if value is None or value == "":
         return MISSING
     if isinstance(value, bool):
@@ -59,6 +54,20 @@ def cell(row: dict[str, Any], key: str) -> Any:
     if isinstance(value, datetime.date):
         return value.isoformat()
     return value
+
+
+@register.filter(name="cell")
+def cell(row: dict[str, Any], key: str) -> Any:
+    """
+    One report cell, by column key.
+
+    A key the row does not carry renders as a dash rather than blank. That is
+    the valuation-redaction case: a storekeeper's row has no `value` key at
+    all, and a blank cell would suggest the number is zero.
+    """
+    if not isinstance(row, dict) or key not in row:
+        return MISSING
+    return render_value(row[key])
 
 
 @register.filter(name="is_numeric_cell")
