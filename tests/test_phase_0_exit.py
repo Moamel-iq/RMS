@@ -76,15 +76,14 @@ def foundation() -> dict[str, Any]:
     accounts, cost centres, and two users holding genuinely different
     authority. Every step is a service call.
     """
-    organization = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM", name="خان مندي")
     configure_accounting(organization=organization, fiscal_year_start_month=1)
     open_fiscal_year(organization=organization, year=YEAR)
 
     branch = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 

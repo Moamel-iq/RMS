@@ -1,142 +1,147 @@
-{# Shared full-page/HTMX list contract for every operational module. #}
 {% extends list_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="list-page workspace-page workspace-list-page inventory-page inventory-list-page">
-    <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="ui-page ui-page--list">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url active_module.url_name %}">{{ active_module.label }}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ page_title }}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <p class="pagehead__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
-        <div class="pagehead__title-row">
-          <h1 class="pagehead__title">{{ page_title }}</h1>
+    <header class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
+        <div class="ui-page-header__title-row">
+          <h1 class="ui-page-header__title">{{ page_title }}</h1>
           {% if page_obj.paginator %}
-            <span class="result-count" id="list-result-count" role="status"
+            <span class="ui-result-count" id="list-result-count" role="status"
                   aria-label="{% translate 'عدد النتائج' %}" aria-live="polite" aria-atomic="true">
               <bdi dir="ltr">{{ page_obj.paginator.count }}</bdi>
               {% if result_label %}{{ result_label }}{% else %}{% translate "سجل" %}{% endif %}
             </span>
           {% endif %}
         </div>
-        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+        {% if page_hint %}<p class="ui-page-header__subtitle">{{ page_hint }}</p>{% endif %}
       </div>
-      <div class="pagehead__actions">
+      <div class="ui-page-header__actions">
         {% block pageactions %}
-          {% if create_url %}<a class="btn btn--primary" href="{{ create_url }}">{{ create_label }}</a>{% endif %}
+          {% if create_url %}<a class="ui-button ui-button--primary" href="{{ create_url }}">{{ create_label }}</a>{% endif %}
         {% endblock %}
       </div>
-    </div>
+    </header>
 
     {% translate "ابحث بالرمز أو الاسم…" as default_search_placeholder %}
     {% block toolbar %}
-      <form class="toolbar" method="get" data-workspace-toolbar data-prune-empty-params aria-label="{% translate 'البحث والمرشحات' %}"
+      <form class="ui-filter-bar" method="get" data-workspace-toolbar data-prune-empty-params
+            aria-label="{% translate 'البحث والمرشحات' %}"
             {% if htmx_list %}
-            hx-get="{{ request.path }}"
-            hx-target="#list-results"
-            hx-swap="outerHTML"
-            hx-push-url="true"
-            hx-trigger="submit, keyup changed delay:350ms from:find input[type=search], search from:find input[type=search], change from:find select"
-            hx-indicator="#list-loading"
-            hx-sync="closest form:replace"
+              hx-get="{{ request.path }}"
+              hx-target="#list-results"
+              hx-swap="outerHTML"
+              hx-push-url="true"
+              hx-trigger="submit, keyup changed delay:350ms from:#list-search, search from:#list-search, change"
+              hx-indicator="#list-loading"
+              hx-sync="closest form:replace"
+              hx-disabled-elt="find button[type=submit]"
             {% endif %}>
-        <div class="toolbar__search">
-          <label class="sr-only" for="list-search">{% translate "بحث" %}</label>
-          <svg class="toolbar__search-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <label class="ui-search" for="list-search">
+          <span class="ui-sr-only">{% translate "بحث" %}</span>
+          <svg class="ui-search__icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           <input type="search" id="list-search" name="q" value="{{ search|default:'' }}"
-                 placeholder="{{ search_placeholder|default:default_search_placeholder }}"
-                 autocomplete="off">
-        </div>
-        <details class="filter-disclosure">
-          <summary>
-            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+                 placeholder="{{ search_placeholder|default:default_search_placeholder }}" autocomplete="off">
+        </label>
+
+        <details class="ui-filter-disclosure">
+          <summary class="ui-button ui-button--secondary">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
             {% translate "مرشحات" %}
             {% block filter_active_indicator %}
-              {% if filter_query %}<span class="filter-disclosure__dot" aria-hidden="true"></span>{% endif %}
+              {% if filter_query %}<span class="ui-filter-disclosure__dot" aria-hidden="true"></span>{% endif %}
             {% endblock %}
           </summary>
-          <div class="toolbar__filters">
-              {% block filters %}{% endblock %}
+          <div class="ui-filter-disclosure__panel">
+            <div class="ui-filter-bar__fields">{% block filters %}{% endblock %}</div>
           </div>
         </details>
-        <button class="btn btn--secondary toolbar__submit" type="submit">{% translate "تطبيق" %}</button>
+
+        <button class="ui-button ui-button--secondary ui-filter-bar__submit" type="submit">{% translate "تطبيق" %}</button>
       </form>
     {% endblock %}
 
     {% block results %}
-      <div class="tablewrap" id="list-results">
+      <section class="ui-data-card" id="list-results" aria-busy="false">
         {% if page_obj.paginator %}
-          <span class="sr-only" hx-swap-oob="innerHTML:#list-result-count">
+          <span class="ui-sr-only" hx-swap-oob="innerHTML:#list-result-count">
             <bdi dir="ltr">{{ page_obj.paginator.count }}</bdi>
             {% if result_label %}{{ result_label }}{% else %}{% translate "سجل" %}{% endif %}
           </span>
         {% endif %}
-        <div class="list-statusbar">
-          <div class="active-filters" aria-label="{% translate 'المرشحات النشطة' %}">
-            {% if search %}<span class="filter-chip"><span>{% translate "بحث" %}</span><bdi>{{ search }}</bdi></span>{% endif %}
+
+        <div class="ui-data-card__status">
+          <div class="ui-active-filters" aria-label="{% translate 'المرشحات النشطة' %}">
+            {% if search %}<span class="ui-filter-chip"><span>{% translate "بحث" %}</span><bdi>{{ search }}</bdi></span>{% endif %}
             {% block active_filter_chips %}{% endblock %}
             {% if filter_query %}
-              <a class="filter-reset" href="{{ request.path }}" data-reset-filters>{% translate "مسح المرشحات" %}</a>
+              <a class="ui-filter-reset" href="{{ request.path }}" data-reset-filters>{% translate "مسح المرشحات" %}</a>
             {% else %}
-              <span class="list-statusbar__hint">
+              <span class="ui-data-card__hint">
                 {% if htmx_list %}
-                  {% translate "تُحدَّث النتائج تلقائياً أثناء الكتابة." %}
+                  {% translate "تتحدث النتائج تلقائياً أثناء الكتابة." %}
                 {% else %}
                   {% translate "اكتب عبارة البحث ثم اختر تطبيق." %}
                 {% endif %}
               </span>
             {% endif %}
           </div>
-          <span class="inventory-loading" id="list-loading" role="status" aria-live="polite">
-            <span class="inventory-loading__spinner" aria-hidden="true"></span>{% translate "جارٍ تحديث النتائج…" %}
+          <span class="ui-loading ui-loading--inline htmx-indicator" id="list-loading" role="status" aria-live="polite">
+            <span class="ui-loading__spinner" aria-hidden="true"></span>
+            {% translate "جارٍ تحديث النتائج…" %}
           </span>
-          <p class="list-feedback" id="list-feedback" role="alert" hidden></p>
+          <p class="ui-inline-error" id="list-feedback" role="alert" hidden></p>
         </div>
-        <div class="data-table-shell" tabindex="0" role="region" aria-label="{{ page_title }}">
-            <table class="table data-table responsive-table{% block table_classes %}{% endblock %}">
-              <thead><tr>{% block columns %}{% endblock %}</tr></thead>
-              <tbody>{% block rows %}{% endblock %}</tbody>
-            </table>
+
+        <div class="ui-table-scroll" tabindex="0" role="region" aria-label="{{ page_title }}">
+          <table class="ui-table ui-table--responsive{% block table_classes %}{% endblock %}">
+            <thead><tr>{% block columns %}{% endblock %}</tr></thead>
+            <tbody>{% block rows %}{% endblock %}</tbody>
+          </table>
         </div>
 
         {% if is_paginated %}
-          <nav class="pagination inventory-pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
-            <div class="pagination__edge">
+          <nav class="ui-pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
+            <div class="ui-pagination__edge">
               {% if page_obj.has_previous %}
-                <a class="btn btn--secondary btn--sm" href="?{{ filter_query }}page=1"
-                   {% if htmx_list %}hx-get="?{{ filter_query }}page=1" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% endif %}>
+                <a class="ui-button ui-button--secondary ui-button--small" href="?{{ filter_query }}page=1"
+                   {% if htmx_list %}hx-get="?{{ filter_query }}page=1" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading" hx-sync="#list-results:replace"{% endif %}>
                   {% translate "الأولى" %}
                 </a>
-                <a class="btn btn--secondary btn--sm" href="?{{ filter_query }}page={{ page_obj.previous_page_number }}"
-                   {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.previous_page_number }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% endif %}>
+                <a class="ui-button ui-button--secondary ui-button--small" href="?{{ filter_query }}page={{ page_obj.previous_page_number }}"
+                   {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.previous_page_number }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading" hx-sync="#list-results:replace"{% endif %}>
                   {% translate "السابق" %}
                 </a>
               {% endif %}
             </div>
-            <span class="pagination__status">
+            <span class="ui-pagination__status">
               {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
             </span>
-            <div class="pagination__edge pagination__edge--end">
+            <div class="ui-pagination__edge ui-pagination__edge--end">
               {% if page_obj.has_next %}
-                <a class="btn btn--secondary btn--sm" href="?{{ filter_query }}page={{ page_obj.next_page_number }}"
-                   {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.next_page_number }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% endif %}>
+                <a class="ui-button ui-button--secondary ui-button--small" href="?{{ filter_query }}page={{ page_obj.next_page_number }}"
+                   {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.next_page_number }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading" hx-sync="#list-results:replace"{% endif %}>
                   {% translate "التالي" %}
                 </a>
-                <a class="btn btn--secondary btn--sm" href="?{{ filter_query }}page={{ page_obj.paginator.num_pages }}"
-                   {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.paginator.num_pages }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading"{% endif %}>
+                <a class="ui-button ui-button--secondary ui-button--small" href="?{{ filter_query }}page={{ page_obj.paginator.num_pages }}"
+                   {% if htmx_list %}hx-get="?{{ filter_query }}page={{ page_obj.paginator.num_pages }}" hx-target="#list-results" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#list-loading" hx-sync="#list-results:replace"{% endif %}>
                   {% translate "الأخيرة" %}
                 </a>
               {% endif %}
             </div>
           </nav>
         {% endif %}
-      </div>
+      </section>
     {% endblock %}
   </div>
 {% endblock %}

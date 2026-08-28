@@ -7,8 +7,8 @@
 {% load i18n money_tags %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "الفرع" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الفرع" %}</span>
     <select name="branch">
       <option value="">{% translate "كل الفروع" %}</option>
       {% for branch in branches %}
@@ -16,8 +16,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="state">
       <option value="">{% translate "الفعّالة" %}</option>
       <option value="archived" {% if selected_state == "archived" %}selected{% endif %}>{% translate "المؤرشفة" %}</option>
@@ -34,14 +34,14 @@
   <th>{% translate "الرصيد" %}</th>
   <th>{% translate "آخر مطابقة" %}</th>
   <th>{% translate "الحالة" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 
 {% block rows %}
   {% for cashbox in cashboxes %}
     <tr>
       <td><code dir="ltr">{{ cashbox.code }}</code></td>
-      <td>{{ cashbox.name_ar }}</td>
+      <td>{{ cashbox.name }}</td>
       <td>{{ cashbox.branch.code }}</td>
       <td>
         <a href="{% url 'accounting:account_detail' cashbox.account.pk %}">
@@ -52,16 +52,16 @@
       <td>{% if cashbox.last_reconciled_on %}<bdi dir="ltr">{{ cashbox.last_reconciled_on|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}</td>
       <td>
         {% if cashbox.is_active %}
-          <span class="chip chip--ok">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--muted">{% translate "مؤرشف" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "مؤرشف" %}</span>
         {% endif %}
       </td>
-      <td class="cell-actions">
-        <a class="btn btn--secondary btn--sm" href="{% url 'accounting:cashbox_detail' cashbox.pk %}">{% translate "الكشف" %}</a>
+      <td class="ui-table__actions">
+        <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:cashbox_detail' cashbox.pk %}">{% translate "الكشف" %}</a>
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="8" class="empty">{% translate "لا توجد صناديق مسجَّلة." %}</td></tr>
+    <tr><td colspan="8" class="ui-table__empty">{% translate "لا توجد صناديق مسجَّلة." %}</td></tr>
   {% endfor %}
 {% endblock %}

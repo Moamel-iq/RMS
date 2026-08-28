@@ -75,8 +75,7 @@ class ItemCategory(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
 
     parent = models.ForeignKey(
         "self",
@@ -112,7 +111,7 @@ class ItemCategory(TimeStampedModel):
                 name="item_category_code_format",
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar=""),
+                condition=~Q(name=""),
                 name="item_category_name_ar_not_empty",
             ),
             models.CheckConstraint(
@@ -131,7 +130,7 @@ class ItemCategory(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
     @property
     def is_leaf(self) -> bool:
@@ -161,8 +160,7 @@ class PackageUnit(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=100)
-    name_en = models.CharField(_("name (English)"), max_length=100, blank=True)
+    name = models.CharField(_("name"), max_length=100)
     is_active = models.BooleanField(_("active"), default=True)
 
     history = HistoricalRecords()
@@ -182,11 +180,11 @@ class PackageUnit(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(code__regex=CODE_PATTERN), name="package_unit_code_format"
             ),
-            models.CheckConstraint(condition=~Q(name_ar=""), name="package_unit_name_ar_not_empty"),
+            models.CheckConstraint(condition=~Q(name=""), name="package_unit_name_ar_not_empty"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class ItemType(models.TextChoices):
@@ -237,8 +235,7 @@ class InventoryItem(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
 
     category = models.ForeignKey(
         ItemCategory,
@@ -291,9 +288,8 @@ class InventoryItem(TimeStampedModel):
             ("create_draft_movement", _("Can create a draft stock movement")),
             ("create_opening_stock", _("Can prepare and submit an opening stock document")),
             ("post_opening_stock", _("Can post opening stock")),
-            ("post_receipt", _("Can post a stock receipt")),
+            ("post_receipt", _("Can post stock into a warehouse")),
             ("post_issue", _("Can post a stock issue")),
-            ("post_return_in", _("Can return previously issued stock to inventory")),
             ("post_transfer", _("Can post a stock transfer")),
             (
                 "close_transfer_shortage",
@@ -314,9 +310,7 @@ class InventoryItem(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(code__regex=CODE_PATTERN), name="inventory_item_code_format"
             ),
-            models.CheckConstraint(
-                condition=~Q(name_ar=""), name="inventory_item_name_ar_not_empty"
-            ),
+            models.CheckConstraint(condition=~Q(name=""), name="inventory_item_name_ar_not_empty"),
             # Expiry has nothing to attach to without a lot.
             models.CheckConstraint(
                 condition=Q(tracks_expiry=False) | Q(tracks_lots=True),
@@ -334,7 +328,7 @@ class InventoryItem(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
     @property
     def is_variable_weight(self) -> bool:
@@ -591,8 +585,7 @@ class Warehouse(TimeStampedModel):
         verbose_name=_("branch"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
 
     warehouse_type = models.CharField(
         _("type"),
@@ -645,7 +638,7 @@ class Warehouse(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(code__regex=CODE_PATTERN), name="warehouse_code_format"
             ),
-            models.CheckConstraint(condition=~Q(name_ar=""), name="warehouse_name_ar_not_empty"),
+            models.CheckConstraint(condition=~Q(name=""), name="warehouse_name_ar_not_empty"),
             # In-transit is always a system warehouse, and a system warehouse
             # is always in-transit — the only system type Release 1 defines.
             models.CheckConstraint(
@@ -681,7 +674,7 @@ class Warehouse(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 # ===========================================================================
@@ -1695,9 +1688,7 @@ class InventoryDocumentType(models.TextChoices):
     """Business documents this module numbers. Grows one value per task."""
 
     OPENING = "INVENTORY_OPENING", _("رصيد افتتاحي")
-    RECEIPT = "INVENTORY_RECEIPT", _("استلام مخزني غير مفوتر")
     ISSUE = "INVENTORY_ISSUE", _("صرف مخزني للاستهلاك")
-    RETURN_IN = "INVENTORY_RETURN_IN", _("إرجاع من صرف سابق")
     #: Task 1.5. Three numbered documents, because a transfer is a multi-event
     #: aggregate: the transfer itself, each receipt against it, and the
     #: shortage that closes what never arrived.
@@ -1715,9 +1706,7 @@ class InventoryDocumentType(models.TextChoices):
 #: The visible prefix each document type numbers with, per business year.
 DOCUMENT_NUMBER_PREFIX: dict[str, str] = {
     InventoryDocumentType.OPENING: "OPN",
-    InventoryDocumentType.RECEIPT: "RCV",
     InventoryDocumentType.ISSUE: "ISS",
-    InventoryDocumentType.RETURN_IN: "RTN",
     InventoryDocumentType.TRANSFER: "TRF",
     InventoryDocumentType.TRANSFER_RECEIPT: "TRR",
     InventoryDocumentType.TRANSFER_SHORTAGE: "TRS",
@@ -2367,13 +2356,11 @@ class InventoryMovementDocument(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(
                     document_type__in=[
-                        InventoryDocumentType.RECEIPT,
                         InventoryDocumentType.ISSUE,
-                        InventoryDocumentType.RETURN_IN,
                         # Task 1.6. Waste is an operational custody act like the
-                        # other three — one warehouse, one business date, one
-                        # posting, one reversal — and shares all of their
-                        # machinery. What is different about it is per line.
+                        # issue — one warehouse, one business date, one posting,
+                        # one reversal — and shares all of its machinery. What is
+                        # different about it is per line.
                         InventoryDocumentType.WASTE,
                     ]
                 ),
@@ -2533,18 +2520,6 @@ class InventoryMovementDocumentLine(TimeStampedModel):
     #: Mandatory when the chosen reason code says so — which is what makes an
     #: "other" reason usable without making it a hole in the record.
     line_comment = models.CharField(_("comment"), max_length=200, blank=True)
-
-    #: The issue line this return goes back against. Required on a RETURN_IN
-    #: and forbidden elsewhere — a return with no original has no cost to take
-    #: and no quantity to be bounded by.
-    source_issue_line = models.ForeignKey(
-        "self",
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name="return_lines",
-        verbose_name=_("source issue line"),
-    )
 
     # --- Written at posting -----------------------------------------------
     #: The inventory-control account this line's value entered or left.
@@ -3792,8 +3767,7 @@ class InventoryReasonCode(TimeStampedModel):
         max_length=32,
         help_text=_("Canonicalised to upper case. Reserved forever once used."),
     )
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
 
     applies_to = models.CharField(
         _("applies to"),
@@ -3816,9 +3790,7 @@ class InventoryReasonCode(TimeStampedModel):
         verbose_name = _("inventory reason code")
         verbose_name_plural = _("inventory reason codes")
         ordering = ["organization__code", "applies_to", "code"]
-        permissions = [
-            ("manage_reason_codes", _("Can create and archive inventory reason codes")),
-        ]
+        permissions = []
         constraints = [
             # Organization-wide, not per application: one operator's mental
             # model is "our reason codes", and `SPOIL` meaning one thing on a
@@ -3832,7 +3804,7 @@ class InventoryReasonCode(TimeStampedModel):
                 name="inventory_reason_code_format",
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar=""),
+                condition=~Q(name=""),
                 name="inventory_reason_code_name_ar_not_empty",
             ),
             models.CheckConstraint(
@@ -3848,7 +3820,7 @@ class InventoryReasonCode(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 # --- The physical count ----------------------------------------------------
@@ -4690,9 +4662,15 @@ class InventoryAdjustmentLine(TimeStampedModel):
         blank=True,
     )
 
+    #: Optional since the reason vocabulary was withdrawn from the product.
+    #: It stays on the row so the adjustments already posted against a code
+    #: keep saying what they said; `line_comment` is where a new line explains
+    #: itself.
     reason_code = models.ForeignKey(
         "inventory.InventoryReasonCode",
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="adjustment_lines",
         verbose_name=_("reason code"),
     )
@@ -4985,7 +4963,6 @@ class ImportBatch(TimeStampedModel):
         permissions = [
             ("import_master_data", _("Can import inventory master data")),
             ("import_opening_draft", _("Can import an opening stock draft")),
-            ("view_import_history", _("Can view inventory import history")),
         ]
         indexes = [
             models.Index(fields=["organization", "kind", "status"]),
@@ -5147,8 +5124,7 @@ class StockLocation(TimeStampedModel):
         verbose_name=_("warehouse"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
     notes = models.TextField(_("notes"), blank=True)
 
     is_active = models.BooleanField(_("active"), default=True)
@@ -5170,9 +5146,7 @@ class StockLocation(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(code__regex=CODE_PATTERN), name="stock_location_code_format"
             ),
-            models.CheckConstraint(
-                condition=~Q(name_ar=""), name="stock_location_name_ar_not_empty"
-            ),
+            models.CheckConstraint(condition=~Q(name=""), name="stock_location_name_ar_not_empty"),
         ]
 
     def __str__(self) -> str:

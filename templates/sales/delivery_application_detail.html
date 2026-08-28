@@ -11,29 +11,29 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="sales-application-detail">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="ui-page" id="sales-application-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:application_list' %}">{% translate "تطبيقات التوصيل" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ application.code }}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ application.name_ar }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ application.name }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
-      <div class="pagehead__actions">
+      <div class="ui-page-header__actions">
         {% if may_manage %}
-          <a class="btn btn--secondary" href="{% url 'sales:application_update' application.pk %}">{% translate "تعديل التطبيق" %}</a>
-          <a class="btn btn--primary" href="{% url 'sales:agreement_create' %}">{% translate "اتفاقية جديدة" %}</a>
+          <a class="ui-button ui-button--secondary" href="{% url 'sales:application_update' application.pk %}">{% translate "تعديل التطبيق" %}</a>
+          <a class="ui-button ui-button--primary" href="{% url 'sales:agreement_create' %}">{% translate "اتفاقية جديدة" %}</a>
         {% endif %}
       </div>
     </div>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "بيانات التطبيق" %}</h2>
-      <dl class="factgrid">
+      <dl class="ui-summary-grid">
         <div><dt>{% translate "الرمز" %}</dt><dd><bdi dir="ltr"><code>{{ application.code }}</code></bdi></dd></div>
         <div>
           <dt>{% translate "دورة التسوية" %}</dt>
@@ -44,7 +44,7 @@
           <dd>
             {% if application.receivable_account %}
               <bdi dir="ltr"><code>{{ application.receivable_account.code }}</code></bdi>
-              {{ application.receivable_account.name_ar }}
+              {{ application.receivable_account.name }}
             {% else %}
               {% translate "افتراضي المؤسسة (الدور DELIVERY_APP_RECEIVABLE)" %}
             {% endif %}
@@ -58,14 +58,14 @@
       </dl>
     </section>
 
-    <p class="banner" role="note">
+    <p class="ui-notice" role="note">
       {% translate "لا يحمل هذا السجل رصيداً: ما يدين به التطبيق يُحتسب من دفتر الذمم المضاف إليه فقط، ولا يُخزَّن رقم يمكن أن يخالف قيوده. العمولة تُستحق عند البيع من الاتفاقية السارية، لا عند التسوية." %}
     </p>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الفروع والاتفاقية السارية" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "الفرع" %}</th>
@@ -78,15 +78,15 @@
             {% for row in rows %}
               <tr>
                 <td data-label="{% translate 'الفرع' %}">
-                  <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name_ar }}
+                  <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name }}
                 </td>
                 <td data-label="{% translate 'التفعيل' %}">
                   {% if not row.setting %}
-                    <span class="chip">{% translate "غير مفعّل" %}</span>
+                    <span class="ui-badge">{% translate "غير مفعّل" %}</span>
                   {% elif row.live %}
-                    <span class="chip chip--on">{% translate "مفعّل" %}</span>
+                    <span class="ui-badge ui-badge--success">{% translate "مفعّل" %}</span>
                   {% else %}
-                    <span class="chip chip--off">{% translate "موقوف" %}</span>
+                    <span class="ui-badge ui-badge--neutral">{% translate "موقوف" %}</span>
                   {% endif %}
                 </td>
                 <td data-label="{% translate 'رمز الفرع لدى التطبيق' %}">
@@ -98,23 +98,23 @@
                   {% if row.agreement %}
                     <bdi dir="ltr"><code>{{ row.agreement.percent_display }}%</code></bdi>
                     {% if row.agreement.fixed_fee_per_order %}
-                      <span class="muted">
+                      <span class="ui-text-muted">
                         + <bdi dir="ltr"><code>{{ row.agreement.fixed_fee_per_order|iqd }}</code></bdi>
                         {% translate "لكل طلب" %}
                       </span>
                     {% endif %}
-                    <span class="chip">{{ row.agreement.get_commission_basis_display }}</span>
+                    <span class="ui-badge">{{ row.agreement.get_commission_basis_display }}</span>
                   {% elif row.live %}
-                    <span class="chip chip--bad">
+                    <span class="ui-badge ui-badge--danger">
                       {% translate "مفعّل بلا اتفاقية — سيُرفض ترحيل أي مبيعات لهذا الفرع" %}
                     </span>
                   {% else %}
-                    <span class="muted">—</span>
+                    <span class="ui-text-muted">—</span>
                   {% endif %}
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="4" class="empty">{% translate "لا توجد فروع متاحة لك في هذه المؤسسة." %}</td></tr>
+              <tr><td colspan="4" class="ui-table__empty">{% translate "لا توجد فروع متاحة لك في هذه المؤسسة." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -122,25 +122,25 @@
     </section>
 
     {% if branch_form %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "تفعيل فرع" %}</h2>
         <form method="post" novalidate>
           {% csrf_token %}
           {% include "components/form_error_summary.html" with form=branch_form %}
-          <div class="formgrid">
+          <div class="ui-form-grid">
             {% for field in branch_form %}
               {% if field.field.widget.input_type == "checkbox" %}
-                <div class="formrow formrow--check" data-field>
+                <div class="ui-field ui-field--check" data-field>
                   {{ field }}
-                  <label class="formrow__label formrow__label--inline" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  <label class="ui-field__label ui-field__label--inline" for="{{ field.id_for_label }}">{{ field.label }}</label>
                 </div>
               {% else %}
                 {% include "settings/_field.html" with field=field %}
               {% endif %}
             {% endfor %}
           </div>
-          <div class="formactions">
-            <button class="btn btn--primary" type="submit">{% translate "حفظ التفعيل" %}</button>
+          <div class="ui-form-actions">
+            <button class="ui-button ui-button--primary" type="submit">{% translate "حفظ التفعيل" %}</button>
           </div>
         </form>
       </section>

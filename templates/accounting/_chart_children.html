@@ -6,10 +6,10 @@
 {% load i18n money_tags %}
 
 {% for node in children %}
-  <tr class="chart-row chart-row--child" data-parent="{{ parent.pk }}">
-    <td class="chart-cell--indent">
+  <tr class="ui-report-row ui-report-row--child" data-parent="{{ parent.pk }}">
+    <td class="ui-report-cell--indent">
       {% if not node.account.is_postable %}
-        <button class="tree-toggle" type="button"
+        <button class="ui-tree-toggle" type="button"
                 hx-get="{% url 'accounting:chart_children' node.account.pk %}{% if include_archived %}?archived=1{% endif %}"
                 hx-target="closest tr"
                 hx-swap="afterend"
@@ -18,19 +18,19 @@
       <code dir="ltr">{{ node.account.code }}</code>
     </td>
     <td>
-      {{ node.account.name_ar }}
-      {% if not node.account.is_active %}<span class="chip chip--muted">{% translate "مؤرشف" %}</span>{% endif %}
-      {% if node.account.is_system %}<span class="chip chip--muted">{% translate "نظامي" %}</span>{% endif %}
+      {{ node.account.name }}
+      {% if not node.account.is_active %}<span class="ui-badge ui-badge--neutral">{% translate "مؤرشف" %}</span>{% endif %}
+      {% if node.account.is_system %}<span class="ui-badge ui-badge--neutral">{% translate "نظامي" %}</span>{% endif %}
     </td>
     <td>{{ node.account.get_account_class_display }}</td>
     <td>{% if node.account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
     <td><bdi dir="ltr">{{ node.balance|money_full }}</bdi></td>
-    <td class="cell-actions">
-      <a class="btn btn--secondary btn--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
+    <td class="ui-table__actions">
+      <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
     </td>
   </tr>
 {% empty %}
-  <tr class="chart-row chart-row--child">
-    <td colspan="6" class="empty">{% translate "لا توجد حسابات تحت هذا المستوى." %}</td>
+  <tr class="ui-report-row ui-report-row--child">
+    <td colspan="6" class="ui-table__empty">{% translate "لا توجد حسابات تحت هذا المستوى." %}</td>
   </tr>
 {% endfor %}

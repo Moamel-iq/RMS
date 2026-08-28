@@ -66,7 +66,6 @@ from apps.procurement.returns import (
     create_supplier_return,
     delete_supplier_return,
     post_supplier_return,
-    return_availability,
     reverse_supplier_return,
 )
 from apps.procurement.services import (
@@ -154,8 +153,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -165,12 +164,12 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 @pytest.fixture
 def grocery(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد")
 
 
 @pytest.fixture
@@ -240,19 +239,32 @@ def receipt(
     )
 
 
-def _draft_return(
-    *, receipt: GoodsReceipt, keeper: User, quantity: str = "10.000", expected: str | None = None
+def _open_return(
+    *, receipt: GoodsReceipt, keeper: User, evidence_reference: str = "وصل الاستلام من السائق"
 ) -> SupplierReturn:
-    supplier_return = create_supplier_return(
-        receipt=receipt,
+    """Open a standalone return, using the receipt only to seed stock context."""
+    return create_supplier_return(
+        organization=receipt.organization,
+        branch=receipt.branch,
+        supplier=receipt.supplier,
+        warehouse=receipt.warehouse,
+        location=receipt.location,
         created_by=keeper,
         returned_at=RETURNED,
         reason="بضاعة تالفة",
-        evidence_reference="وصل الاستلام من السائق",
+        evidence_reference=evidence_reference,
     )
+
+
+def _draft_return(
+    *, receipt: GoodsReceipt, keeper: User, quantity: str = "10.000", expected: str | None = None
+) -> SupplierReturn:
+    supplier_return = _open_return(receipt=receipt, keeper=keeper)
+    receipt_line = receipt.lines.select_related("item", "lot").get()
     add_return_line(
         supplier_return=supplier_return,
-        receipt_line=receipt.lines.get(),
+        item=receipt_line.item,
+        lot=receipt_line.lot,
         returned_base_quantity=Decimal(quantity),
         expected_credit_value=Decimal(expected) if expected is not None else None,
     )
@@ -435,44 +447,36 @@ class TestTheEntry:
 
 
 # ---------------------------------------------------------------------------
-# The quantity bound
+# Standalone stock guard
 # ---------------------------------------------------------------------------
 
 
-class TestTheQuantityBound:
-    def test_availability_is_the_accepted_quantity_less_what_has_gone(
-        self, receipt: GoodsReceipt, keeper: User
-    ) -> None:
-        line = receipt.lines.get()
-        assert return_availability(line) == Decimal("50.000")
-
-        supplier_return = _draft_return(receipt=receipt, keeper=keeper, quantity="20.000")
-        assert return_availability(line) == Decimal("30.000")
-
-        post_supplier_return(supplier_return=supplier_return, actor=keeper)
-        assert return_availability(line) == Decimal("30.000")
-
-    def test_returning_more_than_arrived_is_refused(
+class TestTheStandaloneStockGuard:
+    def test_a_line_is_independent_of_receipt_quantity_but_posting_checks_stock(
         self, receipt: GoodsReceipt, keeper: User
     ) -> None:
         """
-        The kernel cannot do this. `_require_available` refuses to drive a
-        warehouse position negative, which is a different question — with stock
-        on hand from other deliveries a line that accepted fifty could be
-        returned for fifty twice and every kernel check would pass.
+        A draft names an item and quantity directly. It may be prepared before
+        the final stock check, but posting can never drive the warehouse below
+        zero.
         """
-        supplier_return = create_supplier_return(
-            receipt=receipt, created_by=keeper, returned_at=RETURNED, evidence_reference="وصل"
+        supplier_return = _open_return(receipt=receipt, keeper=keeper)
+        receipt_line = receipt.lines.select_related("item", "lot").get()
+        line = add_return_line(
+            supplier_return=supplier_return,
+            item=receipt_line.item,
+            lot=receipt_line.lot,
+            returned_base_quantity=Decimal("50.001"),
         )
-        with pytest.raises(ValidationError) as error:
-            add_return_line(
-                supplier_return=supplier_return,
-                receipt_line=receipt.lines.get(),
-                returned_base_quantity=Decimal("50.001"),
-            )
-        assert error.value.code == "return_over_quantity"
+        assert line.returned_base_quantity == Decimal("50.001")
 
-    def test_the_same_delivery_cannot_be_returned_twice_over(
+        with pytest.raises(ValidationError) as error:
+            post_supplier_return(supplier_return=supplier_return, actor=keeper)
+        assert error.value.code == "insufficient_stock"
+        supplier_return.refresh_from_db()
+        assert supplier_return.status == SupplierReturnStatus.DRAFT
+
+    def test_current_warehouse_stock_not_delivery_history_is_the_bound(
         self,
         receipt: GoodsReceipt,
         keeper: User,
@@ -483,8 +487,9 @@ class TestTheQuantityBound:
         mapped: None,
     ) -> None:
         """
-        With plenty of stock on hand from a second delivery, so the kernel
-        would happily move it. Only the per-delivery bound stops this.
+        Once more stock exists, another standalone return for the same item is
+        valid even if the first return already removed the original delivery's
+        whole quantity.
         """
         _post_receipt(
             supplier=grocery,
@@ -499,119 +504,33 @@ class TestTheQuantityBound:
         first = _draft_return(receipt=receipt, keeper=keeper, quantity="50.000")
         post_supplier_return(supplier_return=first, actor=keeper)
 
-        second = create_supplier_return(
-            receipt=receipt, created_by=keeper, returned_at=RETURNED, evidence_reference="وصل"
+        second = _open_return(receipt=receipt, keeper=keeper)
+        add_return_line(
+            supplier_return=second,
+            item=rice,
+            returned_base_quantity=Decimal("1.000"),
         )
-        with pytest.raises(ValidationError) as error:
-            add_return_line(
-                supplier_return=second,
-                receipt_line=receipt.lines.get(),
-                returned_base_quantity=Decimal("1.000"),
-            )
-        assert error.value.code == "return_over_quantity"
+        posted = post_supplier_return(supplier_return=second, actor=keeper)
+        assert posted.status == SupplierReturnStatus.POSTED
 
-    def test_a_reversed_return_gives_the_quantity_back(
-        self, receipt: GoodsReceipt, keeper: User, manager: User
+    def test_a_reversed_return_restores_current_warehouse_stock(
+        self,
+        receipt: GoodsReceipt,
+        keeper: User,
+        manager: User,
+        store: Warehouse,
+        rice: InventoryItem,
     ) -> None:
         supplier_return = _draft_return(receipt=receipt, keeper=keeper, quantity="50.000")
         post_supplier_return(supplier_return=supplier_return, actor=keeper)
-        assert return_availability(receipt.lines.get()) == Decimal("0.000")
+        balance = StockBalance.objects.get(warehouse=store, item=rice, lot__isnull=True)
+        assert balance.quantity == Decimal("0.000")
 
         reverse_supplier_return(
             supplier_return=supplier_return, actor=manager, reason="عاد الاتفاق"
         )
-        assert return_availability(receipt.lines.get()) == Decimal("50.000")
-
-    def test_a_wholly_rejected_delivery_line_cannot_be_returned(
-        self,
-        grocery: Supplier,
-        branch: Branch,
-        store: Warehouse,
-        keeper: User,
-        rice: InventoryItem,
-        mapped: None,
-    ) -> None:
-        """It never entered stock, so there is nothing to send back from."""
-        receipt = create_goods_receipt(
-            supplier=grocery,
-            branch=branch,
-            warehouse=store,
-            created_by=keeper,
-            received_at=RECEIVED,
-            delivery_reference="DN-REJECT-ALL",
-            evidence_reference="إشعار",
-        )
-        good = add_receipt_line(
-            receipt=receipt,
-            item=rice,
-            delivered_quantity=Decimal("10.000"),
-            unit_price=Decimal("1000.000000"),
-        )
-        inspect_receipt_line(line=good, accepted_base_quantity=Decimal("10.000"), actor=keeper)
-        bad = add_receipt_line(
-            receipt=receipt,
-            item=rice,
-            delivered_quantity=Decimal("5.000"),
-            unit_price=Decimal("1000.000000"),
-        )
-        from apps.inventory.models import InventoryReasonCode, ReasonCodeApplication
-
-        reason_code = InventoryReasonCode.objects.create(
-            organization=receipt.organization,
-            code="SPOILED",
-            name_ar="تالف عند الاستلام",
-            applies_to=ReasonCodeApplication.WASTE,
-        )
-        inspect_receipt_line(
-            line=bad,
-            accepted_base_quantity=Decimal("0.000"),
-            actor=keeper,
-            rejection_reason=reason_code,
-            note="وصلت تالفة",
-        )
-        posted = post_goods_receipt(receipt=receipt, actor=keeper)
-
-        supplier_return = create_supplier_return(
-            receipt=posted, created_by=keeper, returned_at=RETURNED, evidence_reference="وصل"
-        )
-        with pytest.raises(ValidationError) as error:
-            add_return_line(
-                supplier_return=supplier_return,
-                receipt_line=posted.lines.get(sequence=2),
-                returned_base_quantity=Decimal("1.000"),
-            )
-        assert error.value.code == "receipt_line_rejected"
-
-    def test_a_line_from_another_delivery_is_refused(
-        self,
-        receipt: GoodsReceipt,
-        keeper: User,
-        grocery: Supplier,
-        branch: Branch,
-        store: Warehouse,
-        rice: InventoryItem,
-        mapped: None,
-    ) -> None:
-        other = _post_receipt(
-            supplier=grocery,
-            branch=branch,
-            store=store,
-            keeper=keeper,
-            item=rice,
-            quantity="10.000",
-            price="1400.000000",
-            reference="DN-OTHER",
-        )
-        supplier_return = create_supplier_return(
-            receipt=receipt, created_by=keeper, returned_at=RETURNED, evidence_reference="وصل"
-        )
-        with pytest.raises(ValidationError) as error:
-            add_return_line(
-                supplier_return=supplier_return,
-                receipt_line=other.lines.get(),
-                returned_base_quantity=Decimal("1.000"),
-            )
-        assert error.value.code == "receipt_line_mismatch"
+        balance.refresh_from_db()
+        assert balance.quantity == Decimal("50.000")
 
 
 # ---------------------------------------------------------------------------
@@ -620,44 +539,16 @@ class TestTheQuantityBound:
 
 
 class TestLifecycle:
-    def test_a_returned_delivery_cannot_be_reversed(
+    def test_a_draft_return_does_not_depend_on_or_block_a_receipt(
         self, receipt: GoodsReceipt, keeper: User
     ) -> None:
-        """
-        Task 2.9's guard, doing what it was written for. Reversing the delivery
-        underneath a return would leave the return citing goods that never
-        arrived.
-        """
+        """The receipt merely seeded stock; the return stores no receipt link."""
         supplier_return = _draft_return(receipt=receipt, keeper=keeper)
-        post_supplier_return(supplier_return=supplier_return, actor=keeper)
-
-        with pytest.raises(ValidationError) as error:
-            reverse_goods_receipt(receipt=receipt, actor=keeper, reason="محاولة")
-        assert error.value.code == "receipt_has_dependents"
-
-    def test_reversing_the_return_frees_the_delivery(
-        self, receipt: GoodsReceipt, keeper: User, manager: User
-    ) -> None:
-        """
-        `live_dependency` again: a reversed return has put the goods back and
-        holds the delivery hostage no longer.
-        """
-        supplier_return = _draft_return(receipt=receipt, keeper=keeper)
-        post_supplier_return(supplier_return=supplier_return, actor=keeper)
-        reverse_supplier_return(supplier_return=supplier_return, actor=manager, reason="خطأ")
-
         reverse_goods_receipt(receipt=receipt, actor=keeper, reason="أُعيدت الشحنة")
         receipt.refresh_from_db()
+        supplier_return.refresh_from_db()
         assert receipt.status == "REVERSED"
-
-    def test_a_draft_return_also_blocks_the_delivery(
-        self, receipt: GoodsReceipt, keeper: User
-    ) -> None:
-        """A draft is a live claim on that quantity, and it consumes it."""
-        _draft_return(receipt=receipt, keeper=keeper)
-        with pytest.raises(ValidationError) as error:
-            reverse_goods_receipt(receipt=receipt, actor=keeper, reason="محاولة")
-        assert error.value.code == "receipt_has_dependents"
+        assert supplier_return.status == SupplierReturnStatus.DRAFT
 
     def test_reversing_puts_the_stock_and_the_ledger_back(
         self,
@@ -701,12 +592,12 @@ class TestLifecycle:
         assert error.value.code == "return_not_draft"
 
     def test_posting_needs_its_evidence(self, receipt: GoodsReceipt, keeper: User) -> None:
-        supplier_return = create_supplier_return(
-            receipt=receipt, created_by=keeper, returned_at=RETURNED
-        )
+        supplier_return = _open_return(receipt=receipt, keeper=keeper, evidence_reference="")
+        receipt_line = receipt.lines.select_related("item", "lot").get()
         add_return_line(
             supplier_return=supplier_return,
-            receipt_line=receipt.lines.get(),
+            item=receipt_line.item,
+            lot=receipt_line.lot,
             returned_base_quantity=Decimal("1.000"),
         )
         with pytest.raises(ValidationError) as error:
@@ -714,9 +605,7 @@ class TestLifecycle:
         assert error.value.code == "evidence_required"
 
     def test_an_empty_return_cannot_be_posted(self, receipt: GoodsReceipt, keeper: User) -> None:
-        supplier_return = create_supplier_return(
-            receipt=receipt, created_by=keeper, returned_at=RETURNED, evidence_reference="وصل"
-        )
+        supplier_return = _open_return(receipt=receipt, keeper=keeper)
         with pytest.raises(ValidationError) as error:
             post_supplier_return(supplier_return=supplier_return, actor=keeper)
         assert error.value.code == "no_lines"
@@ -881,8 +770,7 @@ class TestTheScreens:
         assert supplier_return.number in page
         assert supplier_return.journal_entry is not None
         assert supplier_return.journal_entry.entry_number in page
-        # The availability table names the bound: 50 accepted, 10 returned.
-        assert "المتاح للإرجاع" in page
+        assert "الإرجاع مستند مستقل" in page
 
     def test_the_list_answers_htmx_with_a_fragment(
         self, receipt: GoodsReceipt, keeper: User, client: Client
@@ -894,21 +782,23 @@ class TestTheScreens:
         assert fragment.status_code == 200
         assert len(fragment.content) < len(full.content)
 
-    def test_the_create_screen_opens_a_draft_against_the_delivery(
+    def test_the_create_screen_opens_a_standalone_draft(
         self, receipt: GoodsReceipt, keeper: User, client: Client
     ) -> None:
         client.force_login(keeper)
         response = client.post(
             reverse("procurement:supplier_return_create"),
             {
-                "receipt": receipt.pk,
+                "supplier": receipt.supplier_id,
+                "branch": receipt.branch_id,
+                "warehouse": receipt.warehouse_id,
                 "returned_at": "2026-03-05",
                 "reason": "تلف",
                 "evidence_reference": "وصل",
             },
         )
         assert response.status_code == 302
-        created = SupplierReturn.objects.get(receipt=receipt)
+        created = SupplierReturn.objects.get(evidence_reference="وصل")
         assert created.status == SupplierReturnStatus.DRAFT
         assert created.warehouse_id == receipt.warehouse_id
         assert created.supplier_id == receipt.supplier_id
@@ -916,17 +806,12 @@ class TestTheScreens:
     def test_the_detail_screen_adds_and_removes_a_line(
         self, receipt: GoodsReceipt, keeper: User, client: Client
     ) -> None:
-        supplier_return = create_supplier_return(
-            receipt=receipt,
-            created_by=keeper,
-            returned_at=RETURNED,
-            evidence_reference="وصل",
-        )
+        supplier_return = _open_return(receipt=receipt, keeper=keeper)
         client.force_login(keeper)
         added = client.post(
             reverse("procurement:supplier_return_detail", args=[supplier_return.pk]),
             {
-                "receipt_line": receipt.lines.get().pk,
+                "item": receipt.lines.get().item_id,
                 "returned_base_quantity": "10.000",
             },
         )
@@ -996,7 +881,7 @@ class TestTheScreens:
         """A 403 would confirm the return exists, and ids are sequential."""
         supplier_return = _draft_return(receipt=receipt, keeper=keeper)
         outsider = User.objects.create_user(username="outsider", password=PASSWORD)
-        rival = create_organization(code="RIV", name_ar="منافس", name_en="Rival")
+        rival = create_organization(code="RIV", name="منافس")
         grant_organization_access(user=outsider, organization=rival, role=Role.MANAGER)
         outsider = User.objects.get(pk=outsider.pk)
 
@@ -1034,7 +919,9 @@ class TestTheApi:
         created = client.post(
             "/api/v1/procurement/supplier-returns/",
             data={
-                "receipt_id": receipt.pk,
+                "supplier_id": receipt.supplier_id,
+                "branch_id": receipt.branch_id,
+                "warehouse_id": receipt.warehouse_id,
                 "returned_at": "2026-03-05",
                 "reason": "تلف",
                 "evidence_reference": "وصل السائق",
@@ -1047,7 +934,7 @@ class TestTheApi:
         lined = client.post(
             f"/api/v1/procurement/supplier-returns/{return_id}/lines/",
             data={
-                "receipt_line_id": receipt.lines.get().pk,
+                "item_id": receipt.lines.get().item_id,
                 "returned_base_quantity": "10.000",
                 "expected_credit_value": "14000.000",
             },
@@ -1126,7 +1013,7 @@ class TestTheApi:
     def test_out_of_scope_is_404(self, receipt: GoodsReceipt, keeper: User, client: Client) -> None:
         supplier_return = _draft_return(receipt=receipt, keeper=keeper)
         outsider = User.objects.create_user(username="api-outsider", password=PASSWORD)
-        rival = create_organization(code="RIV2", name_ar="منافس", name_en="Rival Two")
+        rival = create_organization(code="RIV2", name="منافس")
         grant_organization_access(user=outsider, organization=rival, role=Role.MANAGER)
         outsider = User.objects.get(pk=outsider.pk)
 

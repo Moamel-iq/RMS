@@ -337,7 +337,7 @@ class TestTenancyBoundary:
         from apps.inventory.services import create_warehouse
         from apps.organizations.services import grant_branch_access
 
-        elsewhere = create_warehouse(branch=second_branch, code="KAR", name_ar="مخزن الكرادة")
+        elsewhere = create_warehouse(branch=second_branch, code="KAR", name="مخزن الكرادة")
         grant_branch_access(user=manager, branch=second_branch, role=Role.MANAGER)
         manager = User.objects.get(pk=manager.pk)
         response = _post(

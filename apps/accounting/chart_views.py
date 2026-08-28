@@ -209,7 +209,7 @@ class ChartListView(AccountingListView):
         "كل الحسابات في المؤسسات التي تصل إليها. الرمز رقم تقني: يُقرأ من اليسار "
         "إلى اليمين ولا تُجرى عليه عمليات حسابية."
     )
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     search_placeholder = _("ابحث برمز الحساب أو اسمه…")
     result_label = _("حساب")
     create_url_name = "accounting:account_create"
@@ -322,8 +322,7 @@ class AccountCreateView(AccountingWriteView):
             actor=self.actor,
             organization_id=data["organization"].pk,
             code=data["code"],
-            name_ar=data["name_ar"],
-            name_en=data["name_en"],
+            name=data["name"],
             requires_cost_center=data["requires_cost_center"] or None,
             manual_posting_policy=data["manual_posting_policy"],
         )
@@ -370,8 +369,7 @@ class AccountUpdateView(AccountingWriteView):
 
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "requires_cost_center": instance.requires_cost_center,
             "manual_posting_policy": instance.manual_posting_policy,
         }
@@ -384,8 +382,7 @@ class AccountUpdateView(AccountingWriteView):
         update_chart_account(
             actor=self.actor,
             account_id=instance.pk,
-            name_ar=data["name_ar"],
-            name_en=data["name_en"],
+            name=data["name"],
             requires_cost_center=data["requires_cost_center"],
             manual_posting_policy=data["manual_posting_policy"],
             reason=data.get("reason", ""),
@@ -504,7 +501,7 @@ class AccountDetailView(AccountingDetailView):
                 "may_map_report": has_organization_permission(
                     self.actor, MANAGE_REPORT_MAPPINGS, account.organization
                 ),
-                "page_title": f"{account.code} — {account.name_ar}",
+                "page_title": f"{account.code} — {account.name}",
                 "page_hint": _("الرصيد مشتق من القيود المُرحَّلة عند الطلب، وليس رقماً مخزّناً."),
                 "as_of": timezone.localdate(),
             },

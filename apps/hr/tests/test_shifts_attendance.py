@@ -50,12 +50,12 @@ DAY = datetime.date(2026, 8, 1)
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM-ATT", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM-ATT", name="خان مندي")
 
 
 @pytest.fixture
 def other_organization() -> Organization:
-    return create_organization(code="OTHER-ATT", name_ar="منافس", name_en="Other")
+    return create_organization(code="OTHER-ATT", name="منافس")
 
 
 @pytest.fixture
@@ -63,8 +63,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK-ATT",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         timezone="Asia/Baghdad",
         business_day_start_time=time(9),
     )
@@ -91,8 +90,7 @@ def employee(organization: Organization, branch: Branch, manager: User) -> Emplo
     return create_employee(
         organization=organization,
         code="ATT-001",
-        name_ar="موظف الحضور",
-        name_en="Attendance Employee",
+        name="موظف الحضور",
         phone="",
         email="",
         identity_number="",
@@ -126,8 +124,7 @@ def _shift(
         branch=branch,
         code=code,
         actor=actor,
-        name_ar="الوردية الليلية" if end <= start else "الوردية الصباحية",
-        name_en="Night" if end <= start else "Morning",
+        name="الوردية الليلية" if end <= start else "الوردية الصباحية",
         start_time=start,
         end_time=end,
         crosses_midnight=end <= start,
@@ -403,12 +400,12 @@ def test_shift_and_attendance_screens_are_arabic_htmx_workspaces(
     event_form = client.get(reverse("hr:attendance_create"), HTTP_HX_REQUEST="true")
 
     assert shift_list.status_code == 200
-    assert night_shift.name_ar in shift_list.content.decode()
+    assert night_shift.name in shift_list.content.decode()
     assert shift_form.status_code == 200
     assert "<html" not in shift_form.content.decode().lower()
     assert 'hx-post="/hr/shifts/new/"' in shift_form.content.decode()
     assert attendance.status_code == 200
-    assert employee.name_ar in attendance.content.decode()
+    assert employee.name in attendance.content.decode()
     assert "<html" not in attendance.content.decode().lower()
     assert 'hx-get="/hr/attendance/"' in attendance.content.decode()
     assert event_form.status_code == 200

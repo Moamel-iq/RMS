@@ -6,15 +6,15 @@
 {# and the applied-filter chips make that visible rather than mysterious.    #}
 {% load i18n %}
 
-<label class="field">
+<label class="ui-field">
   <span>{% translate "رقم الفرع" %}</span>
   <input type="number" name="branch_id" min="1" dir="ltr" value="{{ filters.branch_id }}">
 </label>
-<label class="field">
+<label class="ui-field">
   <span>{% translate "رقم الوصفة" %}</span>
   <input type="number" name="recipe_id" min="1" dir="ltr" value="{{ filters.recipe_id }}">
 </label>
-<label class="field">
+<label class="ui-field">
   <span>{% translate "رقم الصنف" %}</span>
   <input type="number" name="item_id" min="1" dir="ltr" value="{{ filters.item_id }}">
 </label>

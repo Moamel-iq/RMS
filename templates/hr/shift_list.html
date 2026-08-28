@@ -2,21 +2,21 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="filter-field"><span class="filter-field__label">{% translate "الفرع" %}</span><select name="branch"><option value="">{% translate "كل الفروع" %}</option>{% for branch in branches %}<option value="{{ branch.pk }}"{% if selected_branch == branch.pk|stringformat:"s" %} selected{% endif %}>{{ branch.code }} — {{ branch.name_ar }}</option>{% endfor %}</select></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "الحالة" %}</span><select name="active"><option value="">{% translate "الكل" %}</option><option value="1"{% if selected_active == "1" %} selected{% endif %}>{% translate "نشطة" %}</option><option value="0"{% if selected_active == "0" %} selected{% endif %}>{% translate "غير نشطة" %}</option></select></label>
-  <div class="rowactions"><a class="btn btn--ghost btn--sm" href="{% url 'hr:shift_assignments' %}">{% translate "التعيينات" %}</a><a class="btn btn--ghost btn--sm" href="{% url 'hr:employee_schedule' %}">{% translate "جداول الموظفين" %}</a><a class="btn btn--ghost btn--sm" href="{% url 'hr:branch_schedule' %}">{% translate "جدول الفروع" %}</a><a class="btn btn--ghost btn--sm" href="{% url 'hr:shift_rotations' %}">{% translate "التناوب" %}</a></div>
+  <label class="ui-field"><span class="ui-field__label">{% translate "الفرع" %}</span><select name="branch"><option value="">{% translate "كل الفروع" %}</option>{% for branch in branches %}<option value="{{ branch.pk }}"{% if selected_branch == branch.pk|stringformat:"s" %} selected{% endif %}>{{ branch.code }} — {{ branch.name }}</option>{% endfor %}</select></label>
+  <label class="ui-field"><span class="ui-field__label">{% translate "الحالة" %}</span><select name="active"><option value="">{% translate "الكل" %}</option><option value="1"{% if selected_active == "1" %} selected{% endif %}>{% translate "نشطة" %}</option><option value="0"{% if selected_active == "0" %} selected{% endif %}>{% translate "غير نشطة" %}</option></select></label>
+  <div class="ui-table__actions"><a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'hr:shift_assignments' %}">{% translate "التعيينات" %}</a><a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'hr:employee_schedule' %}">{% translate "جداول الموظفين" %}</a><a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'hr:branch_schedule' %}">{% translate "جدول الفروع" %}</a><a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'hr:shift_rotations' %}">{% translate "التناوب" %}</a></div>
 {% endblock %}
 
 {% block columns %}<th>{% translate "الوردية" %}</th><th>{% translate "الفرع" %}</th><th>{% translate "الوقت" %}</th><th>{% translate "المدة والاستراحة" %}</th><th>{% translate "السماح والحدود" %}</th><th>{% translate "الفترة" %}</th><th>{% translate "الحالة" %}</th><th>{% translate "إجراء" %}</th>{% endblock %}
 {% block rows %}
   {% for row in shifts %}<tr>
-    <td data-label="{% translate 'الوردية' %}"><strong><bdi dir="ltr">{{ row.code }} v{{ row.version }}</bdi> — {{ row.name_ar }}</strong>{% if row.name_en %}<br><span class="muted" dir="ltr">{{ row.name_en }}</span>{% endif %}</td>
-    <td data-label="{% translate 'الفرع' %}">{{ row.branch.code }} — {{ row.branch.name_ar }}</td>
-    <td data-label="{% translate 'الوقت' %}"><bdi dir="ltr">{{ row.start_time|time:"H:i" }} — {{ row.end_time|time:"H:i" }}</bdi>{% if row.crosses_midnight %}<br><span class="chip">{% translate "تعبر منتصف الليل" %}</span>{% endif %}</td>
+    <td data-label="{% translate 'الوردية' %}"><strong><bdi dir="ltr">{{ row.code }} v{{ row.version }}</bdi> — {{ row.name }}</strong>{% if row.name %}<br><span class="ui-text-muted" dir="ltr">{{ row.name }}</span>{% endif %}</td>
+    <td data-label="{% translate 'الفرع' %}">{{ row.branch.code }} — {{ row.branch.name }}</td>
+    <td data-label="{% translate 'الوقت' %}"><bdi dir="ltr">{{ row.start_time|time:"H:i" }} — {{ row.end_time|time:"H:i" }}</bdi>{% if row.crosses_midnight %}<br><span class="ui-badge">{% translate "تعبر منتصف الليل" %}</span>{% endif %}</td>
     <td data-label="{% translate 'المدة والاستراحة' %}"><bdi dir="ltr">{{ row.scheduled_minutes }}</bdi> {% translate "دقيقة" %} · <bdi dir="ltr">{{ row.break_minutes }}</bdi> {% translate "استراحة" %}</td>
     <td data-label="{% translate 'السماح والحدود' %}">{% translate "سماح" %} <bdi dir="ltr">{{ row.grace_minutes }}</bdi> · {% translate "تأخر" %} <bdi dir="ltr">{{ row.late_threshold_minutes }}</bdi> · {% translate "مبكر" %} <bdi dir="ltr">{{ row.early_departure_threshold_minutes }}</bdi></td>
     <td data-label="{% translate 'الفترة' %}"><bdi dir="ltr">{{ row.effective_from|date:"Y-m-d" }}</bdi> — <bdi dir="ltr">{{ row.effective_to|date:"Y-m-d"|default:"مفتوح" }}</bdi></td>
-    <td data-label="{% translate 'الحالة' %}"><span class="chip{% if row.is_active %} chip--on{% else %} chip--off{% endif %}">{% if row.is_active %}{% translate "نشطة" %}{% else %}{% translate "غير نشطة" %}{% endif %}</span></td>
-    <td data-label="{% translate 'إجراء' %}">{% if row.organization_id in manageable_ids %}<a class="btn btn--secondary btn--sm" href="{% url 'hr:shift_update' row.pk %}">{% translate "تعديل" %}</a>{% endif %}</td>
-  </tr>{% empty %}<tr><td colspan="8" data-empty-state><div class="empty-state"><strong>{% translate "لا توجد ورديات مطابقة." %}</strong><span>{% translate "أضف أول إصدار وردية للفرع." %}</span></div></td></tr>{% endfor %}
+    <td data-label="{% translate 'الحالة' %}"><span class="ui-badge{% if row.is_active %} ui-badge--success{% else %} ui-badge--neutral{% endif %}">{% if row.is_active %}{% translate "نشطة" %}{% else %}{% translate "غير نشطة" %}{% endif %}</span></td>
+    <td data-label="{% translate 'إجراء' %}">{% if row.organization_id in manageable_ids %}<a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'hr:shift_update' row.pk %}">{% translate "تعديل" %}</a>{% endif %}</td>
+  </tr>{% empty %}<tr><td colspan="8" data-empty-state><div class="ui-empty"><strong>{% translate "لا توجد ورديات مطابقة." %}</strong><span>{% translate "أضف أول إصدار وردية للفرع." %}</span></div></td></tr>{% endfor %}
 {% endblock %}

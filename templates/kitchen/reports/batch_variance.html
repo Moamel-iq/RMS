@@ -11,25 +11,25 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page" id="kitchen-batch-variance">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <section class="ui-page" id="kitchen-batch-variance">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "الدفعة" %}
         </a>
       </div>
     </div>
 
-    <section class="formcard">
-      <dl class="deflist">
+    <section class="ui-form-card">
+      <dl class="ui-definition-list">
         <dt>{% translate "الرقم" %}</dt>
         <dd><code dir="ltr">{{ batch.number|default:"—" }}</code></dd>
         <dt>{% translate "الوصفة" %}</dt>
-        <dd>{{ batch.recipe.code }} — {{ batch.recipe.name_ar }}</dd>
+        <dd>{{ batch.recipe.code }} — {{ batch.recipe.name }}</dd>
         <dt>{% translate "النسخة" %}</dt>
         <dd><code dir="ltr">v{{ batch.recipe_version.version_number }}</code></dd>
         <dt>{% translate "المعامل" %}</dt>
@@ -41,7 +41,7 @@
       {# One card per component path. The heading is the first child so the   #}
       {# stylesheet draws it as the card's header band, and the table sits in #}
       {# a shell — a `tablewrap` here would draw a second edge inside this.   #}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>
           {% if path == "-" %}
             {% translate "سطور الوصفة نفسها" %}
@@ -49,8 +49,8 @@
             {% translate "المسار" %} <code dir="ltr">{{ path }}</code>
           {% endif %}
         </h2>
-        <div class="data-table-shell" tabindex="0">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
             <thead>
               <tr>
                 <th scope="col">{% translate "الصنف" %}</th>
@@ -70,14 +70,14 @@
                     {% if row.is_comparable %}
                       <code dir="ltr">{{ row.comparable_actual }}</code>
                     {% else %}
-                      <span class="muted">{{ row.statement }}</span>
+                      <span class="ui-text-muted">{{ row.statement }}</span>
                     {% endif %}
                   </td>
                   <td data-label="{% translate 'الانحراف' %}">
                     {% if row.is_comparable %}
                       <code dir="ltr">{{ row.variance }}</code>
                     {% else %}
-                      <span class="muted">{% translate "غير قابل للمقارنة كمياً" %}</span>
+                      <span class="ui-text-muted">{% translate "غير قابل للمقارنة كمياً" %}</span>
                     {% endif %}
                   </td>
                 </tr>
@@ -87,7 +87,7 @@
         </div>
       </section>
     {% empty %}
-      <p class="empty">{% translate "لا توجد متطلبات في هذه الدفعة." %}</p>
+      <p class="ui-table__empty">{% translate "لا توجد متطلبات في هذه الدفعة." %}</p>
     {% endfor %}
   </section>
 {% endblock %}

@@ -63,16 +63,16 @@ class ReadOnlyAdmin(_ModelAdmin):
 
 @admin.register(RecipeCategory)
 class RecipeCategoryAdmin(ReadOnlyAdmin):
-    list_display = ("code", "name_ar", "organization", "is_active")
+    list_display = ("code", "name", "organization", "is_active")
     list_filter = ("is_active", "organization")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
 
 
 @admin.register(Recipe)
 class RecipeAdmin(ReadOnlyAdmin):
-    list_display = ("code", "name_ar", "recipe_type", "organization", "is_active")
+    list_display = ("code", "name", "recipe_type", "organization", "is_active")
     list_filter = ("recipe_type", "is_active", "organization")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     readonly_fields = ("public_id",)
 
 
@@ -169,13 +169,13 @@ class RecipeServingAdmin(ReadOnlyAdmin):
     list_display = (
         "version",
         "code",
-        "name_ar",
+        "name",
         "serving_quantity",
         "factor_of_batch",
         "is_primary",
     )
     list_filter = ("is_primary", "is_active")
-    search_fields = ("code", "name_ar", "version__recipe__code")
+    search_fields = ("code", "name", "version__recipe__code")
 
 
 @admin.register(RecipeComponent)
@@ -242,7 +242,7 @@ class RecipeCostSnapshotServingAdmin(ReadOnlyAdmin):
         "allocation_state",
     )
     list_filter = ("allocation_state", "is_primary")
-    search_fields = ("code", "name_ar")
+    search_fields = ("code", "name")
 
 
 # ---------------------------------------------------------------------------

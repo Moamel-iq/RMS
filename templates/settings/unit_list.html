@@ -2,8 +2,7 @@
 {% load i18n %}
 
 {% block filters %}
-  <select name="dimension" aria-label="{% translate 'البُعد' %}"
-          style="height:42px;border:1px solid var(--line);border-radius:10px;padding-inline:12px;font:inherit">
+  <select class="ui-control" name="dimension" aria-label="{% translate 'البُعد' %}">
     <option value="">{% translate "كل الأبعاد" %}</option>
     {% for value, label in dimensions %}
       <option value="{{ value }}" {% if value == selected_dimension %}selected{% endif %}>{{ label }}</option>
@@ -18,35 +17,35 @@
   <th>{% translate "المعامل إلى الأساس" %}</th>
   <th>{% translate "أساس" %}</th>
   <th>{% translate "الحالة" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 
 {% block rows %}
   {% for unit in units %}
     <tr>
       <td><strong>{{ unit.code }}</strong></td>
-      <td>{{ unit.name_ar }} <span class="muted">/ {{ unit.name_en }}</span></td>
+      <td>{{ unit.name }} <span class="ui-text-muted">/ {{ unit.name }}</span></td>
       <td>{{ unit.get_dimension_display }}</td>
       {# factor_display, not the raw field: locale formatting would render a #}
       {# comma decimal separator, and a factor must be unambiguous.          #}
-      <td class="table__num" dir="ltr">{{ unit.factor_display }}</td>
+      <td class="ui-table__numeric" dir="ltr">{{ unit.factor_display }}</td>
       <td>
         {% if unit.is_base %}
-          <span class="chip chip--brand">{% translate "أساس" %}</span>
+          <span class="ui-badge ui-badge--blue">{% translate "أساس" %}</span>
         {% endif %}
       </td>
       <td>
         {% if unit.is_active %}
-          <span class="chip chip--on">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--off">{% translate "موقوف" %}</span>
+          <span class="ui-badge ui-badge--danger">{% translate "موقوف" %}</span>
         {% endif %}
       </td>
-      <td class="table__actions">
-        <a class="linkish" href="{% url 'units:unit_update' unit.pk %}">{% translate "تعديل" %}</a>
+      <td class="ui-table__actions">
+        <a class="ui-button ui-button--ghost ui-button--small" href="{% url 'units:unit_update' unit.pk %}">{% translate "تعديل" %}</a>
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="7"><p class="empty">{% translate "لا توجد وحدات بعد." %}</p></td></tr>
+    <tr><td colspan="7"><p class="ui-empty">{% translate "لا توجد وحدات بعد." %}</p></td></tr>
   {% endfor %}
 {% endblock %}

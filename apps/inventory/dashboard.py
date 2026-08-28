@@ -141,7 +141,7 @@ def inventory_overview(user: User, *, include_valuation: bool) -> InventoryOverv
         rows.append(
             BalanceRow(
                 code=balance.item.code,
-                name=balance.item.name_ar,
+                name=balance.item.name,
                 unit=balance.item.base_unit.code,
                 quantity=balance.quantity,
                 warehouse=balance.warehouse.code,

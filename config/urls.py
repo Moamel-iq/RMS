@@ -7,6 +7,7 @@ from django.http import JsonResponse
 from django.urls import URLPattern, URLResolver, include, path
 
 from apps.hr.views import EmployeeDocumentRawMediaBlockView
+from apps.supplier_quotes.views import SupplierQuoteRawMediaBlockView
 from config.admin import site
 from config.api import api
 
@@ -29,6 +30,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("settings/", include("apps.core.urls")),
     path("inventory/", include("apps.inventory.urls")),
     path("procurement/", include("apps.procurement.urls")),
+    path("supplier-quotes/", include("apps.supplier_quotes.urls")),
     path("kitchen/", include("apps.kitchen.urls")),
     path("sales/", include("apps.sales.urls")),
     path("accounting/", include("apps.accounting.urls")),
@@ -38,6 +40,10 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path(
         "media/hr/employee-documents/<path:path>",
         EmployeeDocumentRawMediaBlockView.as_view(),
+    ),
+    path(
+        "media/supplier-quotes/<path:path>",
+        SupplierQuoteRawMediaBlockView.as_view(),
     ),
     path("", include("apps.users.urls")),
 ]

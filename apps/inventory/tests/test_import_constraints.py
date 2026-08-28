@@ -49,7 +49,7 @@ class TestImportConstraints:
         settings.DEBUG = True  # type: ignore[attr-defined]
         user = User.objects.create_user(username="c1", password="pw-not-real-1234")
         call_command("seed_units", verbosity=0)
-        organization = create_organization(code="CONSTR", name_ar="ق", name_en="C")
+        organization = create_organization(code="CONSTR", name="ق")
         from django.db.utils import IntegrityError
 
         with pytest.raises(IntegrityError), transaction.atomic():
@@ -69,7 +69,7 @@ class TestImportConstraints:
     def test_the_row_counts_must_add_up(self) -> None:
         from django.db.utils import IntegrityError
 
-        organization = create_organization(code="CONSTR2", name_ar="ق", name_en="C")
+        organization = create_organization(code="CONSTR2", name="ق")
         with pytest.raises(IntegrityError), transaction.atomic():
             ImportBatch.objects.create(
                 organization=organization,
@@ -86,7 +86,7 @@ class TestImportConstraints:
     def test_a_failed_batch_cannot_claim_to_have_applied_rows(self) -> None:
         from django.db.utils import IntegrityError
 
-        organization = create_organization(code="CONSTR3", name_ar="ق", name_en="C")
+        organization = create_organization(code="CONSTR3", name="ق")
         with pytest.raises(IntegrityError), transaction.atomic():
             ImportBatch.objects.create(
                 organization=organization,

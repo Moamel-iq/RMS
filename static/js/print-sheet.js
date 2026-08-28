@@ -165,7 +165,7 @@
   // should say that on paper, not the name of the module it lives in.
   window.addEventListener("beforeprint", () => {
     const slot = document.querySelector("[data-print-title]");
-    const heading = document.querySelector(".pagehead__title, .workspace-page h1, main h1");
+    const heading = document.querySelector(".ui-page-header__title, .ui-page-title, .ui-page h1, main h1");
     if (slot && heading && heading.textContent.trim()) slot.textContent = heading.textContent.trim();
   });
 

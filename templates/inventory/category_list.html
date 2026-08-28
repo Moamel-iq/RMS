@@ -18,7 +18,7 @@
   {% for category in categories %}
     <tr>
       <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ category.code }}</code></bdi></td>
-      <td data-label="{% translate 'الاسم' %}"><strong>{{ category.name_ar }}</strong></td>
+      <td data-label="{% translate 'الاسم' %}"><strong>{{ category.name }}</strong></td>
       <td data-label="{% translate 'المستوى' %}"><bdi dir="ltr">{{ category.depth }}</bdi></td>
       <td data-label="{% translate 'المجموعة الأعلى' %}">{% if category.parent %}<bdi dir="ltr"><code>{{ category.parent.code }}</code></bdi>{% else %}—{% endif %}</td>
       <td data-label="{% translate 'الحالة' %}">

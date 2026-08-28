@@ -11,8 +11,8 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "المجال" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "المجال" %}</span>
     <select name="domain">
       <option value="">{% translate "كل المجالات" %}</option>
       {% for value, label in domains %}
@@ -20,8 +20,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "نطاق الربط" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "نطاق الربط" %}</span>
     <select name="scope">
       <option value="">{% translate "الكل" %}</option>
       {% for value, label in scopes %}
@@ -29,8 +29,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "حالة الربط" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "حالة الربط" %}</span>
     <select name="mapped">
       <option value="">{% translate "الكل" %}</option>
       <option value="mapped" {% if selected_mapped == "mapped" %}selected{% endif %}>{% translate "مربوطة" %}</option>
@@ -38,8 +38,8 @@
       <option value="incomplete" {% if selected_mapped == "incomplete" %}selected{% endif %}>{% translate "ناقصة في مؤسسة" %}</option>
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "المؤسسة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "المؤسسة" %}</span>
     <select name="organization">
       <option value="">{% translate "كل المؤسسات" %}</option>
       {% for organization in organizations %}
@@ -49,8 +49,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "بتاريخ" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "بتاريخ" %}</span>
     <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}">
   </label>
 {% endblock %}
@@ -65,7 +65,7 @@
   <th>{% translate "آخر ربط" %}</th>
   <th>{% translate "سطور مُرحَّلة" %}</th>
   <th>{% translate "تحذير" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 
 {% block rows %}
@@ -74,9 +74,9 @@
       {# A technical identity: always LTR, never localised. #}
       <td><code dir="ltr">{{ row.role.code }}</code></td>
       <td>
-        {{ row.role.name_ar }}
-        <span class="muted"> · <bdi dir="ltr">{{ row.role.name_en }}</bdi></span>
-        {% if row.role.is_system %}<span class="chip chip--muted">{% translate "نظامي" %}</span>{% endif %}
+        {{ row.role.name }}
+        <span class="ui-text-muted"> · <bdi dir="ltr">{{ row.role.name }}</bdi></span>
+        {% if row.role.is_system %}<span class="ui-badge ui-badge--neutral">{% translate "نظامي" %}</span>{% endif %}
       </td>
       <td>{{ row.role.get_domain_display }}</td>
       <td>{{ row.role.get_mapping_scope_display }}</td>
@@ -86,18 +86,18 @@
       <td><bdi dir="ltr">{{ row.posted_lines }}</bdi></td>
       <td>
         {% if row.unresolved %}
-          <span class="chip chip--warn" title="{% for organization in row.unresolved %}{{ organization.code }} {% endfor %}">
+          <span class="ui-badge ui-badge--warning" title="{% for organization in row.unresolved %}{{ organization.code }} {% endfor %}">
             {% blocktranslate count counter=row.unresolved|length %}مؤسسة بلا ربط{% plural %}{{ counter }} مؤسسات بلا ربط{% endblocktranslate %}
           </span>
         {% else %}
-          <span class="chip chip--ok">{% translate "مكتمل" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "مكتمل" %}</span>
         {% endif %}
       </td>
-      <td class="cell-actions">
-        <a class="btn btn--secondary btn--sm" href="{% url 'accounting:role_detail' row.role.pk %}">{% translate "تفاصيل" %}</a>
+      <td class="ui-table__actions">
+        <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:role_detail' row.role.pk %}">{% translate "تفاصيل" %}</a>
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="10" class="empty">{% translate "لا توجد أدوار مطابقة." %}</td></tr>
+    <tr><td colspan="10" class="ui-table__empty">{% translate "لا توجد أدوار مطابقة." %}</td></tr>
   {% endfor %}
 {% endblock %}

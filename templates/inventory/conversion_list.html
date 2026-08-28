@@ -19,7 +19,7 @@
   {% translate "أضف علاقة العبوة بوحدة الأساس لكل صنف يحتاجها." as empty_description %}
   {% for conversion in conversions %}
     <tr>
-      <td data-label="{% translate 'الصنف' %}"><bdi dir="ltr"><code>{{ conversion.item.code }}</code></bdi> {{ conversion.item.name_ar }}</td>
+      <td data-label="{% translate 'الصنف' %}"><bdi dir="ltr"><code>{{ conversion.item.code }}</code></bdi> {{ conversion.item.name }}</td>
       <td data-label="{% translate 'العبوة' %}"><bdi dir="ltr"><code>{{ conversion.package_unit.code }}</code></bdi></td>
       {# Technical identity: rendered with a period, never a locale comma. #}
       <td data-label="{% translate 'المعامل إلى وحدة الأساس' %}"><bdi dir="ltr"><code>{{ conversion.factor_display }}</code></bdi></td>

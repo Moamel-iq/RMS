@@ -230,7 +230,7 @@ class SupplierLiabilityDetailView(AccountingDetailView):
                 "supplier": supplier,
                 "rows": rows,
                 "as_of": as_of,
-                "page_title": _("كشف المورد %(name)s") % {"name": supplier.name_ar},
+                "page_title": _("كشف المورد %(name)s") % {"name": supplier.name},
                 "page_hint": _(
                     "الترتيب: تاريخ العملية ثم وقت الترحيل ثم رقم القيد ثم نوع المستند "
                     "ثم رقمه. المستندات تُقرأ من هنا وتُدار من المشتريات."
@@ -286,7 +286,7 @@ class ApplicationReceivableListView(AccountingViewMixin, View):
                 position
                 for position in positions
                 if search in position.delivery_application.code.lower()
-                or search in position.delivery_application.name_ar
+                or search in position.delivery_application.name
             ]
         if request.GET.get("open_only") == "1":
             positions = [position for position in positions if position.balance != ZERO]
@@ -362,7 +362,7 @@ class ApplicationReceivableDetailView(AccountingDetailView):
                 "rows": rows,
                 "position": positions[0] if positions else None,
                 "as_of": as_of,
-                "page_title": _("ذمم %(name)s") % {"name": application.name_ar},
+                "page_title": _("ذمم %(name)s") % {"name": application.name},
                 "page_hint": _(
                     "السجل مُلحَق فقط: التسوية والعكس يضيفان سطراً ولا يعدّلان سطراً. "
                     "المبيعات تملك هذه السطور والمحاسبة تقرأها."

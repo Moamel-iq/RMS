@@ -205,10 +205,9 @@ class SalesDashboardCardView(SalesDashboardMixin, View):
     """
     One card, fetched on its own.
 
-    Answers a bare fragment in both directions — there is no full-page form of a
-    card, and wrapping one in the shell would put a second navigation rail
-    inside a swap target. A direct visit therefore renders the card alone, which
-    is honest about what the URL is.
+    Answers the card alone for HTMX and a complete, bookmarkable page for a
+    direct browser visit.  The business query and the card template stay the
+    same in both cases; only the outer document differs.
     """
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -224,14 +223,22 @@ class SalesDashboardCardView(SalesDashboardMixin, View):
             # empty 200 would look like "no cost this period".
             raise PermissionMissing(_("view_sales_cost is not held in this organization."))
 
-        scope, _branches, _raw = self.resolve_scope(request, organization)
+        scope, _branches, raw_branch = self.resolve_scope(request, organization)
         context: dict[str, Any] = {
             "card": card,
             "scope": scope,
             "organization": organization,
+            "page_title": card.label,
+            "card_template": card.template,
+            "card_query": self.query_string(scope, organization, raw_branch),
         }
         context.update(card_context(slug, self.actor, scope))
-        return render(request, card.template, context)
+        template = (
+            card.template
+            if request.headers.get("HX-Request") == "true"
+            else "sales/dashboard_card_page.html"
+        )
+        return render(request, template, context)
 
 
 __all__ = ["SalesDashboardCardView", "SalesDashboardMixin", "SalesDashboardView"]

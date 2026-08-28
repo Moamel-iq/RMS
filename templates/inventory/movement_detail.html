@@ -1,43 +1,43 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 {% block page %}
-  <section class="inventory-page inventory-detail-page" aria-labelledby="movement-title">
-    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--detail" aria-labelledby="movement-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{{ back_url }}">{% translate "حركة المخزون" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{% translate "تفاصيل الحركة" %}</span>
     </nav>
 
-    <header class="inventory-movement-hero">
+    <header class="ui-document-hero">
       <div>
-        <div class="inventory-detail-kicker"><span class="inventory-status">{{ movement.get_movement_type_display }}</span><code><bdi dir="ltr">#{{ movement.posted_sequence }}</bdi></code></div>
-        <h1 class="pagehead__title" id="movement-title">{% translate "تفاصيل حركة المخزون" %}</h1>
-        <p class="pagehead__hint">{% translate "سجل مرحّل لا يُعدّل. يظهر هنا الأثر الذي اعتمدته عملية التقييم وقت الترحيل." %}</p>
+        <div class="ui-document-hero__meta"><span class="ui-badge ui-badge--neutral">{{ movement.get_movement_type_display }}</span><code><bdi dir="ltr">#{{ movement.posted_sequence }}</bdi></code></div>
+        <h1 class="ui-page-header__title" id="movement-title">{% translate "تفاصيل حركة المخزون" %}</h1>
+        <p class="ui-page-header__hint">{% translate "سجل مرحّل لا يُعدّل. يظهر هنا الأثر الذي اعتمدته عملية التقييم وقت الترحيل." %}</p>
       </div>
-      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "العودة إلى الحركات" %}</a>
+      <a class="ui-button ui-button--ghost" href="{{ back_url }}">{% translate "العودة إلى الحركات" %}</a>
     </header>
 
-    <section class="inventory-movement-summary" aria-label="{% translate 'ملخص الحركة' %}">
-      <article class="inventory-summary-card"><span>{% translate "كمية الحركة" %}</span><strong><bdi dir="ltr">{{ movement.base_quantity|stringformat:"f" }} {{ movement.item.base_unit.code }}</bdi></strong></article>
-      <article class="inventory-summary-card"><span>{% translate "الرصيد بعد الحركة" %}</span><strong><bdi dir="ltr">{{ movement.quantity_after|stringformat:"f" }} {{ movement.item.base_unit.code }}</bdi></strong><small>{% translate "قبل" %} <b><bdi dir="ltr">{{ movement.quantity_before|stringformat:"f" }}</bdi></b></small></article>
-      {% if show_cost %}<article class="inventory-summary-card inventory-summary-card--value"><span>{% translate "قيمة الحركة" %}</span><strong><bdi dir="ltr">{{ movement.inventory_value|stringformat:"f" }}</bdi></strong><small>{% translate "كلفة الوحدة" %} <b><bdi dir="ltr">{{ movement.unit_cost|stringformat:"f" }}</bdi></b></small></article>{% endif %}
+    <section class="ui-summary-grid" aria-label="{% translate 'ملخص الحركة' %}">
+      <article class="ui-summary-item"><span>{% translate "كمية الحركة" %}</span><strong><bdi dir="ltr">{{ movement.base_quantity|stringformat:"f" }} {{ movement.item.base_unit.code }}</bdi></strong></article>
+      <article class="ui-summary-item"><span>{% translate "الرصيد بعد الحركة" %}</span><strong><bdi dir="ltr">{{ movement.quantity_after|stringformat:"f" }} {{ movement.item.base_unit.code }}</bdi></strong><small>{% translate "قبل" %} <b><bdi dir="ltr">{{ movement.quantity_before|stringformat:"f" }}</bdi></b></small></article>
+      {% if show_cost %}<article class="ui-summary-item ui-summary-item--accent"><span>{% translate "قيمة الحركة" %}</span><strong><bdi dir="ltr">{{ movement.inventory_value|stringformat:"f" }}</bdi></strong><small>{% translate "كلفة الوحدة" %} <b><bdi dir="ltr">{{ movement.unit_cost|stringformat:"f" }}</bdi></b></small></article>{% endif %}
     </section>
 
-    <div class="inventory-detail-grid">
-      <section class="inventory-detail-card" aria-labelledby="movement-reference-title">
+    <div class="ui-detail-grid">
+      <section class="ui-card ui-form-card" aria-labelledby="movement-reference-title">
         <header><h2 id="movement-reference-title">{% translate "المخزون والدفعة" %}</h2><p>{% translate "مكان الصنف والدفعة التي أثّرت فيها الحركة." %}</p></header>
-        <dl class="inventory-detail-list">
-          <div><dt>{% translate "المخزن" %}</dt><dd><code><bdi dir="ltr">{{ movement.warehouse.code }}</bdi></code><span>{{ movement.warehouse.name_ar }}</span><small>{{ movement.warehouse.branch.name_ar }}</small></dd></div>
-          <div><dt>{% translate "الصنف" %}</dt><dd><code><bdi dir="ltr">{{ movement.item.code }}</bdi></code><span>{{ movement.item.name_ar }}</span></dd></div>
-          <div><dt>{% translate "الدفعة" %}</dt><dd>{% if movement.lot %}<code><bdi dir="ltr">{{ movement.lot.code }}</bdi></code>{% if movement.lot.expiry_date %}<small>{% translate "تنتهي في" %} <b><bdi dir="ltr">{{ movement.lot.expiry_date|date:"Y-m-d" }}</bdi></b></small>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</dd></div>
+        <dl class="ui-definition-list">
+          <div><dt>{% translate "المخزن" %}</dt><dd><code><bdi dir="ltr">{{ movement.warehouse.code }}</bdi></code><span>{{ movement.warehouse.name }}</span><small>{{ movement.warehouse.branch.name }}</small></dd></div>
+          <div><dt>{% translate "الصنف" %}</dt><dd><code><bdi dir="ltr">{{ movement.item.code }}</bdi></code><span>{{ movement.item.name }}</span></dd></div>
+          <div><dt>{% translate "الدفعة" %}</dt><dd>{% if movement.lot %}<code><bdi dir="ltr">{{ movement.lot.code }}</bdi></code>{% if movement.lot.expiry_date %}<small>{% translate "تنتهي في" %} <b><bdi dir="ltr">{{ movement.lot.expiry_date|date:"Y-m-d" }}</bdi></b></small>{% endif %}{% else %}<span class="ui-text-muted">—</span>{% endif %}</dd></div>
         </dl>
       </section>
 
-      <section class="inventory-detail-card" aria-labelledby="movement-timing-title">
+      <section class="ui-card ui-form-card" aria-labelledby="movement-timing-title">
         <header><h2 id="movement-timing-title">{% translate "الترحيل" %}</h2><p>{% translate "التوقيت والفاعل المسجلان في دفتر المخزون." %}</p></header>
-        <dl class="inventory-detail-list">
+        <dl class="ui-definition-list">
           <div><dt>{% translate "تاريخ الأثر" %}</dt><dd><b><bdi dir="ltr">{{ movement.effective_at|date:"Y-m-d H:i" }}</bdi></b></dd></div>
           <div><dt>{% translate "تاريخ الترحيل" %}</dt><dd><b><bdi dir="ltr">{{ movement.posted_at|date:"Y-m-d H:i" }}</bdi></b></dd></div>
           <div><dt>{% translate "رحّلها" %}</dt><dd>{{ entry.posted_by|default:"—" }}</dd></div>
@@ -45,24 +45,24 @@
         </dl>
       </section>
 
-      <section class="inventory-detail-card inventory-detail-card--wide" aria-labelledby="movement-balance-title">
+      <section class="ui-card ui-form-card ui-detail-grid__wide" aria-labelledby="movement-balance-title">
         <header><h2 id="movement-balance-title">{% translate "أثر الرصيد" %}</h2><p>{% translate "الأرقام كما كانت قبل الترحيل وبعده، بوحدة أساس الصنف." %}</p></header>
-        <div class="inventory-before-after">
-          <div><span>{% translate "قبل" %}</span><strong><bdi dir="ltr">{{ movement.quantity_before|stringformat:"f" }}</bdi></strong></div><span class="inventory-before-after__arrow" aria-hidden="true">←</span><div><span>{% translate "بعد" %}</span><strong><bdi dir="ltr">{{ movement.quantity_after|stringformat:"f" }}</bdi></strong></div>
+        <div class="ui-before-after">
+          <div><span>{% translate "قبل" %}</span><strong><bdi dir="ltr">{{ movement.quantity_before|stringformat:"f" }}</bdi></strong></div><span class="ui-before-after__arrow" aria-hidden="true">←</span><div><span>{% translate "بعد" %}</span><strong><bdi dir="ltr">{{ movement.quantity_after|stringformat:"f" }}</bdi></strong></div>
         </div>
         {% if show_cost %}
-          <div class="inventory-valuation-grid">
+          <div class="ui-metric-grid">
             <div><span>{% translate "القيمة قبل / بعد" %}</span><strong><bdi dir="ltr">{{ movement.value_before|stringformat:"f" }} → {{ movement.value_after|stringformat:"f" }}</bdi></strong></div>
             <div><span>{% translate "المتوسط قبل / بعد" %}</span><strong><bdi dir="ltr">{{ movement.average_before|stringformat:"f" }} → {{ movement.average_after|stringformat:"f" }}</bdi></strong></div>
           </div>
         {% endif %}
       </section>
 
-      <section class="inventory-detail-card inventory-detail-card--wide" aria-labelledby="movement-audit-title">
+      <section class="ui-card ui-form-card ui-detail-grid__wide" aria-labelledby="movement-audit-title">
         <header><h2 id="movement-audit-title">{% translate "التتبع والمصدر" %}</h2><p>{% translate "مفاتيح مرجعية للمراجعة، وليست حقولاً قابلة للتحرير." %}</p></header>
-        <dl class="inventory-detail-list inventory-detail-list--technical">
+        <dl class="ui-definition-list ui-definition-list--technical">
           <div><dt>{% translate "مفتاح الأثر" %}</dt><dd><code><bdi dir="ltr">{{ movement.effect_key }}</bdi></code></dd></div>
-          <div><dt>{% translate "المستند المصدر" %}</dt><dd>{% if entry.source_event %}<code><bdi dir="ltr">{{ entry.source_document_type }}/{{ entry.source_document_id }}/{{ entry.source_event }}</bdi></code>{% else %}<span class="muted">{% translate "ترحيل يدوي بلا مستند" %}</span>{% endif %}</dd></div>
+          <div><dt>{% translate "المستند المصدر" %}</dt><dd>{% if entry.source_event %}<code><bdi dir="ltr">{{ entry.source_document_type }}/{{ entry.source_document_id }}/{{ entry.source_event }}</bdi></code>{% else %}<span class="ui-text-muted">{% translate "ترحيل يدوي بلا مستند" %}</span>{% endif %}</dd></div>
           {% if movement.reverses_id %}<div><dt>{% translate "تعكس الحركة" %}</dt><dd><a href="{% url 'inventory:movement_detail' movement.reverses_id %}"><code><bdi dir="ltr">#{{ movement.reverses.posted_sequence }}</bdi></code></a></dd></div>{% endif %}
         </dl>
       </section>

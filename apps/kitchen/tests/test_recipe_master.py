@@ -40,7 +40,7 @@ class TestCodeIsIdentity:
         recipe = create_recipe(
             organization=organization,
             code="  mandi-01  ",
-            name_ar="مندي",
+            name="مندي",
             recipe_type=RecipeType.PORTION,
             created_by=manager,
         )
@@ -52,7 +52,7 @@ class TestCodeIsIdentity:
         create_recipe(
             organization=organization,
             code="DUP",
-            name_ar="واحد",
+            name="واحد",
             recipe_type=RecipeType.PORTION,
             created_by=manager,
         )
@@ -60,7 +60,7 @@ class TestCodeIsIdentity:
             create_recipe(
                 organization=organization,
                 code="dup",
-                name_ar="اثنان",
+                name="اثنان",
                 recipe_type=RecipeType.PORTION,
                 created_by=manager,
             )
@@ -71,14 +71,14 @@ class TestCodeIsIdentity:
         create_recipe(
             organization=organization,
             code="SHARED",
-            name_ar="هنا",
+            name="هنا",
             recipe_type=RecipeType.PORTION,
             created_by=manager,
         )
         elsewhere = create_recipe(
             organization=other_organization,
             code="SHARED",
-            name_ar="هناك",
+            name="هناك",
             recipe_type=RecipeType.PORTION,
             created_by=manager,
         )
@@ -92,7 +92,7 @@ class TestCodeIsIdentity:
             create_recipe(
                 organization=organization,
                 code=recipe.code,
-                name_ar="محاولة إعادة استخدام",
+                name="محاولة إعادة استخدام",
                 recipe_type=RecipeType.PORTION,
                 created_by=manager,
             )
@@ -102,7 +102,7 @@ class TestCodeIsIdentity:
             create_recipe(
                 organization=organization,
                 code="   ",
-                name_ar="بلا رمز",
+                name="بلا رمز",
                 recipe_type=RecipeType.PORTION,
                 created_by=manager,
             )
@@ -136,7 +136,7 @@ class TestTheOutputItemRule:
             create_recipe(
                 organization=organization,
                 code="BATCH-NO-OUT",
-                name_ar="دفعة بلا ناتج",
+                name="دفعة بلا ناتج",
                 recipe_type=RecipeType.BATCH,
                 output_item=None,
                 created_by=manager,
@@ -149,7 +149,7 @@ class TestTheOutputItemRule:
             create_recipe(
                 organization=organization,
                 code="PORTION-WITH-OUT",
-                name_ar="حصة بناتج",
+                name="حصة بناتج",
                 recipe_type=RecipeType.PORTION,
                 output_item=cooked_rice,
                 created_by=manager,
@@ -163,7 +163,7 @@ class TestTheOutputItemRule:
             create_recipe(
                 organization=organization,
                 code="BATCH-RAW",
-                name_ar="دفعة تنتج مادة أولية",
+                name="دفعة تنتج مادة أولية",
                 recipe_type=RecipeType.BATCH,
                 output_item=rice,
                 created_by=manager,
@@ -175,7 +175,7 @@ class TestTheOutputItemRule:
         recipe = create_recipe(
             organization=organization,
             code="BATCH-OK",
-            name_ar="دفعة سليمة",
+            name="دفعة سليمة",
             recipe_type=RecipeType.BATCH,
             output_item=cooked_rice,
             created_by=manager,
@@ -189,7 +189,7 @@ class TestTheOutputItemRule:
             create_recipe(
                 organization=organization,
                 code="BATCH-FOREIGN",
-                name_ar="ناتج من مؤسسة أخرى",
+                name="ناتج من مؤسسة أخرى",
                 recipe_type=RecipeType.BATCH,
                 output_item=rival_item,
                 created_by=manager,
@@ -213,11 +213,9 @@ class TestWhatCannotChange:
     def test_a_foreign_category_is_refused(
         self, recipe: Recipe, other_organization: Organization
     ) -> None:
-        theirs = create_recipe_category(
-            organization=other_organization, code="THEIRS", name_ar="لهم"
-        )
+        theirs = create_recipe_category(organization=other_organization, code="THEIRS", name="لهم")
         with pytest.raises(ValidationError):
-            update_recipe(recipe=recipe, name_ar=recipe.name_ar, category=theirs)
+            update_recipe(recipe=recipe, name=recipe.name, category=theirs)
 
 
 class TestBranchApplicability:
@@ -243,13 +241,13 @@ class TestBranchApplicability:
 
 class TestCategories:
     def test_a_category_code_is_unique_per_organization(self, organization: Organization) -> None:
-        create_recipe_category(organization=organization, code="MAIN", name_ar="رئيسي")
+        create_recipe_category(organization=organization, code="MAIN", name="رئيسي")
         with pytest.raises(ValidationError):
-            create_recipe_category(organization=organization, code="main", name_ar="مكرر")
+            create_recipe_category(organization=organization, code="main", name="مكرر")
 
     def test_a_category_is_archived_not_deleted(self, organization: Organization) -> None:
-        category = create_recipe_category(organization=organization, code="OLD", name_ar="قديم")
-        update_recipe_category(category=category, name_ar="قديم", is_active=False)
+        category = create_recipe_category(organization=organization, code="OLD", name="قديم")
+        update_recipe_category(category=category, name="قديم", is_active=False)
         assert RecipeCategory.objects.filter(pk=category.pk, is_active=False).exists()
 
 
@@ -268,7 +266,7 @@ class TestProvenance:
             create_recipe(
                 organization=organization,
                 code="HALF-SOURCE",
-                name_ar="مصدر ناقص",
+                name="مصدر ناقص",
                 recipe_type=RecipeType.PORTION,
                 source_document="كتاب وصفات المطبخ خان مندي",
                 source_page=None,
@@ -282,7 +280,7 @@ class TestProvenance:
             create_recipe(
                 organization=organization,
                 code="PAGE-ONLY",
-                name_ar="صفحة بلا مستند",
+                name="صفحة بلا مستند",
                 recipe_type=RecipeType.PORTION,
                 source_page=12,
                 created_by=manager,
@@ -294,7 +292,7 @@ class TestProvenance:
         recipe = create_recipe(
             organization=organization,
             code="SOURCED",
-            name_ar="موثّق",
+            name="موثّق",
             recipe_type=RecipeType.PORTION,
             source_document="كتاب وصفات المطبخ خان مندي",
             source_page=1,
@@ -310,7 +308,7 @@ class TestProvenance:
             Recipe.objects.create(
                 organization=organization,
                 code="RAWSQL",
-                name_ar="تجاوز الخدمة",
+                name="تجاوز الخدمة",
                 recipe_type=RecipeType.PORTION,
                 source_document="مستند",
                 source_page=None,
@@ -328,7 +326,7 @@ class TestProvenance:
         recipe = create_recipe(
             organization=organization,
             code="NAMED-SOURCE",
-            name_ar="مصدر مسمّى",
+            name="مصدر مسمّى",
             recipe_type=RecipeType.PORTION,
             source_document="كتاب وصفات المطبخ خان مندي",
             source_page=1,

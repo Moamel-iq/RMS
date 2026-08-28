@@ -50,7 +50,6 @@ from apps.inventory.commands import (
     reverse_dispatch,
     reverse_transfer_receipt,
     reverse_transfer_shortage,
-    visible_in_transit,
     visible_transfers,
 )
 from apps.inventory.models import (
@@ -75,6 +74,7 @@ from apps.inventory.models import (
 )
 from apps.inventory.operations import DocumentLineInput
 from apps.inventory.services import create_item, create_item_conversion, create_warehouse
+from apps.inventory.tests.stock_seed import seed_stock
 from apps.inventory.transfers import ReceiptLineInput, TransferLineInput, allocate
 from apps.organizations.authorization import OutOfScope
 from apps.organizations.models import Branch, Organization, Role
@@ -163,7 +163,7 @@ def mapped(
 @pytest.fixture
 def far_store(second_branch: Branch) -> Warehouse:
     """A warehouse in the organization's *other* branch."""
-    return create_warehouse(branch=second_branch, code="MAIN", name_ar="مخزن الكرادة")
+    return create_warehouse(branch=second_branch, code="MAIN", name="مخزن الكرادة")
 
 
 @pytest.fixture
@@ -194,24 +194,18 @@ def _seed_stock(
     lot: InventoryLot | None = None,
     reference: str = "DN-SEED",
 ) -> None:
-    """Put stock on a shelf through a real posted receipt."""
-    document = create_document(
+    """Put stock on a shelf, through the kernel."""
+    seed_stock(
         actor=actor,
         organization=organization,
-        branch=branch,
         warehouse=warehouse,
-        document_type=InventoryDocumentType.RECEIPT,
+        item=item,
+        quantity=quantity,
+        unit_cost=cost,
+        control_account=Account.objects.get(organization=organization, code="1-03-01-001"),
+        lot=lot,
         effective_at=WHEN,
-        evidence_reference=reference,
     )
-    add_document_line(
-        actor=actor,
-        document=document,
-        line=DocumentLineInput(
-            item=item, lot=lot, base_quantity=Decimal(quantity), unit_cost=Decimal(cost)
-        ),
-    )
-    post_document(actor=actor, document=document)
 
 
 @pytest.fixture
@@ -445,7 +439,7 @@ class TestEndpoints:
         stocked: None,
     ) -> None:
         """A branch storekeeper cannot reach a transfer between two other branches."""
-        second = create_warehouse(branch=far_store.branch, code="COLD", name_ar="مخزن بارد")
+        second = create_warehouse(branch=far_store.branch, code="COLD", name="مخزن بارد")
         transfer = create_transfer(
             actor=group_manager,
             organization=organization,
@@ -1586,7 +1580,7 @@ class TestConversionsAndLots:
         chicken = create_item(
             organization=organization,
             code="CHK-1",
-            name_ar="دجاج",
+            name="دجاج",
             category=leaf_category,  # type: ignore[arg-type]
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
@@ -1973,17 +1967,3 @@ class TestReads:
         problems = verify_inventory_accounting(organization)
         assert any("dispatched_quantity" in problem for problem in problems), problems
         assert any("in_transit_quantity" in problem for problem in problems), problems
-
-    def test_in_transit_lists_only_unresolved_quantity(
-        self,
-        group_manager: User,
-        organization: Organization,
-        main_store: Warehouse,
-        kitchen_store: Warehouse,
-        rice: InventoryItem,
-        stocked: None,
-    ) -> None:
-        transfer = _transfer(group_manager, organization, main_store, kitchen_store, rice, "40")
-        dispatch_transfer(actor=group_manager, transfer=transfer)
-        _receive(group_manager, transfer, "40")
-        assert list(visible_in_transit(group_manager)) == []

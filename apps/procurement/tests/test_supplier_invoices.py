@@ -206,8 +206,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -217,19 +217,19 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 @pytest.fixture
 def grocery(organization: Organization) -> Supplier:
     return create_supplier(
-        organization=organization, code="GROC-01", name_ar="مورد", payment_terms_days=30
+        organization=organization, code="GROC-01", name="مورد", payment_terms_days=30
     )
 
 
 @pytest.fixture
 def other_grocery(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-02", name_ar="مورد آخر")
+    return create_supplier(organization=organization, code="GROC-02", name="مورد آخر")
 
 
 @pytest.fixture
@@ -1840,6 +1840,75 @@ class TestScopeAndPermissions:
         assert response.status_code == 200
         assert "<html" not in response.content.decode().lower()
 
+    def test_the_list_uses_the_purchase_invoice_workspace_and_real_main_warehouse(
+        self,
+        expense_invoice: SupplierInvoice,
+        store: Warehouse,
+        controller: User,
+        client: Client,
+    ) -> None:
+        client.force_login(controller)
+        response = client.get(reverse("procurement:supplier_invoice_list"))
+        body = response.content.decode()
+
+        assert response.status_code == 200
+        assert "استلام مباشر إلى المخزن الرئيسي وترحيل محاسبي في عملية واحدة." in body
+        assert "ابحث برقم الفاتورة أو المورد" in body
+        assert "تخصيص المؤشرات" in body
+        assert "فواتير اليوم" in body
+        assert "قيمة اليوم" in body
+        assert "أصناف مستلمة" in body
+        assert "ذمم الموردين" in body
+        assert store.name in body
+        assert response.context["invoices"][0].display_warehouse == store
+
+    def test_search_period_and_warehouse_are_shareable_htmx_filters(
+        self,
+        expense_invoice: SupplierInvoice,
+        store: Warehouse,
+        controller: User,
+        client: Client,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("apps.procurement.views.timezone.localdate", lambda: INVOICED)
+        client.force_login(controller)
+        url = reverse("procurement:supplier_invoice_list")
+        response = client.get(
+            url,
+            {
+                "q": expense_invoice.supplier_invoice_number,
+                "period": "today",
+                "warehouse": str(store.pk),
+            },
+            headers=HX,
+        )
+        body = response.content.decode()
+
+        assert response.status_code == 200
+        assert expense_invoice.supplier_invoice_number in body
+        assert 'name="period" value="today" checked' in body
+        assert f'value="{store.pk}" selected' in body
+        assert "HX-Request" in response.headers.get("Vary", "")
+
+        missing = client.get(url, {"warehouse": "not-a-warehouse"}, headers=HX)
+        assert expense_invoice.supplier_invoice_number not in missing.content.decode()
+
+    def test_today_kpis_are_derived_from_visible_invoices(
+        self,
+        expense_invoice: SupplierInvoice,
+        controller: User,
+        client: Client,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("apps.procurement.views.timezone.localdate", lambda: INVOICED)
+        client.force_login(controller)
+        response = client.get(reverse("procurement:supplier_invoice_list"))
+
+        assert response.status_code == 200
+        assert response.context["invoice_kpis"]["invoice_count"] == 1
+        assert response.context["invoice_kpis"]["draft_count"] == 1
+        assert response.context["invoice_kpis"]["today_value"] == Decimal("75000.000")
+
     def test_the_status_filter_narrows_the_list(
         self, expense_invoice: SupplierInvoice, controller: User, client: Client
     ) -> None:
@@ -1920,7 +1989,7 @@ class TestScopeAndPermissions:
         )
         body = response.content.decode().lower()
         assert response.status_code == 200
-        assert '<section class="workspace-page" id="supplier-invoice-detail">' in body
+        assert '<section class="ui-page" id="supplier-invoice-detail">' in body
         assert "<html" not in body
 
     def test_cost_is_absent_from_restricted_html(

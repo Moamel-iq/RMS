@@ -38,7 +38,7 @@ from django.utils.translation import gettext_lazy as _
 from apps.accounting.models import Account, AccountRole
 from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
 from apps.core.context import audit_context
-from apps.inventory import adjustments, counts, opening, operations, reason_codes, transfers
+from apps.inventory import adjustments, counts, opening, operations, transfers
 from apps.inventory.accounts import (
     archive_inventory_mapping,
     close_inventory_mapping,
@@ -47,16 +47,13 @@ from apps.inventory.accounts import (
 from apps.inventory.ledger import MovementInput, post_stock_entry, reverse_stock_entry
 from apps.inventory.models import (
     INBOUND_MOVEMENT_TYPES,
-    OPEN_TRANSFER_STATUSES,
     InventoryAccountMapping,
     InventoryAdjustmentDocument,
     InventoryAdjustmentLine,
-    InventoryDocumentStatus,
     InventoryDocumentType,
     InventoryItem,
     InventoryMovementDocument,
     InventoryMovementDocumentLine,
-    InventoryReasonCode,
     ItemCategory,
     MovementType,
     OpeningStockDocument,
@@ -77,16 +74,13 @@ from apps.inventory.permissions import (
     CONDUCT_STOCK_COUNT,
     CREATE_DRAFT_MOVEMENT,
     CREATE_OPENING_STOCK,
-    MANAGE_REASON_CODES,
     POST_ADJUSTMENT,
     POST_ISSUE,
     POST_OPENING_STOCK,
     POST_RECEIPT,
-    POST_RETURN_IN,
     POST_TRANSFER,
     POST_WASTE,
     REVERSE_MOVEMENT,
-    VIEW_ITEM,
     VIEW_STOCK,
     VIEW_VALUATION,
 )
@@ -97,7 +91,6 @@ from apps.organizations.authorization import (
     can_access_warehouse,
     require_branch_permission,
     require_organization_permission,
-    require_reachable_organization_permission,
     require_warehouse_permission,
     resolve_organization,
 )
@@ -515,9 +508,7 @@ def reverse_opening(
 
 #: Which permission each document type's posting requires.
 DOCUMENT_PERMISSION: dict[str, str] = {
-    InventoryDocumentType.RECEIPT: POST_RECEIPT,
     InventoryDocumentType.ISSUE: POST_ISSUE,
-    InventoryDocumentType.RETURN_IN: POST_RETURN_IN,
     InventoryDocumentType.WASTE: POST_WASTE,
 }
 
@@ -1054,58 +1045,11 @@ def reverse_transfer_shortage(
         return transfers.reverse_shortage(shortage=shortage, reason=reason)
 
 
-def visible_in_transit(actor: User) -> QuerySet[StockTransferLine]:
-    """
-    Goods standing in transit, from either end, for the in-transit report.
-
-    Scoped through the transfers the caller can see, so the report never shows
-    a consignment between two warehouses they have no business knowing about.
-    """
-    return (
-        StockTransferLine.objects.filter(
-            transfer__in=visible_transfers(actor).filter(status__in=list(OPEN_TRANSFER_STATUSES)),
-            remaining_quantity__gt=0,
-        )
-        .select_related(
-            "transfer",
-            "transfer__source_warehouse",
-            "transfer__source_warehouse__branch",
-            "transfer__destination_warehouse",
-            "transfer__destination_warehouse__branch",
-            "item",
-            "item__base_unit",
-            "lot",
-        )
-        .order_by("transfer__transfer_number", "sequence")
-    )
-
-
-def returnable_issue_lines(actor: User) -> QuerySet[Any]:
-    """
-    Posted issue lines with something still returnable, for the return form.
-
-    Filtered in Python on the remaining quantity because it is an aggregate
-    over sibling rows; the queryset itself stays scoped in SQL.
-    """
-    return (
-        InventoryMovementDocumentLine.objects.filter(
-            document__document_type=InventoryDocumentType.ISSUE,
-            document__status=InventoryDocumentStatus.POSTED,
-            document__warehouse__in=accessible_warehouses(actor),
-        )
-        .select_related("document", "document__warehouse", "item", "item__base_unit", "lot")
-        .order_by("-document__business_date", "-document_id", "sequence")
-    )
-
-
 # ---------------------------------------------------------------------------
-# Reason codes, waste, counts and adjustments (Task 1.6)
+# Waste, counts and adjustments (Task 1.6)
 # ---------------------------------------------------------------------------
 #
-# Four authorities, because they are four different kinds of act.
-#
-# **Reason codes** are organization master data — a shared vocabulary — so
-# managing them needs organization reach, not custody of a shelf.
+# Three authorities, because they are three different kinds of act.
 #
 # **Waste** is a custody act at one warehouse, authorized exactly as an issue
 # is, with its own permission because destroying stock is a different decision
@@ -1119,91 +1063,6 @@ def returnable_issue_lines(actor: User) -> QuerySet[Any]:
 # **An adjustment** is answered at the branch, not the warehouse: it is a
 # correction to the books rather than a movement of goods, and the authority
 # that owns the books is the branch's.
-
-
-def visible_reason_codes(
-    actor: User, *, applies_to: str | None = None
-) -> QuerySet[InventoryReasonCode]:
-    """This organization's reason codes, archived ones included."""
-    if not actor.is_authenticated or not actor.is_active:
-        return InventoryReasonCode.objects.none()
-    if not actor.has_perm(VIEW_ITEM):
-        return InventoryReasonCode.objects.none()
-    codes = InventoryReasonCode.objects.filter(
-        organization__in=_reachable_organizations(actor)
-    ).select_related("organization")
-    if applies_to is not None:
-        codes = codes.filter(applies_to=applies_to)
-    return codes.order_by("applies_to", "code")
-
-
-def _reachable_organizations(actor: User) -> QuerySet[Organization]:
-    """Every organization the caller can see through any membership."""
-    return Organization.objects.filter(
-        Q(memberships__user=actor, memberships__is_active=True)
-        | Q(branches__memberships__user=actor, branches__memberships__is_active=True)
-    ).distinct()
-
-
-def resolve_reason_code(actor: User, reason_code_id: int) -> InventoryReasonCode:
-    code = visible_reason_codes(actor).filter(pk=reason_code_id).first()
-    if code is None:
-        raise OutOfScope(_("Reason code %(id)s does not exist.") % {"id": reason_code_id})
-    return code
-
-
-def create_reason_code(
-    *,
-    actor: User,
-    organization: Organization,
-    code: str,
-    name_ar: str,
-    applies_to: str,
-    name_en: str = "",
-    requires_comment: bool = False,
-    requires_evidence: bool = False,
-) -> InventoryReasonCode:
-    require_reachable_organization_permission(actor, MANAGE_REASON_CODES, organization)
-    with _acting_as(actor):
-        return reason_codes.create_reason_code(
-            organization=organization,
-            code=code,
-            name_ar=name_ar,
-            applies_to=applies_to,
-            name_en=name_en,
-            requires_comment=requires_comment,
-            requires_evidence=requires_evidence,
-        )
-
-
-def update_reason_code(
-    *,
-    actor: User,
-    reason_code: InventoryReasonCode,
-    name_ar: str,
-    name_en: str = "",
-    requires_comment: bool | None = None,
-    requires_evidence: bool | None = None,
-    is_active: bool | None = None,
-) -> InventoryReasonCode:
-    require_reachable_organization_permission(actor, MANAGE_REASON_CODES, reason_code.organization)
-    with _acting_as(actor):
-        return reason_codes.update_reason_code(
-            reason_code=reason_code,
-            name_ar=name_ar,
-            name_en=name_en,
-            requires_comment=requires_comment,
-            requires_evidence=requires_evidence,
-            is_active=is_active,
-        )
-
-
-def archive_reason_code(
-    *, actor: User, reason_code: InventoryReasonCode, reason: str = ""
-) -> InventoryReasonCode:
-    require_reachable_organization_permission(actor, MANAGE_REASON_CODES, reason_code.organization)
-    with _acting_as(actor):
-        return reason_codes.archive_reason_code(reason_code=reason_code, reason=reason)
 
 
 # --- Physical counts --------------------------------------------------------

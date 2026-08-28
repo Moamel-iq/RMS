@@ -219,8 +219,7 @@ class Command(BaseCommand):
         return create_sales_channel(
             organization=organization,
             code=code,
-            name_ar=str(source.get("name_ar") or "التطبيقات"),
-            name_en=str(source.get("name_en") or "Delivery applications"),
+            name=str(source.get("name") or "التطبيقات"),
             category=SalesChannelCategory.DELIVERY_APPLICATION,
             cost_center=center,
             requires_cashier=False,
@@ -256,8 +255,7 @@ class Command(BaseCommand):
                 application = create_delivery_application(
                     organization=organization,
                     code=code,
-                    name_ar=str(source["name_ar"]),
-                    name_en=str(source.get("name_en") or ""),
+                    name=str(source["name"]),
                     settlement_cycle_days=int(source.get("settlement_cycle_days") or lag_days),
                     receivable_account=account,
                     notes="شركة تطبيق توصيل فعلية.",
@@ -266,7 +264,7 @@ class Command(BaseCommand):
             else:
                 if not application.is_active:
                     raise CommandError(f"Application {code} is archived.")
-                if application.name_ar != str(source["name_ar"]):
+                if application.name != str(source["name"]):
                     raise CommandError(f"Application {code} exists under another Arabic name.")
                 stats["applications_reused"] += 1
 

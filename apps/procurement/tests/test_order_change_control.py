@@ -97,8 +97,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -108,7 +108,7 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
     from apps.inventory.services import create_item_conversion, create_package_unit
 
-    package = create_package_unit(organization=organization, code="SACK", name_ar="كيس")
+    package = create_package_unit(organization=organization, code="SACK", name="كيس")
     create_item_conversion(
         item=rice,
         package_unit=package,
@@ -123,12 +123,12 @@ def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 @pytest.fixture
 def grocery(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد")
 
 
 @pytest.fixture

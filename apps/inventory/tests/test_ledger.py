@@ -86,7 +86,7 @@ def lot_item(organization: Organization, leaf_category: Any, kilogram: Any) -> I
     return create_item(
         organization=organization,
         code="CHK-FRESH",
-        name_ar="دجاج طازج",
+        name="دجاج طازج",
         category=leaf_category,
         item_type="RAW_MATERIAL",
         base_unit=kilogram,
@@ -310,7 +310,7 @@ class TestIdempotency:
         theirs = create_item(
             organization=other_organization,
             code="RICE-272",
-            name_ar="رز",
+            name="رز",
             category=other_category,
             item_type="RAW_MATERIAL",
             base_unit=kilogram,
@@ -855,7 +855,7 @@ class TestLots:
         perishable = create_item(
             organization=organization,
             code="MILK",
-            name_ar="حليب",
+            name="حليب",
             category=leaf_category,
             item_type="RAW_MATERIAL",
             base_unit=kilogram,
@@ -891,7 +891,7 @@ class TestLots:
         perishable = create_item(
             organization=organization,
             code="MILK",
-            name_ar="حليب",
+            name="حليب",
             category=leaf_category,
             item_type="RAW_MATERIAL",
             base_unit=kilogram,
@@ -1162,7 +1162,7 @@ class TestTenancy:
         theirs = create_item(
             organization=other_organization,
             code="THEIRS",
-            name_ar="لهم",
+            name="لهم",
             category=other_category,
             item_type="RAW_MATERIAL",
             base_unit=kilogram,
@@ -1213,7 +1213,7 @@ class TestPostedSequence:
         theirs = create_item(
             organization=other_organization,
             code="THEIRS",
-            name_ar="لهم",
+            name="لهم",
             category=other_category,
             item_type="RAW_MATERIAL",
             base_unit=kilogram,
@@ -1347,7 +1347,7 @@ class TestPostedHistoryFreezesMasterData:
         with pytest.raises(ValidationError) as refused:
             update_item(
                 item=rice,
-                name_ar=rice.name_ar,
+                name=rice.name,
                 category=rice.category,
                 item_type=rice.item_type,
                 tracks_lots=True,
@@ -1802,7 +1802,7 @@ class TestArchivingAWarehouseThatHoldsStock:
         _post(organization, [_receipt(main_store, rice, "10", "1000")], "k1")
 
         with pytest.raises(ValidationError) as refused:
-            update_warehouse(warehouse=main_store, name_ar=main_store.name_ar, is_active=False)
+            update_warehouse(warehouse=main_store, name=main_store.name, is_active=False)
         assert refused.value.code == "warehouse_still_holds_stock"
 
         main_store.refresh_from_db()
@@ -1820,7 +1820,7 @@ class TestArchivingAWarehouseThatHoldsStock:
         _post(organization, [_receipt(main_store, rice, "10", "1000")], "k1")
         _post(organization, [_issue(main_store, rice, "10")], "k2")
 
-        update_warehouse(warehouse=main_store, name_ar=main_store.name_ar, is_active=False)
+        update_warehouse(warehouse=main_store, name=main_store.name, is_active=False)
         main_store.refresh_from_db()
         assert main_store.is_active is False
 
@@ -1829,7 +1829,7 @@ class TestArchivingAWarehouseThatHoldsStock:
     ) -> None:
         from apps.inventory.services import update_warehouse
 
-        update_warehouse(warehouse=main_store, name_ar=main_store.name_ar, is_active=False)
+        update_warehouse(warehouse=main_store, name=main_store.name, is_active=False)
         main_store.refresh_from_db()
         assert main_store.is_active is False
 

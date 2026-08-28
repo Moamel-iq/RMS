@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n money_tags quantity_tags %}
 
 {# What still needs reconciling, in the two directions it can be missing.    #}
@@ -10,28 +10,28 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{% translate "قائمة المطابقة" %}</h1>
-        <p class="pagehead__hint">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{% translate "قائمة المطابقة" %}</h1>
+        <p class="ui-page-header__hint">
           {% translate "المطابقة تُقرّر ما الذي يُغطّي ماذا. لا تُنشئ قيداً ولا تُسوّي ذمة ولا تُحرّك مخزوناً؛ الترحيل المالي مهمة لاحقة." %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'procurement:purchase_match_list' %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:purchase_match_list' %}">
           {% translate "المطابقات" %}
         </a>
       </div>
     </div>
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "تسليمات بلا فاتورة" %}</h2>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "بضاعة وصلت وسُجّلت قيمتها المؤقتة في حساب البضاعة المستلمة غير المفوترة، ولم يطالب بها المورد بعد." %}
       </p>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th>{% translate "الاستلام" %}</th>
@@ -47,7 +47,7 @@
               <tr>
                 <td><span dir="ltr">{{ line.receipt.number }}</span></td>
                 <td>{{ line.receipt.supplier.code }}</td>
-                <td>{{ line.item.code }} — {{ line.item.name_ar }}</td>
+                <td>{{ line.item.code }} — {{ line.item.name }}</td>
                 <td><span dir="ltr">{{ line.accepted_base_quantity|quantity }}</span></td>
                 <td><span dir="ltr">{{ line.unmatched_quantity|quantity }}</span></td>
                 {% if may_see_cost %}
@@ -62,13 +62,13 @@
       </div>
     </div>
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "فواتير بلا تسليم مطابَق" %}</h2>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "أسطر بضاعة معتمدة تنتظر أن يُقال أي تسليم يُغطّيها. حتى تُطابَق، تبقى الفاتورة معتمدة بلا ترحيل." %}
       </p>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th>{% translate "الفاتورة" %}</th>
@@ -84,11 +84,11 @@
               <tr>
                 <td><span dir="ltr">{{ line.invoice.supplier_invoice_number }}</span></td>
                 <td>{{ line.invoice.supplier.code }}</td>
-                <td>{{ line.item.code }} — {{ line.item.name_ar }}</td>
+                <td>{{ line.item.code }} — {{ line.item.name }}</td>
                 <td><span dir="ltr">{{ line.base_quantity|quantity }}</span></td>
-                <td><span class="chip">{{ line.match_state }}</span></td>
+                <td><span class="ui-badge">{{ line.match_state }}</span></td>
                 <td>
-                  <a class="btn btn--ghost btn--sm"
+                  <a class="ui-button ui-button--ghost ui-button--small"
                      href="{% url 'procurement:supplier_invoice_detail' line.invoice_id %}">
                     {% translate "الفاتورة" %}
                   </a>

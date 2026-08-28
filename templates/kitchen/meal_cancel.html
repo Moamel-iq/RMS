@@ -10,30 +10,30 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page workspace-form-page" id="kitchen-meal-cancel">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ meal_statement }}</p>
+  <div class="ui-page ui-page--form" id="kitchen-meal-cancel">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ meal_statement }}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:meal_detail' record.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:meal_detail' record.pk %}">
           {% translate "رجوع" %}
         </a>
       </div>
     </div>
 
-    <p class="banner" role="alert">
+    <p class="ui-notice" role="alert">
       {% translate "الإلغاء لا يعكس حركة مخزنية ولا قيداً — لم يُسجَّل أيٌّ منهما أصلاً. ما يتغيّر أن السجل يخرج من الاستهلاك النظري، ويبقى ظاهراً في السجل التاريخي. التصحيح يكون بإلغاء ثم تسجيل بديل." %}
     </p>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "التعريف" %}</h2>
-      <dl class="deflist">
+      <dl class="ui-definition-list">
         <dt>{% translate "النوع" %}</dt>
         <dd>{{ record.get_meal_type_display }}</dd>
         <dt>{% translate "الوصفة" %}</dt>
-        <dd>{{ record.recipe.code }} — {{ record.recipe.name_ar }}</dd>
+        <dd>{{ record.recipe.code }} — {{ record.recipe.name }}</dd>
         <dt>{% translate "تاريخ الاستهلاك" %}</dt>
         <dd><code dir="ltr">{{ record.consumed_on|date:"Y-m-d" }}</code></dd>
         <dt>{% translate "عدد الحصص" %}</dt>
@@ -41,7 +41,7 @@
       </dl>
     </section>
 
-    <form class="formcard"
+    <form class="ui-form-card"
           method="post"
           novalidate
           action="{{ request.path }}"
@@ -51,20 +51,20 @@
       {% csrf_token %}
 
       {% if form.non_field_errors %}
-        <div class="alert" role="alert">
+        <div class="ui-notice" role="alert">
           {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
 
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
 
-      <div class="formactions">
-        <button class="btn btn--danger" type="submit">{% translate "تأكيد الإلغاء" %}</button>
-        <a class="btn btn--ghost" href="{% url 'kitchen:meal_detail' record.pk %}">
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--danger" type="submit">{% translate "تأكيد الإلغاء" %}</button>
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:meal_detail' record.pk %}">
           {% translate "تراجع" %}
         </a>
       </div>

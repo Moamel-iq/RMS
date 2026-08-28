@@ -41,12 +41,11 @@ def _class_tokens(attributes: dict[str, str | None]) -> set[str]:
 
 @pytest.fixture
 def inventory_manager() -> User:
-    organization = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM", name="خان مندي")
     branch = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
     user = User.objects.create_user(username="inventory-ui-manager", password="not-real-123")
@@ -65,7 +64,7 @@ def test_shell_has_a_keyboard_skip_link_and_focusable_main(
     skip_links = [
         tag
         for tag in _tags(body, "a")
-        if tag.get("href") == "#main-content" and "skip-link" in _class_tokens(tag)
+        if tag.get("href") == "#main-content" and "ui-skip-link" in _class_tokens(tag)
     ]
     main = [tag for tag in _tags(body, "main") if tag.get("id") == "main-content"]
 
@@ -81,10 +80,12 @@ def test_shell_assets_are_revisioned_and_icons_have_intrinsic_sizes(
     client.force_login(inventory_manager)
     body = client.get(reverse("inventory:item_list")).content.decode()
 
-    assert "css/app.css?v=" in body
-    assert "css/inventory.css?v=" in body
-    assert "js/app-shell.js?v=" in body
+    assert "css/erp-design-system.css?v=" in body
+    assert "js/ui-shell.js?v=" in body
     assert "js/inventory-htmx.js?v=" in body
+    assert "css/app.css" not in body
+    assert "css/inventory.css" not in body
+    assert "js/app-shell.js" not in body
 
     shell_svgs = [tag for tag in _tags(body, "svg") if tag.get("viewbox")]
     assert shell_svgs
@@ -116,8 +117,8 @@ def test_inventory_page_marks_both_module_and_section_as_current(
 ) -> None:
     client.force_login(inventory_manager)
     body = client.get(reverse("inventory:item_list")).content.decode()
-    # The rail marks the *module* current and links to its landing page — the
-    # overview, as Sales and Accounting already do. The subnav marks the
+    # Primary navigation marks the *module* current and links to its landing page — the
+    # overview, as Sales and Accounting already do. Secondary navigation marks the
     # *section* current and links to the screen itself. Two links, two hrefs.
     module_url = reverse("inventory:overview")
     item_url = reverse("inventory:item_list")
@@ -125,11 +126,11 @@ def test_inventory_page_marks_both_module_and_section_as_current(
     current_links = [tag for tag in _tags(body, "a") if tag.get("aria-current") == "page"]
 
     assert any(
-        "rail__item" in _class_tokens(tag) and tag.get("href") == module_url
+        "ui-primary-nav__item" in _class_tokens(tag) and tag.get("href") == module_url
         for tag in current_links
     )
     assert any(
-        "subnav__item" in _class_tokens(tag) and tag.get("href") == item_url
+        "ui-secondary-nav__item" in _class_tokens(tag) and tag.get("href") == item_url
         for tag in current_links
     )
 
@@ -152,7 +153,7 @@ def test_confirmation_dialog_is_named_described_and_keyboard_operable(
 
 def test_confirmation_dialog_preserves_the_clicked_submit_action() -> None:
     """Named submit buttons must survive the confirm-and-resubmit round trip."""
-    script = (Path(__file__).resolve().parents[3] / "static" / "js" / "app-shell.js").read_text(
+    script = (Path(__file__).resolve().parents[3] / "static" / "js" / "ui-shell.js").read_text(
         encoding="utf-8"
     )
 
@@ -173,21 +174,14 @@ def test_inventory_navigation_is_grouped_and_all_workflow_destinations_resolve()
         "inventory:stock_list",
         "inventory:movement_list",
         "inventory:opening_list",
-        "inventory:inventory_receipt_list",
         "inventory:inventory_issue_list",
-        "inventory:inventory_return_in_list",
         "inventory:transfer_list",
-        "inventory:in_transit",
         "inventory:inventory_waste_list",
         "inventory:count_list",
         "inventory:adjustment_list",
-        "inventory:reason_code_list",
         "inventory:mapping_list",
-        "inventory:reconciliation",
-        "inventory:import_list",
         "inventory:report_valuation",
         "inventory:report_stock_card",
-        "inventory:report_in_transit",
         "inventory:report_expiry",
         "inventory:report_reorder",
         "inventory:report_waste",
@@ -201,7 +195,6 @@ def test_inventory_navigation_is_grouped_and_all_workflow_destinations_resolve()
         "الرصيد والحركة",
         "الحركات المخزنية",
         "الجرد والتسويات",
-        "الضبط والمطابقة",
         "التقارير",
     }
 
@@ -209,4 +202,4 @@ def test_inventory_navigation_is_grouped_and_all_workflow_destinations_resolve()
     assert all(section.available for section in inventory.sections)
     assert {str(section.group) for section in inventory.sections} == expected_groups
     assert all(reverse(route_name) for route_name in expected_destinations)
-    assert sections_by_url["inventory:import_list"].active_prefixes == ("inventory:import_",)
+    assert sections_by_url["inventory:mapping_list"].active_prefixes == ("inventory:mapping_",)

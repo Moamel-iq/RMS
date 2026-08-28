@@ -1,46 +1,245 @@
 {% extends "settings/base_list.html" %}
-{% load i18n %}
+{% load i18n static money_tags %}
 
-{% block filters %}
-  <label class="filter-field"><span class="filter-field__label">{% translate "المورد" %}</span><select name="supplier"><option value="">{% translate "كل الموردين" %}</option>{% for supplier in suppliers %}<option value="{{ supplier.pk }}"{% if selected_supplier == supplier.pk|stringformat:"s" %} selected{% endif %}>{{ supplier.code }} — {{ supplier.name_ar }}</option>{% endfor %}</select></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "الفرع" %}</span><select name="branch"><option value="">{% translate "كل الفروع" %}</option>{% for branch in branches %}<option value="{{ branch.pk }}"{% if selected_branch == branch.pk|stringformat:"s" %} selected{% endif %}>{{ branch.code }} — {{ branch.name_ar }}</option>{% endfor %}</select></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "الحالة" %}</span><select name="status"><option value="">{% translate "كل الحالات" %}</option>{% for value, label in statuses %}<option value="{{ value }}"{% if value == selected_status %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "حالة المطابقة" %}</span><select name="matching"><option value="">{% translate "كل الحالات" %}</option>{% for value, label in matching_choices %}<option value="{{ value }}"{% if value == selected_matching %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "رقم النظام" %}</span><input name="number" value="{{ selected_number }}"></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "مرجع المورد" %}</span><input name="reference" value="{{ selected_reference }}"></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "تاريخ الفاتورة من" %}</span><input type="date" name="invoice_from" value="{{ selected_invoice_from }}"></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "تاريخ الفاتورة إلى" %}</span><input type="date" name="invoice_to" value="{{ selected_invoice_to }}"></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "التاريخ المحاسبي من" %}</span><input type="date" name="accounting_from" value="{{ selected_accounting_from }}"></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "التاريخ المحاسبي إلى" %}</span><input type="date" name="accounting_to" value="{{ selected_accounting_to }}"></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "الاستحقاق من" %}</span><input type="date" name="due_from" value="{{ selected_due_from }}"></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "الاستحقاق إلى" %}</span><input type="date" name="due_to" value="{{ selected_due_to }}"></label>
-  <label class="filter-field"><span class="filter-field__label">{% translate "المتأخرات" %}</span><select name="overdue"><option value="">{% translate "الكل" %}</option><option value="1"{% if selected_overdue == "1" %} selected{% endif %}>{% translate "متأخرة ومستحقة" %}</option></select></label>
+{% block title %}{% translate "فواتير المشتريات" %} · {% translate "نظام خان مندي" %}{% endblock %}
+
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'css/procurement-invoices.css' %}?v=20260828-1">
 {% endblock %}
 
-{% block active_filter_chips %}
-  {% if selected_status %}<span class="filter-chip">{% translate "الحالة" %}: {{ selected_status }}</span>{% endif %}
-  {% if selected_matching %}<span class="filter-chip">{% translate "المطابقة" %}: {{ selected_matching }}</span>{% endif %}
-  {% if selected_overdue %}<span class="filter-chip">{% translate "متأخرة فقط" %}</span>{% endif %}
-{% endblock %}
+{% block page %}
+  <section class="ui-page ui-purchase-invoices" aria-labelledby="purchase-invoices-title">
+    <aside class="ui-purchase-notice" data-dismissible-notice aria-label="{% translate 'طريقة عمل فواتير المشتريات' %}">
+      <span class="ui-purchase-notice__mark" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6zM9 11h6M9 15h6M9 7h3"/></svg>
+      </span>
+      <div>
+        <strong>{% translate "فواتير المشتريات" %}</strong>
+        <p>{% translate "استلام مباشر إلى المخزن الرئيسي وترحيل محاسبي في عملية واحدة." %}</p>
+      </div>
+      <button class="ui-icon-button ui-purchase-notice__close" type="button" data-notice-dismiss
+              aria-label="{% translate 'إغلاق التنبيه' %}">×</button>
+    </aside>
 
-{% block columns %}
-  <th scope="col">{% translate "الهوية" %}</th><th scope="col">{% translate "المورد والفرع" %}</th><th scope="col">{% translate "التواريخ" %}</th><th scope="col">{% translate "شرط الائتمان" %}</th>
-  {% if may_see_cost %}<th scope="col">{% translate "المبالغ" %}</th>{% endif %}<th scope="col">{% translate "المطابقة" %}</th>{% if may_see_cost %}<th scope="col">{% translate "الذمة" %}</th>{% endif %}<th scope="col">{% translate "التنفيذ" %}</th><th scope="col">{% translate "الحالة" %}</th><th scope="col">{% translate "إجراءات" %}</th>
-{% endblock %}
+    <header class="ui-purchase-pagehead">
+      <div class="ui-purchase-pagehead__copy">
+        <h1 id="purchase-invoices-title">{% translate "فواتير المشتريات" %}</h1>
+        <p>{% translate "استلام مباشر إلى المخزن الرئيسي وترحيل محاسبي في عملية واحدة." %}</p>
+      </div>
+      <div class="ui-purchase-pagehead__actions ui-no-print">
+        {% if create_url %}
+          <a class="ui-button ui-button--primary ui-purchase-primary-action" href="{{ create_url }}">
+            <span aria-hidden="true">+</span> {% translate "فاتورة مشتريات" %}
+          </a>
+          <a class="ui-button ui-button--secondary" href="{{ create_url }}">{% translate "فاتورة" %}</a>
+        {% endif %}
+        <details class="ui-kpi-customizer">
+          <summary class="ui-button ui-button--secondary">{% translate "تخصيص المؤشرات" %}</summary>
+          <div class="ui-kpi-customizer__panel">
+            <strong>{% translate "مؤشرات فواتير المشتريات" %}</strong>
+            <p>{% translate "تعرض البطاقات أدناه حركة اليوم والاستلام المباشر والذمم الفعلية ضمن صلاحياتك." %}</p>
+          </div>
+        </details>
+      </div>
+    </header>
 
-{% block rows %}
-  {% for row in invoices %}
-    <tr>
-      <td data-label="{% translate 'الهوية' %}">{% if row.number %}<strong><bdi dir="ltr">{{ row.number }}</bdi></strong>{% else %}<span class="muted">{% translate "لم يُرقّم بعد" %}</span>{% endif %}<br><bdi dir="ltr">{{ row.supplier_invoice_number }}</bdi>{% if row.supplier_reference %}<br><span class="muted">{{ row.supplier_reference }}</span>{% endif %}</td>
-      <td data-label="{% translate 'المورد والفرع' %}"><strong>{{ row.supplier.code }} — {{ row.supplier.name_ar }}</strong><br><span class="muted">{{ row.branch.code }} — {{ row.branch.name_ar }}</span></td>
-      <td data-label="{% translate 'التواريخ' %}"><span class="muted">{% translate "فاتورة" %}</span> <bdi dir="ltr">{{ row.invoice_date|date:"Y-m-d" }}</bdi><br><span class="muted">{% translate "محاسبي" %}</span> <bdi dir="ltr">{{ row.business_date|date:"Y-m-d" }}</bdi><br><span class="muted">{% translate "استحقاق" %}</span> <bdi dir="ltr">{{ row.due_date|date:"Y-m-d" }}</bdi>{% if row.overdue_days %}<br><span class="chip chip--off">{% blocktranslate with days=row.overdue_days %}متأخرة {{ days }} يوم{% endblocktranslate %}</span>{% endif %}</td>
-      <td data-label="{% translate 'شرط الائتمان' %}">{{ row.credit_term_name|default:"—" }}<br><span class="muted"><bdi dir="ltr">{{ row.credit_term_net_days }}</bdi> {% translate "يوم" %}{% if row.credit_term_version %} · <bdi dir="ltr">v{{ row.credit_term_version }}</bdi>{% endif %}</span></td>
-      {% if may_see_cost %}<td data-label="{% translate 'المبالغ' %}"><span class="muted">{% translate "إجمالي الأسطر" %}</span> <bdi dir="ltr">{{ row.lines_total|stringformat:"f" }}</bdi><br><span class="muted">{% translate "تكاليف منظمة" %}</span> <bdi dir="ltr">{{ row.charges_total|stringformat:"f" }}</bdi>{% if row.freight_amount %} · <span class="muted">{% translate "نقل قديم" %}</span> <bdi dir="ltr">{{ row.freight_amount|stringformat:"f" }}</bdi>{% endif %} · <span class="muted">{% translate "خصم" %}</span> <bdi dir="ltr">{{ row.discount_amount|stringformat:"f" }}</bdi><br><strong><bdi dir="ltr">{{ row.total_amount|stringformat:"f" }} {{ row.currency_code }}</bdi></strong></td>{% endif %}
-      <td data-label="{% translate 'المطابقة' %}">{% if row.matching_state == "MATCHED" %}<span class="chip chip--on">{% translate "مطابق وجاهز" %}</span>{% elif row.matching_state == "IN_PROGRESS" %}<span class="chip">{% translate "قيد المطابقة" %}</span>{% elif row.matching_state == "DIRECT" %}<span class="chip chip--on">{% translate "مصروف مباشر" %}</span>{% else %}<span class="chip chip--off">{% translate "غير مطابق" %}</span>{% endif %}</td>
-      {% if may_see_cost %}<td data-label="{% translate 'الذمة' %}">{% if row.posted_amount is not None %}<span class="muted">{% translate "مرحّل" %}</span> <bdi dir="ltr">{{ row.posted_amount|stringformat:"f" }}</bdi><br><strong>{% translate "متبقي" %} <bdi dir="ltr">{{ row.outstanding_value|stringformat:"f" }}</bdi></strong>{% else %}—{% endif %}</td>{% endif %}
-      <td data-label="{% translate 'التنفيذ' %}"><span class="muted">{% translate "أنشأ" %}</span> {{ row.created_by.username }}<br><span class="muted">{% translate "اعتمد" %}</span> {{ row.approved_by.username|default:"—" }}<br><span class="muted">{% translate "رحّل" %}</span> {{ row.posted_by.username|default:"—" }}{% if row.journal_entry_id %}<br><bdi dir="ltr">{{ row.journal_entry.entry_number }}</bdi>{% endif %}</td>
-      <td data-label="{% translate 'الحالة' %}">{% if row.status == "POSTED" %}<span class="chip chip--on">{{ row.get_status_display }}</span>{% elif row.status == "REVERSED" %}<span class="chip chip--off">{{ row.get_status_display }}</span>{% else %}<span class="chip">{{ row.get_status_display }}</span>{% endif %}</td>
-      <td data-label="{% translate 'إجراءات' %}"><div class="rowactions"><a class="btn btn--secondary btn--sm" href="{% url 'procurement:supplier_invoice_detail' row.pk %}">{% translate "فتح" %}</a>{% if row.status == "DRAFT" and row.organization_id in manageable_ids %}<a class="btn btn--ghost btn--sm" href="{% url 'procurement:supplier_invoice_update' row.pk %}">{% translate "تعديل" %}</a>{% endif %}</div></td>
-    </tr>
-  {% empty %}<tr><td colspan="10" data-empty-state><div class="empty-state"><strong>{% translate "لا توجد فواتير مطابقة." %}</strong><span>{% translate "غيّر المرشحات أو سجّل فاتورة مورد جديدة." %}</span></div></td></tr>{% endfor %}
+    {% block results %}
+      <section id="purchase-invoice-live" class="ui-purchase-live" aria-live="polite" aria-busy="false">
+        <form id="purchase-invoice-filters" class="ui-purchase-filter-workspace" method="get"
+              data-prune-empty-params aria-label="{% translate 'البحث ومرشحات فواتير المشتريات' %}"
+              hx-get="{{ request.path }}"
+              hx-target="#purchase-invoice-live"
+              hx-swap="outerHTML show:top"
+              hx-push-url="true"
+              hx-trigger="submit, keyup changed delay:350ms from:#purchase-invoice-search, search from:#purchase-invoice-search, change"
+              hx-indicator="#purchase-invoice-loading"
+              hx-sync="closest form:replace"
+              hx-disabled-elt="find button[type=submit]">
+          <fieldset class="ui-period-tabs">
+            <legend class="ui-sr-only">{% translate "الفترة" %}</legend>
+            {% for value, label in period_choices %}
+              <label class="ui-period-tab{% if selected_period == value %} is-active{% endif %}">
+                <input type="radio" name="period" value="{{ value }}"{% if selected_period == value %} checked{% endif %}>
+                <span>{{ label }}</span>
+              </label>
+            {% endfor %}
+          </fieldset>
+
+          <section class="ui-purchase-list-card" aria-labelledby="purchase-invoice-list-title">
+            <div class="ui-purchase-filterbar ui-no-print">
+              <label class="ui-purchase-search" for="purchase-invoice-search">
+                <span class="ui-sr-only">{% translate "بحث" %}</span>
+                <svg width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                <input id="purchase-invoice-search" type="search" name="q" value="{{ search|default:'' }}"
+                       placeholder="{% translate 'ابحث برقم الفاتورة أو المورد' %}" autocomplete="off">
+              </label>
+              <label class="ui-purchase-select">
+                <span class="ui-sr-only">{% translate "الحالة" %}</span>
+                <select name="status" aria-label="{% translate 'الحالة' %}">
+                  <option value="">{% translate "كل الحالات" %}</option>
+                  {% for value, label in statuses %}
+                    <option value="{{ value }}"{% if value == selected_status %} selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="ui-purchase-select">
+                <span class="ui-sr-only">{% translate "المخزن" %}</span>
+                <select name="warehouse" aria-label="{% translate 'المخزن' %}">
+                  <option value="">{% translate "كل المخازن الرئيسية" %}</option>
+                  {% for warehouse in warehouses %}
+                    <option value="{{ warehouse.pk }}"{% if selected_warehouse == warehouse.pk|stringformat:'s' %} selected{% endif %}>{{ warehouse.name }} — {{ warehouse.branch.name }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button class="ui-button ui-button--secondary ui-purchase-filter-submit" type="submit">{% translate "تصفية" %}</button>
+              {% if filter_query %}
+                <a class="ui-purchase-filter-reset" href="{{ request.path }}"
+                   hx-get="{{ request.path }}" hx-target="#purchase-invoice-live"
+                   hx-swap="outerHTML show:top" hx-push-url="true"
+                   hx-indicator="#purchase-invoice-loading">{% translate "مسح" %}</a>
+              {% endif %}
+            </div>
+
+            <div class="ui-purchase-list-meta">
+              <h2 id="purchase-invoice-list-title" class="ui-sr-only">{% translate "قائمة فواتير المشتريات" %}</h2>
+              <span class="ui-purchase-result-count" role="status">
+                <bdi dir="ltr">{{ page_obj.paginator.count }}</bdi> {% translate "فاتورة" %}
+              </span>
+              <span class="ui-loading ui-purchase-loading" id="purchase-invoice-loading" role="status">
+                <span class="ui-loading__spinner" aria-hidden="true"></span>
+                {% translate "جارٍ تحديث الفواتير…" %}
+              </span>
+            </div>
+
+            <div class="ui-purchase-table-shell" tabindex="0" role="region" aria-label="{% translate 'فواتير المشتريات' %}">
+              <table class="ui-purchase-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{% translate "رقم الفاتورة" %}</th>
+                    <th scope="col">{% translate "المورد" %}</th>
+                    <th scope="col">{% translate "تاريخ الفاتورة" %}</th>
+                    <th scope="col">{% translate "المخزن" %}</th>
+                    <th scope="col">{% translate "الإجمالي" %}</th>
+                    <th scope="col">{% translate "الحالة" %}</th>
+                    <th scope="col"><span class="ui-sr-only">{% translate "إجراءات" %}</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in invoices %}
+                    <tr>
+                      <td data-label="{% translate 'رقم الفاتورة' %}">
+                        {% if row.number %}
+                          <strong class="ui-purchase-invoice-number"><bdi dir="ltr">{{ row.number }}</bdi></strong>
+                        {% else %}
+                          <strong class="ui-purchase-invoice-number ui-purchase-invoice-number--draft">{% translate "مسودة غير مرقمة" %}</strong>
+                        {% endif %}
+                        <small><bdi dir="ltr">{{ row.supplier_invoice_number }}</bdi></small>
+                      </td>
+                      <td data-label="{% translate 'المورد' %}">
+                        <strong>{{ row.supplier.name }}</strong>
+                        <small><bdi dir="ltr">{{ row.supplier.code }}</bdi></small>
+                      </td>
+                      <td data-label="{% translate 'تاريخ الفاتورة' %}">
+                        <time datetime="{{ row.invoice_date|date:'Y-m-d' }}"><bdi dir="ltr">{{ row.invoice_date|date:"Y-m-d" }}</bdi></time>
+                      </td>
+                      <td data-label="{% translate 'المخزن' %}">
+                        {% if row.display_warehouse %}
+                          <strong>{{ row.display_warehouse.name }}</strong>
+                          <small>{{ row.branch.name }}</small>
+                        {% else %}
+                          <span class="ui-status-badge ui-status-badge--danger">{% translate "غير مهيأ" %}</span>
+                          <small>{{ row.branch.name }}</small>
+                        {% endif %}
+                      </td>
+                      <td data-label="{% translate 'الإجمالي' %}" class="ui-purchase-money">
+                        {% if may_see_cost %}
+                          <strong>{{ row.total_amount|money }}</strong>
+                        {% else %}
+                          <span class="ui-purchase-private">{% translate "محجوب حسب الصلاحية" %}</span>
+                        {% endif %}
+                      </td>
+                      <td data-label="{% translate 'الحالة' %}">
+                        {% if row.status == "POSTED" %}
+                          <span class="ui-status-badge ui-status-badge--success">{{ row.get_status_display }}</span>
+                        {% elif row.status == "DRAFT" %}
+                          <span class="ui-status-badge ui-status-badge--warning">{{ row.get_status_display }}</span>
+                        {% elif row.status == "REVERSED" %}
+                          <span class="ui-status-badge ui-status-badge--danger">{{ row.get_status_display }}</span>
+                        {% else %}
+                          <span class="ui-status-badge ui-status-badge--info">{{ row.get_status_display }}</span>
+                        {% endif %}
+                      </td>
+                      <td data-label="{% translate 'إجراءات' %}" class="ui-purchase-row-action">
+                        <a class="ui-button ui-button--secondary ui-button--small" href="{% url 'procurement:supplier_invoice_detail' row.pk %}">{% translate "فتح" %}</a>
+                      </td>
+                    </tr>
+                  {% empty %}
+                    <tr>
+                      <td colspan="7" class="ui-purchase-empty-cell">
+                        <div class="ui-empty ui-purchase-empty">
+                          <span class="ui-purchase-empty__icon" aria-hidden="true">⌕</span>
+                          <strong>{% translate "لا توجد فواتير مطابقة." %}</strong>
+                          <span>{% translate "غيّر المرشحات أو سجّل فاتورة مشتريات جديدة." %}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            {% if is_paginated %}
+              <nav class="ui-purchase-pagination ui-no-print" aria-label="{% translate 'ترقيم صفحات الفواتير' %}">
+                <div>
+                  {% if page_obj.has_previous %}
+                    <a class="ui-button ui-button--secondary ui-button--small" href="?{{ filter_query }}page={{ page_obj.previous_page_number }}"
+                       hx-get="?{{ filter_query }}page={{ page_obj.previous_page_number }}"
+                       hx-target="#purchase-invoice-live" hx-swap="outerHTML show:top"
+                       hx-push-url="true" hx-indicator="#purchase-invoice-loading">{% translate "السابق" %}</a>
+                  {% endif %}
+                </div>
+                <span>{% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}</span>
+                <div>
+                  {% if page_obj.has_next %}
+                    <a class="ui-button ui-button--secondary ui-button--small" href="?{{ filter_query }}page={{ page_obj.next_page_number }}"
+                       hx-get="?{{ filter_query }}page={{ page_obj.next_page_number }}"
+                       hx-target="#purchase-invoice-live" hx-swap="outerHTML show:top"
+                       hx-push-url="true" hx-indicator="#purchase-invoice-loading">{% translate "التالي" %}</a>
+                  {% endif %}
+                </div>
+              </nav>
+            {% endif %}
+          </section>
+        </form>
+
+        <section class="ui-purchase-kpis" id="purchase-invoice-kpis" aria-label="{% translate 'مؤشرات فواتير المشتريات' %}">
+          <article class="ui-purchase-kpi">
+            <span class="ui-purchase-kpi__menu" aria-hidden="true">•••</span>
+            <p>{% translate "فواتير اليوم" %}</p>
+            <strong><bdi dir="ltr">{{ invoice_kpis.invoice_count|default:"0" }}</bdi></strong>
+            <small><bdi dir="ltr">{{ invoice_kpis.draft_count|default:"0" }}</bdi> {% translate "مسودات" %}</small>
+          </article>
+          <article class="ui-purchase-kpi">
+            <span class="ui-purchase-kpi__menu" aria-hidden="true">•••</span>
+            <p>{% translate "قيمة اليوم" %}</p>
+            {% if may_see_cost %}<strong class="ui-purchase-kpi__money">{{ invoice_kpis.today_value|money }}</strong>{% else %}<strong class="ui-purchase-kpi__private">—</strong>{% endif %}
+            <small>{% if may_see_cost %}{% translate "إجمالي الفواتير غير المعكوسة" %}{% else %}{% translate "محجوب حسب الصلاحية" %}{% endif %}</small>
+          </article>
+          <article class="ui-purchase-kpi">
+            <span class="ui-purchase-kpi__menu" aria-hidden="true">•••</span>
+            <p>{% translate "أصناف مستلمة" %}</p>
+            <strong><bdi dir="ltr">{{ invoice_kpis.received_item_count|default:"0" }}</bdi></strong>
+            <small>{% translate "إلى المخزن الرئيسي اليوم" %}</small>
+          </article>
+          <article class="ui-purchase-kpi">
+            <span class="ui-purchase-kpi__menu" aria-hidden="true">•••</span>
+            <p>{% translate "ذمم الموردين" %}</p>
+            {% if may_see_cost %}<strong class="ui-purchase-kpi__money">{{ invoice_kpis.supplier_liability|money }}</strong>{% else %}<strong class="ui-purchase-kpi__private">—</strong>{% endif %}
+            <small>{% if may_see_cost %}{% translate "بعد الدفعات والتسويات المرحلة" %}{% else %}{% translate "محجوب حسب الصلاحية" %}{% endif %}</small>
+          </article>
+        </section>
+      </section>
+    {% endblock %}
+  </section>
 {% endblock %}

@@ -170,8 +170,7 @@ class AccountForm(forms.Form):
         help_text=_("الصيغة: ١ أو ١-٠١ أو ١-٠١-٠١ أو ١-٠١-٠١-٠٠١. الأخير وحده قابل للترحيل."),
         widget=forms.TextInput(attrs={"dir": "ltr", "placeholder": "1-01-01-001"}),
     )
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     requires_cost_center = forms.BooleanField(
         label=_("يتطلب مركز كلفة"),
         required=False,
@@ -212,8 +211,7 @@ class AccountMetadataForm(forms.Form):
     form means nobody is invited to try.
     """
 
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     requires_cost_center = forms.BooleanField(label=_("يتطلب مركز كلفة"), required=False)
     manual_posting_policy = forms.ChoiceField(
         label=_("سياسة القيد اليدوي"), choices=ManualPostingPolicy.choices

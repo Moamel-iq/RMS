@@ -172,8 +172,7 @@ def test_cashbox_endpoint_returns_no_balance(
         branch=branch,
         account=cash,
         code="CB-BAL",
-        name_ar="صندوق",
-        name_en="Cashbox",
+        name="صندوق",
         opened_on=POSTING_DATE,
     )
     client = client_for(accounting_manager)

@@ -472,7 +472,7 @@ def nested_draft(
     root = create_recipe(
         organization=organization,
         code="SCALE-ROOT",
-        name_ar="جذر القياس",
+        name="جذر القياس",
         recipe_type="BATCH",
         output_item=cooked_rice,
         created_by=manager,

@@ -53,7 +53,7 @@ reviews.
 | USR-008 | Logout requires POST | users | `apps/users/views.py::LogoutView` | `apps/users/tests/test_login_views.py::TestLogout` | Done | GET returns 405 |
 | UI-001 | Interface is Arabic RTL by default | config, templates | `ExplicitLocaleMiddleware`, `templates/base.html` | `test_login_views.py::test_page_renders_rtl_when_arabic_is_selected` | Done | ADR-011 |
 | UI-002 | Browser Accept-Language cannot flip layout direction | config | `config/middleware.py` | `test_login_views.py::test_browser_language_cannot_flip_the_layout` | Done | Bug found in-browser during Task 0.2 |
-| UI-003 | One stylesheet serves both directions | static | `static/css/app.css` | `test_login_views.py::test_page_renders_ltr_when_english_is_selected` | Done | CSS logical properties |
+| UI-003 | One stylesheet serves both directions | static | `static/css/erp-design-system.css` | `test_login_views.py::test_page_renders_ltr_when_english_is_selected` | Done | RTL-first logical properties and shared design tokens |
 | UI-004 | No third-party requests on the login page | templates | `static/vendor/htmx.min.js` | `test_login_views.py::test_htmx_is_served_locally_not_from_a_cdn` | Done | htmx 2.0.4 vendored |
 | UI-005 | Failed sign-in re-renders inline without losing input | users | `LoginView.form_invalid` | `apps/users/tests/test_login_views.py::TestHtmxLogin` | Done | htmx fragment swap |
 | ORG-001 | Branch belongs to exactly one organization | organizations | `Branch.organization` (PROTECT) | `apps/organizations/tests/test_models.py::TestBranch` | Done | ADR-007 |
@@ -271,14 +271,14 @@ Four statuses carry a promise:
 | INV-004 | Base UoM dimension validated against the entered unit | Reuses `units.services._require_same_dimension` | — an item package is not a unit conversion (UOM-006), so no second dimension is entered to validate; `create_item` takes the base unit directly and `add_item_conversion` resolves to it | 1.1 | | Deferred |
 | INV-005 | Base UoM immutable once movements exist | Service guard | `apps/inventory/tests/test_ledger.py::TestPostedHistoryFreezesMasterData`, `apps/inventory/tests/test_native_workflows.py::test_a_posted_base_unit_cannot_be_swapped_by_posting_one` | 1.1 | | Done |
 | INV-006 | Fixed package conversion applies exactly | `ItemUnitConversion` `FIXED` | `apps/inventory/tests/test_master_data.py::test_a_fixed_conversion_resolves_directly_to_base`, `apps/inventory/tests/test_operations.py::test_a_fixed_package_converts_arithmetically` | 1.1 | | Done |
-| INV-007 | Variable package requires a measured base quantity | `VARIABLE` + `measured_quantity_required` | `apps/inventory/tests/test_operations.py::test_a_variable_package_requires_the_measured_quantity` | 1.1 | | Done |
+| INV-007 | Variable package requires a measured base quantity | `VARIABLE` + `measured_quantity_required` | `apps/inventory/tests/test_operations.py::TestLineConversions::test_a_variable_package_requires_the_measured_quantity` | 1.1 | | Done |
 | INV-008 | Overlapping conversion periods refused | `EXCLUDE USING gist` | `apps/inventory/tests/test_master_data.py::test_overlapping_effective_periods_are_impossible` | 1.1 | | Done |
 | INV-009 | Conversion snapshot stays historical after the master changes | Factor + version stored on the movement | `apps/inventory/tests/test_transfers.py::test_the_dispatch_conversion_snapshot_survives_a_new_factor`, `apps/inventory/tests/test_ledger.py::test_a_used_conversion_cannot_be_edited_in_place` | 1.2 | AT-011 | Done |
 | INV-010 | No float in inventory storage or transport | `quantity.py` / `money.py`; string API decimals | `apps/inventory/tests/test_imports_and_projection.py::test_decimal_values_never_pass_through_float`, `apps/inventory/tests/test_stock_screens_and_api.py::test_decimals_cross_the_wire_as_strings` | 1.1 | | Done |
 | INV-011 | Arabic locale does not change technical decimal strings | Locale-independent rendering | `apps/inventory/tests/test_master_data.py::TestFactorsAreLocaleIndependent`, `apps/inventory/tests/test_stock_screens_and_api.py::test_a_technical_decimal_keeps_its_point_under_arabic` | 1.1 | | Done |
 | INV-012 | Posted stock movements are immutable | Allowlist trigger, per `accounting/0005` | `apps/inventory/tests/test_ledger.py::TestTheLedgerIsAppendOnly` | 1.2 | | Done |
 | INV-013 | Every movement carries the full required column set | Non-null columns | — enforced by the non-null columns on `StockMovement`; no test asserts the column list itself, and a migration check would be the honest test | 1.2 | | Verified |
-| INV-014 | Valuation key is `(warehouse, item, lot)` | `UniqueConstraint` on `StockBalance` | `apps/inventory/tests/test_ledger.py::test_the_null_lot_balance_is_unique`, `apps/inventory/tests/test_operations.py::test_a_duplicate_valuation_key_is_rejected` | 1.2 | | Done |
+| INV-014 | Valuation key is `(warehouse, item, lot)` | `UniqueConstraint` on `StockBalance` | `apps/inventory/tests/test_ledger.py::test_the_null_lot_balance_is_unique`, `apps/inventory/tests/test_operations.py::TestIssue::test_a_duplicate_valuation_key_is_rejected` | 1.2 | | Done |
 | INV-015 | Moving weighted average — all 18 cases | Valuation engine | `test_ledger.py::TestMovingWeightedAverage` | 1.2 | | Done |
 | INV-016 | Quantity zero implies value zero | Full-depletion rule | `apps/inventory/tests/test_operations.py::test_full_depletion_leaves_zero_quantity_and_zero_value`, `apps/inventory/tests/test_valuation_properties.py::test_zero_quantity_implies_zero_value_after_any_single_step` | 1.2 | AT-007 | Done |
 | INV-017 | `StockBalance` rebuilds exactly from the ledger | Rebuild command | `apps/inventory/tests/test_ledger.py::TestRebuild` | 1.2 | AT-007 | Done |
@@ -296,7 +296,7 @@ Four statuses carry a promise:
 | INV-029 | Same key + changed payload conflicts | Idempotency fingerprint | `apps/inventory/tests/test_opening_stock.py::test_the_same_key_with_a_changed_payload_conflicts` | 1.3 | AT-009 | Done |
 | INV-030 | Same key in another organization is independent | Org-scoped key | `apps/inventory/tests/test_ledger.py::test_the_same_key_in_another_organization_is_independent` | 1.3 | AT-009 | Done |
 | INV-031 | Reversal restores quantity and value exactly | `REVERSAL` at the original's value | `apps/inventory/tests/test_opening_stock.py::test_a_successful_reversal_restores_stock_and_gl_exactly` | 1.4 | | Done |
-| INV-032 | `RETURN_IN` values at the original issue cost | Link to the issuing movement | `apps/inventory/tests/test_operations.py::test_a_partial_return_uses_the_original_issue_cost` | 1.4 | | Done |
+| INV-032 | `RETURN_IN` values at the original issue cost | withdrawn with the return-from-issue | `inventory/0022`–`0024` withdrew the feature | 1.4 | | Withdrawn |
 | INV-033 | Transfer dispatch reconciles to receipt plus shortage | In-transit accounting | `apps/inventory/tests/test_transfers.py::test_receipts_plus_shortage_equal_the_dispatch` | 1.5 | AT-002 | Done |
 | INV-034 | Inter-branch transfer needs authority at both branches | `_require_at_every_branch` pattern | `apps/accounting/tests/test_security.py::test_an_entry_spanning_two_branches_needs_authority_at_both` covers the journal; the transfer's own dispatch/receive permissions are checked at one branch each (`apps/inventory/tests/test_transfers.py::TestPermissions`), which is weaker than the row claims | 1.5 | AT-008 | Partial |
 | INV-035 | Posting to a frozen warehouse refused | `freeze_state` guard | `apps/inventory/tests/test_waste_counts_adjustments.py::test_a_frozen_warehouse_refuses_every_posting` | 1.6 | | Done |
@@ -325,7 +325,7 @@ Four statuses carry a promise:
 | INV-058 | A count approver is never the conductor | `approver_id != conductor_id` | `apps/inventory/tests/test_waste_counts_adjustments.py::test_the_conductor_cannot_approve_their_own_count`, `apps/inventory/tests/test_waste_counts_adjustments.py::test_maker_checker_is_a_database_constraint_too` | 1.6 | | Done |
 | INV-059 | A positive count gain never posts at zero value | Explicit unit cost required | `apps/inventory/tests/test_waste_counts_adjustments.py::test_a_zero_book_gain_needs_an_approved_unit_cost` | 1.6 | | Done |
 | INV-060 | Source identity normalised centrally; `"145 "` == `"145"` | Accounting service | duplicate of INV-071 — `apps/inventory/tests/test_ledger.py::TestSourceIdentityCanonicalisation` | 1.2 | AT-009 | Done |
-| INV-061 | A reversal that decreases stock passes the availability check | Posting service | `apps/inventory/tests/test_operations.py::test_a_receipt_reversal_respects_availability` | 1.4 | | Done |
+| INV-061 | A reversal that decreases stock passes the availability check | withdrawn with the un-invoiced receipt | `inventory/0022`–`0024` withdrew the feature | 1.4 | | Withdrawn |
 | INV-062 | Every report names its cutoff semantics | Report contract | `apps/inventory/tests/test_reports_and_exports.py::test_the_mode_is_shown_on_every_historical_screen` | 1.7 | AT-011 | Done |
 | INV-063 | A permission is carried by a post held **in the target organization** | `roles_in_organization` + `roles_granting` | `test_permission_provenance.py::TestTheProvenanceRule` | 1.1 | AT-008 | Done |
 | INV-064 | A global group or direct user permission authorizes no organization | Same | `test_permission_provenance.py::test_a_hand_made_group_authorizes_no_organization` | 1.1 | AT-008 | Done |
@@ -400,22 +400,22 @@ source.
 | INV-126 | Shared locks still allow concurrent postings | shared advisory lock | `test_mapping_concurrency.py::test_two_postings_overlap_rather_than_serialising` | 1.4 | | Done |
 | INV-127 | The global lock order does not deadlock | ADR-019 §6 | `test_mapping_concurrency.py::TestTheGlobalLockOrderDoesNotDeadlock` | 1.4 | | Done |
 | INV-128 | Every value-bearing movement carries its control account | `_control_account_for` | `test_business_date.py::TestTheMovementCarriesItsControlAccount` | 1.4 | | Done |
-| INV-129 | A receipt into standing stock preserves the control account | `_control_account_for` | `test_operations.py::TestControlAccountContinuity` | 1.4 | | Done |
-| INV-130 | Emptying a position releases its control-account identity | `_save_position` | `test_operations.py::test_emptying_the_position_releases_the_account` | 1.4 | | Done |
-| INV-131 | Receipt: Dr control, Cr GRNI, grouped per account | `_plan_receipt` | `test_operations.py::TestReceiptPosting` | 1.4 | AT-002 | Done |
-| INV-132 | Issue: Dr consumption, Cr the account the stock is in | `_plan_issue` | `test_operations.py::TestIssue` | 1.4 | AT-002 | Done |
-| INV-133 | Issue cost is the moving average; no entered cost accepted | `add_line` | `test_operations.py::test_a_user_supplied_unit_cost_is_refused` | 1.4 | | Done |
-| INV-134 | Return valued from the original issue, not today's average | `_plan_return` | `test_operations.py::TestReturnIn` | 1.4 | | Done |
-| INV-135 | The final return takes the exact remaining value, no residual | `_plan_return` | `test_operations.py::test_the_final_return_takes_the_exact_remaining_value` | 1.4 | | Done |
-| INV-136 | Cumulative returns cannot exceed the issue | `returnable` | `test_operations.py::test_cumulative_returns_cannot_exceed_the_issue` | 1.4 | | Done |
-| INV-137 | A return reuses the original accounts and cost centre | `_plan_return` | `test_operations.py::test_todays_mapping_is_not_used_for_the_return` | 1.4 | | Done |
-| INV-138 | An issue with active returns cannot be reversed | `reverse_document` | `test_operations.py::test_an_issue_with_active_returns_cannot_be_reversed` | 1.4 | | Done |
-| INV-139 | Reversal availability applies to receipts and returns | `reverse_stock_entry` | `test_operations.py::TestReversal` | 1.4 | | Done |
-| INV-140 | Gapless numbering per type and business year; failures burn none | `_next_document_number` | `test_operations.py::TestNumberingAndIdempotency` | 1.4 | | Done |
-| INV-141 | Source identity uses the immutable public id and line uid | `post_document` | `test_operations.py::test_source_identity_uses_the_immutable_public_id` | 1.4 | AT-009 | Done |
-| INV-142 | Posted documents and lines are database-immutable | triggers, `inventory/0010` | `test_operations.py::test_a_posted_receipt_is_immutable_at_the_database` | 1.4 | | Done |
-| INV-143 | A document id cannot cross between type series | route-bound type | `test_operations_api_and_screens.py::test_a_document_id_cannot_cross_between_series` | 1.4 | AT-008 | Done |
-| INV-144 | Cost is omitted for callers without view_valuation | `_serialize_document` | `test_operations_api_and_screens.py::TestReceiptApi`, `test_operations_api_and_screens.py::test_a_storekeeper_sees_no_recorded_cost` | 1.4 | AT-008 | Done |
+| INV-129 | A receipt into standing stock preserves the control account | `_control_account_for` | `apps/inventory/tests/test_operations.py::TestControlAccountContinuity` | 1.4 | | Done |
+| INV-130 | Emptying a position releases its control-account identity | `_save_position` | `apps/inventory/tests/test_operations.py::test_emptying_the_position_releases_the_account` | 1.4 | | Done |
+| INV-131 | Receipt: Dr control, Cr GRNI, grouped per account | withdrawn with the un-invoiced receipt | `inventory/0022`–`0024` withdrew the feature | 1.4 | AT-002 | Withdrawn |
+| INV-132 | Issue: Dr consumption, Cr the account the stock is in | `_plan_issue` | `apps/inventory/tests/test_operations.py::TestIssue` | 1.4 | AT-002 | Done |
+| INV-133 | Issue cost is the moving average; no entered cost accepted | `add_line` | `apps/inventory/tests/test_operations.py::TestIssue::test_a_line_cannot_carry_an_entered_cost` | 1.4 | | Done |
+| INV-134 | Return valued from the original issue, not today's average | withdrawn with the return-from-issue | `inventory/0022`–`0024` withdrew the feature | 1.4 | | Withdrawn |
+| INV-135 | The final return takes the exact remaining value, no residual | withdrawn with the return-from-issue | `inventory/0022`–`0024` withdrew the feature | 1.4 | | Withdrawn |
+| INV-136 | Cumulative returns cannot exceed the issue | withdrawn with the return-from-issue | `inventory/0022`–`0024` withdrew the feature | 1.4 | | Withdrawn |
+| INV-137 | A return reuses the original accounts and cost centre | withdrawn with the return-from-issue | `inventory/0022`–`0024` withdrew the feature | 1.4 | | Withdrawn |
+| INV-138 | An issue with active returns cannot be reversed | withdrawn with the return-from-issue | `inventory/0022`–`0024` withdrew the feature | 1.4 | | Withdrawn |
+| INV-139 | Reversal availability applies to receipts and returns | `reverse_stock_entry` | `apps/inventory/tests/test_operations.py::TestReversal` | 1.4 | | Done |
+| INV-140 | Gapless numbering per type and business year; failures burn none | `_next_document_number` | `apps/inventory/tests/test_operations.py::TestNumberingAndIdempotency` | 1.4 | | Done |
+| INV-141 | Source identity uses the immutable public id and line uid | `post_document` | `apps/inventory/tests/test_operations.py::TestPostedDocumentsAreFrozen::test_source_identity_uses_the_immutable_public_id` | 1.4 | AT-009 | Done |
+| INV-142 | Posted documents and lines are database-immutable | triggers, `inventory/0010` | `apps/inventory/tests/test_operations.py::TestPostedDocumentsAreFrozen::test_a_posted_document_is_immutable_at_the_database` | 1.4 | | Done |
+| INV-143 | A document id cannot cross between type series | withdrawn: one document series remains | `inventory/0022`–`0024` withdrew the feature | 1.4 | AT-008 | Withdrawn |
+| INV-144 | Cost is omitted for callers without view_valuation | `_serialize_document` | `apps/inventory/tests/test_operations_api_and_screens.py::TestDocumentApi` | 1.4 | AT-008 | Done |
 | INV-145 | Navigation offers only screens that resolve | `apps/core/navigation.py` | `test_operations_api_and_screens.py::test_navigation_points_only_at_live_screens` | 1.4 | | Done |
 | INV-146 | Goods stay on the source branch's books until received | in-transit warehouse of the source branch | `test_transfers.py::test_a_cross_branch_dispatch_stays_on_the_source_branch_books` | 1.5 | | Done |
 | INV-147 | A user can never select the in-transit warehouse | `_validate_transfer_endpoints` + trigger | `test_transfers.py::test_the_in_transit_warehouse_cannot_be_chosen`, `test_transfers.py::test_the_database_refuses_a_raw_in_transit_endpoint` | 1.5 | | Done |
@@ -449,9 +449,9 @@ source.
 | INV-175 | Transfer subledger and in-transit ledger both reconcile | `verify_transfer`, `verify_in_transit` | `test_transfers.py::TestReads` | 1.5 | AT-011 | Done |
 | INV-176 | A receipt id under another transfer's route is a 404 | `resolve_receipt(transfer=…)` | `test_transfers.py::test_a_receipt_id_under_another_transfer_is_a_404` | 1.5 | AT-008 | Done |
 | INV-177 | Transfer cost fields are omitted without view_valuation | `_serialize_transfer` | `test_transfer_api_and_screens.py::test_cost_is_omitted_without_view_valuation` | 1.5 | AT-008 | Done |
-| INV-178 | A reason code's code and application are immutable once created | `inventory_reason_code_identity_is_immutable` | `test_waste_counts_adjustments.py::test_the_code_and_its_application_are_immutable_at_the_database` | 1.6 | | Done |
-| INV-179 | An archived reason code stays reserved forever | unique per organization, never deleted | `test_waste_counts_adjustments.py::test_an_archived_code_stays_reserved` | 1.6 | | Done |
-| INV-180 | A waste line names a reason code of the right application | `_validate_line_reason_code` + trigger | `test_waste_counts_adjustments.py::test_a_count_reason_cannot_be_used_on_a_waste_line` | 1.6 | | Done |
+| INV-178 | A reason code's code and application are immutable once created | withdrawn with the reason vocabulary | `inventory/0022`–`0024` withdrew the feature | 1.6 | | Withdrawn |
+| INV-179 | An archived reason code stays reserved forever | withdrawn with the reason vocabulary | `inventory/0022`–`0024` withdrew the feature | 1.6 | | Withdrawn |
+| INV-180 | A waste line names a reason code of the right application | withdrawn with the reason vocabulary | `inventory/0022`–`0024` withdrew the feature | 1.6 | | Withdrawn |
 | INV-181 | Waste leaves at the current average, full depletion exact at zero | `_plan_waste` | `test_waste_counts_adjustments.py::test_the_last_waste_out_takes_the_entire_remaining_value` | 1.6 | AT-002 | Done |
 | INV-182 | Waste requires the cost centre its class-6 account demands | `require_cost_center_where_the_account_demands_one` | `test_waste_counts_adjustments.py::test_waste_needs_a_cost_centre_because_its_account_demands_one` | 1.6 | AT-005 | Done |
 | INV-183 | Expired lots leave only through waste, count loss or adjustment | `EXPIRED_LOT_REMOVAL_TYPES` | `test_waste_counts_adjustments.py::test_an_expired_lot_may_be_wasted_but_never_issued` | 1.6 | | Done |
@@ -499,15 +499,15 @@ source.
 | INV-225 | Demo balances come from the valuation kernel, not from the seed | every step calls a domain service | `test_demo_seed.py::test_the_planned_balances_are_what_the_kernel_computed` | 1.6a | | Done |
 | INV-226 | Demo data reconciles to the general ledger | `verify_inventory_accounting` | `test_demo_seed.py::test_reconciliation_is_clean` | 1.6a | AT-011 | Done |
 | INV-227 | A demo reset never deletes posted stock or accounting history | `reset_demo` | `test_demo_seed.py::test_reset_removes_drafts_and_keeps_posted_history` | 1.6a | | Done |
-| INV-228 | A demo reset archives reason codes rather than deleting them | `reset_demo` | `test_demo_seed.py::test_reset_archives_reason_codes_rather_than_deleting_them` | 1.6a | | Done |
+| INV-228 | A demo reset archives reason codes rather than deleting them | withdrawn with the reason vocabulary | `inventory/0022`–`0024` withdrew the feature | 1.6a | | Withdrawn |
 | INV-229 | Every implemented inventory section renders seeded data | the demo scenario | `test_demo_seed.py::test_no_implemented_section_renders_empty` | 1.6a | | Done |
 | INV-230 | An HX-Request returns the results partial, never a second page shell | `InventoryListView.is_htmx` | `test_list_htmx.py::test_an_hx_request_returns_only_the_results` | 1.6a | | Done |
 | INV-231 | Authorization is identical on the partial and the full page | shared mixin and selector | `test_list_htmx.py::test_a_user_without_the_permission_is_refused_on_both_paths` | 1.6a | AT-008 | Done |
 | INV-232 | Valuation redaction survives the htmx swap | shared `show_cost` context | `test_list_htmx.py::test_a_caller_without_it_gets_no_cost_column_in_the_partial` | 1.6a | AT-008 | Done |
 | INV-233 | Paging keeps every filter, not just the search term | `InventoryListView.filter_query` | `test_list_htmx.py::test_paging_keeps_the_filter` | 1.6a | | Done |
 | INV-234 | htmx is the vendored pinned version and is loaded exactly once | `base.html` | `test_list_htmx.py::test_the_vendored_file_is_the_pinned_version` | 1.6a | | Done |
-| INV-235 | Expired stock may be received but never issued | `EXPIRED_LOT_REMOVAL_TYPES` | `test_demo_seed.py::test_the_expired_lot_was_received_and_written_off_to_zero` | 1.6a | | Done |
-| INV-236 | Waste clears an expired lot to zero quantity and zero value | full-depletion rule | `test_demo_seed.py::test_the_expired_lot_was_received_and_written_off_to_zero` | 1.6a | AT-002 | Done |
+| INV-235 | Expired stock may be received but never issued | `EXPIRED_LOT_REMOVAL_TYPES` | `apps/inventory/tests/test_demo_seed.py::test_the_expired_lot_stands_dated_and_is_written_off_to_zero` | 1.6a | | Done |
+| INV-236 | Waste clears an expired lot to zero quantity and zero value | full-depletion rule | `apps/inventory/tests/test_demo_seed.py::test_the_expired_lot_stands_dated_and_is_written_off_to_zero` | 1.6a | AT-002 | Done |
 | INV-237 | All three adjustment kinds are exercised end to end | `post_adjustment` | `test_demo_seed.py::test_all_three_adjustment_kinds_are_represented` | 1.6a | | Done |
 | INV-238 | A value-only adjustment moves value and not quantity | `apply_value_only` | `test_demo_seed.py::test_the_value_only_adjustment_moved_value_and_not_quantity` | 1.6a | AT-002 | Done |
 | INV-239 | All four count states are visible at once | the demo scenario | `test_demo_seed.py::test_the_whole_count_lifecycle_is_visible_at_once` | 1.6a | | Done |
@@ -537,7 +537,7 @@ source.
 | INV-263 | Stored upload filenames cannot traverse or carry bidi overrides | `sanitise_filename` | `test_imports_and_projection.py::test_the_stored_filename_cannot_traverse_or_disguise` | 1.7A | AT-008 | Done |
 | INV-264 | An import row cannot reference another organization's master data | validators resolve within the batch organization | `test_imports_and_projection.py::test_a_foreign_branch_is_refused` | 1.7A | AT-008 | Done |
 | INV-265 | An import kind with no writer cannot be uploaded | `VALIDATORS` gate in `create_batch` | `test_imports_and_projection.py::test_an_unsupported_kind_cannot_be_uploaded` | 1.7A | | Done |
-| INV-266 | Viewing import history does not imply applying | separate permissions | `test_imports_and_projection.py::test_a_direct_post_without_the_kind_permission_is_refused` | 1.7A | AT-008 | Done |
+| INV-266 | Viewing import history does not imply applying | withdrawn with the import-log screens | `inventory/0022`–`0024` withdrew the feature | 1.7A | AT-008 | Withdrawn |
 | INV-267 | The projection replays to the ledger on every compared field | `verify_organization` | `test_imports_and_projection.py::test_a_clean_projection_verifies` | 1.7A | AT-007 | Done |
 | INV-268 | Planted quantity, value, average, sequence and control drift are all detected | `verify_organization` field comparisons | `test_imports_and_projection.py::test_planted_drift_is_detected`, `test_imports_and_projection.py::test_planted_control_account_drift_is_detected` | 1.7A | AT-007 | Done |
 | INV-269 | Projection verification mutates nothing and offers no repair | read-only by construction | `test_imports_and_projection.py::test_verification_mutates_nothing`, `test_imports_and_projection.py::test_there_is_no_repair_mode` | 1.7A | AT-007 | Done |
@@ -651,6 +651,13 @@ see Task 2.0 §0.
 | PRC-084 | Landed posting makes quantity-zero inventory value exactly equal the inventory-control debit and stored allocation | public inventory kernel plus linked invoice journal | `TestStructuredAdditionalCosts::test_landed_cost_posts_value_without_quantity_and_reverses_exactly` | Procurement completion 2 | | Done |
 | PRC-085 | Any downstream outbound since receipt refuses Release 1 capitalisation with no partial split | stock-sequence policy guard | `TestStructuredAdditionalCosts::test_downstream_outbound_refuses_capitalisation` | Procurement completion 2 | | Done |
 | PRC-086 | Additional-cost list/detail/add/preview and direct/landed/waiting/posted/reversed queues are Arabic RTL and HTMX-enabled | views, routes, navigation and templates | `TestStructuredAdditionalCosts::test_additional_cost_workspace_is_rtl_and_htmx_ready` | Procurement completion 2 | | Done |
+| PRC-087 | A supplier may state a minimum share of an invoice to be settled by its due date | `Supplier.minimum_settlement_percent` | `apps/procurement/tests/test_supplier_settlement_terms.py::TestTheSettlementFloor::test_it_is_stored_and_read_back_exactly` | Supplier terms | | Done |
+| PRC-088 | The share is between 0 and 100, refused by the service and by a check constraint | `_settlement_floor` + `procurement_supplier_settlement_percent_range` | `apps/procurement/tests/test_supplier_settlement_terms.py::TestTheSettlementFloor::test_a_share_outside_zero_to_one_hundred_is_refused` · `apps/procurement/tests/test_supplier_settlement_terms.py::TestTheSettlementFloor::test_the_database_refuses_it_too` | Supplier terms | | Done |
+| PRC-089 | A share with no payment term is refused: with terms of zero there is no due date to measure it by | `_settlement_floor` + `procurement_supplier_settlement_needs_terms` | `apps/procurement/tests/test_supplier_settlement_terms.py::TestTheSettlementFloor::test_a_floor_without_a_payment_term_is_refused` · `apps/procurement/tests/test_supplier_settlement_terms.py::TestTheSettlementFloor::test_the_database_refuses_a_floor_with_no_term` | Supplier terms | | Done |
+| PRC-090 | Posted invoices past due whose settled share is below the agreed floor are reported | `reports.settlement_breaches` | `apps/procurement/tests/test_procurement_reports.py` | Supplier terms | | Partial |
+| PRC-091 | A supplier may state a balance reset date; the statement opens with the balance before it and lists movements from it | `Supplier.balance_reset_date` + `reports.supplier_statement` | `apps/procurement/tests/test_supplier_settlement_terms.py::TestTheResetDate::test_it_is_stored_and_cleared` | Supplier terms | | Done |
+| PRC-092 | A reset date destroys no document and changes no posted balance | `update_supplier` | `apps/procurement/tests/test_supplier_settlement_terms.py::TestTheResetDate::test_it_destroys_no_document` | Supplier terms | | Done |
+| PRC-093 | Both fields are optional, so every existing supplier keeps working with neither stated | nullable columns, no defaults | `apps/procurement/tests/test_supplier_settlement_terms.py::TestBackwardCompatibility::test_a_supplier_created_without_either_field_still_saves` | Supplier terms | | Done |
 
 ## Phase 3 — Recipes, Kitchen and Production
 

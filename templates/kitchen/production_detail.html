@@ -19,14 +19,14 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="production-detail">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
-          <code>{{ batch.recipe.code }}</code> {{ batch.recipe.name_ar }}
-          <span class="muted" dir="ltr">v{{ batch.recipe_version.version_number }}</span>
+  <div class="ui-page" id="production-detail">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
+          <code>{{ batch.recipe.code }}</code> {{ batch.recipe.name }}
+          <span class="ui-text-muted" dir="ltr">v{{ batch.recipe_version.version_number }}</span>
         </h1>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% if batch.is_draft %}
             {% translate "مسودة إنتاج. لا تتحرك أي كمية ولا يُكتب أي قيد حتى الترحيل." %}
           {% else %}
@@ -37,33 +37,33 @@
       {# Controls are absent rather than disabled without the authority for   #}
       {# them: an inert button announces that an action exists and that the   #}
       {# reader is not trusted with it, which is a different statement.       #}
-      <div class="pagehead__actions">
+      <div class="ui-page-header__actions">
         {% if batch.is_draft and can_draft %}
-          <a class="btn btn--ghost" href="{% url 'kitchen:production_rescale' batch.pk %}">
+          <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_rescale' batch.pk %}">
             {% translate "تغيير المعامل" %}
           </a>
-          <a class="btn btn--ghost" href="{% url 'kitchen:production_output' batch.pk %}">
+          <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_output' batch.pk %}">
             {% translate "الناتج الفعلي" %}
           </a>
-          <a class="btn btn--ghost" href="{% url 'kitchen:production_notes' batch.pk %}">
+          <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_notes' batch.pk %}">
             {% translate "ملاحظات" %}
           </a>
-          <a class="btn btn--ghost" href="{% url 'kitchen:production_discard' batch.pk %}">
+          <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_discard' batch.pk %}">
             {% translate "حذف المسودة" %}
           </a>
         {% endif %}
         {% if batch.is_draft and can_post %}
-          <a class="btn btn--primary" href="{% url 'kitchen:production_post' batch.pk %}">
+          <a class="ui-button ui-button--primary" href="{% url 'kitchen:production_post' batch.pk %}">
             {% translate "ترحيل" %}
           </a>
         {% endif %}
         {% if not batch.is_draft %}
-          <a class="btn btn--ghost" href="{% url 'kitchen:production_movements' batch.pk %}">
+          <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_movements' batch.pk %}">
             {% translate "حركة الترحيل" %}
           </a>
         {% endif %}
         {% if batch.status == "POSTED" and can_reverse %}
-          <a class="btn btn--danger" href="{% url 'kitchen:production_reverse' batch.pk %}">
+          <a class="ui-button ui-button--danger" href="{% url 'kitchen:production_reverse' batch.pk %}">
             {% translate "عكس الترحيل" %}
           </a>
         {% endif %}
@@ -72,14 +72,14 @@
 
     {# The frozen decision. Every field here is refused by a trigger, which is #}
     {# why it is shown as text rather than offered as an edit.                 #}
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "القرار المجمَّد" %}</h2>
-      <dl class="deflist">
+      <dl class="ui-definition-list">
         <dt>{% translate "الفرع" %}</dt>
-        <dd><code>{{ batch.branch.code }}</code> {{ batch.branch.name_ar }}</dd>
+        <dd><code>{{ batch.branch.code }}</code> {{ batch.branch.name }}</dd>
 
         <dt>{% translate "المخزن" %}</dt>
-        <dd><code>{{ batch.warehouse.code }}</code> {{ batch.warehouse.name_ar }}</dd>
+        <dd><code>{{ batch.warehouse.code }}</code> {{ batch.warehouse.name }}</dd>
 
         <dt>{% translate "تاريخ الإنتاج" %}</dt>
         <dd><code dir="ltr">{{ batch.planned_business_date|date:"Y-m-d" }}</code></dd>
@@ -89,22 +89,22 @@
           <a href="{% url 'kitchen:version_detail' batch.recipe_version.pk %}">
             <code dir="ltr">v{{ batch.recipe_version.version_number }}</code>
           </a>
-          <span class="muted">
+          <span class="ui-text-muted">
             {% translate "حُدِّدت مرة واحدة عند الإنشاء ولا يُعاد تحديدها." %}
           </span>
         </dd>
 
         <dt>{% translate "الحالة" %}</dt>
-        <dd><span class="pill">{{ batch.get_status_display }}</span></dd>
+        <dd><span class="ui-badge">{{ batch.get_status_display }}</span></dd>
       </dl>
     </section>
 
     {# The scale and the output. The multiplier is editable through the       #}
     {# rescale command and through nothing else; the expected output moves    #}
     {# with it, and migration 0015 refuses a commit in which they disagree.   #}
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الحجم والناتج" %}</h2>
-      <dl class="deflist">
+      <dl class="ui-definition-list">
         <dt>{% translate "المعامل" %}</dt>
         <dd><code dir="ltr">{{ batch.multiplier_display }}</code></dd>
 
@@ -119,7 +119,7 @@
           {% if batch.actual_output_base_quantity is not None %}
             <code dir="ltr">{{ batch.actual_output_display }}</code>
           {% else %}
-            <span class="muted">{% translate "لم يُدخل بعد — يُدخله المشغّل ولا يُشتق من المدخلات." %}</span>
+            <span class="ui-text-muted">{% translate "لم يُدخل بعد — يُدخله المشغّل ولا يُشتق من المدخلات." %}</span>
           {% endif %}
         </dd>
 
@@ -130,7 +130,7 @@
       </dl>
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "المتطلبات والاستهلاك الفعلي" %}</h2>
       {% include "kitchen/_production_requirements.html" %}
     </section>

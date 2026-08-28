@@ -486,7 +486,7 @@ def _write_lines(
             source_kind=_KIND_FROM_LEAF[leaf.kind],
             item=leaf.line.item,
             item_code=leaf.line.item.code,
-            item_name=leaf.line.item.name_ar,
+            item_name=leaf.line.item.name,
             base_unit_code=leaf.line.item.base_unit.code,
             source_base_quantity=leaf.line.base_quantity,
             cumulative_multiplier=quantize_factor(leaf.cumulative_multiplier),

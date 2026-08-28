@@ -2,8 +2,8 @@
 {% load i18n money_tags quantity_tags %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="status">
       <option value="">{% translate "كل الحالات" %}</option>
       {% for value, label in statuses %}
@@ -30,17 +30,17 @@
     <tr>
       <td>
         {% if row.number %}<code dir="ltr">{{ row.number }}</code>
-        {% else %}<span class="muted">{% translate "مسودة" %}</span>{% endif %}
+        {% else %}<span class="ui-text-muted">{% translate "مسودة" %}</span>{% endif %}
       </td>
-      <td>{{ row.supplier.code }} — {{ row.supplier.name_ar }}</td>
+      <td>{{ row.supplier.code }} — {{ row.supplier.name }}</td>
       <td><span dir="ltr">{{ row.supplier_invoice.supplier_invoice_number }}</span></td>
       <td>{{ row.allocations.count }}</td>
       <td><span dir="ltr">{{ row.total_matched_quantity|quantity }}</span></td>
       <td>
         {% if row.live_posting %}
-          <span class="chip chip--ok" dir="ltr">{{ row.live_posting.journal_entry.entry_number }}</span>
+          <span class="ui-badge ui-badge--success" dir="ltr">{{ row.live_posting.journal_entry.entry_number }}</span>
         {% else %}
-          <span class="muted">{% translate "غير مُرحّلة" %}</span>
+          <span class="ui-text-muted">{% translate "غير مُرحّلة" %}</span>
         {% endif %}
       </td>
       {% if may_see_cost %}
@@ -49,16 +49,16 @@
       <td>
         {% if row.status == "READY" %}
           {# "Ready" is about evidence, never about money. The chip says so. #}
-          <span class="chip chip--on">{{ row.get_status_display }}</span>
+          <span class="ui-badge ui-badge--success">{{ row.get_status_display }}</span>
         {% elif row.status == "CANCELLED" %}
-          <span class="chip chip--off">{{ row.get_status_display }}</span>
+          <span class="ui-badge ui-badge--danger">{{ row.get_status_display }}</span>
         {% else %}
-          <span class="chip">{{ row.get_status_display }}</span>
+          <span class="ui-badge">{{ row.get_status_display }}</span>
         {% endif %}
       </td>
       <td>
-        <div class="rowactions">
-          <a class="btn btn--ghost btn--sm" href="{% url 'procurement:purchase_match_detail' row.pk %}">
+        <div class="ui-actions">
+          <a class="ui-button ui-button--ghost ui-button--small" href="{% url 'procurement:purchase_match_detail' row.pk %}">
             {% translate "فتح" %}
           </a>
         </div>

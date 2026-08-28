@@ -1,0 +1,125 @@
+{% load i18n %}
+<div class="ui-header-tools">
+  <button class="ui-icon-button ui-header-tools__nav-toggle" type="button" data-nav-toggle
+          aria-controls="application-navigation" aria-expanded="true"
+          aria-label="{% translate 'إظهار أو إخفاء التنقل' %}"
+          title="{% translate 'إظهار أو إخفاء التنقل' %}">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+
+  <button class="ui-command-trigger" type="button" data-command-open aria-haspopup="dialog"
+          aria-label="{% translate 'انتقل إلى شاشة… (Ctrl K)' %}"
+          title="{% translate 'انتقل إلى شاشة… (Ctrl K)' %}"
+          aria-keyshortcuts="Control+K">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <span>{% translate "ابحث في النظام…" %}</span>
+    <kbd>Ctrl K</kbd>
+  </button>
+
+  <div class="ui-header-actions">
+    <details class="ui-menu ui-notification-menu ui-no-print">
+      <summary class="ui-icon-button" aria-label="{% translate 'الإشعارات' %}" title="{% translate 'الإشعارات' %}">
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>
+        </svg>
+        {% if messages %}<span class="ui-notification-menu__count" aria-hidden="true">{{ messages|length }}</span>{% endif %}
+      </summary>
+      <div class="ui-menu__panel ui-notification-menu__panel">
+        <div class="ui-menu__heading"><strong>{% translate "الإشعارات" %}</strong></div>
+        {% if messages %}
+          <ul class="ui-notification-menu__list">
+            {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+          </ul>
+        {% else %}
+          <p class="ui-menu__empty">{% translate "لا توجد إشعارات جديدة." %}</p>
+        {% endif %}
+      </div>
+    </details>
+
+    <details class="ui-menu ui-print-menu ui-no-print" data-print-menu>
+      <summary class="ui-icon-button" aria-label="{% translate 'طباعة أو حفظ PDF' %}" title="{% translate 'طباعة أو حفظ PDF' %}">
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 8V4h10v4M7 18H5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M7 15h10v5H7z"/>
+        </svg>
+      </summary>
+      <div class="ui-menu__panel ui-print-menu__panel">
+        <div class="ui-menu__heading"><strong>{% translate "طباعة / حفظ PDF" %}</strong></div>
+        <fieldset class="ui-print-options" data-print-toolbar>
+          <legend class="ui-visually-hidden">{% translate "ما يظهر في الورقة" %}</legend>
+          <label><input type="checkbox" data-print-part="logo" checked> {% translate "الشعار" %}</label>
+          <label><input type="checkbox" data-print-part="issuer" checked> {% translate "المؤسسة والفرع" %}</label>
+          <label><input type="checkbox" data-print-part="period" checked> {% translate "الفترة والمرشحات" %}</label>
+          <label><input type="checkbox" data-print-part="stamp" checked> {% translate "وقت الطباعة ومن طبعها" %}</label>
+          <label><input type="checkbox" data-print-part="signature" checked> {% translate "حقل التوقيع" %}</label>
+          <label><input type="checkbox" data-print-landscape> {% translate "ورقة أفقية" %}</label>
+          <button class="ui-button ui-button--primary ui-button--sm" type="button" data-print-now>{% translate "طباعة / حفظ PDF" %}</button>
+        </fieldset>
+        <p class="ui-menu__empty">{% translate "في نافذة الطباعة اختر «حفظ بصيغة PDF»." %}</p>
+      </div>
+    </details>
+
+    <button type="button" class="ui-icon-button" data-theme-toggle
+            aria-label="{% translate 'تبديل الوضع الليلي' %}"
+            title="{% translate 'تبديل الوضع الليلي' %}">
+      <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20 13.5A8 8 0 0110.5 4 8.5 8.5 0 1020 13.5z"/>
+      </svg>
+    </button>
+
+    {% with branch_count=user_branches|length %}
+      <details class="ui-menu ui-scope-menu">
+        <summary class="ui-scope-menu__summary" aria-label="{% translate 'نطاق العمل' %}">
+          <span class="ui-scope-menu__icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24"><path d="M4 20V7l8-4 8 4v13M8 20v-7h8v7M8 9h.01M12 9h.01M16 9h.01"/></svg>
+          </span>
+          <span class="ui-scope-menu__text">
+            <small>{% translate "نطاق العمل" %}</small>
+            {% if branch_count %}
+              {% for branch in user_branches|slice:":1" %}<strong>{{ branch.name }}</strong>{% endfor %}
+            {% else %}
+              <strong>{% translate "بلا فرع" %}</strong>
+            {% endif %}
+          </span>
+          {% if branch_count > 1 %}<span class="ui-count" dir="ltr">+{{ branch_count|add:"-1" }}</span>{% endif %}
+          <svg class="ui-menu__chevron" width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg>
+        </summary>
+        <div class="ui-menu__panel ui-scope-menu__panel">
+          <div class="ui-menu__heading">
+            <strong>{% translate "الفروع ضمن نطاقك" %}</strong>
+            <span>{% translate "عرض للنطاق فقط؛ لا يوجد تبديل عام للفرع." %}</span>
+          </div>
+          {% if branch_count %}
+            <ul class="ui-scope-menu__list">
+              {% for branch in user_branches %}
+                <li>
+                  <span class="ui-scope-menu__mark" aria-hidden="true"></span>
+                  <span><strong>{{ branch.name }}</strong><small><bdi dir="ltr">{{ branch.code }}</bdi> · {{ branch.organization.name }}</small></span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="ui-menu__empty">{% translate "لا توجد فروع مسندة إليك" %}</p>
+          {% endif %}
+        </div>
+      </details>
+    {% endwith %}
+
+    <details class="ui-menu ui-account-menu">
+      <summary class="ui-account-menu__summary" aria-label="{% translate 'قائمة الحساب' %}">
+        <span class="ui-account-menu__avatar" aria-hidden="true">{{ user.username|slice:":1"|upper }}</span>
+        <span class="ui-account-menu__text"><small>{% translate "الحساب" %}</small><strong>{{ user.get_full_name|default:user.username }}</strong></span>
+        <svg class="ui-menu__chevron" width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg>
+      </summary>
+      <div class="ui-menu__panel ui-account-menu__panel">
+        <div class="ui-menu__heading"><strong>{{ user.get_full_name|default:user.username }}</strong><span><bdi dir="ltr">{{ user.username }}</bdi></span></div>
+        <form method="post" action="{% url 'users:logout' %}">
+          {% csrf_token %}
+          <button class="ui-menu-action" type="submit">
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2 2v2M14 8l4 4-4 4M18 12H8"/></svg>
+            {% translate "تسجيل الخروج" %}
+          </button>
+        </form>
+      </div>
+    </details>
+  </div>
+</div>

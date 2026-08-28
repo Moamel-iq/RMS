@@ -1,28 +1,38 @@
 {% load i18n %}
-<li class="timeline__item" id="task-{{ task.pk }}">
-  <div class="timeline__meta">
-    <span class="chip{% if task.severity == 'CRITICAL' or task.severity == 'HIGH' %} chip--off{% elif task.status == 'ACKNOWLEDGED' %} chip--on{% endif %}">
+<li class="ui-task" id="task-{{ task.pk }}">
+  <div class="ui-task__status">
+    <span class="ui-badge{% if task.severity == 'CRITICAL' or task.severity == 'HIGH' %} ui-badge--danger{% elif task.status == 'ACKNOWLEDGED' %} ui-badge--success{% else %} ui-badge--warning{% endif %}">
+      <span class="ui-badge__dot" aria-hidden="true"></span>
       {{ task.get_severity_display }}
     </span>
-    <span>{{ task.organization.code }}{% if task.branch %} · {{ task.branch.code }}{% endif %}</span>
+    <span class="ui-task__scope">{{ task.organization.code }}{% if task.branch %} · {{ task.branch.code }}{% endif %}</span>
   </div>
-  <div>
-    <strong>{{ task.title }}</strong>
-    {% if task.summary %}<p>{{ task.summary }}</p>{% endif %}
-    <small>
-      {% translate "الحالة" %}: {{ task.get_status_display }}
-      {% if task.assignee_role %} · {% translate "الدور" %}: {{ task.assignee_role }}{% endif %}
-      {% if task.due_at %} · {% translate "الموعد" %}: <bdi dir="ltr">{{ task.due_at|date:"Y-m-d H:i" }}</bdi>{% endif %}
-    </small>
+
+  <div class="ui-task__content">
+    <strong class="ui-task__title">{{ task.title }}</strong>
+    {% if task.summary %}<p class="ui-task__summary">{{ task.summary }}</p>{% endif %}
+    <dl class="ui-task__meta">
+      <div><dt>{% translate "الحالة" %}</dt><dd>{{ task.get_status_display }}</dd></div>
+      {% if task.assignee_role %}<div><dt>{% translate "الدور" %}</dt><dd>{{ task.assignee_role }}</dd></div>{% endif %}
+      {% if task.due_at %}<div><dt>{% translate "الموعد" %}</dt><dd><bdi dir="ltr">{{ task.due_at|date:"Y-m-d H:i" }}</bdi></dd></div>{% endif %}
+    </dl>
   </div>
-  <div class="timeline__actions">
-    {% if task.status == 'OPEN' %}
+
+  {% if task.status == 'OPEN' %}
+    <div class="ui-task__actions">
       <form method="post" action="{% url 'core:task_acknowledge' task.pk %}"
             hx-post="{% url 'core:task_acknowledge' task.pk %}"
-            hx-target="#task-{{ task.pk }}" hx-swap="outerHTML">
+            hx-target="#task-{{ task.pk }}"
+            hx-swap="outerHTML"
+            hx-indicator="#task-loading-{{ task.pk }}"
+            hx-sync="this:replace"
+            hx-disabled-elt="find button">
         {% csrf_token %}
-        <button class="btn btn--secondary btn--sm" type="submit">{% translate "استلام المهمة" %}</button>
+        <button class="ui-button ui-button--secondary ui-button--small" type="submit">
+          {% translate "استلام المهمة" %}
+          <span class="ui-loading ui-loading--inline" id="task-loading-{{ task.pk }}" aria-hidden="true"><span class="ui-loading__spinner"></span></span>
+        </button>
       </form>
-    {% endif %}
-  </div>
+    </div>
+  {% endif %}
 </li>

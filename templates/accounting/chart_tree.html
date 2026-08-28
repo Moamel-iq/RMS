@@ -13,48 +13,48 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="accounting-chart-tree">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <div class="ui-page" id="accounting-chart-tree">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--secondary" href="{% url 'accounting:chart_list' %}">{% translate "عرض كقائمة" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--secondary" href="{% url 'accounting:chart_list' %}">{% translate "عرض كقائمة" %}</a>
         {% if may_manage %}
-          <a class="btn btn--primary" href="{% url 'accounting:account_create' %}">{% translate "حساب جديد" %}</a>
+          <a class="ui-button ui-button--primary" href="{% url 'accounting:account_create' %}">{% translate "حساب جديد" %}</a>
         {% endif %}
       </div>
     </div>
 
-    <form class="toolbar" method="get"
+    <form class="ui-filter-bar" method="get"
           hx-get="{% url 'accounting:chart_tree' %}"
           hx-target="#accounting-chart-tree"
           hx-swap="outerHTML"
           hx-push-url="true"
-          hx-trigger="change from:find select, change from:find input"
+          hx-trigger="change"
           hx-indicator="#chart-loading">
-      <label class="field">
-        <span class="field__label">{% translate "المؤسسة" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "المؤسسة" %}</span>
         <select name="organization">
           {% for row in organizations %}
             <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>
-              {{ row.code }} — {{ row.name_ar }}
+              {{ row.code }} — {{ row.name }}
             </option>
           {% endfor %}
         </select>
       </label>
-      <label class="field field--checkbox">
+      <label class="ui-field ui-field--check">
         <input type="checkbox" name="archived" value="1" {% if include_archived %}checked{% endif %}>
-        <span class="field__label">{% translate "إظهار المؤرشف" %}</span>
+        <span class="ui-field__label">{% translate "إظهار المؤرشف" %}</span>
       </label>
-      <span class="inventory-loading" id="chart-loading" role="status" aria-live="polite">
+      <span class="ui-loading" id="chart-loading" role="status" aria-live="polite">
         {% translate "جارٍ التحميل…" %}
       </span>
     </form>
 
-    <div class="tablewrap">
-      <table class="table responsive-table" id="chart-tree-table">
+    <div class="ui-table-scroll">
+      <table class="ui-table ui-table--responsive" id="chart-tree-table">
         <thead>
           <tr>
             <th>{% translate "الرمز" %}</th>
@@ -62,14 +62,14 @@
             <th>{% translate "الصنف" %}</th>
             <th>{% translate "قابل للترحيل" %}</th>
             <th>{% translate "الرصيد" %}</th>
-            <th scope="col"><span class="sr-only">إجراءات</span></th>
+            <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
           </tr>
         </thead>
         <tbody>
           {% for node in roots %}
-            <tr class="chart-row chart-row--level-0">
+            <tr class="ui-report-row ui-report-row--root">
               <td>
-                <button class="tree-toggle" type="button"
+                <button class="ui-tree-toggle" type="button"
                         hx-get="{% url 'accounting:chart_children' node.account.pk %}{% if include_archived %}?archived=1{% endif %}"
                         hx-target="closest tr"
                         hx-swap="afterend"
@@ -77,16 +77,16 @@
                         aria-label="{% translate 'افتح الفروع' %}">+</button>
                 <code dir="ltr">{{ node.account.code }}</code>
               </td>
-              <td>{{ node.account.name_ar }}</td>
+              <td>{{ node.account.name }}</td>
               <td>{{ node.account.get_account_class_display }}</td>
               <td>{% if node.account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
               <td><bdi dir="ltr">{{ node.balance|money_full }}</bdi></td>
-              <td class="cell-actions">
-                <a class="btn btn--secondary btn--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
+              <td class="ui-table__actions">
+                <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
               </td>
             </tr>
           {% empty %}
-            <tr><td colspan="6" class="empty">{% translate "لا يوجد دليل حسابات لهذه المؤسسة بعد." %}</td></tr>
+            <tr><td colspan="6" class="ui-table__empty">{% translate "لا يوجد دليل حسابات لهذه المؤسسة بعد." %}</td></tr>
           {% endfor %}
         </tbody>
       </table>

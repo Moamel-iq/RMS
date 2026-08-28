@@ -662,16 +662,14 @@ class TestChartCommands:
                 actor=accountant,
                 organization_id=organization.pk,
                 code="6-01-02-002",
-                name_ar="إيجار المخزن",
-                name_en="Store rent",
+                name="إيجار المخزن",
             )
 
         account = create_chart_account(
             actor=accounting_manager,
             organization_id=organization.pk,
             code="6-01-02-002",
-            name_ar="إيجار المخزن",
-            name_en="Store rent",
+            name="إيجار المخزن",
         )
         assert account.is_system is False
 
@@ -712,8 +710,7 @@ class TestChartCommands:
             update_chart_account(
                 actor=accountant,
                 account_id=payable.pk,
-                name_ar=payable.name_ar,
-                name_en=payable.name_en,
+                name=payable.name,
                 requires_cost_center=False,
                 manual_posting_policy=ManualPostingPolicy.ALLOWED,
                 allow_system=True,
@@ -722,8 +719,7 @@ class TestChartCommands:
         updated = update_chart_account(
             actor=accounting_manager,
             account_id=payable.pk,
-            name_ar=payable.name_ar,
-            name_en=payable.name_en,
+            name=payable.name,
             requires_cost_center=False,
             manual_posting_policy=ManualPostingPolicy.FORBIDDEN,
             allow_system=True,

@@ -9,8 +9,8 @@
 {% load i18n money_tags %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="status">
       <option value="">{% translate "كل الحالات" %}</option>
       {% for value, label in statuses %}
@@ -42,7 +42,7 @@
       </td>
       <td data-label="{% translate 'التطبيق' %}">
         <bdi dir="ltr"><code>{{ settlement.delivery_application.code }}</code></bdi>
-        {{ settlement.delivery_application.name_ar }}
+        {{ settlement.delivery_application.name }}
       </td>
       <td data-label="{% translate 'كشف الحساب' %}">
         <bdi dir="ltr"><code>{{ settlement.statement_reference }}</code></bdi>
@@ -61,21 +61,21 @@
         {% if settlement.number %}
           <bdi dir="ltr"><code>{{ settlement.number }}</code></bdi>
         {% else %}
-          <span class="muted">{% translate "لم تُرحَّل" %}</span>
+          <span class="ui-text-muted">{% translate "لم تُرحَّل" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'الحالة' %}">
         {% if settlement.status == "POSTED" %}
-          <span class="chip chip--ok">{{ settlement.get_status_display }}</span>
+          <span class="ui-badge ui-badge--success">{{ settlement.get_status_display }}</span>
         {% elif settlement.status == "REVERSED" %}
-          <span class="chip chip--bad">{{ settlement.get_status_display }}</span>
+          <span class="ui-badge ui-badge--danger">{{ settlement.get_status_display }}</span>
         {% else %}
-          <span class="chip">{{ settlement.get_status_display }}</span>
+          <span class="ui-badge">{{ settlement.get_status_display }}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'إجراءات' %}">
-        <div class="rowactions">
-          <a class="btn btn--quiet btn--sm" href="{% url 'sales:settlement_detail' settlement.pk %}">
+        <div class="ui-table__actions">
+          <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'sales:settlement_detail' settlement.pk %}">
             {% translate "فتح" %}
           </a>
         </div>

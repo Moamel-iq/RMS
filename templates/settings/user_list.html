@@ -7,7 +7,7 @@
   <th>{% translate "رقم الهاتف" %}</th>
   <th>{% translate "الفروع" %}</th>
   <th>{% translate "الحالة" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 
 {% block rows %}
@@ -16,25 +16,25 @@
       <td><strong>{{ account.username }}</strong></td>
       <td>{{ account.get_full_name|default:"—" }}</td>
       {# The phone is a credential and an identity; show it as stored. #}
-      <td class="table__num" dir="ltr">{{ account.phone|default:"—" }}</td>
-      <td class="table__num">{{ account.branch_memberships.count }}</td>
+      <td class="ui-table__numeric" dir="ltr">{{ account.phone|default:"—" }}</td>
+      <td class="ui-table__numeric">{{ account.branch_memberships.count }}</td>
       <td>
         {% if account.is_active %}
-          <span class="chip chip--on">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--off">{% translate "موقوف" %}</span>
+          <span class="ui-badge ui-badge--danger">{% translate "موقوف" %}</span>
         {% endif %}
         {% if account.is_superuser %}
-          <span class="chip chip--brand">{% translate "مسؤول" %}</span>
+          <span class="ui-badge ui-badge--blue">{% translate "مسؤول" %}</span>
         {% elif account.is_staff %}
-          <span class="chip chip--neutral">{% translate "إعدادات" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "إعدادات" %}</span>
         {% endif %}
       </td>
-      <td class="table__actions">
-        <a class="linkish" href="{% url 'users:user_update' account.pk %}">{% translate "تعديل" %}</a>
+      <td class="ui-table__actions">
+        <a class="ui-button ui-button--ghost ui-button--small" href="{% url 'users:user_update' account.pk %}">{% translate "تعديل" %}</a>
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="6"><p class="empty">{% translate "لا يوجد مستخدمون." %}</p></td></tr>
+    <tr><td colspan="6"><p class="ui-empty">{% translate "لا يوجد مستخدمون." %}</p></td></tr>
   {% endfor %}
 {% endblock %}

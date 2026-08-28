@@ -185,8 +185,7 @@ def trial_balance(
     return [
         {
             "code": row["account__code"],
-            "name_ar": row["account__name_ar"],
-            "name_en": row["account__name_en"],
+            "name": row["account__name_ar"],
             "debits": row["debits"],
             "credits": row["credits"],
             "balance": row["debits"] - row["credits"],

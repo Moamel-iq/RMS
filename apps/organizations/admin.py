@@ -20,15 +20,15 @@ from apps.organizations.models import (
 class BranchInline(admin.TabularInline):
     model = Branch
     extra = 0
-    fields = ("code", "name_ar", "name_en", "timezone", "business_day_start_time", "is_active")
+    fields = ("code", "name", "timezone", "business_day_start_time", "is_active")
     show_change_link = True
 
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
-    list_display = ("code", "name_ar", "name_en", "is_active", "created_at")
+    list_display = ("code", "name", "is_active", "created_at")
     list_filter = ("is_active",)
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     ordering = ("code",)
     inlines = [BranchInline]
     # Deletion is blocked by PROTECT on branches anyway; removing the action
@@ -40,18 +40,18 @@ class OrganizationAdmin(admin.ModelAdmin):
 class BranchAdmin(admin.ModelAdmin):
     list_display = (
         "code",
-        "name_ar",
+        "name",
         "organization",
         "timezone",
         "business_day_start_time",
         "is_active",
     )
     list_filter = ("is_active", "organization")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     ordering = ("organization__code", "code")
     list_select_related = ("organization",)
     fieldsets = (
-        (None, {"fields": ("organization", "code", "name_ar", "name_en", "is_active")}),
+        (None, {"fields": ("organization", "code", "name", "is_active")}),
         (
             _("Operating day"),
             {

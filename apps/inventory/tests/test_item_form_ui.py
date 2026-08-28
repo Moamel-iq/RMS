@@ -24,5 +24,6 @@ def test_item_create_renders_the_guided_item_form(
     assert "data-inventory-item-form" in body
     assert 'id="item-identity-title"' in body
     assert 'id="item-tracking-title"' in body
-    assert "css/inventory.css" in body
+    assert "css/erp-design-system.css" in body
+    assert "css/inventory.css" not in body
     assert "js/inventory-htmx.js" in body

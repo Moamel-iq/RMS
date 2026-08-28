@@ -27,6 +27,7 @@ from apps.inventory.api import router as inventory_router
 from apps.kitchen.api import router as kitchen_router
 from apps.procurement.api import router as procurement_router
 from apps.sales.api import router as sales_router
+from apps.supplier_quotes.api import router as supplier_quotes_router
 from config import __version__
 
 api = NinjaAPI(
@@ -49,6 +50,7 @@ api.add_router("/inventory", inventory_router)
 api.add_router("/procurement", procurement_router)
 api.add_router("/kitchen", kitchen_router)
 api.add_router("/sales", sales_router)
+api.add_router("/supplier-quotes", supplier_quotes_router)
 
 
 #: Domain errors that describe a state conflict rather than a bad request.

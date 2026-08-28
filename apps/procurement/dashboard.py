@@ -100,10 +100,10 @@ def procurement_overview(user: User, *, include_cost: bool) -> ProcurementOvervi
         rows = [
             SupplierRow(
                 code=entry["supplier__code"],
-                name=entry["supplier__name_ar"],
+                name=entry["supplier__name"],
                 invoice_count=entry["invoices"],
             )
-            for entry in posted.values("supplier__code", "supplier__name_ar")
+            for entry in posted.values("supplier__code", "supplier__name")
             .annotate(invoices=Count("id"))
             .order_by("-invoices")[:TOP_SUPPLIERS]
         ]
@@ -118,14 +118,14 @@ def procurement_overview(user: User, *, include_cost: bool) -> ProcurementOvervi
 
     posted_total = posted.aggregate(total=Sum("total_amount"))["total"] or ZERO
     grouped = (
-        posted.values("supplier__code", "supplier__name_ar")
+        posted.values("supplier__code", "supplier__name")
         .annotate(total=Sum("total_amount"), invoices=Count("id"))
         .order_by("-total")[:TOP_SUPPLIERS]
     )
     rows = [
         SupplierRow(
             code=entry["supplier__code"],
-            name=entry["supplier__name_ar"],
+            name=entry["supplier__name"],
             invoice_count=entry["invoices"],
             total=entry["total"] or ZERO,
             share=(

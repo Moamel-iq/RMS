@@ -36,11 +36,11 @@ def _payment_choices(organization_ids: list[int]) -> list[tuple[str, str]]:
     for cashbox in Cashbox.objects.filter(
         organization_id__in=organization_ids, is_active=True
     ).order_by("code"):
-        choices.append((f"cashbox:{cashbox.pk}", f"صندوق — {cashbox.name_ar}"))
+        choices.append((f"cashbox:{cashbox.pk}", f"صندوق — {cashbox.name}"))
     for bank in BankAccount.objects.filter(
         organization_id__in=organization_ids, is_active=True
     ).order_by("code"):
-        choices.append((f"bank:{bank.pk}", f"مصرف — {bank.name_ar}"))
+        choices.append((f"bank:{bank.pk}", f"مصرف — {bank.name}"))
     return choices
 
 

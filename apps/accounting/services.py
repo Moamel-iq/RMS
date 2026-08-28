@@ -390,8 +390,7 @@ def create_account(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
-    name_en: str,
+    name: str,
     requires_cost_center: bool | None = None,
     external_accounting_system: str = "",
     external_account_code: str = "",
@@ -441,8 +440,7 @@ def create_account(
     account = Account(
         organization=organization,
         code=code,
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         account_class=account_class,
         parent=parent,
         is_postable=is_postable,
@@ -542,8 +540,7 @@ _ACCOUNT_FINANCIAL_MEANING = ("code", "account_class", "parent_id", "is_postable
 def update_account_metadata(
     *,
     account: Account,
-    name_ar: str,
-    name_en: str,
+    name: str,
     requires_cost_center: bool,
     manual_posting_policy: str,
     reason: str = "",
@@ -608,15 +605,14 @@ def update_account_metadata(
         )
 
     previous = snapshot(current)
-    current.name_ar = name_ar.strip()
-    current.name_en = name_en.strip()
+    current.name = name.strip()
     current.requires_cost_center = requires_cost_center
     current.manual_posting_policy = manual_posting_policy
     current.full_clean()
     current.save(
         update_fields=[
-            "name_ar",
-            "name_en",
+            "name",
+            "name",
             "requires_cost_center",
             "manual_posting_policy",
             "updated_at",
@@ -634,14 +630,11 @@ def update_account_metadata(
 
 
 @transaction.atomic
-def create_cost_center(
-    *, organization: Organization, code: str, name_ar: str, name_en: str
-) -> CostCenter:
+def create_cost_center(*, organization: Organization, code: str, name: str) -> CostCenter:
     cost_center = CostCenter(
         organization=organization,
         code=code.strip().upper(),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
     )
     cost_center.full_clean()
     cost_center.save()
@@ -692,12 +685,11 @@ def sync_system_account_roles() -> None:
         (SYSTEM_PAYROLL_ROLES, AccountRoleDomain.PAYROLL),
     )
     for roles, domain in vocabularies:
-        for code, name_ar, name_en, mapping_scope in roles:
+        for code, name, _english_name, mapping_scope in roles:
             AccountRole.objects.update_or_create(
                 code=code,
                 defaults={
-                    "name_ar": name_ar,
-                    "name_en": name_en,
+                    "name": name,
                     "domain": domain,
                     "mapping_scope": mapping_scope,
                     "is_system": True,

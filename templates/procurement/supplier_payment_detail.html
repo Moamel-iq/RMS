@@ -8,39 +8,39 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page" id="supplier-payment-detail">
-    <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page" id="supplier-payment-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'procurement:supplier_payment_list' %}">{% translate "دفعات الموردين" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ page_title }}</span>
     </nav>
-    <div class="pagehead">
+    <div class="ui-page-header">
       <div>
-        <p class="pagehead__eyebrow">{{ payment.supplier.code }} — {{ payment.supplier.name_ar }}</p>
-        <h1 class="pagehead__title">
+        <p class="ui-page-header__eyebrow">{{ payment.supplier.code }} — {{ payment.supplier.name }}</p>
+        <h1 class="ui-page-header__title">
           {% if payment.number %}<bdi dir="ltr">{{ payment.number }}</bdi>{% else %}{% translate "مسودة دفعة" %}{% endif %}
         </h1>
-        <p class="pagehead__hint"><span class="chip">{{ payment.get_status_display }}</span> · {% translate "دفعة مورد" %}</p>
+        <p class="ui-page-header__hint"><span class="ui-badge">{{ payment.get_status_display }}</span> · {% translate "دفعة مورد" %}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'procurement:supplier_payment_list' %}">{% translate "رجوع" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:supplier_payment_list' %}">{% translate "رجوع" %}</a>
       </div>
     </div>
 
-    <div class="workspace-two-column payment-summary-grid">
-      <section class="formcard">
+    <div class="ui-detail-grid">
+      <section class="ui-card ui-form-card">
         <h2>{% translate "ملخص الدفعة" %}</h2>
-        <dl class="detail-list">
-          <dt>{% translate "المورد" %}</dt><dd>{{ payment.supplier.code }} — {{ payment.supplier.name_ar }}</dd>
+        <dl class="ui-definition-list">
+          <dt>{% translate "المورد" %}</dt><dd>{{ payment.supplier.code }} — {{ payment.supplier.name }}</dd>
           <dt>{% translate "تاريخ الدفع" %}</dt><dd><bdi dir="ltr">{{ payment.paid_at|date:"Y-m-d" }}</bdi></dd>
           <dt>{% translate "طريقة الدفع" %}</dt><dd>{{ payment.get_method_display }}</dd>
         </dl>
       </section>
       {% if may_see_cost %}
-        <section class="formcard payment-total-card">
+        <section class="ui-card ui-form-card ui-total-card">
           <h2>{% translate "مبلغ الدفعة" %}</h2>
-          <p class="payment-total-card__amount"><bdi dir="ltr">{{ payment.amount|money_full }}</bdi></p>
-          <dl class="detail-list">
+          <p class="ui-total-card__amount"><bdi dir="ltr">{{ payment.amount|money_full }}</bdi></p>
+          <dl class="ui-definition-list">
             <dt>{% translate "مخصص على الفواتير" %}</dt><dd><bdi dir="ltr">{{ allocated|money_full }}</bdi></dd>
             {% if payment.status == "DRAFT" %}
               <dt>{% translate "متبقٍ للتخصيص" %}</dt><dd><strong><bdi dir="ltr">{{ unallocated|money_full }}</bdi></strong></dd>
@@ -52,11 +52,11 @@
       {% endif %}
     </div>
 
-    <details class="payment-disclosure">
+    <details class="ui-disclosure">
       <summary>{% translate "تفاصيل إضافية" %}</summary>
-      <div class="payment-disclosure__body">
-        <dl class="detail-list">
-          <dt>{% translate "الفرع" %}</dt><dd>{{ payment.branch.name_ar }}</dd>
+      <div class="ui-disclosure__body">
+        <dl class="ui-definition-list">
+          <dt>{% translate "الفرع" %}</dt><dd>{{ payment.branch.name }}</dd>
           {% if payment.reference %}<dt>{% translate "المرجع" %}</dt><dd><bdi dir="ltr">{{ payment.reference }}</bdi></dd>{% endif %}
           <dt>{% translate "سجّلها" %}</dt><dd>{{ payment.created_by.username }}</dd>
           {% if payment.journal_entry_id %}<dt>{% translate "القيد المحاسبي" %}</dt><dd><a href="{% url 'accounting:journal_detail' payment.journal_entry.pk %}"><bdi dir="ltr">{{ payment.journal_entry.entry_number }}</bdi></a></dd>{% endif %}
@@ -68,11 +68,11 @@
       </div>
     </details>
 
-    <section class="formcard payment-allocations-card" aria-labelledby="payment-allocations-title">
+    <section class="ui-card ui-form-card ui-lines-card" aria-labelledby="payment-allocations-title">
       <h2 id="payment-allocations-title">{% translate "توزيع الدفعة" %}</h2>
-      <p class="muted">{% translate "خصّص ما تريد للفواتير؛ المتبقي يُسجّل سلفة للمورد عند الترحيل." %}</p>
-      <div class="data-table-shell" tabindex="0">
-      <table class="table responsive-table">
+      <p class="ui-text-muted">{% translate "خصّص ما تريد للفواتير؛ المتبقي يُسجّل سلفة للمورد عند الترحيل." %}</p>
+      <div class="ui-table-scroll" tabindex="0">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>
             <th>{% translate "الفاتورة" %}</th>
@@ -100,11 +100,11 @@
                         hx-target="#supplier-payment-detail" hx-swap="outerHTML"
                         hx-confirm="{% translate 'يُحذف تخصيص المبلغ على الفاتورة ويعود المبلغ غير مخصص.' %}"
               data-confirm-title="{% translate 'حذف تخصيص دفعة' %}"
-              data-confirm-subject="{{ payment.supplier.name_ar }} — {{ payment.number|default:'مسودة' }}"
+              data-confirm-subject="{{ payment.supplier.name }} — {{ payment.number|default:'مسودة' }}"
               data-confirm-severity="danger"
               data-confirm-accept="{% translate 'حذف التخصيص' %}">
                     {% csrf_token %}
-                    <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                    <button class="ui-button ui-button--ghost ui-button--small" type="submit">{% translate "حذف" %}</button>
                   </form>
                 </td>
               {% endif %}
@@ -118,71 +118,71 @@
     </section>
 
     {% if may_edit %}
-      <form class="formcard payment-allocation-form" method="post" novalidate
+      <form class="ui-card ui-form-card ui-line-form" method="post" novalidate
             hx-post="{{ request.path }}" hx-target="#supplier-payment-detail" hx-swap="outerHTML"
             hx-disabled-elt="find button[type=submit]">
         <h2>{% translate "إضافة تخصيص" %}</h2>
         {% csrf_token %}
-        <p class="muted">{% translate "اختر الفاتورة وأدخل المبلغ فقط." %}</p>
+        <p class="ui-text-muted">{% translate "اختر الفاتورة وأدخل المبلغ فقط." %}</p>
         {% include "components/form_error_summary.html" with form=form %}
-        <div class="formgrid payment-allocation-form__primary">
+        <div class="ui-form-grid ui-line-form__primary">
           {% include "settings/_field.html" with field=form.invoice %}
           {% include "settings/_field.html" with field=form.allocated_amount %}
         </div>
-        <details class="payment-allocation-form__more"{% if form.note.errors %} open{% endif %}>
+        <details class="ui-disclosure"{% if form.note.errors %} open{% endif %}>
           <summary>{% translate "إضافة ملاحظة (اختياري)" %}</summary>
-          <div class="formgrid">{% include "settings/_field.html" with field=form.note %}</div>
+          <div class="ui-form-grid">{% include "settings/_field.html" with field=form.note %}</div>
         </details>
-        <div class="formactions"><button class="btn btn--primary" type="submit">{% translate "إضافة التخصيص" %}</button></div>
+        <div class="ui-form-actions"><button class="ui-button ui-button--primary" type="submit">{% translate "إضافة التخصيص" %}</button></div>
       </form>
     {% endif %}
 
-    <details class="payment-disclosure">
+    <details class="ui-disclosure">
       <summary>{% translate "كيف يُرحَّل المبلغ؟" %}</summary>
-      <div class="payment-disclosure__body"><p class="muted">{% translate "يُخفّض الجزء المخصص ذمة المورد، ويُسجّل المتبقي سلفة له. يقابل المبلغ كاملًا الصندوق أو المصرف بحسب طريقة الدفع." %}</p></div>
+      <div class="ui-disclosure__body"><p class="ui-text-muted">{% translate "يُخفّض الجزء المخصص ذمة المورد، ويُسجّل المتبقي سلفة له. يقابل المبلغ كاملًا الصندوق أو المصرف بحسب طريقة الدفع." %}</p></div>
     </details>
 
-    <section class="formcard" aria-labelledby="payment-action-title">
+    <section class="ui-card ui-form-card" aria-labelledby="payment-action-title">
       <h2 id="payment-action-title">{% translate "إجراء الدفعة" %}</h2>
       {% if payment.status == "DRAFT" %}
-        <p class="muted">{% translate "الترحيل يثبت خروج المال وينشئ القيد. لا تحتاج إلى تخصيص كامل الدفعة." %}</p>
+        <p class="ui-text-muted">{% translate "الترحيل يثبت خروج المال وينشئ القيد. لا تحتاج إلى تخصيص كامل الدفعة." %}</p>
         {% if may_post %}
           <form method="post" action="{% url 'procurement:supplier_payment_post' payment.pk %}"
                 hx-post="{% url 'procurement:supplier_payment_post' payment.pk %}"
                 hx-target="#supplier-payment-detail" hx-swap="outerHTML"
                 hx-confirm="{% translate 'الترحيل يُنشئ قيداً محاسبياً ويخصم المبلغ من ذمة المورد. لا يُلغى إلا بعكس القيد.' %}"
               data-confirm-title="{% translate 'ترحيل دفعة مورد' %}"
-              data-confirm-subject="{{ payment.supplier.name_ar }} — {{ payment.number|default:'مسودة' }}"
+              data-confirm-subject="{{ payment.supplier.name }} — {{ payment.number|default:'مسودة' }}"
               data-confirm-amount="{{ payment.amount|money_full }}"
               data-confirm-severity="danger"
               data-confirm-accept="{% translate 'ترحيل الدفعة' %}">
             {% csrf_token %}
-            <button class="btn btn--primary" type="submit">{% translate "ترحيل الدفعة" %}</button>
+            <button class="ui-button ui-button--primary" type="submit">{% translate "ترحيل الدفعة" %}</button>
           </form>
         {% endif %}
       {% elif payment.status == "POSTED" %}
-        <p class="muted">{% translate "الدفعة المرحّلة لا تُعدَّل. صحّحها بعكس الترحيل ثم سجّل دفعة جديدة." %}</p>
+        <p class="ui-text-muted">{% translate "الدفعة المرحّلة لا تُعدَّل. صحّحها بعكس الترحيل ثم سجّل دفعة جديدة." %}</p>
         {% if may_reverse %}
           <form method="post" action="{% url 'procurement:supplier_payment_reverse' payment.pk %}"
                 hx-post="{% url 'procurement:supplier_payment_reverse' payment.pk %}"
                 hx-target="#supplier-payment-detail" hx-swap="outerHTML">
             {% csrf_token %}
-            <label class="field">
-              <span class="field__label">{% translate "سبب العكس" %}</span>
+            <label class="ui-field">
+              <span class="ui-field__label">{% translate "سبب العكس" %}</span>
               <input type="text" name="reason" required>
             </label>
-            <div class="formactions"><button class="btn btn--ghost" type="submit">{% translate "عكس الترحيل" %}</button></div>
+            <div class="ui-form-actions"><button class="ui-button ui-button--ghost" type="submit">{% translate "عكس الترحيل" %}</button></div>
           </form>
         {% endif %}
       {% else %}
-        <p class="muted">{% translate "هذه الدفعة معكوسة. للتصحيح، سجّل دفعة جديدة." %}</p>
+        <p class="ui-text-muted">{% translate "هذه الدفعة معكوسة. للتصحيح، سجّل دفعة جديدة." %}</p>
       {% endif %}
     </section>
 
-    <details class="payment-disclosure">
+    <details class="ui-disclosure">
       <summary>{% translate "المسار الزمني" %}</summary>
-      <div class="payment-disclosure__body data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-disclosure__body ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <tbody>
             {% for event in timeline %}
               <tr>

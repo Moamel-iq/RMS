@@ -50,7 +50,7 @@ def _framework() -> Any:
 
 
 REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
-    ImportKind.SUPPLIER: ("code", "name_ar"),
+    ImportKind.SUPPLIER: ("code", "name"),
     ImportKind.SUPPLIER_ITEM: ("supplier_code", "item_code", "effective_from"),
     ImportKind.PURCHASE_REQUEST_DRAFT: (
         "warehouse_code",
@@ -116,12 +116,12 @@ def validate_supplier(
         errors["code"] = [_("الرمز مطلوب.")]
     else:
         cleaned["code"] = code
-    if not row.get("name_ar", "").strip():
-        errors["name_ar"] = [_("الاسم العربي مطلوب.")]
+    if not row.get("name", "").strip():
+        errors["name"] = [_("الاسم مطلوب.")]
     else:
-        cleaned["name_ar"] = row["name_ar"].strip()
+        cleaned["name"] = row["name"].strip()
 
-    for field in ("name_en", "contact_name", "email", "address", "notes"):
+    for field in ("name", "contact_name", "email", "address", "notes"):
         cleaned[field] = row.get(field, "").strip()
 
     raw_phone = row.get("phone", "").strip()
@@ -321,8 +321,8 @@ def validate_purchase_request_draft(
 # ---------------------------------------------------------------------------
 
 _SUPPLIER_FIELDS = (
-    "name_ar",
-    "name_en",
+    "name",
+    "name",
     "contact_name",
     "phone",
     "email",
@@ -353,8 +353,7 @@ def write_supplier(
             code=cleaned["code"],
             credit_limit=credit_limit,
             payment_terms_days=terms,
-            name_ar=texts["name_ar"],
-            name_en=texts["name_en"],
+            name=texts["name"],
             contact_name=texts["contact_name"],
             phone=texts["phone"],
             email=texts["email"],
@@ -376,8 +375,7 @@ def write_supplier(
         credit_limit=credit_limit,
         payment_terms_days=terms,
         is_active=True,
-        name_ar=texts["name_ar"],
-        name_en=texts["name_en"],
+        name=texts["name"],
         contact_name=texts["contact_name"],
         phone=texts["phone"],
         email=texts["email"],
@@ -550,7 +548,6 @@ def register() -> None:
     Sign procurement's kinds into the framework. Idempotent; called from
     `AppConfig.ready`, which Django may run more than once.
     """
-    from apps.inventory import import_views
     from apps.inventory import imports as framework
 
     framework.REQUIRED_COLUMNS.update(REQUIRED_COLUMNS)
@@ -574,7 +571,7 @@ def register() -> None:
             ImportKind.PURCHASE_REQUEST_DRAFT: _request_line_key,
         }
     )
-    import_views.KIND_PERMISSIONS.update(
+    framework.KIND_PERMISSIONS.update(
         {
             ImportKind.SUPPLIER: IMPORT_SUPPLIER,
             ImportKind.SUPPLIER_ITEM: IMPORT_SUPPLIER_ITEM,

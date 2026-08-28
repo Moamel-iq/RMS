@@ -11,7 +11,7 @@ tested at all.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from decimal import Decimal
 from io import StringIO
 from typing import Any
@@ -20,8 +20,6 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.db import transaction
-from django.test import Client
-from django.urls import reverse
 
 from apps.core.context import audit_context
 from apps.inventory import imports
@@ -353,7 +351,7 @@ class TestUploadSecurity:
 
 class TestScopeInjection:
     def test_a_foreign_branch_is_refused(self, organization: Organization) -> None:
-        other = create_organization(code="RIVALIMP", name_ar="منافس", name_en="Rival")
+        other = create_organization(code="RIVALIMP", name="منافس")
         import datetime as _datetime
 
         from apps.organizations.services import create_branch
@@ -361,8 +359,7 @@ class TestScopeInjection:
         foreign = create_branch(
             organization=other,
             code="FBR",
-            name_ar="فرع",
-            name_en="Branch",
+            name="فرع",
             business_day_start_time=_datetime.time(6, 0),
         )
         with pytest.raises(ValidationError) as refusal:
@@ -378,7 +375,7 @@ class TestScopeInjection:
         The answer is "no such item", the same one the screen would give —
         it reveals nothing about whether the code exists elsewhere.
         """
-        other = create_organization(code="RIVALITEM", name_ar="منافس", name_en="Rival")
+        other = create_organization(code="RIVALITEM", name="منافس")
         ItemCategory.objects.filter(organization=other)  # the rival has its own master
         raw = f"{HEADER}\nDEMO-RICE,yes,1.000,1.000\n".encode()
         with audit_context(actor=owner):
@@ -460,16 +457,6 @@ class TestScopeInjection:
         ]
         assert holders == []
 
-    def test_only_supported_kinds_are_offered_in_the_ui(
-        self, owner: User, organization: Organization, client_for: Callable[[User], Client]
-    ) -> None:
-        """No dead option in the Arabic dropdown."""
-        body = client_for(owner).get(reverse("inventory:import_upload")).content.decode()
-        for value in ImportKind.values:
-            assert f'value="{value}"' in body
-        for removed in ("OPENING_STOCK_DRAFT", "INVENTORY_ITEM", "ITEM_CONVERSION", "WAREHOUSE"):
-            assert f'value="{removed}"' not in body
-
     def test_the_database_refuses_an_unsupported_kind(self, organization: Organization) -> None:
         """
         Django choices are a form-layer courtesy, not a boundary.
@@ -503,115 +490,16 @@ class TestScopeInjection:
 
 
 class TestImportAuthorization:
-    def test_the_history_screen_needs_its_own_permission(
-        self, seeded: None, units: None, client_for: Callable[[User], Client]
-    ) -> None:
-        keeper = User.objects.get(username="demo-storekeeper")
-        assert client_for(keeper).get(reverse("inventory:import_list")).status_code == 403
-
-    def test_an_accountant_may_read_history_but_not_apply(
+    def test_an_accountant_may_not_apply_an_import(
         self, organization: Organization, branch: Branch, owner: User, units: None
     ) -> None:
-        """
-        The point of keeping the two permissions apart.
-
-        Someone who may apply nothing still has to be able to see what was
-        applied and by whom.
-        """
-        from apps.inventory.import_views import permission_for_kind
-        from apps.inventory.permissions import VIEW_IMPORT_HISTORY
+        """An accountant reads the figures and applies no import."""
+        from apps.inventory.imports import permission_for_kind
 
         accountant = User.objects.create_user(username="acct", password="pw-not-real-1234")
         grant_organization_access(user=accountant, organization=organization, role=Role.ACCOUNTANT)
         accountant = User.objects.get(pk=accountant.pk)
-        assert accountant.has_perm(VIEW_IMPORT_HISTORY)
         assert not accountant.has_perm(permission_for_kind(ImportKind.BRANCH_ITEM_SETTING))
-
-    def test_a_direct_post_without_the_kind_permission_is_refused(
-        self,
-        organization: Organization,
-        branch: Branch,
-        owner: User,
-        units: None,
-        client_for: Callable[[User], Client],
-    ) -> None:
-        """A hidden button is not a control."""
-        with audit_context(actor=owner):
-            batch = imports.validate_batch(batch=upload(organization, branch, GOOD))
-
-        accountant = User.objects.create_user(username="acct2", password="pw-not-real-1234")
-        grant_organization_access(user=accountant, organization=organization, role=Role.ACCOUNTANT)
-        response = client_for(User.objects.get(pk=accountant.pk)).post(
-            reverse("inventory:import_detail", args=[batch.pk]), {"action": "apply"}
-        )
-        assert response.status_code == 403
-        batch.refresh_from_db()
-        assert batch.status == ImportBatchStatus.VALIDATED
-
-    def test_a_batch_from_another_organization_is_a_404(
-        self,
-        organization: Organization,
-        branch: Branch,
-        owner: User,
-        units: None,
-        client_for: Callable[[User], Client],
-    ) -> None:
-        with audit_context(actor=owner):
-            batch = upload(organization, branch, GOOD)
-        outsider = User.objects.create_user(username="nosy", password="pw-not-real-1234")
-        response = client_for(outsider).get(reverse("inventory:import_detail", args=[batch.pk]))
-        assert response.status_code in (403, 404)
-
-
-class TestImportScreens:
-    def test_the_detail_partial_carries_only_the_rows(
-        self,
-        owner: User,
-        organization: Organization,
-        branch: Branch,
-        client_for: Callable[[User], Client],
-    ) -> None:
-        with audit_context(actor=owner):
-            batch = imports.validate_batch(batch=upload(organization, branch, MIXED))
-        body = (
-            client_for(owner)
-            .get(reverse("inventory:import_detail", args=[batch.pk]), headers=HX)
-            .content.decode()
-        )
-        assert "<html" not in body
-        assert 'class="rail"' not in body
-        assert 'id="list-results"' in body
-
-    def test_the_row_filter_narrows_the_table(
-        self,
-        owner: User,
-        organization: Organization,
-        branch: Branch,
-        client_for: Callable[[User], Client],
-    ) -> None:
-        with audit_context(actor=owner):
-            batch = imports.validate_batch(batch=upload(organization, branch, MIXED))
-        client = client_for(owner)
-        url = reverse("inventory:import_detail", args=[batch.pk])
-        errors_only = client.get(url, {"rows": "errors"}, headers=HX).content.decode()
-        assert "NOT-AN-ITEM" in errors_only
-        assert "DEMO-RICE" not in errors_only
-
-    def test_the_arabic_error_message_reaches_the_screen(
-        self,
-        owner: User,
-        organization: Organization,
-        branch: Branch,
-        client_for: Callable[[User], Client],
-    ) -> None:
-        with audit_context(actor=owner):
-            batch = imports.validate_batch(batch=upload(organization, branch, MIXED))
-        body = (
-            client_for(owner)
-            .get(reverse("inventory:import_detail", args=[batch.pk]))
-            .content.decode()
-        )
-        assert "لا يوجد صنف بهذا الرمز في هذه المؤسسة." in body
 
 
 # ---------------------------------------------------------------------------

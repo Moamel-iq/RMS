@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# Every version of one order, newest first, each with what changed and why. #}
@@ -9,29 +9,29 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{% translate "سجل إصدارات أمر الشراء" %}</h1>
-        <p class="pagehead__hint">
-          <span dir="ltr">{{ order.number }}</span> — {{ order.supplier.name_ar }}
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{% translate "سجل إصدارات أمر الشراء" %}</h1>
+        <p class="ui-page-header__hint">
+          <span dir="ltr">{{ order.number }}</span> — {{ order.supplier.name }}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'procurement:purchase_order_detail' order.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:purchase_order_detail' order.pk %}">
           {% translate "الأمر" %}
         </a>
       </div>
     </div>
 
     {% for entry in entries %}
-      <div class="formcard">
+      <div class="ui-card ui-form-card">
         <h2>
           {% blocktranslate with number=entry.version %}الإصدار {{ number }}{% endblocktranslate %}
           {% if entry.is_current %}
-            <span class="chip chip--on">{% translate "الحالي" %}</span>
+            <span class="ui-badge ui-badge--success">{% translate "الحالي" %}</span>
           {% else %}
-            <span class="chip chip--off">{% translate "مستبدل" %}</span>
+            <span class="ui-badge ui-badge--danger">{% translate "مستبدل" %}</span>
           {% endif %}
         </h2>
 
@@ -39,7 +39,7 @@
           <p><strong>{% translate "سبب التعديل" %}:</strong> {{ entry.superseded_reason }}</p>
         {% endif %}
         {% if entry.revised_by %}
-          <p class="muted">
+          <p class="ui-text-muted">
             {{ entry.revised_by.username }} —
             <span dir="ltr">{{ entry.revised_at|date:"Y-m-d H:i" }}</span>
           </p>
@@ -53,8 +53,8 @@
           </ul>
         {% endif %}
 
-        <div class="data-table-shell">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll">
+          <table class="ui-table ui-table--responsive">
             <thead>
               <tr>
                 <th>{% translate "الصنف" %}</th>
@@ -84,7 +84,7 @@
         </div>
       </div>
     {% empty %}
-      <div class="formcard">
+      <div class="ui-card ui-form-card">
         <p>{% translate "لم يُعدَّل هذا الأمر بعد. الإصدار الحالي هو الأول." %}</p>
       </div>
     {% endfor %}

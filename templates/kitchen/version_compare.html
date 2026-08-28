@@ -8,29 +8,29 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {{ left.recipe.code }} — {% translate "مقارنة" %} v{{ left.version_number }}
           {% if right %}↔ v{{ right.version_number }}{% endif %}
         </h1>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% translate "المطابقة على مفاتيح العمل — رمز الصنف ورقم الخطوة ورمز الحصة — لا على المفاتيح الأولية. الترتيب ثابت." %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' left.pk %}">{% translate "عودة للنسخة" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_detail' left.pk %}">{% translate "عودة للنسخة" %}</a>
       </div>
     </div>
 
-    <form class="toolbar" method="get" id="compare-picker"
+    <form class="ui-filter-bar" method="get" id="compare-picker"
           hx-get="{{ request.path }}"
           hx-target="#compare-results"
           hx-select="#compare-results"
           hx-swap="outerHTML"
           hx-push-url="true"
-          hx-trigger="submit, change from:find select">
+          hx-trigger="submit, change">
       <select name="against" aria-label="{% translate 'قارن مع' %}">
         {% for sibling in siblings %}
           <option value="{{ sibling.pk }}"{% if right and sibling.pk == right.pk %} selected{% endif %}>
@@ -40,20 +40,20 @@
           <option value="">{% translate "لا توجد نسخة أخرى" %}</option>
         {% endfor %}
       </select>
-      <button class="btn btn--ghost" type="submit">{% translate "قارن" %}</button>
+      <button class="ui-button ui-button--ghost" type="submit">{% translate "قارن" %}</button>
     </form>
 
     {# The swap target draws no edge of its own: every block inside it is a  #}
     {# card already, and a second border round the set would double them.    #}
-    <div class="workspace-page" id="compare-results">
+    <div class="ui-page" id="compare-results">
       {% if error %}
-        <div class="alert" role="alert"><p>{{ error }}</p></div>
+        <div class="ui-notice" role="alert"><p>{{ error }}</p></div>
       {% elif not comparison %}
-        <section class="formcard">
-          <p class="empty">{% translate "لا توجد نسخة أخرى من هذه الوصفة للمقارنة." %}</p>
+        <section class="ui-form-card">
+          <p class="ui-table__empty">{% translate "لا توجد نسخة أخرى من هذه الوصفة للمقارنة." %}</p>
         </section>
       {% else %}
-        <section class="formcard">
+        <section class="ui-form-card">
           <p>
             {% if comparison.has_changes %}
               {% blocktranslate count total=comparison.change_count %}فرق واحد.{% plural %}{{ total }} فروق.{% endblocktranslate %}
@@ -64,13 +64,13 @@
         </section>
 
         {% for section in comparison.sections %}
-          <section class="formcard">
+          <section class="ui-form-card">
             <h2>{{ section.label }}</h2>
             {% if not section.has_changes %}
-              <p class="empty">{% translate "بلا تغيير." %}</p>
+              <p class="ui-table__empty">{% translate "بلا تغيير." %}</p>
             {% else %}
-              <div class="data-table-shell" tabindex="0">
-                <table class="table responsive-table">
+              <div class="ui-table-scroll" tabindex="0">
+                <table class="ui-table ui-table--responsive">
                   <thead><tr>
                     <th>{% translate "العنصر" %}</th>
                     <th>{% translate "التغيير" %}</th>
@@ -83,7 +83,7 @@
                         {% for difference in row.differences %}
                           <tr>
                             <td data-label="{% translate 'العنصر' %}">{{ row.label }} · {{ difference.label }}</td>
-                            <td data-label="{% translate 'التغيير' %}"><span class="chip chip--off">{% translate "تغيّر" %}</span></td>
+                            <td data-label="{% translate 'التغيير' %}"><span class="ui-badge ui-badge--neutral">{% translate "تغيّر" %}</span></td>
                             <td data-label="v{{ left.version_number }}">{{ difference.left|default_if_none:"—" }}</td>
                             <td data-label="v{{ right.version_number }}">{{ difference.right|default_if_none:"—" }}</td>
                           </tr>
@@ -92,7 +92,7 @@
                         <tr>
                           <td data-label="{% translate 'العنصر' %}">{{ row.label }}</td>
                           <td data-label="{% translate 'التغيير' %}">
-                            <span class="chip {% if row.classification == 'ADDED' %}chip--on{% else %}chip--off{% endif %}">
+                            <span class="ui-badge {% if row.classification == 'ADDED' %}ui-badge--success{% else %}ui-badge--neutral{% endif %}">
                               {% if row.classification == "ADDED" %}{% translate "أُضيف" %}
                               {% else %}{% translate "حُذف" %}{% endif %}
                             </span>

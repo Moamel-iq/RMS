@@ -1,13 +1,13 @@
 {# الأصناف الأكثر مبيعاً — the top ten by gross, as a table: a ranked list   #}
 {# with four figures per row reads better in columns than as ten bars.       #}
 {% load i18n l10n money_tags %}
-<div class="panel__head">
-  <h2 class="panel__title">{{ card.label }}</h2>
-  <p class="pagehead__hint">{% translate "الأعلى إجمالياً في المدة — عشرة على الأكثر" %}</p>
+<div class="ui-card__header">
+  <h2 class="ui-card__title">{{ card.label }}</h2>
+  <p class="ui-page-header__subtitle">{% translate "الأعلى إجمالياً في المدة — عشرة على الأكثر" %}</p>
 </div>
 {% if rows %}
-  <div class="tablewrap">
-    <table class="table">
+  <div class="ui-table-scroll">
+    <table class="ui-table">
       <thead>
         <tr>
           <th scope="col">{% translate "الصنف" %}</th>
@@ -20,16 +20,16 @@
       <tbody>
         {% for row in rows %}
           <tr>
-            <td>{{ row.label }}<span class="muted"><bdi dir="ltr">{{ row.code }}</bdi></span></td>
-            <td class="table__num"><bdi dir="ltr">{{ row.quantity }}</bdi></td>
-            <td class="table__num"><bdi dir="ltr">{{ row.gross|iqd }}</bdi></td>
-            <td class="table__num"><bdi dir="ltr">{{ row.net|iqd }}</bdi></td>
-            <td class="table__num"><bdi dir="ltr">{{ row.share|unlocalize }}%</bdi></td>
+            <td>{{ row.label }}<span class="ui-text-muted"><bdi dir="ltr">{{ row.code }}</bdi></span></td>
+            <td class="ui-table__numeric"><bdi dir="ltr">{{ row.quantity }}</bdi></td>
+            <td class="ui-table__numeric"><bdi dir="ltr">{{ row.gross|iqd }}</bdi></td>
+            <td class="ui-table__numeric"><bdi dir="ltr">{{ row.net|iqd }}</bdi></td>
+            <td class="ui-table__numeric"><bdi dir="ltr">{{ row.share|unlocalize }}%</bdi></td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 {% else %}
-  <p class="empty">{% translate "لا توجد سطور مرحّلة في هذه المدة." %}</p>
+  <p class="ui-table__empty">{% translate "لا توجد سطور مرحّلة في هذه المدة." %}</p>
 {% endif %}

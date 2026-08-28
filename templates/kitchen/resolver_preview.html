@@ -8,64 +8,64 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ recipe.code }} — {% translate "أي نسخة تسري؟" %}</h1>
-        <p class="pagehead__hint">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ recipe.code }} — {% translate "أي نسخة تسري؟" %}</h1>
+        <p class="ui-page-header__subtitle">
           {% translate "المدى شامل للطرفين. النسخة المستبدَلة تبقى تجيب عن أيامها هي، وهذا هو سبب وجود التأريخ الفعّال." %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:recipe_versions' recipe.pk %}">{% translate "سجل النسخ" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:recipe_versions' recipe.pk %}">{% translate "سجل النسخ" %}</a>
       </div>
     </div>
 
-    <form class="toolbar" method="get"
+    <form class="ui-filter-bar" method="get"
           hx-get="{{ request.path }}"
           hx-target="#resolver-answer"
           hx-select="#resolver-answer"
           hx-swap="outerHTML"
-          hx-trigger="submit, change from:find select, change from:find input[type=date]">
+          hx-trigger="submit, change">
       {% for field in form %}
-        <label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        <label class="ui-field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
         {{ field }}
       {% endfor %}
-      <button class="btn btn--ghost" type="submit">{% translate "استعلم" %}</button>
+      <button class="ui-button ui-button--ghost" type="submit">{% translate "استعلم" %}</button>
     </form>
 
     {# The swap target draws no edge: the answer inside it is already a card #}
     {# or a notice, and a wrapper round it would be a second border.         #}
     <div id="resolver-answer">
       {% if problem %}
-        <div class="alert" role="alert"><p>{{ problem }}</p></div>
+        <div class="ui-notice" role="alert"><p>{{ problem }}</p></div>
       {% elif resolved %}
-        <section class="formcard">
+        <section class="ui-form-card">
           <h2>{% translate "النسخة السارية" %}</h2>
-          <dl class="formgrid">
-            <div><dt class="muted">{% translate "النسخة" %}</dt>
+          <dl class="ui-form-grid">
+            <div><dt class="ui-text-muted">{% translate "النسخة" %}</dt>
               <dd><a href="{% url 'kitchen:version_detail' resolved.pk %}">v{{ resolved.version_number }}</a></dd></div>
-            <div><dt class="muted">{% translate "الحالة" %}</dt><dd>{{ resolved.get_status_display }}</dd></div>
-            <div><dt class="muted">{% translate "من" %}</dt>
+            <div><dt class="ui-text-muted">{% translate "الحالة" %}</dt><dd>{{ resolved.get_status_display }}</dd></div>
+            <div><dt class="ui-text-muted">{% translate "من" %}</dt>
               <dd><code dir="ltr">{{ resolved.effective_from|date:"Y-m-d" }}</code></dd></div>
-            <div><dt class="muted">{% translate "إلى" %}</dt>
+            <div><dt class="ui-text-muted">{% translate "إلى" %}</dt>
               <dd>{% if resolved.effective_to %}<code dir="ltr">{{ resolved.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</dd></div>
-            <div><dt class="muted">{% translate "مرجع الاعتماد" %}</dt>
+            <div><dt class="ui-text-muted">{% translate "مرجع الاعتماد" %}</dt>
               <dd><code dir="ltr">{{ resolved.approval_reference }}</code></dd></div>
           </dl>
         </section>
       {% else %}
-        <section class="formcard">
-          <p class="empty">{% translate "اختر فرعاً وتاريخاً. لا يوجد تاريخ افتراضي: سؤال عن كلفة تموز يجب أن يذكر تموز." %}</p>
+        <section class="ui-form-card">
+          <p class="ui-table__empty">{% translate "اختر فرعاً وتاريخاً. لا يوجد تاريخ افتراضي: سؤال عن كلفة تموز يجب أن يذكر تموز." %}</p>
         </section>
       {% endif %}
     </div>
 
     {% if timeline %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "الخط الزمني" %}</h2>
-        <div class="data-table-shell" tabindex="0">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
             <thead><tr>
               <th>{% translate "النسخة" %}</th>
               <th>{% translate "الفرع" %}</th>

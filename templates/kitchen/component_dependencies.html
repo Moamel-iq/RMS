@@ -8,18 +8,18 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="component-dependencies">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <div class="ui-page" id="component-dependencies">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {{ recipe.code }} v{{ version.version_number }} — {% translate "من يستعمل هذه النسخة" %}
         </h1>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% translate "الوصفة الأم تشير إلى هذه النسخة بعينها ولا تتغير تلقائياً. استبدال هذه النسخة مسموح ولا يُبطل الوصفات الأم: المرجع مجمّد ويبقى صالحاً." %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
           {% translate "تفاصيل النسخة" %}
         </a>
       </div>
@@ -27,9 +27,9 @@
 
     {# The register is the page, so the shell round it is the card. #}
     {% if dependencies %}
-      <div class="tablewrap">
-        <table class="table responsive-table">
-          <caption class="visually-hidden">{% translate "الوصفات التي تستعمل هذه النسخة" %}</caption>
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
+          <caption class="ui-visually-hidden">{% translate "الوصفات التي تستعمل هذه النسخة" %}</caption>
           <thead>
             <tr>
               <th scope="col">{% translate "الوصفة الأم" %}</th>
@@ -43,7 +43,7 @@
               <tr>
                 <td data-label="{% translate 'الوصفة الأم' %}">
                   <a href="{% url 'kitchen:version_detail' component.version_id %}">
-                    {{ component.version.recipe.code }} — {{ component.version.recipe.name_ar }}
+                    {{ component.version.recipe.code }} — {{ component.version.recipe.name }}
                   </a>
                 </td>
                 <td data-label="{% translate 'النسخة' %}">v{{ component.version.version_number }}</td>
@@ -55,8 +55,8 @@
         </table>
       </div>
     {% else %}
-      <section class="formcard">
-        <p class="empty">{% translate "لا تستعمل أي وصفة هذه النسخة كوصفة فرعية." %}</p>
+      <section class="ui-form-card">
+        <p class="ui-table__empty">{% translate "لا تستعمل أي وصفة هذه النسخة كوصفة فرعية." %}</p>
       </section>
     {% endif %}
 
@@ -65,7 +65,7 @@
       {# stays valid after this version is superseded. What the reader may     #}
       {# want is a new version of each parent, which is their decision.        #}
       {# The notice draws its own edge, so it carries no card around it.       #}
-      <div class="alert" role="status">
+      <div class="ui-notice" role="status">
         <h2>{% translate "ما زال قيد الاستعمال" %}</h2>
         <p>
           {% translate "النسخ السارية التالية تحتوي هذه النسخة بعينها. استبدالها هنا لا يغيّرها هناك ولا يبطلها؛ إن أردت تحديثها فأصدر نسخة أم جديدة تتبنى البديلة." %}

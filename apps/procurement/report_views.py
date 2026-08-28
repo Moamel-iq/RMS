@@ -102,11 +102,74 @@ class SupplierAgingReportView(ProcurementReportView):
         return reports.supplier_aging(self.actor, filters, include_cost=include_cost)
 
 
+class SettlementBreachReportView(ProcurementReportView):
+    template_name = "inventory/reports/_base_report.html"
+    page_title = _("تجاوز الحد الأدنى للسداد")
+    page_hint = _(
+        "فواتير مرحّلة مرّ تاريخ استحقاقها ولم يبلغ المسدَّد منها الحد الأدنى "
+        "المتفق عليه مع المورد. لا تظهر هنا فواتير مورد لم يُتفق معه على حد."
+    )
+    export_stem = "settlement-breaches"
+    columns = (
+        ("supplier_code", _("رمز المورد")),
+        ("supplier_name", _("المورد")),
+        ("number", _("الفاتورة")),
+        ("invoice_date", _("تاريخ الفاتورة")),
+        ("due_date", _("تاريخ الاستحقاق")),
+        ("days_overdue", _("أيام التأخير")),
+    )
+    valuation_columns = (
+        ("charged", _("قيمة الفاتورة")),
+        ("settled", _("المسدَّد")),
+        ("settled_percent", _("نسبة السداد %")),
+        ("required_percent", _("الحد الأدنى %")),
+        ("shortfall", _("العجز عن الحد")),
+    )
+
+    def procurement_rows(
+        self, filters: ProcurementReportFilters, *, include_cost: bool
+    ) -> list[dict[str, Any]]:
+        return reports.settlement_breaches(self.actor, filters, include_cost=include_cost)
+
+
+class PaymentCycleReportView(ProcurementReportView):
+    template_name = "inventory/reports/_base_report.html"
+    page_title = _("دورات السداد")
+    page_hint = _(
+        "نوافذ السداد التي لم تُسدَّد بعد، الأقرب استحقاقاً أولاً. الأيام المتبقية "
+        "بالسالب تعني أن الاستحقاق قد مرّ والمبلغ ما زال قائماً. المبلغ المطلوب "
+        "هو الرصيد غير المسدَّد مضروباً بالحد الأدنى المتفق عليه عند فتح الدورة."
+    )
+    export_stem = "payment-cycles"
+    columns = (
+        ("supplier_code", _("رمز المورد")),
+        ("supplier_name", _("المورد")),
+        ("sequence", _("الدورة")),
+        ("status", _("الحالة")),
+        ("opened_on", _("بداية الدورة")),
+        ("due_date", _("تاريخ الاستحقاق")),
+        ("days_remaining", _("الأيام المتبقية")),
+        ("invoice_count", _("عدد الفواتير")),
+    )
+    valuation_columns = (
+        ("charged", _("إجمالي الدورة")),
+        ("settled", _("المسدَّد")),
+        ("outstanding", _("غير المسدَّد")),
+        ("required_percent", _("الحد الأدنى %")),
+        ("required_amount", _("المبلغ المطلوب")),
+    )
+
+    def procurement_rows(
+        self, filters: ProcurementReportFilters, *, include_cost: bool
+    ) -> list[dict[str, Any]]:
+        return reports.payment_cycles(self.actor, filters, include_cost=include_cost)
+
+
 class SupplierStatementReportView(ProcurementReportView):
     template_name = "inventory/reports/_base_report.html"
     page_title = _("كشف حساب مورد")
     page_hint = _(
-        "كل مستند مالي مرحّل بالتسلسل الزمني برصيد جارٍ. الفاتورة ترفع الرصيد، "
+        "كل مستند مالي مرحّل بالتسلسل الزمني برصيد جارٍ. الفاتورة ترفع الرصيد،  "
         "والإشعار الدائن يخفضه بكامل مبلغه، والدفعة بمقدار ما خُصص منها؛ "
         "المتبقي غير المخصص يظهر دفعةً مقدّمة لا ديناً أصغر."
     )

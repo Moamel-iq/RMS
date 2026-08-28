@@ -218,7 +218,7 @@ class Command(BaseCommand):
             supplier = create_supplier(
                 organization=branch.organization,
                 code=supplier_code,
-                name_ar=SUPPLIER_NAMES[source_code],
+                name=SUPPLIER_NAMES[source_code],
                 notes=f"رمز المصدر: {source_code}; استيراد: {IMPORT_TAG}",
             )
             stats["suppliers_created"] += 1
@@ -392,7 +392,7 @@ class Command(BaseCommand):
             .first()
         )
         if generated_item is not None:
-            if generated_item.name_ar != name or generated_item.base_unit.code != unit_code:
+            if generated_item.name != name or generated_item.base_unit.code != unit_code:
                 raise CommandError(f"Generated item code collision for {name}.")
             return generated_item
 
@@ -403,7 +403,7 @@ class Command(BaseCommand):
         created_item = create_item(
             organization=category.organization,
             code=code,
-            name_ar=name,
+            name=name,
             category=category,
             item_type=item_type_for(name),
             base_unit=base_unit,

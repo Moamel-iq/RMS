@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n money_tags quantity_tags %}
 
 {# One credit note: the claim it settles, the figure the supplier agreed,   #}
@@ -7,25 +7,25 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {% if credit_note.number %}<span dir="ltr">{{ credit_note.number }}</span>{% else %}{% translate "مسودة إشعار" %}{% endif %}
         </h1>
-        <p class="pagehead__hint">
-          {{ credit_note.supplier.name_ar }} —
-          <span class="chip">{{ credit_note.get_status_display }}</span>
+        <p class="ui-page-header__hint">
+          {{ credit_note.supplier.name }} —
+          <span class="ui-badge">{{ credit_note.get_status_display }}</span>
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'procurement:supplier_credit_note_list' %}">{% translate "رجوع" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:supplier_credit_note_list' %}">{% translate "رجوع" %}</a>
       </div>
     </div>
 
-    <div class="formcard">
-      <dl class="detailgrid">
-        <dt>{% translate "المورد" %}</dt><dd>{{ credit_note.supplier.code }} — {{ credit_note.supplier.name_ar }}</dd>
+    <div class="ui-card ui-form-card">
+      <dl class="ui-detail-grid">
+        <dt>{% translate "المورد" %}</dt><dd>{{ credit_note.supplier.code }} — {{ credit_note.supplier.name }}</dd>
         <dt>{% translate "المرتجع المُسوّى" %}</dt>
         <dd>
           <a href="{% url 'procurement:supplier_return_detail' credit_note.supplier_return.pk %}">
@@ -58,15 +58,15 @@
           <dd>{{ credit_note.reversal_reason }}</dd>
         {% endif %}
       </dl>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "الترحيل يقفل مطالبة المرتجع بقيمتها الدفترية، يخفّض ذمة المورد بالمبلغ المعتمد، ويعترف بالفرق في حساب فروقات المرتجعات — بورقة المورد لا بالتوقع. لا يتحرك مخزون." %}
       </p>
     </div>
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "التسوية على أسطر المرتجع" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th>#</th>
@@ -82,7 +82,7 @@
             {% for row in settlements %}
               <tr>
                 <td>{{ row.allocation.sequence }}</td>
-                <td>{{ row.line.item.code }} — {{ row.line.item.name_ar }}</td>
+                <td>{{ row.line.item.code }} — {{ row.line.item.name }}</td>
                 <td><span dir="ltr">{{ row.allocation.credited_base_quantity|quantity }}</span></td>
                 <td><span dir="ltr">{{ row.remaining_quantity|quantity }}</span></td>
                 {% if may_see_cost %}
@@ -91,16 +91,16 @@
                     {% if row.allocation.settled_book_value is not None %}
                       <span dir="ltr">{{ row.allocation.settled_book_value|money_full }}</span>
                     {% else %}
-                      <span class="muted">{% translate "تُحسب عند الترحيل" %}</span>
+                      <span class="ui-text-muted">{% translate "تُحسب عند الترحيل" %}</span>
                     {% endif %}
                   </td>
                 {% endif %}
                 {% if may_edit %}
                   <td>
-                    <div class="rowactions">
+                    <div class="ui-actions">
                       <form method="post" action="{% url 'procurement:credit_return_allocation_delete' credit_note.pk row.allocation.pk %}">
                         {% csrf_token %}
-                        <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                        <button class="ui-button ui-button--ghost ui-button--small" type="submit">{% translate "حذف" %}</button>
                       </form>
                     </div>
                   </td>
@@ -112,7 +112,7 @@
           </tbody>
         </table>
       </div>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "التسوية جزئية وصريحة: قد يغطي الإشعار جزءاً من سطر، وقد يُسوّى السطر عبر أكثر من إشعار، والحد كميته المرتجعة وقيمته الدفترية. القيمة المسوّاة تُحسب عند الترحيل بنصيب نسبي من المتبقي، وآخر تسوية تأخذ المتبقي بالضبط فلا يبقى كسر في حساب التسوية." %}
       </p>
       {% if may_edit %}
@@ -120,27 +120,27 @@
           {% csrf_token %}
           <input type="hidden" name="allocation_type" value="RETURN">
           {% if return_form.non_field_errors %}
-            <div class="alert" role="alert">
+            <div class="ui-alert" role="alert">
               {% for error in return_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
             </div>
           {% endif %}
-          <div class="formgrid">
+          <div class="ui-form-grid">
             {% for field in return_form %}
-              <label class="field">
-                <span class="field__label">{{ field.label }}</span>
+              <label class="ui-field">
+                <span class="ui-field__label">{{ field.label }}</span>
                 {{ field }}
-                {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
-                {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+                {% if field.help_text %}<span class="ui-field__hint">{{ field.help_text }}</span>{% endif %}
+                {% for error in field.errors %}<span class="ui-field__error">{{ error }}</span>{% endfor %}
               </label>
             {% endfor %}
           </div>
-          <button class="btn btn--primary" type="submit">{% translate "إضافة تسوية" %}</button>
+          <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة تسوية" %}</button>
         </form>
       {% endif %}
     </div>
 
-    <div class="tablewrap">
-      <table class="table responsive-table">
+    <div class="ui-data-card ui-table-scroll">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>
             <th>#</th>
@@ -161,10 +161,10 @@
               <td>{{ allocation.note|default:"—" }}</td>
               {% if may_edit %}
                 <td>
-                  <div class="rowactions">
+                  <div class="ui-actions">
                     <form method="post" action="{% url 'procurement:credit_allocation_delete' credit_note.pk allocation.pk %}">
                       {% csrf_token %}
-                      <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                      <button class="ui-button ui-button--ghost ui-button--small" type="submit">{% translate "حذف" %}</button>
                     </form>
                   </div>
                 </td>
@@ -178,66 +178,66 @@
     </div>
 
     {% if may_edit %}
-      <form class="formcard" method="post" novalidate>
+      <form class="ui-card ui-form-card" method="post" novalidate>
         <h2>{% translate "تخصيص على فاتورة" %}</h2>
         {% csrf_token %}
         <input type="hidden" name="allocation_type" value="INVOICE">
         {% if form.non_field_errors %}
-          <div class="alert" role="alert">
+          <div class="ui-alert" role="alert">
             {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
           </div>
         {% endif %}
-        <div class="formgrid">
+        <div class="ui-form-grid">
           {% for field in form %}
-            <label class="field">
-              <span class="field__label">{{ field.label }}</span>
+            <label class="ui-field">
+              <span class="ui-field__label">{{ field.label }}</span>
               {{ field }}
-              {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
-              {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+              {% if field.help_text %}<span class="ui-field__hint">{{ field.help_text }}</span>{% endif %}
+              {% for error in field.errors %}<span class="ui-field__error">{{ error }}</span>{% endfor %}
             </label>
           {% endfor %}
         </div>
-        <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+        <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة" %}</button>
       </form>
     {% endif %}
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "الترحيل" %}</h2>
       {% if credit_note.status == "DRAFT" %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "الترحيل يُنشئ القيد: مدين ذمة المورد بالمبلغ المعتمد، دائن تسوية المرتجعات بالقيمة الدفترية، والفرق إلى فروقات المرتجعات. التخصيص اختياري — الباقي يقف رصيداً دائناً." %}
         </p>
         {% if may_post %}
           <form method="post" action="{% url 'procurement:supplier_credit_note_post' credit_note.pk %}">
             {% csrf_token %}
-            <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+            <button class="ui-button ui-button--primary" type="submit">{% translate "ترحيل" %}</button>
           </form>
         {% endif %}
       {% elif credit_note.status == "POSTED" %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "مرحّل. الإشعار المرحّل لا يُعدَّل؛ يُصحَّح بالعكس ثم بتسجيل إشعار جديد، فتعود المطالبة قائمة." %}
         </p>
         {% if may_reverse %}
           <form method="post" action="{% url 'procurement:supplier_credit_note_reverse' credit_note.pk %}">
             {% csrf_token %}
-            <label class="field">
-              <span class="field__label">{% translate "سبب العكس" %}</span>
+            <label class="ui-field">
+              <span class="ui-field__label">{% translate "سبب العكس" %}</span>
               <input type="text" name="reason" required>
             </label>
-            <button class="btn btn--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
+            <button class="ui-button ui-button--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
           </form>
         {% endif %}
       {% else %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "معكوس. السجل باقٍ كما هو؛ التصحيح يكون بإشعار جديد، والمرتجع عاد قابلاً للتسوية." %}
         </p>
       {% endif %}
     </div>
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "المسار الزمني" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <tbody>
             {% for event in timeline %}
               <tr>

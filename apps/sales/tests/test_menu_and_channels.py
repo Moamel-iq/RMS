@@ -95,7 +95,7 @@ def recipe(organization: Organization) -> Recipe:
     return Recipe.objects.create(
         organization=organization,
         code="MANDI-CHICKEN",
-        name_ar="مندي دجاج",
+        name="مندي دجاج",
         recipe_type=RecipeType.PORTION,
     )
 
@@ -106,8 +106,7 @@ def resale_item(organization: Organization) -> InventoryItem:
 
     piece = UnitOfMeasure.objects.filter(code="PIECE").first() or UnitOfMeasure.objects.create(
         code="PIECE",
-        name_ar="قطعة",
-        name_en="Piece",
+        name="قطعة",
         dimension="COUNT",
         factor_to_base=Decimal("1"),
         is_base=True,
@@ -115,12 +114,12 @@ def resale_item(organization: Organization) -> InventoryItem:
     category = create_item_category(
         organization=organization,
         code="RESALE",
-        name_ar="إعادة البيع",
+        name="إعادة البيع",
     )
     return create_item(
         organization=organization,
         code="WATER-500",
-        name_ar="ماء 500 مل",
+        name="ماء 500 مل",
         category=category,
         item_type=ItemType.GOODS_FOR_RESALE,
         base_unit=piece,
@@ -133,8 +132,7 @@ def recipe_version(recipe: Recipe) -> RecipeVersion:
 
     unit = UnitOfMeasure.objects.filter(code="KG").first() or UnitOfMeasure.objects.create(
         code="KG",
-        name_ar="كيلوغرام",
-        name_en="Kilogram",
+        name="كيلوغرام",
         dimension="MASS",
         factor_to_base=Decimal("1"),
         is_base=True,
@@ -162,7 +160,7 @@ def servings(recipe_version: RecipeVersion) -> list[RecipeServing]:
             RecipeServing.objects.create(
                 version=recipe_version,
                 code=code,
-                name_ar=name,
+                name=name,
                 serving_quantity=Decimal(quantity),
                 serving_unit=unit,
                 base_quantity=Decimal(quantity),
@@ -180,7 +178,7 @@ def menu_item(
     return create_menu_item(
         organization=organization,
         code="MENU-MANDI-WHOLE",
-        name_ar="مندي دجاج — حبة كاملة",
+        name="مندي دجاج — حبة كاملة",
         recipe=recipe,
         serving_code="WHOLE",
     )
@@ -191,7 +189,7 @@ def dine_in(organization: Organization, hall_cost_center: CostCenter) -> SalesCh
     return create_sales_channel(
         organization=organization,
         code="DINE-IN",
-        name_ar="الصالة",
+        name="الصالة",
         category=SalesChannelCategory.DINE_IN,
         cost_center=hall_cost_center,
         default_tender=TenderDestination.CASH,
@@ -214,7 +212,7 @@ class TestAMenuItemNamesARecipeAndAServingCode:
             create_menu_item(
                 organization=organization,
                 code="MENU-TYPO",
-                name_ar="خطأ مطبعي",
+                name="خطأ مطبعي",
                 recipe=recipe,
                 serving_code="QUARTER",
             )
@@ -227,7 +225,7 @@ class TestAMenuItemNamesARecipeAndAServingCode:
             create_menu_item(
                 organization=other_organization,
                 code="MENU-CROSS",
-                name_ar="عبر المؤسسات",
+                name="عبر المؤسسات",
                 recipe=recipe,
                 serving_code="WHOLE",
             )
@@ -241,7 +239,7 @@ class TestAMenuItemNamesARecipeAndAServingCode:
         item = create_menu_item(
             organization=organization,
             code="MENU-WATER",
-            name_ar="ماء",
+            name="ماء",
             fulfillment_source=FulfillmentSource.DIRECT_STOCK,
             inventory_item=resale_item,
             direct_stock_base_quantity=Decimal("1"),
@@ -266,7 +264,7 @@ class TestAMenuItemNamesARecipeAndAServingCode:
             MenuItem.objects.create(
                 organization=organization,
                 code="MENU-BYPASS",
-                name_ar="التفاف",
+                name="التفاف",
                 recipe=recipe,
                 serving_code="WHOLE",
                 fulfillment_source=FulfillmentSource.DIRECT_STOCK,
@@ -301,8 +299,7 @@ class TestBranchAvailabilityHasThreeStates:
         foreign = create_branch(
             organization=other_organization,
             code="FOREIGN",
-            name_ar="أجنبي",
-            name_en="Foreign",
+            name="أجنبي",
             business_day_start_time=time(9, 0),
         )
         with pytest.raises(ValidationError) as caught:
@@ -459,7 +456,7 @@ class TestPriceResolution:
         from apps.sales.services import create_delivery_application
 
         application = create_delivery_application(
-            organization=menu_item.organization, code="DEMO-APPX", name_ar="تطبيق تجريبي"
+            organization=menu_item.organization, code="DEMO-APPX", name="تطبيق تجريبي"
         )
         for scope, price, channel, app in (
             (PriceScope.BRANCH_DEFAULT, "12000", None, None),
@@ -499,7 +496,7 @@ class TestChannelFinancialBehaviour:
         channel = create_sales_channel(
             organization=organization,
             code="APPS",
-            name_ar="تطبيقات التوصيل",
+            name="تطبيقات التوصيل",
             category=SalesChannelCategory.DELIVERY_APPLICATION,
             cost_center=delivery_cost_center,
             default_tender=TenderDestination.CASH,
@@ -514,7 +511,7 @@ class TestChannelFinancialBehaviour:
             create_sales_channel(
                 organization=organization,
                 code="HALL-SETTLED",
-                name_ar="صالة تُسوّى",
+                name="صالة تُسوّى",
                 category=SalesChannelCategory.DINE_IN,
                 cost_center=hall_cost_center,
                 default_tender=TenderDestination.APPLICATION_RECEIVABLE,
@@ -528,7 +525,7 @@ class TestChannelFinancialBehaviour:
             SalesChannel.objects.create(
                 organization=organization,
                 code="BYPASS",
-                name_ar="التفاف",
+                name="التفاف",
                 category=SalesChannelCategory.DINE_IN,
                 cost_center=hall_cost_center,
                 default_tender=TenderDestination.APPLICATION_RECEIVABLE,
@@ -545,14 +542,12 @@ class TestChannelFinancialBehaviour:
         """
         from apps.accounting.services import create_cost_center
 
-        foreign = create_cost_center(
-            organization=other_organization, code="X", name_ar="س", name_en="X"
-        )
+        foreign = create_cost_center(organization=other_organization, code="X", name="س")
         with pytest.raises(ValidationError) as caught:
             create_sales_channel(
                 organization=organization,
                 code="MISMATCH",
-                name_ar="مركز كلفة أجنبي",
+                name="مركز كلفة أجنبي",
                 category=SalesChannelCategory.DINE_IN,
                 cost_center=foreign,
             )

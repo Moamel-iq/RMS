@@ -368,7 +368,7 @@ def channel_mix(user: User, scope: DashboardScope) -> list[MixRow]:
     return _mix(
         posted_lines(user, scope),
         code_field="channel__code",
-        label_field="channel__name_ar",
+        label_field="channel__name",
         group="channel_id",
     )
 
@@ -378,7 +378,7 @@ def application_mix(user: User, scope: DashboardScope) -> list[MixRow]:
     return _mix(
         posted_lines(user, scope).filter(delivery_application__isnull=False),
         code_field="delivery_application__code",
-        label_field="delivery_application__name_ar",
+        label_field="delivery_application__name",
         group="delivery_application_id",
     )
 
@@ -389,7 +389,7 @@ def top_menu_items(
     """The best-selling items by gross. Ties break on quantity, then on code."""
     rows = (
         posted_lines(user, scope)
-        .values("menu_item_id", "menu_item__code", "menu_item__name_ar")
+        .values("menu_item_id", "menu_item__code", "menu_item__name")
         .annotate(
             gross=Sum("gross_amount"),
             net=Sum("net_amount"),
@@ -403,7 +403,7 @@ def top_menu_items(
     return [
         MixRow(
             code=row["menu_item__code"] or "",
-            label=row["menu_item__name_ar"] or "",
+            label=row["menu_item__name"] or "",
             gross=quantize_money(row["gross"] or ZERO),
             net=quantize_money(row["net"] or ZERO),
             quantity=row["quantity"] or ZERO,
@@ -890,7 +890,7 @@ def price_premiums(user: User, scope: DashboardScope) -> list[PricePremiumRow]:
         hall = base.get((row.menu_item_id, row.branch_id))
         if hall is None or row.unit_price <= hall:
             continue
-        pairs.setdefault((hall, row.unit_price), []).append(row.menu_item.name_ar)
+        pairs.setdefault((hall, row.unit_price), []).append(row.menu_item.name)
     return [
         PricePremiumRow(base_price=hall, channel_price=channel, items=tuple(items))
         for (hall, channel), items in sorted(pairs.items(), key=lambda kv: -len(kv[1]))

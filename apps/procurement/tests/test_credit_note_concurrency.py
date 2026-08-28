@@ -100,12 +100,11 @@ class _Scene:
         call_command("seed_units", verbosity=0)
         kilogram = UnitOfMeasure.objects.get(code="KG")
 
-        self.organization = create_organization(code="RACE", name_ar="سباق", name_en="Race")
+        self.organization = create_organization(code="RACE", name="سباق")
         self.branch = create_branch(
             organization=self.organization,
             code="MAIN",
-            name_ar="الرئيسي",
-            name_en="Main",
+            name="الرئيسي",
             business_day_start_time=datetime.time(9, 0),
         )
         configure_accounting(organization=self.organization, fiscal_year_start_month=1)
@@ -125,21 +124,17 @@ class _Scene:
                 effective_from=JAN_1,
             )
 
-        self.warehouse = create_warehouse(branch=self.branch, code="STORE", name_ar="مخزن")
-        category = create_item_category(
-            organization=self.organization, code="GRAINS", name_ar="حبوب"
-        )
+        self.warehouse = create_warehouse(branch=self.branch, code="STORE", name="مخزن")
+        category = create_item_category(organization=self.organization, code="GRAINS", name="حبوب")
         self.rice = create_item(
             organization=self.organization,
             code="RICE",
-            name_ar="رز",
+            name="رز",
             category=category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
         )
-        self.supplier = create_supplier(
-            organization=self.organization, code="SUP-01", name_ar="مورد"
-        )
+        self.supplier = create_supplier(organization=self.organization, code="SUP-01", name="مورد")
 
         self.keeper = User.objects.create_user(username="race-keeper", password=PASSWORD)
         grant_branch_access(user=self.keeper, branch=self.branch, role=Role.STOREKEEPER)
@@ -165,14 +160,18 @@ class _Scene:
         with audit_context(actor=self.keeper):
             post_goods_receipt(receipt=receipt, actor=self.keeper)
             supplier_return = create_supplier_return(
-                receipt=receipt,
+                organization=self.organization,
+                branch=self.branch,
+                supplier=self.supplier,
+                warehouse=self.warehouse,
+                location=receipt.location,
                 created_by=self.keeper,
                 returned_at=RETURNED,
                 evidence_reference="وصل",
             )
             add_return_line(
                 supplier_return=supplier_return,
-                receipt_line=receipt.lines.get(),
+                item=self.rice,
                 returned_base_quantity=Decimal("10.000"),
             )
             return post_supplier_return(supplier_return=supplier_return, actor=self.keeper)

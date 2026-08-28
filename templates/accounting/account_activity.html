@@ -10,8 +10,8 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="accounting-account-activity">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="ui-page" id="accounting-account-activity">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:chart_tree' %}">{% translate "دليل الحسابات" %}</a>
       <span aria-hidden="true">/</span>
       <a href="{% url 'accounting:account_detail' account.pk %}"><bdi dir="ltr">{{ account.code }}</bdi></a>
@@ -19,47 +19,47 @@
       <span aria-current="page">{% translate "الحركة" %}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
     </div>
 
-    <form class="toolbar" method="get"
+    <form class="ui-filter-bar" method="get"
           hx-get="{% url 'accounting:account_activity' account.pk %}"
           hx-target="#accounting-account-activity"
           hx-swap="outerHTML"
           hx-push-url="true"
-          hx-trigger="change from:find input"
+          hx-trigger="change"
           hx-indicator="#activity-loading">
-      <label class="field">
-        <span class="field__label">{% translate "من" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "من" %}</span>
         <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}">
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "إلى" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "إلى" %}</span>
         <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}">
       </label>
-      <span class="inventory-loading" id="activity-loading" role="status" aria-live="polite">
+      <span class="ui-loading" id="activity-loading" role="status" aria-live="polite">
         {% translate "جارٍ التحميل…" %}
       </span>
     </form>
 
-    <section class="formcard">
-      <div class="summary-row">
-        <div class="summary-row__item">
-          <span class="summary-row__label">{% translate "رصيد افتتاحي" %}</span>
-          <span class="summary-row__value"><bdi dir="ltr">{{ opening|money_full }}</bdi></span>
+    <section class="ui-form-card">
+      <div class="ui-summary-grid">
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">{% translate "رصيد افتتاحي" %}</span>
+          <span class="ui-summary-item__value"><bdi dir="ltr">{{ opening|money_full }}</bdi></span>
         </div>
-        <div class="summary-row__item">
-          <span class="summary-row__label">{% translate "رصيد ختامي" %}</span>
-          <span class="summary-row__value"><bdi dir="ltr">{{ closing|money_full }}</bdi></span>
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">{% translate "رصيد ختامي" %}</span>
+          <span class="ui-summary-item__value"><bdi dir="ltr">{{ closing|money_full }}</bdi></span>
         </div>
       </div>
 
-      <div class="data-table-shell">
-        <table class="table responsive-table" id="account-activity-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive" id="account-activity-table">
           <thead><tr>
             <th>{% translate "التاريخ" %}</th>
             <th>{% translate "القيد" %}</th>
@@ -89,7 +89,7 @@
                 <td><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
               </tr>
             {% empty %}
-              <tr><td colspan="8" class="empty">{% translate "لا حركة في هذه الفترة." %}</td></tr>
+              <tr><td colspan="8" class="ui-table__empty">{% translate "لا حركة في هذه الفترة." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>

@@ -115,7 +115,7 @@ class Command(SeedCommand):
             recipes = seed_demo_recipes(organization=organization, created_by=user)
 
         self.write("")
-        self.write(f"Organization  {organization.code} - {organization.name_ar}")
+        self.write(f"Organization  {organization.code} - {organization.name}")
         self.write(f"Every record below is {DEMO_BANNER}")
         self.write("")
         self.write("recipes:")
@@ -127,7 +127,7 @@ class Command(SeedCommand):
             )
             self.write(
                 f"  {recipe.code:<22} {recipe.recipe_type:<8} {state:<9} "
-                f"{versions or 'no version':<34} {recipe.name_ar}"
+                f"{versions or 'no version':<34} {recipe.name}"
             )
         self.write("")
         snapshots = RecipeCostSnapshot.objects.filter(organization=organization)

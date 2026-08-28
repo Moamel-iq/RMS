@@ -10,29 +10,29 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page" id="accounting-supplier-statement">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page" id="accounting-supplier-statement">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:supplier_liability_list' %}">{% translate "ذمم الموردين" %}</a>
       <span aria-hidden="true">/</span>
-      <span aria-current="page">{{ supplier.name_ar }}</span>
+      <span aria-current="page">{{ supplier.name }}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ supplier.name_ar }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ supplier.name }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--secondary" href="{% url 'procurement:supplier_update' supplier.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--secondary" href="{% url 'procurement:supplier_update' supplier.pk %}">
           {% translate "بطاقة المورد في المشتريات" %}
         </a>
       </div>
     </div>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "كشف الحساب" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table" id="supplier-statement-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive" id="supplier-statement-table">
           <thead>
             <tr>
               {% for column in rows.0.keys %}<th>{{ column }}</th>{% endfor %}
@@ -48,7 +48,7 @@
                 {% endfor %}
               </tr>
             {% empty %}
-              <tr><td class="empty" data-empty-state>{% translate "لا مستندات مُرحَّلة لهذا المورد." %}</td></tr>
+              <tr><td class="ui-table__empty" data-empty-state>{% translate "لا مستندات مُرحَّلة لهذا المورد." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>

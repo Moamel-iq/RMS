@@ -117,12 +117,12 @@ def piece(units: None) -> UnitOfMeasure:
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
 def other_organization() -> Organization:
-    return create_organization(code="RIVAL", name_ar="منافس", name_en="Rival")
+    return create_organization(code="RIVAL", name="منافس")
 
 
 @pytest.fixture
@@ -130,8 +130,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -141,8 +140,7 @@ def other_branch(other_organization: Organization) -> Branch:
     return create_branch(
         organization=other_organization,
         code="RIVAL-1",
-        name_ar="فرع المنافس",
-        name_en="Rival Branch",
+        name="فرع المنافس",
         business_day_start_time=time(9, 0),
     )
 
@@ -219,7 +217,7 @@ def rival_client(rival_manager: User) -> Client:
 @pytest.fixture
 def item_category(organization: Organization) -> ItemCategory:
     return ItemCategory.objects.create(
-        organization=organization, code="FOOD", name_ar="أغذية", depth=1
+        organization=organization, code="FOOD", name="أغذية", depth=1
     )
 
 
@@ -234,7 +232,7 @@ def _item(
     return InventoryItem.objects.create(
         organization=organization,
         code=code,
-        name_ar=code,
+        name=code,
         category=category,
         item_type=item_type,
         base_unit=unit,
@@ -299,7 +297,7 @@ def cooked_rice(
 @pytest.fixture
 def rival_item(other_organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     category = ItemCategory.objects.create(
-        organization=other_organization, code="THEIRS", name_ar="لهم", depth=1
+        organization=other_organization, code="THEIRS", name="لهم", depth=1
     )
     return _item(
         organization=other_organization, category=category, code="THEIR-RICE", unit=kilogram
@@ -309,7 +307,7 @@ def rival_item(other_organization: Organization, kilogram: UnitOfMeasure) -> Inv
 @pytest.fixture
 def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
     """A fixed 30 kg sack, so package entry has something to convert through."""
-    package = PackageUnit.objects.create(organization=organization, code="SACK", name_ar="كيس")
+    package = PackageUnit.objects.create(organization=organization, code="SACK", name="كيس")
     ItemPackageConversion.objects.create(
         organization=organization,
         item=rice,
@@ -324,7 +322,7 @@ def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
 @pytest.fixture
 def drum(organization: Organization, oil: InventoryItem) -> PackageUnit:
     """A variable-weight container: posting one needs a measured quantity."""
-    package = PackageUnit.objects.create(organization=organization, code="DRUM", name_ar="برميل")
+    package = PackageUnit.objects.create(organization=organization, code="DRUM", name="برميل")
     ItemPackageConversion.objects.create(
         organization=organization,
         item=oil,
@@ -341,7 +339,7 @@ def recipe(organization: Organization, manager: User) -> Recipe:
     return create_recipe(
         organization=organization,
         code="MANDI-1",
-        name_ar="طبق تجريبي",
+        name="طبق تجريبي",
         recipe_type=RecipeType.PORTION,
         created_by=manager,
     )
@@ -408,8 +406,7 @@ def second_branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="KARRADA",
-        name_ar="الكرادة",
-        name_en="Karrada",
+        name="الكرادة",
         business_day_start_time=time(9, 0),
     )
 
@@ -447,7 +444,7 @@ def build_complete_draft(
     add_recipe_serving(
         version=version,
         code="ONE",
-        name_ar="حصة واحدة",
+        name="حصة واحدة",
         serving_quantity=Decimal("1"),
         serving_unit=output_unit or unit,
         is_primary=True,
@@ -554,13 +551,13 @@ def make_child_recipe(
     organization: Organization,
     code: str,
     author: User,
-    name_ar: str = "خلطة تجريبية",
+    name: str = "خلطة تجريبية",
 ) -> Recipe:
     """A non-stocked sub-recipe. A helper, because the cycle tests need several."""
     return create_recipe(
         organization=organization,
         code=code,
-        name_ar=name_ar,
+        name=name,
         recipe_type=RecipeType.PORTION,
         created_by=author,
     )
@@ -655,7 +652,7 @@ def stocked_recipe(organization: Organization, manager: User, cooked_rice: Inven
     return create_recipe(
         organization=organization,
         code="STOCKED-1",
-        name_ar="وصفة مخزنية تجريبية",
+        name="وصفة مخزنية تجريبية",
         recipe_type=RecipeType.BATCH,
         output_item=cooked_rice,
         created_by=manager,
@@ -737,7 +734,7 @@ def store(branch: Branch) -> Warehouse:
     return Warehouse.objects.create(
         branch=branch,
         code="STORE-1",
-        name_ar="المخزن الرئيسي",
+        name="المخزن الرئيسي",
         warehouse_type=WarehouseType.PHYSICAL,
     )
 
@@ -748,7 +745,7 @@ def second_store(branch: Branch) -> Warehouse:
     return Warehouse.objects.create(
         branch=branch,
         code="STORE-2",
-        name_ar="مخزن ثانٍ",
+        name="مخزن ثانٍ",
         warehouse_type=WarehouseType.PHYSICAL,
     )
 
@@ -759,7 +756,7 @@ def rival_store(other_branch: Branch) -> Warehouse:
     return Warehouse.objects.create(
         branch=other_branch,
         code="RIVAL-1",
-        name_ar="مخزن مؤسسة أخرى",
+        name="مخزن مؤسسة أخرى",
         warehouse_type=WarehouseType.PHYSICAL,
     )
 
@@ -975,7 +972,7 @@ def batch_recipe(
     recipe = create_recipe(
         organization=organization,
         code="PROD-DISH",
-        name_ar="طبخة للإنتاج",
+        name="طبخة للإنتاج",
         recipe_type=RecipeType.BATCH,
         output_item=cooked_rice,
         created_by=manager,
@@ -1030,7 +1027,7 @@ def substituted_recipe(
     recipe = create_recipe(
         organization=organization,
         code="SUB-DISH",
-        name_ar="طبخة ببدائل",
+        name="طبخة ببدائل",
         recipe_type=RecipeType.BATCH,
         output_item=cooked_rice,
         created_by=manager,
@@ -1101,7 +1098,7 @@ def optional_recipe(
     recipe = create_recipe(
         organization=organization,
         code="OPT-DISH",
-        name_ar="طبخة بسطر اختياري",
+        name="طبخة بسطر اختياري",
         recipe_type=RecipeType.BATCH,
         output_item=cooked_rice,
         created_by=manager,
@@ -1167,7 +1164,7 @@ def demo_items(
         items[code] = InventoryItem.objects.create(
             organization=organization,
             code=code,
-            name_ar=code,
+            name=code,
             category=item_category,
             item_type=kind,
             base_unit=unit,
@@ -1192,7 +1189,7 @@ def demo_store(
     warehouse = Warehouse.objects.create(
         branch=branch,
         code="DEMO-MAIN",
-        name_ar="المخزن الرئيسي — تجريبي",
+        name="المخزن الرئيسي — تجريبي",
         warehouse_type=WarehouseType.PHYSICAL,
     )
     for code, quantity, unit_cost in (
@@ -1290,8 +1287,7 @@ def separate_output_account(
     account = create_account(
         organization=organization,
         code="1-03-01-009",
-        name_ar="مخزون الإنتاج التام",
-        name_en="Finished production inventory",
+        name="مخزون الإنتاج التام",
     )
     create_inventory_mapping(
         organization=organization,

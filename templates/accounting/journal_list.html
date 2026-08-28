@@ -7,8 +7,8 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "المؤسسة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "المؤسسة" %}</span>
     <select name="organization">
       <option value="">{% translate "كل المؤسسات" %}</option>
       {% for organization in organizations %}
@@ -16,8 +16,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "الفرع" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الفرع" %}</span>
     <select name="branch">
       <option value="">{% translate "كل الفروع" %}</option>
       {% for branch in branches %}
@@ -25,8 +25,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="status">
       <option value="">{% translate "الكل" %}</option>
       {% for value, label in statuses %}
@@ -34,16 +34,16 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "المنشأ" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "المنشأ" %}</span>
     <select name="origin">
       <option value="">{% translate "الكل" %}</option>
       <option value="manual" {% if selected_origin == "manual" %}selected{% endif %}>{% translate "يدوي" %}</option>
       <option value="system" {% if selected_origin == "system" %}selected{% endif %}>{% translate "من مستند" %}</option>
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "نوع المستند" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "نوع المستند" %}</span>
     <select name="source_type">
       <option value="">{% translate "الكل" %}</option>
       {% for value in source_types %}
@@ -51,8 +51,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "حدث المصدر" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "حدث المصدر" %}</span>
     <select name="source_event">
       <option value="">{% translate "الكل" %}</option>
       {% for value, label in source_events %}
@@ -60,8 +60,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "مركز الكلفة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "مركز الكلفة" %}</span>
     <select name="cost_center">
       <option value="">{% translate "الكل" %}</option>
       {% for center in cost_centers %}
@@ -69,25 +69,25 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "معكوس" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "معكوس" %}</span>
     <select name="reversed">
       <option value="">{% translate "الكل" %}</option>
       <option value="yes" {% if selected_reversed == "yes" %}selected{% endif %}>{% translate "معكوس" %}</option>
       <option value="no" {% if selected_reversed == "no" %}selected{% endif %}>{% translate "غير معكوس" %}</option>
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "من تاريخ" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "من تاريخ" %}</span>
     <input type="date" name="from" value="{{ selected_from }}">
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "إلى تاريخ" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "إلى تاريخ" %}</span>
     <input type="date" name="to" value="{{ selected_to }}">
   </label>
-  <label class="field field--checkbox">
+  <label class="ui-field ui-field--check">
     <input type="checkbox" name="adjustment" value="1" {% if selected_adjustment == "1" %}checked{% endif %}>
-    <span class="field__label">{% translate "قيود التسوية فقط" %}</span>
+    <span class="ui-field__label">{% translate "قيود التسوية فقط" %}</span>
   </label>
 {% endblock %}
 
@@ -100,7 +100,7 @@
   <th>{% translate "الشرح" %}</th>
   <th>{% translate "أنشأه" %}</th>
   <th>{% translate "رحّله" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 
 {% block rows %}
@@ -110,32 +110,32 @@
         {% if entry.entry_number %}
           <bdi dir="ltr">{{ entry.entry_number }}</bdi>
         {% else %}
-          <span class="muted">{% translate "مسودة" %} #<bdi dir="ltr">{{ entry.pk }}</bdi></span>
+          <span class="ui-text-muted">{% translate "مسودة" %} #<bdi dir="ltr">{{ entry.pk }}</bdi></span>
         {% endif %}
-        {% if entry.is_adjustment %}<span class="chip chip--muted">{% translate "تسوية" %}</span>{% endif %}
+        {% if entry.is_adjustment %}<span class="ui-badge ui-badge--neutral">{% translate "تسوية" %}</span>{% endif %}
       </td>
       <td><bdi dir="ltr">{{ entry.accounting_date|date:"Y-m-d" }}</bdi></td>
       <td><bdi dir="ltr">{{ entry.period }}</bdi></td>
       <td>
         {% if entry.is_manual %}
-          <span class="chip">{% translate "يدوي" %}</span>
+          <span class="ui-badge">{% translate "يدوي" %}</span>
         {% else %}
           <code dir="ltr">{{ entry.source_document_type }}</code>
         {% endif %}
       </td>
       <td>
-        {% if entry.status == "POSTED" %}<span class="chip chip--ok">{{ entry.get_status_display }}</span>
-        {% elif entry.status == "REVERSED" %}<span class="chip chip--warn">{{ entry.get_status_display }}</span>
-        {% else %}<span class="chip chip--muted">{{ entry.get_status_display }}</span>{% endif %}
+        {% if entry.status == "POSTED" %}<span class="ui-badge ui-badge--success">{{ entry.get_status_display }}</span>
+        {% elif entry.status == "REVERSED" %}<span class="ui-badge ui-badge--warning">{{ entry.get_status_display }}</span>
+        {% else %}<span class="ui-badge ui-badge--neutral">{{ entry.get_status_display }}</span>{% endif %}
       </td>
       <td>{{ entry.narration|truncatechars:60 }}</td>
       <td>{% if entry.created_by %}{{ entry.created_by.get_full_name|default:entry.created_by.username }}{% else %}—{% endif %}</td>
       <td>{% if entry.posted_by %}{{ entry.posted_by.get_full_name|default:entry.posted_by.username }}{% else %}—{% endif %}</td>
-      <td class="cell-actions">
-        <a class="btn btn--secondary btn--sm" href="{% url 'accounting:journal_detail' entry.pk %}">{% translate "تفاصيل" %}</a>
+      <td class="ui-table__actions">
+        <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:journal_detail' entry.pk %}">{% translate "تفاصيل" %}</a>
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="9" class="empty">{% translate "لا توجد قيود مطابقة." %}</td></tr>
+    <tr><td colspan="9" class="ui-table__empty">{% translate "لا توجد قيود مطابقة." %}</td></tr>
   {% endfor %}
 {% endblock %}

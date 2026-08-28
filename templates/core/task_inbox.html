@@ -1,39 +1,48 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {% block page %}
-  <section class="list-page" aria-labelledby="task-inbox-title">
-    <header class="pagehead">
-      <div>
-        <p class="eyebrow">{% translate "الأتمتة والضبط" %}</p>
-        <h1 id="task-inbox-title">{{ page_title }}</h1>
-        <p>{{ page_hint }}</p>
+  <section class="ui-page ui-automation-page" aria-labelledby="task-inbox-title">
+    <header class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{% translate "الأتمتة والضبط" %}</p>
+        <h1 class="ui-page-header__title" id="task-inbox-title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
-      <form method="get" class="toolbar" aria-label="{% translate 'تصفية المهام' %}">
-        <label>
-          <span>{% translate "الحالة" %}</span>
-          <select name="status" onchange="this.form.submit()">
+
+      <form method="get" class="ui-filter-bar ui-automation-filter" aria-label="{% translate 'تصفية المهام' %}">
+        <div class="ui-field ui-automation-filter__field">
+          <label class="ui-field__label" for="task-status">{% translate "الحالة" %}</label>
+          <select class="ui-control" id="task-status" name="status" onchange="this.form.submit()">
             <option value="">{% translate "المهام النشطة" %}</option>
             {% for value, label in statuses %}
               <option value="{{ value }}"{% if selected_status == value %} selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
-        </label>
+        </div>
+        <noscript><button class="ui-button ui-button--secondary" type="submit">{% translate "تطبيق" %}</button></noscript>
       </form>
     </header>
 
-    <div class="formcard">
-      <div class="formcard__head">
-        <h2>{% translate "المهام ضمن نطاقك" %}</h2>
-        <span class="chip">{{ tasks|length }}</span>
-      </div>
-      <ul class="timeline" aria-live="polite">
+    <article class="ui-card ui-automation-card">
+      <header class="ui-card__header">
+        <div>
+          <h2 class="ui-card__title">{% translate "المهام ضمن نطاقك" %}</h2>
+          <p class="ui-card__subtitle">{% translate "تُعرض المهام المسموح لك باستلامها فقط." %}</p>
+        </div>
+        <span class="ui-result-count" aria-label="{% translate 'عدد المهام' %}">{{ tasks|length }}</span>
+      </header>
+      <ul class="ui-task-list" aria-live="polite">
         {% for task in tasks %}
           {% include "core/_task_row.html" with task=task %}
         {% empty %}
-          <li class="empty">{% translate "لا توجد مهام نشطة ضمن نطاقك." %}</li>
+          <li class="ui-empty ui-task-list__empty">
+            <span class="ui-empty__icon" aria-hidden="true">✓</span>
+            <h3 class="ui-empty__title">{% translate "لا توجد مهام نشطة" %}</h3>
+            <p class="ui-empty__message">{% translate "لا توجد مهام تحتاج إلى إجراء ضمن دورك ونطاقك الحالي." %}</p>
+          </li>
         {% endfor %}
       </ul>
-    </div>
+    </article>
   </section>
 {% endblock %}

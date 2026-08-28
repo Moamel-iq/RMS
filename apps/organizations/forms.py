@@ -21,11 +21,10 @@ from apps.users.models import User
 class OrganizationCreateForm(forms.ModelForm):
     class Meta:
         model = Organization
-        fields = ("code", "name_ar", "name_en")
+        fields = ("code", "name")
         labels = {
             "code": _("الرمز"),
-            "name_ar": _("الاسم بالعربية"),
-            "name_en": _("الاسم بالإنجليزية"),
+            "name": _("الاسم بالعربية"),
         }
         help_texts = {
             "code": _("حروف إنجليزية كبيرة وأرقام. لا يمكن تغييره لاحقاً."),
@@ -42,10 +41,9 @@ class OrganizationUpdateForm(forms.ModelForm):
 
     class Meta:
         model = Organization
-        fields = ("name_ar", "name_en", "is_active")
+        fields = ("name", "is_active")
         labels = {
-            "name_ar": _("الاسم بالعربية"),
-            "name_en": _("الاسم بالإنجليزية"),
+            "name": _("الاسم بالعربية"),
             "is_active": _("فعّال"),
         }
 
@@ -56,8 +54,8 @@ class BranchForm(forms.ModelForm):
         fields = (
             "organization",
             "code",
-            "name_ar",
-            "name_en",
+            "name",
+            "name",
             "timezone",
             "business_day_start_time",
             "is_active",
@@ -65,8 +63,7 @@ class BranchForm(forms.ModelForm):
         labels = {
             "organization": _("المؤسسة"),
             "code": _("الرمز"),
-            "name_ar": _("الاسم بالعربية"),
-            "name_en": _("الاسم بالإنجليزية"),
+            "name": _("الاسم بالعربية"),
             "timezone": _("المنطقة الزمنية"),
             "business_day_start_time": _("بداية يوم العمل"),
             "is_active": _("فعّال"),
@@ -226,8 +223,7 @@ class RoleDefinitionForm(forms.Form):
         max_length=24,
         help_text=_("حروف لاتينية صغيرة وأرقام وشرطات. لا يتغيّر بعد الإنشاء."),
     )
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     description = forms.CharField(
         label=_("الوصف"), required=False, widget=forms.Textarea(attrs={"rows": 2})
     )

@@ -42,7 +42,7 @@ def apps_channel(organization: Organization, delivery_cost_center: CostCenter) -
     return create_sales_channel(
         organization=organization,
         code="PRC-APPS",
-        name_ar="التطبيقات",
+        name="التطبيقات",
         category=SalesChannelCategory.DELIVERY_APPLICATION,
         cost_center=delivery_cost_center,
         default_tender=TenderDestination.APPLICATION_RECEIVABLE,
@@ -51,7 +51,7 @@ def apps_channel(organization: Organization, delivery_cost_center: CostCenter) -
 
 def _item(organization: Organization, branch: Branch, recipe: Any, code: str, name: str) -> Any:
     item = create_menu_item(
-        organization=organization, code=code, name_ar=name, recipe=recipe, serving_code="WHOLE"
+        organization=organization, code=code, name=name, recipe=recipe, serving_code="WHOLE"
     )
     set_branch_availability(item=item, branch=branch)
     return item

@@ -188,7 +188,7 @@ class AccountAdmin(ReadOnlyAdminMixin, _ModelAdmin):
 
     list_display = (
         "code",
-        "name_ar",
+        "name",
         "account_class",
         "is_postable",
         "requires_cost_center",
@@ -196,16 +196,16 @@ class AccountAdmin(ReadOnlyAdminMixin, _ModelAdmin):
         "organization",
     )
     list_filter = ("account_class", "is_postable", "requires_cost_center", "is_active")
-    search_fields = ("code", "name_ar", "name_en", "external_account_code")
+    search_fields = ("code", "name", "external_account_code")
     ordering = ("organization__code", "code")
     list_select_related = ("organization", "parent")
 
 
 @admin.register(CostCenter)
 class CostCenterAdmin(ReadOnlyAdminMixin, _ModelAdmin):
-    list_display = ("code", "name_ar", "name_en", "organization", "is_active")
+    list_display = ("code", "name", "organization", "is_active")
     list_filter = ("is_active", "organization")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     ordering = ("organization__code", "code")
     list_select_related = ("organization",)
 
@@ -248,9 +248,9 @@ class AccountRoleAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     """System vocabulary. Renaming or deleting a system role is refused by
     the database trigger regardless of what any admin form attempted."""
 
-    list_display = ("code", "name_ar", "domain", "mapping_scope", "is_system", "is_active")
+    list_display = ("code", "name", "domain", "mapping_scope", "is_system", "is_active")
     list_filter = ("domain", "mapping_scope", "is_system")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     ordering = ("domain", "code")
 
 

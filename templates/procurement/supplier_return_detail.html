@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n money_tags quantity_tags %}
 
 {# One return: which delivery it cites, what is going back, and — once it   #}
@@ -12,36 +12,30 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {% if supplier_return.number %}<span dir="ltr">{{ supplier_return.number }}</span>{% else %}{% translate "مسودة مرتجع" %}{% endif %}
         </h1>
-        <p class="pagehead__hint">
-          {{ supplier_return.supplier.name_ar }} —
-          <span class="chip">{{ supplier_return.get_status_display }}</span>
+        <p class="ui-page-header__hint">
+          {{ supplier_return.supplier.name }} —
+          <span class="ui-badge">{{ supplier_return.get_status_display }}</span>
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'procurement:supplier_return_list' %}">{% translate "رجوع" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:supplier_return_list' %}">{% translate "رجوع" %}</a>
       </div>
     </div>
 
-    <div class="formcard">
-      <dl class="detailgrid">
-        <dt>{% translate "المورد" %}</dt><dd>{{ supplier_return.supplier.code }} — {{ supplier_return.supplier.name_ar }}</dd>
-        <dt>{% translate "التسليم المرتجع منه" %}</dt>
-        <dd>
-          <a href="{% url 'procurement:goods_receipt_detail' supplier_return.receipt.pk %}">
-            <span dir="ltr">{{ supplier_return.receipt.number }}</span>
-          </a>
-        </dd>
-        <dt>{% translate "المخزن" %}</dt><dd>{{ supplier_return.warehouse.name_ar }}</dd>
-        <dt>{% translate "الموقع" %}</dt><dd>{{ supplier_return.location.name_ar|default:"—" }}</dd>
+    <div class="ui-card ui-form-card">
+      <dl class="ui-detail-grid">
+        <dt>{% translate "المورد" %}</dt><dd>{{ supplier_return.supplier.code }} — {{ supplier_return.supplier.name }}</dd>
+        <dt>{% translate "المخزن" %}</dt><dd>{{ supplier_return.warehouse.name }}</dd>
+        <dt>{% translate "الموقع" %}</dt><dd>{{ supplier_return.location.name|default:"—" }}</dd>
         <dt>{% translate "تاريخ الإرجاع" %}</dt><dd><span dir="ltr">{{ supplier_return.returned_at|date:"Y-m-d" }}</span></dd>
         <dt>{% translate "رمز السبب" %}</dt>
-        <dd>{% if supplier_return.reason_code %}{{ supplier_return.reason_code.name_ar }}{% else %}—{% endif %}</dd>
+        <dd>{% if supplier_return.reason_code %}{{ supplier_return.reason_code.name }}{% else %}—{% endif %}</dd>
         <dt>{% translate "السبب" %}</dt><dd>{{ supplier_return.reason|default:"—" }}</dd>
         <dt>{% translate "مرجع الإثبات" %}</dt>
         <dd>{% if supplier_return.evidence_reference %}<span dir="ltr">{{ supplier_return.evidence_reference }}</span>{% else %}—{% endif %}</dd>
@@ -63,43 +57,13 @@
           <dd>{{ supplier_return.reversal_reason }}</dd>
         {% endif %}
       </dl>
-      <p class="muted">
-        {% translate "الإرجاع يُخرج المخزون بالمتوسط المتحرك القائم ويقيّد المطالبة في حساب تسوية المرتجعات. لا تُمسّ ذمة المورد ولا يُسجَّل فرق حتى يصل إشعار الدائن — رصيد التسوية هو المطالبة القائمة." %}
+      <p class="ui-text-muted">
+        {% translate "الإرجاع مستند مستقل: يُخرج المخزون بالمتوسط المتحرك القائم ويقيّد تسوية المرتجع. لا يعتمد على أمر شراء أو سند استلام أو إشعار دائن." %}
       </p>
     </div>
 
-    <div class="formcard">
-      <h2>{% translate "المتاح للإرجاع من هذا التسليم" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
-          <thead>
-            <tr>
-              <th>{% translate "الصنف" %}</th>
-              <th>{% translate "المقبول" %}</th>
-              <th>{% translate "المرتجع سابقاً" %}</th>
-              <th>{% translate "المتاح" %}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in availability %}
-              <tr>
-                <td>{{ row.line.item.code }} — {{ row.line.item.name_ar }}</td>
-                {# Re-enterable exact values: never localised. #}
-                <td><span dir="ltr">{{ row.accepted|quantity }}</span> {{ row.line.item.base_unit.code }}</td>
-                <td><span dir="ltr">{{ row.returned|quantity }}</span></td>
-                <td><span dir="ltr">{{ row.available|quantity }}</span></td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <p class="muted">
-        {% translate "الحد لكل سطر تسليم: المقبول ناقص ما أُرجع ولم يُعكس. السطر المرفوض كلياً لم يدخل المخزون أصلاً فليس منه ما يُرجَع." %}
-      </p>
-    </div>
-
-    <div class="tablewrap">
-      <table class="table responsive-table">
+    <div class="ui-data-card ui-table-scroll">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>
             <th>#</th>
@@ -117,7 +81,7 @@
           {% for line in lines %}
             <tr>
               <td>{{ line.sequence }}</td>
-              <td>{{ line.item.code }} — {{ line.item.name_ar }}</td>
+              <td>{{ line.item.code }} — {{ line.item.name }}</td>
               <td>
                 <span dir="ltr">{{ line.returned_base_quantity|quantity }}</span>
                 {{ line.item.base_unit.code }}
@@ -128,7 +92,7 @@
                   {% if line.posted_value is not None %}
                     <span dir="ltr">{{ line.posted_value|money_full }}</span>
                     {% if line.contra_account %}
-                      <span class="muted" dir="ltr">{{ line.contra_account.code }}</span>
+                      <span class="ui-text-muted" dir="ltr">{{ line.contra_account.code }}</span>
                     {% endif %}
                   {% else %}—{% endif %}
                 </td>
@@ -144,10 +108,10 @@
               <td>{{ line.note|default:"—" }}</td>
               {% if may_edit %}
                 <td>
-                  <div class="rowactions">
+                  <div class="ui-actions">
                     <form method="post" action="{% url 'procurement:supplier_return_line_delete' supplier_return.pk line.pk %}">
                       {% csrf_token %}
-                      <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                      <button class="ui-button ui-button--ghost ui-button--small" type="submit">{% translate "حذف" %}</button>
                     </form>
                   </div>
                 </td>
@@ -161,68 +125,68 @@
     </div>
 
     {% if may_edit %}
-      <form class="formcard" method="post" novalidate>
+      <form class="ui-card ui-form-card" method="post" novalidate>
         <h2>{% translate "إضافة سطر مرتجع" %}</h2>
         {% csrf_token %}
         {% if form.non_field_errors %}
-          <div class="alert" role="alert">
+          <div class="ui-alert" role="alert">
             {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
           </div>
         {% endif %}
-        <div class="formgrid">
+        <div class="ui-form-grid">
           {% for field in form %}
-            <label class="field">
-              <span class="field__label">{{ field.label }}</span>
+            <label class="ui-field">
+              <span class="ui-field__label">{{ field.label }}</span>
               {{ field }}
-              {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
-              {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+              {% if field.help_text %}<span class="ui-field__hint">{{ field.help_text }}</span>{% endif %}
+              {% for error in field.errors %}<span class="ui-field__error">{{ error }}</span>{% endfor %}
             </label>
           {% endfor %}
         </div>
-        <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+        <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة" %}</button>
       </form>
     {% endif %}
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "الترحيل" %}</h2>
       {% if supplier_return.status == "DRAFT" %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "الترحيل يُخرج الكمية من المخزون بالمتوسط القائم ويُنشئ القيد في معاملة واحدة: مدين تسوية مرتجعات الموردين، دائن مراقبة المخزون. مرجع الإثبات مطلوب قبل الترحيل." %}
         </p>
         {% if may_post %}
           <form method="post" action="{% url 'procurement:supplier_return_post' supplier_return.pk %}">
             {% csrf_token %}
-            <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+            <button class="ui-button ui-button--primary" type="submit">{% translate "ترحيل" %}</button>
           </form>
         {% endif %}
       {% elif supplier_return.status == "POSTED" %}
-        <p class="muted">
-          {% translate "مرحّل. المرتجع المرحّل لا يُعدَّل؛ يُصحَّح بالعكس ثم بتسجيل مرتجع جديد. رصيد التسوية يبقى قائماً حتى يصل إشعار الدائن من المورد." %}
+        <p class="ui-text-muted">
+          {% translate "مرحّل. المرتجع المرحّل لا يُعدَّل؛ يُصحَّح بالعكس ثم بتسجيل مرتجع مستقل جديد." %}
         </p>
         {% if may_reverse %}
           <form method="post" action="{% url 'procurement:supplier_return_reverse' supplier_return.pk %}">
             {% csrf_token %}
-            <label class="field">
-              <span class="field__label">{% translate "سبب العكس" %}</span>
+            <label class="ui-field">
+              <span class="ui-field__label">{% translate "سبب العكس" %}</span>
               <input type="text" name="reason" required>
-              <span class="field__hint">
-                {% translate "العكس يُعيد نفس الكمية بنفس القيمة ويعكس نفس الحسابات، ويُرفض إذا اعتمد عليه مستند لاحق." %}
+              <span class="ui-field__hint">
+                {% translate "العكس يُعيد نفس الكمية بنفس القيمة ويعكس نفس الحسابات." %}
               </span>
             </label>
-            <button class="btn btn--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
+            <button class="ui-button ui-button--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
           </form>
         {% endif %}
       {% else %}
-        <p class="muted">
-          {% translate "معكوس. السجل باقٍ كما هو؛ التصحيح يكون بمرتجع جديد، والتسليم عاد قابلاً للإرجاع." %}
+        <p class="ui-text-muted">
+          {% translate "معكوس. السجل باقٍ كما هو؛ التصحيح يكون بمرتجع جديد." %}
         </p>
       {% endif %}
     </div>
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "المسار الزمني" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <tbody>
             {% for event in timeline %}
               <tr>

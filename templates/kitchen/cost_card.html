@@ -11,58 +11,58 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="cost-card">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <div class="ui-page" id="cost-card">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {{ recipe.code }} v{{ version.version_number }} —
           {% translate "كلفة الوصفة والطبق" %}
         </h1>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% translate "الكلفة مشتقّة، لا مخزّنة: مخزن واحد، تاريخ واحد، ونسخة واحدة بعينها. متوسط المخزن حسب تاريخ الترحيل هو الأساس الوحيد المعتمد. كلفة الطبق مشتقّة من الحصة الأساسية للنسخة." %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
           {% translate "تفاصيل النسخة" %}
         </a>
-        <a class="btn btn--ghost" href="{% url 'kitchen:cost_on_date' recipe.pk %}">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:cost_on_date' recipe.pk %}">
           {% translate "الكلفة بتاريخ" %}
         </a>
         {% if can_snapshot %}
-          <a class="btn" href="{% url 'kitchen:cost_snapshot_create' version.pk %}">
+          <a class="ui-button" href="{% url 'kitchen:cost_snapshot_create' version.pk %}">
             {% translate "حفظ لقطة كلفة" %}
           </a>
         {% endif %}
       </div>
     </div>
 
-    <form class="formcard"
+    <form class="ui-form-card"
           method="get"
           hx-get="{% url 'kitchen:cost_card' version.pk %}"
           hx-target="#cost-card"
           hx-swap="outerHTML">
       {% if form.non_field_errors %}
-        <ul class="errorlist" role="alert">
+        <ul class="ui-error-summary__list" role="alert">
           {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
         </ul>
       {% endif %}
       {{ form.as_p }}
-      <button class="btn" type="submit">{% translate "احسب الكلفة" %}</button>
+      <button class="ui-button" type="submit">{% translate "احسب الكلفة" %}</button>
     </form>
 
     {% if card %}
       {% include "kitchen/_cost_card.html" %}
     {% else %}
-      <section class="formcard">
-        <p class="empty">
+      <section class="ui-form-card">
+        <p class="ui-table__empty">
           {% translate "اختر المخزن والتاريخ لعرض بطاقة الكلفة. لا يوجد تاريخ افتراضي." %}
         </p>
       </section>
     {% endif %}
 
     {% if snapshots %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "آخر لقطات هذه النسخة" %}</h2>
         <ul>
           {% for snapshot in snapshots %}

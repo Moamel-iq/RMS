@@ -106,7 +106,7 @@ class Command(SeedCommand):
             total_findings += len(findings)
 
             self.write("")
-            self.write(f"{organization.code} - {organization.name_ar}")
+            self.write(f"{organization.code} - {organization.name}")
             self.write(f"  snapshots checked: {checked}")
             if findings:
                 for finding in findings:

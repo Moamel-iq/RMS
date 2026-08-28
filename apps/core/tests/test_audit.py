@@ -37,12 +37,11 @@ def actor() -> User:
 
 @pytest.fixture
 def branch() -> Branch:
-    organization = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM", name="خان مندي")
     return create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -201,8 +200,7 @@ class TestSnapshots:
 
         unit = UnitOfMeasure.objects.create(
             code="TESTG",
-            name_ar="اختبار",
-            name_en="Test",
+            name="اختبار",
             dimension=Dimension.MASS,
             factor_to_base=Decimal("0.001"),
         )
@@ -218,8 +216,8 @@ class TestSnapshots:
 
     def test_before_and_after_are_both_recorded(self, actor: User, branch: Branch) -> None:
         before = snapshot(branch)
-        branch.name_en = "Al-Bunook Main"
-        branch.save(update_fields=["name_en"])
+        branch.name = "Al-Bunook Main"
+        branch.save(update_fields=["name"])
         after = snapshot(branch)
 
         with audit_context(actor=actor):
@@ -233,8 +231,8 @@ class TestSnapshots:
 
         assert event.previous_state is not None
         assert event.new_state is not None
-        assert event.previous_state["name_en"] == "Al-Bunook"
-        assert event.new_state["name_en"] == "Al-Bunook Main"
+        assert event.previous_state["name"] == "Al-Bunook"
+        assert event.new_state["name"] == "Al-Bunook Main"
 
 
 class TestSelectors:
@@ -250,8 +248,7 @@ class TestSelectors:
         other = create_branch(
             organization=branch.organization,
             code="KARRADA",
-            name_ar="الكرادة",
-            name_en="Karrada",
+            name="الكرادة",
             business_day_start_time=time(9, 0),
         )
         with audit_context(actor=actor):
@@ -277,8 +274,8 @@ class TestRowHistory:
 
     def test_master_data_changes_are_historied(self, branch: Branch) -> None:
         assert branch.history.count() == 1
-        branch.name_en = "Al-Bunook Main"
-        branch.save(update_fields=["name_en"])
+        branch.name = "Al-Bunook Main"
+        branch.save(update_fields=["name"])
         assert branch.history.count() == 2
 
     def test_previous_values_remain_readable(self, branch: Branch) -> None:
@@ -292,8 +289,7 @@ class TestRowHistory:
 
         unit = UnitOfMeasure.objects.create(
             code="HISTG",
-            name_ar="غرام",
-            name_en="Gram",
+            name="غرام",
             dimension=Dimension.MASS,
             factor_to_base=Decimal("0.001"),
         )

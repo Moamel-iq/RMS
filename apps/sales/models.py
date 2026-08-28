@@ -91,8 +91,7 @@ class MenuCategory(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
     display_order = models.PositiveIntegerField(_("display order"), default=1)
     is_active = models.BooleanField(_("active"), default=True)
 
@@ -112,12 +111,12 @@ class MenuCategory(TimeStampedModel):
                 name="sales_menu_category_code_format",
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar=""), name="sales_menu_category_name_not_empty"
+                condition=~Q(name=""), name="sales_menu_category_name_not_empty"
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class FulfillmentSource(models.TextChoices):
@@ -186,8 +185,7 @@ class MenuItem(TimeStampedModel):
         verbose_name=_("category"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
     description_ar = models.TextField(_("description (Arabic)"), blank=True)
 
     fulfillment_source = models.CharField(
@@ -264,7 +262,7 @@ class MenuItem(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(code__regex=CODE_PATTERN), name="sales_menu_item_code_format"
             ),
-            models.CheckConstraint(condition=~Q(name_ar=""), name="sales_menu_item_name_not_empty"),
+            models.CheckConstraint(condition=~Q(name=""), name="sales_menu_item_name_not_empty"),
             # Exactly one fulfilment route is complete. The inactive route is
             # empty, so a later master-data correction cannot leave two
             # plausible answers for what should leave stock.
@@ -290,7 +288,7 @@ class MenuItem(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
     @property
     def is_demo(self) -> bool:
@@ -425,8 +423,7 @@ class SalesChannel(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
 
     category = models.CharField(_("category"), max_length=24, choices=SalesChannelCategory.choices)
     default_tender = models.CharField(
@@ -486,7 +483,7 @@ class SalesChannel(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(code__regex=CODE_PATTERN), name="sales_channel_code_format"
             ),
-            models.CheckConstraint(condition=~Q(name_ar=""), name="sales_channel_name_not_empty"),
+            models.CheckConstraint(condition=~Q(name=""), name="sales_channel_name_not_empty"),
             # The two must agree, and the database says so. A channel flagged
             # `DELIVERY_APPLICATION` whose lines need not name an application
             # would post application sales with nobody to collect from.
@@ -522,7 +519,7 @@ class SalesChannel(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
     @property
     def is_application_channel(self) -> bool:
@@ -713,8 +710,7 @@ class DeliveryApplication(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
 
     #: How often the company remits. Reported and used to age a receivable; it
     #: refuses nothing, because a company that settles late is a commercial
@@ -769,12 +765,12 @@ class DeliveryApplication(TimeStampedModel):
                 name="sales_delivery_application_code_format",
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar=""), name="sales_delivery_application_name_not_empty"
+                condition=~Q(name=""), name="sales_delivery_application_name_not_empty"
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
     @property
     def is_demo(self) -> bool:
@@ -994,8 +990,7 @@ class DiscountProgram(TimeStampedModel):
         verbose_name=_("branch"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
 
     discount_percent = models.DecimalField(
         _("discount percent"),
@@ -1086,7 +1081,7 @@ class DiscountProgram(TimeStampedModel):
             models.CheckConstraint(
                 condition=Q(code__regex=CODE_PATTERN), name="sales_discount_code_format"
             ),
-            models.CheckConstraint(condition=~Q(name_ar=""), name="sales_discount_name_not_empty"),
+            models.CheckConstraint(condition=~Q(name=""), name="sales_discount_name_not_empty"),
             # Exactly one of the two ways to state a discount.
             models.CheckConstraint(
                 condition=(
@@ -1145,7 +1140,7 @@ class DiscountProgram(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
     @property
     def is_shared(self) -> bool:

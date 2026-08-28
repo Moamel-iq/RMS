@@ -85,8 +85,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -96,7 +96,7 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
     from apps.inventory.services import create_item_conversion, create_package_unit
 
-    package = create_package_unit(organization=organization, code="SACK", name_ar="كيس")
+    package = create_package_unit(organization=organization, code="SACK", name="كيس")
     create_item_conversion(
         item=rice,
         package_unit=package,
@@ -109,7 +109,7 @@ def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
 
 @pytest.fixture
 def grocery(organization: Organization) -> object:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد المواد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد المواد")
 
 
 @pytest.fixture
@@ -385,7 +385,7 @@ class TestValidityAndDuplicates:
     def test_another_supplier_may_reuse_the_reference(
         self, draft: SupplierQuotation, organization: Organization, buyer: User
     ) -> None:
-        other = create_supplier(organization=organization, code="MEAT-01", name_ar="مورد اللحوم")
+        other = create_supplier(organization=organization, code="MEAT-01", name="مورد اللحوم")
         twin = create_supplier_quotation(
             supplier=other,
             recorded_by=buyer,
@@ -412,7 +412,7 @@ class TestValidityAndDuplicates:
         from apps.inventory.services import create_warehouse
         from apps.procurement.forms import SupplierQuotationForm
 
-        store: Warehouse = create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+        store: Warehouse = create_warehouse(branch=branch, code="MAIN", name="مخزن")
         drafted = create_purchase_request(
             branch=branch,
             requested_by=keeper,
@@ -444,14 +444,13 @@ class TestValidityAndDuplicates:
         their_branch = create_branch(
             organization=other_organization,
             code="RIVALB",
-            name_ar="فرع",
-            name_en="Branch",
+            name="فرع",
             business_day_start_time=datetime.time(9, 0),
         )
         their_request = create_purchase_request(
             branch=their_branch,
             requested_by=buyer,
-            warehouse=create_warehouse(branch=their_branch, code="W", name_ar="م"),
+            warehouse=create_warehouse(branch=their_branch, code="W", name="م"),
             required_date=QUOTED,
             purpose="طلبهم",
         )
@@ -469,7 +468,7 @@ class TestValidityAndDuplicates:
     ) -> None:
         theirs = create_supplier_quotation(
             supplier=create_supplier(
-                organization=other_organization, code="RIVAL-01", name_ar="منافس"
+                organization=other_organization, code="RIVAL-01", name="منافس"
             ),
             recorded_by=buyer,
             quoted_at=QUOTED,

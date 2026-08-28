@@ -456,7 +456,7 @@ def test_a_discount_whose_funding_does_not_close_is_refused(
         DiscountProgram.objects.create(
             organization=organization,
             code="BROKEN",
-            name_ar="خصم مكسور",
+            name="خصم مكسور",
             discount_percent=Decimal("10"),
             restaurant_funded_share=Decimal("60"),
             application_funded_share=Decimal("30"),

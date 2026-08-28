@@ -32,7 +32,7 @@ def actor() -> User:
 
 @pytest.fixture
 def organization() -> Organization:
-    org = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    org = create_organization(code="KM", name="خان مندي")
     configure_accounting(organization=org, fiscal_year_start_month=1)
     open_fiscal_year(organization=org, year=TEST_YEAR)
     return org
@@ -40,7 +40,7 @@ def organization() -> Organization:
 
 @pytest.fixture
 def other_organization() -> Organization:
-    org = create_organization(code="RIVAL", name_ar="منافس", name_en="Rival")
+    org = create_organization(code="RIVAL", name="منافس")
     configure_accounting(organization=org, fiscal_year_start_month=1)
     open_fiscal_year(organization=org, year=TEST_YEAR)
     return org
@@ -51,8 +51,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -106,8 +105,7 @@ def second_branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="KARRADA",
-        name_ar="الكرادة",
-        name_en="Karrada",
+        name="الكرادة",
         business_day_start_time=time(9, 0),
     )
 
@@ -118,8 +116,7 @@ def other_branch(other_organization: Organization) -> Branch:
     return create_branch(
         organization=other_organization,
         code="RIVALBR",
-        name_ar="فرع المنافس",
-        name_en="Rival Branch",
+        name="فرع المنافس",
         business_day_start_time=time(9, 0),
     )
 

@@ -58,7 +58,16 @@ def shell(request: HttpRequest) -> dict[str, Any]:
         None,
     )
 
+    is_htmx = request.headers.get("HX-Request") == "true"
+    shell_navigation_oob = is_htmx and request.headers.get("HX-Target") == "main-content"
+
     return {
+        # Templates that render a ``page`` block can use this as their base.
+        # A direct visit receives the complete shell; HTMX receives only the
+        # page block, so a redirect or a typed URL can never nest a second
+        # document inside ``#main-content``.
+        "shell_base_template": ("settings/_form_fragment.html" if is_htmx else "shell.html"),
+        "shell_navigation_oob": shell_navigation_oob,
         "nav_modules": modules,
         "active_module": active_module,
         "active_section": active_section,
@@ -86,10 +95,8 @@ def _print_identity(user: Any) -> dict[str, Any]:
     organization = branches[0].organization if branches else None
     return {
         "print_logo": logo_static_path(),
-        "print_organization": f"{organization.code} — {organization.name_ar}"
-        if organization
-        else "",
-        "print_branch": f"{branches[0].code} — {branches[0].name_ar}" if len(branches) == 1 else "",
+        "print_organization": f"{organization.code} — {organization.name}" if organization else "",
+        "print_branch": f"{branches[0].code} — {branches[0].name}" if len(branches) == 1 else "",
     }
 
 

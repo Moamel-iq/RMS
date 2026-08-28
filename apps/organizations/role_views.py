@@ -67,7 +67,7 @@ class RoleListView(FoundationListView):
     )
     create_url_name = "organizations:role_create"
     create_label = _("دور جديد")
-    search_fields = ("code", "name_ar", "name_en", "organization__code")
+    search_fields = ("code", "name", "organization__code")
     required_permission = MANAGE_ROLES
 
     def get_queryset(self) -> QuerySet[RoleDefinition]:
@@ -158,8 +158,7 @@ class RoleCreateView(RoleFormView):
             create_role_definition(
                 organization=data["organization"],
                 code=data["code"],
-                name_ar=data["name_ar"],
-                name_en=data["name_en"],
+                name=data["name"],
                 description=data["description"],
                 based_on=data["based_on"],
                 permissions=data["permissions"],
@@ -191,8 +190,7 @@ class RoleUpdateView(RoleFormView):
         initial.update(
             organization=definition.organization,
             code=definition.code,
-            name_ar=definition.name_ar,
-            name_en=definition.name_en,
+            name=definition.name,
             description=definition.description,
             based_on=definition.based_on,
             permissions=sorted(
@@ -215,8 +213,7 @@ class RoleUpdateView(RoleFormView):
         try:
             update_role_definition(
                 definition=self.definition,
-                name_ar=data["name_ar"],
-                name_en=data["name_en"],
+                name=data["name"],
                 description=data["description"],
                 permissions=data["permissions"],
                 actor=_actor(self.request),

@@ -262,8 +262,8 @@ class AccountRoleListView(AccountingListView):
                 row
                 for row in rows
                 if search in row.role.code.lower()
-                or search in row.role.name_ar
-                or search in row.role.name_en.lower()
+                or search in row.role.name
+                or search in row.role.name.lower()
             ]
         if domain in AccountRoleDomain.values:
             rows = [row for row in rows if row.role.domain == domain]

@@ -106,8 +106,8 @@ ALLOWED_EXTENSIONS = (".csv",)
 #: the validators and the writers are four lists that have to agree, and the
 #: way they stop agreeing is somebody adding a kind to one of them.
 REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
-    ImportKind.ITEM_CATEGORY: ("code", "name_ar"),
-    ImportKind.PACKAGE_UNIT: ("code", "name_ar"),
+    ImportKind.ITEM_CATEGORY: ("code", "name"),
+    ImportKind.PACKAGE_UNIT: ("code", "name"),
     ImportKind.BRANCH_ITEM_SETTING: ("item_code", "is_stocked"),
 }
 
@@ -335,11 +335,10 @@ def _validate_item_category(
         errors["code"] = [_("الرمز مطلوب.")]
     else:
         cleaned["code"] = code
-    if not row.get("name_ar", ""):
-        errors["name_ar"] = [_("الاسم العربي مطلوب.")]
+    if not row.get("name", ""):
+        errors["name"] = [_("الاسم مطلوب.")]
     else:
-        cleaned["name_ar"] = row["name_ar"]
-    cleaned["name_en"] = row.get("name_en", "")
+        cleaned["name"] = row["name"]
 
     parent_code = row.get("parent_code", "").strip().upper()
     if parent_code:
@@ -361,11 +360,10 @@ def _validate_package_unit(
         errors["code"] = [_("الرمز مطلوب.")]
     else:
         cleaned["code"] = code
-    if not row.get("name_ar", ""):
-        errors["name_ar"] = [_("الاسم العربي مطلوب.")]
+    if not row.get("name", ""):
+        errors["name"] = [_("الاسم مطلوب.")]
     else:
-        cleaned["name_ar"] = row["name_ar"]
-    cleaned["name_en"] = row.get("name_en", "")
+        cleaned["name"] = row["name"]
     return errors, cleaned
 
 
@@ -456,6 +454,27 @@ def create_batch(
 #: would flag two different rows as in-file duplicates). Registered by the
 #: owning module, exactly like `VALIDATORS`; absent means the default columns.
 EXTERNAL_KEYS: dict[str, Callable[[dict[str, str]], str]] = {}
+
+#: kind -> the permission it needs, for kinds another module registered.
+#: Filled the same way `VALIDATORS` is — from the owning module at app
+#: ready — so an unregistered kind still falls back to this module's own
+#: master-data permission and can never arrive permissionless.
+#:
+#: This lived in `import_views` until the import-log screens were withdrawn
+#: from the product. It belongs beside the other registries anyway: it is part
+#: of the framework a module registers into, not part of a screen.
+KIND_PERMISSIONS: dict[str, str] = {}
+
+
+def permission_for_kind(kind: str) -> str:
+    """Which right this kind needs. Data, so the two cannot drift apart."""
+    from apps.inventory.models import OPENING_IMPORT_KINDS
+    from apps.inventory.permissions import IMPORT_MASTER_DATA, IMPORT_OPENING_DRAFT
+
+    registered = KIND_PERMISSIONS.get(kind)
+    if registered is not None:
+        return registered
+    return IMPORT_OPENING_DRAFT if kind in OPENING_IMPORT_KINDS else IMPORT_MASTER_DATA
 
 
 def _external_key(kind: str, row: dict[str, str]) -> str:
@@ -692,19 +711,15 @@ def _write_item_category(
         create_item_category(
             organization=organization,
             code=cleaned["code"],
-            name_ar=cleaned["name_ar"],
-            name_en=cleaned.get("name_en", ""),
+            name=cleaned["name"],
             parent=parent,
         )
         return "created"
-    if existing.name_ar == cleaned["name_ar"] and existing.parent_id == (
-        parent.pk if parent else None
-    ):
+    if existing.name == cleaned["name"] and existing.parent_id == (parent.pk if parent else None):
         return "unchanged"
     update_item_category(
         category=existing,
-        name_ar=cleaned["name_ar"],
-        name_en=cleaned.get("name_en", ""),
+        name=cleaned["name"],
         parent=parent,
     )
     return "updated"
@@ -720,15 +735,12 @@ def _write_package_unit(
         create_package_unit(
             organization=organization,
             code=cleaned["code"],
-            name_ar=cleaned["name_ar"],
-            name_en=cleaned.get("name_en", ""),
+            name=cleaned["name"],
         )
         return "created"
-    if existing.name_ar == cleaned["name_ar"]:
+    if existing.name == cleaned["name"]:
         return "unchanged"
-    update_package_unit(
-        package_unit=existing, name_ar=cleaned["name_ar"], name_en=cleaned.get("name_en", "")
-    )
+    update_package_unit(package_unit=existing, name=cleaned["name"])
     return "updated"
 
 

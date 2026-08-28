@@ -149,7 +149,6 @@ class InventoryReportView(PrintableReportMixin, InventoryViewMixin, View):
             item_id=self._int("item_id"),
             lot_id=self._int("lot_id"),
             cost_center_id=self._int("cost_center_id"),
-            reason_code_id=self._int("reason_code_id"),
             include_inactive=self.request.GET.get("include_inactive") == "1",
             date_from=self._date("date_from"),
             date_to=self._date("date_to"),
@@ -230,7 +229,6 @@ class InventoryReportView(PrintableReportMixin, InventoryViewMixin, View):
         "category_id": _("المجموعة"),
         "item_id": _("الصنف"),
         "cost_center_id": _("مركز الكلفة"),
-        "reason_code_id": _("سبب الحركة"),
         "include_inactive": _("يشمل غير الفعّال"),
         "within_days": _("خلال أيام"),
         "q": _("بحث"),
@@ -406,39 +404,6 @@ class StockCardReportView(InventoryReportView):
         return rows
 
 
-class InTransitReportView(InventoryReportView):
-    template_name = "inventory/reports/_base_report.html"
-    page_title = _("تقرير البضاعة بالطريق وأعمارها")
-    page_hint = _("ما غادر مخزناً ولم يصل بعد، وعمره بالأيام من يوم عمل الإرسال.")
-    export_stem = "in-transit"
-    columns = (
-        ("transfer_number", _("رقم التحويل")),
-        ("status_label", _("الحالة")),
-        ("source_branch", _("فرع المصدر")),
-        ("source_warehouse", _("مخزن المصدر")),
-        ("destination_branch", _("فرع الوجهة")),
-        ("destination_warehouse", _("مخزن الوجهة")),
-        ("dispatch_date", _("تاريخ الإرسال")),
-        ("age_days", _("العمر (أيام)")),
-        ("item_code", _("الصنف")),
-        ("lot_code", _("الدفعة")),
-        ("unit", _("الوحدة")),
-        ("dispatched_quantity", _("كمية مرسلة")),
-        ("received_quantity", _("كمية مستلمة")),
-        ("remaining_quantity", _("كمية متبقية")),
-    )
-    valuation_columns = (
-        ("dispatched_value", _("قيمة مرسلة")),
-        ("received_value", _("قيمة مستلمة")),
-        ("remaining_value", _("قيمة متبقية")),
-    )
-
-    def report_rows(
-        self, filters: ReportFilters, *, include_valuation: bool
-    ) -> list[dict[str, Any]]:
-        return reports.in_transit_aging(self.actor, filters, include_valuation=include_valuation)
-
-
 class ExpiryReportView(InventoryReportView):
     template_name = "inventory/reports/_base_report.html"
     page_title = _("تقرير الصلاحية")
@@ -504,7 +469,6 @@ class WasteReportView(InventoryReportView):
         ("lot_code", _("الدفعة")),
         ("unit", _("الوحدة")),
         ("quantity", _("الكمية")),
-        ("reason_code", _("السبب")),
         ("reason_name", _("وصف السبب")),
         ("comment", _("ملاحظة")),
         ("cost_center", _("مركز الكلفة")),
@@ -536,7 +500,6 @@ class CountVarianceReportView(InventoryReportView):
         ("counted_quantity", _("الكمية المعدودة")),
         ("variance_quantity", _("الفرق")),
         ("is_unexpected", _("غير متوقع")),
-        ("reason_code", _("السبب")),
     )
     valuation_columns = (
         ("book_value", _("القيمة الدفترية")),
@@ -565,7 +528,6 @@ class AdjustmentReportView(InventoryReportView):
         ("lot_code", _("الدفعة")),
         ("unit", _("الوحدة")),
         ("quantity", _("الكمية")),
-        ("reason_code", _("السبب")),
         ("comment", _("ملاحظة")),
         ("cost_center", _("مركز الكلفة")),
         ("actor", _("الفاعل")),

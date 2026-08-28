@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# One opening document: header, lines, totals, and the actions its status  #}
@@ -8,38 +8,38 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="inventory-page inventory-detail-page" aria-labelledby="opening-title">
-    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--detail" aria-labelledby="opening-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{{ back_url }}">{% translate "الأرصدة الافتتاحية" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{% translate "تفاصيل المستند" %}</span>
     </nav>
 
-    <header class="pagehead inventory-document-hero">
+    <header class="ui-page-header ui-document-hero">
       <div>
-        <div class="inventory-detail-kicker">
+        <div class="ui-document-hero__meta">
           {% include "components/status_badge.html" with status=document.status label=document.get_status_display %}
           {% if document.document_number %}<code><bdi dir="ltr">{{ document.document_number }}</bdi></code>{% endif %}
         </div>
-        <h1 class="pagehead__title" id="opening-title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{% translate "سجل الرصيد الابتدائي للفرع وما نتج عنه من أثر مخزني ومحاسبي." %}</p>
+        <h1 class="ui-page-header__title" id="opening-title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">{% translate "سجل الرصيد الابتدائي للفرع وما نتج عنه من أثر مخزني ومحاسبي." %}</p>
       </div>
-    <div class="rowactions">
-      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+    <div class="ui-actions">
+      <a class="ui-button ui-button--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
       {% if is_draft and can_prepare %}
-        <a class="btn btn--ghost" href="{% url 'inventory:opening_update' document.pk %}">
+        <a class="ui-button ui-button--ghost" href="{% url 'inventory:opening_update' document.pk %}">
           {% translate "تعديل الترويسة" %}
         </a>
         <form method="post" action="{% url 'inventory:opening_submit' document.pk %}"
               data-confirm="{% translate 'سيُقفل تعديل السطور حتى إعادة المستند إلى المسودة. هل تريد تقديمه للاعتماد؟' %}">
           {% csrf_token %}
-          <button class="btn btn--primary" type="submit">{% translate "تقديم للاعتماد" %}</button>
+          <button class="ui-button ui-button--primary" type="submit">{% translate "تقديم للاعتماد" %}</button>
         </form>
         <form method="post" action="{% url 'inventory:opening_delete' document.pk %}"
               data-confirm="{% translate 'سيُحذف مستند الرصيد الافتتاحي ومسودته نهائياً. هل تريد المتابعة؟' %}"
               data-confirm-title="{% translate 'حذف المسودة' %}">
           {% csrf_token %}
-          <button class="btn btn--danger" type="submit">{% translate "حذف المسودة" %}</button>
+          <button class="ui-button ui-button--danger" type="submit">{% translate "حذف المسودة" %}</button>
         </form>
       {% endif %}
       {% if is_submitted and can_post %}
@@ -47,7 +47,7 @@
               data-confirm="{% translate 'سيُرحّل المستند إلى دفتر المخزون والأستاذ العام، ولن يعود قابلاً للتعديل. هل تريد المتابعة؟' %}"
               data-confirm-title="{% translate 'ترحيل الرصيد الافتتاحي' %}">
           {% csrf_token %}
-          <button class="btn btn--primary" type="submit">
+          <button class="ui-button ui-button--primary" type="submit">
             {% translate "ترحيل إلى الدفترين" %}
           </button>
         </form>
@@ -55,8 +55,8 @@
     </div>
     </header>
 
-    <dl class="factgrid" aria-label="{% translate 'بيانات المستند' %}">
-      <div><dt>{% translate "الفرع" %}</dt><dd><code><bdi dir="ltr">{{ document.branch.code }}</bdi></code> {{ document.branch.name_ar }}</dd></div>
+    <dl class="ui-definition-list" aria-label="{% translate 'بيانات المستند' %}">
+      <div><dt>{% translate "الفرع" %}</dt><dd><code><bdi dir="ltr">{{ document.branch.code }}</bdi></code> {{ document.branch.name }}</dd></div>
       <div><dt>{% translate "يوم العمل" %}</dt><dd><bdi dir="ltr">{{ document.business_date|date:"Y-m-d" }}</bdi></dd></div>
       <div><dt>{% translate "مرجع الإثبات" %}</dt><dd><bdi dir="ltr">{{ document.evidence_reference }}</bdi></dd></div>
       <div><dt>{% translate "أنشأه" %}</dt><dd>{{ document.created_by|default:"—" }}</dd></div>
@@ -65,38 +65,38 @@
     </dl>
 
   {% if is_submitted and can_prepare %}
-    <form class="formcard" method="post" action="{% url 'inventory:opening_return' document.pk %}"
+    <form class="ui-card ui-form-card" method="post" action="{% url 'inventory:opening_return' document.pk %}"
           data-confirm="{% translate 'سيعود المستند إلى المسودة للسماح بالتعديل. هل تريد المتابعة؟' %}">
       {% csrf_token %}
-      <div class="formgrid">
-        <div class="formrow">
-          <label class="formrow__label" for="return-reason">
+      <div class="ui-form-grid">
+        <div class="ui-field">
+          <label class="ui-field__label" for="return-reason">
             {% translate "إعادة إلى المسودة — السبب" %}
           </label>
           <textarea id="return-reason" name="reason" rows="2" required></textarea>
         </div>
       </div>
-      <div class="formactions">
-        <button class="btn btn--ghost" type="submit">{% translate "إعادة إلى المسودة" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--ghost" type="submit">{% translate "إعادة إلى المسودة" %}</button>
       </div>
     </form>
   {% endif %}
 
   {% if is_posted and can_reverse %}
-    <form class="formcard" method="post" action="{% url 'inventory:opening_reverse' document.pk %}"
+    <form class="ui-card ui-form-card" method="post" action="{% url 'inventory:opening_reverse' document.pk %}"
           data-confirm="{% translate 'سيُنشئ هذا الإجراء آثاراً عكسية في المخزون والمحاسبة، ولا يمكن التراجع عنه بالحذف. هل تريد المتابعة؟' %}"
           data-confirm-title="{% translate 'عكس المستند' %}">
       {% csrf_token %}
-      <div class="formgrid">
-        <div class="formrow">
-          <label class="formrow__label" for="reverse-reason">
+      <div class="ui-form-grid">
+        <div class="ui-field">
+          <label class="ui-field__label" for="reverse-reason">
             {% translate "عكس المستند كاملاً — السبب" %}
           </label>
           <textarea id="reverse-reason" name="reason" rows="2" required></textarea>
         </div>
       </div>
-      <div class="formactions">
-        <button class="btn btn--danger" type="submit">{% translate "عكس المستند" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--danger" type="submit">{% translate "عكس المستند" %}</button>
       </div>
     </form>
   {% endif %}
@@ -104,7 +104,7 @@
   {% include "inventory/_opening_lines_workspace.html" %}
 
   {% if document.journal_entry %}
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <p>
         {% translate "قيد اليومية:" %}
         <code><bdi dir="ltr">{{ document.journal_entry.entry_number }}</bdi></code>
@@ -114,7 +114,7 @@
         {% endif %}
       </p>
       {% if document.reversal_reason %}
-        <p class="muted">{% translate "سبب العكس:" %} {{ document.reversal_reason }}</p>
+        <p class="ui-text-muted">{% translate "سبب العكس:" %} {{ document.reversal_reason }}</p>
       {% endif %}
     </div>
   {% endif %}

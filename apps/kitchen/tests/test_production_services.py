@@ -715,7 +715,7 @@ class TestTheDatabaseRefusesWhatTheServiceRefuses:
         other_recipe = create_recipe(
             organization=organization,
             code="OTHER-LINE",
-            name_ar="وصفة أخرى",
+            name="وصفة أخرى",
             recipe_type="PORTION",
             created_by=manager,
         )

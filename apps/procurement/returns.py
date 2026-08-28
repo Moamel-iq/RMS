@@ -66,7 +66,6 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -86,13 +85,20 @@ from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
 from apps.inventory.accounts import resolve_inventory_account
 from apps.inventory.ledger import MovementInput, link_journal_entry, post_stock_entry
-from apps.inventory.models import InventoryAccountMapping, InventoryReasonCode, MovementType
+from apps.inventory.models import (
+    InventoryAccountMapping,
+    InventoryItem,
+    InventoryLot,
+    InventoryReasonCode,
+    MovementType,
+    StockLocation,
+    Warehouse,
+)
 from apps.inventory.operations import require_cost_center_where_the_account_demands_one
 from apps.organizations.business_dates import resolve_business_day
+from apps.organizations.models import Branch, Organization
 from apps.procurement.models import (
-    GoodsReceipt,
-    GoodsReceiptLine,
-    GoodsReceiptStatus,
+    Supplier,
     SupplierReturn,
     SupplierReturnLine,
     SupplierReturnStatus,
@@ -117,46 +123,6 @@ def effect_key(line: SupplierReturnLine) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Availability
-# ---------------------------------------------------------------------------
-
-
-def returned_quantity_for(line: GoodsReceiptLine) -> Decimal:
-    """
-    How much of one delivery line has been sent back and not un-sent.
-
-    Derived, never stored — the same reasoning Task 2.11 records for matching
-    availability. A cached column would have to be found and corrected the day
-    somebody reversed a return inside a failed transaction, and this cannot be
-    wrong because there is nothing to be wrong.
-    """
-    total = (
-        SupplierReturnLine.objects.filter(goods_receipt_line=line)
-        .exclude(supplier_return__status=SupplierReturnStatus.REVERSED)
-        .aggregate(total=Sum("returned_base_quantity"))["total"]
-    )
-    return total or ZERO
-
-
-def return_availability(line: GoodsReceiptLine) -> Decimal:
-    """
-    What is left of one delivery line to send back.
-
-    The delivery's **accepted** quantity less what has already gone. Not its
-    delivered quantity: a rejected carton never entered stock and cannot be
-    returned from it.
-
-    This exists because the kernel cannot supply it. `_require_available`
-    refuses to drive a warehouse position negative, which is a different
-    question — with stock on hand from three other deliveries, a line that
-    accepted fifty kilograms could be returned for fifty twice and the kernel
-    would allow both. The bound is per delivery line, and only procurement
-    knows which delivery the goods came from.
-    """
-    return line.accepted_base_quantity - returned_quantity_for(line)
-
-
-# ---------------------------------------------------------------------------
 # Drafting
 # ---------------------------------------------------------------------------
 
@@ -174,7 +140,11 @@ def _require_draft(supplier_return: SupplierReturn) -> SupplierReturn:
 @transaction.atomic
 def create_supplier_return(
     *,
-    receipt: GoodsReceipt,
+    organization: Organization,
+    branch: Branch,
+    supplier: Supplier,
+    warehouse: Warehouse,
+    location: StockLocation | None = None,
     created_by: User,
     returned_at: datetime.date,
     business_date: datetime.date | None = None,
@@ -184,26 +154,15 @@ def create_supplier_return(
     notes: str = "",
 ) -> SupplierReturn:
     """
-    Open a draft return against one posted delivery.
-
-    The delivery is the argument rather than the supplier: a return is always
-    *of something that arrived*, and taking the supplier alone would allow a
-    return that cites no delivery and therefore has no book value, no lot and
-    no quantity bound.
+    Open a standalone return. The inventory kernel checks stock availability
+    at posting time; this document is not tied to a receipt or credit note.
     """
-    locked_receipt = GoodsReceipt.objects.select_for_update().get(pk=receipt.pk)
-    if locked_receipt.status != GoodsReceiptStatus.POSTED:
-        raise ValidationError(
-            _("Only a posted delivery has stock to send back."), code="receipt_not_posted"
-        )
-
     supplier_return = SupplierReturn(
-        organization=locked_receipt.organization,
-        branch=locked_receipt.branch,
-        supplier=locked_receipt.supplier,
-        receipt=locked_receipt,
-        warehouse=locked_receipt.warehouse,
-        location=locked_receipt.location,
+        organization=organization,
+        branch=branch,
+        supplier=supplier,
+        warehouse=warehouse,
+        location=location,
         returned_at=returned_at,
         business_date=business_date or returned_at,
         reason_code=reason_code,
@@ -227,18 +186,14 @@ def create_supplier_return(
 def add_return_line(
     *,
     supplier_return: SupplierReturn,
-    receipt_line: GoodsReceiptLine,
+    item: InventoryItem,
+    lot: InventoryLot | None = None,
     returned_base_quantity: Decimal,
     expected_credit_value: Decimal | None = None,
     note: str = "",
 ) -> SupplierReturnLine:
     """
-    Send part or all of one delivery line back.
-
-    The quantity is checked against what that line accepted less what has
-    already been returned, under a lock on the receipt line — so two returns
-    racing for the same remainder contend on the same row rather than both
-    reading the pre-commit figure.
+    Add a directly selected inventory item to a standalone return.
     """
     locked = _require_draft(supplier_return)
     quantity = quantize_quantity(returned_base_quantity)
@@ -247,46 +202,17 @@ def add_return_line(
             _("A returned quantity must be greater than zero."), code="quantity_not_positive"
         )
 
-    # `select_related` names only non-nullable relations: joining `lot` would
-    # make this FOR UPDATE over the nullable side of an outer join, which
-    # PostgreSQL refuses outright.
-    locked_line = (
-        GoodsReceiptLine.objects.select_for_update()
-        .select_related("item", "receipt")
-        .get(pk=receipt_line.pk)
-    )
-    if locked_line.receipt_id != locked.receipt_id:
-        raise ValidationError(
-            _("That delivery line belongs to a different receipt."), code="receipt_line_mismatch"
-        )
-    if locked_line.accepted_base_quantity <= ZERO:
-        raise ValidationError(
-            _("That delivery line was wholly rejected and brought nothing into stock."),
-            code="receipt_line_rejected",
-        )
-
-    available = return_availability(locked_line)
-    if quantity > available:
-        raise ValidationError(
-            _(
-                "Delivery line %(item)s has %(available)s left to return; %(asked)s would "
-                "exceed what was accepted."
-            ),
-            code="return_over_quantity",
-            params={
-                "item": locked_line.item.code,
-                "available": format(available, "f"),
-                "asked": format(quantity, "f"),
-            },
-        )
+    if item.organization_id != locked.organization_id:
+        raise ValidationError(_("The item belongs to another organization."), code="item_scope")
+    if lot is not None and lot.item_id != item.pk:
+        raise ValidationError(_("The lot belongs to another item."), code="lot_item_mismatch")
 
     credit = quantize_money(expected_credit_value) if expected_credit_value is not None else None
     line = SupplierReturnLine(
         supplier_return=locked,
         sequence=_next_sequence(locked),
-        goods_receipt_line=locked_line,
-        item=locked_line.item,
-        lot=locked_line.lot,
+        item=item,
+        lot=lot,
         returned_base_quantity=quantity,
         expected_credit_value=credit,
         note=note.strip(),
@@ -480,27 +406,10 @@ def post_supplier_return(*, supplier_return: SupplierReturn, actor: User) -> Sup
             "item__category__parent",
             "item__category__parent__parent",
             "lot",
-            "goods_receipt_line",
         ).order_by("sequence")
     )
     if not lines:
         raise ValidationError(_("An empty return cannot be posted."), code="no_lines")
-
-    # 2. The source delivery and the lines this return cites, locked before the
-    # bound is re-read: a draft can sit for a day, and another return may have
-    # taken the remainder since.
-    receipt = GoodsReceipt.objects.select_for_update().get(pk=locked.receipt_id)
-    if receipt.status != GoodsReceiptStatus.POSTED:
-        raise ValidationError(
-            _("Delivery %(number)s is no longer posted."),
-            code="receipt_not_posted",
-            params={"number": receipt.number or str(receipt.public_id)},
-        )
-    receipt_line_ids = sorted({line.goods_receipt_line_id for line in lines})
-    list(
-        GoodsReceiptLine.objects.select_for_update().filter(pk__in=receipt_line_ids).order_by("pk")
-    )
-    _require_still_within_the_accepted_quantity(lines)
 
     day = resolve_business_day(locked.branch, timezone.now())
     locked.business_date_timezone = day.timezone_name
@@ -622,39 +531,6 @@ def post_supplier_return(*, supplier_return: SupplierReturn, actor: User) -> Sup
     return locked
 
 
-def _require_still_within_the_accepted_quantity(lines: list[SupplierReturnLine]) -> None:
-    """
-    Re-check the bound against the deliveries as they stand now.
-
-    Not redundant with `add_return_line`: another return may have taken the
-    remainder since, and the row locks that made each individual addition safe
-    were released when that transaction committed.
-    """
-    by_receipt_line: dict[int, Decimal] = {}
-    for line in lines:
-        by_receipt_line[line.goods_receipt_line_id] = (
-            by_receipt_line.get(line.goods_receipt_line_id, ZERO) + line.returned_base_quantity
-        )
-    for receipt_line_id, mine in by_receipt_line.items():
-        receipt_line = GoodsReceiptLine.objects.select_related("item").get(pk=receipt_line_id)
-        taken_elsewhere = (
-            SupplierReturnLine.objects.filter(goods_receipt_line_id=receipt_line_id)
-            .exclude(supplier_return__status=SupplierReturnStatus.REVERSED)
-            .exclude(supplier_return=lines[0].supplier_return)
-            .aggregate(total=Sum("returned_base_quantity"))["total"]
-            or ZERO
-        )
-        if taken_elsewhere + mine > receipt_line.accepted_base_quantity:
-            raise ValidationError(
-                _(
-                    "Delivery line %(item)s has been returned elsewhere since; this return "
-                    "would send back more than arrived."
-                ),
-                code="return_over_quantity",
-                params={"item": receipt_line.item.code},
-            )
-
-
 # ---------------------------------------------------------------------------
 # Reversal
 # ---------------------------------------------------------------------------
@@ -686,8 +562,6 @@ def reverse_supplier_return(
         raise ValidationError(_("Only a posted return can be reversed."), code="return_not_posted")
     if not reason.strip():
         raise ValidationError(_("A reversal needs a reason."), code="reason_required")
-
-    _require_no_downstream_dependency(locked)
 
     now = timezone.now()
     reversal_business_date = resolve_business_day(locked.branch, now).business_date
@@ -815,8 +689,6 @@ __all__ = [
     "effect_key",
     "post_supplier_return",
     "remove_return_line",
-    "return_availability",
     "return_timeline",
-    "returned_quantity_for",
     "reverse_supplier_return",
 ]

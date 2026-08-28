@@ -5,23 +5,23 @@
 {# is provably the rows on the screen rather than a second query.            #}
 {% load i18n %}
 
-<form class="toolbar" method="get"
+<form class="ui-filter-bar" method="get"
       hx-get="{{ request.path }}"
       hx-target="{{ report_target }}"
       hx-swap="outerHTML"
       hx-push-url="true"
-      hx-trigger="submit, change from:find select, change from:find input"
+      hx-trigger="submit, change"
       hx-indicator="#report-loading">
-  <label class="field">
-    <span class="field__label">{% translate "المؤسسة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "المؤسسة" %}</span>
     <select name="organization">
       {% for row in organizations %}
         <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>{{ row.code }}</option>
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "الفرع" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الفرع" %}</span>
     <select name="branch">
       <option value="">{% translate "كل الفروع" %}</option>
       {% for branch in branches %}
@@ -29,8 +29,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "مركز الكلفة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "مركز الكلفة" %}</span>
     <select name="cost_center">
       <option value="">{% translate "الكل" %}</option>
       {% for centre in cost_centers %}
@@ -38,19 +38,19 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "من" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "من" %}</span>
     <input type="date" name="from" value="{% if filters.date_from %}{{ filters.date_from|date:'Y-m-d' }}{% endif %}">
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "إلى" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "إلى" %}</span>
     <input type="date" name="to" value="{% if filters.date_to %}{{ filters.date_to|date:'Y-m-d' }}{% endif %}">
   </label>
   {% block extra_filters %}{% endblock %}
-  <button class="btn btn--secondary toolbar__submit" type="submit">{% translate "تطبيق" %}</button>
-  <a class="btn btn--secondary" href="{{ request.path }}?{{ filter_query }}&export=csv">{% translate "تصدير CSV" %}</a>
-  <a class="btn btn--secondary" href="{{ request.path }}?{{ filter_query }}&print=1" target="_blank" rel="noopener">{% translate "PDF / طباعة" %}</a>
-  <span class="inventory-loading" id="report-loading" role="status" aria-live="polite">
+  <button class="ui-button ui-button--secondary ui-filter-bar__submit" type="submit">{% translate "تطبيق" %}</button>
+  <a class="ui-button ui-button--secondary" href="{{ request.path }}?{{ filter_query }}&export=csv">{% translate "تصدير CSV" %}</a>
+  <a class="ui-button ui-button--secondary" href="{{ request.path }}?{{ filter_query }}&print=1" target="_blank" rel="noopener">{% translate "PDF / طباعة" %}</a>
+  <span class="ui-loading" id="report-loading" role="status" aria-live="polite">
     {% translate "جارٍ الحساب…" %}
   </span>
 </form>

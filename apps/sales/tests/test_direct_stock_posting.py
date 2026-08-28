@@ -115,12 +115,11 @@ def _error_codes(error: ValidationError) -> set[str]:
 
 @pytest.fixture
 def direct_stock_chart(organization: Organization) -> dict[str, Account]:
-    for code, name_ar, name_en in _CHART:
+    for code, name, name in _CHART:
         create_account(
             organization=organization,
             code=code,
-            name_ar=name_ar,
-            name_en=name_en,
+            name=name,
         )
     accounts = {
         account.code: account
@@ -165,12 +164,12 @@ def direct_item(organization: Organization) -> InventoryItem:
     category = create_item_category(
         organization=organization,
         code="RESALE",
-        name_ar="بضاعة إعادة البيع",
+        name="بضاعة إعادة البيع",
     )
     return create_item(
         organization=organization,
         code="WATER-500",
-        name_ar="ماء 500 مل",
+        name="ماء 500 مل",
         category=category,
         item_type=ItemType.GOODS_FOR_RESALE,
         base_unit=UnitOfMeasure.objects.get(code="PIECE"),
@@ -179,7 +178,7 @@ def direct_item(organization: Organization) -> InventoryItem:
 
 @pytest.fixture
 def source_warehouse(branch: Branch) -> Warehouse:
-    return create_warehouse(branch=branch, code="MAIN", name_ar="المخزن الرئيسي")
+    return create_warehouse(branch=branch, code="MAIN", name="المخزن الرئيسي")
 
 
 @pytest.fixture
@@ -192,7 +191,7 @@ def direct_menu_item(
     menu_item = create_menu_item(
         organization=organization,
         code="MENU-WATER-500",
-        name_ar="ماء 500 مل",
+        name="ماء 500 مل",
         fulfillment_source=FulfillmentSource.DIRECT_STOCK,
         inventory_item=direct_item,
         direct_stock_base_quantity=Decimal("1"),
@@ -216,7 +215,7 @@ def hall_channel(organization: Organization, hall_cost_center: CostCenter) -> Sa
     return create_sales_channel(
         organization=organization,
         code="DINE-IN-DIRECT",
-        name_ar="الصالة",
+        name="الصالة",
         category=SalesChannelCategory.DINE_IN,
         cost_center=hall_cost_center,
         default_tender=TenderDestination.CASH,

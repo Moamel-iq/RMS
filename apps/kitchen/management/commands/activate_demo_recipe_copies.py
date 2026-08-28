@@ -126,8 +126,7 @@ class Command(SeedCommand):
         demo = create_recipe(
             organization=original.organization,
             code=code,
-            name_ar=f"تجريبي - {original.name_ar}",
-            name_en=original.name_en,
+            name=f"تجريبي - {original.name}",
             description_ar=original.description_ar,
             description_en=original.description_en,
             category=original.category,
@@ -206,8 +205,7 @@ class Command(SeedCommand):
             add_recipe_serving(
                 version=version,
                 code=serving.code,
-                name_ar=serving.name_ar,
-                name_en=serving.name_en,
+                name=serving.name,
                 serving_quantity=serving.serving_quantity,
                 serving_unit=serving.serving_unit,
                 is_primary=serving.is_primary,

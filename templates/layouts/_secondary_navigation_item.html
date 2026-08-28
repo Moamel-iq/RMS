@@ -1,0 +1,18 @@
+{% load i18n %}
+{% if section.available %}
+  <a class="ui-secondary-nav__item{% if section == active_section %} is-active{% endif %}"
+     href="{% url section.url_name %}"
+     hx-get="{% url section.url_name %}" hx-target="#main-content"
+     hx-swap="innerHTML show:top" hx-push-url="true"
+     hx-indicator="#app-loading" hx-sync="#main-content:replace"
+     {% if section == active_section %}aria-current="page"{% endif %}>
+    {% if section.icon %}<span class="ui-secondary-nav__icon" aria-hidden="true">{{ section.icon }}</span>{% endif %}
+    <span>{{ section.label }}</span>
+  </a>
+{% else %}
+  <span class="ui-secondary-nav__item is-unavailable" aria-disabled="true">
+    {% if section.icon %}<span class="ui-secondary-nav__icon" aria-hidden="true">{{ section.icon }}</span>{% endif %}
+    <span>{{ section.label }}</span>
+    <span class="ui-secondary-nav__badge">{% translate "قريباً" %}</span>
+  </span>
+{% endif %}

@@ -24,7 +24,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db.models import Q, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
@@ -173,13 +173,17 @@ class MenuCategoryListView(SalesListView):
         "تجميع للعرض فقط. لا تحمل المجموعة أي أثر محاسبي، ولا يقرأها أي قيد — "
         "ترتيب لوحة المنيو قرار تصميم، لا قرار مالي."
     )
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     manage_permission = MANAGE_MENU
     create_url_name = "sales:menu_category_create"
     create_label = _("مجموعة جديدة")
 
     def scoped_queryset(self) -> QuerySet[Any]:
-        return visible_menu_categories(self.actor).order_by("display_order", "code")
+        return (
+            visible_menu_categories(self.actor)
+            .annotate(item_count=Count("items"))
+            .order_by("display_order", "code")
+        )
 
 
 class MenuCategoryWriteView(SalesWriteView):
@@ -202,8 +206,7 @@ class MenuCategoryCreateView(MenuCategoryWriteView):
         create_menu_category(
             organization=form.selected_organization(),
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             display_order=form.cleaned_data["display_order"],
         )
 
@@ -223,8 +226,7 @@ class MenuCategoryUpdateView(MenuCategoryWriteView):
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "display_order": instance.display_order,
         }
 
@@ -234,8 +236,7 @@ class MenuCategoryUpdateView(MenuCategoryWriteView):
     def perform(self, instance: Any, form: Any) -> None:
         update_menu_category(
             category=instance,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             display_order=form.cleaned_data["display_order"],
             is_active=instance.is_active,
         )
@@ -256,11 +257,10 @@ class MenuItemListView(SalesListView):
     )
     search_fields = (
         "code",
-        "name_ar",
-        "name_en",
+        "name",
         "recipe__code",
         "inventory_item__code",
-        "inventory_item__name_ar",
+        "inventory_item__name",
     )
     manage_permission = MANAGE_MENU
     create_url_name = "sales:menu_item_create"
@@ -299,8 +299,7 @@ class MenuItemWriteView(SalesWriteView):
     def _fields(self, form: Any) -> dict[str, Any]:
         data = form.cleaned_data
         return {
-            "name_ar": data["name_ar"],
-            "name_en": data.get("name_en", ""),
+            "name": data["name"],
             "category": data.get("category"),
             "fulfillment_source": data["fulfillment_source"],
             "recipe": data.get("recipe"),
@@ -348,8 +347,7 @@ class MenuItemUpdateView(MenuItemWriteView):
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "category": instance.category,
             "fulfillment_source": instance.fulfillment_source,
             "recipe": instance.recipe,
@@ -381,8 +379,7 @@ class MenuItemActionView(SalesActionView):
     def perform(self, instance: Any) -> None:
         update_menu_item(
             item=instance,
-            name_ar=instance.name_ar,
-            name_en=instance.name_en,
+            name=instance.name,
             category=instance.category,
             fulfillment_source=instance.fulfillment_source,
             recipe=instance.recipe,
@@ -450,7 +447,7 @@ class MenuItemDetailView(InventoryViewMixin, View):
             "availability_form": (
                 BranchAvailabilityForm(actor=self.actor, menu_item=item) if may_manage else None
             ),
-            "page_title": item.name_ar,
+            "page_title": item.name,
             "page_hint": _("توفّر الصنف في الفروع، والأسعار السارية اليوم في كل فرع."),
             # `_form_fragment.html`, not `_list_fragment.html`. This template
             # extends `list_base_template` **directly** rather than through
@@ -502,7 +499,7 @@ class MenuPriceListView(SalesListView):
         "الأسعار مؤرّخة السريان ولا تُعدَّل في مكانها: تصحيح السعر هو إنهاؤه "
         "وإصدار سعر بديل، لأن السعر الذي باع شيئاً صار مستنداً."
     )
-    search_fields = ("menu_item__code", "menu_item__name_ar", "branch__code")
+    search_fields = ("menu_item__code", "menu_item__name", "branch__code")
     manage_permission = MANAGE_MENU
     manage_scope = "organization"
     create_url_name = "sales:menu_price_create"
@@ -625,7 +622,7 @@ class SalesChannelListView(SalesListView):
         "القناة تقرّر أين يذهب المال ومَن يعدّه. تطبيقات التوصيل كلها قناة واحدة "
         "من نوع «تطبيق توصيل»، والشركة نفسها بيانات أساسية منفصلة."
     )
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     manage_permission = MANAGE_SALES_CHANNELS
     create_url_name = "sales:channel_create"
     create_label = _("قناة جديدة")
@@ -669,8 +666,7 @@ class SalesChannelCreateView(SalesChannelWriteView):
         create_sales_channel(
             organization=form.selected_organization(),
             code=data["code"],
-            name_ar=data["name_ar"],
-            name_en=data.get("name_en", ""),
+            name=data["name"],
             category=data["category"],
             cost_center=data["cost_center"],
             default_tender=data["default_tender"],
@@ -700,8 +696,7 @@ class SalesChannelUpdateView(SalesChannelWriteView):
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "category": instance.category,
             "default_tender": instance.default_tender,
             "cost_center": instance.cost_center,
@@ -720,8 +715,7 @@ class SalesChannelUpdateView(SalesChannelWriteView):
         data = form.cleaned_data
         update_sales_channel(
             channel=instance,
-            name_ar=data["name_ar"],
-            name_en=data.get("name_en", ""),
+            name=data["name"],
             cost_center=data["cost_center"],
             default_tender=data["default_tender"],
             revenue_account=data.get("revenue_account"),
@@ -752,8 +746,7 @@ class SalesChannelActionView(SalesActionView):
     def perform(self, instance: Any) -> None:
         update_sales_channel(
             channel=instance,
-            name_ar=instance.name_ar,
-            name_en=instance.name_en,
+            name=instance.name,
             cost_center=instance.cost_center,
             default_tender=instance.default_tender,
             revenue_account=instance.revenue_account,
@@ -778,14 +771,18 @@ class DeliveryApplicationListView(SalesListView):
         "يُحتسب من دفتر الذمم غير القابل للتعديل — ولا تحمل نسبة عمولة، فالنسب بنود "
         "تعاقدية مؤرّخة تعيش في الاتفاقيات."
     )
-    search_fields = ("code", "name_ar", "name_en", "contact_name")
+    search_fields = ("code", "name", "contact_name")
     manage_permission = MANAGE_DELIVERY_APPLICATIONS
     create_url_name = "sales:application_create"
     create_label = _("تطبيق جديد")
     result_label = _("تطبيق")
 
     def scoped_queryset(self) -> QuerySet[Any]:
-        return visible_delivery_applications(self.actor).order_by("code")
+        return (
+            visible_delivery_applications(self.actor)
+            .annotate(branch_setting_count=Count("branch_settings"))
+            .order_by("code")
+        )
 
 
 class DeliveryApplicationWriteView(SalesWriteView):
@@ -796,8 +793,7 @@ class DeliveryApplicationWriteView(SalesWriteView):
     def _fields(self, form: Any) -> dict[str, Any]:
         data = form.cleaned_data
         return {
-            "name_ar": data["name_ar"],
-            "name_en": data.get("name_en", ""),
+            "name": data["name"],
             "settlement_cycle_days": data["settlement_cycle_days"],
             "receivable_account": data.get("receivable_account"),
             "contact_name": data.get("contact_name", ""),
@@ -838,8 +834,7 @@ class DeliveryApplicationUpdateView(DeliveryApplicationWriteView):
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "settlement_cycle_days": instance.settlement_cycle_days,
             "receivable_account": instance.receivable_account,
             "contact_name": instance.contact_name,
@@ -873,8 +868,7 @@ class DeliveryApplicationActionView(SalesActionView):
     def perform(self, instance: Any) -> None:
         update_delivery_application(
             application=instance,
-            name_ar=instance.name_ar,
-            name_en=instance.name_en,
+            name=instance.name,
             settlement_cycle_days=instance.settlement_cycle_days,
             receivable_account=instance.receivable_account,
             contact_name=instance.contact_name,
@@ -938,7 +932,7 @@ class DeliveryApplicationDetailView(InventoryViewMixin, View):
                 if may_manage
                 else None
             ),
-            "page_title": application.name_ar,
+            "page_title": application.name,
             "page_hint": _("الفروع المفعّلة مع هذا التطبيق، والاتفاقية السارية اليوم لكل فرع."),
             # `_form_fragment.html`, not `_list_fragment.html`. This template
             # extends `list_base_template` **directly** rather than through
@@ -993,7 +987,7 @@ class DeliveryAgreementListView(SalesListView):
     )
     search_fields = (
         "delivery_application__code",
-        "delivery_application__name_ar",
+        "delivery_application__name",
         "branch__code",
         "evidence_reference",
     )
@@ -1108,7 +1102,7 @@ class DiscountProgramListView(SalesListView):
         "الخصم مال لم يُحصَّل، والتصميم كله يقوم على تسجيل مَن تحمّله: حصة المطعم "
         "تخفض إيراده، وحصة التطبيق تُعوَّض ولا تخفض شيئاً — بل هي جزء مما يدين به التطبيق."
     )
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     manage_permission = MANAGE_SALES_DISCOUNTS
     create_url_name = "sales:discount_create"
     create_label = _("خصم جديد")
@@ -1161,8 +1155,7 @@ class DiscountProgramCreateView(SalesWriteView):
         create_discount_program(
             organization=form.selected_organization(),
             code=data["code"],
-            name_ar=data["name_ar"],
-            name_en=data.get("name_en", ""),
+            name=data["name"],
             effective_from=data["effective_from"],
             discount_percent=data.get("discount_percent"),
             discount_amount=data.get("discount_amount"),

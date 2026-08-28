@@ -9,101 +9,101 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page" id="accounting-bank-detail">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page" id="accounting-bank-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:bank_account_list' %}">{% translate "الحسابات البنكية" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page"><bdi dir="ltr">{{ bank.code }}</bdi></span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ bank.name_ar }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ bank.name }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
-      <div class="pagehead__actions">
+      <div class="ui-page-header__actions">
         {% if may_manage %}
-          <a class="btn btn--secondary" href="{% url 'accounting:bank_account_update' bank.pk %}">{% translate "تعديل" %}</a>
+          <a class="ui-button ui-button--secondary" href="{% url 'accounting:bank_account_update' bank.pk %}">{% translate "تعديل" %}</a>
           {% if bank.is_active %}
-            <form method="post" action="{% url 'accounting:bank_account_archive' bank.pk %}" class="inline-form">
-              {% csrf_token %}<button class="btn btn--secondary" type="submit">{% translate "أرشفة" %}</button>
+            <form method="post" action="{% url 'accounting:bank_account_archive' bank.pk %}" class="ui-inline-form">
+              {% csrf_token %}<button class="ui-button ui-button--secondary" type="submit">{% translate "أرشفة" %}</button>
             </form>
           {% else %}
-            <form method="post" action="{% url 'accounting:bank_account_reactivate' bank.pk %}" class="inline-form">
-              {% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "إعادة تفعيل" %}</button>
+            <form method="post" action="{% url 'accounting:bank_account_reactivate' bank.pk %}" class="ui-inline-form">
+              {% csrf_token %}<button class="ui-button ui-button--primary" type="submit">{% translate "إعادة تفعيل" %}</button>
             </form>
           {% endif %}
         {% endif %}
       </div>
     </div>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "التعريف" %}</h2>
-      <dl class="datalist">
-        <div class="detailgrid__row"><dt>{% translate "المؤسسة" %}</dt><dd>{{ bank.organization.code }}</dd></div>
-        <div class="detailgrid__row"><dt>{% translate "المصرف" %}</dt><dd>{{ bank.bank_name }}</dd></div>
-        <div class="detailgrid__row"><dt>{% translate "رقم الحساب" %}</dt><dd><bdi dir="ltr">{{ bank.masked_account_number }}</bdi></dd></div>
-        {% if bank.iban %}<div class="detailgrid__row"><dt>IBAN</dt><dd><bdi dir="ltr">{{ bank.iban }}</bdi></dd></div>{% endif %}
-        <div class="detailgrid__row"><dt>{% translate "الفرع" %}</dt><dd>{% if bank.branch %}{{ bank.branch.code }}{% else %}{% translate "على مستوى المؤسسة" %}{% endif %}</dd></div>
-        <div class="detailgrid__row">
+      <dl class="ui-definition-list">
+        <div class="ui-definition-list__row"><dt>{% translate "المؤسسة" %}</dt><dd>{{ bank.organization.code }}</dd></div>
+        <div class="ui-definition-list__row"><dt>{% translate "المصرف" %}</dt><dd>{{ bank.bank_name }}</dd></div>
+        <div class="ui-definition-list__row"><dt>{% translate "رقم الحساب" %}</dt><dd><bdi dir="ltr">{{ bank.masked_account_number }}</bdi></dd></div>
+        {% if bank.iban %}<div class="ui-definition-list__row"><dt>IBAN</dt><dd><bdi dir="ltr">{{ bank.iban }}</bdi></dd></div>{% endif %}
+        <div class="ui-definition-list__row"><dt>{% translate "الفرع" %}</dt><dd>{% if bank.branch %}{{ bank.branch.code }}{% else %}{% translate "على مستوى المؤسسة" %}{% endif %}</dd></div>
+        <div class="ui-definition-list__row">
           <dt>{% translate "الحساب المحاسبي" %}</dt>
           <dd><a href="{% url 'accounting:account_detail' bank.account.pk %}">
-            <code dir="ltr">{{ bank.account.code }}</code> {{ bank.account.name_ar }}
+            <code dir="ltr">{{ bank.account.code }}</code> {{ bank.account.name }}
           </a></dd>
         </div>
-        <div class="detailgrid__row"><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ current_balance|money_full }}</bdi></dd></div>
-        <div class="detailgrid__row">
+        <div class="ui-definition-list__row"><dt>{% translate "الرصيد الحالي" %}</dt><dd><bdi dir="ltr">{{ current_balance|money_full }}</bdi></dd></div>
+        <div class="ui-definition-list__row">
           <dt>{% translate "آخر مطابقة" %}</dt>
           <dd>{% if bank.last_reconciled_on %}<bdi dir="ltr">{{ bank.last_reconciled_on|date:"Y-m-d" }}</bdi>{% else %}{% translate "لم تُسجَّل" %}{% endif %}</dd>
         </div>
       </dl>
 
       {% if may_manage %}
-        <form method="post" action="{% url 'accounting:bank_account_reconcile' bank.pk %}" class="inline-form">
+        <form method="post" action="{% url 'accounting:bank_account_reconcile' bank.pk %}" class="ui-inline-form">
           {% csrf_token %}
-          <label class="field">
-            <span class="field__label">{% translate "تسجيل مطابقة حتى" %}</span>
+          <label class="ui-field">
+            <span class="ui-field__label">{% translate "تسجيل مطابقة حتى" %}</span>
             <input type="date" name="on_date" value="{{ today|date:'Y-m-d' }}">
           </label>
-          <button class="btn btn--secondary" type="submit">{% translate "تسجيل المطابقة" %}</button>
+          <button class="ui-button ui-button--secondary" type="submit">{% translate "تسجيل المطابقة" %}</button>
         </form>
       {% endif %}
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "كشف الحركة" %}</h2>
-      <form class="toolbar" method="get"
+      <form class="ui-filter-bar" method="get"
             hx-get="{% url 'accounting:bank_account_detail' bank.pk %}"
             hx-target="#accounting-bank-detail"
             hx-swap="outerHTML"
             hx-push-url="true"
-            hx-trigger="change from:find input"
+            hx-trigger="change"
             hx-indicator="#bank-loading">
-        <label class="field">
-          <span class="field__label">{% translate "من" %}</span>
+        <label class="ui-field">
+          <span class="ui-field__label">{% translate "من" %}</span>
           <input type="date" name="from" value="{{ statement.date_from|date:'Y-m-d' }}">
         </label>
-        <label class="field">
-          <span class="field__label">{% translate "إلى" %}</span>
+        <label class="ui-field">
+          <span class="ui-field__label">{% translate "إلى" %}</span>
           <input type="date" name="to" value="{{ statement.date_to|date:'Y-m-d' }}">
         </label>
-        <span class="inventory-loading" id="bank-loading" role="status" aria-live="polite">
+        <span class="ui-loading" id="bank-loading" role="status" aria-live="polite">
           {% translate "جارٍ التحميل…" %}
         </span>
       </form>
       {% include "accounting/_statement_table.html" %}
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>
         {% translate "بنود غير مطابقة" %}
-        <span class="chip">{{ unreconciled|length }}</span>
+        <span class="ui-badge">{{ unreconciled|length }}</span>
       </h2>
-      <p class="card__hint">
+      <p class="ui-card__subtitle">
         {% translate "السطور المُرحَّلة بعد تاريخ آخر مطابقة. مشتقّة من التواريخ، لا علامة مخزّنة على السطر — دفتر الأستاذ مُلحَق فقط ولا يقبل علامة تتغيّر." %}
       </p>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead><tr>
             <th>{% translate "التاريخ" %}</th><th>{% translate "القيد" %}</th>
             <th>{% translate "مدين" %}</th><th>{% translate "دائن" %}</th>
@@ -117,18 +117,18 @@
                 <td data-label="{% translate 'دائن' %}"><bdi dir="ltr">{{ row.line.credit|money_full }}</bdi></td>
               </tr>
             {% empty %}
-              <tr><td colspan="4" class="empty" data-empty-state>{% translate "كل الحركة داخل هذه الفترة مطابَقة." %}</td></tr>
+              <tr><td colspan="4" class="ui-table__empty" data-empty-state>{% translate "كل الحركة داخل هذه الفترة مطابَقة." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "دفعات الموردين" %}</h2>
-      <p class="card__hint">{% translate "تملكها المشتريات. تُقرأ من هنا وتُدار من شاشتها." %}</p>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <p class="ui-card__subtitle">{% translate "تملكها المشتريات. تُقرأ من هنا وتُدار من شاشتها." %}</p>
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead><tr>
             <th>{% translate "التاريخ" %}</th><th>{% translate "المورد" %}</th>
             <th>{% translate "المبلغ" %}</th><th>{% translate "الحالة" %}</th>
@@ -137,39 +137,39 @@
             {% for payment in payments %}
               <tr>
                 <td data-label="{% translate 'التاريخ' %}"><bdi dir="ltr">{{ payment.business_date|date:"Y-m-d" }}</bdi></td>
-                <td data-label="{% translate 'المورد' %}">{{ payment.supplier.name_ar }}</td>
+                <td data-label="{% translate 'المورد' %}">{{ payment.supplier.name }}</td>
                 <td data-label="{% translate 'المبلغ' %}"><bdi dir="ltr">{{ payment.amount|money_full }}</bdi></td>
                 <td data-label="{% translate 'الحالة' %}">{{ payment.get_status_display }}</td>
               </tr>
             {% empty %}
-              <tr><td colspan="4" class="empty" data-empty-state>{% translate "لا دفعات." %}</td></tr>
+              <tr><td colspan="4" class="ui-table__empty" data-empty-state>{% translate "لا دفعات." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "تسويات تطبيقات التوصيل" %}</h2>
-      <p class="card__hint">{% translate "تملكها المبيعات. تُقرأ من هنا وتُدار من شاشتها." %}</p>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <p class="ui-card__subtitle">{% translate "تملكها المبيعات. تُقرأ من هنا وتُدار من شاشتها." %}</p>
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead><tr>
             <th>{% translate "التطبيق" %}</th><th>{% translate "حتى" %}</th>
-            <th>{% translate "الحالة" %}</th><th scope="col"><span class="sr-only">إجراءات</span></th>
+            <th>{% translate "الحالة" %}</th><th scope="col"><span class="ui-sr-only">إجراءات</span></th>
           </tr></thead>
           <tbody>
             {% for settlement in settlements %}
               <tr>
-                <td data-label="{% translate 'التطبيق' %}">{{ settlement.delivery_application.name_ar }}</td>
+                <td data-label="{% translate 'التطبيق' %}">{{ settlement.delivery_application.name }}</td>
                 <td data-label="{% translate 'حتى' %}"><bdi dir="ltr">{{ settlement.period_end|date:"Y-m-d" }}</bdi></td>
                 <td data-label="{% translate 'الحالة' %}">{{ settlement.get_status_display }}</td>
-                <td class="cell-actions">
-                  <a class="btn btn--secondary btn--sm" href="{% url 'sales:settlement_detail' settlement.pk %}">{% translate "فتح" %}</a>
+                <td class="ui-table__actions">
+                  <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'sales:settlement_detail' settlement.pk %}">{% translate "فتح" %}</a>
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="4" class="empty" data-empty-state>{% translate "لا تسويات." %}</td></tr>
+              <tr><td colspan="4" class="ui-table__empty" data-empty-state>{% translate "لا تسويات." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>

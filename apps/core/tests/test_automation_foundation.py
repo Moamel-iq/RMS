@@ -59,12 +59,12 @@ def _sync_core_permissions_for_reused_database() -> None:
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="AUTO", name_ar="أتمتة", name_en="Automation")
+    return create_organization(code="AUTO", name="أتمتة")
 
 
 @pytest.fixture
 def other_organization() -> Organization:
-    return create_organization(code="OTHER", name_ar="أخرى", name_en="Other")
+    return create_organization(code="OTHER", name="أخرى")
 
 
 @pytest.fixture
@@ -72,8 +72,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="MAIN",
-        name_ar="الرئيسي",
-        name_en="Main",
+        name="الرئيسي",
         business_day_start_time=time(9, 0),
     )
 
@@ -83,8 +82,7 @@ def other_branch(other_organization: Organization) -> Branch:
     return create_branch(
         organization=other_organization,
         code="OTHER",
-        name_ar="الآخر",
-        name_en="Other",
+        name="الآخر",
         business_day_start_time=time(9, 0),
     )
 

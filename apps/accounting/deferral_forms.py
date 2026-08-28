@@ -151,11 +151,11 @@ class PrepaymentForm(forms.Form):
         for cashbox in Cashbox.objects.filter(
             organization_id__in=organization_ids, is_active=True
         ).order_by("code"):
-            choices.append((f"cashbox:{cashbox.pk}", f"صندوق — {cashbox.name_ar}"))
+            choices.append((f"cashbox:{cashbox.pk}", f"صندوق — {cashbox.name}"))
         for bank in BankAccount.objects.filter(
             organization_id__in=organization_ids, is_active=True
         ).order_by("code"):
-            choices.append((f"bank:{bank.pk}", f"مصرف — {bank.name_ar}"))
+            choices.append((f"bank:{bank.pk}", f"مصرف — {bank.name}"))
         self.fields["paid_from"].choices = choices  # type: ignore[attr-defined]
 
     def clean(self) -> dict[str, Any]:

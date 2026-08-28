@@ -223,7 +223,7 @@ def _contributions_for(
                 business_date=day.business_date,
                 recipe_id=line.recipe.pk,
                 recipe_code=line.recipe.code,
-                recipe_name=line.recipe.name_ar,
+                recipe_name=line.recipe.name,
                 recipe_version_id=version.pk,
                 version_number=version.version_number,
                 serving_code=line.serving.code,
@@ -231,7 +231,7 @@ def _contributions_for(
                 component_path=leaf.path_display,
                 leaf_item_id=recipe_line.item_id,
                 leaf_item_code=item.code,
-                leaf_item_name=item.name_ar,
+                leaf_item_name=item.name,
                 base_unit_code=item.base_unit.code,
                 effective_base_quantity=quantize_calculation(
                     recipe_line.base_quantity * leaf.cumulative_multiplier * fraction

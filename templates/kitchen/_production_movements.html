@@ -7,13 +7,13 @@
 {# one of them is correct.                                                    #}
 {% load i18n %}
 
-<section class="panel" id="production-movements">
-  <h2 class="panel__title">{% translate "حركة الترحيل" %}</h2>
+<section class="ui-card" id="production-movements">
+  <h2 class="ui-card__title">{% translate "حركة الترحيل" %}</h2>
 
   {% if not batch.stock_entry_id %}
-    <p class="empty">{% translate "لم تُرحَّل هذه الدفعة بعد." %}</p>
+    <p class="ui-table__empty">{% translate "لم تُرحَّل هذه الدفعة بعد." %}</p>
   {% else %}
-    <dl class="deflist">
+    <dl class="ui-definition-list">
       <dt>{% translate "الرقم" %}</dt>
       <dd><code dir="ltr">{{ batch.number }}</code></dd>
       <dt>{% translate "تاريخ العمل" %}</dt>
@@ -37,7 +37,7 @@
         <dd>
           <code dir="ltr">{{ batch.output_lot.code }}</code>
           {% if batch.output_lot.expiry_date %}
-            <span class="pill">{{ batch.output_lot.expiry_date|date:"Y-m-d" }}</span>
+            <span class="ui-badge">{{ batch.output_lot.expiry_date|date:"Y-m-d" }}</span>
           {% endif %}
         </dd>
       {% endif %}
@@ -51,8 +51,8 @@
       </dd>
     </dl>
 
-    <div class="tablewrap">
-      <table class="table">
+    <div class="ui-table-scroll">
+      <table class="ui-table">
         <thead>
           <tr>
             <th scope="col">{% translate "النوع" %}</th>
@@ -80,10 +80,10 @@
   {% endif %}
 
   {% if reversal_movements %}
-    <h3 class="panel__subtitle">{% translate "حركة العكس" %}</h3>
-    <p class="pagehead__hint">{{ batch.reversal_reason }}</p>
-    <div class="tablewrap">
-      <table class="table">
+    <h3 class="ui-card__subtitle">{% translate "حركة العكس" %}</h3>
+    <p class="ui-page-header__subtitle">{{ batch.reversal_reason }}</p>
+    <div class="ui-table-scroll">
+      <table class="ui-table">
         <thead>
           <tr>
             <th scope="col">{% translate "الصنف" %}</th>

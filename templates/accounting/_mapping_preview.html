@@ -5,38 +5,38 @@
 {# actually do. An unmapped role is a row saying so, never a missing row.     #}
 {% load i18n %}
 
-<section class="card" id="mapping-preview-panel">
-  <h2 class="card__title">{% translate "معاينة الحلّ بتاريخ" %}</h2>
+<section class="ui-card" id="mapping-preview-panel">
+  <h2 class="ui-card__title">{% translate "معاينة الحلّ بتاريخ" %}</h2>
 
-  <form class="toolbar" hx-get="{% url 'accounting:mapping_preview' %}"
+  <form class="ui-filter-bar" hx-get="{% url 'accounting:mapping_preview' %}"
         hx-target="#mapping-preview" hx-swap="innerHTML"
-        hx-trigger="change from:find select, change from:find input"
+        hx-trigger="change"
         hx-indicator="#mapping-preview-loading">
-    <label class="field">
-      <span class="field__label">{% translate "المؤسسة" %}</span>
+    <label class="ui-field">
+      <span class="ui-field__label">{% translate "المؤسسة" %}</span>
       <select name="organization">
         {% for row in organizations %}
           <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>{{ row.code }}</option>
         {% endfor %}
       </select>
     </label>
-    <label class="field">
-      <span class="field__label">{% translate "بتاريخ" %}</span>
+    <label class="ui-field">
+      <span class="ui-field__label">{% translate "بتاريخ" %}</span>
       <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}">
     </label>
-    <span class="inventory-loading" id="mapping-preview-loading" role="status" aria-live="polite">
+    <span class="ui-loading" id="mapping-preview-loading" role="status" aria-live="polite">
       {% translate "جارٍ الحساب…" %}
     </span>
   </form>
 
   {% if unresolved_count %}
-    <p class="card__hint card__hint--warn">
+    <p class="ui-card__subtitle ui-text-warning">
       {% blocktranslate count counter=unresolved_count %}دور واحد بلا حساب في هذا التاريخ.{% plural %}{{ counter }} أدوار بلا حساب في هذا التاريخ.{% endblocktranslate %}
     </p>
   {% endif %}
 
-  <div class="tablewrap">
-    <table class="table">
+  <div class="ui-table-scroll">
+    <table class="ui-table">
       <thead>
         <tr>
           <th>{% translate "الدور" %}</th>
@@ -51,14 +51,14 @@
             <td>{{ row.role.get_domain_display }}</td>
             <td>
               {% if row.account %}
-                <code dir="ltr">{{ row.account.code }}</code> — {{ row.account.name_ar }}
+                <code dir="ltr">{{ row.account.code }}</code> — {{ row.account.name }}
               {% else %}
-                <span class="chip chip--warn">{% translate "غير مربوط" %}</span>
+                <span class="ui-badge ui-badge--warning">{% translate "غير مربوط" %}</span>
               {% endif %}
             </td>
           </tr>
         {% empty %}
-          <tr><td colspan="3" class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</td></tr>
+          <tr><td colspan="3" class="ui-table__empty">{% translate "لا توجد مؤسسة في نطاقك." %}</td></tr>
         {% endfor %}
       </tbody>
     </table>

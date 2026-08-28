@@ -94,6 +94,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.accounting.models import (
+    INVENTORY_CONTROL,
     PURCHASE_PRICE_VARIANCE,
     SUPPLIER_PAYABLE,
     Account,
@@ -117,18 +118,28 @@ from apps.core.models import AuditAction
 from apps.core.money import quantize_money, quantize_unit_price
 from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
-from apps.inventory.ledger import link_journal_entry
-from apps.inventory.models import InventoryAccountMapping, InventoryItem
+from apps.inventory.accounts import resolve_inventory_account
+from apps.inventory.ledger import (
+    MovementInput,
+    link_journal_entry,
+    post_stock_entry,
+    reverse_stock_entry,
+)
+from apps.inventory.models import (
+    InventoryAccountMapping,
+    InventoryItem,
+    MovementType,
+    Warehouse,
+    WarehouseType,
+)
+from apps.inventory.operations import require_cost_center_where_the_account_demands_one
 from apps.organizations.business_dates import business_date_for, resolve_business_day
 from apps.organizations.models import Branch
 from apps.procurement.additional_costs import (
     LandedCostPreviewRow,
-    persist_landed_allocations,
-    plan_landed_costs,
-    post_landed_cost_entry,
-    reverse_landed_cost_entry,
 )
 from apps.procurement.credit_terms import resolve_credit_term, term_name_ar
+from apps.procurement.cycles import cycle_for_invoice
 from apps.procurement.lifecycle import lock_and_require_status
 from apps.procurement.matching import cancel_purchase_match
 from apps.procurement.models import (
@@ -253,6 +264,13 @@ def create_supplier_invoice(
 
     credit_term = resolve_credit_term(supplier=supplier, on=invoice_date)
     terms = credit_term.net_days if credit_term is not None else supplier.payment_terms_days
+    # The due date belongs to the **cycle**, not to this invoice alone: the
+    # supplier is bought from continuously and settled periodically, so an
+    # invoice raised into an open window falls due with the window. The
+    # invoice keeps its own copy, so a later cycle cannot restate it.
+    cycle = cycle_for_invoice(
+        supplier=supplier, invoice_date=invoice_date, payment_terms_days=terms
+    )
     invoice = SupplierInvoice(
         organization=branch.organization,
         branch=branch,
@@ -265,11 +283,12 @@ def create_supplier_invoice(
         invoice_date=invoice_date,
         business_date=business_date or business_date_for(branch, timezone.now()),
         payment_terms_days=terms,
-        due_date=due_date_for(invoice_date=invoice_date, payment_terms_days=terms),
+        cycle=cycle,
+        due_date=cycle.due_date,
         credit_term=credit_term,
         credit_term_public_id=credit_term.public_id if credit_term is not None else None,
         credit_term_version=credit_term.version if credit_term is not None else None,
-        credit_term_name=(credit_term.name_ar if credit_term is not None else term_name_ar(terms)),
+        credit_term_name=(credit_term.name if credit_term is not None else term_name_ar(terms)),
         credit_term_net_days=terms,
         freight_amount=quantize_money(freight_amount or ZERO),
         discount_amount=quantize_money(discount_amount or ZERO),
@@ -465,7 +484,7 @@ def add_inventory_line(
         order_version=order_version,
         receipt_line=receipt_line,
         base_quantity=quantity,
-        description=description.strip() or item.name_ar,
+        description=description.strip() or item.name,
         quantity=quantity,
         unit_price=price,
         line_amount=amount,
@@ -794,7 +813,7 @@ def approve_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> Suppli
         locked.credit_term = credit_term
         locked.credit_term_public_id = credit_term.public_id
         locked.credit_term_version = credit_term.version
-        locked.credit_term_name = credit_term.name_ar
+        locked.credit_term_name = credit_term.name
     locked.credit_term_net_days = terms
     locked.payment_terms_days = terms
     locked.due_date = due_date_for(
@@ -931,6 +950,13 @@ class _Plan:
     #: `A` — what the direct charges come to.
     total: Decimal
 
+    #: Inventory received by this invoice itself, rather than through a goods
+    #: receipt.  Each line resolves the control account that owns its value.
+    inventory: dict[int, tuple[Account, Decimal]] = field(default_factory=dict)
+    inventory_effects: list[MovementInput] = field(default_factory=list)
+    inventory_total: Decimal = ZERO
+    warehouse: Warehouse | None = None
+
     #: The agreed evidence, and the rows beneath it. `None` on an invoice with
     #: no goods on it, which needs no match and never had one.
     match: PurchaseMatch | None = None
@@ -953,8 +979,10 @@ class _Plan:
 
     @property
     def payable_total(self) -> Decimal:
-        """`A + V + L`. The whole invoice, from stored evidence only."""
-        return quantize_money(self.total + self.invoice_matched + self.landed_total)
+        """The entire supplier claim, including goods received directly."""
+        return quantize_money(
+            self.total + self.inventory_total + self.invoice_matched + self.landed_total
+        )
 
 
 def _plan(invoice: SupplierInvoice, lines: list[SupplierInvoiceLine]) -> _Plan:
@@ -1026,12 +1054,20 @@ def _plan(invoice: SupplierInvoice, lines: list[SupplierInvoiceLine]) -> _Plan:
 
     goods_lines = [line for line in lines if line.line_type == SupplierInvoiceLineType.INVENTORY]
     if goods_lines:
-        _plan_the_goods(invoice, goods_lines, plan=plan)
+        _plan_direct_inventory(invoice, goods_lines, plan=plan)
 
-    plan.landed_rows = plan_landed_costs(invoice, lock=True)
-    plan.landed_total = quantize_money(
-        sum((row.allocated_amount for row in plan.landed_rows), start=ZERO)
-    )
+    # The direct-invoice workflow has no receipt to receive landed costs
+    # against.  Freight and discounts already flow into each line's net amount
+    # and therefore into its stock value.  Structured landed-cost rows belong
+    # to the retired receipt/matching workflow and must not be posted here.
+    has_landed_costs = invoice.charges.filter(
+        treatment=SupplierInvoiceChargeTreatment.LANDED_COST
+    ).exists()
+    if has_landed_costs:
+        raise ValidationError(
+            _("Landed-cost rows are not supported on a direct supplier invoice."),
+            code="direct_invoice_landed_cost_not_supported",
+        )
 
     if plan.payable_total <= ZERO:
         raise ValidationError(
@@ -1043,6 +1079,64 @@ def _plan(invoice: SupplierInvoice, lines: list[SupplierInvoiceLine]) -> _Plan:
             code="posting_plan_does_not_equal_invoice",
         )
     return plan
+
+
+def _main_warehouse(invoice: SupplierInvoice) -> Warehouse:
+    """Return the one active physical warehouse designated as MAIN for the branch."""
+    try:
+        return Warehouse.objects.select_for_update().get(
+            branch=invoice.branch,
+            code="MAIN",
+            warehouse_type=WarehouseType.PHYSICAL,
+            is_active=True,
+        )
+    except Warehouse.DoesNotExist as error:
+        raise ValidationError(
+            _("The branch has no active MAIN warehouse for direct supplier receipts."),
+            code="main_warehouse_required",
+        ) from error
+
+
+def _plan_direct_inventory(
+    invoice: SupplierInvoice, goods_lines: list[SupplierInvoiceLine], *, plan: _Plan
+) -> None:
+    """Plan the stock receipt and its inventory-control debit from invoice lines.
+
+    The supplier invoice is the receipt document.  Each goods line lands in
+    ``MAIN`` with its exact net value (including allocated freight/discount),
+    while the other side of the journal credits the supplier payable.
+    """
+    warehouse = _main_warehouse(invoice)
+    plan.warehouse = warehouse
+
+    for line in goods_lines:
+        if line.item is None or line.base_quantity is None:
+            raise ValidationError(
+                _("Inventory invoice lines require an item and a base quantity."),
+                code="inventory_line_incomplete",
+            )
+        control = resolve_inventory_account(
+            organization=invoice.organization,
+            role=INVENTORY_CONTROL,
+            item=line.item,
+            on_date=invoice.business_date,
+        )
+        require_cost_center_where_the_account_demands_one(account=control.account, cost_center=None)
+        unit_cost = quantize_unit_price(line.net_amount / line.base_quantity)
+        plan.inventory[line.pk] = (control.account, line.net_amount)
+        plan.inventory_total = quantize_money(plan.inventory_total + line.net_amount)
+        plan.inventory_effects.append(
+            MovementInput(
+                warehouse=warehouse,
+                item=line.item,
+                movement_type=MovementType.RECEIPT,
+                quantity=line.base_quantity,
+                effect_key=f"supplier-invoice-line:{line.line_uid}",
+                unit_cost=unit_cost,
+                inbound_value=line.net_amount,
+                control_account=control.account,
+            )
+        )
 
 
 def _plan_the_goods(
@@ -1206,6 +1300,14 @@ def _journal_lines(invoice: SupplierInvoice, *, plan: _Plan) -> list[PostingLine
         key = (account.pk, cost_center.pk)
         debits[key] = debits.get(key, ZERO) + amount
 
+    # Direct goods receipts debit the control account that owns the incoming
+    # inventory value.  The stock entry below uses the exact same account,
+    # which keeps the stock ledger and general ledger reconcilable.
+    for account, amount in plan.inventory.values():
+        accounts[account.pk] = account
+        key = (account.pk, None)
+        debits[key] = debits.get(key, ZERO) + amount
+
     for row in plan.landed_rows:
         account = row.receipt_line.inventory_account
         assert account is not None  # noqa: S101 - landed preview requires posted evidence
@@ -1261,7 +1363,7 @@ def _journal_lines(invoice: SupplierInvoice, *, plan: _Plan) -> list[PostingLine
 @transaction.atomic
 def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierInvoice:
     """
-    Post an approved invoice to the ledger, atomically.
+    Directly receive and post a supplier invoice, atomically.
 
     One transaction produces the posting record, the status change, the gapless
     document number, the balanced journal, every line-level link between them,
@@ -1291,27 +1393,21 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
     the same pair of rows and deadlock the moment somebody freezes a match
     while somebody else posts it.
     """
-    # 1. The match, above everything. Resolved by query rather than by argument
-    # precisely because the caller named the invoice.
-    match = (
-        PurchaseMatch.objects.select_for_update()
-        .filter(supplier_invoice_id=invoice.pk)
-        .exclude(status=PurchaseMatchStatus.CANCELLED)
-        .first()
-    )
-
-    # 2. The invoice row. The shared helper is inlined so posting can tell
-    # "already posted" from "still a draft" from "reversed", which the helper
-    # deliberately answers with one code.
+    # 1. Lock the invoice.  There is deliberately no purchase match or goods
+    # receipt here: this command is the inventory receipt and financial post.
     locked = SupplierInvoice.objects.select_for_update().get(pk=invoice.pk)
     if locked.status == SupplierInvoiceStatus.POSTED:
         raise ValidationError(_("This invoice is already posted."), code="already_posted")
-    if locked.status == SupplierInvoiceStatus.DRAFT:
+    if locked.status not in (SupplierInvoiceStatus.DRAFT, SupplierInvoiceStatus.APPROVED):
         raise ValidationError(
-            _("An invoice must be approved before it can be posted."), code="invoice_not_approved"
+            _("A reversed invoice cannot be posted again. Record a replacement invoice."),
+            code="invoice_not_draft",
         )
     if locked.status == SupplierInvoiceStatus.REVERSED:
-        _require_repostable(locked, match=match)
+        raise ValidationError(
+            _("A reversed invoice cannot be posted again. Record a replacement invoice."),
+            code="invoice_reversed",
+        )
 
     lines = list(locked.lines.select_related("account", "cost_center", "item").order_by("sequence"))
     if not lines:  # pragma: no cover - approval refuses an empty invoice
@@ -1324,16 +1420,16 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
     period = resolve_period(organization=locked.organization, accounting_date=locked.business_date)
     validate_period_accepts_postings(period)
 
-    # 3. The organization's mappings, shared — above every row lock below it,
+    # 2. The organization's mappings, shared — above every row lock below it,
     # so a mapping mutation cannot interleave with the resolution in `_plan`.
     lock_account_mappings_shared(locked.organization_id)
 
-    # 4. The lines, locked before their amounts are read into the journal.
+    # 3. The lines, locked before their amounts are read into the journal.
     list(SupplierInvoiceLine.objects.select_for_update().filter(invoice=locked).order_by("pk"))
 
     plan = _plan(locked, lines)
 
-    # 5. The gapless number, drawn only now that nothing can fail for a domain
+    # 4. The gapless number, drawn only now that nothing can fail for a domain
     # reason — an abandoned attempt must not burn one. A re-post keeps the
     # number it already drew: it is the same document reaching the ledger
     # again, and burning a second number would leave a gap an auditor reads as
@@ -1348,13 +1444,23 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
     posted_at = timezone.now()
     posting = _new_posting(locked, plan=plan, actor=actor, posted_at=posted_at)
 
-    # Landed costs are one atomic stock event owned by this posting
-    # generation. The transaction still has no journal or status change at
-    # this point; any later failure rolls this value-only entry back too.
-    stock_entry = post_landed_cost_entry(
-        invoice=locked,
-        posting_public_id=posting.public_id,
-        rows=plan.landed_rows,
+    # The invoice is the receiving document.  Stock and accounts are both
+    # written inside this transaction, so neither can survive without the
+    # other.  Account-only invoices simply have no stock effects.
+    stock_entry = (
+        post_stock_entry(
+            organization=locked.organization,
+            effects=plan.inventory_effects,
+            idempotency_key=f"procurement-supplier-invoice-stock:{posting.public_id}",
+            business_date=locked.business_date,
+            source_document_type=SOURCE_DOCUMENT_TYPE,
+            source_document_id=str(posting.public_id),
+            source_event=SourceEvent.POSTED,
+            reference=locked.number or locked.supplier_invoice_number,
+            reason="استلام مباشر من فاتورة مورد",
+        )
+        if plan.inventory_effects
+        else None
     )
     posting.stock_entry = stock_entry
 
@@ -1378,11 +1484,6 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
         link_journal_entry(entry=stock_entry, journal=journal)
     posting.journal_entry = journal
     posting.save()
-    persist_landed_allocations(
-        posting=posting,
-        rows=plan.landed_rows,
-        stock_entry=stock_entry,
-    )
     record_audit_event(
         action=AuditAction.CREATED,
         target=posting,
@@ -1398,6 +1499,12 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
     locked.posted_amount = plan.payable_total
     locked.journal_entry = journal
     locked.status = SupplierInvoiceStatus.POSTED
+    # The historical schema requires a complete approval stamp on a posted
+    # invoice.  Direct posting does not expose or require a separate approval
+    # step; this single command records the same actor and timestamp solely to
+    # preserve the legacy audit constraint while transitioning DRAFT → POSTED.
+    locked.approved_by = actor
+    locked.approved_at = posted_at
     locked.posted_by = actor
     locked.posted_at = posted_at
     # A re-post is not a reversed invoice any more. The reversal it is
@@ -1412,6 +1519,8 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
             "business_date_timezone",
             "business_day_start",
             "number",
+            "approved_by",
+            "approved_at",
             "posted_amount",
             "journal_entry",
             "status",
@@ -1437,9 +1546,8 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
             "journal_entry": journal.entry_number,
             "line_count": len(lines),
             "posted_amount": format(plan.payable_total, "f"),
-            "goods_cleared": format(plan.goods_cleared, "f"),
-            "price_variance": format(plan.variance, "f"),
-            "landed_cost": format(plan.landed_total, "f"),
+            "direct_inventory": format(plan.inventory_total, "f"),
+            "stock_entry": stock_entry.pk if stock_entry is not None else None,
         },
     )
     return locked
@@ -1506,6 +1614,7 @@ def _new_posting(
         invoice_matched_value=plan.invoice_matched,
         price_variance=plan.variance,
         direct_charge_value=plan.total,
+        direct_inventory_value=plan.inventory_total,
         landed_cost_value=plan.landed_total,
         payable_value=plan.payable_total,
         posted_by=actor,
@@ -1531,21 +1640,13 @@ def _link_lines(lines: list[SupplierInvoiceLine], *, plan: _Plan, journal: Journ
     by_account: dict[tuple[int, int | None], JournalLine] = {
         (row.account_id, row.cost_center_id): row for row in journal.lines.filter(debit__gt=ZERO)
     }
-    grni_by_line: dict[int, set[int]] = {}
-    for allocation in plan.allocations:
-        account_id = allocation.goods_receipt_line.contra_account_id
-        if account_id is not None:
-            grni_by_line.setdefault(allocation.supplier_invoice_line_id, set()).add(account_id)
-
     for line in lines:
         if line.line_type == SupplierInvoiceLineType.ACCOUNT:
             account, cost_center, _amount = plan.lines[line.pk]
             line.journal_line = by_account[(account.pk, cost_center.pk if cost_center else None)]
         else:
-            accounts = grni_by_line.get(line.pk, set())
-            line.journal_line = (
-                by_account.get((next(iter(accounts)), None)) if len(accounts) == 1 else None
-            )
+            account, _amount = plan.inventory[line.pk]
+            line.journal_line = by_account[(account.pk, None)]
         line.resolved_organization_mapping = plan.payable_mapping
         line.save(update_fields=["journal_line", "resolved_organization_mapping", "updated_at"])
 
@@ -1637,12 +1738,13 @@ def reverse_supplier_invoice(
     # Mirror the exact stored stock keys and values. Current mappings and a
     # fresh allocation are deliberately irrelevant to a reversal.
     reversal_stock_entry = (
-        reverse_landed_cost_entry(
-            posting=posting,
+        reverse_stock_entry(
+            entry=posting.stock_entry,
+            idempotency_key=f"procurement-supplier-invoice-stock-reverse:{posting.public_id}",
             reason=reason.strip(),
             business_date=reversal_business_date,
         )
-        if posting is not None
+        if posting is not None and posting.stock_entry is not None
         else None
     )
     if reversal_stock_entry is not None:

@@ -58,12 +58,12 @@ PASSWORD = "pw-not-real-1234"
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM-HR", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM-HR", name="خان مندي")
 
 
 @pytest.fixture
 def other_organization() -> Organization:
-    return create_organization(code="OTHER-HR", name_ar="منافس", name_en="Other")
+    return create_organization(code="OTHER-HR", name="منافس")
 
 
 @pytest.fixture
@@ -71,8 +71,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK-HR",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9),
     )
 
@@ -108,8 +107,7 @@ def employee(organization: Organization, branch: Branch, maker: User) -> Employe
     return create_employee(
         organization=organization,
         code="EMP-001",
-        name_ar="أحمد علي",
-        name_en="Ahmed Ali",
+        name="أحمد علي",
         phone="07700000001",
         email="ahmed@example.test",
         identity_number="ID-HR-SECRET-1",
@@ -184,8 +182,7 @@ def test_employee_code_is_permanent_and_the_database_refuses_hard_delete(
         create_employee(
             organization=organization,
             code="emp-001",
-            name_ar="موظف آخر",
-            name_en="",
+            name="موظف آخر",
             phone="",
             email="",
             identity_number="",
@@ -336,7 +333,7 @@ def test_viewer_sees_the_employee_but_not_personal_salary_or_contract_details(
 
     assert response.status_code == 200
     content = response.content.decode()
-    assert employee.name_ar in content
+    assert employee.name in content
     assert "ID-HR-SECRET-1" not in content
     assert "BANK-HR-SECRET-1" not in content
     assert "1000000" not in content
@@ -405,7 +402,7 @@ def test_arabic_employee_and_contract_workspaces_keep_htmx_progressive_enhanceme
     contract_list = client.get(reverse("hr:contract_list"))
 
     assert employee_list.status_code == 200
-    assert employee.name_ar in employee_list.content.decode()
+    assert employee.name in employee_list.content.decode()
     assert 'hx-get="/hr/employees/"' in employee_list.content.decode()
     assert employee_form.status_code == 200
     assert "<html" not in employee_form.content.decode().lower()
@@ -494,9 +491,9 @@ def test_the_employee_and_contract_pages_are_drawn_inside_the_shell(
     }
     for name, url in pages.items():
         body = client.get(url).content.decode()
-        assert 'class="topbar"' in body, name
+        assert 'class="ui-app-header"' in body, name
         assert 'id="main-content"' in body, name
-        assert "skip-link" in body, name
+        assert "ui-skip-link" in body, name
         assert "data-shell-nav" in body, name
         assert "data-confirm-dialog" in body, name
         # And the page still carries its own title, not the bare system name.

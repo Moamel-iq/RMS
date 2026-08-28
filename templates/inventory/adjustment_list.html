@@ -32,7 +32,7 @@
       </td>
       <td data-label="{% translate 'المخزن' %}">
         <bdi dir="ltr"><code>{{ adjustment.warehouse.code }}</code></bdi>
-        <span class="muted"><bdi dir="ltr">{{ adjustment.branch.code }}</bdi></span>
+        <span class="ui-text-muted"><bdi dir="ltr">{{ adjustment.branch.code }}</bdi></span>
       </td>
       <td data-label="{% translate 'يوم العمل' %}"><bdi dir="ltr"><time datetime="{{ adjustment.business_date|date:'Y-m-d' }}">{{ adjustment.business_date|date:"Y-m-d" }}</time></bdi></td>
       <td data-label="{% translate 'الحالة' %}">{% include "components/status_badge.html" with status=adjustment.status label=adjustment.get_status_display %}</td>

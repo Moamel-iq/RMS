@@ -59,8 +59,7 @@ class TestHierarchyExclusivity:
             create_account(
                 organization=organization,
                 code="1-01-01-001-001",
-                name_ar="ابن",
-                name_en="Child",
+                name="ابن",
             )
 
     def test_an_account_with_posting_history_cannot_become_a_parent(

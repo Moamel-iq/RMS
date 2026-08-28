@@ -4,24 +4,24 @@
 {# keys rather than blanking them, so `show_value` removes whole cards and   #}
 {# columns. A zero here would read as "the stock is worthless" to exactly    #}
 {# the person who is not allowed to know what it is worth.                   #}
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n l10n money_tags quantity_tags %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="inventory-overview" class="dash">
+  <div id="inventory-overview" class="ui-dashboard">
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">{{ page_hint }}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--secondary" href="{% url 'inventory:report_valuation' %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--secondary" href="{% url 'inventory:report_valuation' %}">
           {% translate "تقرير التقييم" %}
         </a>
-        <a class="btn btn--primary" href="{% url 'inventory:movement_list' %}">
+        <a class="ui-button ui-button--primary" href="{% url 'inventory:movement_list' %}">
           {% translate "حركات المخزون" %}
         </a>
       </div>
@@ -30,7 +30,7 @@
     {# One alert, and only when it is true. A banner that is always present #}
     {# stops being read after the second visit.                            #}
     {% if overview.unstocked_item_count %}
-      <div class="alert" role="status">
+      <div class="ui-alert" role="status">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.8" aria-hidden="true" style="flex:none; margin-block-start:2px">
           <path d="M12 9v4M12 17h.01"/>
@@ -50,72 +50,72 @@
             {% endblocktranslate %}
           </p>
         </div>
-        <a class="btn btn--quiet" href="{% url 'inventory:item_list' %}">{% translate "اعرض القائمة" %}</a>
+        <a class="ui-button ui-button--ghost" href="{% url 'inventory:item_list' %}">{% translate "اعرض القائمة" %}</a>
       </div>
     {% endif %}
 
-    <div class="kpigrid">
+    <div class="ui-metric-grid">
       {% if show_value %}
-        <div class="kpi kpi--accent">
-          <div class="kpi__head">
-            <span class="kpi__label">{% translate "قيمة المخزون" %}</span>
-            <span class="kpi__mark" aria-hidden="true">
+        <div class="ui-metric ui-metric--accent">
+          <div class="ui-metric__header">
+            <span class="ui-metric__label">{% translate "قيمة المخزون" %}</span>
+            <span class="ui-metric__icon" aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                 <path d="M3 7l9-4 9 4v10l-9 4-9-4V7z"/><path d="M3 7l9 4 9-4M12 11v10"/>
               </svg>
             </span>
           </div>
-          <div class="kpi__value"><bdi dir="ltr">{{ overview.total_value|money }}</bdi></div>
-          <div class="kpi__note">{% translate "بالمتوسط المتحرك، من الحركات المرحّلة" %}</div>
+          <div class="ui-metric__value"><bdi dir="ltr">{{ overview.total_value|money }}</bdi></div>
+          <div class="ui-metric__meta">{% translate "بالمتوسط المتحرك، من الحركات المرحّلة" %}</div>
         </div>
       {% endif %}
 
-      <div class="kpi">
-        <div class="kpi__head">
-          <span class="kpi__label">{% translate "أصناف لها رصيد" %}</span>
-          <span class="kpi__mark" aria-hidden="true">
+      <div class="ui-metric">
+        <div class="ui-metric__header">
+          <span class="ui-metric__label">{% translate "أصناف لها رصيد" %}</span>
+          <span class="ui-metric__icon" aria-hidden="true">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
               <path d="M4 6h16M4 12h16M4 18h10"/>
             </svg>
           </span>
         </div>
-        <div class="kpi__value"><bdi dir="ltr">{{ overview.stocked_item_count }}</bdi></div>
-        <div class="kpi__note">
-          <span class="trend trend--flat"><bdi dir="ltr">{{ overview.stocked_share|unlocalize }}%</bdi></span>
+        <div class="ui-metric__value"><bdi dir="ltr">{{ overview.stocked_item_count }}</bdi></div>
+        <div class="ui-metric__meta">
+          <span class="ui-trend ui-trend--flat"><bdi dir="ltr">{{ overview.stocked_share|unlocalize }}%</bdi></span>
           {% blocktranslate with total=overview.active_item_count trimmed %}
             من {{ total }} صنفاً فعّالاً
           {% endblocktranslate %}
         </div>
       </div>
 
-      <div class="kpi">
-        <div class="kpi__head">
-          <span class="kpi__label">{% translate "حركات مرحّلة" %}</span>
-          <span class="kpi__mark" aria-hidden="true">
+      <div class="ui-metric">
+        <div class="ui-metric__header">
+          <span class="ui-metric__label">{% translate "حركات مرحّلة" %}</span>
+          <span class="ui-metric__icon" aria-hidden="true">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
               <path d="M7 7h10l-3-3M17 17H7l3 3"/>
             </svg>
           </span>
         </div>
-        <div class="kpi__value"><bdi dir="ltr">{{ overview.movement_count }}</bdi></div>
-        <div class="kpi__note">{% translate "في المخازن التي تصلها" %}</div>
+        <div class="ui-metric__value"><bdi dir="ltr">{{ overview.movement_count }}</bdi></div>
+        <div class="ui-metric__meta">{% translate "في المخازن التي تصلها" %}</div>
       </div>
 
-      <div class="kpi">
-        <div class="kpi__head">
-          <span class="kpi__label">{% translate "المخازن" %}</span>
-          <span class="kpi__mark" aria-hidden="true">
+      <div class="ui-metric">
+        <div class="ui-metric__header">
+          <span class="ui-metric__label">{% translate "المخازن" %}</span>
+          <span class="ui-metric__icon" aria-hidden="true">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
               <path d="M4 20V7l8-4 8 4v13"/><path d="M9 20v-6h6v6"/>
             </svg>
           </span>
         </div>
-        <div class="kpi__value"><bdi dir="ltr">{{ overview.warehouse_count }}</bdi></div>
-        <div class="kpi__note">{% translate "ضمن نطاقك" %}</div>
+        <div class="ui-metric__value"><bdi dir="ltr">{{ overview.warehouse_count }}</bdi></div>
+        <div class="ui-metric__meta">{% translate "ضمن نطاقك" %}</div>
       </div>
     </div>
 
-    <div class="dashgrid">
+    <div class="ui-dashboard-grid">
       {# Where the stock came from, on Procurement's terms: the frame is filled #}
       {# by Procurement's own fragment, so this module never imports that one. #}
       {# With nothing to show the fragment is empty and the frame goes away.   #}
@@ -125,33 +125,33 @@
            hx-swap="outerHTML"></div>
 
       {% if show_value and overview.type_slices %}
-        <section class="panel">
-          <div class="panel__head">
-            <h2 class="panel__title">{% translate "القيمة حسب نوع الصنف" %}</h2>
-            <p class="pagehead__hint">{% translate "الرصيد الحالي" %}</p>
+        <section class="ui-card">
+          <div class="ui-card__header">
+            <h2 class="ui-card__title">{% translate "القيمة حسب نوع الصنف" %}</h2>
+            <p class="ui-page-header__hint">{% translate "الرصيد الحالي" %}</p>
           </div>
-          <div class="donut" role="img"
+          <div class="ui-donut" role="img"
                aria-label="{% translate 'توزيع قيمة المخزون على أنواع الأصناف' %}"
                style="background: conic-gradient({{ overview.conic_stops }});">
-            <div class="donut__hole">
+            <div class="ui-donut__hole">
               <div>
-                <div class="donut__value"><bdi dir="ltr">{{ overview.total_value|money }}</bdi></div>
-                <div class="donut__label">{% translate "قيمة المخزون" %}</div>
+                <div class="ui-donut__value"><bdi dir="ltr">{{ overview.total_value|money }}</bdi></div>
+                <div class="ui-donut__label">{% translate "قيمة المخزون" %}</div>
               </div>
             </div>
           </div>
-          <div class="legend">
+          <div class="ui-legend">
             {% for slice in overview.type_slices %}
-              <div class="legend__row">
-                <span class="legend__swatch"
-                      style="background: var(--series-{% cycle '1' '2' '3' '4' '5' '6' %});"
+              <div class="ui-legend__row">
+                <span class="ui-legend__swatch"
+                      style="background: var(--ui-chart-{% cycle '1' '2' '3' '4' '5' '6' %});"
                       aria-hidden="true"></span>
                 {{ slice.label }}
-                <span class="legend__value"><bdi dir="ltr">{{ slice.value|money }}</bdi></span>
+                <span class="ui-legend__value"><bdi dir="ltr">{{ slice.value|money }}</bdi></span>
               </div>
             {% endfor %}
           </div>
-          <p class="panel__foot">
+          <p class="ui-card__footer">
             {% blocktranslate with label=overview.type_slices.0.label share=overview.type_slices.0.share|unlocalize trimmed %}
               {{ label }} تمثل {{ share }}% من القيمة.
             {% endblocktranslate %}
@@ -160,15 +160,15 @@
       {% endif %}
     </div>
 
-    <section class="panel">
-        <div class="panel__head">
-          <h2 class="panel__title">
+    <section class="ui-card">
+        <div class="ui-card__header">
+          <h2 class="ui-card__title">
             {% if show_value %}{% translate "أعلى الأرصدة قيمةً" %}{% else %}{% translate "أعلى الأرصدة كميةً" %}{% endif %}
           </h2>
-          <p class="pagehead__hint">{% translate "عيّنة — التقرير الكامل من زر التقييم أعلاه" %}</p>
+          <p class="ui-page-header__hint">{% translate "عيّنة — التقرير الكامل من زر التقييم أعلاه" %}</p>
         </div>
-        <div class="tablewrap">
-          <table class="table">
+        <div class="ui-data-card ui-table-scroll">
+          <table class="ui-table ui-table--responsive">
             <thead>
               <tr>
                 <th scope="col">{% translate "الصنف" %}</th>
@@ -186,19 +186,19 @@
                 <tr>
                   <td>
                     {{ row.name }}
-                    <span class="muted"><bdi dir="ltr">{{ row.code }}</bdi></span>
+                    <span class="ui-text-muted"><bdi dir="ltr">{{ row.code }}</bdi></span>
                   </td>
                   <td><bdi dir="ltr">{{ row.warehouse }}</bdi></td>
-                  <td class="table__num"><bdi dir="ltr">{{ row.quantity|quantity }}</bdi></td>
+                  <td class="ui-table__numeric"><bdi dir="ltr">{{ row.quantity|quantity }}</bdi></td>
                   <td>{{ row.unit }}</td>
                   {% if show_value %}
-                    <td class="table__num"><bdi dir="ltr">{{ row.unit_cost|money_full }}</bdi></td>
-                    <td class="table__num"><bdi dir="ltr">{{ row.value|money }}</bdi></td>
+                    <td class="ui-table__numeric"><bdi dir="ltr">{{ row.unit_cost|money_full }}</bdi></td>
+                    <td class="ui-table__numeric"><bdi dir="ltr">{{ row.value|money }}</bdi></td>
                   {% endif %}
                 </tr>
               {% empty %}
                 <tr>
-                  <td colspan="{% if show_value %}6{% else %}4{% endif %}" class="empty">
+                  <td colspan="{% if show_value %}6{% else %}4{% endif %}" class="ui-empty">
                     {% translate "لا رصيد في أي مخزن ضمن نطاقك بعد." %}
                   </td>
                 </tr>
@@ -207,7 +207,7 @@
           </table>
         </div>
         {% if show_value and overview.rows %}
-          <p class="panel__foot">
+          <p class="ui-card__footer">
             {% blocktranslate with name=overview.rows.0.name trimmed %}
               {{ name }} يتصدّر قيمة المخزون — راقب حدّه الأدنى قبل غيره.
             {% endblocktranslate %}

@@ -204,7 +204,7 @@ def _rows(pairs: list[tuple[Any, Any]]) -> list[dict[str, Any]]:
         {
             "account_id": account.pk,
             "account_code": account.code,
-            "account_name_ar": account.name_ar,
+            "account_name_ar": account.name,
             "amount": money_export(amount),
         }
         for account, amount in pairs
@@ -258,7 +258,7 @@ def trial_balance_endpoint(
             {
                 "account_id": row.account.pk,
                 "account_code": row.account.code,
-                "account_name_ar": row.account.name_ar,
+                "account_name_ar": row.account.name,
                 "opening_debit": money_export(row.opening_debit),
                 "opening_credit": money_export(row.opening_credit),
                 "period_debit": money_export(row.period_debit),

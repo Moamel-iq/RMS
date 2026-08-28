@@ -39,25 +39,21 @@ from apps.accounting.services import (
     open_fiscal_year,
 )
 from apps.inventory.commands import (
-    add_document_line,
     add_transfer_line,
-    create_document,
     create_transfer,
     create_transfer_receipt,
     dispatch_transfer,
-    post_document,
     post_transfer_receipt,
     replace_transfer_receipt_lines,
 )
 from apps.inventory.models import (
-    InventoryDocumentType,
     InventoryItem,
     StockTransfer,
     StockTransferStatus,
     Warehouse,
 )
-from apps.inventory.operations import DocumentLineInput
 from apps.inventory.services import create_warehouse
+from apps.inventory.tests.stock_seed import seed_stock
 from apps.inventory.transfers import ReceiptLineInput, TransferLineInput
 from apps.organizations.models import Branch, Organization, Role
 from apps.organizations.services import grant_branch_access, grant_organization_access
@@ -98,7 +94,7 @@ def mapped(organization: Organization, accounting: None) -> None:
 
 @pytest.fixture
 def far_store(second_branch: Branch) -> Warehouse:
-    return create_warehouse(branch=second_branch, code="MAIN", name_ar="مخزن الكرادة")
+    return create_warehouse(branch=second_branch, code="MAIN", name="مخزن الكرادة")
 
 
 @pytest.fixture
@@ -124,21 +120,16 @@ def stocked(
     rice: InventoryItem,
     mapped: None,
 ) -> None:
-    document = create_document(
+    seed_stock(
         actor=group_manager,
         organization=organization,
-        branch=branch,
         warehouse=main_store,
-        document_type=InventoryDocumentType.RECEIPT,
+        item=rice,
+        quantity="100",
+        unit_cost="1500",
+        control_account=Account.objects.get(organization=organization, code="1-03-01-001"),
         effective_at=WHEN,
-        evidence_reference="DN-1",
     )
-    add_document_line(
-        actor=group_manager,
-        document=document,
-        line=DocumentLineInput(item=rice, base_quantity=Decimal("100"), unit_cost=Decimal("1500")),
-    )
-    post_document(actor=group_manager, document=document)
 
 
 @pytest.fixture
@@ -296,17 +287,6 @@ class TestTransferApi:
             content_type="application/json",
         )
         assert response.status_code == 404, response.content
-
-    def test_the_in_transit_report_lists_what_is_owed(
-        self,
-        client_for: Callable[[User], Client],
-        group_manager: User,
-        dispatched: StockTransfer,
-    ) -> None:
-        rows = _json(client_for(group_manager).get(f"{API}/in-transit/"))
-        assert len(rows) == 1
-        assert rows[0]["remaining_quantity"] == "40.000"
-        assert rows[0]["remaining_value"] == "60000.000"
 
     def test_a_posted_receipt_cannot_be_edited_through_the_api(
         self,
@@ -510,18 +490,6 @@ class TestTransferScreens:
         assert "تأكيد الإرسال" in html
         assert rice.code in html
 
-    def test_the_in_transit_screen_renders(
-        self,
-        client_for: Callable[[User], Client],
-        group_manager: User,
-        dispatched: StockTransfer,
-    ) -> None:
-        response = client_for(group_manager).get(reverse("inventory:in_transit"))
-        assert response.status_code == 200
-        html = response.content.decode("utf-8")
-        assert "بضاعة بالطريق" in html
-        assert dispatched.transfer_number in html
-
     def test_the_transfer_screens_have_distinct_titles(
         self, client_for: Callable[[User], Client], group_manager: User, dispatched: StockTransfer
     ) -> None:
@@ -533,7 +501,6 @@ class TestTransferScreens:
                 ("list", reverse("inventory:transfer_list")),
                 ("detail", reverse("inventory:transfer_detail", args=[dispatched.pk])),
                 ("dispatch", reverse("inventory:transfer_dispatch", args=[dispatched.pk])),
-                ("in_transit", reverse("inventory:in_transit")),
             )
         }
         assert len(set(titles.values())) == len(titles), titles

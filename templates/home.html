@@ -1,89 +1,43 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ active_module.label }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{% translate "نظرة عامة" %} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
   {% if active_module.key == "home" %}
-  <div id="home-dashboard" class="dash">
+    <div id="home-dashboard" class="ui-page ui-dashboard">
+      <header class="ui-page-header">
+        <div class="ui-page-header__copy">
+          <p class="ui-page-header__eyebrow">{% translate "نظرة عامة" %}</p>
+          <h1 class="ui-page-header__title">{% translate "نظرة عامة على المطعم" %}</h1>
+          <p class="ui-page-header__subtitle">
+            {% blocktranslate with name=user.get_username trimmed %}
+              أهلاً {{ name }}، هذه مؤشرات الأقسام التي تملك صلاحية الاطلاع عليها.
+            {% endblocktranslate %}
+          </p>
+        </div>
+      </header>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
-          {% blocktranslate with name=user.get_username %}أهلاً {{ name }}{% endblocktranslate %}
-        </h1>
-        <p class="pagehead__hint">
-          {% translate "نظرة موحّدة على الأقسام التي تملك صلاحية عليها — كل رقم من صفحة قسمه." %}
-        </p>
-      </div>
-    </div>
-
-    {% if home %}{% include "home/_dashboard.html" %}{% endif %}
-
-    {# Development visibility only. Remove with Phase 0 exit. #}
-    <div class="panel">
-      <div class="panel__head">
-        <h2 class="panel__title">{% translate "حالة البناء" %}</h2>
-        <span class="pill">{{ build_phase_label }}</span>
-      </div>
-      <div class="status">
-        {% for item in build_items %}
-          <div class="status__row{% if item.is_current %} status__row--current{% endif %}">
-            <span class="status__label">
-              <span class="status__key">{{ item.key }}</span>
-              <span>{{ item.label }}</span>
-            </span>
-            <span class="chip {{ item.chip_class }}">{{ item.state_label }}</span>
-          </div>
-        {% endfor %}
-      </div>
-    </div>
-
-    <div class="panel">
-      <h2 class="panel__title">{% translate "الفروع المتاحة لك" %}</h2>
-      {% if user_branches %}
-        <ul>
-          {% for branch in user_branches %}
-            <li>{{ branch.name_ar }} — {{ branch.code }} ({{ branch.organization.name_ar }})</li>
-          {% endfor %}
-        </ul>
+      {% if home %}
+        {% include "home/_dashboard.html" %}
       {% else %}
-        <p class="muted">
-          {% translate "لا توجد فروع مسندة إليك. يمنح المسؤول الصلاحية من الإعدادات." %}
-        </p>
+        {% translate "لا توجد وحدات متاحة لهذا الحساب" as empty_title %}
+        {% translate "يستطيع مسؤول النظام إسناد مؤسسة أو فرع وصلاحيات مناسبة لهذا المستخدم." as empty_description %}
+        {% include "components/empty_state.html" with title=empty_title description=empty_description %}
       {% endif %}
     </div>
-
-  </div>
   {% else %}
-
-    {# A previewed module. The content area must say what the sidebar says, #}
-    {# or selecting a module looks like it did nothing at all.              #}
-    <div class="panel">
-      <div class="panel__head">
-        <h1 class="panel__title">{{ active_module.label }}</h1>
-        <span class="pill">{{ active_module.phase }}</span>
-      </div>
-      <p class="muted">
-        {% translate "هذه الوحدة لم تُبنَ بعد. القائمة الجانبية تعرض الشاشات التي ستحتويها عند تنفيذ مرحلتها." %}
-      </p>
+    <div class="ui-page">
+      <header class="ui-page-header">
+        <div class="ui-page-header__copy">
+          <p class="ui-page-header__eyebrow">{{ active_module.phase }}</p>
+          <h1 class="ui-page-header__title">{{ active_module.label }}</h1>
+          <p class="ui-page-header__subtitle">{% translate "اختر شاشة من قائمة القسم للبدء." %}</p>
+        </div>
+      </header>
+      {% translate "لا توجد شاشة محددة" as empty_title %}
+      {% translate "اختر إحدى الشاشات المتاحة في قائمة القسم الثانوية." as empty_description %}
+      {% include "components/empty_state.html" with title=empty_title description=empty_description %}
     </div>
-
-    <div class="panel">
-      <h2 class="panel__title">{% translate "ما ستحتويه هذه الوحدة" %}</h2>
-      <ul class="planned">
-        {% for section in active_module.sections %}
-          <li class="planned__item">
-            <span>{{ section.label }}</span>
-            {% if section.available %}
-              <a class="linkish" href="{% url section.url_name %}">{% translate "متاح" %}</a>
-            {% else %}
-              <span class="subnav__badge">{% translate "قريباً" %}</span>
-            {% endif %}
-          </li>
-        {% endfor %}
-      </ul>
-    </div>
-
   {% endif %}
 {% endblock %}

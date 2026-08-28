@@ -83,7 +83,7 @@ class Command(SeedCommand):
             total_advisories += len(advisories)
 
             self.write("")
-            self.write(f"{organization.code} - {organization.name_ar}")
+            self.write(f"{organization.code} - {organization.name}")
             self.write(f"  recipes checked: {checked}")
             if findings:
                 for finding in findings:

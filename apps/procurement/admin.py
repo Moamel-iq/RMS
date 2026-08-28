@@ -58,9 +58,9 @@ class ReadOnlyAdmin(_ModelAdmin):
 
 @admin.register(Supplier)
 class SupplierAdmin(ReadOnlyAdmin):
-    list_display = ("code", "name_ar", "organization", "payment_terms_days", "is_active")
+    list_display = ("code", "name", "organization", "payment_terms_days", "is_active")
     list_filter = ("organization", "is_active")
-    search_fields = ("code", "name_ar", "name_en", "contact_name", "phone")
+    search_fields = ("code", "name", "contact_name", "phone")
     ordering = ("organization__code", "code")
 
 
@@ -69,14 +69,14 @@ class SupplierCreditTermAdmin(ReadOnlyAdmin):
     list_display = (
         "supplier",
         "version",
-        "name_ar",
+        "name",
         "net_days",
         "effective_from",
         "effective_to",
         "status",
     )
     list_filter = ("organization", "status")
-    search_fields = ("supplier__code", "supplier__name_ar", "name_ar", "name_en")
+    search_fields = ("supplier__code", "supplier__name", "name")
     ordering = ("supplier__code", "-version")
 
 
@@ -116,7 +116,7 @@ class SupplierInvoiceAdmin(ReadOnlyAdmin):
         "status",
     )
     list_filter = ("organization", "status")
-    search_fields = ("number", "supplier_invoice_number", "supplier__code", "supplier__name_ar")
+    search_fields = ("number", "supplier_invoice_number", "supplier__code", "supplier__name")
     ordering = ("-invoice_date", "-id")
 
 
@@ -165,14 +165,13 @@ class SupplierReturnAdmin(ReadOnlyAdmin):
     list_display = (
         "number",
         "supplier",
-        "receipt",
         "warehouse",
         "returned_at",
         "posted_value",
         "status",
     )
     list_filter = ("organization", "status")
-    search_fields = ("number", "evidence_reference", "supplier__code", "supplier__name_ar")
+    search_fields = ("number", "evidence_reference", "supplier__code", "supplier__name")
     ordering = ("-id",)
 
 
@@ -204,7 +203,7 @@ class SupplierCreditNoteAdmin(ReadOnlyAdmin):
         "status",
     )
     list_filter = ("organization", "status")
-    search_fields = ("number", "supplier_document_number", "supplier__code", "supplier__name_ar")
+    search_fields = ("number", "supplier_document_number", "supplier__code", "supplier__name")
     ordering = ("-id",)
 
 
@@ -221,7 +220,7 @@ class SupplierPaymentAdmin(ReadOnlyAdmin):
 
     list_display = ("number", "supplier", "method", "paid_at", "amount", "status")
     list_filter = ("organization", "status", "method")
-    search_fields = ("number", "reference", "supplier__code", "supplier__name_ar")
+    search_fields = ("number", "reference", "supplier__code", "supplier__name")
     ordering = ("-id",)
 
 

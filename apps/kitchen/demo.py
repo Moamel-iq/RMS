@@ -130,7 +130,7 @@ def ensure_cooked_rice_item(*, organization: Organization) -> InventoryItem:
     item = InventoryItem(
         organization=organization,
         code=COOKED_RICE_CODE,
-        name_ar="رز مطبوخ تجريبي",
+        name="رز مطبوخ تجريبي",
         category=category,
         item_type=ItemType.SEMI_FINISHED,
         base_unit=unit_by_code("KG"),
@@ -152,7 +152,7 @@ def seed_demo_categories(*, organization: Organization) -> list[RecipeCategory]:
             continue
         rows.append(
             create_recipe_category(
-                organization=organization, code=code, name_ar=name, notes=DEMO_BANNER
+                organization=organization, code=code, name=name, notes=DEMO_BANNER
             )
         )
     return rows
@@ -162,7 +162,7 @@ def _recipe(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
+    name: str,
     recipe_type: str,
     category: RecipeCategory | None,
     output_item: InventoryItem | None,
@@ -176,7 +176,7 @@ def _recipe(
         create_recipe(
             organization=organization,
             code=code,
-            name_ar=name_ar,
+            name=name,
             recipe_type=recipe_type,
             category=category,
             output_item=output_item,
@@ -227,7 +227,7 @@ def seed_demo_recipes(
     batch, created = _recipe(
         organization=organization,
         code="DEMO-RCP-RICE",
-        name_ar="طبخة رز تجريبية",
+        name="طبخة رز تجريبية",
         recipe_type=RecipeType.BATCH,
         category=categories.get("DEMO-RCP-PREP"),
         output_item=cooked_rice,
@@ -335,7 +335,7 @@ def seed_demo_recipes(
         add_recipe_serving(
             version=draft,
             code="FULL",
-            name_ar="حصة كاملة تجريبية",
+            name="حصة كاملة تجريبية",
             serving_quantity=Decimal("0.4"),
             serving_unit=kg,
             is_primary=True,
@@ -345,7 +345,7 @@ def seed_demo_recipes(
         add_recipe_serving(
             version=draft,
             code="HALF",
-            name_ar="نصف حصة تجريبية",
+            name="نصف حصة تجريبية",
             serving_quantity=Decimal("0.2"),
             serving_unit=kg,
             rounding_policy=ServingRoundingPolicy.DOWN,
@@ -356,7 +356,7 @@ def seed_demo_recipes(
         add_recipe_serving(
             version=draft,
             code="G350",
-            name_ar="حصة وزنية تجريبية",
+            name="حصة وزنية تجريبية",
             serving_quantity=Decimal("350"),
             serving_unit=unit_by_code("G"),
             measurement_basis=MeasurementBasis.COOKED,
@@ -366,7 +366,7 @@ def seed_demo_recipes(
     plate, created = _recipe(
         organization=organization,
         code="DEMO-RCP-PLATE",
-        name_ar="طبق تجريبي مركّب",
+        name="طبق تجريبي مركّب",
         recipe_type=RecipeType.PORTION,
         category=categories.get("DEMO-RCP-MAIN"),
         output_item=None,
@@ -409,7 +409,7 @@ def seed_demo_recipes(
         add_recipe_serving(
             version=plate_draft,
             code="PLATE",
-            name_ar="طبق واحد تجريبي",
+            name="طبق واحد تجريبي",
             serving_quantity=Decimal("1"),
             serving_unit=piece,
             is_primary=True,
@@ -421,7 +421,7 @@ def seed_demo_recipes(
     bare, created = _recipe(
         organization=organization,
         code="DEMO-RCP-EMPTY",
-        name_ar="وصفة تجريبية قيد التحضير",
+        name="وصفة تجريبية قيد التحضير",
         recipe_type=RecipeType.PORTION,
         category=categories.get("DEMO-RCP-MAIN"),
         output_item=None,
@@ -441,7 +441,7 @@ def seed_demo_recipes(
     named, _created = _recipe(
         organization=organization,
         code="DEMO-RCP-NAMED",
-        name_ar="وصفة تجريبية مسجّلة بلا مسودة",
+        name="وصفة تجريبية مسجّلة بلا مسودة",
         recipe_type=RecipeType.PORTION,
         category=None,
         output_item=None,
@@ -454,7 +454,7 @@ def seed_demo_recipes(
     retired, created = _recipe(
         organization=organization,
         code="DEMO-RCP-RETIRED",
-        name_ar="وصفة تجريبية مؤرشفة",
+        name="وصفة تجريبية مؤرشفة",
         recipe_type=RecipeType.PORTION,
         category=None,
         output_item=None,
@@ -553,7 +553,7 @@ def _lifecycle_recipe(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
+    name: str,
     created_by: User | None,
     branches: list[Branch],
 ) -> tuple[Recipe, RecipeVersion | None]:
@@ -561,7 +561,7 @@ def _lifecycle_recipe(
     recipe, created = _recipe(
         organization=organization,
         code=code,
-        name_ar=name_ar,
+        name=name,
         recipe_type=RecipeType.PORTION,
         category=None,
         output_item=None,
@@ -602,7 +602,7 @@ def _complete_draft(*, recipe: Recipe, created_by: User | None) -> RecipeVersion
     add_recipe_serving(
         version=version,
         code="ONE",
-        name_ar="حصة تجريبية",
+        name="حصة تجريبية",
         serving_quantity=Decimal("1"),
         serving_unit=kg,
         is_primary=True,
@@ -681,7 +681,7 @@ def seed_demo_lifecycle(
     submitted, draft = _lifecycle_recipe(
         organization=organization,
         code="DEMO-RCP-REVIEW",
-        name_ar="وصفة تجريبية قيد المراجعة",
+        name="وصفة تجريبية قيد المراجعة",
         created_by=created_by,
         branches=branches,
     )
@@ -701,7 +701,7 @@ def seed_demo_lifecycle(
     approved, draft = _lifecycle_recipe(
         organization=organization,
         code="DEMO-RCP-APPROVED",
-        name_ar="وصفة تجريبية معتمدة غير مفعّلة",
+        name="وصفة تجريبية معتمدة غير مفعّلة",
         created_by=created_by,
         branches=branches,
     )
@@ -713,7 +713,7 @@ def seed_demo_lifecycle(
     rejected, draft = _lifecycle_recipe(
         organization=organization,
         code="DEMO-RCP-REJECTED",
-        name_ar="وصفة تجريبية مرفوضة",
+        name="وصفة تجريبية مرفوضة",
         created_by=created_by,
         branches=branches,
     )
@@ -732,7 +732,7 @@ def seed_demo_lifecycle(
     dated, draft = _lifecycle_recipe(
         organization=organization,
         code="DEMO-RCP-DATED",
-        name_ar="وصفة تجريبية مؤرّخة",
+        name="وصفة تجريبية مؤرّخة",
         created_by=created_by,
         branches=branches,
     )
@@ -795,7 +795,7 @@ def _blend_recipe(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
+    name: str,
     created_by: User | None,
     branches: list[Branch],
 ) -> tuple[Recipe, RecipeVersion | None]:
@@ -803,7 +803,7 @@ def _blend_recipe(
     return _lifecycle_recipe(
         organization=organization,
         code=code,
-        name_ar=name_ar,
+        name=name,
         created_by=created_by,
         branches=branches,
     )
@@ -830,7 +830,7 @@ def seed_demo_components(
     spice, spice_draft = _blend_recipe(
         organization=organization,
         code=DEMO_SPICE_CODE,
-        name_ar="خلطة بهارات تجريبية",
+        name="خلطة بهارات تجريبية",
         created_by=created_by,
         branches=branches,
     )
@@ -849,7 +849,7 @@ def seed_demo_components(
     marinade, marinade_draft = _blend_recipe(
         organization=organization,
         code=DEMO_MARINADE_CODE,
-        name_ar="تتبيلة تجريبية",
+        name="تتبيلة تجريبية",
         created_by=created_by,
         branches=branches,
     )
@@ -877,7 +877,7 @@ def seed_demo_components(
     dish, dish_draft = _lifecycle_recipe(
         organization=organization,
         code=DEMO_DISH_CODE,
-        name_ar="طبق تجريبي بوصفات فرعية",
+        name="طبق تجريبي بوصفات فرعية",
         created_by=created_by,
         branches=branches,
     )
@@ -1084,7 +1084,7 @@ def _cost_draft(
         add_recipe_serving(
             version=version,
             code=code,
-            name_ar=name,
+            name=name,
             serving_quantity=Decimal(quantity),
             serving_unit=kg,
             is_primary=primary,
@@ -1115,7 +1115,7 @@ def seed_demo_cost(
     recipe, created = _recipe(
         organization=organization,
         code=DEMO_COST_CODE,
-        name_ar="طبق تجريبي لبطاقة الكلفة",
+        name="طبق تجريبي لبطاقة الكلفة",
         recipe_type=RecipeType.PORTION,
         category=None,
         output_item=None,
@@ -1279,7 +1279,7 @@ def ensure_meal_item(*, organization: Organization) -> InventoryItem:
     item = InventoryItem(
         organization=organization,
         code=DEMO_MEAL_CODE,
-        name_ar="وجبة جاهزة تجريبية",
+        name="وجبة جاهزة تجريبية",
         category=category,
         item_type=ItemType.SEMI_FINISHED,
         base_unit=unit_by_code("KG"),
@@ -1385,7 +1385,7 @@ def _production_draft_version(
     add_recipe_serving(
         version=version,
         code="PORTION",
-        name_ar="حصة إنتاج تجريبية",
+        name="حصة إنتاج تجريبية",
         serving_quantity=Decimal("1"),
         serving_unit=kg,
         is_primary=True,
@@ -1419,7 +1419,7 @@ def seed_demo_production(
     recipe, created = _recipe(
         organization=organization,
         code=DEMO_PRODUCTION_RECIPE_CODE,
-        name_ar="وجبة تجريبية للإنتاج",
+        name="وجبة تجريبية للإنتاج",
         recipe_type=RecipeType.BATCH,
         category=None,
         output_item=meal,
@@ -1620,7 +1620,7 @@ def ensure_plated_item(*, organization: Organization) -> InventoryItem:
     item = InventoryItem(
         organization=organization,
         code=DEMO_PLATED_CODE,
-        name_ar="طبق جاهز تجريبي",
+        name="طبق جاهز تجريبي",
         category=category,
         item_type=ItemType.SEMI_FINISHED,
         base_unit=unit_by_code("KG"),
@@ -1670,8 +1670,7 @@ def _ensure_plated_account_override(*, organization: Organization, item: Invento
         account = create_account(
             organization=organization,
             code=DEMO_PLATED_ACCOUNT_CODE,
-            name_ar=f"مخزون الأطباق الجاهزة — {DEMO_BANNER}",
-            name_en="Demo plated inventory",
+            name=f"مخزون الأطباق الجاهزة — {DEMO_BANNER}",
         )
     create_inventory_mapping(
         organization=organization,
@@ -1904,7 +1903,7 @@ def seed_demo_plated_recipe(
     recipe, created = _recipe(
         organization=organization,
         code=DEMO_PLATED_RECIPE_CODE,
-        name_ar="طبق تجريبي للإنتاج",
+        name="طبق تجريبي للإنتاج",
         recipe_type=RecipeType.BATCH,
         category=None,
         output_item=item,
@@ -2140,57 +2139,62 @@ def seed_demo_semi_finished_stock(
     read had **no posted production to read**. The screens rendered, and they
     rendered empty, which is the failure mode a demo exists to prevent.
 
-    A receipt rather than a sub-batch, and the choice is worth defending: a
-    kitchen legitimately receives a prepared blend from a central kitchen, the
-    Inventory receipt service is the approved path for that, and producing the
-    component here instead would need its own recipe version, its own actuals
-    and its own posting — a second demo scenario inside the setup for the first.
+    A blend received from a central kitchen rather than a sub-batch, and the
+    choice is worth defending: producing the component here instead would need
+    its own recipe version, its own actuals and its own posting — a second demo
+    scenario inside the setup for the first.
 
-    Posted through `create_document` / `add_line` / `post_document`. Nothing
-    here writes a movement, a balance or a journal directly.
+    It used to go in through Inventory's un-invoiced receipt document. That
+    document was withdrawn from the product, so this posts through the stock
+    kernel — the same call `apps.procurement.posting` makes for a goods
+    receipt. The control account is resolved the way every inbound posting
+    resolves it, so the balance carries the identity a later issue credits.
     """
-    from apps.inventory.models import InventoryDocumentType
-    from apps.inventory.operations import (
-        DocumentLineInput,
-        add_line,
-        create_document,
-        post_document,
-    )
+    from apps.accounting.models import INVENTORY_CONTROL
+    from apps.inventory.accounts import resolve_inventory_account
+    from apps.inventory.commands import post_stock_movements
+    from apps.inventory.ledger import MovementInput
+    from apps.inventory.models import MovementType, StockLedgerEntry
 
     warehouse = _production_warehouse(organization=organization)
     branch = branches[0] if branches else None
-    if warehouse is None or branch is None:
+    if warehouse is None or branch is None or created_by is None:
         return
     cooked = InventoryItem.objects.filter(organization=organization, code=COOKED_RICE_CODE).first()
     if cooked is None:
         return
 
-    if InventoryMovementDocument.objects.filter(
-        organization=organization, evidence_reference=DEMO_SEMI_FINISHED_REFERENCE
+    if StockLedgerEntry.objects.filter(
+        organization=organization, reference=DEMO_SEMI_FINISHED_REFERENCE
     ).exists():
         return
 
-    document = create_document(
+    moment = _demo_moment(DEMO_PRODUCTION_DATE)
+    control = resolve_inventory_account(
         organization=organization,
-        branch=branch,
-        warehouse=warehouse,
-        document_type=InventoryDocumentType.RECEIPT,
-        effective_at=_demo_moment(DEMO_PRODUCTION_DATE),
-        evidence_reference=DEMO_SEMI_FINISHED_REFERENCE,
-        narration=f"{DEMO_BANNER} — استلام نصف مصنّع ليتوفر للإنتاج.",
+        role=INVENTORY_CONTROL,
+        item=cooked,
+        on_date=moment.date(),
     )
-    add_line(
-        document=document,
-        # No `line_comment`: the Inventory service accepts one only on a waste
-        # line, where it explains the reason code. The banner lives on the
-        # document's narration instead.
-        line=DocumentLineInput(
-            item=cooked,
-            base_quantity=Decimal("120"),
-            unit_cost=Decimal("2500"),
-        ),
+    post_stock_movements(
+        actor=created_by,
+        organization=organization,
+        effects=[
+            MovementInput(
+                warehouse=warehouse,
+                item=cooked,
+                movement_type=MovementType.RECEIPT,
+                quantity=Decimal("120"),
+                effect_key="demo-semi-finished",
+                unit_cost=Decimal("2500"),
+                control_account=control.account,
+            )
+        ],
+        idempotency_key=DEMO_SEMI_FINISHED_REFERENCE,
+        effective_at=moment,
+        reference=DEMO_SEMI_FINISHED_REFERENCE,
+        reason=f"{DEMO_BANNER} — استلام نصف مصنّع ليتوفر للإنتاج.",
     )
-    post_document(document=document)
 
 
 def seed_demo_output_waste(
@@ -2278,7 +2282,6 @@ def seed_demo_output_waste(
         line=DocumentLineInput(
             item=cooked,
             base_quantity=Decimal("3"),
-            reason_code=reason,
             line_comment=DEMO_BANNER,
         ),
     )

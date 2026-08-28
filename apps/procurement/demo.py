@@ -127,7 +127,7 @@ from apps.procurement.services import (
 )
 from apps.users.models import User
 
-#: code, Arabic name, English name, contact, phone, payment terms in days.
+#: code, name, legacy display name, contact, phone, payment terms in days.
 #:
 #: The terms differ on purpose. Meat is bought on thirty days, chicken on
 #: fourteen, and groceries cash on delivery — so the aging report has three
@@ -170,7 +170,7 @@ def seed_demo_suppliers(*, organization: Organization) -> list[Supplier]:
     check were removed.
     """
     suppliers: list[Supplier] = []
-    for code, name_ar, name_en, contact, phone, terms in DEMO_SUPPLIERS:
+    for code, name, _legacy_display_name, contact, phone, terms in DEMO_SUPPLIERS:
         existing = Supplier.objects.filter(organization=organization, code=code).first()
         if existing is not None:
             suppliers.append(existing)
@@ -179,8 +179,7 @@ def seed_demo_suppliers(*, organization: Organization) -> list[Supplier]:
             create_supplier(
                 organization=organization,
                 code=code,
-                name_ar=name_ar,
-                name_en=name_en,
+                name=name,
                 contact_name=contact,
                 phone=phone,
                 payment_terms_days=terms,
@@ -335,7 +334,7 @@ def seed_demo_catalogue(*, organization: Organization) -> list[SupplierItem]:
                 package_unit=package,
                 effective_from=CATALOGUE_EFFECTIVE_FROM,
                 supplier_sku=sku,
-                supplier_description=item.name_ar,
+                supplier_description=item.name,
                 last_quoted_price=Decimal(price) if price else None,
                 lead_time_days=lead,
                 minimum_order_quantity=Decimal(minimum) if minimum else None,
@@ -1533,7 +1532,11 @@ def seed_demo_returns(
         line = _line(receipt) if receipt is not None else None
         if receipt is not None and line is not None:
             posted = create_supplier_return(
-                receipt=receipt,
+                organization=receipt.organization,
+                branch=receipt.branch,
+                supplier=receipt.supplier,
+                warehouse=receipt.warehouse,
+                location=receipt.location,
                 created_by=storekeeper,
                 returned_at=receipt.received_at + datetime.timedelta(days=3),
                 reason_code=reason,
@@ -1542,7 +1545,8 @@ def seed_demo_returns(
             )
             add_return_line(
                 supplier_return=posted,
-                receipt_line=line,
+                item=line.item,
+                lot=line.lot,
                 returned_base_quantity=Decimal("20.000"),
                 # 20 kg at the receipt's 1,400/kg (the 14,000 was per ten-kilo
                 # carton). Metadata for the claim; it posts nothing.
@@ -1562,7 +1566,11 @@ def seed_demo_returns(
         line = _line(receipt) if receipt is not None else None
         if receipt is not None and line is not None:
             draft = create_supplier_return(
-                receipt=receipt,
+                organization=receipt.organization,
+                branch=receipt.branch,
+                supplier=receipt.supplier,
+                warehouse=receipt.warehouse,
+                location=receipt.location,
                 created_by=storekeeper,
                 returned_at=receipt.received_at + datetime.timedelta(days=5),
                 reason_code=reason,
@@ -1571,7 +1579,8 @@ def seed_demo_returns(
             )
             add_return_line(
                 supplier_return=draft,
-                receipt_line=line,
+                item=line.item,
+                lot=line.lot,
                 returned_base_quantity=Decimal("5.000"),
                 expected_credit_value=Decimal("7000.000"),
             )
@@ -1585,7 +1594,11 @@ def seed_demo_returns(
         line = _line(receipt) if receipt is not None else None
         if receipt is not None and line is not None:
             undone = create_supplier_return(
-                receipt=receipt,
+                organization=receipt.organization,
+                branch=receipt.branch,
+                supplier=receipt.supplier,
+                warehouse=receipt.warehouse,
+                location=receipt.location,
                 created_by=storekeeper,
                 returned_at=receipt.received_at + datetime.timedelta(days=2),
                 reason_code=reason,
@@ -1594,7 +1607,8 @@ def seed_demo_returns(
             )
             add_return_line(
                 supplier_return=undone,
-                receipt_line=line,
+                item=line.item,
+                lot=line.lot,
                 returned_base_quantity=Decimal("2.000"),
                 expected_credit_value=Decimal("19000.000"),
             )
@@ -1756,9 +1770,9 @@ DEMO_IMPORT_TARGET = "DEMO-GROCERY-SUPPLIER"
 
 
 def _supplier_import_row(
-    code: str, name_ar: str, name_en: str, contact: str, phone: str, terms: int, note: str
+    code: str, name: str, _legacy_display_name: str, contact: str, phone: str, terms: int, note: str
 ) -> str:
-    return f"{code},{name_ar},{name_en},{contact},{phone},{terms},{note}"
+    return f"{code},{name},{contact},{phone},{terms},{note}"
 
 
 def _find_demo_batch(*, organization: Organization, filename: str) -> ImportBatchRecord | None:
@@ -1793,18 +1807,18 @@ def seed_demo_import_batch(*, organization: Organization) -> ImportBatchRecord |
     if existing is not None:
         return existing
 
-    header = "code,name_ar,name_en,contact_name,phone,payment_terms_days,notes"
+    header = "code,name,contact_name,phone,payment_terms_days,notes"
     lines = [header] + [
         _supplier_import_row(
             code,
-            name_ar,
-            name_en,
+            name,
+            name,
             contact,
             phone,
             terms,
             DEMO_IMPORT_NOTE if code == DEMO_IMPORT_TARGET else "",
         )
-        for code, name_ar, name_en, contact, phone, terms in DEMO_SUPPLIERS
+        for code, name, _legacy_display_name, contact, phone, terms in DEMO_SUPPLIERS
     ]
     raw = ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -1842,9 +1856,9 @@ def seed_demo_rejected_import_batch(*, organization: Organization) -> ImportBatc
         return existing
 
     raw = (
-        "code,name_ar,name_en,contact_name,phone,payment_terms_days\n"
+        "code,name,contact_name,phone,payment_terms_days\n"
         # Valid, and deliberately never applied.
-        "DEMO-MEAT-SUPPLIER,مورد اللحوم — تجريبي,Meat Supplier (demo),أبو علي,07701111111,30\n"
+        "DEMO-MEAT-SUPPLIER,مورد اللحوم — تجريبي,أبو علي,07701111111,30\n"
         # No Arabic name: the one field a supplier cannot be without.
         "DEMO-BROKEN-SUPPLIER,,Broken Supplier,أبو نور,07704444444,30\n"
         # Terms that are not a number of days.

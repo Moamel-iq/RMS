@@ -123,14 +123,16 @@ class TestRendering:
         ("raw", "expected"),
         [
             ("1250.000", "1,250"),
-            ("1250.001", "1,250"),
-            ("1250.400", "1,250"),
-            ("1250.500", "1,251"),
-            ("-1250.500", "-1,251"),
-            ("1234567.890", "1,234,568"),
+            ("1250.001", "1,250.001"),
+            ("1250.400", "1,250.400"),
+            ("1250.500", "1,250.500"),
+            ("-1250.500", "-1,250.500"),
+            ("1234567.890", "1,234,567.890"),
         ],
     )
-    def test_normal_ui_shows_whole_dinars(self, raw: str, expected: str) -> None:
+    def test_normal_ui_shows_whole_dinars_or_three_places_for_a_fraction(
+        self, raw: str, expected: str
+    ) -> None:
         assert money_display(raw) == expected
 
     @pytest.mark.parametrize(
@@ -139,8 +141,7 @@ class TestRendering:
     )
     def test_audit_views_expose_the_stored_third_decimal(self, raw: str, expected: str) -> None:
         """
-        The worked example from the decision: stored 1250.001 shows as 1,250
-        on a normal screen and 1,250.001 on a reconciliation screen.
+        Reconciliation views always expose the stored third decimal.
         """
         assert money_audit(raw) == expected
 
@@ -173,7 +174,7 @@ class TestRendering:
 
     def test_standard_money_filters_also_name_the_currency(self) -> None:
         assert money_filter(Decimal("1250.001")) == (
-            f"{_RTL_ISOLATE_START}1,250 دينار{_NO_BREAK_SPACE}عراقي{_ISOLATE_END}"
+            f"{_RTL_ISOLATE_START}1,250.001 دينار{_NO_BREAK_SPACE}عراقي{_ISOLATE_END}"
         )
         assert money_full_filter(Decimal("1250.001")) == (
             f"{_RTL_ISOLATE_START}1,250.001 دينار{_NO_BREAK_SPACE}عراقي{_ISOLATE_END}"
@@ -189,17 +190,17 @@ class TestRendering:
         with pytest.raises(TypeError):
             sum(money_display(line) for line in lines)  # type: ignore[misc]
 
-    def test_reconciliation_must_compare_stored_values(self) -> None:
+    def test_visible_fractional_values_preserve_the_stored_total(self) -> None:
         """
-        Three lines that reconcile exactly on stored values would appear to be
-        1 IQD short if compared after display rounding.
+        Visible fractions stay at the stored precision, so an operator can
+        reconcile a set of displayed line values without a hidden rounding
+        difference.
         """
         lines = [Decimal("333.333"), Decimal("333.333"), Decimal("333.334")]
         total = Decimal("1000.000")
         assert sum(lines) == total  # correct: stored Decimals
         displayed_sum = sum(Decimal(money_display(line).replace(",", "")) for line in lines)
-        assert displayed_sum != total  # what a display-based check would claim
-        assert displayed_sum == Decimal("999")
+        assert displayed_sum == total
 
 
 class TestCashRoundingIsOff:

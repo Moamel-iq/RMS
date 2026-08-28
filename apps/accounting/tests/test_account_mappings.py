@@ -72,9 +72,9 @@ class TestTheRoleVocabulary:
 
     def test_the_seed_agrees_with_the_model_constants(self) -> None:
         """The migration duplicates the literals; this is the pact that they match."""
-        for code, name_ar, _name_en, mapping_scope in SYSTEM_INVENTORY_ROLES:
+        for code, name, _name_en, mapping_scope in SYSTEM_INVENTORY_ROLES:
             role = AccountRole.objects.get(code=code)
-            assert role.name_ar == name_ar
+            assert role.name == name
             assert role.mapping_scope == mapping_scope
             assert role.is_system
 

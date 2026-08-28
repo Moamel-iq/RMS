@@ -1,7 +1,7 @@
 """
 Application shell.
 
-The rail shows every module in the approved build order, including the ones
+The primary navigation shows every module in the approved build order, including the ones
 that do not exist yet. Those must be visibly inert rather than links to
 nowhere, and the navigation must not reshape itself as phases land.
 """
@@ -32,12 +32,11 @@ def user() -> User:
 
 @pytest.fixture
 def member(user: User) -> User:
-    organization = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM", name="خان مندي")
     branch = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
     grant_branch_access(user=user, branch=branch, role=Role.MANAGER)
@@ -94,18 +93,26 @@ class TestShellRendering:
     def test_home_renders_the_shell(self, client: Client, user: User) -> None:
         client.force_login(user)
         body = client.get(reverse("users:home")).content.decode()
-        assert 'class="shell"' in body
-        assert 'class="rail"' in body
-        assert 'class="subnav"' in body
-        assert 'class="topbar"' in body
+        assert 'class="ui-app-shell"' in body
+        assert 'class="ui-primary-nav"' in body
+        assert 'class="ui-secondary-nav"' in body
+        assert 'class="ui-app-header"' in body
 
-    def test_every_module_appears_in_the_rail_for_someone_who_may_open_them(
+    def test_html_responses_vary_on_htmx_shape(self, client: Client, user: User) -> None:
+        """A shared URL can never cache a fragment as a complete document."""
+        client.force_login(user)
+        response = client.get(reverse("users:home"))
+        vary = {value.strip().lower() for value in response.headers["Vary"].split(",")}
+        assert "hx-request" in vary
+        assert "hx-target" in vary
+
+    def test_every_module_appears_in_primary_navigation_for_someone_who_may_open_them(
         self, client: Client
     ) -> None:
         """
-        The rail shows the whole system to a reader who may open all of it.
+        The primary navigation shows the whole system to a reader who may open all of it.
 
-        Since ADR-034 the rail is cut down to what the reader may do, so the
+        Since ADR-034 navigation is cut down to what the reader may do, so the
         "every module" claim is made about a superuser; the cut itself is
         pinned by `test_navigation_visibility`.
         """
@@ -121,19 +128,19 @@ class TestShellRendering:
         """
         No membership, no permission — and therefore no module to open.
 
-        Asserted on the rail itself: the home page's build-status panel names
+        Asserted on primary navigation itself: the home page's build-status panel names
         every module as a statement about the system, and is meant to.
         """
         client.force_login(user)
         body = client.get(reverse("users:home")).content.decode()
-        rail = body.split('class="rail__list"', 1)[1].split("</ul>", 1)[0]
+        primary = body.split('class="ui-primary-nav__list"', 1)[1].split("</ul>", 1)[0]
         for module in MODULES:
             expected = module.key == "home" or not module.available
-            assert (str(module.label) in rail) == expected, module.key
+            assert (str(module.label) in primary) == expected, module.key
 
     def test_unbuilt_modules_are_marked_as_such(self, client: Client, user: User) -> None:
         """
-        Exactly the modules the registry marks unavailable are muted in the rail.
+        Exactly the modules the registry marks unavailable are muted in primary navigation.
 
         Read out of the navigation data rather than asserted as "at least one",
         because the day the last module lands the old assertion turns into a
@@ -143,7 +150,7 @@ class TestShellRendering:
         client.force_login(user)
         body = client.get(reverse("users:home")).content.decode()
         unbuilt = [module for module in MODULES if not module.available]
-        assert len(re.findall(r'rail__item[^"]*\bis-unavailable\b', body)) == len(unbuilt)
+        assert len(re.findall(r'ui-primary-nav__item[^"]*\bis-unavailable\b', body)) == len(unbuilt)
 
     def test_unbuilt_sections_are_inert(self, client: Client, user: User) -> None:
         """

@@ -25,12 +25,12 @@ pytestmark = pytest.mark.django_db
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "static" / "js" / "searchable-select.js"
-STYLES = ROOT / "static" / "css" / "app.css"
+STYLES = ROOT / "static" / "css" / "erp-design-system.css"
 
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
@@ -40,8 +40,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="011",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -59,7 +58,7 @@ def test_the_script_ships_with_the_shell_and_is_revisioned(reader: Client) -> No
     body = reader.get(reverse("inventory:item_list")).content.decode()
     assert "js/searchable-select.js?v=" in body
     # It follows the shell script, which wires field descriptions first.
-    assert body.index("js/app-shell.js?v=") < body.index("js/searchable-select.js?v=")
+    assert body.index("js/ui-shell.js?v=") < body.index("js/searchable-select.js?v=")
 
 
 def test_the_login_page_does_not_load_it() -> None:
@@ -227,14 +226,14 @@ def test_the_accessible_name_follows_the_reader_to_the_text_box() -> None:
 
 def test_the_stylesheet_section_uses_logical_properties_only() -> None:
     styles = STYLES.read_text(encoding="utf-8")
-    start = styles.index("17. Searchable select")
-    section = styles[start:]
+    start = styles.index("  .ui-combobox {")
+    section = styles[start : styles.index("@layer utilities", start)]
     for rule in (
-        ".combo {",
-        ".combo > input.combo__input {",
-        ".combo > .combo__native {",
-        ".combo__list {",
-        ".combo__option {",
+        ".ui-combobox {",
+        ".ui-combobox__input {",
+        ".ui-combobox__native {",
+        ".ui-combobox__list {",
+        ".ui-combobox__option {",
     ):
         assert rule in section, rule
     physical = re.findall(
@@ -243,9 +242,7 @@ def test_the_stylesheet_section_uses_logical_properties_only() -> None:
         re.M,
     )
     assert physical == []
-    # The caret's borders are the one deliberate exception: a rotation angle is
-    # physical, so a logical border pair would point sideways in RTL.
-    assert "border-right: 2px solid var(--ink-muted);" in section
-    assert "border-bottom: 2px solid var(--ink-muted);" in section
     # The list's coordinates come from the script; the stylesheet sets none.
-    assert "inset-inline-end" in section
+    assert "left:" not in section and "right:" not in section
+    # The rebuild has no compatibility presentation selectors.
+    assert re.search(r"(?<![\w-])\.combo(?:__|\b)", styles) is None

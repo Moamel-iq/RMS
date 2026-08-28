@@ -6,15 +6,15 @@
 {# a listing of the whole menu to somebody who only reaches one branch.      #}
 {% load i18n %}
 
-<label class="field">
+<label class="ui-field">
   <span>{% translate "رقم الوصفة" %}</span>
   <input type="number" name="recipe_id" min="1" dir="ltr" value="{{ filters.recipe_id }}">
 </label>
-<label class="field">
+<label class="ui-field">
   <span>{% translate "رقم النسخة" %}</span>
   <input type="number" name="version_id" min="1" dir="ltr" value="{{ filters.version_id }}">
 </label>
-<label class="field">
+<label class="ui-field">
   <span>{% translate "رقم الدفعة" %}</span>
   <input type="number" name="batch_id" min="1" dir="ltr" value="{{ filters.batch_id }}">
 </label>

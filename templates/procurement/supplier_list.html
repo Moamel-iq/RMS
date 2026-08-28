@@ -15,23 +15,31 @@
   {% for supplier in suppliers %}
     <tr>
       <td><code>{{ supplier.code }}</code></td>
-      <td>{{ supplier.name_ar }}</td>
+      <td>{{ supplier.name }}</td>
       <td>{{ supplier.contact_name|default:"—" }}</td>
       {# dir="ltr" on a populated cell only: an empty element with dir="auto" #}
       {# resolves to LTR and puts the dash on the wrong side of the column.   #}
       <td>{% if supplier.phone %}<span dir="ltr">{{ supplier.phone }}</span>{% else %}—{% endif %}</td>
+      {# The floor rides in the terms cell rather than a column of its own: it #}
+      {# is meaningless without the term beside it, and the two are read as    #}
+      {# one fact — "thirty days, and half of it by then".                     #}
       <td>
         {% if supplier.payment_terms_days %}
           {% blocktranslate with days=supplier.payment_terms_days %}{{ days }} يوم{% endblocktranslate %}
+          {% if supplier.minimum_settlement_percent %}
+            <br><span class="ui-text-muted">
+              {% blocktranslate with percent=supplier.minimum_settlement_percent|floatformat:"-2" %}الحد الأدنى {{ percent }}٪{% endblocktranslate %}
+            </span>
+          {% endif %}
         {% else %}
           {% translate "عند الاستلام" %}
         {% endif %}
       </td>
       <td>
         {% if supplier.is_active %}
-          <span class="chip chip--on">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+          <span class="ui-badge ui-badge--danger">{% translate "مؤرشف" %}</span>
         {% endif %}
       </td>
       {% include "inventory/_rowactions.html" with row=supplier owner_id=supplier.organization_id edit_url="procurement:supplier_update" archive_url="procurement:supplier_archive" reactivate_url="procurement:supplier_reactivate" %}

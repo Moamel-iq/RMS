@@ -70,7 +70,7 @@ class Command(SeedCommand):
                     add_recipe_serving(
                         version=version,
                         code="BATCH",
-                        name_ar="دفعة الإنتاج الكاملة",
+                        name="دفعة الإنتاج الكاملة",
                         serving_quantity=version.expected_output_quantity,
                         serving_unit=version.output_unit,
                         is_primary=True,

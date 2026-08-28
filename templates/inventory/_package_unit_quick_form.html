@@ -1,23 +1,23 @@
 {% load i18n %}
-<form class="inventory-quick-form" method="post" action="{% url 'inventory:package_unit_quick_add' %}" hx-post="{% url 'inventory:package_unit_quick_add' %}" hx-target="#package-unit-dialog" hx-swap="innerHTML" hx-disabled-elt="find button[type='submit']" aria-labelledby="package-unit-quick-title">
+<form class="ui-quick-form" method="post" action="{% url 'inventory:package_unit_quick_add' %}" hx-post="{% url 'inventory:package_unit_quick_add' %}" hx-target="#package-unit-dialog" hx-swap="innerHTML" hx-disabled-elt="find button[type='submit']" aria-labelledby="package-unit-quick-title">
   {% csrf_token %}
   <header>
     <div>
-      <p class="inventory-eyebrow">{% translate "وحدات التعبئة" %}</p>
+      <p class="ui-eyebrow">{% translate "وحدات التعبئة" %}</p>
       <h2 id="package-unit-quick-title">{% translate "إضافة سريعة" %}</h2>
       <p>{% translate "أضف اسم العبوة ورمزها. معامل التحويل يُحدّد لاحقاً لكل صنف." %}</p>
     </div>
-    <button class="inventory-dialog__close" type="button" data-close-dialog aria-label="{% translate 'إغلاق' %}">×</button>
+    <button class="ui-icon-button" type="button" data-close-dialog aria-label="{% translate 'إغلاق' %}">×</button>
   </header>
   {% include "components/form_error_summary.html" with form=form %}
-  <div class="inventory-quick-form__fields">
+  <div class="ui-form-grid">
     {% include "settings/_field.html" with field=form.organization %}
     {% include "settings/_field.html" with field=form.code %}
-    {% include "settings/_field.html" with field=form.name_ar %}
-    {% include "settings/_field.html" with field=form.name_en %}
+    {% include "settings/_field.html" with field=form.name %}
+    {% include "settings/_field.html" with field=form.name %}
   </div>
   <footer>
-    <button class="btn btn--secondary" type="button" data-close-dialog>{% translate "إلغاء" %}</button>
-    <button class="btn btn--primary" type="submit">{% translate "حفظ وحدة التعبئة" %}</button>
+    <button class="ui-button ui-button--secondary" type="button" data-close-dialog>{% translate "إلغاء" %}</button>
+    <button class="ui-button ui-button--primary" type="submit">{% translate "حفظ وحدة التعبئة" %}</button>
   </footer>
 </form>

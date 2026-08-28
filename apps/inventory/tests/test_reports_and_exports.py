@@ -41,8 +41,7 @@ HX = {"hx-request": "true"}
 REPORT_ROUTES: list[tuple[str, str]] = [
     ("inventory:report_valuation", "DEMO-RICE"),
     ("inventory:report_stock_card", "DEMO-RICE"),
-    ("inventory:report_in_transit", "DEMO-CONTAINER"),
-    ("inventory:report_expiry", "DEMO-CHK-LOT-03"),
+    ("inventory:report_expiry", "DEMO-"),
     ("inventory:report_reorder", "DEMO-RICE"),
     ("inventory:report_waste", "WST-"),
     ("inventory:report_count_variance", "CNT-"),
@@ -276,24 +275,6 @@ class TestHistoricalModes:
 
 
 class TestTheOtherReports:
-    def test_in_transit_shows_dispatch_receipt_and_remainder(
-        self, owner: User, organization: Organization
-    ) -> None:
-        rows = reports.in_transit_aging(owner, base_filters(organization), include_valuation=True)
-        assert len(rows) == 1
-        row = rows[0]
-        assert row["dispatched_quantity"] == Decimal("200.000")
-        assert row["received_quantity"] == Decimal("120.000")
-        assert row["remaining_quantity"] == Decimal("80.000")
-        assert row["age_days"] is not None and row["age_days"] >= 0
-        assert row["remaining_value"] == Decimal("20000.000")
-
-    def test_in_transit_hides_value_without_permission(
-        self, keeper: User, organization: Organization
-    ) -> None:
-        rows = reports.in_transit_aging(keeper, base_filters(organization), include_valuation=False)
-        assert rows and all("remaining_value" not in row for row in rows)
-
     def test_expiry_buckets_expired_soon_and_later(
         self, owner: User, organization: Organization
     ) -> None:
@@ -323,16 +304,6 @@ class TestTheOtherReports:
         assert rows["DEMO-OIL"]["shortage"] == Decimal("0")
         assert rows["DEMO-CONTAINER"]["is_below"] is False
         assert rows["DEMO-CONTAINER"]["is_at_point"] is False
-
-    def test_waste_summary_carries_reason_and_cost_centre(
-        self, owner: User, organization: Organization
-    ) -> None:
-        rows = reports.waste_summary(owner, base_filters(organization), include_valuation=True)
-        assert len(rows) == 2
-        reasons = {row["reason_code"] for row in rows}
-        assert reasons == {"DEMO-SPOILED", "DEMO-EXPIRED"}
-        assert all(row["cost_center"] == "KITCHEN" for row in rows)
-        assert all(row["value"] > Decimal("0") for row in rows)
 
     def test_count_variance_names_both_people(
         self, owner: User, organization: Organization
@@ -428,7 +399,7 @@ class TestReportScope:
         organization's rows — the filter narrows what the caller may already
         read and can never add to it.
         """
-        other = create_organization(code="RIVAL17", name_ar="منافس", name_en="Rival")
+        other = create_organization(code="RIVAL17", name="منافس")
         rows = reports.stock_valuation(
             keeper, ReportFilters(organization_id=other.pk), include_valuation=False
         )
@@ -451,7 +422,7 @@ class TestReportScope:
         Membership in an unrelated organization must not widen reach into the
         demo one, however many Django permissions the account carries.
         """
-        unrelated = create_organization(code="ELSEWHERE", name_ar="آخر", name_en="Elsewhere")
+        unrelated = create_organization(code="ELSEWHERE", name="آخر")
         user = User.objects.create_user(username="wide", password="pw-not-real-1234")
         grant_organization_access(user=user, organization=unrelated, role=Role.OWNER)
         organization = Organization.objects.get(code="DEMO-KHAN-MANDI")
@@ -488,8 +459,8 @@ class TestReportScreens:
             .content.decode()
         )
         assert "<html" not in body
-        assert 'class="rail"' not in body
-        assert body.strip().startswith('<div class="tablewrap" id="list-results">')
+        assert 'class="ui-app-shell"' not in body
+        assert body.strip().startswith('<section class="ui-data-card" id="list-results"')
 
     def test_the_full_page_and_the_partial_agree_on_rows(
         self, owner: User, client_for: Callable[[User], Client], seeded: None

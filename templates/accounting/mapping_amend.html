@@ -8,45 +8,45 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page workspace-form-page" id="accounting-mapping-amend">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <section class="ui-page ui-page--form" id="accounting-mapping-amend">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
     </div>
 
-    <div class="formcard">
-      <dl class="detailgrid">
-        <div class="detailgrid__row">
+    <div class="ui-form-card">
+      <dl class="ui-definition-list">
+        <div class="ui-definition-list__row">
           <dt>{% translate "المؤسسة" %}</dt>
-          <dd>{{ mapping.organization.code }} — {{ mapping.organization.name_ar }}</dd>
+          <dd>{{ mapping.organization.code }} — {{ mapping.organization.name }}</dd>
         </div>
-        <div class="detailgrid__row">
+        <div class="ui-definition-list__row">
           <dt>{% translate "الدور" %}</dt>
           <dd>{{ mapping.account_role.code }}</dd>
         </div>
-        <div class="detailgrid__row">
+        <div class="ui-definition-list__row">
           <dt>{% translate "الحساب الحالي" %}</dt>
-          <dd>{{ mapping.account.code }} — {{ mapping.account.name_ar }}</dd>
+          <dd>{{ mapping.account.code }} — {{ mapping.account.name }}</dd>
         </div>
-        <div class="detailgrid__row">
+        <div class="ui-definition-list__row">
           <dt>{% translate "الإصدار" %}</dt>
           <dd>{{ mapping.version }}</dd>
         </div>
       </dl>
     </div>
 
-    <form class="formcard" method="post" novalidate>
+    <form class="ui-form-card" method="post" novalidate>
       {% csrf_token %}
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "حفظ التعديل" %}</button>
-        <a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "حفظ التعديل" %}</button>
+        <a class="ui-button ui-button--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
       </div>
     </form>
   </section>

@@ -105,7 +105,7 @@ def _version(
         add_recipe_serving(
             version=draft,
             code=code,
-            name_ar=f"حصة {code}",
+            name=f"حصة {code}",
             serving_quantity=Decimal(serving_quantity),
             serving_unit=kilogram,
             is_primary=primary,
@@ -463,7 +463,7 @@ class TestThePlateCostIsFrozenIntoTheSnapshot:
         """
         row = snapshot.servings.get(is_primary=True)
         assert row.code == snapshot.primary_serving_code
-        assert row.name_ar
+        assert row.name
         assert row.serving_quantity > Decimal("0")
         assert row.serving_unit_code
         assert row.factor_of_batch > Decimal("0")

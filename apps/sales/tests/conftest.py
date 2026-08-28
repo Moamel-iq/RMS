@@ -38,12 +38,12 @@ PASSWORD = "pw-not-real-1234"
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
 def other_organization() -> Organization:
-    return create_organization(code="RIVAL", name_ar="منافس", name_en="Rival")
+    return create_organization(code="RIVAL", name="منافس")
 
 
 @pytest.fixture
@@ -51,8 +51,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -62,24 +61,19 @@ def second_branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="KARRADA",
-        name_ar="الكرادة",
-        name_en="Karrada",
+        name="الكرادة",
         business_day_start_time=time(9, 0),
     )
 
 
 @pytest.fixture
 def hall_cost_center(organization: Organization) -> CostCenter:
-    return create_cost_center(
-        organization=organization, code="HALL", name_ar="الصالة", name_en="Hall"
-    )
+    return create_cost_center(organization=organization, code="HALL", name="الصالة")
 
 
 @pytest.fixture
 def delivery_cost_center(organization: Organization) -> CostCenter:
-    return create_cost_center(
-        organization=organization, code="DELIVERY", name_ar="التوصيل", name_en="Delivery"
-    )
+    return create_cost_center(organization=organization, code="DELIVERY", name="التوصيل")
 
 
 def _user(username: str) -> User:
@@ -218,8 +212,8 @@ def sales_chart(
     )
     from apps.accounting.services import create_account, create_account_mapping, open_fiscal_year
 
-    for code, name_ar, name_en in _SCENARIO_CHART:
-        create_account(organization=organization, code=code, name_ar=name_ar, name_en=name_en)
+    for code, name, name in _SCENARIO_CHART:
+        create_account(organization=organization, code=code, name=name)
     mappings = {
         SALES_REVENUE: "4-01-01-001",
         SALES_DISCOUNT: "4-02-01-001",
@@ -263,8 +257,7 @@ def scenario_recipe(organization: Organization) -> Any:
 
     unit = UnitOfMeasure.objects.filter(code="KG").first() or UnitOfMeasure.objects.create(
         code="KG",
-        name_ar="كيلوغرام",
-        name_en="Kilogram",
+        name="كيلوغرام",
         dimension="MASS",
         factor_to_base=Decimal("1"),
         is_base=True,
@@ -272,7 +265,7 @@ def scenario_recipe(organization: Organization) -> Any:
     recipe = Recipe.objects.create(
         organization=organization,
         code="DEMO-SCN-MANDI",
-        name_ar="مندي",
+        name="مندي",
         recipe_type=RecipeType.PORTION,
     )
     preparer = _user("scenario-preparer")
@@ -287,7 +280,7 @@ def scenario_recipe(organization: Organization) -> Any:
     RecipeServing.objects.create(
         version=version,
         code="WHOLE",
-        name_ar="حبة كاملة",
+        name="حبة كاملة",
         serving_quantity=Decimal("1.000000"),
         serving_unit=unit,
         base_quantity=Decimal("1.000000"),
@@ -380,7 +373,7 @@ def scenario(
     item = create_menu_item(
         organization=organization,
         code="SCN-MENU",
-        name_ar="مندي",
+        name="مندي",
         recipe=scenario_recipe,
         serving_code="WHOLE",
     )
@@ -394,7 +387,7 @@ def scenario(
     hall = create_sales_channel(
         organization=organization,
         code="SCN-HALL",
-        name_ar="الصالة",
+        name="الصالة",
         category=SalesChannelCategory.DINE_IN,
         cost_center=hall_cost_center,
         default_tender=TenderDestination.CASH,
@@ -402,13 +395,13 @@ def scenario(
     apps_channel = create_sales_channel(
         organization=organization,
         code="SCN-APPS",
-        name_ar="تطبيقات",
+        name="تطبيقات",
         category=SalesChannelCategory.DELIVERY_APPLICATION,
         cost_center=delivery_cost_center,
         default_tender=TenderDestination.APPLICATION_RECEIVABLE,
     )
     application = create_delivery_application(
-        organization=organization, code="SCN-APP", name_ar="تطبيق تجريبي"
+        organization=organization, code="SCN-APP", name="تطبيق تجريبي"
     )
     create_delivery_agreement(
         branch=branch,

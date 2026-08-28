@@ -7,27 +7,27 @@
 {# cannot state that order.                                                 #}
 {% load i18n money_tags %}
 
-<div class="summary-row">
-  <div class="summary-row__item">
-    <span class="summary-row__label">{% translate "رصيد افتتاحي" %}</span>
-    <span class="summary-row__value"><bdi dir="ltr">{{ statement.opening|money_full }}</bdi></span>
+<div class="ui-summary-grid">
+  <div class="ui-summary-item">
+    <span class="ui-summary-item__label">{% translate "رصيد افتتاحي" %}</span>
+    <span class="ui-summary-item__value"><bdi dir="ltr">{{ statement.opening|money_full }}</bdi></span>
   </div>
-  <div class="summary-row__item">
-    <span class="summary-row__label">{% translate "مدين" %}</span>
-    <span class="summary-row__value"><bdi dir="ltr">{{ statement.debits|money_full }}</bdi></span>
+  <div class="ui-summary-item">
+    <span class="ui-summary-item__label">{% translate "مدين" %}</span>
+    <span class="ui-summary-item__value"><bdi dir="ltr">{{ statement.debits|money_full }}</bdi></span>
   </div>
-  <div class="summary-row__item">
-    <span class="summary-row__label">{% translate "دائن" %}</span>
-    <span class="summary-row__value"><bdi dir="ltr">{{ statement.credits|money_full }}</bdi></span>
+  <div class="ui-summary-item">
+    <span class="ui-summary-item__label">{% translate "دائن" %}</span>
+    <span class="ui-summary-item__value"><bdi dir="ltr">{{ statement.credits|money_full }}</bdi></span>
   </div>
-  <div class="summary-row__item">
-    <span class="summary-row__label">{% translate "رصيد ختامي" %}</span>
-    <span class="summary-row__value"><bdi dir="ltr">{{ statement.closing|money_full }}</bdi></span>
+  <div class="ui-summary-item">
+    <span class="ui-summary-item__label">{% translate "رصيد ختامي" %}</span>
+    <span class="ui-summary-item__value"><bdi dir="ltr">{{ statement.closing|money_full }}</bdi></span>
   </div>
 </div>
 
-<div class="data-table-shell" tabindex="0">
-  <table class="table responsive-table" id="cash-statement-table">
+<div class="ui-table-scroll" tabindex="0">
+  <table class="ui-table ui-table--responsive" id="cash-statement-table">
     <thead><tr>
       <th>{% translate "التاريخ" %}</th>
       <th>{% translate "القيد" %}</th>
@@ -57,7 +57,7 @@
           <td data-label="{% translate 'الرصيد' %}"><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
         </tr>
       {% empty %}
-        <tr><td colspan="8" class="empty" data-empty-state>{% translate "لا حركة في هذه الفترة." %}</td></tr>
+        <tr><td colspan="8" class="ui-table__empty" data-empty-state>{% translate "لا حركة في هذه الفترة." %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

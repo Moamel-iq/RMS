@@ -284,8 +284,7 @@ class CostCenter(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=20)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200)
+    name = models.CharField(_("name"), max_length=200)
     is_active = models.BooleanField(_("active"), default=True)
 
     history = HistoricalRecords()
@@ -306,13 +305,13 @@ class CostCenter(TimeStampedModel):
                 condition=Q(code__regex=CODE_PATTERN), name="cost_center_code_format"
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar="") & ~Q(name_en=""),
+                condition=~Q(name="") & ~Q(name=""),
                 name="cost_center_names_not_empty",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class Account(TimeStampedModel):
@@ -335,8 +334,7 @@ class Account(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=20)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200)
+    name = models.CharField(_("name"), max_length=200)
 
     account_class = models.CharField(_("class"), max_length=1, choices=AccountClass.choices)
     parent = models.ForeignKey(
@@ -440,7 +438,7 @@ class Account(TimeStampedModel):
                 name="account_postable_iff_detail_code",
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar="") & ~Q(name_en=""),
+                condition=~Q(name="") & ~Q(name=""),
                 name="account_names_not_empty",
             ),
             # A rollup cannot require a dimension it never receives.
@@ -480,7 +478,7 @@ class Account(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class JournalEntryStatus(models.TextChoices):
@@ -846,8 +844,7 @@ class AccountRole(TimeStampedModel):
     """
 
     code = models.CharField(_("code"), max_length=64, unique=True)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200)
+    name = models.CharField(_("name"), max_length=200)
     domain = models.CharField(_("domain"), max_length=20, choices=AccountRoleDomain.choices)
     mapping_scope = models.CharField(
         _("mapping scope"),
@@ -871,13 +868,13 @@ class AccountRole(TimeStampedModel):
                 condition=Q(code__regex=CODE_PATTERN), name="account_role_code_format"
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar="") & ~Q(name_en=""),
+                condition=~Q(name="") & ~Q(name=""),
                 name="account_role_names_not_empty",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 #: The approved inventory roles. Constants rather than an enum so a posting
@@ -896,7 +893,7 @@ INVENTORY_CONSUMPTION = "INVENTORY_CONSUMPTION"
 #: Added by Task 1.5 for the cross-branch half of a transfer receipt.
 INTER_BRANCH_CLEARING = "INTER_BRANCH_CLEARING"
 
-#: `(code, name_ar, name_en, mapping_scope)` for the seed migration and the
+#: `(code, name, name, mapping_scope)` for the seed migration and the
 #: fresh-database test.
 #:
 #: Two roles are item-overridable. `INVENTORY_CONTROL`, because it is the one
@@ -1608,8 +1605,7 @@ class CashAccountBase(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=20)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200)
+    name = models.CharField(_("name"), max_length=200)
     notes = models.TextField(_("notes"), blank=True)
     is_active = models.BooleanField(_("active"), default=True)
     archived_at = models.DateTimeField(_("archived at"), null=True, blank=True)
@@ -1619,7 +1615,7 @@ class CashAccountBase(TimeStampedModel):
         abstract = True
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class Cashbox(CashAccountBase):
@@ -1663,7 +1659,7 @@ class Cashbox(CashAccountBase):
                 condition=Q(code__regex=CODE_PATTERN), name="cashbox_code_format"
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar="") & ~Q(name_en=""), name="cashbox_names_not_empty"
+                condition=~Q(name="") & ~Q(name=""), name="cashbox_names_not_empty"
             ),
             # One GL account backs at most one **active** cashbox.
             #
@@ -1741,7 +1737,7 @@ class BankAccount(CashAccountBase):
                 condition=Q(code__regex=CODE_PATTERN), name="bank_account_code_format"
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar="") & ~Q(name_en="") & ~Q(bank_name=""),
+                condition=~Q(name="") & ~Q(name="") & ~Q(bank_name=""),
                 name="bank_account_names_not_empty",
             ),
             models.UniqueConstraint(

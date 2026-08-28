@@ -80,7 +80,7 @@ class TestTheNestedDemoScenario:
             InventoryItem.objects.create(
                 organization=organization,
                 code=code,
-                name_ar=code,
+                name=code,
                 category=item_category,
                 item_type=kind,
                 base_unit=unit,

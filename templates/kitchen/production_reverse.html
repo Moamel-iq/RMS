@@ -12,26 +12,26 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page workspace-form-page" id="production-action">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+  <div class="ui-page ui-page--form" id="production-action">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="ui-page-header__subtitle">{{ page_hint }}</p>{% endif %}
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "رجوع" %}
         </a>
       </div>
     </div>
 
-    <p class="banner" role="alert">
+    <p class="ui-notice" role="alert">
       {% translate "العكس حركة مخزنية جديدة تبقى في السجل إلى الأبد. لا يُحذف الترحيل الأصلي ولا يُعدَّل، ولا يمكن عكس العكس." %}
     </p>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "حركة الترحيل" %}</h2>
-      <dl class="deflist">
+      <dl class="ui-definition-list">
         <dt>{% translate "الرقم" %}</dt>
         <dd><code dir="ltr">{{ batch.number }}</code></dd>
         {% if can_read_cost %}
@@ -44,13 +44,13 @@
             <code dir="ltr">{{ batch.journal_entry.entry_number }}</code>
           {% else %}
             {{ no_journal_reason }}
-            <span class="pill">{% translate "ولا قيد عكس" %}</span>
+            <span class="ui-badge">{% translate "ولا قيد عكس" %}</span>
           {% endif %}
         </dd>
       </dl>
     </section>
 
-    <form class="formcard"
+    <form class="ui-form-card"
           method="post"
           novalidate
           action="{{ request.path }}"
@@ -60,20 +60,20 @@
       {% csrf_token %}
 
       {% if form.non_field_errors %}
-        <div class="alert" role="alert">
+        <div class="ui-notice" role="alert">
           {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
 
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
 
-      <div class="formactions">
-        <button class="btn btn--danger" type="submit">{% translate "تأكيد العكس" %}</button>
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--danger" type="submit">{% translate "تأكيد العكس" %}</button>
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "إلغاء" %}
         </a>
       </div>

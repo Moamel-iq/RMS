@@ -31,100 +31,6 @@ urlpatterns = [
         views.SupplierActionView.as_view(activate=True),
         name="supplier_reactivate",
     ),
-    # --- effective-dated supplier credit terms ----------------------------
-    path(
-        "credit-terms/",
-        views.SupplierCreditTermListView.as_view(),
-        name="credit_term_list",
-    ),
-    path(
-        "credit-terms/new/",
-        views.SupplierCreditTermCreateView.as_view(),
-        name="credit_term_create",
-    ),
-    path(
-        "credit-terms/<int:pk>/",
-        views.SupplierCreditTermDetailView.as_view(),
-        name="credit_term_detail",
-    ),
-    path(
-        "credit-terms/<int:pk>/edit/",
-        views.SupplierCreditTermUpdateView.as_view(),
-        name="credit_term_update",
-    ),
-    path(
-        "credit-terms/<int:pk>/activate/",
-        views.SupplierCreditTermActivateView.as_view(),
-        name="credit_term_activate",
-    ),
-    path(
-        "credit-terms/<int:pk>/history/",
-        views.SupplierCreditTermHistoryView.as_view(),
-        name="credit_term_history",
-    ),
-    # --- supplier item catalogue -------------------------------------
-    path(
-        "catalogue/",
-        views.SupplierItemListView.as_view(),
-        name="supplier_item_list",
-    ),
-    path(
-        "catalogue/new/",
-        views.SupplierItemCreateView.as_view(),
-        name="supplier_item_create",
-    ),
-    path(
-        "catalogue/<int:pk>/",
-        views.SupplierItemUpdateView.as_view(),
-        name="supplier_item_update",
-    ),
-    path(
-        "catalogue/<int:pk>/archive/",
-        views.SupplierItemActionView.as_view(activate=False),
-        name="supplier_item_archive",
-    ),
-    path(
-        "catalogue/<int:pk>/reactivate/",
-        views.SupplierItemActionView.as_view(activate=True),
-        name="supplier_item_reactivate",
-    ),
-    # --- purchase requests -------------------------------------------
-    path("requests/", views.PurchaseRequestListView.as_view(), name="purchase_request_list"),
-    path(
-        "requests/new/",
-        views.PurchaseRequestCreateView.as_view(),
-        name="purchase_request_create",
-    ),
-    path(
-        "requests/<int:pk>/",
-        views.PurchaseRequestDetailView.as_view(),
-        name="purchase_request_detail",
-    ),
-    path(
-        "requests/<int:pk>/lines/<int:line_id>/delete/",
-        views.PurchaseRequestLineDeleteView.as_view(),
-        name="purchase_request_line_delete",
-    ),
-    path(
-        "requests/<int:pk>/submit/",
-        views.PurchaseRequestTransitionView.as_view(transition="submit"),
-        name="purchase_request_submit",
-    ),
-    path(
-        "requests/<int:pk>/approve/",
-        views.PurchaseRequestTransitionView.as_view(transition="approve"),
-        name="purchase_request_approve",
-    ),
-    path(
-        "requests/<int:pk>/reject/",
-        views.PurchaseRequestTransitionView.as_view(transition="reject"),
-        name="purchase_request_reject",
-    ),
-    path(
-        "requests/<int:pk>/cancel/",
-        views.PurchaseRequestTransitionView.as_view(transition="cancel"),
-        name="purchase_request_cancel",
-    ),
     # --- supplier quotations -------------------------------------------
     path("quotations/", views.SupplierQuotationListView.as_view(), name="quotation_list"),
     path(
@@ -442,6 +348,14 @@ urlpatterns = [
         name="supplier_credit_note_reverse",
     ),
     # --- supplier payments -------------------------------------------------
+    # The settlement workspace comes before the list because that is the order
+    # the work happens in: decide what to pay, then look at what was paid. It
+    # drafts an ordinary payment and hands off to the payment screen to post.
+    path(
+        "settlement/",
+        views.SupplierSettlementView.as_view(),
+        name="settlement_workspace",
+    ),
     path(
         "payments/",
         views.SupplierPaymentListView.as_view(),
@@ -486,6 +400,16 @@ urlpatterns = [
         "reports/supplier-statement/",
         report_views.SupplierStatementReportView.as_view(),
         name="report_supplier_statement",
+    ),
+    path(
+        "reports/settlement-breaches/",
+        report_views.SettlementBreachReportView.as_view(),
+        name="report_settlement_breaches",
+    ),
+    path(
+        "reports/payment-cycles/",
+        report_views.PaymentCycleReportView.as_view(),
+        name="report_payment_cycles",
     ),
     path(
         "reports/open-orders/",

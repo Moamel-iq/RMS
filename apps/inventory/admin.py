@@ -28,7 +28,6 @@ from apps.inventory.models import (
     InventoryLot,
     InventoryMovementDocument,
     InventoryMovementDocumentLine,
-    InventoryReasonCode,
     ItemCategory,
     ItemPackageConversion,
     OpeningStockDocument,
@@ -74,9 +73,9 @@ class ReadOnlyAdminMixin:
 
 @admin.register(ItemCategory)
 class ItemCategoryAdmin(ReadOnlyAdminMixin, _ModelAdmin):
-    list_display = ("code", "name_ar", "depth", "parent", "organization", "is_active")
+    list_display = ("code", "name", "depth", "parent", "organization", "is_active")
     list_filter = ("is_active", "depth", "organization")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     ordering = ("organization__code", "code")
     list_select_related = ("organization", "parent")
 
@@ -88,9 +87,9 @@ class PackageUnitAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     column: there is no universal "how many kilograms in a carton" to show.
     """
 
-    list_display = ("code", "name_ar", "organization", "is_active")
+    list_display = ("code", "name", "organization", "is_active")
     list_filter = ("is_active", "organization")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     ordering = ("organization__code", "code")
     list_select_related = ("organization",)
 
@@ -99,7 +98,7 @@ class PackageUnitAdmin(ReadOnlyAdminMixin, _ModelAdmin):
 class InventoryItemAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     list_display = (
         "code",
-        "name_ar",
+        "name",
         "category",
         "item_type",
         "base_unit",
@@ -108,7 +107,7 @@ class InventoryItemAdmin(ReadOnlyAdminMixin, _ModelAdmin):
         "organization",
     )
     list_filter = ("item_type", "is_active", "tracks_lots", "tracks_expiry", "organization")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     ordering = ("organization__code", "code")
     list_select_related = ("organization", "category", "base_unit")
 
@@ -147,9 +146,9 @@ class BranchItemSettingAdmin(ReadOnlyAdminMixin, _ModelAdmin):
 
 @admin.register(Warehouse)
 class WarehouseAdmin(ReadOnlyAdminMixin, _ModelAdmin):
-    list_display = ("code", "name_ar", "branch", "warehouse_type", "is_system", "is_active")
+    list_display = ("code", "name", "branch", "warehouse_type", "is_system", "is_active")
     list_filter = ("warehouse_type", "is_system", "is_active", "branch")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     ordering = ("branch__code", "code")
     list_select_related = ("branch",)
 
@@ -444,32 +443,6 @@ class StockTransferShortageAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     search_fields = ("shortage_number", "public_id", "evidence_reference", "reason")
     ordering = ("-created_at",)
     list_select_related = ("transfer", "cost_center", "closed_by")
-
-    def get_readonly_fields(self, request: HttpRequest, obj: Any = None) -> tuple[str, ...]:
-        return tuple(field.name for field in self.model._meta.fields)
-
-
-@admin.register(InventoryReasonCode)
-class InventoryReasonCodeAdmin(ReadOnlyAdminMixin, _ModelAdmin):
-    """
-    The organization's reason vocabulary. Read-only here like everything else:
-    the code and its application are frozen by trigger anyway, and the fields
-    that *may* change have a screen that records who changed them.
-    """
-
-    list_display = (
-        "code",
-        "name_ar",
-        "applies_to",
-        "requires_comment",
-        "requires_evidence",
-        "is_active",
-        "organization",
-    )
-    list_filter = ("applies_to", "is_active", "organization")
-    search_fields = ("code", "name_ar", "name_en")
-    ordering = ("organization__code", "applies_to", "code")
-    list_select_related = ("organization",)
 
     def get_readonly_fields(self, request: HttpRequest, obj: Any = None) -> tuple[str, ...]:
         return tuple(field.name for field in self.model._meta.fields)

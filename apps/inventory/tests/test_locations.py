@@ -78,8 +78,8 @@ def rice(organization: Organization) -> InventoryItem:
 @pytest.fixture
 def bins(main: Warehouse, owner: User) -> tuple[StockLocation, StockLocation]:
     with audit_context(actor=owner):
-        first = locations.create_location(warehouse=main, code="TEST-A", name_ar="رف أ")
-        second = locations.create_location(warehouse=main, code="TEST-B", name_ar="رف ب")
+        first = locations.create_location(warehouse=main, code="TEST-A", name="رف أ")
+        second = locations.create_location(warehouse=main, code="TEST-B", name="رف ب")
     return first, second
 
 
@@ -96,7 +96,7 @@ class TestLocationMasterData:
 
         with pytest.raises((ValidationError, IntegrityError)), transaction.atomic():
             with audit_context(actor=owner):
-                locations.create_location(warehouse=main, code="TEST-A", name_ar="مكرر")
+                locations.create_location(warehouse=main, code="TEST-A", name="مكرر")
 
     def test_a_system_warehouse_takes_no_locations(
         self, organization: Organization, owner: User
@@ -107,7 +107,7 @@ class TestLocationMasterData:
         ).first()
         assert transit is not None
         with pytest.raises(ValidationError) as refusal, audit_context(actor=owner):
-            locations.create_location(warehouse=transit, code="TEST-X", name_ar="رف")
+            locations.create_location(warehouse=transit, code="TEST-X", name="رف")
         assert refusal.value.code == "location_in_system_warehouse"
 
     def test_a_location_holding_stock_cannot_be_archived(
@@ -117,7 +117,7 @@ class TestLocationMasterData:
         with audit_context(actor=owner):
             locations.put_away(location=first, item=rice, quantity=Decimal("5.000"))
             with pytest.raises(ValidationError) as refusal:
-                locations.update_location(location=first, name_ar="رف أ", is_active=False)
+                locations.update_location(location=first, name="رف أ", is_active=False)
         assert refusal.value.code == "location_not_empty"
 
 
@@ -273,7 +273,7 @@ class TestLocationsCarryNoValue:
         )
         with audit_context(actor=owner):
             elsewhere = locations.create_location(
-                warehouse=elsewhere_warehouse, code="TEST-K", name_ar="رف آخر"
+                warehouse=elsewhere_warehouse, code="TEST-K", name="رف آخر"
             )
             locations.put_away(location=bins[0], item=rice, quantity=Decimal("5.000"))
             with pytest.raises(ValidationError) as refusal:

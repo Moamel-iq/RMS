@@ -9,7 +9,7 @@ functions, and no module. Every public name here says "money", "price", or
 The policy, as approved:
 
     MONEY_PLACES         3   posted accounting and document line amounts
-    MONEY_DISPLAY_PLACES 0   IQD shown in the UI and on printed documents
+    MONEY_DISPLAY_PLACES 0   no decimal part when an amount is a whole IQD
     UNIT_PRICE_PLACES    6   unit costs and unit prices
     RATE_PLACES          6   commission, discount, and allocation rates
     ROUNDING             ROUND_HALF_UP
@@ -43,8 +43,8 @@ from apps.core.quantity import ensure_decimal
 #: Decimal places for a posted accounting or document line amount.
 MONEY_PLACES = 3
 
-#: Decimal places shown to a user or printed. IQD has no circulating
-#: subdivision, so an operator reads whole dinars.
+#: Decimal places shown for a whole IQD amount. Amounts with a fractional
+#: value remain visible to the posted three-decimal precision.
 MONEY_DISPLAY_PLACES = 0
 
 #: Decimal places for a unit cost or unit price. Higher than MONEY_PLACES
@@ -168,13 +168,18 @@ def _render(value: object, places: int, *, grouped: bool, field: str) -> str:
 
 def money_display(value: object, *, field: str = "amount") -> str:
     """
-    Whole IQD with thousands separators, for normal operational screens and
-    printed documents. `1250.001` renders as `1,250`.
+    Grouped IQD for normal operational screens and printed documents.
+
+    A whole amount renders without a decimal part (`2464` -> `2,464`).
+    A fractional amount keeps three places (`2464.1` -> `2,464.100`) so the
+    value shown to the operator is never rounded away.
 
     NEVER for reconciliation, audit, ledger diagnostics, or exports — those
     must see the stored third decimal. Use `money_audit` or `money_export`.
     """
-    return _render(value, MONEY_DISPLAY_PLACES, grouped=True, field=field)
+    amount = quantize_money(value, field=field)
+    places = MONEY_DISPLAY_PLACES if amount == amount.to_integral_value() else MONEY_PLACES
+    return f"{amount:,.{places}f}"
 
 
 def money_audit(value: object, *, field: str = "amount") -> str:

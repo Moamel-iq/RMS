@@ -147,8 +147,7 @@ def seed_cash_records(result: AccountingDemo) -> None:
             branch=branch,
             account=_account(organization, "1-01-01-001"),
             code="DEMO-CASH-1",
-            name_ar="صندوق الفرع الرئيسي",
-            name_en="Main branch cashbox",
+            name="صندوق الفرع الرئيسي",
             opened_on=_start_of_year(),
             responsible_note="أمين الصندوق التجريبي",
             notes=DEMO_BANNER,
@@ -164,8 +163,7 @@ def seed_cash_records(result: AccountingDemo) -> None:
             account=_account(organization, "1-01-02-001"),
             code="DEMO-BANK-1",
             bank_name="مصرف تجريبي",
-            name_ar="الحساب الجاري التجريبي",
-            name_en="Demo current account",
+            name="الحساب الجاري التجريبي",
             # Already a mask. The service masks again on the way in, so a full
             # number typed here by mistake would still never land in the column.
             masked_account_number="****4417",

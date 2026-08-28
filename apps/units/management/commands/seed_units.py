@@ -49,12 +49,11 @@ class Command(SeedCommand):
         created_count = 0
         updated_count = 0
 
-        for code, name_ar, name_en, dimension, factor, is_base in STANDARD_UNITS:
+        for code, name, name, dimension, factor, is_base in STANDARD_UNITS:
             unit, created = UnitOfMeasure.objects.update_or_create(
                 code=code,
                 defaults={
-                    "name_ar": name_ar,
-                    "name_en": name_en,
+                    "name": name,
                     "dimension": dimension,
                     "factor_to_base": Decimal(factor),
                     "is_base": is_base,
@@ -63,7 +62,7 @@ class Command(SeedCommand):
             )
             if created:
                 created_count += 1
-                self.write(f"  + {unit.code:<6} {name_ar}")
+                self.write(f"  + {unit.code:<6} {name}")
             else:
                 updated_count += 1
 

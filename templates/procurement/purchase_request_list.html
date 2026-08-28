@@ -4,8 +4,8 @@
 {% block filters %}
   {# A second filter alongside the search box. It posts through the same #}
   {# hx-get on the form, so status and q survive paging together.        #}
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="status">
       <option value="">{% translate "كل الحالات" %}</option>
       {% for value, label in statuses %}
@@ -33,26 +33,26 @@
         {% if row.number %}
           <code dir="ltr">{{ row.number }}</code>
         {% else %}
-          <span class="muted">{% translate "مسودة" %}</span>
+          <span class="ui-text-muted">{% translate "مسودة" %}</span>
         {% endif %}
       </td>
-      <td>{{ row.branch.name_ar }}</td>
+      <td>{{ row.branch.name }}</td>
       <td><code>{{ row.warehouse.code }}</code></td>
       <td>{{ row.purpose }}</td>
       <td><span dir="ltr">{{ row.required_date|date:"Y-m-d" }}</span></td>
       <td>{{ row.lines.count }}</td>
       <td>
         {% if row.status == "APPROVED" %}
-          <span class="chip chip--on">{{ row.get_status_display }}</span>
+          <span class="ui-badge ui-badge--success">{{ row.get_status_display }}</span>
         {% elif row.status == "REJECTED" or row.status == "CANCELLED" %}
-          <span class="chip chip--off">{{ row.get_status_display }}</span>
+          <span class="ui-badge ui-badge--danger">{{ row.get_status_display }}</span>
         {% else %}
-          <span class="chip">{{ row.get_status_display }}</span>
+          <span class="ui-badge">{{ row.get_status_display }}</span>
         {% endif %}
       </td>
       <td>
-        <div class="rowactions">
-          <a class="btn btn--ghost btn--sm" href="{% url 'procurement:purchase_request_detail' row.pk %}">
+        <div class="ui-actions">
+          <a class="ui-button ui-button--ghost ui-button--small" href="{% url 'procurement:purchase_request_detail' row.pk %}">
             {% translate "فتح" %}
           </a>
         </div>

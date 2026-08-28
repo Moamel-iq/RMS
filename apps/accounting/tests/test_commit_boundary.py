@@ -36,14 +36,13 @@ from .conftest import POSTING_DATE, TEST_YEAR
 @pytest.fixture
 def ledger():  # type: ignore[no-untyped-def]
     """Build an organization, branch, and chart inside a transactional test."""
-    organization = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM", name="خان مندي")
     configure_accounting(organization=organization)
     open_fiscal_year(organization=organization, year=TEST_YEAR)
     branch = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
     call_command("seed_chart_of_accounts", organization="KM", verbosity=0)

@@ -101,8 +101,7 @@ def create_cashbox(
     branch: Branch,
     account: Account,
     code: str,
-    name_ar: str,
-    name_en: str,
+    name: str,
     opened_on: datetime.date,
     responsible_note: str = "",
     notes: str = "",
@@ -119,8 +118,7 @@ def create_cashbox(
         branch=branch,
         account=account,
         code=code.strip().upper(),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         opened_on=opened_on,
         responsible_note=responsible_note.strip(),
         notes=notes.strip(),
@@ -141,8 +139,7 @@ def create_cashbox(
 def update_cashbox(
     *,
     cashbox: Cashbox,
-    name_ar: str,
-    name_en: str,
+    name: str,
     responsible_note: str,
     notes: str,
     reason: str = "",
@@ -157,12 +154,12 @@ def update_cashbox(
     both readable.
     """
     before = snapshot(cashbox)
-    cashbox.name_ar = name_ar.strip()
-    cashbox.name_en = name_en.strip()
+    cashbox.name = name.strip()
+    cashbox.name = name.strip()
     cashbox.responsible_note = responsible_note.strip()
     cashbox.notes = notes.strip()
     cashbox.full_clean()
-    cashbox.save(update_fields=["name_ar", "name_en", "responsible_note", "notes", "updated_at"])
+    cashbox.save(update_fields=["name", "responsible_note", "notes", "updated_at"])
     record_audit_event(
         action=AuditAction.UPDATED,
         target=cashbox,
@@ -239,8 +236,7 @@ def create_bank_account(
     account: Account,
     code: str,
     bank_name: str,
-    name_ar: str,
-    name_en: str,
+    name: str,
     masked_account_number: str,
     branch: Branch | None = None,
     iban: str = "",
@@ -259,8 +255,7 @@ def create_bank_account(
         account=account,
         code=code.strip().upper(),
         bank_name=bank_name.strip(),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         masked_account_number=_mask(masked_account_number),
         iban=iban.strip().upper(),
         notes=notes.strip(),
@@ -296,8 +291,7 @@ def _mask(raw: str) -> str:
 def update_bank_account(
     *,
     bank: BankAccount,
-    name_ar: str,
-    name_en: str,
+    name: str,
     bank_name: str,
     masked_account_number: str,
     iban: str,
@@ -306,8 +300,8 @@ def update_bank_account(
 ) -> BankAccount:
     """Amend descriptive metadata. The GL account is not amendable — see `update_cashbox`."""
     before = snapshot(bank)
-    bank.name_ar = name_ar.strip()
-    bank.name_en = name_en.strip()
+    bank.name = name.strip()
+    bank.name = name.strip()
     bank.bank_name = bank_name.strip()
     bank.masked_account_number = _mask(masked_account_number)
     bank.iban = iban.strip().upper()
@@ -315,8 +309,8 @@ def update_bank_account(
     bank.full_clean()
     bank.save(
         update_fields=[
-            "name_ar",
-            "name_en",
+            "name",
+            "name",
             "bank_name",
             "masked_account_number",
             "iban",

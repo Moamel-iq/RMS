@@ -32,5 +32,6 @@ staticfiles/
 *.dump
 *.backup
 *.sql
+backups/
 
 # Never ignore migrations. They are source code.

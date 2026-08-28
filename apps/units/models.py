@@ -62,8 +62,7 @@ class UnitOfMeasure(TimeStampedModel):
     """
 
     code = models.CharField(_("code"), max_length=20, unique=True)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=100)
-    name_en = models.CharField(_("name (English)"), max_length=100)
+    name = models.CharField(_("name"), max_length=100)
 
     dimension = models.CharField(_("dimension"), max_length=10, choices=Dimension.choices)
 
@@ -96,7 +95,7 @@ class UnitOfMeasure(TimeStampedModel):
                 name="unit_code_format",
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar="") & ~Q(name_en=""),
+                condition=~Q(name="") & ~Q(name=""),
                 name="unit_names_not_empty",
             ),
             # A zero factor makes every conversion zero; a negative one flips
@@ -135,4 +134,4 @@ class UnitOfMeasure(TimeStampedModel):
         return f"{self.factor_to_base.normalize():f}"
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"

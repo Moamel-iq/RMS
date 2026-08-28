@@ -33,11 +33,11 @@
       </td>
       <td data-label="{% translate 'من' %}">
         <bdi dir="ltr"><code>{{ transfer.source_warehouse.code }}</code></bdi>
-        <span class="muted"><bdi dir="ltr">{{ transfer.source_warehouse.branch.code }}</bdi></span>
+        <span class="ui-text-muted"><bdi dir="ltr">{{ transfer.source_warehouse.branch.code }}</bdi></span>
       </td>
       <td data-label="{% translate 'إلى' %}">
         <bdi dir="ltr"><code>{{ transfer.destination_warehouse.code }}</code></bdi>
-        <span class="muted"><bdi dir="ltr">{{ transfer.destination_warehouse.branch.code }}</bdi></span>
+        <span class="ui-text-muted"><bdi dir="ltr">{{ transfer.destination_warehouse.branch.code }}</bdi></span>
       </td>
       <td data-label="{% translate 'يوم العمل' %}"><bdi dir="ltr"><time datetime="{{ transfer.business_date|date:'Y-m-d' }}">{{ transfer.business_date|date:"Y-m-d" }}</time></bdi></td>
       <td data-label="{% translate 'الحالة' %}">{% include "components/status_badge.html" with status=transfer.status label=transfer.get_status_display %}</td>

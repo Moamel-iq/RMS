@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# One version, and everything a signatory needs before signing: the          #}
@@ -13,92 +13,92 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {{ recipe.code }} — {% translate "نسخة" %} {{ version.version_number }}
         </h1>
-        <p class="pagehead__hint">
-          {{ recipe.name_ar }} ·
-          <span class="chip {% if version.status == 'ACTIVE' %}chip--on{% else %}chip--off{% endif %}">
+        <p class="ui-page-header__subtitle">
+          {{ recipe.name }} ·
+          <span class="ui-badge {% if version.status == 'ACTIVE' %}ui-badge--success{% else %}ui-badge--neutral{% endif %}">
             {{ version.get_status_display }}
           </span>
           {% if is_expired %}· {% translate "انتهى مداها" %}{% endif %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:recipe_versions' recipe.pk %}">{% translate "سجل النسخ" %}</a>
-        <a class="btn btn--ghost" href="{% url 'kitchen:version_compare' version.pk %}">{% translate "مقارنة" %}</a>
-        <a class="btn btn--ghost" href="{% url 'kitchen:component_editor' version.pk %}">{% translate "الوصفات الفرعية" %}</a>
-        <a class="btn btn--ghost" href="{% url 'kitchen:component_dependencies' version.pk %}">{% translate "من يستعملها" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:recipe_versions' recipe.pk %}">{% translate "سجل النسخ" %}</a>
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_compare' version.pk %}">{% translate "مقارنة" %}</a>
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:component_editor' version.pk %}">{% translate "الوصفات الفرعية" %}</a>
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:component_dependencies' version.pk %}">{% translate "من يستعملها" %}</a>
         {# Omitted, not disabled, without `view_recipe_cost`. See the view. #}
         {% if can_view_cost %}
-          <a class="btn btn--ghost" href="{% url 'kitchen:cost_card' version.pk %}">{% translate "كلفة المواد" %}</a>
+          <a class="ui-button ui-button--ghost" href="{% url 'kitchen:cost_card' version.pk %}">{% translate "كلفة المواد" %}</a>
         {% endif %}
         {% if version.status == "DRAFT" and can_submit %}
           <form method="post" action="{% url 'kitchen:version_submit' version.pk %}" style="display:inline">
             {% csrf_token %}
-            <button class="btn btn--primary" type="submit">{% translate "إرسال للمراجعة" %}</button>
+            <button class="ui-button ui-button--primary" type="submit">{% translate "إرسال للمراجعة" %}</button>
           </form>
         {% endif %}
         {% if version.status == "SUBMITTED" %}
           {% if can_review %}
-            <a class="btn btn--ghost" href="{% url 'kitchen:version_review' version.pk %}">{% translate "تسجيل مراجعة" %}</a>
+            <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_review' version.pk %}">{% translate "تسجيل مراجعة" %}</a>
           {% endif %}
           {% if can_approve %}
-            <a class="btn btn--primary" href="{% url 'kitchen:version_approve' version.pk %}">{% translate "اعتماد" %}</a>
+            <a class="ui-button ui-button--primary" href="{% url 'kitchen:version_approve' version.pk %}">{% translate "اعتماد" %}</a>
           {% endif %}
           {% if can_reject %}
-            <a class="btn btn--ghost" href="{% url 'kitchen:version_reject' version.pk %}">{% translate "رفض" %}</a>
+            <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_reject' version.pk %}">{% translate "رفض" %}</a>
           {% endif %}
         {% endif %}
         {% if version.status == "APPROVED" and can_activate %}
-          <a class="btn btn--primary" href="{% url 'kitchen:version_activate' version.pk %}">{% translate "تفعيل" %}</a>
+          <a class="ui-button ui-button--primary" href="{% url 'kitchen:version_activate' version.pk %}">{% translate "تفعيل" %}</a>
         {% endif %}
         {% if version.status == "ACTIVE" and can_activate %}
-          <a class="btn btn--ghost" href="{% url 'kitchen:version_supersede' version.pk %}">{% translate "استبدال" %}</a>
+          <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_supersede' version.pk %}">{% translate "استبدال" %}</a>
         {% endif %}
       </div>
     </div>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "بيانات النسخة" %}</h2>
-      <dl class="formgrid">
-        <div><dt class="muted">{% translate "حجم الدفعة" %}</dt><dd>{{ version.batch_size }}</dd></div>
-        <div><dt class="muted">{% translate "الناتج المتوقع" %}</dt>
+      <dl class="ui-form-grid">
+        <div><dt class="ui-text-muted">{% translate "حجم الدفعة" %}</dt><dd>{{ version.batch_size }}</dd></div>
+        <div><dt class="ui-text-muted">{% translate "الناتج المتوقع" %}</dt>
           <dd>{{ version.expected_output_quantity }} {{ version.output_unit.code }}</dd></div>
-        <div><dt class="muted">{% translate "يسري من" %}</dt>
+        <div><dt class="ui-text-muted">{% translate "يسري من" %}</dt>
           <dd>{% if version.effective_from %}<code dir="ltr">{{ version.effective_from|date:"Y-m-d" }}</code>{% else %}—{% endif %}</dd></div>
-        <div><dt class="muted">{% translate "حتى" %}</dt>
+        <div><dt class="ui-text-muted">{% translate "حتى" %}</dt>
           <dd>{% if version.effective_to %}<code dir="ltr">{{ version.effective_to|date:"Y-m-d" }}</code>{% elif version.effective_from %}{% translate "مفتوح" %}{% else %}—{% endif %}</dd></div>
-        <div><dt class="muted">{% translate "مرجع الاعتماد" %}</dt>
+        <div><dt class="ui-text-muted">{% translate "مرجع الاعتماد" %}</dt>
           <dd>{% if version.approval_reference %}<code dir="ltr">{{ version.approval_reference }}</code> · {{ version.get_approval_evidence_kind_display }}{% else %}—{% endif %}</dd></div>
-        <div><dt class="muted">{% translate "المعتمِد" %}</dt>
+        <div><dt class="ui-text-muted">{% translate "المعتمِد" %}</dt>
           <dd>{% if version.approved_by %}{{ version.approved_by }}{% else %}—{% endif %}</dd></div>
         {% if version.superseded_by_version %}
-          <div><dt class="muted">{% translate "استُبدلت بـ" %}</dt>
+          <div><dt class="ui-text-muted">{% translate "استُبدلت بـ" %}</dt>
             <dd><a href="{% url 'kitchen:version_detail' version.superseded_by_version.pk %}">v{{ version.superseded_by_version.version_number }}</a></dd></div>
         {% endif %}
         {% if version.rejection_reason %}
-          <div><dt class="muted">{% translate "سبب الرفض" %}</dt><dd>{{ version.rejection_reason }}</dd></div>
+          <div><dt class="ui-text-muted">{% translate "سبب الرفض" %}</dt><dd>{{ version.rejection_reason }}</dd></div>
         {% endif %}
       </dl>
       {% if version.instructions %}<p>{{ version.instructions }}</p>{% endif %}
     </section>
 
     {% if submission_problems %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "ما يمنع الإرسال" %}</h2>
         <ul>{% for problem in submission_problems %}<li>{{ problem }}</li>{% endfor %}</ul>
       </section>
     {% endif %}
 
     {% if review_gaps and version.status == "SUBMITTED" %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "توقيعات ناقصة" %}</h2>
         <ul>{% for gap in review_gaps %}<li>{{ gap }}</li>{% endfor %}</ul>
-        <p class="muted">{% translate "الاعتماد النهائي مرفوض حتى تكتمل المراجعات الثلاث." %}</p>
+        <p class="ui-text-muted">{% translate "الاعتماد النهائي مرفوض حتى تكتمل المراجعات الثلاث." %}</p>
       </section>
     {% endif %}
 
@@ -114,10 +114,10 @@
       {% include "kitchen/_version_timeline.html" %}
     </div>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "المكوّنات" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead><tr>
             <th>{% translate "الصنف" %}</th>
             <th>{% translate "الكمية المُدخلة" %}</th>
@@ -129,7 +129,7 @@
           <tbody>
             {% for line in lines %}
               <tr>
-                <td data-label="{% translate 'الصنف' %}"><code>{{ line.item.code }}</code> {{ line.item.name_ar }}</td>
+                <td data-label="{% translate 'الصنف' %}"><code>{{ line.item.code }}</code> {{ line.item.name }}</td>
                 <td data-label="{% translate 'الكمية المُدخلة' %}">{{ line.entered_quantity }} {% if line.entered_unit %}{{ line.entered_unit.code }}{% else %}{{ line.package_unit.code }}{% endif %}</td>
                 <td data-label="{% translate 'الكمية المعتمدة' %}">{{ line.base_quantity }} {{ line.item.base_unit.code }}</td>
                 <td data-label="{% translate 'تصنيف الكلفة' %}">{{ line.get_cost_class_display }}</td>
@@ -148,15 +148,15 @@
       </div>
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       {# The nested sub-recipes this version is built on. Each names one exact  #}
       {# child version and keeps naming it: a newer blend never re-points a     #}
       {# dish that was already written (RCP-072).                               #}
       <h2>{% translate "الوصفات الفرعية" %}</h2>
       {% if components %}
-        <div class="data-table-shell" tabindex="0">
-          <table class="table responsive-table">
-            <caption class="visually-hidden">{% translate "الوصفات الفرعية غير المخزنية" %}</caption>
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
+            <caption class="ui-visually-hidden">{% translate "الوصفات الفرعية غير المخزنية" %}</caption>
             <thead>
               <tr>
                 <th scope="col">{% translate "الترتيب" %}</th>
@@ -171,7 +171,7 @@
                   <td data-label="{% translate 'الترتيب' %}">{{ component.line_order }}</td>
                   <td data-label="{% translate 'الوصفة الفرعية' %}">
                     <a href="{% url 'kitchen:version_detail' component.component_version_id %}">
-                      {{ component.component_recipe.code }} — {{ component.component_recipe.name_ar }}
+                      {{ component.component_recipe.code }} — {{ component.component_recipe.name }}
                     </a>
                   </td>
                   <td data-label="{% translate 'النسخة' %}">v{{ component.component_version.version_number }}</td>
@@ -182,29 +182,29 @@
           </table>
         </div>
       {% else %}
-        <p class="empty">{% translate "لا تحتوي هذه النسخة على وصفات فرعية." %}</p>
+        <p class="ui-table__empty">{% translate "لا تحتوي هذه النسخة على وصفات فرعية." %}</p>
       {% endif %}
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "خطوات الطريقة" %}</h2>
       <ol>
         {% for step in steps %}
           <li>
             {{ step.instruction_ar }}
             {% if step.heat_instruction_ar %} — {{ step.heat_instruction_ar }}{% endif %}
-            {% if step.is_critical %} <span class="chip chip--off">{% translate "نقطة حرجة" %}</span>{% endif %}
+            {% if step.is_critical %} <span class="ui-badge ui-badge--neutral">{% translate "نقطة حرجة" %}</span>{% endif %}
           </li>
         {% empty %}
-          <li class="muted">{% translate "لم تُسجَّل خطوات." %}</li>
+          <li class="ui-text-muted">{% translate "لم تُسجَّل خطوات." %}</li>
         {% endfor %}
       </ol>
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "تعريفات الحصص" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead><tr>
             <th>{% translate "الرمز" %}</th>
             <th>{% translate "الاسم" %}</th>
@@ -216,7 +216,7 @@
             {% for serving in servings %}
               <tr>
                 <td data-label="{% translate 'الرمز' %}"><code>{{ serving.code }}</code></td>
-                <td data-label="{% translate 'الاسم' %}">{{ serving.name_ar }}</td>
+                <td data-label="{% translate 'الاسم' %}">{{ serving.name }}</td>
                 <td data-label="{% translate 'الكمية' %}">{{ serving.serving_quantity }} {{ serving.serving_unit.code }}</td>
                 {# A conversion factor is a technical identity: always a period. #}
                 <td data-label="{% translate 'معامل الدفعة' %}"><code dir="ltr">{{ serving.factor_display }}</code></td>
@@ -231,7 +231,7 @@
     </section>
 
     {% if siblings %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "نسخ أخرى من هذه الوصفة" %}</h2>
         <ul>
           {% for sibling in siblings %}

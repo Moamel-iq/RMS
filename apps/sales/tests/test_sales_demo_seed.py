@@ -112,8 +112,8 @@ def demo_ready(
     from apps.accounting.management.commands.seed_chart_of_accounts import CHART
     from apps.accounting.services import create_account
 
-    for code, name_ar, name_en in CHART:
-        create_account(organization=organization, code=code, name_ar=name_ar, name_en=name_en)
+    for code, name, name in CHART:
+        create_account(organization=organization, code=code, name=name)
     return {"organization": organization, "branch": branch, "second_branch": second_branch}
 
 
@@ -312,7 +312,7 @@ def test_the_delivery_applications_are_fictional(
     _seed()
     for application in DeliveryApplication.objects.all():
         assert application.code.startswith(DEMO_CODE_PREFIX)
-        assert "تجريبي" in application.name_ar
+        assert "تجريبي" in application.name
 
 
 @override_settings(DEBUG=True)

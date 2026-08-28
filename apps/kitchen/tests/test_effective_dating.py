@@ -518,7 +518,7 @@ class TestComparison:
         other = create_recipe(
             organization=organization,
             code="OTHER-CMP",
-            name_ar="أخرى",
+            name="أخرى",
             recipe_type=RecipeType.PORTION,
             created_by=manager,
         )
@@ -560,7 +560,7 @@ class TestComparison:
         add_recipe_serving(
             version=second,
             code="TWO",
-            name_ar="حصة ثانية",
+            name="حصة ثانية",
             serving_quantity=Decimal("2"),
             serving_unit=kilogram,
         )

@@ -9,11 +9,11 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="accounting-trial-balance">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <div class="ui-page" id="accounting-trial-balance">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
     </div>
 
@@ -22,18 +22,18 @@
         {% include "accounting/_report_filters.html" %}
       {% endwith %}
 
-      <section class="formcard {% if not report.is_balanced %}card--warn{% endif %}">
+      <section class="ui-form-card {% if not report.is_balanced %}ui-card--warning{% endif %}">
         <h2>
           {% if report.is_balanced %}
-            <span class="chip chip--ok">{% translate "متوازن" %}</span>
+            <span class="ui-badge ui-badge--success">{% translate "متوازن" %}</span>
           {% else %}
-            <span class="chip chip--warn">
+            <span class="ui-badge ui-badge--warning">
               {% blocktranslate with amount=report.difference %}غير متوازن — الفرق {{ amount }}{% endblocktranslate %}
             </span>
           {% endif %}
         </h2>
-        <div class="data-table-shell">
-          <table class="table responsive-table" id="trial-balance-table">
+        <div class="ui-table-scroll">
+          <table class="ui-table ui-table--responsive" id="trial-balance-table">
             <thead><tr>
               <th>{% translate "الرمز" %}</th>
               <th>{% translate "الحساب" %}</th>
@@ -50,7 +50,7 @@
                   <td><code dir="ltr">{{ row.account.code }}</code></td>
                   <td>
                     <a href="{% url 'accounting:general_ledger' %}?organization={{ organization.pk }}&account={{ row.account.pk }}">
-                      {{ row.account.name_ar }}
+                      {{ row.account.name }}
                     </a>
                   </td>
                   <td><bdi dir="ltr">{{ row.opening_debit|money_full }}</bdi></td>
@@ -61,7 +61,7 @@
                   <td><bdi dir="ltr">{{ row.closing_credit|money_full }}</bdi></td>
                 </tr>
               {% empty %}
-                <tr><td colspan="8" class="empty">{% translate "لا حركة داخل هذه المرشحات." %}</td></tr>
+                <tr><td colspan="8" class="ui-table__empty">{% translate "لا حركة داخل هذه المرشحات." %}</td></tr>
               {% endfor %}
             </tbody>
             <tfoot>
@@ -79,7 +79,7 @@
         </div>
       </section>
     {% else %}
-      <section class="formcard"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
+      <section class="ui-form-card"><p class="ui-table__empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
     {% endif %}
   </div>
 {% endblock %}

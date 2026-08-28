@@ -11,25 +11,25 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="cashier-shift-detail">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="ui-page" id="cashier-shift-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:shift_list' %}">{% translate "إقفال الكاشير" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ shift.business_date|date:"Y-m-d" }}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">
-          <span class="chip">{{ shift.get_status_display }}</span>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">
+          <span class="ui-badge">{{ shift.get_status_display }}</span>
           {% if shift.number %}<bdi dir="ltr"><code>{{ shift.number }}</code></bdi>{% endif %}
           <span>{% translate "الكاشير" %}: {{ shift.cashier.get_full_name|default:shift.cashier.username }}</span>
         </p>
       </div>
-      <div class="pagehead__actions">
+      <div class="ui-page-header__actions">
         {% if may_close %}
-          <a class="btn btn--secondary" href="#close-form">{% translate "إقفال الصندوق" %}</a>
+          <a class="ui-button ui-button--secondary" href="#close-form">{% translate "إقفال الصندوق" %}</a>
         {% endif %}
         {% if may_reopen %}
           <form method="post" action="{% url 'sales:shift_reopen' shift.pk %}"
@@ -37,7 +37,7 @@
                 data-confirm-title="{% translate 'إعادة فتح الصندوق' %}">
             {% csrf_token %}
             <input type="hidden" name="reason" value="{% translate 'إعادة عدّ' %}">
-            <button class="btn btn--ghost" type="submit">{% translate "إعادة الفتح" %}</button>
+            <button class="ui-button ui-button--ghost" type="submit">{% translate "إعادة الفتح" %}</button>
           </form>
         {% endif %}
         {% if may_approve %}
@@ -45,7 +45,7 @@
                 data-confirm="{% translate 'سيُرحَّل فرق الصندوق وحده — لا إيراد ولا عهدة ولا بطاقات. الفرق الصفري لا يكتب قيداً، ويظل الإقفال معتمداً.' %}"
                 data-confirm-title="{% translate 'اعتماد الإقفال' %}">
             {% csrf_token %}
-            <button class="btn btn--primary" type="submit">{% translate "اعتماد" %}</button>
+            <button class="ui-button ui-button--primary" type="submit">{% translate "اعتماد" %}</button>
           </form>
         {% endif %}
         {% if may_reverse %}
@@ -54,7 +54,7 @@
                 data-confirm-title="{% translate 'تأكيد العكس' %}">
             {% csrf_token %}
             <input type="hidden" name="reason" value="{% translate 'عكس إقفال صندوق' %}">
-            <button class="btn btn--danger-quiet" type="submit">{% translate "عكس" %}</button>
+            <button class="ui-button ui-button--danger-ghost" type="submit">{% translate "عكس" %}</button>
           </form>
         {% endif %}
       </div>
@@ -64,58 +64,58 @@
       {# Maker-checker on the actor. The button is absent rather than disabled, #}
       {# and the reason is stated: a control nobody can see is a control        #}
       {# somebody will try to work around.                                      #}
-      <p class="banner" role="note">
+      <p class="ui-notice" role="note">
         {% translate "أنت من أقفل هذا الصندوق، ولذلك لا يمكنك اعتماده. الرقابة هنا على الشخص لا على الصلاحية: من عدّ الدرج لا يعتمد عدّه، ولو كان يملك صلاحية الاعتماد." %}
       </p>
     {% endif %}
 
     {% if shift.status == "REVERSED" %}
-      <p class="banner banner--bad" role="note">
+      <p class="ui-notice ui-notice--error" role="note">
         {% blocktranslate with reason=shift.reversal_reason %}هذا الإقفال معكوس: {{ reason }}{% endblocktranslate %}
       </p>
     {% endif %}
 
-    <div class="statrow">
-      <div class="stat">
-        <span class="stat__label">{% translate "العهدة الافتتاحية" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.opening_float|iqd }}</code></bdi></span>
+    <div class="ui-metric-grid">
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "العهدة الافتتاحية" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ shift.opening_float|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">
+      <div class="ui-metric">
+        <span class="ui-metric__label">
           {% if shift.status == "OPEN" %}{% translate "النقد المتوقَّع الآن" %}{% else %}{% translate "النقد المتوقَّع" %}{% endif %}
         </span>
-        <span class="stat__value">
+        <span class="ui-metric__value">
           <bdi dir="ltr"><code>{% if shift.status == "OPEN" %}{{ expected_cash_now|iqd }}{% else %}{{ shift.expected_cash|iqd }}{% endif %}</code></bdi>
         </span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "النقد المعدود" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.counted_cash|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "النقد المعدود" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ shift.counted_cash|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "الفرق" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ shift.variance_amount|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "الفرق" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ shift.variance_amount|iqd }}</code></bdi></span>
       </div>
     </div>
 
-    <p class="banner" role="note">
+    <p class="ui-notice" role="note">
       {% translate "الإقفال يُرحّل شيئاً واحداً: فرق الصندوق المعتمد. لا يُرحّل مبيعات اليوم — البيع اعترف بالإيراد وأثبت النقد يوم رُحِّل، وإعادة ترحيلها تضاعف كل رقم نقدي في النظام دون أن يظهر ذلك في أي تقرير، لأن كلا القيدين يبدو صحيحاً ويسمّي مستنداً حقيقياً. ولا يُرحّل العهدة الافتتاحية، فهي مال المطعم نُقل من الخزنة إلى الدرج ولم يقع حدث اقتصادي. ولا البطاقات، فهي في مقاصة البطاقات حتى يحوّلها المُصدِر وليست في الدرج ليُعدّ." %}
     </p>
 
     {% if shift.sales_day %}
-      <p class="pagehead__hint">
+      <p class="ui-page-header__subtitle">
         {% translate "يوم المبيعات" %}:
         <a href="{% url 'sales:day_detail' shift.sales_day.pk %}">
           <bdi dir="ltr"><code>{{ shift.sales_day.number|default:shift.sales_day.business_date|date:"Y-m-d" }}</code></bdi>
         </a>
-        <span class="chip">{{ shift.sales_day.get_status_display }}</span>
+        <span class="ui-badge">{{ shift.sales_day.get_status_display }}</span>
       </p>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "العدّ حسب وجهة التحصيل" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "الوجهة" %}</th>
@@ -136,51 +136,51 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="5" class="empty">{% translate "لم يُسجَّل عدّ بعد." %}</td>
+                <td colspan="5" class="ui-table__empty">{% translate "لم يُسجَّل عدّ بعد." %}</td>
               </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
-    <p class="pagehead__hint">
+    <p class="ui-page-header__subtitle">
       {% translate "البطاقات تُعدّ ولا تُرحَّل: خلاف بين إجمالي البطاقات وشريط الجهاز نتيجةٌ حقيقية تُكتشف في يومها، لكنه خلاف على رصيد مقاصة لم يحوّله المُصدِر بعد، والاعتراف بفرقه اعترافٌ بفرق على مالٍ لم يعدّه أحد. وذمم التطبيقات ليست في الدرج أصلاً: تُسدَّد بتسوية لا بعدّ، ولذلك لا يُعرض لها صندوق يُملأ." %}
     </p>
 
     {% if count_form %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "تسجيل عدّ" %}</h2>
         <form method="post" novalidate>
           {% csrf_token %}
           {% include "components/form_error_summary.html" with form=count_form %}
-          <div class="formgrid">
+          <div class="ui-form-grid">
             {% for field in count_form %}
               {% include "settings/_field.html" with field=field %}
             {% endfor %}
           </div>
-          <div class="formactions">
-            <button class="btn btn--primary" type="submit">{% translate "حفظ العدّ" %}</button>
+          <div class="ui-form-actions">
+            <button class="ui-button ui-button--primary" type="submit">{% translate "حفظ العدّ" %}</button>
           </div>
         </form>
       </section>
     {% endif %}
 
     {% if close_form %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2 id="close-form">{% translate "إقفال الصندوق" %}</h2>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% translate "يُشترط أن يكون يوم المبيعات مرحّلاً: المتوقَّع المشتق من مسودة هدفٌ يمكن أن يتحرك بعد العدّ، ويصبح الفرق فرقاً بين عدّ وشيء ما زال يُحرَّر. عند الإقفال تُختم الأرقام ولا تعود قابلة للتعديل — العودة تكون بإعادة فتح مُسجَّلة." %}
         </p>
         <form method="post" action="{% url 'sales:shift_close' shift.pk %}" novalidate>
           {% csrf_token %}
           {% include "components/form_error_summary.html" with form=close_form %}
-          <div class="formgrid">
+          <div class="ui-form-grid">
             {% for field in close_form %}
               {% include "settings/_field.html" with field=field %}
             {% endfor %}
           </div>
-          <div class="formactions">
-            <button class="btn btn--secondary" type="submit">{% translate "إقفال" %}</button>
+          <div class="ui-form-actions">
+            <button class="ui-button ui-button--secondary" type="submit">{% translate "إقفال" %}</button>
           </div>
         </form>
       </section>

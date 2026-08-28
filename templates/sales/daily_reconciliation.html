@@ -14,56 +14,56 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="daily-reconciliation">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <div class="ui-page" id="daily-reconciliation">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
     </div>
 
-    <form class="filterbar" method="get">
-      <label class="field">
-        <span class="field__label">{% translate "من" %}</span>
+    <form class="ui-filter-bar" method="get">
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "من" %}</span>
         <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}">
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "إلى" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "إلى" %}</span>
         <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}">
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "الفرع" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "الفرع" %}</span>
         <select name="branch">
           <option value="">{% translate "كل الفروع" %}</option>
           {% for branch in branches %}
             <option value="{{ branch.pk }}" {% if selected_branch == branch.pk|stringformat:"s" %}selected{% endif %}>
-              {{ branch.code }} — {{ branch.name_ar }}
+              {{ branch.code }} — {{ branch.name }}
             </option>
           {% endfor %}
         </select>
       </label>
-      <label class="field field--check">
+      <label class="ui-field ui-field--check">
         <input type="checkbox" name="dirty" value="1" {% if only_dirty %}checked{% endif %}>
-        <span class="field__label">{% translate "الأيام غير المطابقة فقط" %}</span>
+        <span class="ui-field__label">{% translate "الأيام غير المطابقة فقط" %}</span>
       </label>
-      <button class="btn btn--secondary" type="submit">{% translate "عرض" %}</button>
+      <button class="ui-button ui-button--secondary" type="submit">{% translate "عرض" %}</button>
     </form>
 
-    <div class="statrow">
-      <div class="stat">
-        <span class="stat__label">{% translate "أخطاء" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ error_count }}</code></bdi></span>
+    <div class="ui-metric-grid">
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "أخطاء" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ error_count }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "ملاحظات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ advisory_count }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "ملاحظات" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ advisory_count }}</code></bdi></span>
       </div>
       {# Not a failure. A branch whose drawer is not counted yet has done      #}
       {# nothing wrong, and colouring it red would make the screen red every   #}
       {# morning until somebody approved a shift.                             #}
-      <div class="stat">
-        <span class="stat__label">{% translate "حدود التغطية" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ limitation_count }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "حدود التغطية" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ limitation_count }}</code></bdi></span>
       </div>
     </div>
 
@@ -71,66 +71,66 @@
     {# card's last child sits flush inside its edge, and anything after it would #}
     {# be pulled up over the last row.                                           #}
     {% for row in rows %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>
           <bdi dir="ltr"><code>{{ row.business_date|date:"Y-m-d" }}</code></bdi>
-          · <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name_ar }}
+          · <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name }}
           {% if row.is_clean %}
-            <span class="chip chip--ok">{% translate "مطابق" %}</span>
+            <span class="ui-badge ui-badge--success">{% translate "مطابق" %}</span>
           {% else %}
-            <span class="chip chip--bad">{% translate "يحتاج مراجعة" %}</span>
+            <span class="ui-badge ui-badge--danger">{% translate "يحتاج مراجعة" %}</span>
           {% endif %}
         </h2>
 
-        <div class="statrow">
-          <div class="stat">
-            <span class="stat__label">{% translate "النقد المعدود" %}</span>
-            <span class="stat__value">
+        <div class="ui-metric-grid">
+          <div class="ui-metric">
+            <span class="ui-metric__label">{% translate "النقد المعدود" %}</span>
+            <span class="ui-metric__value">
               {% if row.counted_cash is None %}
-                <span class="muted">{% translate "لم يُعدّ" %}</span>
+                <span class="ui-text-muted">{% translate "لم يُعدّ" %}</span>
               {% else %}
                 <bdi dir="ltr"><code>{{ row.counted_cash|iqd }}</code></bdi>
               {% endif %}
             </span>
           </div>
-          <div class="stat">
-            <span class="stat__label">{% translate "فرق الصندوق" %}</span>
-            <span class="stat__value">
+          <div class="ui-metric">
+            <span class="ui-metric__label">{% translate "فرق الصندوق" %}</span>
+            <span class="ui-metric__value">
               {% if row.cash_variance is None %}
-                <span class="muted">—</span>
+                <span class="ui-text-muted">—</span>
               {% else %}
                 <bdi dir="ltr"><code>{{ row.cash_variance|iqd }}</code></bdi>
               {% endif %}
             </span>
           </div>
-          <div class="stat">
-            <span class="stat__label">{% translate "المرتجعات المرحّلة" %}</span>
-            <span class="stat__value"><bdi dir="ltr"><code>{{ row.adjustments_total|iqd }}</code></bdi></span>
+          <div class="ui-metric">
+            <span class="ui-metric__label">{% translate "المرتجعات المرحّلة" %}</span>
+            <span class="ui-metric__value"><bdi dir="ltr"><code>{{ row.adjustments_total|iqd }}</code></bdi></span>
           </div>
-          <div class="stat">
-            <span class="stat__label">{% translate "حركة ذمم التطبيقات" %}</span>
-            <span class="stat__value"><bdi dir="ltr"><code>{{ row.receivable_movement|iqd }}</code></bdi></span>
+          <div class="ui-metric">
+            <span class="ui-metric__label">{% translate "حركة ذمم التطبيقات" %}</span>
+            <span class="ui-metric__value"><bdi dir="ltr"><code>{{ row.receivable_movement|iqd }}</code></bdi></span>
           </div>
           {# Only cancellations reduce theoretical consumption. A return does #}
           {# not: الطعام طُبخ فعلاً وخرجت مكوّناته، وطرحه يصنع فرقاً غير مفسّر #}
           {# بمقدار المرتجع بالضبط.                                            #}
-          <div class="stat">
-            <span class="stat__label">{% translate "كمية الإلغاء قبل التنفيذ" %}</span>
-            <span class="stat__value"><bdi dir="ltr"><code>{{ row.cancelled_quantity }}</code></bdi></span>
+          <div class="ui-metric">
+            <span class="ui-metric__label">{% translate "كمية الإلغاء قبل التنفيذ" %}</span>
+            <span class="ui-metric__value"><bdi dir="ltr"><code>{{ row.cancelled_quantity }}</code></bdi></span>
           </div>
         </div>
 
         {% if row.findings %}
-          <h3 class="section-title">{% translate "النتائج" %}</h3>
+          <h3 class="ui-section-title">{% translate "النتائج" %}</h3>
           <ul>
             {% for finding in row.findings %}
               <li>
                 {% if finding.severity == "ERROR" %}
-                  <span class="chip chip--bad">{% translate "خطأ" %}</span>
+                  <span class="ui-badge ui-badge--danger">{% translate "خطأ" %}</span>
                 {% elif finding.severity == "ADVISORY" %}
-                  <span class="chip">{% translate "ملاحظة" %}</span>
+                  <span class="ui-badge">{% translate "ملاحظة" %}</span>
                 {% else %}
-                  <span class="chip chip--quiet">{% translate "حدّ تغطية" %}</span>
+                  <span class="ui-badge ui-badge--neutral">{% translate "حدّ تغطية" %}</span>
                 {% endif %}
                 <bdi dir="ltr"><code>{{ finding.code }}</code></bdi>
                 <span>{{ finding.message }}</span>
@@ -139,7 +139,7 @@
           </ul>
         {% endif %}
 
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% if row.sales_day %}
             <a href="{% url 'sales:day_detail' row.sales_day.pk %}">{% translate "فتح يوم المبيعات" %}</a>
           {% endif %}
@@ -148,8 +148,8 @@
           {% endif %}
         </p>
 
-        <div class="data-table-shell">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll">
+          <table class="ui-table ui-table--responsive">
             <thead>
               <tr>
                 <th scope="col">{% translate "الوجهة" %}</th>
@@ -166,7 +166,7 @@
                   <td data-label="{% translate 'المشتق من السطور' %}"><bdi dir="ltr"><code>{{ leg.derived }}</code></bdi></td>
                   <td data-label="{% translate 'الفرق' %}">
                     {% if leg.agrees %}
-                      <span class="chip chip--ok">—</span>
+                      <span class="ui-badge ui-badge--success">—</span>
                     {% else %}
                       <bdi dir="ltr"><code>{{ leg.difference|iqd }}</code></bdi>
                     {% endif %}
@@ -178,7 +178,7 @@
         </div>
       </section>
     {% empty %}
-      <p class="empty">
+      <p class="ui-table__empty">
         {% translate "لا توجد أيام في هذه المدة. التقرير يقرأ المستندات القائمة ولا يُنشئ شيئاً." %}
       </p>
     {% endfor %}

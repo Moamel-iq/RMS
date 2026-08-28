@@ -11,68 +11,68 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="application-receivable-detail">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="ui-page" id="application-receivable-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:receivable_list' %}">{% translate "ذمم التطبيقات" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ application.code }}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }} — {{ application.name_ar }}</h1>
-        <p class="pagehead__hint">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }} — {{ application.name }}</h1>
+        <p class="ui-page-header__subtitle">
           {% blocktranslate with as_of=as_of|date:"Y-m-d" %}حتى {{ as_of }}{% endblocktranslate %}
           · <bdi dir="ltr"><code>{{ application.code }}</code></bdi>
         </p>
       </div>
     </div>
 
-    <form class="toolbar" method="get">
-      <label class="field">
-        <span class="field__label">{% translate "من تاريخ" %}</span>
+    <form class="ui-filter-bar" method="get">
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "من تاريخ" %}</span>
         <input type="date" name="from" value="{% if date_from %}{{ date_from|date:'Y-m-d' }}{% endif %}">
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "حتى تاريخ" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "حتى تاريخ" %}</span>
         <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}">
       </label>
-      <button class="btn btn--secondary" type="submit">{% translate "تطبيق" %}</button>
+      <button class="ui-button ui-button--secondary" type="submit">{% translate "تطبيق" %}</button>
     </form>
 
-    <div class="statrow">
-      <div class="stat">
-        <span class="stat__label">{% translate "الرصيد الافتتاحي" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ opening|iqd }}</code></bdi></span>
+    <div class="ui-metric-grid">
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "الرصيد الافتتاحي" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ opening|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "الرصيد الختامي" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ closing|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "الرصيد الختامي" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ closing|iqd }}</code></bdi></span>
       </div>
       {% for bucket in position.buckets %}
-        <div class="stat">
-          <span class="stat__label"><bdi dir="ltr"><code>{{ bucket.label }}</code></bdi></span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ bucket.amount|iqd }}</code></bdi></span>
+        <div class="ui-metric">
+          <span class="ui-metric__label"><bdi dir="ltr"><code>{{ bucket.label }}</code></bdi></span>
+          <span class="ui-metric__value"><bdi dir="ltr"><code>{{ bucket.amount|iqd }}</code></bdi></span>
         </div>
       {% endfor %}
       {% if position.expected_settlement_date %}
-        <div class="stat">
-          <span class="stat__label">{% translate "استحقاق أقدم مديونية" %}</span>
-          <span class="stat__value">
+        <div class="ui-metric">
+          <span class="ui-metric__label">{% translate "استحقاق أقدم مديونية" %}</span>
+          <span class="ui-metric__value">
             <bdi dir="ltr"><code>{{ position.expected_settlement_date|date:"Y-m-d" }}</code></bdi>
           </span>
         </div>
       {% endif %}
     </div>
 
-    <p class="banner" role="note">
+    <p class="ui-notice" role="note">
       {% translate "لا يوجد حقل رصيد في قاعدة البيانات: كل رقم هنا مشتق من الحركات في كل مرة يُسأل عنها. الرصيد المخزَّن رقم يمكن أن يختلف مع الحركات التي أنتجته، والاختلاف يُكتشف دائماً في وسط نقاش مع الطرف الآخر." %}
     </p>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "حركات الذمة" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "التاريخ" %}</th>
@@ -107,7 +107,7 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="7" class="empty">{% translate "لا توجد حركات في هذه الفترة." %}</td>
+                <td colspan="7" class="ui-table__empty">{% translate "لا توجد حركات في هذه الفترة." %}</td>
               </tr>
             {% endfor %}
           </tbody>
@@ -115,10 +115,10 @@
       </div>
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "آخر التسويات" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "الفترة" %}</th>
@@ -142,12 +142,12 @@
                   <bdi dir="ltr"><code>{{ settlement.remitted_amount|iqd }}</code></bdi>
                 </td>
                 <td data-label="{% translate 'الحالة' %}">
-                  <span class="chip">{{ settlement.get_status_display }}</span>
+                  <span class="ui-badge">{{ settlement.get_status_display }}</span>
                 </td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="4" class="empty">{% translate "لا توجد تسويات لهذا التطبيق بعد." %}</td>
+                <td colspan="4" class="ui-table__empty">{% translate "لا توجد تسويات لهذا التطبيق بعد." %}</td>
               </tr>
             {% endfor %}
           </tbody>

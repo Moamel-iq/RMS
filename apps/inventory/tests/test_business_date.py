@@ -422,7 +422,7 @@ class TestAmbiguousBusinessDates:
         second_branch.business_day_start_time = datetime.time(0, 0)
         second_branch.save(update_fields=["business_day_start_time"])
         other_store = create_warehouse(
-            branch=Branch.objects.get(pk=second_branch.pk), code="KAR", name_ar="مخزن الكرادة"
+            branch=Branch.objects.get(pk=second_branch.pk), code="KAR", name="مخزن الكرادة"
         )
 
         with audit_context(actor=superuser), pytest.raises(ValidationError) as caught:

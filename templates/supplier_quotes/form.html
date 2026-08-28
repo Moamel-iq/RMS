@@ -1,0 +1,101 @@
+{% extends shell_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block page %}
+  <section class="ui-page ui-quotes-page" aria-labelledby="supplier-quote-form-title">
+    <nav class="ui-breadcrumb" aria-label="مسار الصفحة">
+      <a href="{% url 'supplier_quotes:list' %}">عروض الموردين</a><span aria-hidden="true">/</span><span aria-current="page">{{ page_title }}</span>
+    </nav>
+    <header class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">المشتريات</p>
+        <h1 class="ui-page-header__title" id="supplier-quote-form-title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">دوّن بيانات المورد كنص مستقل، ثم أرفق ملف العرض إن كان متوفراً.</p>
+      </div>
+      <div class="ui-page-header__actions"><a class="ui-button ui-button--ghost" href="{% url 'supplier_quotes:list' %}">رجوع إلى القائمة</a></div>
+    </header>
+
+    <form method="post" enctype="multipart/form-data" class="ui-form ui-form-card ui-quote-form" id="supplier-quote-form" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="ui-error-summary" role="alert">
+          <strong>تعذّر حفظ العرض</strong>
+          {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        </div>
+      {% endif %}
+
+      <section class="ui-form-section" aria-labelledby="quote-data-title">
+        <header class="ui-form-section__header">
+          <div><h2 id="quote-data-title">بيانات العرض</h2><p>الاسم لا يرتبط بسجل الموردين ولا ينشئ مورداً جديداً.</p></div>
+        </header>
+        <div class="ui-form-grid">
+          {% for field in form %}
+            <div class="ui-field{% if field.errors %} ui-field--invalid{% endif %}{% if field.name == 'notes' %} ui-field--wide{% endif %}">
+              <label class="ui-field__label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="ui-field__required" aria-hidden="true"> *</span>{% endif %}</label>
+              {{ field }}
+              {% if field.help_text %}<p class="ui-field__hint">{{ field.help_text }}</p>{% endif %}
+              {% for error in field.errors %}<p class="ui-field__error" id="{{ field.auto_id }}-error">{{ error }}</p>{% endfor %}
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="ui-form-section" aria-labelledby="quote-document-title">
+        <header class="ui-form-section__header">
+          <div><h2 id="quote-document-title">مستند العرض <span class="ui-badge ui-badge--neutral">اختياري</span></h2><p>يمكن حفظ العرض الآن وإضافة الأصناف أو استبدال المرفق لاحقاً.</p></div>
+        </header>
+        {% for error in attachment_form.file.errors %}<p class="ui-field__error" role="alert">{{ error }}</p>{% endfor %}
+        <label class="ui-upload" for="id_file">
+          <span class="ui-upload__icon" aria-hidden="true">⇧</span>
+          <span class="ui-upload__copy"><strong>اختر PDF أو صورة</strong><small>JPG أو JPEG أو PNG، بحد أقصى 10 MB</small></span>
+          <input id="id_file" name="file" type="file" accept="application/pdf,image/jpeg,image/png" data-quote-file>
+        </label>
+        <div class="ui-file-preview" id="file-preview" aria-live="polite"><p class="ui-text-muted">لا يوجد ملف محدد.</p></div>
+      </section>
+
+      <footer class="ui-form-actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'supplier_quotes:list' %}">إلغاء</a>
+        <button class="ui-button ui-button--primary" type="submit">حفظ العرض</button>
+      </footer>
+    </form>
+  </section>
+
+  <script>
+    (() => {
+      const input = document.querySelector("[data-quote-file]");
+      const output = document.querySelector("#file-preview");
+      let previewUrl = null;
+      if (!input || !output) return;
+      input.addEventListener("change", () => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        output.replaceChildren();
+        const file = input.files && input.files[0];
+        if (!file) {
+          const empty = document.createElement("p");
+          empty.className = "ui-text-muted";
+          empty.textContent = "لا يوجد ملف محدد.";
+          output.append(empty);
+          return;
+        }
+        const meta = document.createElement("p");
+        meta.className = "ui-file-preview__meta";
+        meta.textContent = `سيتم رفع: ${file.name}`;
+        output.append(meta);
+        previewUrl = URL.createObjectURL(file);
+        if (file.type.startsWith("image/")) {
+          const image = document.createElement("img");
+          image.src = previewUrl;
+          image.alt = "معاينة المرفق";
+          image.className = "ui-file-preview__image";
+          output.append(image);
+        } else {
+          const frame = document.createElement("iframe");
+          frame.src = previewUrl;
+          frame.title = "معاينة ملف PDF";
+          frame.className = "ui-file-preview__frame";
+          output.append(frame);
+        }
+      });
+    })();
+  </script>
+{% endblock %}

@@ -59,8 +59,8 @@ class TestLocationConcurrency:
         held = locations.warehouse_quantity(warehouse, item, None)
 
         with audit_context(actor=user):
-            bin_a = locations.create_location(warehouse=warehouse, code="RACE-A", name_ar="أ")
-            bin_b = locations.create_location(warehouse=warehouse, code="RACE-B", name_ar="ب")
+            bin_a = locations.create_location(warehouse=warehouse, code="RACE-A", name="أ")
+            bin_b = locations.create_location(warehouse=warehouse, code="RACE-B", name="ب")
 
         results: list[str] = []
 

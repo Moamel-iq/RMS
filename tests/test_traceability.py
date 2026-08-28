@@ -66,7 +66,13 @@ NON_TEST_MARKERS = ("—", "-", "n/a", "N/A")
 #: nothing to run (`Documented`); one satisfied by a field's shape is inspected
 #: rather than exercised (`Verified`); and one genuinely not built is better
 #: recorded as `Deferred` than quietly dropped.
-KNOWN_STATUSES = frozenset({"Done", "Partial", "Deferred", "Documented", "Verified", "Specified"})
+#: `Withdrawn` is not a synonym for deleted. A requirement that was approved,
+#: built, and then removed from the product is itself a fact the matrix should
+#: keep: the row stays, says so, and cites the migration that withdrew it
+#: instead of a test that no longer exists.
+KNOWN_STATUSES = frozenset(
+    {"Done", "Partial", "Deferred", "Documented", "Verified", "Specified", "Withdrawn"}
+)
 
 
 @dataclass(frozen=True)

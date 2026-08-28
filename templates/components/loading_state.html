@@ -1,0 +1,6 @@
+{% load i18n %}
+{% translate "جارٍ تحميل البيانات…" as default_loading_label %}
+<div class="ui-loading" role="status" aria-live="polite"{% if id %} id="{{ id }}"{% endif %}>
+  <span class="ui-loading__spinner" aria-hidden="true"></span>
+  <span>{{ label|default:default_loading_label }}</span>
+</div>

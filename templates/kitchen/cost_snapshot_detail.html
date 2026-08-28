@@ -10,31 +10,31 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="cost-snapshot-detail">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <div class="ui-page" id="cost-snapshot-detail">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {{ snapshot.recipe_code }} v{{ snapshot.version_number }} —
           {% translate "لقطة كلفة" %}
         </h1>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% translate "سجل دائم لقرار تسعير اتُّخذ في تاريخه. لا يُعدَّل ولا يُحذف؛ ولا يُقارَن بمخزون اليوم — الحركة اللاحقة متوقّعة وليست خطأ." %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% if report_back %}{% url 'kitchen:report_recipe_cost' %}{% else %}{% url 'kitchen:cost_snapshot_list' %}{% endif %}"
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% if report_back %}{% url 'kitchen:report_recipe_cost' %}{% else %}{% url 'kitchen:cost_snapshot_list' %}{% endif %}"
            {% if report_back %}hx-get="{% url 'kitchen:report_recipe_cost' %}" hx-target="main" hx-push-url="true"{% endif %}>
           {% if report_back %}{% translate "تقرير كلفة الوصفات" %}{% else %}{% translate "كل اللقطات" %}{% endif %}
         </a>
-        <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' snapshot.version_id %}">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_detail' snapshot.version_id %}">
           {% translate "تفاصيل النسخة" %}
         </a>
       </div>
     </div>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الأدلة" %}</h2>
-      <dl class="detailgrid">
+      <dl class="ui-definition-list">
         <dt>{% translate "المعرّف العام" %}</dt>
         <dd><code dir="ltr">{{ snapshot.public_id }}</code></dd>
 
@@ -59,7 +59,7 @@
         <dt>{% translate "نقطة قطع الدفتر" %}</dt>
         <dd>
           <code dir="ltr">{{ snapshot.ledger_cutoff_sequence }}</code>
-          <span class="muted">
+          <span class="ui-text-muted">
             {% translate "بهذا الرقم يمكن إعادة اشتقاق نفس الأرصدة بعد سنوات." %}
           </span>
         </dd>
@@ -90,17 +90,17 @@
       </dl>
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الإجماليات" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table">
-          <caption class="visually-hidden">{% translate "إجماليات اللقطة" %}</caption>
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table">
+          <caption class="ui-visually-hidden">{% translate "إجماليات اللقطة" %}</caption>
           <tbody>
             {% for label, amount in class_totals %}
               <tr><th scope="row">{{ label }}</th><td>{{ amount|money }}</td></tr>
             {% endfor %}
             {% if show_approved_loss %}
-              <tr><th scope="row">{% translate "كلفة الفاقد المعتمد (ضمن الكميات)" %}</th><td>{{ approved_loss_cost|money }} <span class="muted">{% translate "معلوماتية ولا تُضاف مرة ثانية" %}</span></td></tr>
+              <tr><th scope="row">{% translate "كلفة الفاقد المعتمد (ضمن الكميات)" %}</th><td>{{ approved_loss_cost|money }} <span class="ui-text-muted">{% translate "معلوماتية ولا تُضاف مرة ثانية" %}</span></td></tr>
             {% endif %}
             <tr>
               <th scope="row">{% translate "إجمالي كلفة المواد المباشرة" %}</th>
@@ -137,11 +137,11 @@
       </div>
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الأسطر" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
-          <caption class="visually-hidden">{% translate "أسطر اللقطة" %}</caption>
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
+          <caption class="ui-visually-hidden">{% translate "أسطر اللقطة" %}</caption>
           <thead>
             <tr>
               <th scope="col">#</th>
@@ -169,7 +169,7 @@
                 <td data-label="{% translate 'رصيد المخزن' %}">
                   <code dir="ltr">{{ line.valuation_quantity_display }}</code>
                   / {{ line.valuation_value|money }}
-                  <span class="muted">({{ line.valuation_lot_count }})</span>
+                  <span class="ui-text-muted">({{ line.valuation_lot_count }})</span>
                 </td>
                 <td data-label="{% translate 'كلفة الوحدة' %}"><code dir="ltr">{{ line.unit_cost_display }}</code></td>
                 <td data-label="{% translate 'القيمة' %}">{{ line.allocated_extension|money }}</td>
@@ -187,14 +187,14 @@
     </section>
 
     {% if servings %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "كلفة الحصص" %}</h2>
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "كل سيناريو بديل مستقل يوزّع الإجمالي كاملاً، ولا تُجمع السيناريوهات." %}
         </p>
-        <div class="data-table-shell" tabindex="0">
-          <table class="table responsive-table">
-            <caption class="visually-hidden">{% translate "سيناريوهات الحصص" %}</caption>
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
+            <caption class="ui-visually-hidden">{% translate "سيناريوهات الحصص" %}</caption>
             <thead>
               <tr>
                 <th scope="col">{% translate "الحصة" %}</th>
@@ -212,8 +212,8 @@
               {% for serving in servings %}
                 <tr>
                   <td data-label="{% translate 'الحصة' %}">
-                    {{ serving.code }} — {{ serving.name_ar }}
-                    {% if serving.is_primary %}<span class="badge">{% translate "أساسية" %}</span>{% endif %}
+                    {{ serving.code }} — {{ serving.name }}
+                    {% if serving.is_primary %}<span class="ui-badge">{% translate "أساسية" %}</span>{% endif %}
                   </td>
                   <td data-label="{% translate 'المعامل' %}"><code dir="ltr">{{ serving.factor_display }}</code></td>
                   <td data-label="{% translate 'كلفة الحصة' %}"><code dir="ltr">{{ serving.cost_per_serving_display }}</code></td>
@@ -241,18 +241,18 @@
     {# verification card rather than inside it — a banner in a card is two    #}
     {# borders round one message.                                             #}
     {% if missing_valuation_lines %}
-      <div class="banner" role="alert"><strong>{% translate "تحذير تقييم" %}</strong><p>{% blocktranslate count count=missing_valuation_lines|length %}يوجد مكوّن واحد بلا رصيد تقييم أو لوط عند نقطة القطع.{% plural %}يوجد {{ count }} مكوّنات بلا رصيد تقييم أو لوط عند نقطة القطع.{% endblocktranslate %}</p></div>
+      <div class="ui-notice" role="alert"><strong>{% translate "تحذير تقييم" %}</strong><p>{% blocktranslate count count=missing_valuation_lines|length %}يوجد مكوّن واحد بلا رصيد تقييم أو لوط عند نقطة القطع.{% plural %}يوجد {{ count }} مكوّنات بلا رصيد تقييم أو لوط عند نقطة القطع.{% endblocktranslate %}</p></div>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "نتيجة التحقق" %}</h2>
       {% if findings %}
-        <ul class="errorlist" role="alert">
+        <ul class="ui-error-summary__list" role="alert">
           {% for finding in findings %}
             <li><code dir="ltr">{{ finding.code }}</code> — {{ finding.message }}</li>
           {% endfor %}
         </ul>
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "التحقق يبلّغ ولا يصلح. التصحيح لقطة جديدة، لا تعديلاً على هذه." %}
         </p>
       {% else %}

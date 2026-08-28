@@ -214,7 +214,7 @@ class Command(SeedCommand):
             )
 
             self.write("")
-            self.write(f"=== {organization.code} — {organization.name_ar} ===")
+            self.write(f"=== {organization.code} — {organization.name} ===")
             self.write(f"  أصناف     : {created_items} أنشئت، {reused_items} موجودة")
             self.write(f"  وصفات     : {recipes}")
             self.write(f"  نسخ مسودة : {versions}")
@@ -264,7 +264,7 @@ class Command(SeedCommand):
         if existing is not None:
             return existing
         return create_item_category(
-            organization=organization, code=CATEGORY_CODE, name_ar=CATEGORY_NAME
+            organization=organization, code=CATEGORY_CODE, name=CATEGORY_NAME
         )
 
     def _base_unit(
@@ -301,13 +301,13 @@ class Command(SeedCommand):
         created = reused = 0
         for index, (name, unit_codes) in enumerate(sorted(wanted.items()), start=1):
             code = f"ING-{index:04d}"
-            if InventoryItem.objects.filter(organization=organization, name_ar=name).exists():
+            if InventoryItem.objects.filter(organization=organization, name=name).exists():
                 reused += 1
                 continue
             create_item(
                 organization=organization,
                 code=code,
-                name_ar=name,
+                name=name,
                 category=category,
                 # Everything the sources name is a kitchen input. Nothing here
                 # claims to know which are bought and which are produced —
@@ -328,7 +328,7 @@ class Command(SeedCommand):
         existing = RecipeCategory.objects.filter(organization=organization, code=code).first()
         if existing is not None:
             return existing
-        return create_recipe_category(organization=organization, code=code, name_ar=name)
+        return create_recipe_category(organization=organization, code=code, name=name)
 
     def _entered(self, quantity: object, unit_code: str | None) -> Decimal:
         """
@@ -384,13 +384,13 @@ class Command(SeedCommand):
                 output_item = None
                 if recipe_type == RecipeType.BATCH.value:
                     output_item = InventoryItem.objects.filter(
-                        organization=organization, name_ar=canonical_item(entry["name_ar"])
+                        organization=organization, name=canonical_item(entry["name"])
                     ).first()
                     if output_item is None:
                         output_item = create_item(
                             organization=organization,
                             code=f"OUT-{entry['code']}"[:32],
-                            name_ar=canonical_item(entry["name_ar"]),
+                            name=canonical_item(entry["name"]),
                             category=category_items,
                             item_type=ItemType.SEMI_FINISHED,
                             base_unit=units["PIECE"],
@@ -400,7 +400,7 @@ class Command(SeedCommand):
                 recipe = create_recipe(
                     organization=organization,
                     code=entry["code"],
-                    name_ar=entry["name_ar"],
+                    name=entry["name"],
                     recipe_type=recipe_type,
                     category=category,
                     output_item=output_item,
@@ -438,7 +438,7 @@ class Command(SeedCommand):
                     add_recipe_serving(
                         version=version,
                         code="PLATE",
-                        name_ar="الطبق",
+                        name="الطبق",
                         serving_quantity=Decimal("1"),
                         serving_unit=units["PIECE"],
                         is_primary=True,
@@ -450,7 +450,7 @@ class Command(SeedCommand):
 
                 for order, line in enumerate(entry["lines"], start=1):
                     item = InventoryItem.objects.get(
-                        organization=organization, name_ar=canonical_item(line["item"])
+                        organization=organization, name=canonical_item(line["item"])
                     )
                     quantity = line.get("qty")
                     unit_code = line.get("unit")
@@ -494,7 +494,7 @@ class Command(SeedCommand):
                         # the row imports on the next run.
                         blocked.append(
                             {
-                                "recipe": entry["name_ar"],
+                                "recipe": entry["name"],
                                 "page": entry["page"],
                                 "item": line["item"],
                                 "qty": quantity,

@@ -179,7 +179,7 @@ def _role_balance(
     account = mapping.account
     return RoleBalance(
         code=account.code,
-        name=account.name_ar,
+        name=account.name,
         balance=balances.get(account.pk, _ZERO),
     )
 
@@ -334,7 +334,7 @@ def trial_balance_table(organization: Organization, *, limit: int = 12) -> Trial
     rows = [
         TrialRow(
             code=str(row["code"]),
-            name=str(row["name_ar"]),
+            name=str(row["name"]),
             debits=Decimal(str(row["debits"])),
             credits=Decimal(str(row["credits"])),
             balance=Decimal(str(row["balance"])),

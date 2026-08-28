@@ -170,7 +170,7 @@ class Command(SeedCommand):
             recipe = create_recipe(
                 organization=organization,
                 code=DEMO_RECIPE_CODE,
-                name_ar="تجريبي - ملخص مبيعات التقارير",
+                name="تجريبي - ملخص مبيعات التقارير",
                 recipe_type=RecipeType.PORTION,
                 category=category,
                 notes="وصفة تجميع DEMO خيالية؛ لا تمثل صنفاً أو استهلاكاً مخزنياً حقيقياً.",
@@ -213,7 +213,7 @@ class Command(SeedCommand):
             add_recipe_serving(
                 version=draft,
                 code="SALE",
-                name_ar="سطر مبيعات مجمع",
+                name="سطر مبيعات مجمع",
                 serving_quantity=Decimal("1"),
                 serving_unit=unit,
                 is_primary=True,
@@ -267,12 +267,12 @@ class Command(SeedCommand):
             category = create_item_category(
                 organization=organization,
                 code="DEMO-SALES",
-                name_ar="علامات اختبار المبيعات",
+                name="علامات اختبار المبيعات",
             )
         return create_item(
             organization=organization,
             code=DEMO_ITEM_CODE,
-            name_ar="علامة تجميع مبيعات DEMO",
+            name="علامة تجميع مبيعات DEMO",
             category=category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=UnitOfMeasure.objects.get(code="PIECE"),
@@ -287,7 +287,7 @@ class Command(SeedCommand):
             category = create_menu_category(
                 organization=organization,
                 code="DEMO-SUMMARY",
-                name_ar="ملخصات مبيعات DEMO",
+                name="ملخصات مبيعات DEMO",
                 display_order=999,
             )
         return category
@@ -309,7 +309,7 @@ class Command(SeedCommand):
             item = create_menu_item(
                 organization=organization,
                 code=code,
-                name_ar=str(row["name_ar"]),
+                name=str(row["name"]),
                 recipe=recipe,
                 serving_code="SALE",
                 category=category,

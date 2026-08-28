@@ -79,7 +79,7 @@ def kilogram(units: None) -> UnitOfMeasure:
 def category(organization: Organization) -> ItemCategory:
     from apps.inventory.services import create_item_category
 
-    return create_item_category(organization=organization, code="MEATS", name_ar="لحوم")
+    return create_item_category(organization=organization, code="MEATS", name="لحوم")
 
 
 @pytest.fixture
@@ -91,7 +91,7 @@ def rice(
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
+        name="رز",
         category=category,
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
@@ -102,7 +102,7 @@ def rice(
 def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
     from apps.inventory.services import create_item_conversion, create_package_unit
 
-    package = create_package_unit(organization=organization, code="SACK", name_ar="كيس")
+    package = create_package_unit(organization=organization, code="SACK", name="كيس")
     create_item_conversion(
         item=rice,
         package_unit=package,
@@ -118,17 +118,17 @@ def box(organization: Organization) -> PackageUnit:
     """A package no item converts. Naming it must be refused."""
     from apps.inventory.services import create_package_unit
 
-    return create_package_unit(organization=organization, code="BOX", name_ar="علبة")
+    return create_package_unit(organization=organization, code="BOX", name="علبة")
 
 
 @pytest.fixture
 def meat_supplier(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="MEAT-01", name_ar="مورد اللحوم")
+    return create_supplier(organization=organization, code="MEAT-01", name="مورد اللحوم")
 
 
 @pytest.fixture
 def grocery_supplier(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد المواد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد المواد")
 
 
 @pytest.fixture
@@ -204,14 +204,12 @@ class TestPackageCompatibility:
         meat = create_item(
             organization=organization,
             code="MEAT",
-            name_ar="لحم",
+            name="لحم",
             category=category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
         )
-        container = create_package_unit(
-            organization=organization, code="CONTAINER", name_ar="حاوية"
-        )
+        container = create_package_unit(organization=organization, code="CONTAINER", name="حاوية")
         create_item_conversion(
             item=meat,
             package_unit=container,
@@ -427,7 +425,7 @@ class TestScopeAndPermissions:
     def test_a_supplier_and_item_from_different_organizations_are_refused(
         self, other_organization: Organization, rice: InventoryItem
     ) -> None:
-        theirs = create_supplier(organization=other_organization, code="RIVAL-01", name_ar="منافس")
+        theirs = create_supplier(organization=other_organization, code="RIVAL-01", name="منافس")
         with pytest.raises(ValidationError) as refused:
             create_supplier_item(supplier=theirs, item=rice, effective_from=JANUARY)
         assert refused.value.code == "organization_mismatch"
@@ -437,14 +435,12 @@ class TestScopeAndPermissions:
     ) -> None:
         from apps.inventory.services import create_item, create_item_category
 
-        theirs = create_supplier(organization=other_organization, code="RIVAL-02", name_ar="منافس")
-        their_category = create_item_category(
-            organization=other_organization, code="X", name_ar="س"
-        )
+        theirs = create_supplier(organization=other_organization, code="RIVAL-02", name="منافس")
+        their_category = create_item_category(organization=other_organization, code="X", name="س")
         their_item = create_item(
             organization=other_organization,
             code="X-ITEM",
-            name_ar="صنف",
+            name="صنف",
             category=their_category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=UnitOfMeasure.objects.get(code="KG"),
@@ -573,12 +569,12 @@ class TestScreens:
     ) -> None:
         from apps.inventory.services import create_item, create_item_category
 
-        theirs = create_supplier(organization=other_organization, code="RIVAL-03", name_ar="منافس")
+        theirs = create_supplier(organization=other_organization, code="RIVAL-03", name="منافس")
         their_item = create_item(
             organization=other_organization,
             code="Y-ITEM",
-            name_ar="صنف",
-            category=create_item_category(organization=other_organization, code="Y", name_ar="ص"),
+            name="صنف",
+            category=create_item_category(organization=other_organization, code="Y", name="ص"),
             item_type=ItemType.RAW_MATERIAL,
             base_unit=UnitOfMeasure.objects.get(code="KG"),
         )

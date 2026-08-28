@@ -27,7 +27,7 @@ class UnitListView(FoundationListView):
     )
     create_url_name = "units:unit_create"
     create_label = _("وحدة جديدة")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     superuser_only = True
 
     def get_queryset(self) -> QuerySet[UnitOfMeasure]:
@@ -64,8 +64,7 @@ class UnitCreateView(FoundationFormViewMixin, CreateView):
     def form_valid(self, form: UnitCreateForm) -> HttpResponse:
         create_unit(
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             dimension=form.cleaned_data["dimension"],
             factor_to_base=form.cleaned_data["factor_to_base"],
         )
@@ -88,8 +87,7 @@ class UnitUpdateView(FoundationFormViewMixin, UpdateView):
     def form_valid(self, form: UnitUpdateForm) -> HttpResponse:
         update_unit(
             unit=self.object,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             factor_to_base=form.cleaned_data.get("factor_to_base", self.object.factor_to_base),
             is_active=form.cleaned_data["is_active"],
         )

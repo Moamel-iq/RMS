@@ -362,8 +362,7 @@ class RecipeCategory(TimeStampedModel, SourceProvenance):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
     is_active = models.BooleanField(_("active"), default=True)
     notes = models.TextField(_("notes"), blank=True)
 
@@ -382,14 +381,12 @@ class RecipeCategory(TimeStampedModel, SourceProvenance):
             models.CheckConstraint(
                 condition=Q(code__regex=CODE_PATTERN), name="recipe_category_code_format"
             ),
-            models.CheckConstraint(
-                condition=~Q(name_ar=""), name="recipe_category_name_ar_not_empty"
-            ),
+            models.CheckConstraint(condition=~Q(name=""), name="recipe_category_name_ar_not_empty"),
             _provenance_constraint("recipe_category_provenance_is_complete"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class Recipe(TimeStampedModel, SourceProvenance):
@@ -418,8 +415,7 @@ class Recipe(TimeStampedModel, SourceProvenance):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
     description_ar = models.TextField(_("description (Arabic)"), blank=True)
     description_en = models.TextField(_("description (English)"), blank=True)
 
@@ -510,7 +506,7 @@ class Recipe(TimeStampedModel, SourceProvenance):
             models.CheckConstraint(
                 condition=Q(code__regex=CODE_PATTERN), name="recipe_code_format"
             ),
-            models.CheckConstraint(condition=~Q(name_ar=""), name="recipe_name_ar_not_empty"),
+            models.CheckConstraint(condition=~Q(name=""), name="recipe_name_ar_not_empty"),
             # A portion recipe's output is a plated dish that deliberately is
             # not an InventoryItem (RCP-007); a batch recipe must produce
             # something stock can hold.
@@ -529,7 +525,7 @@ class Recipe(TimeStampedModel, SourceProvenance):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class RecipeBranch(TimeStampedModel):
@@ -1323,8 +1319,7 @@ class RecipeServing(TimeStampedModel, SourceProvenance):
         verbose_name=_("version"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
 
     serving_quantity = models.DecimalField(
         _("serving quantity"),
@@ -2291,8 +2286,7 @@ class RecipeCostSnapshotServing(models.Model):
     )
     serving_public_id = models.UUIDField(_("serving public id"))
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
     is_primary = models.BooleanField(_("primary"), default=False)
 
     serving_quantity = models.DecimalField(

@@ -4,27 +4,27 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page workspace-form-page" aria-labelledby="credit-term-form-title">
-    <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--form" aria-labelledby="credit-term-form-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'procurement:credit_term_list' %}">{% translate "شروط الائتمان" %}</a>
       <span aria-hidden="true">/</span><span aria-current="page">{{ page_title }}</span>
     </nav>
-    <div class="pagehead"><div><p class="pagehead__eyebrow">{% translate "المشتريات" %}</p><h1 class="pagehead__title" id="credit-term-form-title">{{ page_title }}</h1><p class="pagehead__hint">{{ page_hint }}</p></div></div>
-    <form class="formcard workspace-form-card" method="post" novalidate
-          hx-post="{{ request.path }}" hx-target="closest .workspace-form-page" hx-swap="outerHTML">
+    <div class="ui-page-header"><div><p class="ui-page-header__eyebrow">{% translate "المشتريات" %}</p><h1 class="ui-page-header__title" id="credit-term-form-title">{{ page_title }}</h1><p class="ui-page-header__hint">{{ page_hint }}</p></div></div>
+    <form class="ui-card ui-form-card" method="post" novalidate
+          hx-post="{{ request.path }}" hx-target="closest .ui-page--form" hx-swap="outerHTML">
       {% csrf_token %}
       {% include "components/form_error_summary.html" with form=form %}
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in form.visible_fields %}
-          <div class="formrow{% if field.errors %} formrow--error{% endif %}">
+          <div class="ui-field{% if field.errors %} ui-field--invalid{% endif %}">
             <label for="{{ field.id_for_label }}">{{ field.label }}</label>
             {{ field }}
-            {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
-            {% for error in field.errors %}<div class="fielderror">{{ error }}</div>{% endfor %}
+            {% if field.help_text %}<div class="ui-field__hint">{{ field.help_text }}</div>{% endif %}
+            {% for error in field.errors %}<div class="ui-field__error">{{ error }}</div>{% endfor %}
           </div>
         {% endfor %}
       </div>
-      <div class="formactions"><button class="btn btn--primary" type="submit">{% translate "حفظ المسودة" %}</button><a class="btn btn--ghost" href="{% url 'procurement:credit_term_list' %}">{% translate "إلغاء" %}</a></div>
+      <div class="ui-form-actions"><button class="ui-button ui-button--primary" type="submit">{% translate "حفظ المسودة" %}</button><a class="ui-button ui-button--ghost" href="{% url 'procurement:credit_term_list' %}">{% translate "إلغاء" %}</a></div>
     </form>
   </section>
 {% endblock %}

@@ -2,8 +2,8 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="status">
       <option value="">{% translate "كل الحالات" %}</option>
       {% for value, label in statuses %}
@@ -30,9 +30,9 @@
     <tr>
       <td>
         {% if row.number %}<code dir="ltr">{{ row.number }}</code>
-        {% else %}<span class="muted">{% translate "مسودة" %}</span>{% endif %}
+        {% else %}<span class="ui-text-muted">{% translate "مسودة" %}</span>{% endif %}
       </td>
-      <td>{{ row.supplier.code }} — {{ row.supplier.name_ar }}</td>
+      <td>{{ row.supplier.code }} — {{ row.supplier.name }}</td>
       <td>{% if row.delivery_reference %}<span dir="ltr">{{ row.delivery_reference }}</span>{% else %}—{% endif %}</td>
       <td><code>{{ row.warehouse.code }}</code></td>
       <td>{{ row.order.number|default:"—" }}</td>
@@ -40,20 +40,20 @@
       <td>{{ row.lines.count }}</td>
       <td>
         {% if row.status == "POSTED" %}
-          <span class="chip chip--on">{{ row.get_status_display }}</span>
+          <span class="ui-badge ui-badge--success">{{ row.get_status_display }}</span>
         {% elif row.status == "REVERSED" %}
-          <span class="chip chip--off">{{ row.get_status_display }}</span>
+          <span class="ui-badge ui-badge--danger">{{ row.get_status_display }}</span>
         {% elif row.is_ready_to_post %}
           {# "Ready" is derived from the lines, and is deliberately not a #}
           {# status: a stored flag would go stale the moment one is edited. #}
-          <span class="chip">{% translate "مفحوص وجاهز" %}</span>
+          <span class="ui-badge">{% translate "مفحوص وجاهز" %}</span>
         {% else %}
-          <span class="chip">{{ row.get_status_display }}</span>
+          <span class="ui-badge">{{ row.get_status_display }}</span>
         {% endif %}
       </td>
       <td>
-        <div class="rowactions">
-          <a class="btn btn--ghost btn--sm" href="{% url 'procurement:goods_receipt_detail' row.pk %}">
+        <div class="ui-actions">
+          <a class="ui-button ui-button--ghost ui-button--small" href="{% url 'procurement:goods_receipt_detail' row.pk %}">
             {% translate "فتح" %}
           </a>
         </div>

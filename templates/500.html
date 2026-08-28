@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{% translate "خطأ في النظام" %} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block content %}
+  <main class="ui-standalone">
+    <div class="ui-state ui-state--error" role="alert">
+      <span class="ui-state__icon" aria-hidden="true">!</span>
+      <h1 class="ui-state__title">{% translate "حدث خطأ غير متوقع" %}</h1>
+      <p class="ui-state__description">{% translate "لم تتغير بياناتك. حاول مرة أخرى، وإذا استمرت المشكلة فتواصل مع مسؤول النظام." %}</p>
+      <a class="ui-button ui-button--primary" href="/">{% translate "العودة إلى الرئيسية" %}</a>
+    </div>
+  </main>
+{% endblock %}

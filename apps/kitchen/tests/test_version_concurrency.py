@@ -115,19 +115,17 @@ class World:
 
 @pytest.fixture
 def world(units: None) -> World:
-    organization = create_organization(code="KMC", name_ar="خان مندي", name_en="KM")
+    organization = create_organization(code="KMC", name="خان مندي")
     branch = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=datetime.time(9, 0),
     )
     second_branch = create_branch(
         organization=organization,
         code="KARRADA",
-        name_ar="الكرادة",
-        name_en="Karrada",
+        name="الكرادة",
         business_day_start_time=datetime.time(9, 0),
     )
     people: dict[str, User] = {}
@@ -144,13 +142,13 @@ def world(units: None) -> World:
         people[name] = User.objects.get(pk=user.pk)
 
     category = ItemCategory.objects.create(
-        organization=organization, code="FOOD", name_ar="أغذية", depth=1
+        organization=organization, code="FOOD", name="أغذية", depth=1
     )
     kilogram = UnitOfMeasure.objects.get(code="KG")
     rice = InventoryItem.objects.create(
         organization=organization,
         code="RICE",
-        name_ar="رز",
+        name="رز",
         category=category,
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
@@ -158,7 +156,7 @@ def world(units: None) -> World:
     recipe = create_recipe(
         organization=organization,
         code="RACE-1",
-        name_ar="وصفة سباق",
+        name="وصفة سباق",
         recipe_type=RecipeType.PORTION,
         created_by=people["author"],
     )
@@ -194,7 +192,7 @@ def make_draft(world: World) -> RecipeVersion:
     add_recipe_serving(
         version=version,
         code="ONE",
-        name_ar="حصة",
+        name="حصة",
         serving_quantity=Decimal("1"),
         serving_unit=world.kilogram,
         is_primary=True,

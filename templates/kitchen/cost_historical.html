@@ -9,45 +9,45 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="cost-historical">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <div class="ui-page" id="cost-historical">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {{ recipe.code }} — {% translate "كلفة الوصفة بتاريخ" %}
         </h1>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% translate "تُحدَّد النسخة السارية في ذلك الفرع بذلك التاريخ أولاً، ثم تُسعَّر بمتوسطات التاريخ نفسه. النسخة المستبدلة ما زالت تجيب عن تواريخها هي." %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:recipe_detail' recipe.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:recipe_detail' recipe.pk %}">
           {% translate "تفاصيل الوصفة" %}
         </a>
       </div>
     </div>
 
-    <form class="formcard"
+    <form class="ui-form-card"
           method="get"
           hx-get="{% url 'kitchen:cost_on_date' recipe.pk %}"
           hx-target="#cost-historical"
           hx-swap="outerHTML">
       {% if form.non_field_errors %}
-        <ul class="errorlist" role="alert">
+        <ul class="ui-error-summary__list" role="alert">
           {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
         </ul>
       {% endif %}
       {{ form.as_p }}
-      <button class="btn" type="submit">{% translate "احسب الكلفة" %}</button>
+      <button class="ui-button" type="submit">{% translate "احسب الكلفة" %}</button>
     </form>
 
     {% if card %}
-      <p class="banner" role="status">
+      <p class="ui-notice" role="status">
         {% blocktranslate with number=card.version.version_number %}النسخة السارية في ذلك التاريخ: v{{ number }}.{% endblocktranslate %}
       </p>
       {% include "kitchen/_cost_card.html" %}
     {% else %}
-      <section class="formcard">
-        <p class="empty">
+      <section class="ui-form-card">
+        <p class="ui-table__empty">
           {% translate "اختر الفرع والمخزن والتاريخ. لا يوجد فرع ولا تاريخ افتراضي." %}
         </p>
       </section>

@@ -350,14 +350,13 @@ class Command(SeedCommand):
             raise CommandError(f"No organization with code {code}.")
 
         created_accounts = 0
-        for account_code, name_ar, name_en in CHART:
+        for account_code, name, _english_name in CHART:
             if Account.objects.filter(organization=organization, code=account_code).exists():
                 continue
             create_account(
                 organization=organization,
                 code=account_code,
-                name_ar=name_ar,
-                name_en=name_en,
+                name=name,
                 manual_posting_policy=_policy_for(account_code),
                 is_system=True,
             )
@@ -366,12 +365,10 @@ class Command(SeedCommand):
         reconciled_accounts = self._reconcile_system_flags(organization)
 
         created_centers = 0
-        for center_code, name_ar, name_en in COST_CENTERS:
+        for center_code, name, _english_name in COST_CENTERS:
             if CostCenter.objects.filter(organization=organization, code=center_code).exists():
                 continue
-            create_cost_center(
-                organization=organization, code=center_code, name_ar=name_ar, name_en=name_en
-            )
+            create_cost_center(organization=organization, code=center_code, name=name)
             created_centers += 1
 
         if not Account.objects.filter(

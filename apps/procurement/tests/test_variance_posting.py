@@ -182,8 +182,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -193,12 +193,12 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 @pytest.fixture
 def grocery(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد")
 
 
 @pytest.fixture
@@ -1822,8 +1822,7 @@ class TestStructuredAdditionalCosts:
         center = CostCenter.objects.create(
             organization=organization,
             code="PROC",
-            name_ar="المشتريات",
-            name_en="Procurement",
+            name="المشتريات",
         )
         add_account_line(
             invoice=invoice,
@@ -1874,8 +1873,7 @@ class TestStructuredAdditionalCosts:
         center = CostCenter.objects.create(
             organization=organization,
             code="UI",
-            name_ar="واجهة",
-            name_en="UI",
+            name="واجهة",
         )
         add_account_line(
             invoice=invoice,

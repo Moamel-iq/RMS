@@ -252,16 +252,16 @@ class TestCodeStructure:
 
     def test_a_malformed_code_is_refused(self, organization: Organization) -> None:
         with pytest.raises(ValidationError):
-            create_account(organization=organization, code="1-1-1-1", name_ar="س", name_en="S")
+            create_account(organization=organization, code="1-1-1-1", name="س")
 
     def test_an_unknown_class_is_refused(self, organization: Organization) -> None:
         with pytest.raises(ValidationError) as exc:
-            create_account(organization=organization, code="0", name_ar="س", name_en="S")
+            create_account(organization=organization, code="0", name="س")
         assert exc.value.code in {"unknown_account_class", "invalid"}
 
     def test_a_missing_parent_is_refused(self, organization: Organization, chart: None) -> None:
         with pytest.raises(ValidationError) as exc:
-            create_account(organization=organization, code="1-99-99-001", name_ar="س", name_en="S")
+            create_account(organization=organization, code="1-99-99-001", name="س")
         assert exc.value.code == "missing_parent"
 
     def test_the_database_refuses_a_postable_flag_that_disagrees_with_the_code(
@@ -282,9 +282,7 @@ class TestScoping:
         self, organization: Organization, chart: None
     ) -> None:
         with pytest.raises((IntegrityError, ValidationError)), transaction.atomic():
-            create_account(
-                organization=organization, code="1-01-01-001", name_ar="مكرر", name_en="Dup"
-            )
+            create_account(organization=organization, code="1-01-01-001", name="مكرر")
 
     def test_two_organizations_may_use_the_same_code(
         self, organization: Organization, other_organization: Organization, chart: None
@@ -305,20 +303,14 @@ class TestScoping:
         account = Account.objects.get(organization=organization, code="6-01-02-001")
         archive_account(account=account, reason="no longer used")
         with pytest.raises((IntegrityError, ValidationError)), transaction.atomic():
-            create_account(
-                organization=organization, code="6-01-02-001", name_ar="جديد", name_en="New"
-            )
+            create_account(organization=organization, code="6-01-02-001", name="جديد")
 
     def test_cost_center_codes_are_unique_per_organization(
         self, organization: Organization, other_organization: Organization, chart: None
     ) -> None:
         with pytest.raises((IntegrityError, ValidationError)), transaction.atomic():
-            create_cost_center(
-                organization=organization, code="HALL", name_ar="صالة", name_en="Hall"
-            )
-        twin = create_cost_center(
-            organization=other_organization, code="HALL", name_ar="صالة", name_en="Hall"
-        )
+            create_cost_center(organization=organization, code="HALL", name="صالة")
+        twin = create_cost_center(organization=other_organization, code="HALL", name="صالة")
         assert twin.code == "HALL"
 
     def test_a_cost_center_belongs_to_the_organization_not_a_branch(
@@ -383,8 +375,7 @@ class TestExternalMapping:
         account = create_account(
             organization=organization,
             code="1-01-01-002",
-            name_ar="صندوق فرعي",
-            name_en="Petty Cash",
+            name="صندوق فرعي",
             external_accounting_system="IQ_UNIFIED",
             external_account_code="1101",
         )
@@ -399,8 +390,7 @@ class TestExternalMapping:
             create_account(
                 organization=organization,
                 code="1-01-01-003",
-                name_ar="ناقص",
-                name_en="Incomplete",
+                name="ناقص",
                 external_accounting_system="IQ_UNIFIED",
             )
 
@@ -419,9 +409,7 @@ class TestManualPostingPolicy:
         self, organization: Organization, chart: None
     ) -> None:
         """The value every account meant before the column existed."""
-        account = create_account(
-            organization=organization, code="6-01-02-002", name_ar="كهرباء", name_en="Electricity"
-        )
+        account = create_account(organization=organization, code="6-01-02-002", name="كهرباء")
         assert account.manual_posting_policy == ManualPostingPolicy.ALLOWED
         assert account.is_system is False
 
@@ -436,8 +424,7 @@ class TestManualPostingPolicy:
             create_account(
                 organization=organization,
                 code="6-04",
-                name_ar="مصروفات أخرى",
-                name_en="Other expenses",
+                name="مصروفات أخرى",
                 manual_posting_policy=ManualPostingPolicy.FORBIDDEN,
             )
         assert exc.value.code == "policy_on_rollup"
@@ -460,8 +447,7 @@ class TestManualPostingPolicy:
             create_account(
                 organization=organization,
                 code="6-01-02-003",
-                name_ar="ماء",
-                name_en="Water",
+                name="ماء",
                 manual_posting_policy="MAYBE",
             )
         assert exc.value.code == "unknown_manual_posting_policy"
@@ -536,19 +522,17 @@ class TestUpdateAccountMetadata:
         account = create_account(
             organization=organization,
             code="6-01-02-002",
-            name_ar="إيجار المستودع",
-            name_en="Warehouse rent",
+            name="إيجار المستودع",
         )
         updated = update_account_metadata(
             account=account,
-            name_ar="إيجار المخزن",
-            name_en="Store rent",
+            name="إيجار المخزن",
             requires_cost_center=True,
             manual_posting_policy=ManualPostingPolicy.FORBIDDEN,
             reason="clearer name",
         )
-        assert updated.name_ar == "إيجار المخزن"
-        assert updated.name_en == "Store rent"
+        assert updated.name == "إيجار المخزن"
+        assert updated.name == "Store rent"
         assert updated.manual_posting_policy == ManualPostingPolicy.FORBIDDEN
 
     def test_a_financial_meaning_change_is_refused_on_an_account_with_history(
@@ -585,8 +569,7 @@ class TestUpdateAccountMetadata:
         with pytest.raises(ValidationError) as exc:
             update_account_metadata(
                 account=cash,
-                name_ar=cash.name_ar,
-                name_en=cash.name_en,
+                name=cash.name,
                 requires_cost_center=cash.requires_cost_center,
                 manual_posting_policy=cash.manual_posting_policy,
             )
@@ -603,8 +586,7 @@ class TestUpdateAccountMetadata:
         with pytest.raises(ValidationError) as exc:
             update_account_metadata(
                 account=group,
-                name_ar=group.name_ar,
-                name_en=group.name_en,
+                name=group.name,
                 requires_cost_center=False,
                 manual_posting_policy=ManualPostingPolicy.ALLOWED,
             )
@@ -622,8 +604,7 @@ class TestUpdateAccountMetadata:
         with pytest.raises(ValidationError) as exc:
             update_account_metadata(
                 account=payable,
-                name_ar=payable.name_ar,
-                name_en=payable.name_en,
+                name=payable.name,
                 requires_cost_center=False,
                 manual_posting_policy=ManualPostingPolicy.ALLOWED,
             )
@@ -642,12 +623,11 @@ class TestUpdateAccountMetadata:
         payable = Account.objects.get(organization=organization, code="2-01-01-001")
         updated = update_account_metadata(
             account=payable,
-            name_ar="ذمم الموردين والمقاولين",
-            name_en=payable.name_en,
+            name="ذمم الموردين والمقاولين",
             requires_cost_center=False,
             manual_posting_policy=ManualPostingPolicy.RESTRICTED,
         )
-        assert updated.name_ar == "ذمم الموردين والمقاولين"
+        assert updated.name == "ذمم الموردين والمقاولين"
         assert updated.manual_posting_policy == ManualPostingPolicy.RESTRICTED
 
     def test_the_flag_opens_the_system_account(
@@ -656,8 +636,7 @@ class TestUpdateAccountMetadata:
         payable = Account.objects.get(organization=organization, code="2-01-01-001")
         updated = update_account_metadata(
             account=payable,
-            name_ar=payable.name_ar,
-            name_en=payable.name_en,
+            name=payable.name,
             requires_cost_center=False,
             manual_posting_policy=ManualPostingPolicy.FORBIDDEN,
             allow_system=True,
@@ -672,8 +651,7 @@ class TestUpdateAccountMetadata:
         with pytest.raises(ValidationError) as exc:
             update_account_metadata(
                 account=group,
-                name_ar=group.name_ar,
-                name_en=group.name_en,
+                name=group.name,
                 requires_cost_center=True,
                 manual_posting_policy=ManualPostingPolicy.ALLOWED,
             )

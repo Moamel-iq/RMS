@@ -1,0 +1,9 @@
+{% load i18n %}
+{% translate "لا تملك صلاحية فتح هذه الشاشة" as default_permission_title %}
+{% translate "اطلب الصلاحية المناسبة من مدير النظام إذا كنت تحتاج إلى هذا الإجراء." as default_permission_description %}
+<div class="ui-state ui-state--permission" role="alert">
+  <span class="ui-state__icon" aria-hidden="true">×</span>
+  <strong class="ui-state__title">{{ title|default:default_permission_title }}</strong>
+  <p class="ui-state__description">{{ description|default:default_permission_description }}</p>
+  {% if back_url %}<a class="ui-button ui-button--secondary" href="{{ back_url }}">{% translate "رجوع" %}</a>{% endif %}
+</div>

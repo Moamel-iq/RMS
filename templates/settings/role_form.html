@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# دور مخصص — a name, and a matrix of acts (ADR-034).                        #}
@@ -10,80 +10,79 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page workspace-form-page" aria-labelledby="role-form-title">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--form" aria-labelledby="role-form-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'organizations:role_list' %}">{% translate "الأدوار والصلاحيات" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ page_title }}</span>
     </nav>
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <p class="pagehead__eyebrow">{% translate "الإعدادات" %}</p>
-        <h1 class="pagehead__title" id="role-form-title">{{ page_title }}</h1>
-        <p class="pagehead__hint">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{% translate "الإعدادات" %}</p>
+        <h1 class="ui-page-header__title" id="role-form-title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">
           {% translate "ما لا يُعلَّم هنا لا يظهر لحامل الدور: تختفي أقسامه من القائمة ويُرفض طلبه لو كتب العنوان بيده." %}
         </p>
       </div>
       {% if definition %}
-        <div class="pagehead__actions">
-          <span class="chip {% if definition.is_active %}chip--ok{% else %}chip--muted{% endif %}">
+        <div class="ui-page-header__actions">
+          <span class="ui-badge {% if definition.is_active %}ui-badge--success{% else %}ui-badge--neutral{% endif %}">
             {% if definition.is_active %}{% translate "فعّال" %}{% else %}{% translate "مؤرشف" %}{% endif %}
           </span>
-          <span class="chip chip--muted">{% blocktranslate count counter=members %}يحمله مستخدم واحد{% plural %}يحمله {{ counter }} مستخدمين{% endblocktranslate %}</span>
+          <span class="ui-badge ui-badge--neutral">{% blocktranslate count counter=members %}يحمله مستخدم واحد{% plural %}يحمله {{ counter }} مستخدمين{% endblocktranslate %}</span>
         </div>
       {% endif %}
     </div>
 
-    <form class="formcard" method="post" novalidate>
+    <form class="ui-card ui-form-card" method="post" novalidate>
       {% csrf_token %}
       {% include "components/form_error_summary.html" with form=form %}
 
       <h2>{% translate "التعريف" %}</h2>
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% include "settings/_field.html" with field=form.organization %}
         {% include "settings/_field.html" with field=form.code %}
-        {% include "settings/_field.html" with field=form.name_ar %}
-        {% include "settings/_field.html" with field=form.name_en %}
+        {% include "settings/_field.html" with field=form.name %}
         {% include "settings/_field.html" with field=form.based_on %}
         {% include "settings/_field.html" with field=form.description wide=True %}
       </div>
 
       {% if not definition %}
-        <p class="muted" style="margin-block-start: var(--space-3)">
+        <p class="ui-text-muted" style="margin-block-start: var(--ui-space-3)">
           {% translate "لتعبئة الصلاحيات من دور مبني:" %}
           {% for value, label in templates %}
-            <a class="chip chip--muted" href="?based_on={{ value }}">{{ label }}</a>
+            <a class="ui-badge ui-badge--neutral" href="?based_on={{ value }}">{{ label }}</a>
           {% endfor %}
         </p>
       {% endif %}
 
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "حفظ الدور" %}</button>
-        <a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "حفظ الدور" %}</button>
+        <a class="ui-button ui-button--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
       </div>
 
       {# --- the matrix ------------------------------------------------------ #}
       {% for module in matrix %}
-        <section class="formcard role-matrix__module" data-role-module>
+        <section class="ui-card ui-form-card ui-permission-module" data-role-module>
           <h2>
             {{ module.label }}
-            <span class="chip chip--muted" data-role-count>{{ module.checked }} / {{ module.count }}</span>
-            <span class="rowactions" style="margin-inline-start: auto">
-              <button class="btn btn--quiet btn--sm" type="button" data-role-select="all">{% translate "الكل" %}</button>
-              <button class="btn btn--quiet btn--sm" type="button" data-role-select="view">{% translate "العرض فقط" %}</button>
-              <button class="btn btn--quiet btn--sm" type="button" data-role-select="none">{% translate "لا شيء" %}</button>
+            <span class="ui-badge ui-badge--neutral" data-role-count>{{ module.checked }} / {{ module.count }}</span>
+            <span class="ui-actions" style="margin-inline-start: auto">
+              <button class="ui-button ui-button--ghost ui-button--small" type="button" data-role-select="all">{% translate "الكل" %}</button>
+              <button class="ui-button ui-button--ghost ui-button--small" type="button" data-role-select="view">{% translate "العرض فقط" %}</button>
+              <button class="ui-button ui-button--ghost ui-button--small" type="button" data-role-select="none">{% translate "لا شيء" %}</button>
             </span>
           </h2>
           {% for section in module.sections %}
-            <fieldset class="role-matrix__section">
+            <fieldset class="ui-permission-section">
               <legend>{{ section.label }}</legend>
-              <div class="role-matrix__grid">
+              <div class="ui-permission-grid">
                 {% for row in section.rows %}
-                  <label class="role-matrix__act{% if row.sensitive %} is-sensitive{% endif %}" title="{{ row.code }}">
+                  <label class="ui-permission-item{% if row.sensitive %} is-sensitive{% endif %}" title="{{ row.code }}">
                     <input type="checkbox" name="permissions" value="{{ row.code }}" data-kind="{{ row.kind }}"{% if row.checked %} checked{% endif %}>
-                    <span class="role-matrix__kind">{{ row.kind_label }}</span>
-                    <span class="role-matrix__label">{{ row.label }}{% if row.sensitive %} <span class="role-matrix__mark" title="{% translate 'صلاحية حساسة' %}">!</span>{% endif %}</span>
-                    {% if row.note %}<span class="role-matrix__note">{{ row.note }}</span>{% endif %}
+                    <span class="ui-permission-item__kind">{{ row.kind_label }}</span>
+                    <span class="ui-permission-item__label">{{ row.label }}{% if row.sensitive %} <span class="ui-permission-item__mark" title="{% translate 'صلاحية حساسة' %}">!</span>{% endif %}</span>
+                    {% if row.note %}<span class="ui-permission-item__note">{{ row.note }}</span>{% endif %}
                   </label>
                 {% endfor %}
               </div>
@@ -94,15 +93,15 @@
     </form>
 
     {% if definition %}
-      <section class="formcard">
+      <section class="ui-card ui-form-card">
         <h2>{% if definition.is_active %}{% translate "أرشفة الدور" %}{% else %}{% translate "إعادة تفعيل الدور" %}{% endif %}</h2>
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "لا يُؤرشف دور وهو ممنوح لأحد: تُسحب الصلاحية من كل مستخدم على حدة، بسجلّ لكل واحد، ثم يُؤرشف الدور." %}
         </p>
-        <form method="post" action="{% if definition.is_active %}{% url 'organizations:role_archive' definition.pk %}{% else %}{% url 'organizations:role_reactivate' definition.pk %}{% endif %}" class="inline-form">
+        <form method="post" action="{% if definition.is_active %}{% url 'organizations:role_archive' definition.pk %}{% else %}{% url 'organizations:role_reactivate' definition.pk %}{% endif %}" class="ui-inline-form">
           {% csrf_token %}
           {% include "settings/_field.html" with field=lifecycle_form.reason %}
-          <button class="btn {% if definition.is_active %}btn--danger-quiet{% else %}btn--secondary{% endif %}" type="submit">
+          <button class="ui-button {% if definition.is_active %}ui-button--danger{% else %}ui-button--secondary{% endif %}" type="submit">
             {% if definition.is_active %}{% translate "أرشفة" %}{% else %}{% translate "إعادة التفعيل" %}{% endif %}
           </button>
         </form>

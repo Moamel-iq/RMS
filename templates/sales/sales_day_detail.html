@@ -11,26 +11,26 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="sales-day-detail">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="ui-page" id="sales-day-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:day_list' %}">{% translate "المبيعات اليومية" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ day.business_date|date:"Y-m-d" }}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">
-          <span class="chip">{{ day.get_status_display }}</span>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">
+          <span class="ui-badge">{{ day.get_status_display }}</span>
           {% if day.number %}<bdi dir="ltr"><code>{{ day.number }}</code></bdi>{% endif %}
         </p>
       </div>
-      <div class="pagehead__actions">
+      <div class="ui-page-header__actions">
         {% if may_submit %}
           <form method="post" action="{% url 'sales:day_submit' day.pk %}">
             {% csrf_token %}
-            <button class="btn btn--secondary" type="submit">{% translate "إرسال" %}</button>
+            <button class="ui-button ui-button--secondary" type="submit">{% translate "إرسال" %}</button>
           </form>
         {% endif %}
         {% if may_return %}
@@ -39,19 +39,19 @@
                 data-confirm-title="{% translate 'إعادة إلى المسودة' %}">
             {% csrf_token %}
             <input type="hidden" name="reason" value="{% translate 'إعادة للتصحيح' %}">
-            <button class="btn btn--ghost" type="submit">{% translate "إعادة للمسودة" %}</button>
+            <button class="ui-button ui-button--ghost" type="submit">{% translate "إعادة للمسودة" %}</button>
           </form>
         {% endif %}
         {% if may_submit_daily_close %}
           <form method="post" action="{% url 'sales:day_daily_close_submit' day.pk %}">
             {% csrf_token %}
-            <button class="btn btn--secondary" type="submit">{% translate "إرسال الإقفال المالي" %}</button>
+            <button class="ui-button ui-button--secondary" type="submit">{% translate "إرسال الإقفال المالي" %}</button>
           </form>
         {% endif %}
         {% if may_approve_daily_close %}
           <form method="post" action="{% url 'sales:day_daily_close_approve' day.pk %}">
             {% csrf_token %}
-            <button class="btn btn--primary" type="submit">{% translate "اعتماد الإقفال المالي" %}</button>
+            <button class="ui-button ui-button--primary" type="submit">{% translate "اعتماد الإقفال المالي" %}</button>
           </form>
         {% endif %}
         {% if may_post %}
@@ -59,7 +59,7 @@
                 data-confirm="{% translate 'سيُكتب قيد متوازن وذمم التطبيقات، وتصبح كميات اليوم جزءاً من الاستهلاك النظري. التصحيح بعدها يكون بالعكس وإصدار يوم بديل.' %}"
                 data-confirm-title="{% translate 'تأكيد الترحيل' %}">
             {% csrf_token %}
-            <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+            <button class="ui-button ui-button--primary" type="submit">{% translate "ترحيل" %}</button>
           </form>
         {% endif %}
         {% if may_reverse %}
@@ -68,7 +68,7 @@
                 data-confirm-title="{% translate 'تأكيد العكس' %}">
             {% csrf_token %}
             <input type="hidden" name="reason" value="{% translate 'عكس يوم مبيعات' %}">
-            <button class="btn btn--danger-quiet" type="submit">{% translate "عكس" %}</button>
+            <button class="ui-button ui-button--danger-ghost" type="submit">{% translate "عكس" %}</button>
           </form>
         {% endif %}
       </div>
@@ -76,13 +76,13 @@
 
     {% if daily_close_required and day.status == "SUBMITTED" %}
       {% if not latest_daily_close %}
-        <p class="banner banner--warn" role="note">
+        <p class="ui-notice ui-notice--warning" role="note">
           {% translate "قبل الترحيل: أغلق وردية الكاشير على هذا اليوم المُرسل، ثم أرسل الإقفال المالي للمراجعة." %}
         </p>
       {% elif latest_daily_close.status == "BLOCKED" %}
-        <section class="formcard" aria-labelledby="daily-close-exceptions">
+        <section class="ui-form-card" aria-labelledby="daily-close-exceptions">
           <h2 id="daily-close-exceptions">{% translate "استثناءات الإقفال المالي" %}</h2>
-          <p class="banner banner--bad" role="note">
+          <p class="ui-notice ui-notice--error" role="note">
             {% blocktranslate with attempt=latest_daily_close.attempt_number %}محاولة الإقفال رقم {{ attempt }} محفوظة ومتوقفة. صحّح المصدر (اليوم أو الوردية) ثم أرسل محاولة جديدة؛ لا يمكن شطب الاستثناءات أو تجاوزها بصمت.{% endblocktranslate %}
           </p>
           <ul>
@@ -92,61 +92,61 @@
           </ul>
         </section>
       {% elif latest_daily_close.status == "SUBMITTED" %}
-        <p class="banner banner--warn" role="note">
+        <p class="ui-notice ui-notice--warning" role="note">
           {% translate "الإقفال المالي محفوظ وينتظر مراجعة شخص آخر قبل الترحيل." %}
         </p>
       {% elif latest_daily_close.status == "APPROVED" %}
-        <p class="banner banner--good" role="note">
+        <p class="ui-notice ui-notice--success" role="note">
           {% translate "الإقفال المالي معتمد؛ يمكن للمخوّل المختلف عن مُرسل اليوم ترحيله." %}
         </p>
       {% endif %}
     {% endif %}
 
     {% if day.status == "REVERSED" %}
-      <p class="banner banner--bad" role="note">
+      <p class="ui-notice ui-notice--error" role="note">
         {% blocktranslate with reason=day.reversal_reason %}هذا اليوم معكوس: {{ reason }}{% endblocktranslate %}
       </p>
     {% endif %}
 
-    <div class="statrow">
-      <div class="stat">
-        <span class="stat__label">{% translate "إجمالي المبيعات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.gross|iqd }}</code></bdi></span>
+    <div class="ui-metric-grid">
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "إجمالي المبيعات" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.gross|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "خصم المطعم" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.restaurant_discount|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "خصم المطعم" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.restaurant_discount|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "خصم التطبيق" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.application_discount|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "خصم التطبيق" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.application_discount|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "العمولات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.commission|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "العمولات" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.commission|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "نقد" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_cash|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "نقد" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.net_cash|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "بطاقات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_card|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "بطاقات" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.net_card|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "ذمم التطبيقات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_application|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "ذمم التطبيقات" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.net_application|iqd }}</code></bdi></span>
       </div>
     </div>
 
-    <p class="banner" role="note">
+    <p class="ui-notice" role="note">
       {% translate "خصم المطعم يخفض إيراده — يُرحَّل خصماً على الإيراد لا مصروف تسويق. خصم التطبيق يُعوَّض: لا يخفض الإيراد ولا يخفض ما يدين به التطبيق، بل هو جزء منه. لذلك لا يظهر في أي قيد على المطعم." %}
     </p>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "سطور اليوم" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">#</th>
@@ -162,7 +162,7 @@
               <th scope="col">{% translate "خصم التطبيق" %}</th>
               <th scope="col">{% translate "العمولة" %}</th>
               <th scope="col">{% translate "الصافي" %}</th>
-              {% if may_edit %}<th scope="col"><span class="sr-only">إجراءات</span></th>{% endif %}
+              {% if may_edit %}<th scope="col"><span class="ui-sr-only">إجراءات</span></th>{% endif %}
             </tr>
           </thead>
           <tbody>
@@ -170,17 +170,17 @@
               <tr>
                 <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
                 <td data-label="{% translate 'الصنف' %}">
-                  <bdi dir="ltr"><code>{{ line.menu_item.code }}</code></bdi> {{ line.menu_item.name_ar }}
+                  <bdi dir="ltr"><code>{{ line.menu_item.code }}</code></bdi> {{ line.menu_item.name }}
                 </td>
-                <td data-label="{% translate 'القناة' %}">{{ line.channel.name_ar }}</td>
+                <td data-label="{% translate 'القناة' %}">{{ line.channel.name }}</td>
                 <td data-label="{% translate 'التطبيق' %}">
-                  {% if line.delivery_application %}{{ line.delivery_application.name_ar }}{% else %}—{% endif %}
+                  {% if line.delivery_application %}{{ line.delivery_application.name }}{% else %}—{% endif %}
                 </td>
                 <td data-label="{% translate 'مصدر التنفيذ' %}">
                   {% if line.recipe_version %}
                     <bdi dir="ltr"><code>{{ line.recipe.code }} · v{{ line.recipe_version.version_number }}</code></bdi>
                   {% else %}
-                    <bdi dir="ltr"><code>{{ line.inventory_item.code }}</code></bdi> {{ line.inventory_item.name_ar }}
+                    <bdi dir="ltr"><code>{{ line.inventory_item.code }}</code></bdi> {{ line.inventory_item.name }}
                   {% endif %}
                 </td>
                 <td data-label="{% translate 'تفاصيل التنفيذ' %}">
@@ -201,7 +201,7 @@
                 <td data-label="{% translate 'العمولة' %}">
                   <bdi dir="ltr"><code>{{ line.commission_amount|iqd }}</code></bdi>
                   {% if line.commission_basis %}
-                    <span class="chip">{{ line.get_commission_basis_display }}</span>
+                    <span class="ui-badge">{{ line.get_commission_basis_display }}</span>
                   {% endif %}
                 </td>
                 <td data-label="{% translate 'الصافي' %}"><bdi dir="ltr"><code>{{ line.net_amount|iqd }}</code></bdi></td>
@@ -209,14 +209,14 @@
                   <td>
                     <form method="post" action="{% url 'sales:day_line_delete' line.pk %}">
                       {% csrf_token %}
-                      <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "حذف" %}</button>
+                      <button class="ui-button ui-button--danger-ghost ui-button--sm" type="submit">{% translate "حذف" %}</button>
                     </form>
                   </td>
                 {% endif %}
               </tr>
             {% empty %}
               <tr>
-                <td colspan="{% if may_edit %}14{% else %}13{% endif %}" class="empty">
+                <td colspan="{% if may_edit %}14{% else %}13{% endif %}" class="ui-table__empty">
                   {% translate "لا توجد سطور بعد." %}
                 </td>
               </tr>
@@ -227,10 +227,10 @@
     </section>
 
     {% if tender_summaries %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "المُعلن حسب وجهة التحصيل" %}</h2>
-        <div class="data-table-shell">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll">
+          <table class="ui-table ui-table--responsive">
             <thead>
               <tr>
                 <th scope="col">{% translate "الوجهة" %}</th>
@@ -253,40 +253,40 @@
     {% endif %}
 
     {% if line_form %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "إضافة سطر" %}</h2>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% translate "يُحلّ السطر عند الإضافة: نسخة الوصفة السارية في تاريخ العمل، والحصة على تلك النسخة، والسعر الأضيق نطاقاً، والاتفاقية السارية. إذا تعذّر أي منها يُرفض السطر بجملة تشرح السبب، ولا يُستبدل ببديل صامت." %}
         </p>
         <form method="post" novalidate>
           {% csrf_token %}
           {% include "components/form_error_summary.html" with form=line_form %}
-          <div class="formgrid">
+          <div class="ui-form-grid">
             {% for field in line_form %}
               {% include "settings/_field.html" with field=field %}
             {% endfor %}
           </div>
-          <div class="formactions">
-            <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
+          <div class="ui-form-actions">
+            <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة السطر" %}</button>
           </div>
         </form>
       </section>
     {% endif %}
 
     {% if tender_form %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "تسجيل المُعلن" %}</h2>
         <form method="post" novalidate>
           {% csrf_token %}
           <input type="hidden" name="form" value="tender">
           {% include "components/form_error_summary.html" with form=tender_form %}
-          <div class="formgrid">
+          <div class="ui-form-grid">
             {% for field in tender_form %}
               {% include "settings/_field.html" with field=field %}
             {% endfor %}
           </div>
-          <div class="formactions">
-            <button class="btn btn--secondary" type="submit">{% translate "حفظ المُعلن" %}</button>
+          <div class="ui-form-actions">
+            <button class="ui-button ui-button--secondary" type="submit">{% translate "حفظ المُعلن" %}</button>
           </div>
         </form>
       </section>

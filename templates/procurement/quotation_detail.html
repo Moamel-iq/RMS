@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# One offer: its header, its priced lines, and the base unit price each     #}
@@ -8,25 +8,25 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {% if quotation.number %}<span dir="ltr">{{ quotation.number }}</span>{% else %}{% translate "مسودة عرض" %}{% endif %}
         </h1>
-        <p class="pagehead__hint">
-          {{ quotation.supplier.name_ar }} —
-          <span class="chip">{{ quotation.get_status_display }}</span>
+        <p class="ui-page-header__hint">
+          {{ quotation.supplier.name }} —
+          <span class="ui-badge">{{ quotation.get_status_display }}</span>
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'procurement:quotation_list' %}">{% translate "رجوع" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:quotation_list' %}">{% translate "رجوع" %}</a>
       </div>
     </div>
 
-    <div class="formcard">
-      <dl class="detailgrid">
-        <dt>{% translate "المورد" %}</dt><dd>{{ quotation.supplier.code }} — {{ quotation.supplier.name_ar }}</dd>
+    <div class="ui-card ui-form-card">
+      <dl class="ui-detail-grid">
+        <dt>{% translate "المورد" %}</dt><dd>{{ quotation.supplier.code }} — {{ quotation.supplier.name }}</dd>
         <dt>{% translate "مرجع المورد" %}</dt><dd>{% if quotation.supplier_reference %}<span dir="ltr">{{ quotation.supplier_reference }}</span>{% else %}—{% endif %}</dd>
         <dt>{% translate "طلب الشراء" %}</dt><dd>{{ quotation.request.number|default:"—" }}</dd>
         <dt>{% translate "تاريخ العرض" %}</dt><dd><span dir="ltr">{{ quotation.quoted_at|date:"Y-m-d" }}</span></dd>
@@ -39,13 +39,13 @@
           <dt>{% translate "الإجمالي" %}</dt><dd><span dir="ltr">{{ quotation.total_amount|stringformat:"f" }}</span></dd>
         {% endif %}
       </dl>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "عرض السعر إثبات وليس التزاماً: لا يحرّك مخزوناً ولا يُنشئ قيداً ولا ذمة، حتى بعد الإرساء." %}
       </p>
     </div>
 
-    <div class="tablewrap">
-      <table class="table responsive-table">
+    <div class="ui-data-card ui-table-scroll">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>
             <th>#</th>
@@ -65,9 +65,9 @@
           {% for line in lines %}
             <tr>
               <td>{{ line.sequence }}</td>
-              <td>{{ line.item.code }} — {{ line.item.name_ar }}</td>
+              <td>{{ line.item.code }} — {{ line.item.name }}</td>
               <td><span dir="ltr">{{ line.quantity|stringformat:"f" }}</span></td>
-              <td>{{ line.package_unit.name_ar|default:"—" }}</td>
+              <td>{{ line.package_unit.name|default:"—" }}</td>
               <td><span dir="ltr">{{ line.base_quantity|stringformat:"f" }}</span> {{ line.item.base_unit.code }}</td>
               {% if may_see_cost %}
                 <td><span dir="ltr">{{ line.unit_price|stringformat:"f" }}</span></td>
@@ -78,7 +78,7 @@
                 <td>
                   <form method="post" action="{% url 'procurement:quotation_line_delete' quotation.pk line.pk %}">
                     {% csrf_token %}
-                    <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                    <button class="ui-button ui-button--ghost ui-button--small" type="submit">{% translate "حذف" %}</button>
                   </form>
                 </td>
               {% endif %}
@@ -91,47 +91,47 @@
     </div>
 
     {% if may_edit %}
-      <form class="formcard" method="post" novalidate>
+      <form class="ui-card ui-form-card" method="post" novalidate>
         <h2>{% translate "إضافة سطر" %}</h2>
         {% csrf_token %}
         {% if form.non_field_errors %}
-          <div class="alert" role="alert">
+          <div class="ui-alert" role="alert">
             {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
           </div>
         {% endif %}
-        <div class="formgrid">
+        <div class="ui-form-grid">
           {% for field in form %}
-            <label class="field">
-              <span class="field__label">{{ field.label }}</span>
+            <label class="ui-field">
+              <span class="ui-field__label">{{ field.label }}</span>
               {{ field }}
-              {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
-              {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+              {% if field.help_text %}<span class="ui-field__hint">{{ field.help_text }}</span>{% endif %}
+              {% for error in field.errors %}<span class="ui-field__error">{{ error }}</span>{% endfor %}
             </label>
           {% endfor %}
         </div>
-        <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+        <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة" %}</button>
       </form>
     {% endif %}
 
     {% if may_manage %}
-      <div class="formcard">
+      <div class="ui-card ui-form-card">
         <h2>{% translate "الإجراءات" %}</h2>
-        <div class="rowactions">
+        <div class="ui-actions">
           {% if may_edit %}
             <form method="post" action="{% url 'procurement:quotation_submit' quotation.pk %}">
               {% csrf_token %}
-              <button class="btn btn--primary" type="submit">{% translate "تسجيل الاستلام" %}</button>
+              <button class="ui-button ui-button--primary" type="submit">{% translate "تسجيل الاستلام" %}</button>
             </form>
           {% endif %}
           {% if quotation.status == "DRAFT" or quotation.status == "SUBMITTED" %}
             <form method="post" action="{% url 'procurement:quotation_decline' quotation.pk %}">
               {% csrf_token %}
               <input type="text" name="reason" placeholder="{% translate 'سبب الاستبعاد' %}" required>
-              <button class="btn btn--ghost" type="submit">{% translate "استبعاد" %}</button>
+              <button class="ui-button ui-button--ghost" type="submit">{% translate "استبعاد" %}</button>
             </form>
           {% endif %}
         </div>
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "العرض المستبعد يبقى محفوظاً: الإرساء لا معنى له بدون العروض التي فُضّل عليها." %}
         </p>
       </div>

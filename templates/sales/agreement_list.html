@@ -11,7 +11,7 @@
 {% load i18n money_tags %}
 
 {% block filters %}
-  <label class="field field--check">
+  <label class="ui-field ui-field--check">
     <input type="checkbox" name="current" value="1" {% if only_current == "1" %}checked{% endif %}>
     <span>{% translate "السارية اليوم فقط" %}</span>
   </label>
@@ -35,46 +35,46 @@
     <tr>
       <td data-label="{% translate 'التطبيق' %}">
         <a href="{% url 'sales:application_detail' agreement.delivery_application_id %}">
-          {{ agreement.delivery_application.name_ar }}
+          {{ agreement.delivery_application.name }}
         </a>
       </td>
       <td data-label="{% translate 'الفرع' %}"><bdi dir="ltr"><code>{{ agreement.branch.code }}</code></bdi></td>
       <td data-label="{% translate 'النسبة' %}"><bdi dir="ltr"><code>{{ agreement.percent_display }}%</code></bdi></td>
       <td data-label="{% translate 'رسم لكل طلب' %}"><bdi dir="ltr"><code>{{ agreement.fixed_fee_per_order|iqd }}</code></bdi></td>
       <td data-label="{% translate 'أساس الاحتساب' %}">
-        <span class="chip">{{ agreement.get_commission_basis_display }}</span>
+        <span class="ui-badge">{{ agreement.get_commission_basis_display }}</span>
       </td>
       <td data-label="{% translate 'من' %}"><bdi dir="ltr"><code>{{ agreement.effective_from|date:"Y-m-d" }}</code></bdi></td>
       <td data-label="{% translate 'حتى' %}">
         {% if agreement.effective_to %}
           <bdi dir="ltr"><code>{{ agreement.effective_to|date:"Y-m-d" }}</code></bdi>
         {% else %}
-          <span class="muted">{% translate "مفتوحة" %}</span>
+          <span class="ui-text-muted">{% translate "مفتوحة" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'مثال محتسب' %}">
-        <span class="muted">
+        <span class="ui-text-muted">
           {% blocktranslate with base=preview_amount|iqd %}على {{ base }}{% endblocktranslate %}
         </span>
         <bdi dir="ltr"><code>{{ agreement.preview.result.total|iqd }}</code></bdi>
       </td>
       <td data-label="{% translate 'الحالة' %}">
         {% if not agreement.is_active %}
-          <span class="chip chip--off">{% translate "ملغاة" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "ملغاة" %}</span>
         {% elif agreement.effective_to and agreement.effective_to < today %}
-          <span class="chip">{% translate "منتهية" %}</span>
+          <span class="ui-badge">{% translate "منتهية" %}</span>
         {% elif agreement.effective_from > today %}
-          <span class="chip">{% translate "مستقبلية" %}</span>
+          <span class="ui-badge">{% translate "مستقبلية" %}</span>
         {% else %}
-          <span class="chip chip--on">{% translate "سارية" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "سارية" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'إجراءات' %}">
-        <div class="rowactions">
+        <div class="ui-table__actions">
           {% if agreement.branch_id in manageable_ids and agreement.is_active and not agreement.effective_to %}
-            <a class="btn btn--quiet btn--sm" href="{% url 'sales:agreement_close' agreement.pk %}">{% translate "إنهاء" %}</a>
+            <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'sales:agreement_close' agreement.pk %}">{% translate "إنهاء" %}</a>
           {% else %}
-            <span class="muted">—</span>
+            <span class="ui-text-muted">—</span>
           {% endif %}
         </div>
       </td>

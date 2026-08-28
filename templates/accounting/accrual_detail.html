@@ -10,63 +10,63 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page" id="accounting-accrual-detail">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page" id="accounting-accrual-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:deferral_list' %}">{% translate "المستحقات والمقدمات" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ page_title }}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ accrual.description }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ accrual.description }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
-      <div class="pagehead__actions">
+      <div class="ui-page-header__actions">
         {% if may_approve %}
-          <form method="post" action="{% url 'accounting:accrual_approve' accrual.pk %}" class="inline-form">
-            {% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "اعتماد" %}</button>
+          <form method="post" action="{% url 'accounting:accrual_approve' accrual.pk %}" class="ui-inline-form">
+            {% csrf_token %}<button class="ui-button ui-button--primary" type="submit">{% translate "اعتماد" %}</button>
           </form>
         {% endif %}
         {% if may_post %}
-          <form method="post" action="{% url 'accounting:accrual_post' accrual.pk %}" class="inline-form">
-            {% csrf_token %}<button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+          <form method="post" action="{% url 'accounting:accrual_post' accrual.pk %}" class="ui-inline-form">
+            {% csrf_token %}<button class="ui-button ui-button--primary" type="submit">{% translate "ترحيل" %}</button>
           </form>
         {% endif %}
         {% if may_reverse %}
-          <form method="post" action="{% url 'accounting:accrual_reverse' accrual.pk %}" class="inline-form">
+          <form method="post" action="{% url 'accounting:accrual_reverse' accrual.pk %}" class="ui-inline-form">
             {% csrf_token %}
-            <input class="field__input" type="text" name="reason" placeholder="{% translate 'سبب العكس' %}" dir="auto">
-            <button class="btn btn--secondary" type="submit">{% translate "عكس المستحق" %}</button>
+            <input class="ui-control" type="text" name="reason" placeholder="{% translate 'سبب العكس' %}" dir="auto">
+            <button class="ui-button ui-button--secondary" type="submit">{% translate "عكس المستحق" %}</button>
           </form>
         {% endif %}
       </div>
     </div>
 
     {% if is_own_draft and accrual.status == "DRAFT" %}
-      <p class="banner">{% translate "أنت من أنشأ هذا المستحق، فالاعتماد لشخص آخر." %}</p>
+      <p class="ui-notice">{% translate "أنت من أنشأ هذا المستحق، فالاعتماد لشخص آخر." %}</p>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "بيانات المستحق" %}</h2>
-      <dl class="datalist">
-        <div class="detailgrid__row"><dt>{% translate "الفرع" %}</dt><dd>{{ accrual.branch.code }}</dd></div>
-        <div class="detailgrid__row"><dt>{% translate "تاريخ العملية" %}</dt><dd><bdi dir="ltr">{{ accrual.business_date|date:"Y-m-d" }}</bdi></dd></div>
-        <div class="detailgrid__row"><dt>{% translate "الحالة" %}</dt><dd>{{ accrual.get_status_display }}</dd></div>
-        <div class="detailgrid__row"><dt>{% translate "المبلغ" %}</dt><dd><bdi dir="ltr">{{ accrual.total_amount|money_full }}</bdi></dd></div>
-        <div class="detailgrid__row"><dt>{% translate "العكس التلقائي" %}</dt><dd>{% if accrual.auto_reverse_on %}<bdi dir="ltr">{{ accrual.auto_reverse_on|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}</dd></div>
-        <div class="detailgrid__row"><dt>{% translate "السبب" %}</dt><dd>{{ accrual.reason|default:"—" }}</dd></div>
-        <div class="detailgrid__row"><dt>{% translate "المستند" %}</dt><dd>{{ accrual.evidence_reference|default:"—" }}</dd></div>
-        <div class="detailgrid__row"><dt>{% translate "أنشأه" %}</dt><dd>{% if accrual.created_by %}{{ accrual.created_by.get_full_name|default:accrual.created_by.username }}{% else %}—{% endif %}</dd></div>
-        <div class="detailgrid__row"><dt>{% translate "اعتمده" %}</dt><dd>{% if accrual.approved_by %}{{ accrual.approved_by.get_full_name|default:accrual.approved_by.username }}{% else %}—{% endif %}</dd></div>
+      <dl class="ui-definition-list">
+        <div class="ui-definition-list__row"><dt>{% translate "الفرع" %}</dt><dd>{{ accrual.branch.code }}</dd></div>
+        <div class="ui-definition-list__row"><dt>{% translate "تاريخ العملية" %}</dt><dd><bdi dir="ltr">{{ accrual.business_date|date:"Y-m-d" }}</bdi></dd></div>
+        <div class="ui-definition-list__row"><dt>{% translate "الحالة" %}</dt><dd>{{ accrual.get_status_display }}</dd></div>
+        <div class="ui-definition-list__row"><dt>{% translate "المبلغ" %}</dt><dd><bdi dir="ltr">{{ accrual.total_amount|money_full }}</bdi></dd></div>
+        <div class="ui-definition-list__row"><dt>{% translate "العكس التلقائي" %}</dt><dd>{% if accrual.auto_reverse_on %}<bdi dir="ltr">{{ accrual.auto_reverse_on|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}</dd></div>
+        <div class="ui-definition-list__row"><dt>{% translate "السبب" %}</dt><dd>{{ accrual.reason|default:"—" }}</dd></div>
+        <div class="ui-definition-list__row"><dt>{% translate "المستند" %}</dt><dd>{{ accrual.evidence_reference|default:"—" }}</dd></div>
+        <div class="ui-definition-list__row"><dt>{% translate "أنشأه" %}</dt><dd>{% if accrual.created_by %}{{ accrual.created_by.get_full_name|default:accrual.created_by.username }}{% else %}—{% endif %}</dd></div>
+        <div class="ui-definition-list__row"><dt>{% translate "اعتمده" %}</dt><dd>{% if accrual.approved_by %}{{ accrual.approved_by.get_full_name|default:accrual.approved_by.username }}{% else %}—{% endif %}</dd></div>
         {% if accrual.journal_entry %}
-          <div class="detailgrid__row"><dt>{% translate "القيد" %}</dt><dd><a href="{% url 'accounting:journal_detail' accrual.journal_entry.pk %}"><bdi dir="ltr">{{ accrual.journal_entry.entry_number }}</bdi></a></dd></div>
+          <div class="ui-definition-list__row"><dt>{% translate "القيد" %}</dt><dd><a href="{% url 'accounting:journal_detail' accrual.journal_entry.pk %}"><bdi dir="ltr">{{ accrual.journal_entry.entry_number }}</bdi></a></dd></div>
         {% endif %}
         {% if accrual.reversal_entry %}
-          <div class="detailgrid__row"><dt>{% translate "قيد العكس" %}</dt><dd><a href="{% url 'accounting:journal_detail' accrual.reversal_entry.pk %}"><bdi dir="ltr">{{ accrual.reversal_entry.entry_number }}</bdi></a></dd></div>
+          <div class="ui-definition-list__row"><dt>{% translate "قيد العكس" %}</dt><dd><a href="{% url 'accounting:journal_detail' accrual.reversal_entry.pk %}"><bdi dir="ltr">{{ accrual.reversal_entry.entry_number }}</bdi></a></dd></div>
         {% endif %}
         {% if accrual.settled_by_invoice %}
-          <div class="detailgrid__row">
+          <div class="ui-definition-list__row">
             <dt>{% translate "سُوِّي بالفاتورة" %}</dt>
             <dd><bdi dir="ltr">{{ accrual.settled_by_invoice.supplier_invoice_number }}</bdi></dd>
           </div>
@@ -74,33 +74,33 @@
       </dl>
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "السطور" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table" id="accrual-lines">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive" id="accrual-lines">
           <thead><tr>
             <th>#</th><th>{% translate "حساب المصروف" %}</th>
             <th>{% translate "مركز الكلفة" %}</th><th>{% translate "البيان" %}</th>
-            <th>{% translate "المبلغ" %}</th>{% if may_edit %}<th scope="col"><span class="sr-only">إجراءات</span></th>{% endif %}
+            <th>{% translate "المبلغ" %}</th>{% if may_edit %}<th scope="col"><span class="ui-sr-only">إجراءات</span></th>{% endif %}
           </tr></thead>
           <tbody>
             {% for line in lines %}
               <tr>
                 <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
-                <td data-label="{% translate 'حساب المصروف' %}"><a href="{% url 'accounting:account_detail' line.account.pk %}"><code dir="ltr">{{ line.account.code }}</code> {{ line.account.name_ar }}</a></td>
+                <td data-label="{% translate 'حساب المصروف' %}"><a href="{% url 'accounting:account_detail' line.account.pk %}"><code dir="ltr">{{ line.account.code }}</code> {{ line.account.name }}</a></td>
                 <td data-label="{% translate 'مركز الكلفة' %}">{% if line.cost_center %}{{ line.cost_center.code }}{% else %}—{% endif %}</td>
                 <td data-label="{% translate 'البيان' %}">{{ line.description|default:"—" }}</td>
                 <td data-label="{% translate 'المبلغ' %}"><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td>
                 {% if may_edit %}
-                  <td class="cell-actions">
-                    <form method="post" action="{% url 'accounting:accrual_line_delete' line.pk %}" class="inline-form">
-                      {% csrf_token %}<button class="btn btn--secondary btn--sm" type="submit">{% translate "حذف" %}</button>
+                  <td class="ui-table__actions">
+                    <form method="post" action="{% url 'accounting:accrual_line_delete' line.pk %}" class="ui-inline-form">
+                      {% csrf_token %}<button class="ui-button ui-button--secondary ui-button--sm" type="submit">{% translate "حذف" %}</button>
                     </form>
                   </td>
                 {% endif %}
               </tr>
             {% empty %}
-              <tr><td colspan="6" class="empty" data-empty-state>{% translate "لا سطور بعد." %}</td></tr>
+              <tr><td colspan="6" class="ui-table__empty" data-empty-state>{% translate "لا سطور بعد." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -108,36 +108,36 @@
     </section>
 
     {% if may_edit and line_form %}
-      <section class="formcard" id="accrual-line-form">
+      <section class="ui-form-card" id="accrual-line-form">
         <h2>{% translate "إضافة سطر" %}</h2>
-        <form class="inline-form" method="post" action="{% url 'accounting:accrual_detail' accrual.pk %}" novalidate>
+        <form class="ui-inline-form" method="post" action="{% url 'accounting:accrual_detail' accrual.pk %}" novalidate>
           {% csrf_token %}
           {% if line_form.non_field_errors %}
-            <div class="formcard__errors" role="alert">{% for error in line_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}</div>
+            <div class="ui-error-summary" role="alert">{% for error in line_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}</div>
           {% endif %}
           {% for field in line_form %}
-            <div class="field{% if field.errors %} field--invalid{% endif %}">
-              <label class="field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            <div class="ui-field{% if field.errors %} ui-field--invalid{% endif %}">
+              <label class="ui-field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
               {{ field }}
-              {% for error in field.errors %}<p class="field__error" role="alert">{{ error }}</p>{% endfor %}
+              {% for error in field.errors %}<p class="ui-field__error" role="alert">{{ error }}</p>{% endfor %}
             </div>
           {% endfor %}
-          <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
+          <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة السطر" %}</button>
         </form>
       </section>
     {% endif %}
 
-    <section class="timeline">
+    <section class="ui-timeline-card">
       <h2>{% translate "سجل الأحداث" %}</h2>
-      <ul class="checklist">
+      <ul class="ui-timeline">
         {% for event in timeline %}
-          <li class="timeline__item">
-            <span class="timeline__when"><bdi dir="ltr">{{ event.occurred_at|date:"Y-m-d H:i" }}</bdi></span>
-            <span class="timeline__what">{{ event.get_action_display }}</span>
-            <span class="timeline__who">{{ event.actor_label|default:_("النظام") }}</span>
+          <li class="ui-timeline__item">
+            <span class="ui-timeline__time"><bdi dir="ltr">{{ event.occurred_at|date:"Y-m-d H:i" }}</bdi></span>
+            <span class="ui-timeline__title">{{ event.get_action_display }}</span>
+            <span class="ui-timeline__actor">{{ event.actor_label|default:_("النظام") }}</span>
           </li>
         {% empty %}
-          <li class="timeline__item muted">{% translate "لا أحداث مسجَّلة." %}</li>
+          <li class="ui-timeline__item ui-text-muted">{% translate "لا أحداث مسجَّلة." %}</li>
         {% endfor %}
       </ul>
     </section>

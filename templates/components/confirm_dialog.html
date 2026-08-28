@@ -1,22 +1,22 @@
 {% load i18n %}
-<dialog class="dialog dialog--confirm" data-confirm-dialog aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-message">
-  <div class="dialog__body">
-    <span class="dialog__icon dialog__icon--warning" aria-hidden="true">!</span>
+<dialog class="ui-modal ui-modal--confirm" data-confirm-dialog aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-message">
+  <div class="ui-modal__body">
+    <span class="ui-modal__icon ui-modal__icon--warning" aria-hidden="true">!</span>
     <div>
-      <h2 class="dialog__title" id="confirm-dialog-title" data-confirm-title>{% translate "تأكيد الإجراء" %}</h2>
-      <p class="dialog__message" id="confirm-dialog-message" data-confirm-message>{% translate "هل تريد متابعة هذا الإجراء؟" %}</p>
+      <h2 class="ui-modal__title" id="confirm-dialog-title" data-confirm-title>{% translate "تأكيد الإجراء" %}</h2>
+      <p class="ui-modal__message" id="confirm-dialog-message" data-confirm-message>{% translate "هل تريد متابعة هذا الإجراء؟" %}</p>
       {# What is being acted on, and for how much. A confirmation that does not #}
       {# name the document is a confirmation the reader cannot check.           #}
-      <dl class="dialog__facts" data-confirm-facts hidden>
+      <dl class="ui-modal__facts" data-confirm-facts hidden>
         <div data-confirm-subject-row hidden><dt>{% translate "المستند" %}</dt><dd data-confirm-subject></dd></div>
         <div data-confirm-amount-row hidden><dt>{% translate "المبلغ" %}</dt><dd data-confirm-amount></dd></div>
         <div data-confirm-period-row hidden><dt>{% translate "الفترة" %}</dt><dd data-confirm-period></dd></div>
       </dl>
-      <p class="dialog__reason" data-confirm-reason-note hidden>{% translate "هذا الإجراء يلزمه سبب مكتوب يُحفظ في سجل التدقيق." %}</p>
+      <p class="ui-modal__reason" data-confirm-reason-note hidden>{% translate "هذا الإجراء يلزمه سبب مكتوب يُحفظ في سجل التدقيق." %}</p>
     </div>
   </div>
-  <div class="dialog__actions">
-    <button class="btn btn--secondary" type="button" data-confirm-cancel>{% translate "إلغاء" %}</button>
-    <button class="btn btn--danger" type="button" data-confirm-accept>{% translate "متابعة" %}</button>
+  <div class="ui-modal__actions">
+    <button class="ui-button ui-button--secondary" type="button" data-confirm-cancel>{% translate "إلغاء" %}</button>
+    <button class="ui-button ui-button--danger" type="button" data-confirm-accept>{% translate "متابعة" %}</button>
   </div>
 </dialog>

@@ -86,7 +86,7 @@ class ApplicationReceivableListView(SalesListView):
         "أولاً، فما يبقى مفتوحاً يحمل تاريخ البيع الذي أنشأه — وهذا ما يجعل التقرير "
         "يقول أيّ المبيعات تأخّرت، لا كم المبلغ فقط."
     )
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     result_label = _("تطبيق")
 
     def scoped_queryset(self) -> QuerySet[Any]:

@@ -32,13 +32,13 @@
       </td>
       <td data-label="{% translate 'المخزن' %}">
         <bdi dir="ltr"><code>{{ count.warehouse.code }}</code></bdi>
-        <span class="muted"><bdi dir="ltr">{{ count.branch.code }}</bdi></span>
+        <span class="ui-text-muted"><bdi dir="ltr">{{ count.branch.code }}</bdi></span>
       </td>
       <td data-label="{% translate 'يوم العمل' %}">
         {% if count.business_date %}
           <bdi dir="ltr"><time datetime="{{ count.business_date|date:'Y-m-d' }}">{{ count.business_date|date:"Y-m-d" }}</time></bdi>
         {% else %}
-          <span class="muted">{% translate "لم يبدأ" %}</span>
+          <span class="ui-text-muted">{% translate "لم يبدأ" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'الحالة' %}">{% include "components/status_badge.html" with status=count.status label=count.get_status_display %}</td>
@@ -47,7 +47,7 @@
           {% translate "المخزن مجمّد" as frozen_label %}
           {% include "components/status_badge.html" with status="PENDING" label=frozen_label %}
         {% else %}
-          <span class="muted">—</span>
+          <span class="ui-text-muted">—</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'العادّ' %}">{{ count.conducted_by|default:"—" }}</td>

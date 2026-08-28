@@ -17,11 +17,11 @@
   {% for row in supplier_items %}
     <tr>
       <td><code>{{ row.supplier.code }}</code></td>
-      <td>{{ row.item.code }} — {{ row.item.name_ar }}</td>
+      <td>{{ row.item.code }} — {{ row.item.name }}</td>
       <td>{% if row.supplier_sku %}<span dir="ltr">{{ row.supplier_sku }}</span>{% else %}—{% endif %}</td>
       <td>
         {% if row.package_unit %}
-          {{ row.package_unit.name_ar }}
+          {{ row.package_unit.name }}
         {% else %}
           {% blocktranslate with unit=row.item.base_unit.code %}بالوحدة الأساسية ({{ unit }}){% endblocktranslate %}
         {% endif %}
@@ -40,11 +40,11 @@
         {% if row.effective_to %} → <span dir="ltr">{{ row.effective_to|date:"Y-m-d" }}</span>{% endif %}
       </td>
       <td>
-        {% if row.is_preferred %}<span class="chip chip--on">{% translate "مفضل" %}</span>{% endif %}
+        {% if row.is_preferred %}<span class="ui-badge ui-badge--success">{% translate "مفضل" %}</span>{% endif %}
         {% if row.is_active %}
-          <span class="chip chip--on">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+          <span class="ui-badge ui-badge--danger">{% translate "مؤرشف" %}</span>
         {% endif %}
       </td>
       {% include "inventory/_rowactions.html" with row=row owner_id=row.organization_id edit_url="procurement:supplier_item_update" archive_url="procurement:supplier_item_archive" reactivate_url="procurement:supplier_item_reactivate" %}

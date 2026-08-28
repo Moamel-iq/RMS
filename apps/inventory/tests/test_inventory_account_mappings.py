@@ -537,7 +537,7 @@ class TestTheReclassificationGuard:
     ) -> None:
         """§V 15: the category move is the third door into the same room."""
         dry_goods = create_item_category(
-            organization=organization, code="DRY", name_ar="جافة", parent=category
+            organization=organization, code="DRY", name="جافة", parent=category
         )
         create_inventory_mapping(
             organization=organization,
@@ -549,7 +549,7 @@ class TestTheReclassificationGuard:
         with pytest.raises(ValidationError) as caught:
             update_item(
                 item=stocked_rice,
-                name_ar=stocked_rice.name_ar,
+                name=stocked_rice.name,
                 category=dry_goods,
                 item_type=stocked_rice.item_type,
             )
@@ -568,7 +568,7 @@ class TestTheReclassificationGuard:
         kilogram: UnitOfMeasure,
     ) -> None:
         dry_goods = create_item_category(
-            organization=organization, code="DRY2", name_ar="جافة ٢", parent=category
+            organization=organization, code="DRY2", name="جافة ٢", parent=category
         )
         create_inventory_mapping(
             organization=organization,
@@ -579,7 +579,7 @@ class TestTheReclassificationGuard:
         )
         moved = update_item(
             item=rice,
-            name_ar=rice.name_ar,
+            name=rice.name,
             category=dry_goods,
             item_type=rice.item_type,
         )

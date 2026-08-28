@@ -45,8 +45,7 @@ class Organization(TimeStampedModel):
     """The top business boundary. Everything else hangs beneath one of these."""
 
     code = models.CharField(_("code"), max_length=20, unique=True)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200)
+    name = models.CharField(_("name"), max_length=200)
     is_active = models.BooleanField(_("active"), default=True)
 
     #: Mutable master data, so row history is kept. Posted ledger entries are
@@ -71,13 +70,13 @@ class Organization(TimeStampedModel):
                 name="organization_code_format",
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar="") & ~Q(name_en=""),
+                condition=~Q(name="") & ~Q(name=""),
                 name="organization_names_not_empty",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class Branch(TimeStampedModel):
@@ -90,8 +89,7 @@ class Branch(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=20)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200)
+    name = models.CharField(_("name"), max_length=200)
 
     timezone = models.CharField(
         _("timezone"),
@@ -130,13 +128,13 @@ class Branch(TimeStampedModel):
                 name="branch_code_format",
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar="") & ~Q(name_en=""),
+                condition=~Q(name="") & ~Q(name=""),
                 name="branch_names_not_empty",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class Role(models.TextChoices):
@@ -203,8 +201,7 @@ class RoleDefinition(TimeStampedModel):
             )
         ],
     )
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
     description = models.TextField(_("description"), blank=True)
     #: The built-in post this one was started from, if any. Kept for the
     #: record, never consulted for authority: the permissions are the truth.
@@ -225,7 +222,7 @@ class RoleDefinition(TimeStampedModel):
     class Meta:
         verbose_name = _("role definition")
         verbose_name_plural = _("role definitions")
-        ordering = ["organization__code", "name_ar"]
+        ordering = ["organization__code", "name"]
         constraints = [
             models.UniqueConstraint(
                 fields=["organization", "code"],
@@ -243,7 +240,7 @@ class RoleDefinition(TimeStampedModel):
         return f"custom:{self.organization_id}:{self.code}"
 
     def __str__(self) -> str:
-        return f"{self.organization.code} · {self.name_ar}"
+        return f"{self.organization.code} · {self.name}"
 
 
 class BranchMembership(TimeStampedModel):
@@ -525,7 +522,7 @@ class AccessChangeRequest(TimeStampedModel):
     @property
     def scope_label(self) -> str:
         branch = self.branch if self.branch_id else None
-        return branch.name_ar if branch is not None else self.organization.name_ar
+        return branch.name if branch is not None else self.organization.name
 
     def __str__(self) -> str:
         return f"{self.get_action_display()} · {self.target_user} · {self.scope_label}"

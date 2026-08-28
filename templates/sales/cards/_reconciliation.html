@@ -5,37 +5,37 @@
 {# acknowledge control here either — the only honest response to a finding is #}
 {# to change a document through its own service.                              #}
 {% load i18n money_tags %}
-<h2 class="section-title">{{ card.label }}</h2>
-<div class="statrow">
-  <div class="stat">
-    <span class="stat__label">{% translate "أيام مفحوصة" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.days }}</code></bdi></span>
+<h2 class="ui-section-title">{{ card.label }}</h2>
+<div class="ui-metric-grid">
+  <div class="ui-metric">
+    <span class="ui-metric__label">{% translate "أيام مفحوصة" %}</span>
+    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.days }}</code></bdi></span>
   </div>
-  <div class="stat">
-    <span class="stat__label">{% translate "أيام مطابقة" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.clean }}</code></bdi></span>
-    <span class="stat__hint"><bdi dir="ltr"><code>{{ summary.clean_share }}%</code></bdi></span>
+  <div class="ui-metric">
+    <span class="ui-metric__label">{% translate "أيام مطابقة" %}</span>
+    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.clean }}</code></bdi></span>
+    <span class="ui-metric__meta"><bdi dir="ltr"><code>{{ summary.clean_share }}%</code></bdi></span>
   </div>
-  <div class="stat">
-    <span class="stat__label">{% translate "أخطاء" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.errors }}</code></bdi></span>
+  <div class="ui-metric">
+    <span class="ui-metric__label">{% translate "أخطاء" %}</span>
+    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.errors }}</code></bdi></span>
   </div>
-  <div class="stat">
-    <span class="stat__label">{% translate "ملاحظات" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.advisories }}</code></bdi></span>
+  <div class="ui-metric">
+    <span class="ui-metric__label">{% translate "ملاحظات" %}</span>
+    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.advisories }}</code></bdi></span>
   </div>
   {# Not a failure: a branch that has not counted its drawer yet has done      #}
   {# nothing wrong, and colouring it red would make the card red every         #}
   {# morning until somebody approved a shift.                                  #}
-  <div class="stat">
-    <span class="stat__label">{% translate "حدود التغطية" %}</span>
-    <span class="stat__value"><bdi dir="ltr"><code>{{ summary.limitations }}</code></bdi></span>
+  <div class="ui-metric">
+    <span class="ui-metric__label">{% translate "حدود التغطية" %}</span>
+    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.limitations }}</code></bdi></span>
   </div>
 </div>
 
 {% if summary.dirty_days %}
-  <div class="tablewrap">
-    <table class="table">
+  <div class="ui-table-scroll">
+    <table class="ui-table">
       <thead>
         <tr>
           <th scope="col">{% translate "التاريخ" %}</th>
@@ -49,10 +49,10 @@
           <tr>
             <td data-label="{% translate 'التاريخ' %}"><bdi dir="ltr"><code>{{ row.business_date|date:"Y-m-d" }}</code></bdi></td>
             <td data-label="{% translate 'الفرع' %}">
-              <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name_ar }}
+              <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name }}
             </td>
             <td data-label="{% translate 'فرق الصندوق' %}">
-              {% if row.cash_variance is None %}<span class="muted">—</span>
+              {% if row.cash_variance is None %}<span class="ui-text-muted">—</span>
               {% else %}<bdi dir="ltr"><code>{{ row.cash_variance|iqd }}</code></bdi>{% endif %}
             </td>
             <td data-label="{% translate 'النتائج' %}">
@@ -65,13 +65,13 @@
       </tbody>
     </table>
   </div>
-  <p class="pagehead__hint">
+  <p class="ui-page-header__subtitle">
     <a href="{% url 'sales:report_daily_reconciliation' %}?from={{ scope.date_from|date:'Y-m-d' }}&amp;to={{ scope.date_to|date:'Y-m-d' }}&amp;dirty=1">
       {% translate "فتح المطابقة اليومية" %}
     </a>
   </p>
 {% elif summary.days %}
-  <p class="empty">{% translate "كل أيام المدة مطابقة." %}</p>
+  <p class="ui-table__empty">{% translate "كل أيام المدة مطابقة." %}</p>
 {% else %}
-  <p class="empty">{% translate "لا توجد أيام في هذه المدة." %}</p>
+  <p class="ui-table__empty">{% translate "لا توجد أيام في هذه المدة." %}</p>
 {% endif %}

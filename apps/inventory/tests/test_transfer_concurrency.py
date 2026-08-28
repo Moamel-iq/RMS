@@ -78,6 +78,7 @@ from apps.inventory.models import (
     WarehouseType,
 )
 from apps.inventory.operations import DocumentLineInput
+from apps.inventory.tests.stock_seed import seed_stock
 from apps.inventory.transfers import ReceiptLineInput, TransferLineInput
 from apps.organizations.models import Role
 from apps.organizations.services import (
@@ -104,19 +105,17 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
     from apps.inventory.services import create_item, create_item_category, create_warehouse
 
     call_command("seed_units", verbosity=0)
-    organization = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM", name="خان مندي")
     first = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=clock(9, 0),
     )
     second = create_branch(
         organization=organization,
         code="KARRADA",
-        name_ar="الكرادة",
-        name_en="Karrada",
+        name="الكرادة",
         business_day_start_time=clock(9, 0),
     )
     year = timezone.localdate().year
@@ -141,20 +140,20 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
             effective_from=effective,
         )
 
-    root = create_item_category(organization=organization, code="FOOD", name_ar="أغذية")
-    leaf = create_item_category(organization=organization, code="MEAT", name_ar="لحوم", parent=root)
+    root = create_item_category(organization=organization, code="FOOD", name="أغذية")
+    leaf = create_item_category(organization=organization, code="MEAT", name="لحوم", parent=root)
     kilogram = UnitOfMeasure.objects.get(code="KG")
     rice = create_item(
         organization=organization,
         code="RICE-272",
-        name_ar="رز",
+        name="رز",
         category=leaf,
         item_type="RAW_MATERIAL",
         base_unit=kilogram,
     )
-    main = create_warehouse(branch=first, code="MAIN", name_ar="الرئيسي")
-    kitchen = create_warehouse(branch=first, code="KITCHEN", name_ar="المطبخ")
-    far = create_warehouse(branch=second, code="MAIN", name_ar="الكرادة")
+    main = create_warehouse(branch=first, code="MAIN", name="الرئيسي")
+    kitchen = create_warehouse(branch=first, code="KITCHEN", name="المطبخ")
+    far = create_warehouse(branch=second, code="MAIN", name="الكرادة")
 
     actor = User.objects.create_user(username="mover", password="pw-not-real-1234")
     grant_organization_access(user=actor, organization=organization, role=Role.OWNER)
@@ -176,24 +175,16 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
 
 
 def _receive(world: dict[str, Any], warehouse: Warehouse, quantity: str, cost: str) -> None:
-    actor = world["actor"]
-    document = create_document(
-        actor=actor,
-        organization=world["organization"],
-        branch=warehouse.branch,
+    organization = world["organization"]
+    seed_stock(
+        actor=world["actor"],
+        organization=organization,
         warehouse=warehouse,
-        document_type=InventoryDocumentType.RECEIPT,
-        effective_at=timezone.now(),
-        evidence_reference="DN-SEED",
+        item=world["rice"],
+        quantity=quantity,
+        unit_cost=cost,
+        control_account=Account.objects.get(organization=organization, code="1-03-01-001"),
     )
-    add_document_line(
-        actor=actor,
-        document=document,
-        line=DocumentLineInput(
-            item=world["rice"], base_quantity=Decimal(quantity), unit_cost=Decimal(cost)
-        ),
-    )
-    post_document(actor=actor, document=document)
 
 
 def _dispatch(

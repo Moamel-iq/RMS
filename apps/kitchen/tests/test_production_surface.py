@@ -91,10 +91,10 @@ FORBIDDEN_ANYWHERE = (
     "مركز التكلفة",
 )
 
-#: `<button>…</button>` and `<a class="btn…">…</a>`, which is every control a
+#: `<button>…</button>` and `<a class="ui-button…">…</a>`, which is every control a
 #: kitchen operator can actually press on these screens.
 _CONTROL = re.compile(
-    r"<button[^>]*>(?P<button>.*?)</button>|<a[^>]*class=\"[^\"]*btn[^\"]*\"[^>]*>(?P<link>.*?)</a>",
+    r"<button[^>]*>(?P<button>.*?)</button>|<a[^>]*class=\"[^\"]*ui-button[^\"]*\"[^>]*>(?P<link>.*?)</a>",
     re.DOTALL,
 )
 
@@ -306,7 +306,7 @@ class TestHtmxAndTheFullPageFallback:
         )
 
         assert response.status_code == 200
-        assert "formrow--invalid" in response.content.decode()
+        assert "ui-field--invalid" in response.content.decode()
 
 
 class TestFiltersAndPaginationKeepTheirQuery:

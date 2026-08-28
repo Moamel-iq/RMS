@@ -75,14 +75,11 @@ class _Scene:
         call_command("seed_units", verbosity=0)
         UnitOfMeasure.objects.get(code="KG")
 
-        self.organization = create_organization(
-            code="RACEINV", name_ar="سباق الفواتير", name_en="Invoice race"
-        )
+        self.organization = create_organization(code="RACEINV", name="سباق الفواتير")
         self.branch = create_branch(
             organization=self.organization,
             code="MAIN",
-            name_ar="الرئيسي",
-            name_en="Main",
+            name="الرئيسي",
             business_day_start_time=datetime.time(9, 0),
         )
         configure_accounting(organization=self.organization, fiscal_year_start_month=1)
@@ -101,9 +98,7 @@ class _Scene:
             effective_from=JAN_1,
         )
 
-        self.supplier = create_supplier(
-            organization=self.organization, code="SUP-01", name_ar="مورد"
-        )
+        self.supplier = create_supplier(organization=self.organization, code="SUP-01", name="مورد")
         self.clerk = User.objects.create_user(username="race-clerk", password=PASSWORD)
         grant_organization_access(
             user=self.clerk, organization=self.organization, role=Role.ACCOUNTANT

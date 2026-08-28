@@ -32,9 +32,7 @@ from apps.organizations.authorization import (
 )
 from apps.organizations.models import Branch, Organization
 from apps.procurement.models import (
-    GoodsReceipt,
     GoodsReceiptLine,
-    GoodsReceiptStatus,
     PurchaseOrder,
     PurchaseOrderStatus,
     PurchaseRequest,
@@ -81,8 +79,7 @@ class SupplierForm(forms.Form):
 
     organization = forms.ModelChoiceField(queryset=Organization.objects.none(), label=_("المؤسسة"))
     code = forms.CharField(label=_("الرمز"), max_length=32)
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنكليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     contact_name = forms.CharField(label=_("جهة الاتصال"), max_length=200, required=False)
     phone = forms.CharField(label=_("الهاتف"), max_length=20, required=False)
     email = forms.EmailField(label=_("البريد الإلكتروني"), required=False)
@@ -93,6 +90,24 @@ class SupplierForm(forms.Form):
         max_value=365,
         initial=0,
         help_text=_("صفر يعني الدفع عند الاستلام."),
+    )
+    minimum_settlement_percent = forms.DecimalField(
+        label=_("الحد الأدنى لنسبة السداد عند الاستحقاق"),
+        min_value=0,
+        max_value=100,
+        required=False,
+        help_text=_(
+            "نسبة من قيمة الفاتورة يجب تسديدها بحلول تاريخ الاستحقاق. "
+            "اتركه فارغاً إن لم يكن هناك حد متفق عليه، ولا يُقبل بلا مهلة سداد."
+        ),
+    )
+    balance_reset_date = forms.DateField(
+        label=_("تاريخ تصفير الحساب"),
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text=_(
+            "يبدأ كشف الحساب من هذا التاريخ برصيد افتتاحي يجمع ما قبله. لا تُحذف أي حركة سابقة."
+        ),
     )
     credit_limit = forms.DecimalField(
         label=_("سقف الائتمان"),
@@ -147,6 +162,35 @@ class SupplierForm(forms.Form):
             )
         return code
 
+    def clean(self) -> dict[str, Any]:
+        """
+        The settlement floor needs a due date to be measured against.
+
+        On create the term is in this form; on edit it is not, because terms
+        are versioned elsewhere — so the supplier's own current term is what
+        the rule reads. Refused here rather than left to the database, so the
+        operator gets the reason on the field that caused it.
+        """
+        data: dict[str, Any] = super().clean() or {}
+        percent = data.get("minimum_settlement_percent")
+        if percent is None:
+            return data
+
+        if "payment_terms_days" in self.fields:
+            terms = data.get("payment_terms_days") or 0
+        else:
+            terms = self.instance.payment_terms_days if self.instance else 0
+
+        if terms <= 0:
+            self.add_error(
+                "minimum_settlement_percent",
+                forms.ValidationError(
+                    _("لا يمكن تحديد حد أدنى للسداد بلا مهلة سداد أكبر من صفر."),
+                    code="settlement_percent_needs_terms",
+                ),
+            )
+        return data
+
     def clean_phone(self) -> str:
         value = self.cleaned_data.get("phone", "").strip()
         if not value:
@@ -176,8 +220,7 @@ class SupplierCreditTermForm(forms.Form):
     """Create or edit one DRAFT effective-dated credit-term version."""
 
     supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنكليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     net_days = forms.IntegerField(label=_("عدد أيام الائتمان"), min_value=0, max_value=3650)
     effective_from = forms.DateField(
         label=_("ساري من"), widget=forms.DateInput(attrs={"type": "date"})
@@ -714,16 +757,11 @@ class SupplierInvoiceForm(forms.Form):
     supplier_invoice_number = forms.CharField(
         label=_("رقم فاتورة المورد"),
         max_length=64,
+        required=True,
         help_text=_("رقمهم كما كتبوه. لا يتكرر لنفس المورد — الحماية من الدفع مرتين."),
     )
     invoice_date = forms.DateField(
         label=_("تاريخ الفاتورة"), widget=forms.DateInput(attrs={"type": "date"})
-    )
-    business_date = forms.DateField(
-        label=_("التاريخ المحاسبي"),
-        widget=forms.DateInput(attrs={"type": "date"}),
-        required=False,
-        help_text=_("يوم العمل الذي يُرحّل فيه. يُترك فارغاً ليأخذ يوم الفرع الحالي."),
     )
     supplier_reference = forms.CharField(label=_("مرجع المورد"), max_length=200, required=False)
     currency_code = forms.ChoiceField(
@@ -997,15 +1035,15 @@ class SupplierReturnForm(forms.Form):
     """
     The header of a draft return. Lines are entered on the detail screen.
 
-    The delivery is the field, not the supplier: a return is always *of
-    something that arrived*, and the service refuses one that cites no posted
-    delivery. The supplier, warehouse and branch all follow from the receipt.
+    A standalone return is entered directly against its supplier and stock
+    custody location. It does not need a purchase order or goods receipt.
     """
 
-    receipt = forms.ModelChoiceField(
-        queryset=GoodsReceipt.objects.none(),
-        label=_("التسليم المرتجع منه"),
-        help_text=_("تسليم مرحّل فقط — المسودة لم تُدخل شيئاً إلى المخزون بعد."),
+    supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
+    branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع"))
+    warehouse = forms.ModelChoiceField(queryset=Warehouse.objects.none(), label=_("المخزن"))
+    location = forms.ModelChoiceField(
+        queryset=StockLocation.objects.none(), required=False, label=_("الموقع")
     )
     returned_at = forms.DateField(
         label=_("تاريخ الإرجاع"), widget=forms.DateInput(attrs={"type": "date"})
@@ -1029,21 +1067,45 @@ class SupplierReturnForm(forms.Form):
         self.actor = actor
         self.instance = instance
         warehouses = accessible_warehouses(actor)
-        self.fields["receipt"].queryset = (  # type: ignore[attr-defined]
-            GoodsReceipt.objects.filter(warehouse__in=warehouses, status=GoodsReceiptStatus.POSTED)
-            .select_related("supplier", "warehouse")
-            .order_by("-id")
-        )
+        organization_ids = reachable_organization_ids(actor)
+        self.fields["supplier"].queryset = Supplier.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=organization_ids, is_active=True
+        ).order_by("code")
+        self.fields["branch"].queryset = Branch.objects.filter(  # type: ignore[attr-defined]
+            organization_id__in=organization_ids, is_active=True
+        ).order_by("code")
+        self.fields["warehouse"].queryset = warehouses.order_by("code")  # type: ignore[attr-defined]
+        self.fields["location"].queryset = StockLocation.objects.filter(  # type: ignore[attr-defined]
+            warehouse__in=warehouses, is_active=True
+        ).order_by("code")
         self.fields["reason_code"].queryset = InventoryReasonCode.objects.filter(  # type: ignore[attr-defined]
             organization_id__in=reachable_organization_ids(actor), is_active=True
         ).order_by("code")
 
     def clean(self) -> dict[str, Any]:
         data: dict[str, Any] = super().clean() or {}
-        receipt, reason_code = data.get("receipt"), data.get("reason_code")
-        if receipt and reason_code and reason_code.organization_id != receipt.organization_id:
+        supplier, branch, warehouse, location, reason_code = (
+            data.get("supplier"),
+            data.get("branch"),
+            data.get("warehouse"),
+            data.get("location"),
+            data.get("reason_code"),
+        )
+        if supplier and branch and supplier.organization_id != branch.organization_id:
             raise forms.ValidationError(
-                _("رمز السبب لا يتبع مؤسسة هذا التسليم."), code="reason_code_organization_mismatch"
+                _("المورد لا يتبع مؤسسة الفرع."), code="supplier_organization_mismatch"
+            )
+        if branch and warehouse and branch.organization_id != warehouse.organization_id:
+            raise forms.ValidationError(
+                _("المخزن لا يتبع مؤسسة الفرع."), code="warehouse_organization_mismatch"
+            )
+        if location and warehouse and location.warehouse_id != warehouse.pk:
+            raise forms.ValidationError(
+                _("الموقع لا يتبع المخزن المحدد."), code="location_warehouse_mismatch"
+            )
+        if branch and reason_code and reason_code.organization_id != branch.organization_id:
+            raise forms.ValidationError(
+                _("رمز السبب لا يتبع مؤسسة الفرع."), code="reason_code_organization_mismatch"
             )
         return data
 
@@ -1089,7 +1151,7 @@ class SupplierCreditNoteForm(forms.Form):
         self.fields["supplier_return"].queryset = (  # type: ignore[attr-defined]
             SupplierReturn.objects.filter(organization__in=allowed, status="POSTED")
             .exclude(credit_notes__status__in=("DRAFT", "POSTED"))
-            .select_related("supplier", "receipt")
+            .select_related("supplier", "warehouse")
             .order_by("-id")
         )
 
@@ -1184,6 +1246,58 @@ class PaymentAllocationForm(forms.Form):
         )
 
 
+class SettlementPlanForm(forms.Form):
+    """
+    Confirming one of the settlement screen's plans, and nothing else.
+
+    The plan is recomputed on the server from the same supplier and target
+    rather than trusted from the browser, so what posts is what the arithmetic
+    says — never a list of invoice ids a form could have been made to carry.
+    `expected_total` is the operator's side of that: the figure they were
+    shown. If a colleague settled an invoice while this screen was open the
+    recomputed plan will differ, and the settlement is refused rather than
+    quietly paying a different set of invoices than the one confirmed.
+    """
+
+    supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
+    branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع"))
+    paid_at = forms.DateField(
+        label=_("تاريخ الدفع"), widget=forms.DateInput(attrs={"type": "date"})
+    )
+    method = forms.ChoiceField(label=_("طريقة الدفع"), choices=SupplierPaymentMethod.choices)
+    plan = forms.ChoiceField(label=_("الخطة"), choices=())
+    target = forms.DecimalField(label=_("المبلغ المستهدف"), min_value=Decimal("0"))
+    expected_total = forms.DecimalField(label=_("المبلغ المؤكَّد"), min_value=Decimal("0"))
+    reference = forms.CharField(label=_("رقم الصك أو الحوالة"), max_length=64, required=False)
+    notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
+
+    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        allowed = organizations_with_permission(actor, CREATE_SUPPLIER_PAYMENT)
+        self.fields["supplier"].queryset = (  # type: ignore[attr-defined]
+            Supplier.objects.filter(organization__in=allowed, is_active=True).order_by("code")
+        )
+        self.fields["branch"].queryset = (  # type: ignore[attr-defined]
+            Branch.objects.filter(organization__in=allowed, is_active=True).order_by("code")
+        )
+        # Imported here rather than at module scope: `settlement` imports the
+        # invoice services, which import this module's siblings, and the cycle
+        # is only closed at call time.
+        from apps.procurement.settlement import PlanKind
+
+        self.fields["plan"].choices = [(kind.value, kind.value) for kind in PlanKind]  # type: ignore[attr-defined]
+
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean() or {}
+        supplier, branch = data.get("supplier"), data.get("branch")
+        if supplier and branch and supplier.organization_id != branch.organization_id:
+            raise forms.ValidationError(
+                _("المورد لا يتبع مؤسسة هذا الفرع."), code="supplier_organization_mismatch"
+            )
+        return data
+
+
 class CreditReturnAllocationForm(forms.Form):
     """This much of the note settles that much of one return line."""
 
@@ -1215,20 +1329,18 @@ class CreditReturnAllocationForm(forms.Form):
 
 class SupplierReturnLineForm(forms.Form):
     """
-    One delivery line going back, in part or in whole.
-
-    The choices narrow to the return's own delivery, so a submitted id cannot
-    cite somebody else's receipt — the service re-checks, but a form that
-    offered the choice at all would be inviting the attempt.
+    An inventory item and optional lot selected directly for a standalone
+    supplier return.
     """
 
-    receipt_line = forms.ModelChoiceField(
-        queryset=GoodsReceiptLine.objects.none(), label=_("سطر التسليم")
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    lot = forms.ModelChoiceField(
+        queryset=InventoryLot.objects.none(), required=False, label=_("اللوط")
     )
     returned_base_quantity = forms.DecimalField(
         label=_("الكمية المرتجعة بالوحدة الأساسية"),
         min_value=Decimal("0.001"),
-        help_text=_("لا تتجاوز ما قُبل من ذلك السطر ناقص ما أُرجع منه سابقاً."),
+        help_text=_("تُفحص الكمية المتاحة في المخزن عند الترحيل."),
     )
     expected_credit_value = forms.DecimalField(
         label=_("الائتمان المتوقع"),
@@ -1242,13 +1354,14 @@ class SupplierReturnLineForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.actor = actor
         self.supplier_return = supplier_return
-        # Lines that brought something into stock. A wholly rejected line
-        # never entered and cannot be returned from it.
-        self.fields["receipt_line"].queryset = (  # type: ignore[attr-defined]
-            GoodsReceiptLine.objects.filter(
-                receipt_id=supplier_return.receipt_id,
-                accepted_base_quantity__gt=Decimal("0.000"),
+        self.fields["item"].queryset = InventoryItem.objects.filter(  # type: ignore[attr-defined]
+            organization_id=supplier_return.organization_id, is_active=True
+        ).order_by("code")
+        self.fields["lot"].queryset = (  # type: ignore[attr-defined]
+            InventoryLot.objects.filter(
+                organization_id=supplier_return.organization_id,
+                is_active=True,
             )
             .select_related("item")
-            .order_by("sequence")
+            .order_by("item__code", "code")
         )

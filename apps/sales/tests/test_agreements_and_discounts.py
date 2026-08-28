@@ -236,7 +236,7 @@ def application(organization: Organization) -> DeliveryApplication:
     return create_delivery_application(
         organization=organization,
         code="DEMO-APPONE",
-        name_ar="تطبيق تجريبي أول",
+        name="تطبيق تجريبي أول",
         settlement_cycle_days=14,
     )
 
@@ -397,8 +397,7 @@ class TestApplicationMaster:
         foreign = create_branch(
             organization=other_organization,
             code="FOREIGN",
-            name_ar="أجنبي",
-            name_en="Foreign",
+            name="أجنبي",
             business_day_start_time=time(9, 0),
         )
         with pytest.raises(ValidationError) as caught:
@@ -415,7 +414,7 @@ class TestDiscountFunding:
             create_discount_program(
                 organization=organization,
                 code="DEMO-BADSPLIT",
-                name_ar="تقسيم ناقص",
+                name="تقسيم ناقص",
                 effective_from=JANUARY,
                 discount_percent=Decimal("10"),
                 restaurant_funded_share=Decimal("60"),
@@ -430,7 +429,7 @@ class TestDiscountFunding:
             DiscountProgram.objects.create(
                 organization=organization,
                 code="DEMO-BYPASS",
-                name_ar="التفاف",
+                name="التفاف",
                 effective_from=JANUARY,
                 discount_percent=Decimal("10"),
                 restaurant_funded_share=Decimal("60"),
@@ -449,7 +448,7 @@ class TestDiscountFunding:
             create_discount_program(
                 organization=organization,
                 code="DEMO-ORPHAN",
-                name_ar="ممول من لا أحد",
+                name="ممول من لا أحد",
                 effective_from=JANUARY,
                 discount_percent=Decimal("20"),
                 restaurant_funded_share=Decimal("50"),
@@ -464,7 +463,7 @@ class TestDiscountFunding:
             create_discount_program(
                 organization=organization,
                 code="DEMO-BOTH",
-                name_ar="نسبة ومبلغ",
+                name="نسبة ومبلغ",
                 effective_from=JANUARY,
                 discount_percent=Decimal("10"),
                 discount_amount=Decimal("500"),
@@ -477,7 +476,7 @@ class TestDiscountFunding:
         program = create_discount_program(
             organization=organization,
             code="DEMO-SHARED",
-            name_ar="خصم مشترك",
+            name="خصم مشترك",
             effective_from=JANUARY,
             discount_percent=Decimal("20"),
             restaurant_funded_share=Decimal("50"),
@@ -508,7 +507,7 @@ class TestDiscountApplicability:
         create_discount_program(
             organization=organization,
             code="DEMO-APPONLY",
-            name_ar="عرض التطبيق",
+            name="عرض التطبيق",
             effective_from=JANUARY,
             discount_percent=Decimal("15"),
             restaurant_funded_share=Decimal("0"),
@@ -518,7 +517,7 @@ class TestDiscountApplicability:
         hall = create_sales_channel(
             organization=organization,
             code="DINE-IN",
-            name_ar="الصالة",
+            name="الصالة",
             category=SalesChannelCategory.DINE_IN,
             cost_center=hall_cost_center,
             default_tender=TenderDestination.CASH,
@@ -550,7 +549,7 @@ class TestDiscountApplicability:
         create_discount_program(
             organization=organization,
             code="DEMO-RAMADAN",
-            name_ar="عرض رمضان",
+            name="عرض رمضان",
             effective_from=JANUARY,
             discount_percent=Decimal("10"),
         )

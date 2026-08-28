@@ -1,48 +1,47 @@
-{% extends "shell.html" %}
+{% extends form_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page workspace-form-page" aria-labelledby="workspace-form-title">
-    <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--form" aria-labelledby="workspace-form-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url active_module.url_name %}">{{ active_module.label }}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ page_title }}</span>
     </nav>
-    <div class="pagehead">
-      <div>
-        <p class="pagehead__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
-        <h1 class="pagehead__title" id="workspace-form-title">{{ page_title }}</h1>
-        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+
+    <header class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
+        <h1 class="ui-page-header__title" id="workspace-form-title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="ui-page-header__subtitle">{{ page_hint }}</p>{% endif %}
       </div>
-    </div>
+    </header>
 
-    <form class="formcard workspace-form-card" method="post" novalidate>
-    {% csrf_token %}
-    {% include "components/form_error_summary.html" with form=form %}
+    <form class="ui-card ui-form-card ui-form" method="post" novalidate>
+      {% csrf_token %}
+      {% include "components/form_error_summary.html" with form=form %}
 
-    <div class="formgrid">
-      {% for field in form %}
-        {% if field.field.widget.input_type == "checkbox" %}
-          <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}" data-field>
-            {{ field }}
-            <label class="formrow__label formrow__label--inline" for="{{ field.id_for_label }}">
-              {{ field.label }}
-            </label>
-            {% if field.help_text %}<p class="formrow__help" id="{{ field.auto_id }}_helptext" data-field-description>{{ field.help_text }}</p>{% endif %}
-            {% if field.errors %}<div id="{{ field.auto_id }}_error" data-field-description data-field-error>{% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}</div>{% endif %}
-          </div>
-        {% else %}
-          {% include "settings/_field.html" with field=field %}
-        {% endif %}
-      {% endfor %}
-    </div>
+      <div class="ui-form-grid">
+        {% for field in form %}
+          {% if field.field.widget.input_type == "checkbox" %}
+            <div class="ui-field ui-field--check{% if field.errors %} ui-field--invalid{% endif %}" data-field>
+              {{ field }}
+              <label class="ui-field__label ui-field__label--inline" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {% if field.help_text %}<p class="ui-field__hint" id="{{ field.auto_id }}_ui-field__hint" data-field-description>{{ field.help_text }}</p>{% endif %}
+              {% if field.errors %}<div id="{{ field.auto_id }}_error" data-field-description data-field-error>{% for error in field.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}</div>{% endif %}
+            </div>
+          {% else %}
+            {% include "settings/_field.html" with field=field %}
+          {% endif %}
+        {% endfor %}
+      </div>
 
-    <div class="formactions">
-      <button class="btn btn--primary" type="submit">{% translate "حفظ" %}</button>
-      <a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
-    </div>
+      <footer class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "حفظ" %}</button>
+        <a class="ui-button ui-button--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
+      </footer>
     </form>
   </section>
 {% endblock %}

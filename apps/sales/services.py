@@ -79,15 +79,13 @@ def create_menu_category(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     display_order: int = 1,
 ) -> MenuCategory:
     category = MenuCategory(
         organization=organization,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         display_order=display_order,
     )
     category.full_clean()
@@ -100,8 +98,7 @@ def create_menu_category(
 def update_menu_category(
     *,
     category: MenuCategory,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     display_order: int = 1,
     is_active: bool = True,
 ) -> MenuCategory:
@@ -113,8 +110,8 @@ def update_menu_category(
     of the menu across an organization boundary.
     """
     previous = snapshot(category)
-    category.name_ar = name_ar.strip()
-    category.name_en = name_en.strip()
+    category.name = name.strip()
+    category.name = name.strip()
     category.display_order = display_order
     category.is_active = is_active
     category.full_clean()
@@ -254,11 +251,10 @@ def create_menu_item(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
+    name: str,
     recipe: Recipe | None = None,
     serving_code: str = "",
     category: MenuCategory | None = None,
-    name_en: str = "",
     description_ar: str = "",
     fulfillment_source: str = FulfillmentSource.RECIPE_SERVING,
     inventory_item: InventoryItem | None = None,
@@ -281,8 +277,7 @@ def create_menu_item(
         organization=organization,
         category=category,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         description_ar=description_ar.strip(),
         fulfillment_source=fulfillment_source,
         recipe=recipe,
@@ -302,14 +297,13 @@ def create_menu_item(
 def update_menu_item(
     *,
     item: MenuItem,
-    name_ar: str,
+    name: str,
     recipe: Recipe | None = None,
     serving_code: str = "",
     fulfillment_source: str = FulfillmentSource.RECIPE_SERVING,
     inventory_item: InventoryItem | None = None,
     direct_stock_base_quantity: Decimal | None = None,
     category: MenuCategory | None = None,
-    name_en: str = "",
     description_ar: str = "",
     display_order: int = 1,
     notes: str = "",
@@ -335,8 +329,8 @@ def update_menu_item(
     )
     previous = snapshot(item)
     item.category = category
-    item.name_ar = name_ar.strip()
-    item.name_en = name_en.strip()
+    item.name = name.strip()
+    item.name = name.strip()
     item.description_ar = description_ar.strip()
     item.fulfillment_source = fulfillment_source
     item.recipe = recipe
@@ -451,10 +445,9 @@ def create_sales_channel(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
+    name: str,
     category: str,
     cost_center: CostCenter,
-    name_en: str = "",
     default_tender: str = TenderDestination.CASH,
     revenue_account: Account | None = None,
     requires_cashier: bool = True,
@@ -485,8 +478,7 @@ def create_sales_channel(
     channel = SalesChannel(
         organization=organization,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         category=category,
         default_tender=_tender_for(category, default_tender),
         cost_center=cost_center,
@@ -506,9 +498,8 @@ def create_sales_channel(
 def update_sales_channel(
     *,
     channel: SalesChannel,
-    name_ar: str,
+    name: str,
     cost_center: CostCenter,
-    name_en: str = "",
     default_tender: str = TenderDestination.CASH,
     revenue_account: Account | None = None,
     requires_cashier: bool = True,
@@ -536,8 +527,8 @@ def update_sales_channel(
             code="account_organization_mismatch",
         )
     previous = snapshot(channel)
-    channel.name_ar = name_ar.strip()
-    channel.name_en = name_en.strip()
+    channel.name = name.strip()
+    channel.name = name.strip()
     channel.cost_center = cost_center
     channel.revenue_account = revenue_account
     channel.default_tender = _tender_for(channel.category, default_tender)
@@ -701,8 +692,7 @@ def create_delivery_application(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     settlement_cycle_days: int = 30,
     receivable_account: Account | None = None,
     contact_name: str = "",
@@ -729,8 +719,7 @@ def create_delivery_application(
     application = DeliveryApplication(
         organization=organization,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         settlement_cycle_days=settlement_cycle_days,
         receivable_account=receivable_account,
         contact_name=contact_name.strip(),
@@ -749,8 +738,7 @@ def create_delivery_application(
 def update_delivery_application(
     *,
     application: DeliveryApplication,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     settlement_cycle_days: int = 30,
     receivable_account: Account | None = None,
     contact_name: str = "",
@@ -775,8 +763,8 @@ def update_delivery_application(
             code="account_organization_mismatch",
         )
     previous = snapshot(application)
-    application.name_ar = name_ar.strip()
-    application.name_en = name_en.strip()
+    application.name = name.strip()
+    application.name = name.strip()
     application.settlement_cycle_days = settlement_cycle_days
     application.receivable_account = receivable_account
     application.contact_name = contact_name.strip()
@@ -945,7 +933,7 @@ def create_discount_program(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
+    name: str,
     effective_from: datetime.date,
     discount_percent: Decimal | None = None,
     discount_amount: Decimal | None = None,
@@ -956,7 +944,6 @@ def create_discount_program(
     delivery_application: DeliveryApplication | None = None,
     menu_item: MenuItem | None = None,
     maximum_amount: Decimal | None = None,
-    name_en: str = "",
     effective_to: datetime.date | None = None,
     evidence_reference: str = "",
     notes: str = "",
@@ -1013,8 +1000,7 @@ def create_discount_program(
         organization=organization,
         branch=branch,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         discount_percent=discount_percent,
         discount_amount=discount_amount,
         maximum_amount=maximum_amount,

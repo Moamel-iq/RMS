@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# THE BLIND COUNTING SHEET.                                                  #}
@@ -14,31 +14,31 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="inventory-page inventory-detail-page" aria-labelledby="count-sheet-title">
-    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--detail" aria-labelledby="count-sheet-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{{ back_url }}">{% translate "تفاصيل الجرد" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{% translate "كشف الجرد الأعمى" %}</span>
     </nav>
-    <header class="pagehead inventory-document-hero">
+    <header class="ui-page-header ui-document-hero">
       <div>
-        <div class="inventory-detail-kicker">
+        <div class="ui-document-hero__meta">
           {% include "components/status_badge.html" with status=count.status label=count.get_status_display %}
           <code><bdi dir="ltr">{{ count.count_number }}</bdi></code>
-          <span class="inventory-status">{% translate "المخزن مجمّد" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "المخزن مجمّد" %}</span>
         </div>
-        <h1 class="pagehead__title" id="count-sheet-title">{{ page_title }}</h1>
-        <p class="pagehead__hint">
+        <h1 class="ui-page-header__title" id="count-sheet-title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">
         {% translate "عُدّ ما على الرفّ فعلاً. الكمية الدفترية غير معروضة عمداً: العدّ الذي يعرف الجواب لا يقيس شيئاً." %}
         </p>
       </div>
-    <div class="rowactions">
-      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+    <div class="ui-actions">
+      <a class="ui-button ui-button--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
     </div>
     </header>
 
-    <dl class="factgrid" aria-label="{% translate 'بيانات كشف الجرد' %}">
-      <div><dt>{% translate "المخزن" %}</dt><dd><code><bdi dir="ltr">{{ count.warehouse.code }}</bdi></code> {{ count.warehouse.name_ar }}</dd></div>
+    <dl class="ui-definition-list" aria-label="{% translate 'بيانات كشف الجرد' %}">
+      <div><dt>{% translate "المخزن" %}</dt><dd><code><bdi dir="ltr">{{ count.warehouse.code }}</bdi></code> {{ count.warehouse.name }}</dd></div>
       <div><dt>{% translate "لحظة القطع" %}</dt><dd><bdi dir="ltr">{{ count.cutoff_at|date:"Y-m-d H:i" }}</bdi></dd></div>
       <div><dt>{% translate "يوم العمل" %}</dt><dd><bdi dir="ltr">{{ count.business_date|date:"Y-m-d" }}</bdi></dd></div>
       <div><dt>{% translate "العادّ" %}</dt><dd>{{ count.conducted_by|default:"—" }}</dd></div>
@@ -46,8 +46,8 @@
 
   <form method="post" data-inventory-form>
     {% csrf_token %}
-    <div class="tablewrap responsive-table">
-      <table class="table data-table">
+    <div class="ui-data-card ui-table-scroll">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>
             <th scope="col">#</th>
@@ -65,7 +65,7 @@
               <td data-label="{% translate 'الصنف' %}">
                 <code><bdi dir="ltr">{{ row.item__code }}</bdi></code> {{ row.item__name_ar }}
                 {% if row.is_unexpected %}
-                  <br><span class="muted">{% translate "صنف غير متوقّع" %}</span>
+                  <br><span class="ui-text-muted">{% translate "صنف غير متوقّع" %}</span>
                 {% endif %}
               </td>
               <td data-label="{% translate 'الدفعة' %}">
@@ -75,13 +75,13 @@
               <td data-label="{% translate 'الكمية المعدودة' %}">
                 {# `dir=ltr` and no `dir=auto`: an empty auto field resolves    #}
                 {# to LTR and puts the padding on the wrong side of an RTL box. #}
-                <input class="inventory-table-input" type="text" dir="ltr" inputmode="decimal"
+                <input class="ui-table-input" type="text" dir="ltr" inputmode="decimal"
                        name="counted-{{ row.id }}"
                        value="{% if row.counted_quantity is not None %}{{ row.counted_quantity|stringformat:'f' }}{% endif %}"
                        aria-label="{% translate 'الكمية المعدودة' %}">
               </td>
               <td data-label="{% translate 'ملاحظة' %}">
-                <input class="inventory-table-input inventory-table-input--note" type="text"
+                <input class="ui-table-input ui-table-input--note" type="text"
                        name="note-{{ row.id }}" value="{{ row.line_note }}"
                        maxlength="200" aria-label="{% translate 'ملاحظة' %}">
               </td>
@@ -100,40 +100,40 @@
     </div>
 
     {% if is_in_progress %}
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit" data-inventory-submit>{% translate "حفظ الكميات" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit" data-inventory-submit>{% translate "حفظ الكميات" %}</button>
       </div>
     {% endif %}
   </form>
 
   {% if is_in_progress %}
-    <form class="formcard" method="post"
+    <form class="ui-card ui-form-card" method="post"
           action="{% url 'inventory:count_unexpected' count.pk %}">
       {% csrf_token %}
       <h2>{% translate "صنف موجود على الرفّ ولا تعرفه الدفاتر" %}</h2>
-      <p class="pagehead__hint">
+      <p class="ui-page-header__hint">
         {% translate "الكمية فقط. كلفته يقرّرها المعتمِد لاحقاً، لا العادّ." %}
       </p>
       {% include "components/form_error_summary.html" with form=unexpected_form %}
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in unexpected_form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
-      <div class="formactions">
-        <button class="btn btn--ghost" type="submit">{% translate "إضافة" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--ghost" type="submit">{% translate "إضافة" %}</button>
       </div>
     </form>
 
-    <form class="formcard" method="post" action="{% url 'inventory:count_submit' count.pk %}"
+    <form class="ui-card ui-form-card" method="post" action="{% url 'inventory:count_submit' count.pk %}"
           data-confirm="{% translate 'بعد التقديم لن تتمكن من تعديل الكميات، وسيبقى المخزن مجمّداً حتى اعتماد شخص آخر. هل تريد المتابعة؟' %}"
           data-confirm-title="{% translate 'تقديم الجرد للاعتماد' %}">
       {% csrf_token %}
-      <p class="pagehead__hint">
+      <p class="ui-page-header__hint">
         {% translate "بعد التقديم لا يمكنك تعديل الكميات، ويعتمدها شخص آخر. المخزن يبقى مجمّداً." %}
       </p>
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "تقديم للاعتماد" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "تقديم للاعتماد" %}</button>
       </div>
     </form>
   {% endif %}

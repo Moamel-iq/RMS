@@ -111,8 +111,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -125,8 +125,8 @@ def meat(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="MEAT",
-        name_ar="لحم",
-        category=create_item_category(organization=organization, code="MEATS", name_ar="لحوم"),
+        name="لحم",
+        category=create_item_category(organization=organization, code="MEATS", name="لحوم"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
         tracks_lots=True,
@@ -137,7 +137,7 @@ def meat(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
     from apps.inventory.services import create_item_conversion, create_package_unit
 
-    package = create_package_unit(organization=organization, code="SACK", name_ar="كيس")
+    package = create_package_unit(organization=organization, code="SACK", name="كيس")
     create_item_conversion(
         item=rice,
         package_unit=package,
@@ -153,7 +153,7 @@ def container(organization: Organization, meat: InventoryItem) -> PackageUnit:
     """A VARIABLE package: the factor is a planning estimate, not a quantity."""
     from apps.inventory.services import create_item_conversion, create_package_unit
 
-    package = create_package_unit(organization=organization, code="CONTAINER", name_ar="حاوية")
+    package = create_package_unit(organization=organization, code="CONTAINER", name="حاوية")
     create_item_conversion(
         item=meat,
         package_unit=package,
@@ -174,7 +174,7 @@ def reason(organization: Organization) -> InventoryReasonCode:
     return InventoryReasonCode.objects.create(
         organization=organization,
         code="SPOILED",
-        name_ar="تالف عند الاستلام",
+        name="تالف عند الاستلام",
         applies_to=ReasonCodeApplication.WASTE,
     )
 
@@ -183,12 +183,12 @@ def reason(organization: Organization) -> InventoryReasonCode:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 @pytest.fixture
 def grocery(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد")
 
 
 @pytest.fixture
@@ -1045,7 +1045,7 @@ class TestOrderRules:
         store: Warehouse,
         keeper: User,
     ) -> None:
-        other = create_supplier(organization=organization, code="OTHER-01", name_ar="آخر")
+        other = create_supplier(organization=organization, code="OTHER-01", name="آخر")
         with pytest.raises(ValidationError) as refused:
             create_goods_receipt(
                 supplier=other,
@@ -1091,7 +1091,7 @@ class TestScopeAndDuplicates:
         keeper: User,
     ) -> None:
         """Two suppliers numbering their notes "1" is not a conflict."""
-        other = create_supplier(organization=organization, code="OTHER-02", name_ar="آخر")
+        other = create_supplier(organization=organization, code="OTHER-02", name="آخر")
         twin = create_goods_receipt(
             supplier=other,
             branch=branch,
@@ -1111,15 +1111,14 @@ class TestScopeAndDuplicates:
         other = create_branch(
             organization=organization,
             code="FARBR",
-            name_ar="فرع",
-            name_en="Far",
+            name="فرع",
             business_day_start_time=datetime.time(9, 0),
         )
         with pytest.raises(ValidationError) as refused:
             create_goods_receipt(
                 supplier=grocery,
                 branch=branch,
-                warehouse=create_warehouse(branch=other, code="FARW", name_ar="بعيد"),
+                warehouse=create_warehouse(branch=other, code="FARW", name="بعيد"),
                 created_by=keeper,
                 received_at=RECEIVED,
             )
@@ -1146,16 +1145,15 @@ class TestScopeAndDuplicates:
         their_branch = create_branch(
             organization=other_organization,
             code="RIVALB",
-            name_ar="فرع",
-            name_en="Branch",
+            name="فرع",
             business_day_start_time=datetime.time(9, 0),
         )
         theirs = create_goods_receipt(
             supplier=create_supplier(
-                organization=other_organization, code="RIVAL-01", name_ar="منافس"
+                organization=other_organization, code="RIVAL-01", name="منافس"
             ),
             branch=their_branch,
-            warehouse=create_warehouse(branch=their_branch, code="W", name_ar="م"),
+            warehouse=create_warehouse(branch=their_branch, code="W", name="م"),
             created_by=manager,
             received_at=RECEIVED,
         )

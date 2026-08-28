@@ -122,7 +122,7 @@ class TestPartialVersusFullPage:
         body = response.content.decode()
         assert response.status_code == 200
         assert "<html" in body
-        assert 'class="rail"' in body
+        assert 'class="ui-app-shell"' in body
 
     @pytest.mark.parametrize("route", HTMX_LISTS)
     def test_an_hx_request_returns_only_the_results(
@@ -139,9 +139,9 @@ class TestPartialVersusFullPage:
         assert response.status_code == 200
         assert "<html" not in body
         assert "<head" not in body
-        assert 'class="rail"' not in body
-        assert 'class="subnav"' not in body
-        assert body.strip().startswith('<div class="tablewrap" id="list-results">')
+        assert 'class="ui-app-shell"' not in body
+        assert 'class="ui-secondary-nav"' not in body
+        assert body.strip().startswith('<section class="ui-data-card" id="list-results"')
 
     def test_the_partial_is_much_smaller_than_the_page(
         self, manager: User, client_for: Callable[[User], Client]
@@ -168,16 +168,15 @@ class TestPartialVersusFullPage:
         self, superuser: User, client_for: Callable[[User], Client]
     ) -> None:
         """
-        The shared base serves lists whose views do not answer partials.
-
-        Those must render exactly as before — no hx-* attributes, so htmx
-        never intercepts and never swaps a whole page into a table.
+        The shared base also serves lists whose views do not answer result
+        partials. The global shell may use htmx navigation, but this form must
+        not target ``#list-results`` or swap a whole page into the register.
         """
         body = (
             client_for(superuser).get(reverse("organizations:organization_list")).content.decode()
         )
         assert "<html" in body
-        assert "hx-get" not in body
+        assert 'hx-target="#list-results"' not in body
 
 
 class TestAuthorizationIsIdentical:
@@ -279,7 +278,7 @@ class TestFilteringAndPaging:
             create_item(
                 organization=organization,
                 code=f"BULK-{index:03d}",
-                name_ar=f"صنف {index}",
+                name=f"صنف {index}",
                 category=leaf_category,
                 item_type=ItemType.RAW_MATERIAL,
                 base_unit=kilogram,
@@ -329,7 +328,7 @@ class TestFilteringAndPaging:
         it when present and the browser submits it when not.
         """
         body = client_for(manager).get(reverse("inventory:item_list")).content.decode()
-        assert '<form class="toolbar" method="get"' in body
+        assert '<form class="ui-filter-bar" method="get"' in body
 
         plain = client_for(manager).get(reverse("inventory:item_list"), {"q": "RICE"})
         assert plain.status_code == 200

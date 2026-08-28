@@ -1,0 +1,48 @@
+{% load i18n %}
+<dialog class="ui-command-palette" data-command-dialog aria-labelledby="command-dialog-title">
+  <div class="ui-command-palette__header">
+    <div>
+      <span class="ui-command-palette__eyebrow">{% translate "التنقل السريع" %}</span>
+      <h2 id="command-dialog-title">{% translate "انتقل إلى شاشة" %}</h2>
+    </div>
+    <button class="ui-icon-button" type="button" data-command-close aria-label="{% translate 'إغلاق' %}" title="{% translate 'إغلاق' %}">×</button>
+  </div>
+  <label class="ui-command-palette__search">
+    <span class="ui-visually-hidden">{% translate "ابحث عن شاشة أو وحدة" %}</span>
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input type="search" data-command-input autocomplete="off" placeholder="{% translate 'اكتب اسم الشاشة أو الوحدة…' %}">
+  </label>
+  <div class="ui-command-palette__results">
+    {% for module in nav_modules %}
+      {% if module.available %}
+        <a class="ui-command-item ui-command-item--module" href="{% url module.url_name %}"
+           hx-get="{% url module.url_name %}" hx-target="#main-content"
+           hx-swap="innerHTML show:top" hx-push-url="true"
+           hx-indicator="#app-loading" hx-sync="#main-content:replace"
+           data-module-key="{{ module.key }}" data-command-item>
+          <span class="ui-command-item__icon" aria-hidden="true">{{ module.icon }}</span>
+          <span><strong>{{ module.label }}</strong><small>{{ module.phase }}</small></span>
+        </a>
+      {% endif %}
+      {% for section in module.sections %}
+        {% if section.available and section.url_name != module.url_name %}
+          {% if section.url_name != "admin:index" or user.is_staff %}
+            <a class="ui-command-item" href="{% url section.url_name %}"
+               hx-get="{% url section.url_name %}" hx-target="#main-content"
+               hx-swap="innerHTML show:top" hx-push-url="true"
+               hx-indicator="#app-loading" hx-sync="#main-content:replace"
+               data-module-key="{{ module.key }}" data-command-item>
+              <span class="ui-command-item__module">{{ module.label }}</span>
+              <span>{{ section.label }}</span>
+            </a>
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+    <p class="ui-command-palette__empty" data-command-empty hidden>{% translate "لا توجد شاشة مطابقة." %}</p>
+  </div>
+  <div class="ui-command-palette__footer">
+    <span><kbd>↑</kbd><kbd>↓</kbd> {% translate "للاستعراض" %}</span>
+    <span><kbd>Esc</kbd> {% translate "للإغلاق" %}</span>
+  </div>
+</dialog>

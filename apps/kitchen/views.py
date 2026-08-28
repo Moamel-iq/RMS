@@ -192,7 +192,7 @@ class RecipeListView(KitchenListView):
     context_object_name = "recipes"
     page_title = _("الوصفات")
     page_hint = _("سجل الوصفات على مستوى المؤسسة. كل النسخ هنا مسودات — الاعتماد يأتي في مهمة 3.2.")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     create_url_name = "kitchen:recipe_create"
     create_label = _("وصفة جديدة")
 
@@ -221,7 +221,7 @@ class RecipeCategoryListView(KitchenListView):
     context_object_name = "categories"
     page_title = _("مجموعات الوصفات")
     page_hint = _("تصنيف الأطباق كما يسجله نموذج اعتماد الأصناف المعتمد في الفرع.")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     create_url_name = "kitchen:category_create"
     create_label = _("مجموعة جديدة")
 
@@ -324,8 +324,7 @@ class RecipeCategoryCreateView(KitchenWriteView):
         return create_recipe_category(
             organization=form.cleaned_data["organization"],
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             notes=form.cleaned_data["notes"],
             source_document=form.cleaned_data["source_document"],
             source_page=form.cleaned_data["source_page"],
@@ -348,8 +347,7 @@ class RecipeCategoryUpdateView(RecipeCategoryCreateView):
         return {
             "organization": instance.organization,
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "notes": instance.notes,
             "is_active": instance.is_active,
             "source_document": instance.source_document,
@@ -364,8 +362,7 @@ class RecipeCategoryUpdateView(RecipeCategoryCreateView):
     def perform(self, instance: Any, form: Any) -> Any:
         return update_recipe_category(
             category=instance,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             notes=form.cleaned_data["notes"],
             is_active=form.cleaned_data["is_active"],
         )
@@ -394,8 +391,7 @@ class RecipeCreateView(KitchenWriteView):
         recipe = create_recipe(
             organization=form.cleaned_data["organization"],
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             recipe_type=form.cleaned_data["recipe_type"],
             category=form.cleaned_data["category"],
             output_item=form.cleaned_data["output_item"],
@@ -426,8 +422,7 @@ class RecipeUpdateView(RecipeCreateView):
         return {
             "organization": instance.organization,
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "recipe_type": instance.recipe_type,
             "category": instance.category,
             "output_item": instance.output_item,
@@ -447,8 +442,7 @@ class RecipeUpdateView(RecipeCreateView):
     def perform(self, instance: Any, form: Any) -> Any:
         recipe = update_recipe(
             recipe=instance,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             category=form.cleaned_data["category"],
             output_item=form.cleaned_data["output_item"],
             description_ar=form.cleaned_data["description_ar"],
@@ -481,7 +475,7 @@ class RecipeDetailView(KitchenViewMixin, View):
             "branches": [
                 row.branch for row in recipe.branch_applicability.select_related("branch")
             ],
-            "page_title": f"{recipe.code} — {recipe.name_ar}",
+            "page_title": f"{recipe.code} — {recipe.name}",
         }
         if draft is not None:
             lines = list(
@@ -1018,8 +1012,7 @@ class ServingCreateView(KitchenWriteView):
         return add_recipe_serving(
             version=instance,
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             serving_quantity=form.cleaned_data["serving_quantity"],
             serving_unit=form.cleaned_data["serving_unit"],
             is_primary=form.cleaned_data["is_primary"],
@@ -1048,8 +1041,7 @@ class ServingUpdateView(KitchenWriteView):
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "serving_quantity": instance.serving_quantity,
             "serving_unit": instance.serving_unit,
             "is_primary": instance.is_primary,
@@ -1068,8 +1060,7 @@ class ServingUpdateView(KitchenWriteView):
     def perform(self, instance: Any, form: Any) -> Any:
         return update_recipe_serving(
             serving=instance,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             serving_quantity=form.cleaned_data["serving_quantity"],
             serving_unit=form.cleaned_data["serving_unit"],
             is_primary=form.cleaned_data["is_primary"],

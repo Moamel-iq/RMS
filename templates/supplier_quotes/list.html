@@ -1,0 +1,76 @@
+{% extends shell_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block page %}
+  <section class="ui-page ui-quotes-page" aria-labelledby="supplier-quotes-title">
+    <header class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">المشتريات</p>
+        <h1 class="ui-page-header__title" id="supplier-quotes-title">عروض الموردين</h1>
+        <p class="ui-page-header__subtitle">سجل مستقل للعروض؛ اسم المورد نص حر ولا ينشئ مورداً في النظام.</p>
+      </div>
+      {% if perms.supplier_quotes.add_supplierquote %}
+        <div class="ui-page-header__actions">
+          <a class="ui-button ui-button--primary" href="{% url 'supplier_quotes:create' %}">إضافة عرض مورد</a>
+        </div>
+      {% endif %}
+    </header>
+
+    <form method="get" class="ui-filter-bar ui-quotes-filter" aria-label="البحث والفلترة">
+      <div class="ui-filter-bar__fields">
+        <div class="ui-field ui-quotes-filter__search">
+          <label class="ui-field__label" for="quote-search">اسم المورد أو رقم الهاتف</label>
+          <input class="ui-control" id="quote-search" name="q" type="search" value="{{ q }}" placeholder="مثال: شركة الصفاء أو 07…">
+        </div>
+        <div class="ui-field">
+          <label class="ui-field__label" for="quote-date-from">من تاريخ</label>
+          <input class="ui-control" id="quote-date-from" type="date" name="date_from" value="{{ date_from }}">
+        </div>
+        <div class="ui-field">
+          <label class="ui-field__label" for="quote-date-to">إلى تاريخ</label>
+          <input class="ui-control" id="quote-date-to" type="date" name="date_to" value="{{ date_to }}">
+        </div>
+      </div>
+      <div class="ui-filter-bar__actions">
+        {% if q or date_from or date_to %}<a class="ui-button ui-button--ghost" href="{% url 'supplier_quotes:list' %}">مسح الفلاتر</a>{% endif %}
+        <button class="ui-button ui-button--secondary" type="submit">تطبيق</button>
+      </div>
+    </form>
+
+    <article class="ui-data-card" id="supplier-quotes-results">
+      <div class="ui-data-card__status">
+        <span class="ui-result-count">{{ quotes|length }} عرض</span>
+        {% if q or date_from or date_to %}<span class="ui-data-card__hint">النتائج مطابقة للفلاتر المحددة</span>{% endif %}
+      </div>
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
+          <thead>
+            <tr><th>المورد</th><th>الهاتف</th><th>التاريخ</th><th>الحالة</th><th>الإجمالي</th><th><span class="ui-visually-hidden">الإجراءات</span></th></tr>
+          </thead>
+          <tbody>
+            {% for quote in quotes %}
+              <tr>
+                <td data-label="المورد"><strong class="ui-table__primary">{{ quote.supplier_name }}</strong></td>
+                <td data-label="الهاتف"><bdi class="ui-nowrap" dir="ltr">{{ quote.phone|default:"—" }}</bdi></td>
+                <td data-label="التاريخ"><time datetime="{{ quote.quote_date|date:'Y-m-d' }}">{{ quote.quote_date }}</time></td>
+                <td data-label="الحالة"><span class="ui-badge{% if quote.status_label == 'عرض أصناف' %} ui-badge--success{% elif quote.status_label == 'مستند فقط' %} ui-badge--info{% else %} ui-badge--warning{% endif %}">{{ quote.status_label }}</span></td>
+                <td class="ui-table__numeric" data-label="الإجمالي">{{ quote.total_amount }} د.ع</td>
+                <td data-label="الإجراءات"><a class="ui-button ui-button--secondary ui-button--small" href="{% url 'supplier_quotes:detail' quote.pk %}">فتح</a></td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="6" class="ui-table__empty">
+                  <div class="ui-empty ui-empty--compact">
+                    <span class="ui-empty__icon" aria-hidden="true">◇</span>
+                    <h3 class="ui-empty__title">لا توجد عروض مطابقة</h3>
+                    <p class="ui-empty__message">غيّر البحث أو الفترة، أو أضف عرض مورد جديداً.</p>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+{% endblock %}

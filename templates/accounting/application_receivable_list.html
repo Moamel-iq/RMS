@@ -9,94 +9,94 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="accounting-application-receivables">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <div class="ui-page" id="accounting-application-receivables">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
     </div>
 
-    <form class="toolbar" method="get"
+    <form class="ui-filter-bar" method="get"
           hx-get="{% url 'accounting:application_receivable_list' %}"
           hx-target="#accounting-application-receivables"
           hx-swap="outerHTML"
           hx-push-url="true"
-          hx-trigger="submit, change from:find select, change from:find input[type=date], change from:find input[type=checkbox], keyup changed delay:350ms from:find input[type=search]"
+          hx-trigger="submit, change, keyup changed delay:350ms from:#application-search, search from:#application-search"
           hx-indicator="#application-loading">
-      <div class="toolbar__search">
-        <label class="sr-only" for="application-search">{% translate "بحث" %}</label>
+      <div class="ui-search">
+        <label class="ui-sr-only" for="application-search">{% translate "بحث" %}</label>
         <input type="search" id="application-search" name="q" value="{{ search }}"
                placeholder="{% translate 'ابحث باسم التطبيق أو رمزه…' %}" autocomplete="off">
       </div>
-      <label class="field">
-        <span class="field__label">{% translate "المؤسسة" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "المؤسسة" %}</span>
         <select name="organization">
           {% for row in organizations %}
             <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>{{ row.code }}</option>
           {% endfor %}
         </select>
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "بتاريخ" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "بتاريخ" %}</span>
         <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}">
       </label>
-      <label class="field field--checkbox">
+      <label class="ui-field ui-field--check">
         <input type="checkbox" name="open_only" value="1" {% if open_only == "1" %}checked{% endif %}>
-        <span class="field__label">{% translate "المفتوحة فقط" %}</span>
+        <span class="ui-field__label">{% translate "المفتوحة فقط" %}</span>
       </label>
-      <button class="btn btn--secondary toolbar__submit" type="submit">{% translate "تطبيق" %}</button>
-      <span class="inventory-loading" id="application-loading" role="status" aria-live="polite">
+      <button class="ui-button ui-button--secondary ui-filter-bar__submit" type="submit">{% translate "تطبيق" %}</button>
+      <span class="ui-loading" id="application-loading" role="status" aria-live="polite">
         {% translate "جارٍ التحميل…" %}
       </span>
     </form>
 
-    <section class="formcard {% if not reconciled %}card--warn{% endif %}" id="application-reconciliation">
+    <section class="ui-form-card {% if not reconciled %}ui-card--warning{% endif %}" id="application-reconciliation">
       <h2>{% translate "المطابقة مع دفتر الأستاذ" %}</h2>
-      <div class="summary-row">
-        <div class="summary-row__item">
-          <span class="summary-row__label">{% translate "رصيد سجل الذمم" %}</span>
-          <span class="summary-row__value"><bdi dir="ltr">{{ subledger_total|money_full }}</bdi></span>
+      <div class="ui-summary-grid">
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">{% translate "رصيد سجل الذمم" %}</span>
+          <span class="ui-summary-item__value"><bdi dir="ltr">{{ subledger_total|money_full }}</bdi></span>
         </div>
-        <div class="summary-row__item">
-          <span class="summary-row__label">
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">
             {% translate "رصيد حساب الذمم" %}
             {% if gl_account %}<code dir="ltr">{{ gl_account.code }}</code>{% endif %}
           </span>
-          <span class="summary-row__value"><bdi dir="ltr">{{ gl_balance|money_full }}</bdi></span>
+          <span class="ui-summary-item__value"><bdi dir="ltr">{{ gl_balance|money_full }}</bdi></span>
         </div>
-        <div class="summary-row__item">
-          <span class="summary-row__label">{% translate "الفرق" %}</span>
-          <span class="summary-row__value"><bdi dir="ltr">{{ difference|money_full }}</bdi></span>
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">{% translate "الفرق" %}</span>
+          <span class="ui-summary-item__value"><bdi dir="ltr">{{ difference|money_full }}</bdi></span>
         </div>
       </div>
       {% if not gl_account %}
-        <p class="chip chip--warn">{% translate "دور ذمم التطبيقات غير مربوط بحساب في هذا التاريخ." %}</p>
+        <p class="ui-badge ui-badge--warning">{% translate "دور ذمم التطبيقات غير مربوط بحساب في هذا التاريخ." %}</p>
       {% elif reconciled %}
-        <p class="chip chip--ok">{% translate "مطابق" %}</p>
+        <p class="ui-badge ui-badge--success">{% translate "مطابق" %}</p>
       {% else %}
-        <p class="chip chip--warn">{% translate "غير مطابق — يُعرض الفرق ولا يُصلَح تلقائياً." %}</p>
+        <p class="ui-badge ui-badge--warning">{% translate "غير مطابق — يُعرض الفرق ولا يُصلَح تلقائياً." %}</p>
       {% endif %}
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الأرصدة والأعمار حسب التطبيق" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table" id="application-positions-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive" id="application-positions-table">
           <thead><tr>
             <th>{% translate "التطبيق" %}</th>
             <th>{% translate "الرصيد" %}</th>
             <th>{% translate "أقدم دين مفتوح" %}</th>
             <th>{% translate "التسوية المتوقَّعة" %}</th>
             <th>{% translate "الأعمار" %}</th>
-            <th scope="col"><span class="sr-only">إجراءات</span></th>
+            <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
           </tr></thead>
           <tbody>
             {% for position in positions %}
               <tr>
                 <td>
                   <code dir="ltr">{{ position.delivery_application.code }}</code>
-                  {{ position.delivery_application.name_ar }}
+                  {{ position.delivery_application.name }}
                 </td>
                 <td><bdi dir="ltr">{{ position.balance|money_full }}</bdi></td>
                 <td>
@@ -112,19 +112,19 @@
                 <td>
                   {% for bucket in position.buckets %}
                     {% if bucket.amount %}
-                      <span class="chip">{{ bucket.label }}: <bdi dir="ltr">{{ bucket.amount|money_full }}</bdi></span>
+                      <span class="ui-badge">{{ bucket.label }}: <bdi dir="ltr">{{ bucket.amount|money_full }}</bdi></span>
                     {% endif %}
                   {% endfor %}
                 </td>
-                <td class="cell-actions">
-                  <a class="btn btn--secondary btn--sm"
+                <td class="ui-table__actions">
+                  <a class="ui-button ui-button--secondary ui-button--sm"
                      href="{% url 'accounting:application_receivable_detail' position.delivery_application.pk %}">
                     {% translate "الكشف" %}
                   </a>
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="6" class="empty">{% translate "لا توجد تطبيقات في هذه المؤسسة." %}</td></tr>
+              <tr><td colspan="6" class="ui-table__empty">{% translate "لا توجد تطبيقات في هذه المؤسسة." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>

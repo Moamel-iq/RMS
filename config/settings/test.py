@@ -11,6 +11,11 @@ from .base import LOGGING
 
 DEBUG = False
 
+# The dedicated HTTP-infrastructure tests opt in explicitly. Keeping the
+# recorder off for the rest of the suite avoids measuring thousands of test
+# queries and keeps warning output focused on functional failures.
+PERFORMANCE_MONITORING_ENABLED = False
+
 ALLOWED_HOSTS = ["testserver", "127.0.0.1", "localhost"]
 
 # Fast, insecure hashing. Acceptable ONLY here.

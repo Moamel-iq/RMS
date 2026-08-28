@@ -9,18 +9,13 @@ Four races, each exercising a different lock in the order
 `apps/procurement/returns.py` documents:
 
     two posts of one return           the return row (step 1)
-    two drafts, one line remainder    the receipt line (add_return_line)
-    a new return vs receipt reversal  the receipt row (step 2)
+    two returns, one stock remainder  the stock keys (inside the kernel)
+    a new return vs receipt reversal  independent standalone documents
     a return vs an issue of the same  the stock keys (step 5, in the kernel)
 
-The quantity bound has a property worth stating: a **draft** return already
-consumes availability (`returned_quantity_for` excludes only REVERSED), and
-`add_return_line` reads the bound under a lock on the receipt line. The sum of
-standing returns therefore cannot exceed the accepted quantity through any
-interleaving of adds and posts — which is why the interesting quantity race is
-two *adds*, not two posts. The posting-time re-check
-(`_require_still_within_the_accepted_quantity`) stays anyway, as depth against
-a route nobody has thought of yet.
+A standalone draft reserves nothing. Current stock is checked atomically only
+when the return posts, so competing returns serialize on the inventory key and
+the loser receives `insufficient_stock` without a partial journal or movement.
 """
 
 from __future__ import annotations
@@ -102,12 +97,11 @@ class _Scene:
         call_command("seed_units", verbosity=0)
         kilogram = UnitOfMeasure.objects.get(code="KG")
 
-        self.organization = create_organization(code="RACE", name_ar="سباق", name_en="Race")
+        self.organization = create_organization(code="RACE", name="سباق")
         self.branch = create_branch(
             organization=self.organization,
             code="MAIN",
-            name_ar="الرئيسي",
-            name_en="Main",
+            name="الرئيسي",
             business_day_start_time=datetime.time(9, 0),
         )
         configure_accounting(organization=self.organization, fiscal_year_start_month=1)
@@ -125,21 +119,17 @@ class _Scene:
                 effective_from=JAN_1,
             )
 
-        self.warehouse = create_warehouse(branch=self.branch, code="STORE", name_ar="مخزن")
-        category = create_item_category(
-            organization=self.organization, code="GRAINS", name_ar="حبوب"
-        )
+        self.warehouse = create_warehouse(branch=self.branch, code="STORE", name="مخزن")
+        category = create_item_category(organization=self.organization, code="GRAINS", name="حبوب")
         self.rice = create_item(
             organization=self.organization,
             code="RICE",
-            name_ar="رز",
+            name="رز",
             category=category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
         )
-        self.supplier = create_supplier(
-            organization=self.organization, code="SUP-01", name_ar="مورد"
-        )
+        self.supplier = create_supplier(organization=self.organization, code="SUP-01", name="مورد")
 
         self.keeper = User.objects.create_user(username="race-keeper", password=PASSWORD)
         grant_branch_access(user=self.keeper, branch=self.branch, role=Role.STOREKEEPER)
@@ -170,7 +160,11 @@ class _Scene:
     def draft_return(self, *, receipt: GoodsReceipt, quantity: str) -> SupplierReturn:
         with audit_context(actor=self.keeper):
             supplier_return = create_supplier_return(
-                receipt=receipt,
+                organization=self.organization,
+                branch=self.branch,
+                supplier=self.supplier,
+                warehouse=self.warehouse,
+                location=receipt.location,
                 created_by=self.keeper,
                 returned_at=RETURNED,
                 reason="بضاعة تالفة",
@@ -178,7 +172,7 @@ class _Scene:
             )
             add_return_line(
                 supplier_return=supplier_return,
-                receipt_line=receipt.lines.get(),
+                item=self.rice,
                 returned_base_quantity=Decimal(quantity),
             )
         return supplier_return
@@ -241,51 +235,33 @@ class TestReturnConcurrency:
         supplier_return.refresh_from_db()
         assert supplier_return.status == SupplierReturnStatus.POSTED
 
-    def test_two_drafts_racing_for_one_line_remainder(self, settings: object) -> None:
+    def test_two_returns_racing_for_one_stock_remainder(self, settings: object) -> None:
         """
-        Fifty kilograms accepted; two returns each want thirty. The receipt
-        line is locked before availability is read, so the loser waits, counts
-        the winner's committed thirty, and is refused — rather than both
-        reading fifty available and together sending back sixty.
+        Fifty kilograms are on hand; two standalone returns each want thirty.
+        Both drafts are valid, but the stock-key lock lets only one post.
         """
         scene = _Scene()
         receipt = scene.receipt(reference="DN-BOUND", quantity="50.000")
-        receipt_line = receipt.lines.get()
+        first = scene.draft_return(receipt=receipt, quantity="30.000")
+        second = scene.draft_return(receipt=receipt, quantity="30.000")
 
-        def open_and_take() -> None:
+        def post(return_id: int) -> None:
             with audit_context(actor=scene.keeper):
-                supplier_return = create_supplier_return(
-                    receipt=GoodsReceipt.objects.get(pk=receipt.pk),
-                    created_by=scene.keeper,
-                    returned_at=RETURNED,
-                    reason="بضاعة تالفة",
-                    evidence_reference="وصل",
-                )
-                add_return_line(
-                    supplier_return=supplier_return,
-                    receipt_line=receipt_line,
-                    returned_base_quantity=Decimal("30.000"),
+                post_supplier_return(
+                    supplier_return=SupplierReturn.objects.get(pk=return_id),
+                    actor=scene.keeper,
                 )
 
-        results = _run(open_and_take, open_and_take)
-        assert sorted(results) == ["ok", "return_over_quantity"], results
-        from apps.procurement.models import SupplierReturnLine
-
-        total = sum(
-            (
-                line.returned_base_quantity
-                for line in SupplierReturnLine.objects.filter(goods_receipt_line=receipt_line)
-            ),
-            start=Decimal("0.000"),
-        )
-        assert total == Decimal("30.000")
+        results = _run(lambda: post(first.pk), lambda: post(second.pk))
+        assert sorted(results) == ["insufficient_stock", "ok"], results
+        assert SupplierReturn.objects.filter(status=SupplierReturnStatus.POSTED).count() == 1
+        balance = StockBalance.objects.get(warehouse=scene.warehouse, item=scene.rice)
+        assert balance.quantity == Decimal("20.000")
 
     def test_a_new_return_racing_the_receipt_reversal(self, settings: object) -> None:
         """
-        Both lock the receipt row, so the outcomes serialize. Either the
-        return opens first and the reversal is refused because a standing
-        return depends on the delivery, or the reversal wins and the return is
-        refused because the delivery is no longer posted. Never both.
+        A return is standalone: opening its draft does not lock, cite, or
+        prevent reversal of the receipt that happened to seed the stock.
         """
         scene = _Scene()
         receipt = scene.receipt(reference="DN-REV")
@@ -293,7 +269,10 @@ class TestReturnConcurrency:
         def open_return() -> None:
             with audit_context(actor=scene.keeper):
                 supplier_return = create_supplier_return(
-                    receipt=GoodsReceipt.objects.get(pk=receipt.pk),
+                    organization=scene.organization,
+                    branch=scene.branch,
+                    supplier=scene.supplier,
+                    warehouse=scene.warehouse,
                     created_by=scene.keeper,
                     returned_at=RETURNED,
                     reason="تلف",
@@ -301,7 +280,7 @@ class TestReturnConcurrency:
                 )
                 add_return_line(
                     supplier_return=supplier_return,
-                    receipt_line=receipt.lines.get(),
+                    item=scene.rice,
                     returned_base_quantity=Decimal("10.000"),
                 )
 
@@ -314,16 +293,15 @@ class TestReturnConcurrency:
                 )
 
         results = _run(open_return, reverse_delivery)
-        assert results.count("ok") == 1, results
+        assert sorted(results) == ["ok", "ok"], results
 
         receipt.refresh_from_db()
-        if receipt.status == GoodsReceiptStatus.POSTED:
-            # The return won; the delivery still stands and carries a draft.
-            assert SupplierReturn.objects.filter(receipt=receipt).exists()
-        else:
-            # The reversal won; no return exists against an unmade delivery.
-            assert receipt.status == GoodsReceiptStatus.REVERSED
-            assert not SupplierReturn.objects.filter(receipt=receipt).exists()
+        assert receipt.status == GoodsReceiptStatus.REVERSED
+        assert SupplierReturn.objects.filter(
+            organization=scene.organization,
+            evidence_reference="وصل",
+            status=SupplierReturnStatus.DRAFT,
+        ).exists()
 
     def test_a_return_racing_an_issue_of_the_same_stock(self, settings: object) -> None:
         """

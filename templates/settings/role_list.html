@@ -14,54 +14,54 @@
   <th>{% translate "الصلاحيات" %}</th>
   <th>{% translate "يحمله" %}</th>
   <th>{% translate "الحالة" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 
 {% block rows %}
   {% for row in rows %}
     <tr>
       <td data-label="{% translate 'الدور' %}">
-        <strong>{{ row.definition.name_ar }}</strong>
-        <span class="muted"><bdi dir="ltr">{{ row.definition.code }}</bdi></span>
-        {% if row.definition.description %}<br><span class="muted">{{ row.definition.description }}</span>{% endif %}
+        <strong>{{ row.definition.name }}</strong>
+        <span class="ui-text-muted"><bdi dir="ltr">{{ row.definition.code }}</bdi></span>
+        {% if row.definition.description %}<br><span class="ui-text-muted">{{ row.definition.description }}</span>{% endif %}
       </td>
-      <td data-label="{% translate 'المؤسسة' %}">{{ row.definition.organization.code }} — {{ row.definition.organization.name_ar }}</td>
-      <td class="table__num" data-label="{% translate 'الصلاحيات' %}"><bdi dir="ltr">{{ row.permissions }}</bdi></td>
-      <td class="table__num" data-label="{% translate 'يحمله' %}"><bdi dir="ltr">{{ row.members }}</bdi> {% translate "مستخدم" %}</td>
+      <td data-label="{% translate 'المؤسسة' %}">{{ row.definition.organization.code }} — {{ row.definition.organization.name }}</td>
+      <td class="ui-table__numeric" data-label="{% translate 'الصلاحيات' %}"><bdi dir="ltr">{{ row.permissions }}</bdi></td>
+      <td class="ui-table__numeric" data-label="{% translate 'يحمله' %}"><bdi dir="ltr">{{ row.members }}</bdi> {% translate "مستخدم" %}</td>
       <td data-label="{% translate 'الحالة' %}">
         {% if row.definition.is_active %}
-          <span class="chip chip--ok">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--muted">{% translate "مؤرشف" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "مؤرشف" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'إجراءات' %}">
-        <div class="rowactions">
-          <a class="btn btn--secondary btn--sm" href="{% url 'organizations:role_update' row.definition.pk %}">{% translate "فتح" %}</a>
+        <div class="ui-actions">
+          <a class="ui-button ui-button--secondary ui-button--small" href="{% url 'organizations:role_update' row.definition.pk %}">{% translate "فتح" %}</a>
         </div>
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="6"><div class="empty-state"><strong>{% translate "لا أدوار مخصصة بعد." %}</strong><span>{% translate "ابدأ دوراً جديداً من الصفر أو من أحد الأدوار المبنية أدناه." %}</span></div></td></tr>
+    <tr><td colspan="6"><div class="ui-empty"><strong>{% translate "لا أدوار مخصصة بعد." %}</strong><span>{% translate "ابدأ دوراً جديداً من الصفر أو من أحد الأدوار المبنية أدناه." %}</span></div></td></tr>
   {% endfor %}
 {% endblock %}
 
 {% block results %}
   {{ block.super }}
 
-  <section class="formcard">
+  <section class="ui-card ui-form-card">
     <h2>{% translate "الأدوار المبنية" %}</h2>
-    <p class="muted">
+    <p class="ui-text-muted">
       {% translate "مناصب الفصل بين المهام كما يحددها ميثاق النظام. ثابتة، وتصلح نقطة بداية لدور مخصص." %}
     </p>
-    <div class="data-table-shell">
-      <table class="table responsive-table">
+    <div class="ui-table-scroll">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>
             <th>{% translate "الدور" %}</th>
             <th>{% translate "الرمز" %}</th>
             <th>{% translate "الصلاحيات" %}</th>
-            <th scope="col"><span class="sr-only">إجراءات</span></th>
+            <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
           </tr>
         </thead>
         <tbody>
@@ -69,16 +69,16 @@
             <tr>
               <td data-label="{% translate 'الدور' %}"><strong>{{ row.label }}</strong></td>
               <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr">{{ row.role.value }}</bdi></td>
-              <td class="table__num" data-label="{% translate 'الصلاحيات' %}"><bdi dir="ltr">{{ row.permissions }}</bdi></td>
+              <td class="ui-table__numeric" data-label="{% translate 'الصلاحيات' %}"><bdi dir="ltr">{{ row.permissions }}</bdi></td>
               <td data-label="{% translate 'إجراءات' %}">
-                <a class="btn btn--quiet btn--sm" href="{% url 'organizations:role_create' %}?based_on={{ row.role.value }}">{% translate "ابدأ دوراً منه" %}</a>
+                <a class="ui-button ui-button--ghost ui-button--small" href="{% url 'organizations:role_create' %}?based_on={{ row.role.value }}">{% translate "ابدأ دوراً منه" %}</a>
               </td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    <p class="panel__foot">
+    <p class="ui-card__footer">
       {% translate "المالك وحساب مدير النظام يملكان كل الصلاحيات؛ ما تعرّفه هنا يخصّ بقية الموظفين." %}
     </p>
   </section>

@@ -8,7 +8,7 @@
 {# supplier can be cheapest per unit and dearest delivered. Showing only one #}
 {# would be choosing for the buyer, which is exactly what PRC-016 forbids.   #}
 
-<table class="table" id="comparison-results">
+<table class="ui-table ui-table--responsive" id="comparison-results">
   <thead>
     <tr>
       <th>{% translate "الصنف" %}</th>
@@ -45,7 +45,7 @@
           <td>
             <span dir="ltr">{{ row.base_unit_price|stringformat:"f" }}</span>
             {% if row.is_cheapest_base_unit %}
-              <span class="chip chip--on">{% translate "الأرخص للوحدة" %}</span>
+              <span class="ui-badge ui-badge--success">{% translate "الأرخص للوحدة" %}</span>
             {% endif %}
           </td>
           <td><span dir="ltr">{{ row.charge_share|stringformat:"f" }}</span></td>
@@ -53,7 +53,7 @@
           <td>
             <span dir="ltr">{{ row.landed_base_unit_price|stringformat:"f" }}</span>
             {% if row.is_cheapest_landed %}
-              <span class="chip chip--on">{% translate "الأرخص بعد النقل" %}</span>
+              <span class="ui-badge ui-badge--success">{% translate "الأرخص بعد النقل" %}</span>
             {% endif %}
           </td>
         {% endif %}
@@ -65,14 +65,14 @@
         <td>
           {% if row.valid_until %}
             <span dir="ltr">{{ row.valid_until|date:"Y-m-d" }}</span>
-            {% if row.is_expired %}<span class="chip chip--off">{% translate "منتهٍ" %}</span>{% endif %}
+            {% if row.is_expired %}<span class="ui-badge ui-badge--danger">{% translate "منتهٍ" %}</span>{% endif %}
           {% else %}—{% endif %}
         </td>
         <td>
           {% if row.minimum_order_quantity is not None %}
             <span dir="ltr">{{ row.minimum_order_quantity|stringformat:"f" }}</span>
             {% if not row.meets_minimum_order %}
-              <span class="chip chip--off">{% translate "دون الحد" %}</span>
+              <span class="ui-badge ui-badge--danger">{% translate "دون الحد" %}</span>
             {% endif %}
           {% else %}—{% endif %}
         </td>
@@ -82,7 +82,7 @@
               {% csrf_token %}
               <input type="hidden" name="quotation" value="{{ row.quotation_id }}">
               <input type="text" name="reason" placeholder="{% translate 'سبب الاختيار' %}" required>
-              <button class="btn btn--primary btn--sm" type="submit">{% translate "إرساء" %}</button>
+              <button class="ui-button ui-button--primary ui-button--small" type="submit">{% translate "إرساء" %}</button>
             </form>
           </td>
         {% endif %}

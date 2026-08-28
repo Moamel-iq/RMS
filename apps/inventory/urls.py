@@ -9,7 +9,7 @@ reserved, and a row that has been referenced stays readable.
 from django.urls import path
 from django.utils.translation import gettext_lazy as _
 
-from apps.inventory import import_views, report_views, views
+from apps.inventory import report_views, views
 from apps.inventory.models import InventoryDocumentType
 
 app_name = "inventory"
@@ -149,8 +149,6 @@ urlpatterns = [
         views.OpeningActionView.as_view(action="delete_line"),
         name="opening_line_delete",
     ),
-    # --- reconciliation (read only) -----------------------------------------
-    path("reconciliation/", views.ReconciliationView.as_view(), name="reconciliation"),
     # --- warehouses --------------------------------------------------------
     path("warehouses/", views.WarehouseListView.as_view(), name="warehouse_list"),
     path("warehouses/new/", views.WarehouseCreateView.as_view(), name="warehouse_create"),
@@ -170,32 +168,23 @@ urlpatterns = [
 
 # --- operational documents (Task 1.4) ---------------------------------------
 #
-# Three identical route sets, generated rather than written out three times.
-# The document type is bound into the view here, so it comes from the URL and
-# never from a request body a caller controls: `/receipts/` posts receipts and
-# an id from one series cannot resolve under another.
+# Identical route sets, generated rather than written out once per type. The
+# document type is bound into the view here, so it comes from the URL and
+# never from a request body a caller controls: `/issues/` posts issues and an
+# id from one series cannot resolve under another.
+#
+# The un-invoiced receipt and the return-from-issue were withdrawn from the
+# product: goods now enter stock through a purchase goods receipt, which
+# carries the supplier and the liability that an un-invoiced receipt never
+# had. Their `InventoryDocumentType` values went with them.
 
 _OPERATIONAL_SCREENS = (
-    (
-        "receipts",
-        InventoryDocumentType.RECEIPT,
-        _("استلام مخزني غير مفوتر"),
-        _("بضاعة دخلت المخزن ولم تُفوتر بعد. ليست فاتورة مورد ولا ذمة عليه."),
-        _("استلام جديد"),
-    ),
     (
         "issues",
         InventoryDocumentType.ISSUE,
         _("صرف مخزني للاستهلاك"),
         _("بضاعة تخرج من العهدة للاستهلاك النهائي. ليست تحويلاً بين المخازن."),
         _("صرف جديد"),
-    ),
-    (
-        "returns-in",
-        InventoryDocumentType.RETURN_IN,
-        _("إرجاع من صرف سابق"),
-        _("بضاعة غير مستهلكة تعود للمخزن بكلفة الصرف الأصلي. ليست عكس قيد."),
-        _("إرجاع جديد"),
     ),
     (
         "waste",
@@ -322,19 +311,11 @@ urlpatterns += [
         views.TransferShortageActionView.as_view(action="reverse"),
         name="transfer_shortage_reverse",
     ),
-    path("in-transit/", views.InTransitView.as_view(), name="in_transit"),
 ]
 
 # --- reason codes, counts and adjustments (Task 1.6) ------------------------
 
 urlpatterns += [
-    path("reason-codes/", views.ReasonCodeListView.as_view(), name="reason_code_list"),
-    path("reason-codes/new/", views.ReasonCodeCreateView.as_view(), name="reason_code_create"),
-    path(
-        "reason-codes/<int:pk>/edit/",
-        views.ReasonCodeUpdateView.as_view(),
-        name="reason_code_update",
-    ),
     path("counts/", views.StockCountListView.as_view(), name="count_list"),
     path("counts/new/", views.StockCountCreateView.as_view(), name="count_create"),
     path("counts/<int:pk>/", views.StockCountDetailView.as_view(), name="count_detail"),
@@ -419,11 +400,6 @@ urlpatterns += [
         report_views.StockCardReportView.as_view(),
         name="report_stock_card",
     ),
-    path(
-        "reports/in-transit/",
-        report_views.InTransitReportView.as_view(),
-        name="report_in_transit",
-    ),
     path("reports/expiry/", report_views.ExpiryReportView.as_view(), name="report_expiry"),
     path("reports/reorder/", report_views.ReorderReportView.as_view(), name="report_reorder"),
     path("reports/waste/", report_views.WasteReportView.as_view(), name="report_waste"),
@@ -442,10 +418,4 @@ urlpatterns += [
         report_views.LocationBalanceReportView.as_view(),
         name="report_locations",
     ),
-]
-
-urlpatterns += [
-    path("imports/", import_views.ImportBatchListView.as_view(), name="import_list"),
-    path("imports/new/", import_views.ImportUploadView.as_view(), name="import_upload"),
-    path("imports/<int:pk>/", import_views.ImportBatchDetailView.as_view(), name="import_detail"),
 ]

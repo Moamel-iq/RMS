@@ -2,322 +2,46 @@
 {% load i18n static %}
 
 {% block content %}
-  <a class="skip-link" href="#main-content">{% translate "تخطَّ إلى المحتوى الرئيسي" %}</a>
+  <a class="ui-skip-link" href="#main-content">{% translate "تخطَّ إلى المحتوى الرئيسي" %}</a>
+  <div class="ui-app-loading htmx-indicator" id="app-loading" role="progressbar"
+       aria-label="{% translate 'جارٍ تحميل المحتوى' %}"></div>
 
-  <div class="shell">
-    <div class="shell__nav" id="application-navigation" data-shell-nav>
-      <nav class="rail" aria-label="{% translate 'وحدات النظام' %}">
-        <a class="rail__brand" href="{% url 'users:home' %}" aria-label="{% translate 'خان مندي — الرئيسية' %}">
-          <span class="rail__brand-mark" aria-hidden="true">
-            <svg width="32" height="32" viewBox="0 0 40 40"><path d="M16 4h8v12h12v8H24v12h-8V24H4v-8h12z"/></svg>
-          </span>
-          <span class="rail__brand-name">{% translate "خان مندي" %}</span>
-        </a>
+  <div class="ui-app-shell">
+    <header class="ui-app-header">
+      {% include "layouts/_primary_navigation.html" %}
+      {% include "layouts/_header_controls.html" %}
+    </header>
 
-        <ul class="rail__list">
-          {% for module in nav_modules %}
-            <li>
-              <a class="rail__item{% if module.key == active_module.key %} is-active{% endif %}{% if not module.available %} is-unavailable{% endif %}"
-                 href="{% if module.available %}{% url module.url_name %}{% else %}{% url 'users:home' %}?module={{ module.key }}{% endif %}"
-                 title="{{ module.label }}{% if not module.available %} — {{ module.phase }}{% endif %}"
-                 {% if module.key == active_module.key %}aria-current="page"{% endif %}>
-                <span class="rail__icon">{{ module.icon }}</span>
-                <span class="rail__label">{{ module.label }}</span>
-                {% if not module.available %}<span class="sr-only">— {% translate "غير متاحة بعد" %}</span>{% endif %}
-              </a>
-            </li>
-          {% endfor %}
-        </ul>
-      </nav>
+    <div class="ui-app-workspace">
+      {% include "layouts/_secondary_navigation.html" %}
 
-      <nav class="subnav" aria-label="{{ active_module.label }}">
-        <header class="subnav__header">
-          <div>
-            <span class="subnav__eyebrow">{% translate "وحدة العمل" %}</span>
-            <h2 class="subnav__title">{{ active_module.label }}</h2>
-          </div>
-          <span class="subnav__phase">{{ active_module.phase }}</span>
-          <button class="iconbtn subnav__close" type="button" data-nav-toggle
-                  aria-controls="application-navigation" aria-expanded="false"
-                  aria-label="{% translate 'إغلاق التنقل' %}" title="{% translate 'إغلاق التنقل' %}">
-            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
-          </button>
-        </header>
+      <button class="ui-navigation-backdrop" type="button" data-nav-close tabindex="-1"
+              aria-label="{% translate 'إغلاق قائمة التنقل' %}"></button>
 
-        {% regroup active_module.sections by group as section_groups %}
-        <div class="subnav__scroll">
-          {% for group in section_groups %}
-            {% if group.grouper %}
-              <details class="subnav__group"{% if group.grouper == active_nav_group or not active_nav_group and forloop.first %} open{% endif %}>
-                <summary class="subnav__group-title">
-                  <span>{{ group.grouper }}</span>
-                  <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg>
-                </summary>
-                <ul class="subnav__list">
-                  {% for section in group.list %}
-                    <li>
-                      {% if section.available %}
-                        <a class="subnav__item{% if section == active_section %} is-active{% endif %}"
-                           href="{% url section.url_name %}"
-                           {% if section == active_section %}aria-current="page"{% endif %}>
-                          <span>{{ section.label }}</span>
-                          {% if section == active_section %}<span class="subnav__active-mark" aria-hidden="true"></span>{% endif %}
-                        </a>
-                      {% else %}
-                        <span class="subnav__item is-unavailable" aria-disabled="true">
-                          <span>{{ section.label }}</span>
-                          <span class="subnav__badge">{% translate "قريباً" %}</span>
-                        </span>
-                      {% endif %}
-                    </li>
-                  {% endfor %}
-                </ul>
-              </details>
-            {% else %}
-              <ul class="subnav__list subnav__list--plain">
-                {% for section in group.list %}
-                  <li>
-                    {% if section.available %}
-                      <a class="subnav__item{% if section == active_section %} is-active{% endif %}"
-                         href="{% url section.url_name %}"
-                         {% if section == active_section %}aria-current="page"{% endif %}>{{ section.label }}</a>
-                    {% else %}
-                      <span class="subnav__item is-unavailable" aria-disabled="true">
-                        {{ section.label }}<span class="subnav__badge">{% translate "قريباً" %}</span>
-                      </span>
-                    {% endif %}
-                  </li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-          {% endfor %}
-        </div>
-      </nav>
-    </div>
+      <div class="ui-app-main">
+        <main class="ui-content" id="main-content" tabindex="-1">
+          {% include "layouts/_print_header.html" %}
 
-    <button class="shell__backdrop" type="button" data-nav-close tabindex="-1"
-            aria-label="{% translate 'إغلاق قائمة التنقل' %}"></button>
-
-    <div class="shell__main">
-      <header class="topbar">
-        <div class="topbar__leading">
-          <button class="iconbtn topbar__nav-toggle" type="button" data-nav-toggle
-                  aria-controls="application-navigation" aria-expanded="true"
-                  aria-label="{% translate 'إظهار أو إخفاء التنقل' %}"
-                  title="{% translate 'إظهار أو إخفاء التنقل' %}">
-            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-          </button>
-          <div class="topbar__location" aria-label="{% translate 'الموقع الحالي' %}">
-            <span>{{ active_module.label }}</span>
-            {% if active_section %}
-              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg>
-              <strong>{{ active_section.label }}</strong>
-            {% endif %}
-          </div>
-        </div>
-
-        {# The label is hidden at mobile widths, so the name, the tooltip and #}
-        {# the shortcut are stated on the button itself and never hidden.      #}
-        <button class="command-trigger" type="button" data-command-open aria-haspopup="dialog"
-                aria-label="{% translate 'انتقل إلى شاشة… (Ctrl K)' %}"
-                title="{% translate 'انتقل إلى شاشة… (Ctrl K)' %}"
-                aria-keyshortcuts="Control+K">
-          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <span>{% translate "انتقل إلى شاشة…" %}</span>
-          <kbd>Ctrl K</kbd>
-        </button>
-
-        <div class="topbar__actions">
-          {# Any screen can go on paper. The options are the reader's, kept #}
-          {# between visits, and shared with the report sheets.             #}
-          <details class="topbar-menu print-menu no-print" data-print-menu>
-            <summary class="iconbtn" aria-label="{% translate 'طباعة أو حفظ PDF' %}" title="{% translate 'طباعة أو حفظ PDF' %}">
-              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M7 8V4h10v4M7 18H5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M7 15h10v5H7z"/>
-              </svg>
-            </summary>
-            <div class="topbar-menu__panel print-menu__panel">
-              <div class="topbar-menu__heading"><strong>{% translate "طباعة / حفظ PDF" %}</strong></div>
-              <fieldset class="printbar__options" data-print-toolbar>
-                <legend class="sr-only">{% translate "ما يظهر في الورقة" %}</legend>
-                <label><input type="checkbox" data-print-part="logo" checked> {% translate "الشعار" %}</label>
-                <label><input type="checkbox" data-print-part="issuer" checked> {% translate "المؤسسة والفرع" %}</label>
-                <label><input type="checkbox" data-print-part="period" checked> {% translate "الفترة والمرشحات" %}</label>
-                <label><input type="checkbox" data-print-part="stamp" checked> {% translate "وقت الطباعة ومن طبعها" %}</label>
-                <label><input type="checkbox" data-print-part="signature" checked> {% translate "حقل التوقيع" %}</label>
-                <label><input type="checkbox" data-print-landscape> {% translate "ورقة أفقية" %}</label>
-                <button class="btn btn--primary btn--sm" type="button" data-print-now>{% translate "طباعة / حفظ PDF" %}</button>
-              </fieldset>
-              <p class="topbar-menu__empty">{% translate "في نافذة الطباعة اختر «حفظ بصيغة PDF»." %}</p>
-            </div>
-          </details>
-          {# Three states, matching app.css: an explicit stamp wins over the #}
-          {# operating system, and clearing it returns to following the OS.  #}
-          <button type="button" class="iconbtn" data-theme-toggle
-                  aria-label="{% translate 'تبديل الوضع الليلي' %}"
-                  title="{% translate 'تبديل الوضع الليلي' %}">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <path d="M20 13.5A8 8 0 0110.5 4 8.5 8.5 0 1020 13.5z"/>
-            </svg>
-          </button>
-          {% with branch_count=user_branches|length %}
-            <details class="topbar-menu scope-menu">
-              <summary aria-label="{% translate 'نطاق العمل' %}">
-                <span class="scope-menu__icon" aria-hidden="true">
-                  <svg width="20" height="20" viewBox="0 0 24 24"><path d="M4 20V7l8-4 8 4v13M8 20v-7h8v7M8 9h.01M12 9h.01M16 9h.01"/></svg>
-                </span>
-                <span class="scope-menu__text">
-                  <small>{% translate "نطاق العمل" %}</small>
-                  {% if branch_count %}
-                    {% for branch in user_branches|slice:":1" %}<strong>{{ branch.name_ar }}</strong>{% endfor %}
-                  {% else %}
-                    <strong>{% translate "بلا فرع" %}</strong>
-                  {% endif %}
-                </span>
-                {% if branch_count > 1 %}<span class="scope-menu__count" dir="ltr">+{{ branch_count|add:"-1" }}</span>{% endif %}
-                <svg class="topbar-menu__chevron" width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg>
-              </summary>
-              <div class="topbar-menu__panel scope-menu__panel">
-                <div class="topbar-menu__heading">
-                  <strong>{% translate "الفروع ضمن نطاقك" %}</strong>
-                  <span>{% translate "عرض للنطاق فقط؛ لا يوجد تبديل عام للفرع." %}</span>
+          {% if messages %}
+            <div class="ui-toast-region" aria-live="polite" aria-atomic="false">
+              {% for message in messages %}
+                <div class="ui-toast{% if 'error' in message.tags %} ui-toast--danger{% elif 'warning' in message.tags %} ui-toast--warning{% elif 'info' in message.tags %} ui-toast--info{% else %} ui-toast--success{% endif %}"
+                     role="{% if 'error' in message.tags %}alert{% else %}status{% endif %}" data-toast>
+                  <span class="ui-toast__mark" aria-hidden="true"></span>
+                  <span class="ui-toast__copy">{{ message }}</span>
+                  <button class="ui-toast__close" type="button" data-toast-dismiss aria-label="{% translate 'إغلاق الرسالة' %}">×</button>
                 </div>
-                {% if branch_count %}
-                  <ul>
-                    {% for branch in user_branches %}
-                      <li>
-                        <span class="scope-menu__branch-mark" aria-hidden="true"></span>
-                        <span><strong>{{ branch.name_ar }}</strong><small><bdi dir="ltr">{{ branch.code }}</bdi> · {{ branch.organization.name_ar }}</small></span>
-                      </li>
-                    {% endfor %}
-                  </ul>
-                {% else %}
-                  <p class="topbar-menu__empty">{% translate "لا توجد فروع مسندة إليك" %}</p>
-                {% endif %}
-              </div>
-            </details>
-          {% endwith %}
-
-          <details class="topbar-menu account-menu">
-            <summary aria-label="{% translate 'قائمة الحساب' %}">
-              <span class="account-menu__avatar" aria-hidden="true">{{ user.username|slice:":1"|upper }}</span>
-              <span class="account-menu__text"><small>{% translate "الحساب" %}</small><strong>{{ user.get_full_name|default:user.username }}</strong></span>
-              <svg class="topbar-menu__chevron" width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg>
-            </summary>
-            <div class="topbar-menu__panel account-menu__panel">
-              <div class="topbar-menu__heading"><strong>{{ user.get_full_name|default:user.username }}</strong><span><bdi dir="ltr">{{ user.username }}</bdi></span></div>
-              <form method="post" action="{% url 'users:logout' %}">
-                {% csrf_token %}
-                <button class="menu-action" type="submit">
-                  <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2 2v2M14 8l4 4-4 4M18 12H8"/></svg>
-                  {% translate "تسجيل الخروج" %}
-                </button>
-              </form>
+              {% endfor %}
             </div>
-          </details>
-        </div>
-      </header>
+          {% endif %}
 
-      <main class="content" id="main-content" tabindex="-1">
-        {# What paper needs and a screen does not: who issued this, which #}
-        {# screen it is, over what filters, when it was taken and by whom. #}
-        {# Rendered on every page so no screen is left unprintable.        #}
-        <div class="printhead print-only" aria-hidden="true">
-          <div class="printhead__identity">
-            <div class="printhead__logo" data-part="logo">
-              {% if print_logo %}
-                <img src="{% static print_logo %}" alt="{% translate 'شعار خان مندي' %}" width="96" height="96">
-              {% else %}
-                <span class="printhead__wordmark">{% translate "خان مندي" %}</span>
-              {% endif %}
-            </div>
-            <div>
-              <p class="printhead__issuer" data-part="issuer">
-                {% if print_organization %}{{ print_organization }}{% endif %}
-                {% if print_branch %}<span>{{ print_branch }}</span>{% endif %}
-              </p>
-              {# The screen's own heading when it has one — a document says #}
-              {# "فاتورة مورد 2026-102", not "المشتريات". `print-sheet.js`  #}
-              {# refines it from the page's <h1> for the screens that set no  #}
-              {# `page_title`.                                               #}
-              <h2 class="printhead__title" data-print-title>
-                {% if page_title %}{{ page_title }}{% else %}{{ active_module.label }}{% if active_section %} — {{ active_section.label }}{% endif %}{% endif %}
-              </h2>
-              <p class="printhead__where">{{ active_module.label }}{% if active_section %} — {{ active_section.label }}{% endif %}</p>
-              {% if filter_query %}
-                <p class="printhead__filters" data-part="period">{% translate "المرشحات" %}: <bdi dir="ltr">{{ filter_query }}</bdi></p>
-              {% endif %}
-            </div>
-          </div>
-          <p class="printhead__stamp" data-part="stamp">
-            {% translate "طُبع" %}: {% now "Y-m-d H:i" %}
-            {% if user.is_authenticated %} — {% translate "بواسطة" %} {{ user.get_full_name|default:user.username }}{% endif %}
-          </p>
-        </div>
-        {% if messages %}
-          <div class="toast-stack" aria-live="polite" aria-atomic="false">
-            {% for message in messages %}
-              <div class="toast{% if 'error' in message.tags %} toast--danger{% elif 'warning' in message.tags %} toast--warning{% elif 'info' in message.tags %} toast--info{% else %} toast--success{% endif %}"
-                   role="{% if 'error' in message.tags %}alert{% else %}status{% endif %}" data-toast>
-                <span class="toast__mark" aria-hidden="true"></span>
-                <span>{{ message }}</span>
-                <button class="toast__close" type="button" data-toast-dismiss aria-label="{% translate 'إغلاق الرسالة' %}">×</button>
-              </div>
-            {% endfor %}
-          </div>
-        {% endif %}
-        {% block page %}{% endblock %}
-
-        <div class="printfoot print-only" aria-hidden="true">
-          <div class="sheet__signature" data-part="signature">
-            <div class="sheet__sign"><span>{% translate "أعدّه" %}</span></div>
-            <div class="sheet__sign"><span>{% translate "راجعه" %}</span></div>
-            <div class="sheet__sign"><span>{% translate "اعتمده" %}</span></div>
-          </div>
-        </div>
-      </main>
+          {% block page %}{% endblock %}
+          {% include "layouts/_print_footer.html" %}
+        </main>
+      </div>
     </div>
   </div>
 
-  <dialog class="command-dialog" data-command-dialog aria-labelledby="command-dialog-title">
-    <div class="command-dialog__header">
-      <div>
-        <span class="command-dialog__eyebrow">{% translate "التنقل السريع" %}</span>
-        <h2 id="command-dialog-title">{% translate "انتقل إلى شاشة" %}</h2>
-      </div>
-      <button class="iconbtn" type="button" data-command-close aria-label="{% translate 'إغلاق' %}" title="{% translate 'إغلاق' %}">×</button>
-    </div>
-    <label class="command-dialog__search">
-      <span class="sr-only">{% translate "ابحث عن شاشة أو وحدة" %}</span>
-      <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input type="search" data-command-input autocomplete="off" placeholder="{% translate 'اكتب اسم الشاشة أو الوحدة…' %}">
-    </label>
-    <div class="command-dialog__results">
-      {% for module in nav_modules %}
-        {% if module.available %}
-          <a class="command-item command-item--module" href="{% url module.url_name %}" data-command-item>
-            <span class="command-item__icon" aria-hidden="true">{{ module.icon }}</span>
-            <span><strong>{{ module.label }}</strong><small>{{ module.phase }}</small></span>
-          </a>
-        {% endif %}
-        {% for section in module.sections %}
-          {# A module's landing section is the module row above it; listing both #}
-          {# gave the palette twenty entries that go to the same screen.         #}
-          {% if section.available and section.url_name != module.url_name %}
-            {% if section.url_name != "admin:index" or user.is_staff %}
-              <a class="command-item" href="{% url section.url_name %}" data-command-item>
-                <span class="command-item__module">{{ module.label }}</span>
-                <span>{{ section.label }}</span>
-              </a>
-            {% endif %}
-          {% endif %}
-        {% endfor %}
-      {% endfor %}
-      <p class="command-dialog__empty" data-command-empty hidden>{% translate "لا توجد شاشة مطابقة." %}</p>
-    </div>
-    <div class="command-dialog__footer"><span><kbd>↑</kbd><kbd>↓</kbd> {% translate "للاستعراض" %}</span><span><kbd>Esc</kbd> {% translate "للإغلاق" %}</span></div>
-  </dialog>
-
+  {% include "layouts/_command_palette.html" %}
   {% include "components/confirm_dialog.html" %}
 {% endblock %}

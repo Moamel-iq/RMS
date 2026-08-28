@@ -60,16 +60,11 @@ INSPECTION_ROUTES: list[tuple[str, str]] = [
     ("inventory:movement_list", "حركة المخزون"),
     ("inventory:opening_list", "الأرصدة الافتتاحية"),
     ("inventory:mapping_list", "ربط حسابات المخزون"),
-    ("inventory:reconciliation", "مطابقة المخزون والأستاذ"),
-    ("inventory:inventory_receipt_list", "استلام مخزني غير مفوتر"),
     ("inventory:inventory_issue_list", "صرف مخزني للاستهلاك"),
-    ("inventory:inventory_return_in_list", "إرجاع من صرف سابق"),
     ("inventory:transfer_list", "التحويلات المخزنية"),
-    ("inventory:in_transit", "بضاعة بالطريق"),
     ("inventory:inventory_waste_list", "إتلاف مخزني"),
     ("inventory:count_list", "الجرد الفعلي"),
     ("inventory:adjustment_list", "التسويات المخزنية"),
-    ("inventory:reason_code_list", "أسباب الحركات"),
 ]
 
 
@@ -199,7 +194,7 @@ class Command(SeedCommand):
         log = result.log
         self.write("")
         self.write(f"Namespace     {NAMESPACE}")
-        self.write(f"Organization  {result.organization.code} — {result.organization.name_ar}")
+        self.write(f"Organization  {result.organization.code} — {result.organization.name}")
         self.write(f"Branches      {result.source_branch.code} -> {result.destination_branch.code}")
         self.write(f"Business date {result.business_date.isoformat()}")
         self.write("")

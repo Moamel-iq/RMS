@@ -23,7 +23,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import AuditAction
-from apps.core.money import quantize_money, quantize_unit_price
+from apps.core.money import quantize_money, quantize_rate, quantize_unit_price
 from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
 from apps.inventory.models import (
@@ -96,17 +96,44 @@ def _clean_phone(value: str) -> str:
 
 
 @transaction.atomic
+def _settlement_floor(percent: Decimal | None, *, payment_terms_days: int) -> Decimal | None:
+    """
+    The agreed floor, refused rather than silently dropped when it says nothing.
+
+    Two ways it can say nothing, and they are different mistakes. A percentage
+    outside 0–100 is a typo. A percentage with no payment term is a rule with
+    no moment to be tested at — the invoice is due the day it is raised, so
+    "half of it by then" is a demand for payment in full, dressed as a
+    concession. The database refuses both as well; this is where the operator
+    is told which one they made.
+    """
+    if percent is None:
+        return None
+    if percent < 0 or percent > 100:
+        raise ValidationError(
+            _("الحد الأدنى لنسبة السداد يجب أن يكون بين صفر ومئة."),
+            code="settlement_percent_out_of_range",
+        )
+    if payment_terms_days <= 0:
+        raise ValidationError(
+            _("الحد الأدنى لنسبة السداد يحتاج مهلة سداد أكبر من صفر."),
+            code="settlement_percent_needs_terms",
+        )
+    return quantize_rate(percent)
+
+
 def create_supplier(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     contact_name: str = "",
     phone: str = "",
     email: str = "",
     address: str = "",
     payment_terms_days: int = 0,
+    minimum_settlement_percent: Decimal | None = None,
+    balance_reset_date: datetime.date | None = None,
     credit_limit: Decimal | None = None,
     notes: str = "",
 ) -> Supplier:
@@ -120,13 +147,16 @@ def create_supplier(
     supplier = Supplier(
         organization=organization,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         contact_name=contact_name.strip(),
         phone=_clean_phone(phone),
         email=email.strip(),
         address=address.strip(),
         payment_terms_days=payment_terms_days,
+        minimum_settlement_percent=_settlement_floor(
+            minimum_settlement_percent, payment_terms_days=payment_terms_days
+        ),
+        balance_reset_date=balance_reset_date,
         credit_limit=credit_limit,
         notes=notes.strip(),
     )
@@ -146,13 +176,14 @@ def create_supplier(
 def update_supplier(
     *,
     supplier: Supplier,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     contact_name: str = "",
     phone: str = "",
     email: str = "",
     address: str = "",
     payment_terms_days: int | None = None,
+    minimum_settlement_percent: Decimal | None = None,
+    balance_reset_date: datetime.date | None = None,
     credit_limit: Decimal | None = None,
     notes: str = "",
     is_active: bool = True,
@@ -174,6 +205,12 @@ def update_supplier(
     the effective-dated ``SupplierCreditTerm`` lifecycle; this parameter is a
     compatibility guard for older callers and only accepts the current
     projected value.
+
+    The settlement floor and the reset date **do** change here, and both are
+    read forward rather than backward: the floor is what the aging report
+    tests today's open invoices against, and the reset date is where the
+    statement starts reading. Neither restates a posted document, which is
+    what makes them safe to correct without a version.
     """
     locked = Supplier.objects.select_for_update().get(pk=supplier.pk)
     if payment_terms_days is not None and payment_terms_days != locked.payment_terms_days:
@@ -183,12 +220,16 @@ def update_supplier(
         )
     previous = snapshot(locked)
 
-    locked.name_ar = name_ar.strip()
-    locked.name_en = name_en.strip()
+    locked.name = name.strip()
+    locked.name = name.strip()
     locked.contact_name = contact_name.strip()
     locked.phone = _clean_phone(phone)
     locked.email = email.strip()
     locked.address = address.strip()
+    locked.minimum_settlement_percent = _settlement_floor(
+        minimum_settlement_percent, payment_terms_days=locked.payment_terms_days
+    )
+    locked.balance_reset_date = balance_reset_date
     locked.credit_limit = credit_limit
     locked.notes = notes.strip()
     locked.is_active = is_active
@@ -1483,7 +1524,7 @@ def _snapshot_lines(order: PurchaseOrder) -> list[dict[str, object]]:
             "line_uid": str(line.line_uid),
             "sequence": line.sequence,
             "item_code": line.item.code,
-            "item_name_ar": line.item.name_ar,
+            "item_name": line.item.name,
             "package_code": line.package_unit.code if line.package_unit else None,
             "conversion_factor": (
                 format(line.conversion_factor, "f") if line.conversion_factor else None
