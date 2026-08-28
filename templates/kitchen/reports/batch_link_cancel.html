@@ -10,26 +10,26 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page workspace-form-page" id="kitchen-batch-link-cancel">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ link_statement }}</p>
+  <section class="ui-page ui-page--form" id="kitchen-batch-link-cancel">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ link_statement }}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_consumption' link.batch_id %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:report_batch_consumption' link.batch_id %}">
           {% translate "رجوع" %}
         </a>
       </div>
     </div>
 
-    <p class="banner" role="alert">
+    <p class="ui-notice" role="alert">
       {% translate "الإلغاء لا يعكس حركة مخزنية ولا قيداً — لم يكن للربط أثر في أيٍّ منهما. ما يتغيّر أن هذا الربط يخرج من التفسير، وتعود كميته متاحة للنسبة على سطر المستند. السجل يبقى ظاهراً في التاريخ." %}
     </p>
 
     {# What is being withdrawn, stated before the control that withdraws it. #}
-    <section class="formcard">
-      <dl class="deflist">
+    <section class="ui-form-card">
+      <dl class="ui-definition-list">
         <dt>{% translate "النوع" %}</dt>
         <dd>{{ link.get_link_type_display }}</dd>
         <dt>{% translate "الدفعة" %}</dt>
@@ -37,7 +37,7 @@
         <dt>{% translate "المستند" %}</dt>
         <dd><bdi dir="ltr"><code>{{ link.source_reference }}</code></bdi></dd>
         <dt>{% translate "الصنف" %}</dt>
-        <dd>{{ link.item.code }} — {{ link.item.name_ar }}</dd>
+        <dd>{{ link.item.code }} — {{ link.item.name }}</dd>
         <dt>{% translate "الكمية المنسوبة" %}</dt>
         <dd><bdi dir="ltr"><code>{{ link.quantity_display }}</code></bdi></dd>
         <dt>{% translate "المتاح حالياً على سطر المستند" %}</dt>
@@ -47,7 +47,7 @@
       </dl>
     </section>
 
-    <form class="formcard"
+    <form class="ui-form-card"
           method="post"
           novalidate
           action="{{ request.path }}"
@@ -59,20 +59,20 @@
       {% if form.non_field_errors %}
         {# The card already draws the edge, so the summary uses the in-card    #}
         {# error style rather than `alert`, which draws one of its own.        #}
-        <div class="formcard__errors" role="alert">
+        <div class="ui-error-summary" role="alert">
           {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
 
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
 
-      <div class="formactions">
-        <button class="btn btn--danger" type="submit">{% translate "تأكيد الإلغاء" %}</button>
-        <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_consumption' link.batch_id %}">
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--danger" type="submit">{% translate "تأكيد الإلغاء" %}</button>
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:report_batch_consumption' link.batch_id %}">
           {% translate "تراجع" %}
         </a>
       </div>

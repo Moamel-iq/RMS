@@ -30,10 +30,10 @@
 {% block rows %}
   {% for version in versions %}
     <tr>
-      <td><code>{{ version.recipe.code }}</code> {{ version.recipe.name_ar }}</td>
+      <td><code>{{ version.recipe.code }}</code> {{ version.recipe.name }}</td>
       <td><a href="{% url 'kitchen:version_detail' version.pk %}">v{{ version.version_number }}</a></td>
       <td>
-        <span class="chip {% if version.status == 'ACTIVE' %}chip--on{% else %}chip--off{% endif %}">
+        <span class="ui-badge {% if version.status == 'ACTIVE' %}ui-badge--success{% else %}ui-badge--neutral{% endif %}">
           {{ version.get_status_display }}
         </span>
       </td>

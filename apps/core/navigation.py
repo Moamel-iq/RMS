@@ -88,6 +88,14 @@ class Section:
     available: bool = False
     group: Label = ""
     active_prefixes: tuple[str, ...] = field(default_factory=tuple)
+    icon_name: str | None = None
+
+    @property
+    def icon(self) -> SafeString | str:
+        """Return an optional, author-owned navigation icon."""
+        if not self.icon_name:
+            return ""
+        return ICONS.get(self.icon_name, "")
 
 
 @dataclass(frozen=True)
@@ -177,6 +185,18 @@ MODULES: tuple[Module, ...] = (
                 group=_("البيانات الأساسية"),
                 active_prefixes=("inventory:warehouse_",),
             ),
+            # The account mapping is the last survivor of what used to be
+            # its own "الضبط والمطابقة" group. It sits with the master data
+            # because `regroup` only merges *adjacent* sections: left where
+            # it was, it would open a second "البيانات الأساسية" block
+            # further down the sidebar.
+            Section(
+                label=_("ربط حسابات المخزون"),
+                url_name="inventory:mapping_list",
+                available=True,
+                group=_("البيانات الأساسية"),
+                active_prefixes=("inventory:mapping_",),
+            ),
             Section(
                 label=_("المخزون المتوفر"),
                 url_name="inventory:stock_list",
@@ -198,13 +218,6 @@ MODULES: tuple[Module, ...] = (
                 active_prefixes=("inventory:opening_",),
             ),
             Section(
-                label=_("استلام مخزني غير مفوتر"),
-                url_name="inventory:inventory_receipt_list",
-                available=True,
-                group=_("الحركات المخزنية"),
-                active_prefixes=("inventory:inventory_receipt_",),
-            ),
-            Section(
                 label=_("صرف مخزني للاستهلاك"),
                 url_name="inventory:inventory_issue_list",
                 available=True,
@@ -212,24 +225,11 @@ MODULES: tuple[Module, ...] = (
                 active_prefixes=("inventory:inventory_issue_",),
             ),
             Section(
-                label=_("إرجاع من صرف سابق"),
-                url_name="inventory:inventory_return_in_list",
-                available=True,
-                group=_("الحركات المخزنية"),
-                active_prefixes=("inventory:inventory_return_in_",),
-            ),
-            Section(
                 label=_("التحويلات المخزنية"),
                 url_name="inventory:transfer_list",
                 available=True,
                 group=_("الحركات المخزنية"),
                 active_prefixes=("inventory:transfer_",),
-            ),
-            Section(
-                label=_("بضاعة بالطريق"),
-                url_name="inventory:in_transit",
-                available=True,
-                group=_("الحركات المخزنية"),
             ),
             Section(
                 label=_("إتلاف مخزني"),
@@ -253,33 +253,6 @@ MODULES: tuple[Module, ...] = (
                 active_prefixes=("inventory:adjustment_",),
             ),
             Section(
-                label=_("أسباب الحركات"),
-                url_name="inventory:reason_code_list",
-                available=True,
-                group=_("الضبط والمطابقة"),
-                active_prefixes=("inventory:reason_code_",),
-            ),
-            Section(
-                label=_("ربط حسابات المخزون"),
-                url_name="inventory:mapping_list",
-                available=True,
-                group=_("الضبط والمطابقة"),
-                active_prefixes=("inventory:mapping_",),
-            ),
-            Section(
-                label=_("مطابقة المخزون والأستاذ"),
-                url_name="inventory:reconciliation",
-                available=True,
-                group=_("الضبط والمطابقة"),
-            ),
-            Section(
-                label=_("سجل الاستيراد"),
-                url_name="inventory:import_list",
-                available=True,
-                group=_("الضبط والمطابقة"),
-                active_prefixes=("inventory:import_",),
-            ),
-            Section(
                 label=_("تقييم المخزون"),
                 url_name="inventory:report_valuation",
                 available=True,
@@ -288,12 +261,6 @@ MODULES: tuple[Module, ...] = (
             Section(
                 label=_("بطاقة الصنف"),
                 url_name="inventory:report_stock_card",
-                available=True,
-                group=_("التقارير"),
-            ),
-            Section(
-                label=_("البضاعة بالطريق وأعمارها"),
-                url_name="inventory:report_in_transit",
                 available=True,
                 group=_("التقارير"),
             ),
@@ -351,42 +318,21 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:overview",
                 available=True,
                 group=_("نظرة عامة"),
+                icon_name="home",
             ),
             # Task 2.1 — the supplier master. Built and reachable.
             Section(
-                label=_("الموردون"),
+                label=_("المشتريات"),
                 url_name="procurement:supplier_list",
                 available=True,
+                icon_name="people",
             ),
-            # Task 2.2 — the supplier item catalogue.
             Section(
-                label=_("كتالوج الموردين"),
-                url_name="procurement:supplier_item_list",
+                label=_("عروض الموردين المستقلة"),
+                url_name="supplier_quotes:list",
                 available=True,
-            ),
-            # Task 2.3 — purchase requests.
-            Section(
-                label=_("طلبات الشراء"),
-                url_name="procurement:purchase_request_list",
-                available=True,
-            ),
-            # Task 2.4 — supplier quotations.
-            Section(
-                label=_("عروض الموردين"),
-                url_name="procurement:quotation_list",
-                available=True,
-            ),
-            # Task 2.6 — purchase orders.
-            Section(
-                label=_("أوامر الشراء"),
-                url_name="procurement:purchase_order_list",
-                available=True,
-            ),
-            # Task 2.8 — goods receipt and inspection.
-            Section(
-                label=_("استلام البضاعة"),
-                url_name="procurement:goods_receipt_list",
-                available=True,
+                active_prefixes=("supplier_quotes:",),
+                icon_name="chart",
             ),
             # The supplier invoice. Its comment used to say the backing
             # documents "do not exist" — they had existed since Task 2.12 and
@@ -395,32 +341,11 @@ MODULES: tuple[Module, ...] = (
             # `SupplierInvoiceLine`, `SupplierInvoicePosting`, `PurchaseMatch`,
             # matching, GRNI, PPV, payments and credit notes are all built.
             Section(
-                label=_("فواتير الموردين"),
+                label=_("فواتير المشتريات"),
                 url_name="procurement:supplier_invoice_list",
                 available=True,
                 active_prefixes=("/procurement/invoices/",),
-            ),
-            # The charge documents this branch added: a charge is drafted,
-            # allocated across the receipt lines it landed on, and posted with
-            # its invoice. It owns this entry because it is the screen somebody
-            # actually works in.
-            Section(
-                label=_("التكاليف الإضافية"),
-                url_name="procurement:supplier_invoice_charge_list",
-                available=True,
-                active_prefixes=("/procurement/additional-costs/",),
-            ),
-            # The read screen main already had, over ACCOUNT invoice lines.
-            # Kept, and labelled apart: two entries reading التكاليف الإضافية
-            # that opened different pages would be the sidebar lying about which
-            # one you are on. Neither offers a posting control — the invoice
-            # owns that, so there is still exactly one path to the ledger for a
-            # charge the supplier billed once.
-            Section(
-                label=_("سطور التكاليف الإضافية"),
-                url_name="procurement:additional_cost_list",
-                available=True,
-                active_prefixes=("/procurement/additional-cost-lines/",),
+                icon_name="receipt",
             ),
             # Task 2.13 — supplier returns. Built and reachable; the entry the
             # inventory module gave up ("returns belong to Procurement, where
@@ -429,12 +354,17 @@ MODULES: tuple[Module, ...] = (
                 label=_("مرتجعات الموردين"),
                 url_name="procurement:supplier_return_list",
                 available=True,
+                icon_name="box",
             ),
-            # Task 2.14 — the credit note that settles a return's claim.
+            # تسديد الموردين — deciding what to pay, which is a different act
+            # from reading what was paid, and comes before it. It drafts an
+            # ordinary payment; the list below is where that payment is posted.
             Section(
-                label=_("إشعارات الموردين الدائنة"),
-                url_name="procurement:supplier_credit_note_list",
+                label=_("تسديد الموردين"),
+                url_name="procurement:settlement_workspace",
                 available=True,
+                active_prefixes=("procurement:settlement_workspace",),
+                icon_name="cart",
             ),
             # Task 2.15 — money out. Allocation lives on the payment's own
             # detail screen, so "تخصيص الدفعات" needs no separate route.
@@ -442,31 +372,7 @@ MODULES: tuple[Module, ...] = (
                 label=_("دفعات الموردين"),
                 url_name="procurement:supplier_payment_list",
                 available=True,
-            ),
-            # Task 2.16 — the reports. "أرصدة الموردين" is the aging report:
-            # the balance is derived from posted documents, never stored, so
-            # the report *is* the balances screen. The other eleven reports
-            # are routes under `reports/`, following the Phase 1 pattern of
-            # one flagship entry per module rather than a twelve-item menu.
-            Section(
-                label=_("أرصدة الموردين"),
-                url_name="procurement:report_supplier_aging",
-                available=True,
-            ),
-            Section(
-                label=_("شروط الائتمان"),
-                url_name="procurement:credit_term_list",
-                available=True,
-                active_prefixes=("/procurement/credit-terms/",),
-            ),
-            # main's read-only view over `Supplier.payment_terms_days`. The
-            # register above is the effective-dated record; this stays as the
-            # at-a-glance summary, under its own route and its own name.
-            Section(
-                label=_("ملخّص شروط الائتمان"),
-                url_name="procurement:credit_term_summary",
-                available=True,
-                active_prefixes=("/procurement/credit-term-summary/",),
+                icon_name="ledger",
             ),
         ),
     ),
@@ -1016,6 +922,18 @@ MODULES: tuple[Module, ...] = (
                 url_name="procurement:report_supplier_aging",
                 available=True,
                 active_prefixes=("procurement:report_supplier_aging",),
+            ),
+            Section(
+                label=_("تجاوز الحد الأدنى للسداد"),
+                url_name="procurement:report_settlement_breaches",
+                available=True,
+                active_prefixes=("procurement:report_settlement_breaches",),
+            ),
+            Section(
+                label=_("دورات السداد"),
+                url_name="procurement:report_payment_cycles",
+                available=True,
+                active_prefixes=("procurement:report_payment_cycles",),
             ),
             Section(
                 label=_("الإنفاق الشرائي"),

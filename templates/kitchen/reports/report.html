@@ -12,19 +12,19 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page" id="kitchen-report">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+  <section class="ui-page" id="kitchen-report">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="ui-page-header__subtitle">{{ page_hint }}</p>{% endif %}
       </div>
       {% if export_query %}
-        <div class="pagehead__actions">
-          <a class="btn btn--secondary" href="?{{ export_query }}" download>
+        <div class="ui-page-header__actions">
+          <a class="ui-button ui-button--secondary" href="?{{ export_query }}" download>
             {% translate "تصدير CSV" %}
           </a>
           {% if print_query %}
-            <a class="btn btn--secondary" href="?{{ print_query }}" target="_blank" rel="noopener">
+            <a class="ui-button ui-button--secondary" href="?{{ print_query }}" target="_blank" rel="noopener">
               {% translate "PDF / طباعة" %}
             </a>
           {% endif %}
@@ -35,13 +35,13 @@
     {% if coverage_note or coverage_codes %}
       {# Coverage is stated in words for a reader and in codes for a grep.  #}
       {# Both, always: the sentence is translated and the code is stable.   #}
-      <div class="banner" role="note">
+      <div class="ui-notice" role="note">
         <div>
           {% if coverage_note %}<p>{{ coverage_note }}</p>{% endif %}
           {% if coverage_codes %}
-            <p class="chips">
+            <p class="ui-badge-list">
               {% for code in coverage_codes %}
-                <bdi dir="ltr"><code class="chip">{{ code }}</code></bdi>
+                <bdi dir="ltr"><code class="ui-badge">{{ code }}</code></bdi>
               {% endfor %}
             </p>
           {% endif %}
@@ -49,54 +49,54 @@
       </div>
     {% endif %}
 
-    <form class="toolbar"
+    <form class="ui-filter-bar"
           method="get"
           hx-get="{{ request.path }}"
           hx-target="#kitchen-report"
           hx-swap="outerHTML">
-      <label class="field">
+      <label class="ui-field">
         <span>{% translate "المخزن" %}</span>
         <select name="warehouse_id">
           <option value="">{% translate "كل المخازن" %}</option>
           {% for warehouse in warehouses %}
             <option value="{{ warehouse.pk }}"
               {% if filters.warehouse_id == warehouse.pk|stringformat:"s" %}selected{% endif %}>
-              {{ warehouse.code }} — {{ warehouse.name_ar }}
+              {{ warehouse.code }} — {{ warehouse.name }}
             </option>
           {% endfor %}
         </select>
       </label>
-      <label class="field">
+      <label class="ui-field">
         <span>{% translate "من تاريخ" %}</span>
         <input type="date" name="date_from" value="{{ filters.date_from }}">
       </label>
-      <label class="field">
+      <label class="ui-field">
         <span>{% translate "إلى تاريخ" %}</span>
         <input type="date" name="date_to" value="{{ filters.date_to }}">
       </label>
       {% if filter_extras_template %}{% include filter_extras_template %}{% endif %}
-      <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button>
+      <button class="ui-button ui-button--primary" type="submit">{% translate "تصفية" %}</button>
     </form>
 
     {# Applied-filter chips. Rendered from the same dict the query string is  #}
     {# rebuilt from, so what the reader sees and what the next page requests #}
     {# cannot disagree.                                                      #}
     {% if applied_filters %}
-      <p class="chips" aria-label="{% translate 'المرشحات المطبقة' %}">
+      <p class="ui-badge-list" aria-label="{% translate 'المرشحات المطبقة' %}">
         {% for label, value in applied_filters %}
-          <span class="chip">{{ label }}: <bdi dir="ltr">{{ value }}</bdi></span>
+          <span class="ui-badge">{{ label }}: <bdi dir="ltr">{{ value }}</bdi></span>
         {% endfor %}
       </p>
     {% endif %}
 
-    <p class="muted">
+    <p class="ui-text-muted">
       {% blocktranslate count total=total_rows %}سطر واحد{% plural %}{{ total }} سطر{% endblocktranslate %}
     </p>
 
     {# The register is the page, so it carries the edge itself: one tablewrap #}
     {# at the screen root rather than a card drawn around a second border.    #}
-    <div class="tablewrap">
-      <table class="table responsive-table">
+    <div class="ui-table-scroll">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>{% for key, header in columns %}<th scope="col">{{ header }}</th>{% endfor %}</tr>
         </thead>
@@ -113,7 +113,7 @@
             </tr>
           {% empty %}
             <tr>
-              <td colspan="{{ columns|length }}" class="empty">
+              <td colspan="{{ columns|length }}" class="ui-table__empty">
                 {% translate "لا توجد بيانات مطابقة. عدّل الفترة أو المخزن ثم أعد المحاولة." %}
               </td>
             </tr>
@@ -123,18 +123,18 @@
     </div>
 
     {% if is_paginated %}
-      <nav class="pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
+      <nav class="ui-pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
         {% if page_obj.has_previous %}
-          <a class="btn btn--ghost"
+          <a class="ui-button ui-button--ghost"
              href="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.previous_page_number }}"
              hx-get="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.previous_page_number }}"
              hx-target="#kitchen-report" hx-swap="outerHTML">{% translate "السابق" %}</a>
         {% endif %}
-        <span class="muted">
+        <span class="ui-text-muted">
           {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
         </span>
         {% if page_obj.has_next %}
-          <a class="btn btn--ghost"
+          <a class="ui-button ui-button--ghost"
              href="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.next_page_number }}"
              hx-get="?{{ export_query|cut:'export=csv' }}&page={{ page_obj.next_page_number }}"
              hx-target="#kitchen-report" hx-swap="outerHTML">{% translate "التالي" %}</a>

@@ -14,22 +14,22 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="production-preview">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">
+  <div class="ui-page" id="production-preview">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">
           {% translate "النسخة تُحدَّد من الفرع والتاريخ معاً. المعاينة لا تُنشئ شيئاً." %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_list' %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_list' %}">
           {% translate "أوامر الإنتاج" %}
         </a>
       </div>
     </div>
 
-    <form class="formcard toolbar"
+    <form class="ui-form-card ui-filter-bar"
           method="get"
           action="{% url 'kitchen:production_preview' %}"
           hx-get="{% url 'kitchen:production_preview' %}"
@@ -37,25 +37,25 @@
           hx-swap="outerHTML"
           hx-push-url="true">
       {% if form.non_field_errors %}
-        <div class="alert" role="alert">
+        <div class="ui-notice" role="alert">
           {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
       {% for field in form %}
         {% include "settings/_field.html" with field=field %}
       {% endfor %}
-      <button class="btn btn--ghost" type="submit">{% translate "اعرض" %}</button>
+      <button class="ui-button ui-button--ghost" type="submit">{% translate "اعرض" %}</button>
     </form>
 
     {% if preview %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "النسخة السارية" %}</h2>
-        <dl class="deflist">
+        <dl class="ui-definition-list">
           <dt>{% translate "الوصفة" %}</dt>
           <dd>
             <code>{{ preview.version.recipe.code }}</code>
             <code dir="ltr">v{{ preview.version.version_number }}</code>
-            <span class="pill">{{ preview.version.get_status_display }}</span>
+            <span class="ui-badge">{{ preview.version.get_status_display }}</span>
           </dd>
           <dt>{% translate "المعامل" %}</dt>
           <dd><code dir="ltr">{{ preview.multiplier|stringformat:"f" }}</code></dd>
@@ -67,8 +67,8 @@
         </dl>
       </section>
 
-      <div class="tablewrap">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th>{% translate "المسار" %}</th>
@@ -86,11 +86,11 @@
                   {% if leaf.path_display %}
                     <code dir="ltr">{{ leaf.path_display }}</code>
                   {% else %}
-                    <span class="muted">{% translate "سطر مباشر" %}</span>
+                    <span class="ui-text-muted">{% translate "سطر مباشر" %}</span>
                   {% endif %}
                 </td>
-                <td data-label="{% translate 'المصدر' %}"><span class="muted" dir="ltr">{{ leaf.label_path }}</span></td>
-                <td data-label="{% translate 'الصنف' %}"><code>{{ leaf.line.item.code }}</code> {{ leaf.line.item.name_ar }}</td>
+                <td data-label="{% translate 'المصدر' %}"><span class="ui-text-muted" dir="ltr">{{ leaf.label_path }}</span></td>
+                <td data-label="{% translate 'الصنف' %}"><code>{{ leaf.line.item.code }}</code> {{ leaf.line.item.name }}</td>
                 <td data-label="{% translate 'المعامل التراكمي' %}"><code dir="ltr">{{ leaf.multiplier_display }}</code></td>
                 <td data-label="{% translate 'الكمية المخططة' %}"><strong dir="ltr">{{ quantity|stringformat:"f" }}</strong></td>
                 <td data-label="{% translate 'الصنف اختياري' %}">{% if leaf.is_optional %}{% translate "نعم" %}{% else %}—{% endif %}</td>

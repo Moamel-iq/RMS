@@ -168,8 +168,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -182,8 +182,8 @@ def sugar(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="SUGAR",
-        name_ar="سكر",
-        category=create_item_category(organization=organization, code="DRY", name_ar="جافة"),
+        name="سكر",
+        category=create_item_category(organization=organization, code="DRY", name="جافة"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -193,17 +193,17 @@ def sugar(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 @pytest.fixture
 def grocery(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد")
 
 
 @pytest.fixture
 def other_supplier(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-02", name_ar="مورد آخر")
+    return create_supplier(organization=organization, code="GROC-02", name="مورد آخر")
 
 
 @pytest.fixture

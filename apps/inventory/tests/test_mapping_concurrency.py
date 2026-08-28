@@ -42,6 +42,7 @@ from apps.accounting.models import (
     INVENTORY_CONTROL,
     Account,
     AccountRole,
+    CostCenter,
     OrganizationAccountMapping,
 )
 from apps.accounting.services import (
@@ -51,13 +52,22 @@ from apps.accounting.services import (
     open_fiscal_year,
 )
 from apps.core.context import audit_context
-from apps.inventory.accounts import create_inventory_mapping
-from apps.inventory.commands import add_document_line, create_document, post_document
+from apps.core.locks import lock_account_mappings_shared
+from apps.inventory.accounts import create_inventory_mapping, resolve_inventory_account
+from apps.inventory.commands import (
+    add_document_line,
+    create_document,
+    post_document,
+    post_stock_movements,
+)
+from apps.inventory.ledger import MovementInput
 from apps.inventory.models import (
     InventoryDocumentStatus,
     InventoryDocumentType,
     InventoryMovementDocument,
+    MovementType,
     StockBalance,
+    StockLedgerEntry,
     StockMovement,
 )
 from apps.inventory.operations import DocumentLineInput
@@ -89,12 +99,11 @@ LINGER = 0.6
 def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
     """A committed organization with accounting, mappings, items, and a poster."""
     call_command("seed_units", verbosity=0)
-    organization = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM", name="خان مندي")
     branch = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=clock(9, 0),
     )
     year = timezone.localdate().year
@@ -120,14 +129,14 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
             effective_from=effective,
         )
 
-    root = create_item_category(organization=organization, code="FOOD", name_ar="أغذية")
-    leaf = create_item_category(organization=organization, code="MEAT", name_ar="لحوم", parent=root)
-    spare = create_item_category(organization=organization, code="DRY", name_ar="جافة", parent=root)
+    root = create_item_category(organization=organization, code="FOOD", name="أغذية")
+    leaf = create_item_category(organization=organization, code="MEAT", name="لحوم", parent=root)
+    spare = create_item_category(organization=organization, code="DRY", name="جافة", parent=root)
     kilogram = UnitOfMeasure.objects.get(code="KG")
     rice = create_item(
         organization=organization,
         code="RICE-272",
-        name_ar="رز",
+        name="رز",
         category=leaf,
         item_type="RAW_MATERIAL",
         base_unit=kilogram,
@@ -135,12 +144,12 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
     chicken = create_item(
         organization=organization,
         code="CHK",
-        name_ar="دجاج",
+        name="دجاج",
         category=leaf,
         item_type="RAW_MATERIAL",
         base_unit=kilogram,
     )
-    main = create_warehouse(branch=branch, code="MAIN", name_ar="الرئيسي")
+    main = create_warehouse(branch=branch, code="MAIN", name="الرئيسي")
 
     poster = User.objects.create_user(username="poster", password="pw-not-real-1234")
     grant_branch_access(user=poster, branch=branch, role=Role.MANAGER)
@@ -197,9 +206,9 @@ def _post_receipt(
     quantity: str = "10",
     linger: float = 0.0,
     holding: threading.Event | None = None,
-) -> InventoryMovementDocument:
+) -> StockLedgerEntry:
     """
-    Post a receipt, then hold the transaction open.
+    Put stock in, then hold the transaction open.
 
     The lingering matters: the mapping lock is transaction-scoped, so sleeping
     inside this outer block keeps it held. `holding` is set once the lock is
@@ -208,31 +217,41 @@ def _post_receipt(
     happens to run it.
     """
     actor = world["poster"]
+    organization = world["organization"]
+    item = world[item_key]
     with transaction.atomic():
-        document = create_document(
-            actor=actor,
-            organization=world["organization"],
-            branch=world["branch"],
-            warehouse=world["warehouse"],
-            document_type=InventoryDocumentType.RECEIPT,
-            effective_at=timezone.now(),
-            evidence_reference="DN",
+        # Resolved here rather than passed in, because *resolving it under the
+        # shared lock* is the subject of every test in this file. The
+        # un-invoiced receipt used to do exactly this before posting; it was
+        # withdrawn, so the call it made is written out.
+        lock_account_mappings_shared(organization.pk)
+        control = resolve_inventory_account(
+            organization=organization,
+            role=INVENTORY_CONTROL,
+            item=item,
+            on_date=timezone.localdate(),
         )
-        add_document_line(
+        entry = post_stock_movements(
             actor=actor,
-            document=document,
-            line=DocumentLineInput(
-                item=world[item_key],
-                base_quantity=Decimal(quantity),
-                unit_cost=Decimal("1000"),
-            ),
+            organization=organization,
+            effects=[
+                MovementInput(
+                    warehouse=world["warehouse"],
+                    item=item,
+                    movement_type=MovementType.RECEIPT,
+                    quantity=Decimal(quantity),
+                    effect_key=f"map-{item.code}-{quantity}",
+                    unit_cost=Decimal("1000"),
+                    control_account=control.account,
+                )
+            ],
+            idempotency_key=f"map-{item.code}-{quantity}",
         )
-        posted = post_document(actor=actor, document=document)
         if holding is not None:
             holding.set()
         if linger:
             time.sleep(linger)
-        return posted
+        return entry
 
 
 class TestMappingChangeCannotRaceWithPosting:
@@ -269,7 +288,7 @@ class TestMappingChangeCannotRaceWithPosting:
                 )
 
         results = _race(lambda: _post_receipt(world, linger=LINGER, holding=holding), mutate)
-        posted = [r for r in results if isinstance(r, InventoryMovementDocument)]
+        posted = [r for r in results if isinstance(r, StockLedgerEntry)]
         refused = [r for r in results if isinstance(r, ValidationError)]
 
         assert len(posted) == 1, results
@@ -302,13 +321,13 @@ class TestMappingChangeCannotRaceWithPosting:
             with audit_context(actor=world["poster"]):
                 return update_item(
                     item=rice,
-                    name_ar=rice.name_ar,
+                    name=rice.name,
                     category=world["spare"],
                     item_type=rice.item_type,
                 )
 
         results = _race(lambda: _post_receipt(world, linger=LINGER, holding=holding), move)
-        posted = [r for r in results if isinstance(r, InventoryMovementDocument)]
+        posted = [r for r in results if isinstance(r, StockLedgerEntry)]
         refused = [r for r in results if isinstance(r, ValidationError)]
 
         assert len(posted) == 1, results
@@ -358,7 +377,7 @@ class TestMappingChangeCannotRaceWithPosting:
             return _post_receipt(world)
 
         results = _race(mutate, post)
-        posted = [r for r in results if isinstance(r, InventoryMovementDocument)]
+        posted = [r for r in results if isinstance(r, StockLedgerEntry)]
         assert len(posted) == 1, results
 
         # The posting queued behind the change and resolved the account the
@@ -401,7 +420,7 @@ class TestSharedLocksStillAllowConcurrency:
             return result
 
         results = _race(lambda: post("rice"), lambda: post("chicken"))
-        assert all(isinstance(r, InventoryMovementDocument) for r in results), results
+        assert all(isinstance(r, StockLedgerEntry) for r in results), results
 
         (start_a, end_a), (start_b, end_b) = spans
         assert min(end_a, end_b) > max(start_a, start_b), (
@@ -455,21 +474,24 @@ class TestConcurrentDuplicatePosting:
     ) -> None:
         """The document row lock, exercised the same way as the opening's."""
         actor = world["poster"]
+        _post_receipt(world, quantity="50")
+
+        centre = CostCenter.objects.filter(organization=world["organization"]).first()
+        assert centre is not None, "the seeded chart brings cost centres with it"
         document = create_document(
             actor=actor,
             organization=world["organization"],
             branch=world["branch"],
             warehouse=world["warehouse"],
-            document_type=InventoryDocumentType.RECEIPT,
+            document_type=InventoryDocumentType.ISSUE,
             effective_at=timezone.now(),
             evidence_reference="DN",
+            cost_center=centre,
         )
         add_document_line(
             actor=actor,
             document=document,
-            line=DocumentLineInput(
-                item=world["rice"], base_quantity=Decimal("10"), unit_cost=Decimal("1000")
-            ),
+            line=DocumentLineInput(item=world["rice"], base_quantity=Decimal("10")),
         )
 
         def post() -> Any:
@@ -481,5 +503,5 @@ class TestConcurrentDuplicatePosting:
         assert len(posted) == 1, results
         assert len(refused) == 1, results
         assert refused[0].code == "already_posted"
-        assert StockMovement.objects.count() == 1
+        assert StockMovement.objects.filter(movement_type=MovementType.ISSUE).count() == 1
         assert InventoryMovementDocument.objects.get().status == (InventoryDocumentStatus.POSTED)

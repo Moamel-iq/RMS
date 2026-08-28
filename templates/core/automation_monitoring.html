@@ -1,55 +1,86 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {% block page %}
-  <section class="list-page" aria-labelledby="automation-monitoring-title">
-    <header class="pagehead">
-      <div>
-        <p class="eyebrow">{% translate "الأتمتة والضبط" %}</p>
-        <h1 id="automation-monitoring-title">{{ page_title }}</h1>
-        <p>{{ page_hint }}</p>
+  <section class="ui-page ui-automation-page" aria-labelledby="automation-monitoring-title">
+    <header class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{% translate "الأتمتة والضبط" %}</p>
+        <h1 class="ui-page-header__title" id="automation-monitoring-title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
     </header>
 
-    <div class="tiles" aria-label="{% translate 'مؤشرات طابور الأتمتة' %}">
-      <article class="tile"><span>{% translate "بانتظار المعالجة" %}</span><strong dir="ltr">{{ metrics.pending }}</strong></article>
-      <article class="tile"><span>{% translate "قيد المعالجة" %}</span><strong dir="ltr">{{ metrics.processing }}</strong></article>
-      <article class="tile"><span>{% translate "طابور ميت" %}</span><strong dir="ltr">{{ metrics.dead_letters }}</strong></article>
-      <article class="tile"><span>{% translate "أقدم رسالة (ث)" %}</span><strong dir="ltr">{{ metrics.oldest_pending_seconds|default:"—" }}</strong></article>
+    <div class="ui-metric-grid" aria-label="{% translate 'مؤشرات طابور الأتمتة' %}">
+      <article class="ui-metric">
+        <div class="ui-metric__header"><span class="ui-metric__label">{% translate "بانتظار المعالجة" %}</span><span class="ui-badge ui-badge--warning">{% translate "معلّق" %}</span></div>
+        <strong class="ui-metric__value" dir="ltr">{{ metrics.pending }}</strong>
+        <span class="ui-metric__meta">{% translate "رسائل لم تبدأ بعد" %}</span>
+      </article>
+      <article class="ui-metric">
+        <div class="ui-metric__header"><span class="ui-metric__label">{% translate "قيد المعالجة" %}</span><span class="ui-badge ui-badge--info">{% translate "نشط" %}</span></div>
+        <strong class="ui-metric__value" dir="ltr">{{ metrics.processing }}</strong>
+        <span class="ui-metric__meta">{% translate "رسائل تُنفّذ الآن" %}</span>
+      </article>
+      <article class="ui-metric{% if metrics.dead_letters %} ui-metric--danger{% endif %}">
+        <div class="ui-metric__header"><span class="ui-metric__label">{% translate "الطابور الميت" %}</span><span class="ui-badge{% if metrics.dead_letters %} ui-badge--danger{% else %} ui-badge--success{% endif %}">{% if metrics.dead_letters %}{% translate "يتطلب تدخلاً" %}{% else %}{% translate "سليم" %}{% endif %}</span></div>
+        <strong class="ui-metric__value" dir="ltr">{{ metrics.dead_letters }}</strong>
+        <span class="ui-metric__meta">{% translate "رسائل استنفدت محاولاتها" %}</span>
+      </article>
+      <article class="ui-metric">
+        <div class="ui-metric__header"><span class="ui-metric__label">{% translate "أقدم رسالة" %}</span><span class="ui-badge ui-badge--neutral">{% translate "بالثواني" %}</span></div>
+        <strong class="ui-metric__value" dir="ltr">{{ metrics.oldest_pending_seconds|default:"—" }}</strong>
+        <span class="ui-metric__meta">{% translate "زمن انتظار أقدم رسالة" %}</span>
+      </article>
     </div>
 
-    <div class="formcard">
-      <div class="formcard__head"><h2>{% translate "آخر الرسائل" %}</h2></div>
-      <div class="tablewrap">
-        <table>
-          <thead><tr>
-            <th>{% translate "الوقت" %}</th><th>{% translate "النوع" %}</th><th>{% translate "النطاق" %}</th>
-            <th>{% translate "الحالة" %}</th><th>{% translate "المحاولات" %}</th><th>{% translate "سبب الفشل" %}</th><th></th>
-          </tr></thead>
+    <article class="ui-data-card">
+      <header class="ui-card__header">
+        <div>
+          <h2 class="ui-card__title">{% translate "آخر الرسائل" %}</h2>
+          <p class="ui-card__subtitle">{% translate "آخر 100 رسالة ضمن المؤسسات المسموح لك بإدارتها." %}</p>
+        </div>
+      </header>
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
+          <thead>
+            <tr>
+              <th>{% translate "الوقت" %}</th>
+              <th>{% translate "النوع" %}</th>
+              <th>{% translate "النطاق" %}</th>
+              <th>{% translate "الحالة" %}</th>
+              <th>{% translate "المحاولات" %}</th>
+              <th>{% translate "سبب الفشل" %}</th>
+              <th><span class="ui-visually-hidden">{% translate "الإجراءات" %}</span></th>
+            </tr>
+          </thead>
           <tbody>
             {% for event in events %}
               <tr>
-                <td><bdi dir="ltr">{{ event.created_at|date:"Y-m-d H:i" }}</bdi></td>
-                <td><code>{{ event.event_type }}</code></td>
-                <td>{{ event.organization.code }}{% if event.branch %} · {{ event.branch.code }}{% endif %}</td>
-                <td>{{ event.get_status_display }}</td>
-                <td dir="ltr">{{ event.attempt_count }}</td>
-                <td>{{ event.last_error|default:"—" }}</td>
-                <td>
+                <td data-label="{% translate 'الوقت' %}"><bdi class="ui-nowrap" dir="ltr">{{ event.created_at|date:"Y-m-d H:i" }}</bdi></td>
+                <td data-label="{% translate 'النوع' %}"><code class="ui-event-code">{{ event.event_type }}</code></td>
+                <td data-label="{% translate 'النطاق' %}">{{ event.organization.code }}{% if event.branch %} · {{ event.branch.code }}{% endif %}</td>
+                <td data-label="{% translate 'الحالة' %}"><span class="ui-badge{% if event.status == dead_letter_status %} ui-badge--danger{% else %} ui-badge--neutral{% endif %}">{{ event.get_status_display }}</span></td>
+                <td class="ui-table__numeric" data-label="{% translate 'المحاولات' %}">{{ event.attempt_count }}</td>
+                <td class="ui-event-error" data-label="{% translate 'سبب الفشل' %}">{{ event.last_error|default:"—" }}</td>
+                <td data-label="{% translate 'الإجراءات' %}">
                   {% if event.status == dead_letter_status and may_replay %}
                     <form method="post">
-                      {% csrf_token %}<input type="hidden" name="event_id" value="{{ event.pk }}">
-                      <button class="btn btn--secondary btn--sm" type="submit">{% translate "إعادة تشغيل" %}</button>
+                      {% csrf_token %}
+                      <input type="hidden" name="event_id" value="{{ event.pk }}">
+                      <button class="ui-button ui-button--secondary ui-button--small" type="submit">{% translate "إعادة تشغيل" %}</button>
                     </form>
+                  {% else %}
+                    <span aria-hidden="true">—</span>
                   {% endif %}
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="7" class="empty">{% translate "لا توجد رسائل ضمن نطاقك." %}</td></tr>
+              <tr><td colspan="7" class="ui-table__empty">{% translate "لا توجد رسائل ضمن نطاقك." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-    </div>
+    </article>
   </section>
 {% endblock %}

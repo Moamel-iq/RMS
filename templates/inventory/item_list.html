@@ -2,12 +2,12 @@
 {% load i18n %}
 
 {% block filter_active_indicator %}
-  {% if selected_item_type %}<span class="filter-disclosure__dot" aria-hidden="true"></span>{% endif %}
+  {% if selected_item_type %}<span class="ui-filter-disclosure__dot" aria-hidden="true"></span>{% endif %}
 {% endblock %}
 
 {% block filters %}
-  <label class="filter-field">
-    <span class="filter-field__label">{% translate "نوع الصنف" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "نوع الصنف" %}</span>
     <select name="item_type" aria-label="{% translate 'نوع الصنف' %}">
       <option value="">{% translate "كل الأنواع" %}</option>
       {% for value, label in item_types %}
@@ -20,12 +20,12 @@
 {% block active_filter_chips %}
   {% if selected_item_type %}
     {% for value, label in item_types %}
-      {% if value == selected_item_type %}<span class="filter-chip"><span>{% translate "النوع" %}</span>{{ label }}</span>{% endif %}
+      {% if value == selected_item_type %}<span class="ui-filter-chip"><span>{% translate "النوع" %}</span>{{ label }}</span>{% endif %}
     {% endfor %}
   {% endif %}
 {% endblock %}
 
-{% block table_classes %} inventory-items-table{% endblock %}
+{% block table_classes %} ui-items-table{% endblock %}
 
 {% block columns %}
   <th scope="col">{% translate "الرمز" %}</th>
@@ -43,18 +43,18 @@
   {% translate "لا توجد أصناف بعد" as empty_title %}
   {% translate "أضف أول صنف لبدء إعداد دليل المخزون." as empty_description %}
   {% for item in items %}
-    <tr class="inventory-item-row">
-      <td class="inventory-item-code" data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ item.code }}</code></bdi></td>
-      <td class="inventory-item-name-cell" data-label="{% translate 'الاسم' %}">
-        <span class="inventory-item-name">
-          <strong>{{ item.name_ar }}</strong>
-          {% if item.name_en %}<small><bdi dir="ltr">{{ item.name_en }}</bdi></small>{% endif %}
+    <tr class="ui-item-row">
+      <td class="ui-table__cell ui-table__cell--code" data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ item.code }}</code></bdi></td>
+      <td class="ui-table__cell" data-label="{% translate 'الاسم' %}">
+        <span class="ui-cell-stack">
+          <strong>{{ item.name }}</strong>
+          {% if item.name %}<small><bdi dir="ltr">{{ item.name }}</bdi></small>{% endif %}
         </span>
       </td>
-      <td class="inventory-item-category" data-label="{% translate 'المجموعة' %}">{{ item.category.name_ar }}</td>
-      <td class="inventory-item-type" data-label="{% translate 'النوع' %}"><span class="item-type-badge">{{ item.get_item_type_display }}</span></td>
-      <td class="inventory-item-unit" data-label="{% translate 'وحدة الأساس' %}"><bdi dir="ltr"><code>{{ item.base_unit.code }}</code></bdi></td>
-      <td class="inventory-item-status" data-label="{% translate 'الحالة' %}">
+      <td class="ui-text-muted" data-label="{% translate 'المجموعة' %}">{{ item.category.name }}</td>
+      <td class="ui-table__cell" data-label="{% translate 'النوع' %}"><span class="ui-badge ui-badge--blue">{{ item.get_item_type_display }}</span></td>
+      <td class="ui-text-muted" data-label="{% translate 'وحدة الأساس' %}"><bdi dir="ltr"><code>{{ item.base_unit.code }}</code></bdi></td>
+      <td class="ui-table__cell" data-label="{% translate 'الحالة' %}">
         {% if item.is_active %}
           {% translate "فعّال" as status_label %}
           {% include "components/status_badge.html" with status="ACTIVE" label=status_label %}

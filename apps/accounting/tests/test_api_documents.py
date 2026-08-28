@@ -63,8 +63,7 @@ def demo_cashbox(organization: Organization, branch: Branch, cash: Account) -> C
         branch=branch,
         account=cash,
         code="CB-API",
-        name_ar="صندوق الاختبار",
-        name_en="Test cashbox",
+        name="صندوق الاختبار",
         opened_on=POSTING_DATE,
     )
 
@@ -238,8 +237,7 @@ def test_voucher_needs_exactly_one_payment_source(
         account=cash,
         code="BANK-API",
         bank_name="مصرف الاختبار",
-        name_ar="حساب",
-        name_en="Account",
+        name="حساب",
         masked_account_number="****1234",
     )
     both = _voucher_payload(branch, demo_cashbox) | {"bank_account_id": bank.pk}

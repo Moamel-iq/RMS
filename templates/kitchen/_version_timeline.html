@@ -5,11 +5,11 @@
 {# the swapped fragment lands as one stack of cards inside the detail page.   #}
 {% load i18n %}
 
-<div class="workspace-page" id="version-timeline">
-  <section class="formcard">
+<div class="ui-page" id="version-timeline">
+  <section class="ui-form-card">
     <h2>{% translate "التوقيعات" %}</h2>
-    <div class="data-table-shell" tabindex="0">
-      <table class="table responsive-table">
+    <div class="ui-table-scroll" tabindex="0">
+      <table class="ui-table ui-table--responsive">
         <thead><tr>
           <th>{% translate "المراجعة" %}</th>
           <th>{% translate "المراجع" %}</th>
@@ -24,7 +24,7 @@
               <td data-label="{% translate 'المراجعة' %}">{{ review.get_review_type_display }}</td>
               <td data-label="{% translate 'المراجع' %}">{{ review.reviewer }}</td>
               <td data-label="{% translate 'القرار' %}">
-                <span class="chip {% if review.decision == 'APPROVED' %}chip--on{% else %}chip--off{% endif %}">
+                <span class="ui-badge {% if review.decision == 'APPROVED' %}ui-badge--success{% else %}ui-badge--neutral{% endif %}">
                   {{ review.get_decision_display }}
                 </span>
               </td>
@@ -44,10 +44,10 @@
     </div>
   </section>
 
-  <section class="formcard">
+  <section class="ui-form-card">
     <h2>{% translate "نطاق السريان" %}</h2>
-    <div class="data-table-shell" tabindex="0">
-      <table class="table responsive-table">
+    <div class="ui-table-scroll" tabindex="0">
+      <table class="ui-table ui-table--responsive">
         <thead><tr>
           <th>{% translate "الفرع" %}</th>
           <th>{% translate "من" %}</th>
@@ -57,7 +57,7 @@
         <tbody>
           {% for scope in scopes %}
             <tr>
-              <td data-label="{% translate 'الفرع' %}"><code>{{ scope.branch.code }}</code> {{ scope.branch.name_ar }}</td>
+              <td data-label="{% translate 'الفرع' %}"><code>{{ scope.branch.code }}</code> {{ scope.branch.name }}</td>
               <td data-label="{% translate 'من' %}"><code dir="ltr">{{ scope.effective_from|date:"Y-m-d" }}</code></td>
               <td data-label="{% translate 'إلى' %}">{% if scope.effective_to %}<code dir="ltr">{{ scope.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</td>
               <td data-label="{% translate 'على مستوى المؤسسة' %}">{% if scope.is_organization_wide %}✓{% else %}—{% endif %}</td>
@@ -71,10 +71,10 @@
   </section>
 
   {% if timeline %}
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الخط الزمني للوصفة" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead><tr>
             <th>{% translate "النسخة" %}</th>
             <th>{% translate "الفرع" %}</th>

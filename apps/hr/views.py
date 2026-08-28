@@ -87,7 +87,7 @@ class EmployeeListView(HumanResourcesMixin, InventoryListView):
     page_hint = _(
         "الملف التشغيلي للموظف مع فرعه ووظيفته وحالته، من دون كشف البيانات الحساسة لغير المخوّلين."
     )
-    search_fields = ("code", "name_ar", "name_en", "department", "job_title")
+    search_fields = ("code", "name", "department", "job_title")
     manage_permission = MANAGE_EMPLOYEE
     create_url_name = "hr:employee_create"
     create_label = _("موظف جديد")

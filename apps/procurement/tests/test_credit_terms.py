@@ -59,7 +59,7 @@ def supplier(organization: Organization) -> Supplier:
     return create_supplier(
         organization=organization,
         code="TERM-SUPPLIER",
-        name_ar="مورد الشروط",
+        name="مورد الشروط",
         payment_terms_days=0,
     )
 
@@ -79,8 +79,7 @@ def _replacement(
     )
     return create_credit_term_draft(
         supplier=supplier,
-        name_ar=f"{days} يوم",
-        name_en=f"Net {days}",
+        name=f"{days} يوم",
         net_days=days,
         effective_from=effective_from,
         created_by=actor,
@@ -159,8 +158,7 @@ class TestCreditTermLifecycle:
         draft = _replacement(supplier=supplier, actor=purchasing, days=14, effective_from=MAR_1)
         updated = update_credit_term_draft(
             term=draft,
-            name_ar="أربعة عشر يوماً",
-            name_en="Net fourteen",
+            name="أربعة عشر يوماً",
             net_days=14,
             effective_from=MAR_1,
             effective_to=None,
@@ -171,8 +169,7 @@ class TestCreditTermLifecycle:
         with pytest.raises(ValidationError) as edit_refusal:
             update_credit_term_draft(
                 term=active,
-                name_ar="ممنوع",
-                name_en="Forbidden",
+                name="ممنوع",
                 net_days=30,
                 effective_from=MAR_1,
                 effective_to=None,
@@ -210,7 +207,7 @@ class TestCreditTermLifecycle:
                 supplier=first.supplier,
                 version=first.version + 1,
                 status=SupplierCreditTermStatus.ACTIVE,
-                name_ar="متداخل",
+                name="متداخل",
                 net_days=30,
                 effective_from=first.effective_from,
                 created_by=purchasing,
@@ -281,8 +278,7 @@ class TestInvoiceCreditTermSnapshot:
 
         term_30 = create_credit_term_draft(
             supplier=supplier,
-            name_ar="30 يوم",
-            name_en="Net 30",
+            name="30 يوم",
             net_days=30,
             effective_from=MAR_10,
             created_by=second_controller,
@@ -325,8 +321,7 @@ class TestCreditTermSurface:
             reverse("procurement:credit_term_create"),
             {
                 "supplier": supplier.pk,
-                "name_ar": "14 يوم",
-                "name_en": "Net 14",
+                "name": "14 يوم",
                 "net_days": "14",
                 "effective_from": "2026-03-01",
                 "effective_to": "",
@@ -403,8 +398,7 @@ class TestCreditTermSurface:
             "/api/v1/procurement/supplier-credit-terms/",
             data={
                 "supplier_id": supplier.pk,
-                "name_ar": "14 يوم",
-                "name_en": "Net 14",
+                "name": "14 يوم",
                 "net_days": 14,
                 "effective_from": "2026-03-01",
             },
@@ -415,8 +409,7 @@ class TestCreditTermSurface:
         updated = client.put(
             f"/api/v1/procurement/supplier-credit-terms/{term_id}/",
             data={
-                "name_ar": "أربعة عشر يوماً",
-                "name_en": "Net fourteen",
+                "name": "أربعة عشر يوماً",
                 "net_days": 14,
                 "effective_from": "2026-03-01",
                 "notes": "تصحيح API",

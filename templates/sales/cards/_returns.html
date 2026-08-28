@@ -7,10 +7,10 @@
 {# every single time (ADR-028 §8). Showing the flag beside every row is       #}
 {# cheaper than explaining it again to every reader.                          #}
 {% load i18n money_tags %}
-<h2 class="section-title">{{ card.label }}</h2>
+<h2 class="ui-section-title">{{ card.label }}</h2>
 {% if rows %}
-  <div class="tablewrap">
-    <table class="table">
+  <div class="ui-table-scroll">
+    <table class="ui-table">
       <thead>
         <tr>
           <th scope="col">{% translate "السبب" %}</th>
@@ -31,9 +31,9 @@
             <td data-label="{% translate 'عدد السطور' %}"><bdi dir="ltr"><code>{{ row.line_count }}</code></bdi></td>
             <td data-label="{% translate 'يخفض الاستهلاك النظري' %}">
               {% if row.reduces_consumption %}
-                <span class="chip">{% translate "نعم" %}</span>
+                <span class="ui-badge">{% translate "نعم" %}</span>
               {% else %}
-                <span class="chip chip--quiet">{% translate "لا" %}</span>
+                <span class="ui-badge ui-badge--neutral">{% translate "لا" %}</span>
               {% endif %}
             </td>
           </tr>
@@ -41,9 +41,9 @@
       </tbody>
     </table>
   </div>
-  <p class="pagehead__hint">
+  <p class="ui-page-header__subtitle">
     {% translate "الإرجاع بعد التنفيذ لا يخفض الاستهلاك النظري: الطعام طُبخ وخرجت مكوّناته، وطرحه هنا يصنع فرقاً غير مفسّر بمقدار المرتجع بالضبط. إتلاف الطعام المرتجع مستند هالك في سجل المطبخ." %}
   </p>
 {% else %}
-  <p class="empty">{% translate "لا توجد مرتجعات مرحّلة في هذه المدة." %}</p>
+  <p class="ui-table__empty">{% translate "لا توجد مرتجعات مرحّلة في هذه المدة." %}</p>
 {% endif %}

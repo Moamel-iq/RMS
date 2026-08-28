@@ -237,7 +237,7 @@ def waste_totals(user: User, filters: OperationFilters, *, with_value: bool) -> 
                 value = previous + (line.total_value or ZERO)
             totals[line.item_id] = WasteTotal(
                 item_code=line.item.code,
-                item_name=line.item.name_ar,
+                item_name=line.item.name,
                 base_unit_code=line.item.base_unit.code,
                 quantity=quantity,
                 value=value,

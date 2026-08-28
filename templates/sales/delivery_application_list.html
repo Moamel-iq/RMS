@@ -28,7 +28,7 @@
           <bdi dir="ltr"><code>{{ application.code }}</code></bdi>
         </a>
       </td>
-      <td data-label="{% translate 'الاسم' %}">{{ application.name_ar }}</td>
+      <td data-label="{% translate 'الاسم' %}">{{ application.name }}</td>
       <td data-label="{% translate 'دورة التسوية' %}">
         <bdi dir="ltr">{{ application.settlement_cycle_days }}</bdi> {% translate "يوم" %}
       </td>
@@ -36,17 +36,17 @@
         {% if application.receivable_account %}
           <bdi dir="ltr"><code>{{ application.receivable_account.code }}</code></bdi>
         {% else %}
-          <span class="muted">{% translate "افتراضي المؤسسة" %}</span>
+          <span class="ui-text-muted">{% translate "افتراضي المؤسسة" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'الفروع المفعّلة' %}">
-        <bdi dir="ltr">{{ application.branch_settings.count }}</bdi>
+        <bdi dir="ltr">{{ application.branch_setting_count }}</bdi>
       </td>
       <td data-label="{% translate 'الحالة' %}">
         {% if application.is_active %}
-          <span class="chip chip--on">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "مؤرشف" %}</span>
         {% endif %}
       </td>
       {% include "inventory/_rowactions.html" with row=application owner_id=application.organization_id edit_url="sales:application_update" archive_url="sales:application_archive" reactivate_url="sales:application_reactivate" extra_url="sales:application_detail" extra_label=_("الفروع والاتفاقيات") %}

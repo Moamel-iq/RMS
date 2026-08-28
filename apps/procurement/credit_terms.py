@@ -75,8 +75,7 @@ def bootstrap_credit_term(*, supplier: Supplier, net_days: int) -> SupplierCredi
         supplier=locked_supplier,
         version=1,
         status=SupplierCreditTermStatus.ACTIVE,
-        name_ar=term_name_ar(net_days),
-        name_en=term_name_en(net_days),
+        name=term_name_ar(net_days),
         net_days=net_days,
         effective_from=LEGACY_EFFECTIVE_FROM,
         created_by=actor,
@@ -96,11 +95,10 @@ def bootstrap_credit_term(*, supplier: Supplier, net_days: int) -> SupplierCredi
 def create_credit_term_draft(
     *,
     supplier: Supplier,
-    name_ar: str,
+    name: str,
     net_days: int,
     effective_from: datetime.date,
     created_by: User,
-    name_en: str = "",
     effective_to: datetime.date | None = None,
     notes: str = "",
     supersedes: SupplierCreditTerm | None = None,
@@ -110,7 +108,7 @@ def create_credit_term_draft(
     _validate_period(effective_from=effective_from, effective_to=effective_to)
     if net_days < 0:
         raise ValidationError(_("Net days cannot be negative."), code="credit_term_days_negative")
-    if not name_ar.strip():
+    if not name.strip():
         raise ValidationError(
             _("An Arabic credit-term name is required."), code="credit_term_name_required"
         )
@@ -145,8 +143,7 @@ def create_credit_term_draft(
         supplier=locked_supplier,
         version=version,
         status=SupplierCreditTermStatus.DRAFT,
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         net_days=net_days,
         effective_from=effective_from,
         effective_to=effective_to,
@@ -164,8 +161,7 @@ def create_credit_term_draft(
 def update_credit_term_draft(
     *,
     term: SupplierCreditTerm,
-    name_ar: str,
-    name_en: str,
+    name: str,
     net_days: int,
     effective_from: datetime.date,
     effective_to: datetime.date | None,
@@ -181,13 +177,13 @@ def update_credit_term_draft(
     _validate_period(effective_from=effective_from, effective_to=effective_to)
     if net_days < 0:
         raise ValidationError(_("Net days cannot be negative."), code="credit_term_days_negative")
-    if not name_ar.strip():
+    if not name.strip():
         raise ValidationError(
             _("An Arabic credit-term name is required."), code="credit_term_name_required"
         )
     previous = snapshot(locked)
-    locked.name_ar = name_ar.strip()
-    locked.name_en = name_en.strip()
+    locked.name = name.strip()
+    locked.name = name.strip()
     locked.net_days = net_days
     locked.effective_from = effective_from
     locked.effective_to = effective_to

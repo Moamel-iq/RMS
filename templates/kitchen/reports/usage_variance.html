@@ -14,61 +14,61 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page" id="kitchen-usage-variance">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <section class="ui-page" id="kitchen-usage-variance">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
     </div>
 
-    <div class="banner" role="note">
+    <div class="ui-notice" role="note">
       <div>
         {% for notice in notices %}<p>{{ notice }}</p>{% endfor %}
-        <p class="chips">
+        <p class="ui-badge-list">
           {% for code in coverage_codes %}
-            <bdi dir="ltr"><code class="chip">{{ code }}</code></bdi>
+            <bdi dir="ltr"><code class="ui-badge">{{ code }}</code></bdi>
           {% endfor %}
         </p>
       </div>
     </div>
 
-    <form class="toolbar"
+    <form class="ui-filter-bar"
           method="get"
           hx-get="{{ request.path }}"
           hx-target="#kitchen-usage-variance"
           hx-swap="outerHTML">
-      <label class="field">
+      <label class="ui-field">
         <span>{% translate "المخزن" %}</span>
         <select name="warehouse_id">
           <option value="">{% translate "كل المخازن" %}</option>
           {% for warehouse in warehouses %}
             <option value="{{ warehouse.pk }}"
               {% if filters.warehouse_id == warehouse.pk|stringformat:"s" %}selected{% endif %}>
-              {{ warehouse.code }} — {{ warehouse.name_ar }}
+              {{ warehouse.code }} — {{ warehouse.name }}
             </option>
           {% endfor %}
         </select>
       </label>
-      <label class="field">
+      <label class="ui-field">
         <span>{% translate "رقم الفرع" %}</span>
         <input type="number" name="branch_id" min="1" dir="ltr" value="{{ filters.branch_id }}">
       </label>
-      <label class="field">
+      <label class="ui-field">
         <span>{% translate "من تاريخ" %}</span>
         <input type="date" name="date_from" value="{{ filters.date_from }}">
       </label>
-      <label class="field">
+      <label class="ui-field">
         <span>{% translate "إلى تاريخ" %}</span>
         <input type="date" name="date_to" value="{{ filters.date_to }}">
       </label>
-      <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button>
+      <button class="ui-button ui-button--primary" type="submit">{% translate "تصفية" %}</button>
     </form>
 
     {% if applied_filters %}
-      <p class="chips" aria-label="{% translate 'المرشحات المطبقة' %}">
+      <p class="ui-badge-list" aria-label="{% translate 'المرشحات المطبقة' %}">
         {% for label, value in applied_filters %}
-          <span class="chip">{{ label }}: <bdi dir="ltr">{{ value }}</bdi></span>
+          <span class="ui-badge">{{ label }}: <bdi dir="ltr">{{ value }}</bdi></span>
         {% endfor %}
       </p>
     {% endif %}
@@ -77,20 +77,20 @@
     {# The heading is the card's first child so the stylesheet draws it as a #}
     {# header band, and the warnings inside a card use `notice` rather than  #}
     {# `banner`/`alert`: those draw a full edge and would double the card's. #}
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "١. انحراف الإنتاج القياسي — متاح ومكتمل" %}</h2>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "الجانبان وقائع مرحّلة عن الدفعة نفسها: ما طلبته النسخة المجمّدة مقابل ما دخل فعلاً. لا تدخل المبيعات في هذا الرقم ولا يحتاجها." %}
       </p>
 
       {% if not analysis.identity_holds %}
-        <p class="notice banner--bad" role="alert">
+        <p class="ui-notice ui-notice--error" role="alert">
           {% translate "تحذير: برهان تصنيف الحركات لا يتوازن في هذه الفترة، فأرقام الاستهلاك الفعلي أدناه غير موثوقة حتى يُعالج ذلك. راجع تقرير تدفق مخزن المطبخ." %}
         </p>
       {% endif %}
 
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "الدفعة" %}</th>
@@ -110,7 +110,7 @@
                 <td data-label="{% translate 'الدفعة' %}">
                   <bdi dir="ltr"><code>{{ row.batch.number }}</code></bdi>
                 </td>
-                <td data-label="{% translate 'الوصفة' %}">{{ row.batch.recipe.name_ar }}</td>
+                <td data-label="{% translate 'الوصفة' %}">{{ row.batch.recipe.name }}</td>
                 <td data-label="{% translate 'النسخة' %}">
                   <bdi dir="ltr"><code>{{ row.version_label }}</code></bdi>
                 </td>
@@ -133,8 +133,8 @@
                       {# The number above is true over the rows whose dimension #}
                       {# matches the plan, and leaves the rest out. Saying so    #}
                       {# is the difference between a variance and a half-truth.  #}
-                      <p><span class="chip">{{ row.compatibility }}</span></p>
-                      <p class="muted">
+                      <p><span class="ui-badge">{{ row.compatibility }}</span></p>
+                      <p class="ui-text-muted">
                         {% translate "خارج الرقم" %}:
                         <bdi dir="ltr"><code>{{ row.excluded_display }}</code></bdi>
                       </p>
@@ -142,9 +142,9 @@
                   {% else %}
                     {# Never a zero here. Zero means "no deviation"; this means #}
                     {# the two sides are not measured in comparable units.     #}
-                    <span class="chip">{{ row.compatibility }}</span>
+                    <span class="ui-badge">{{ row.compatibility }}</span>
                   {% endif %}
-                  {% if row.statement %}<p class="muted">{{ row.statement }}</p>{% endif %}
+                  {% if row.statement %}<p class="ui-text-muted">{{ row.statement }}</p>{% endif %}
                 </td>
                 {% if show_cost %}
                   <td data-label="{% translate 'قيمة المستهلك' %}">
@@ -154,7 +154,7 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="{% if show_cost %}9{% else %}8{% endif %}" class="empty">
+                <td colspan="{% if show_cost %}9{% else %}8{% endif %}" class="ui-table__empty">
                   {% translate "لا توجد دفعات مرحّلة في هذا النطاق. رحّل دفعة إنتاج ثم أعد التصفية." %}
                 </td>
               </tr>
@@ -165,17 +165,17 @@
     </section>
 
     {# ---- Output 2: partial -------------------------------------------- #}
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "٢. تشخيص جزئي للاستهلاك — ليس الانحراف النهائي" %}</h2>
-      <p class="notice banner--bad" role="alert">
+      <p class="ui-notice ui-notice--error" role="alert">
         {% translate "لا يجوز اعتبار الرصيد غير المُفسَّر أدناه انحراف استهلاك نهائياً: الجانب النظري لا يشمل كميات المبيعات المعتمدة، وهي غير موجودة قبل المرحلة الرابعة." %}
       </p>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "مكافئ وجبات الموظفين والوجبات المجانية معروض بجانب الرصيد ولا يُطرح منه: مكوّنات تلك الوجبات خرجت أصلاً مع دفعة الإنتاج التي طبختها، وطرحها هنا يخصم الكمية مرتين." %}
       </p>
 
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "الصنف" %}</th>
@@ -213,12 +213,12 @@
                 <td data-label="{% translate 'هالك ناتج' %}"><bdi dir="ltr"><code>{{ row.produced_output_waste }}</code></bdi></td>
                 <td data-label="{% translate 'تصحيحات' %}"><bdi dir="ltr"><code>{{ row.count_correction }}</code></bdi></td>
                 <td data-label="{% translate 'التغطية' %}">
-                  <bdi dir="ltr"><code class="chip">{{ row.coverage_label }}</code></bdi>
+                  <bdi dir="ltr"><code class="ui-badge">{{ row.coverage_label }}</code></bdi>
                 </td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="15" class="empty">
+                <td colspan="15" class="ui-table__empty">
                   {% translate "لا توجد حركات في هذا النطاق. عدّل المخزن أو الفترة ثم أعد المحاولة." %}
                 </td>
               </tr>
@@ -231,13 +231,13 @@
     {# ---- The source that is missing, named ---------------------------- #}
     {# The note that used to close this card now opens it: the table shell   #}
     {# bleeds to the card's edge and has to be the last child to do so.      #}
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "تغطية المصادر النظرية" %}</h2>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "المصدر المعروض بحالة DEFERRED_TO_PHASE_4 ليس خطأ: محوّل المبيعات غير موجود لأن بياناته غير موجودة. عرضه بالاسم أصدق من حذفه من الجدول." %}
       </p>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "المصدر" %}</th>
@@ -254,7 +254,7 @@
                   <bdi dir="ltr"><code>{{ source.source_type }}</code></bdi>
                 </td>
                 <td data-label="{% translate 'الحالة' %}">
-                  <bdi dir="ltr"><code class="chip">{{ source.status }}</code></bdi>
+                  <bdi dir="ltr"><code class="ui-badge">{{ source.status }}</code></bdi>
                 </td>
                 <td data-label="{% translate 'عدد المساهمات' %}"><bdi dir="ltr">{{ source.contribution_count }}</bdi></td>
                 <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ source.total_quantity }}</code></bdi></td>

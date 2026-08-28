@@ -26,8 +26,8 @@
 
   const initialiseResponsiveTables = (root = document) => {
     const tables = [];
-    if (root.matches?.("table.responsive-table")) tables.push(root);
-    root.querySelectorAll?.("table.responsive-table").forEach((table) => tables.push(table));
+    if (root.matches?.("table.ui-table--responsive")) tables.push(root);
+    root.querySelectorAll?.("table.ui-table--responsive").forEach((table) => tables.push(table));
     tables.forEach((table) => {
       const headings = [...table.querySelectorAll("thead th")];
       const labels = headings.map((heading, index) => {
@@ -64,13 +64,13 @@
   const regionName = (shell) => {
     const caption = shell.querySelector("table > caption");
     if (caption) return caption.textContent.replace(/\s+/g, " ").trim();
-    const card = shell.closest("section, .formcard, .panel, .card, .inventory-detail-card");
+    const card = shell.closest("section, .ui-form-card, .ui-card, .ui-data-card");
     const heading = card?.querySelector("h1, h2, h3");
     const name = heading?.textContent.replace(/\s+/g, " ").trim();
     if (name) return name;
     // A register that fills its screen has its name in the page heading rather
     // than in a card of its own.
-    const page = document.querySelector(".pagehead__title, main h1");
+    const page = document.querySelector(".ui-page-header__title, .ui-page-title, main h1");
     return page?.textContent.replace(/\s+/g, " ").trim() || "";
   };
 
@@ -85,12 +85,12 @@
    */
   const containWideTables = (root = document) => {
     const tables = [];
-    if (root.matches?.("table.table")) tables.push(root);
-    root.querySelectorAll?.("table.table").forEach((table) => tables.push(table));
+    if (root.matches?.("table.ui-table")) tables.push(root);
+    root.querySelectorAll?.("table.ui-table").forEach((table) => tables.push(table));
     tables.forEach((table) => {
-      if (table.closest(".data-table-shell, .table-scroll")) return;
+      if (table.closest(".ui-table-scroll")) return;
       const shell = document.createElement("div");
-      shell.className = "data-table-shell";
+      shell.className = "ui-table-scroll";
       shell.dataset.tableShell = "auto";
       table.parentNode.insertBefore(shell, table);
       shell.append(table);
@@ -100,8 +100,8 @@
   const markScrollableTables = (root = document) => {
     containWideTables(root);
     const shells = [];
-    if (root.matches?.(".data-table-shell")) shells.push(root);
-    root.querySelectorAll?.(".data-table-shell").forEach((shell) => shells.push(shell));
+    if (root.matches?.(".ui-table-scroll")) shells.push(root);
+    root.querySelectorAll?.(".ui-table-scroll").forEach((shell) => shells.push(shell));
     shells.forEach((shell) => {
       const overflows = shell.scrollWidth > shell.clientWidth + 1;
       if (!overflows) {
@@ -129,25 +129,26 @@
   };
 
   const showToast = (message, variant = "success") => {
-    let stack = document.querySelector(".toast-stack");
+    let stack = document.querySelector(".ui-toast-region");
     if (!stack) {
       stack = document.createElement("div");
-      stack.className = "toast-stack";
+      stack.className = "ui-toast-region";
       stack.setAttribute("aria-live", "polite");
       stack.setAttribute("aria-atomic", "false");
       document.querySelector("#main-content")?.prepend(stack);
     }
     const toast = document.createElement("div");
-    toast.className = `toast toast--${variant}`;
+    toast.className = `ui-toast${variant === "success" ? "" : ` ui-toast--${variant}`}`;
     toast.dataset.toast = "";
     toast.setAttribute("role", variant === "danger" ? "alert" : "status");
     const mark = document.createElement("span");
-    mark.className = "toast__mark";
+    mark.className = "ui-toast__mark";
     mark.setAttribute("aria-hidden", "true");
     const copy = document.createElement("span");
+    copy.className = "ui-toast__copy";
     copy.textContent = message;
     const close = document.createElement("button");
-    close.className = "toast__close";
+    close.className = "ui-toast__close";
     close.type = "button";
     close.dataset.toastDismiss = "";
     close.setAttribute("aria-label", "إغلاق الرسالة");
@@ -214,8 +215,8 @@
 
     if (target?.id === "list-results") {
       const trigger = event.detail.requestConfig?.elt;
-      if (trigger?.closest?.(".pagination")) {
-        window.requestAnimationFrame(() => target.querySelector(".data-table-shell")?.focus());
+      if (trigger?.closest?.(".ui-pagination")) {
+        window.requestAnimationFrame(() => target.querySelector(".ui-table-scroll")?.focus());
       }
     }
     const errorSummary = target?.querySelector?.("[data-error-summary]");
@@ -247,16 +248,16 @@
 
   const cardFailure = (frame, reason) => {
     if (!frame) return false;
-    const heading = frame.querySelector(".panel__head, h2, h3");
+    const heading = frame.querySelector(".ui-card__header, h2, h3");
     const body = document.createElement("div");
-    body.className = "card-failure";
+    body.className = "ui-card-error";
     body.setAttribute("role", "status");
     const last = frame.dataset.refreshedLabel
-      ? `<p class="card-failure__stamp">آخر تحديث ناجح: <bdi dir="ltr">${frame.dataset.refreshedLabel}</bdi></p>`
-      : '<p class="card-failure__stamp">لم تصل أرقام هذه البطاقة بعد.</p>';
+      ? `<p class="ui-card-error__stamp">آخر تحديث ناجح: <bdi dir="ltr">${frame.dataset.refreshedLabel}</bdi></p>`
+      : '<p class="ui-card-error__stamp">لم تصل أرقام هذه البطاقة بعد.</p>';
     body.innerHTML =
-      `<p class="card-failure__reason">${reason}</p>${last}` +
-      '<button class="btn btn--secondary btn--sm" type="button" data-card-retry>إعادة المحاولة</button>';
+      `<p class="ui-card-error__reason">${reason}</p>${last}` +
+      '<button class="ui-button ui-button--secondary ui-button--small" type="button" data-card-retry>إعادة المحاولة</button>';
     // Keep the card's own heading: the reader must still know which card failed.
     [...frame.children].forEach((child) => {
       if (child !== heading) child.remove();
@@ -271,9 +272,9 @@
     if (!url || !window.htmx) return;
     const swap = frame.getAttribute("hx-swap") || "innerHTML";
     frame.dataset.cardState = "loading";
-    frame.querySelector(".card-failure")?.replaceWith(
+    frame.querySelector(".ui-card-error")?.replaceWith(
       Object.assign(document.createElement("p"), {
-        className: "muted",
+        className: "ui-text-muted",
         textContent: "جارٍ التحميل…",
       }),
     );

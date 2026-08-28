@@ -10,17 +10,17 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="kitchen-meal-detail">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
-          {{ record.get_meal_type_display }} — {{ record.recipe.name_ar }}
+  <div class="ui-page" id="kitchen-meal-detail">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
+          {{ record.get_meal_type_display }} — {{ record.recipe.name }}
         </h1>
-        <p class="pagehead__hint">{{ meal_statement }}</p>
+        <p class="ui-page-header__subtitle">{{ meal_statement }}</p>
       </div>
-      <div class="pagehead__actions">
+      <div class="ui-page-header__actions">
         {% if can_record and record.is_recorded %}
-          <a class="btn btn--danger" href="{% url 'kitchen:meal_cancel' record.pk %}">
+          <a class="ui-button ui-button--danger" href="{% url 'kitchen:meal_cancel' record.pk %}">
             {% translate "إلغاء السجل" %}
           </a>
         {% endif %}
@@ -28,30 +28,30 @@
     </div>
 
     {% if not record.is_recorded %}
-      <p class="banner" role="alert">
+      <p class="ui-notice" role="alert">
         {% translate "هذا السجل ملغى ولا يدخل في الاستهلاك النظري." %}
         <bdi>{{ record.cancellation_reason }}</bdi>
       </p>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "التعريف" %}</h2>
-      <dl class="deflist">
+      <dl class="ui-definition-list">
         <dt>{% translate "النوع" %}</dt>
         <dd>{{ record.get_meal_type_display }}</dd>
         <dt>{% translate "الفرع" %}</dt>
-        <dd>{{ record.branch.code }} — {{ record.branch.name_ar }}</dd>
+        <dd>{{ record.branch.code }} — {{ record.branch.name }}</dd>
         <dt>{% translate "تاريخ الاستهلاك" %}</dt>
         <dd><code dir="ltr">{{ record.consumed_on|date:"Y-m-d" }}</code></dd>
         <dt>{% translate "الوصفة" %}</dt>
-        <dd>{{ record.recipe.code }} — {{ record.recipe.name_ar }}</dd>
+        <dd>{{ record.recipe.code }} — {{ record.recipe.name }}</dd>
         <dt>{% translate "النسخة المجمّدة" %}</dt>
         <dd>
           <code dir="ltr">v{{ record.recipe_version.version_number }}</code>
-          <span class="muted">{% translate "محسومة بتاريخ الاستهلاك ولا يُعاد حسابها" %}</span>
+          <span class="ui-text-muted">{% translate "محسومة بتاريخ الاستهلاك ولا يُعاد حسابها" %}</span>
         </dd>
         <dt>{% translate "الحصة" %}</dt>
-        <dd>{% if record.serving_id %}{{ record.serving.name_ar }}{% else %}{% translate "وحدة الناتج" %}{% endif %}</dd>
+        <dd>{% if record.serving_id %}{{ record.serving.name }}{% else %}{% translate "وحدة الناتج" %}{% endif %}</dd>
         <dt>{% translate "عدد الحصص" %}</dt>
         <dd><code dir="ltr">{{ record.quantity_display }}</code></dd>
         <dt>{% translate "الكمية بوحدة الناتج" %}</dt>
@@ -77,23 +77,23 @@
     </section>
 
     {% if record.notes %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "ملاحظات" %}</h2>
         <p>{{ record.notes }}</p>
       </section>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "سجل التدقيق" %}</h2>
-      <ul class="checklist">
+      <ul class="ui-timeline">
         {% for event in timeline %}
           <li>
-            <span class="pill">{{ event.get_action_display }}</span>
+            <span class="ui-badge">{{ event.get_action_display }}</span>
             <bdi dir="ltr"><code>{{ event.occurred_at|date:"Y-m-d H:i" }}</code></bdi>
-            <span class="muted">{{ event.reason }}</span>
+            <span class="ui-text-muted">{{ event.reason }}</span>
           </li>
         {% empty %}
-          <li class="muted">{% translate "لا توجد أحداث." %}</li>
+          <li class="ui-text-muted">{% translate "لا توجد أحداث." %}</li>
         {% endfor %}
       </ul>
     </section>

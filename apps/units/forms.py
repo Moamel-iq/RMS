@@ -11,11 +11,10 @@ from apps.units.models import UnitOfMeasure
 class UnitCreateForm(forms.ModelForm):
     class Meta:
         model = UnitOfMeasure
-        fields = ("code", "name_ar", "name_en", "dimension", "factor_to_base")
+        fields = ("code", "name", "dimension", "factor_to_base")
         labels = {
             "code": _("الرمز"),
-            "name_ar": _("الاسم بالعربية"),
-            "name_en": _("الاسم بالإنجليزية"),
+            "name": _("الاسم بالعربية"),
             "dimension": _("البُعد"),
             "factor_to_base": _("المعامل إلى الوحدة الأساس"),
         }
@@ -36,10 +35,9 @@ class UnitUpdateForm(forms.ModelForm):
 
     class Meta:
         model = UnitOfMeasure
-        fields = ("name_ar", "name_en", "factor_to_base", "is_active")
+        fields = ("name", "factor_to_base", "is_active")
         labels = {
-            "name_ar": _("الاسم بالعربية"),
-            "name_en": _("الاسم بالإنجليزية"),
+            "name": _("الاسم بالعربية"),
             "factor_to_base": _("المعامل إلى الوحدة الأساس"),
             "is_active": _("فعّال"),
         }

@@ -4,27 +4,30 @@
 {% block title %}{% translate "تسجيل الدخول" %} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block content %}
-  <main class="auth-shell">
-    <div class="auth-stack">
-
-      <div class="brand">
-        <svg class="brand__mark" width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
-          <path fill="#e35205" d="M16 4h8v12h12v8H24v12h-8V24H4v-8h12z"/>
+  <main class="ui-auth">
+    <section class="ui-auth__intro" aria-label="{% translate 'نظام خان مندي' %}">
+      <a class="ui-brand ui-brand--large" href="{% url 'users:login' %}" aria-label="{% translate 'خان مندي ERP' %}">
+        <svg class="ui-brand__mark" viewBox="0 0 36 36" aria-hidden="true">
+          <path d="m18 1 15 8.5-7.4 8.4L33 26.5 18 35 3 26.5l7.4-8.6L3 9.5 18 1Z"/>
         </svg>
-        <span class="brand__word">{% translate "خان" %}<span class="brand__word--accent">{% translate "مندي" %}</span></span>
+        <span class="ui-brand__name">{% translate "خان مندي" %} <bdi dir="ltr">ERP</bdi></span>
+      </a>
+      <div class="ui-auth__intro-copy">
+        <p class="ui-auth__eyebrow">{% translate "إدارة المطعم من مكان واحد" %}</p>
+        <h1>{% translate "قرارات أوضح، وتشغيل أدق كل يوم" %}</h1>
+        <p>{% translate "المبيعات والمشتريات والمخزون والمطبخ والحسابات بصلاحيات موحدة وسجل تدقيق كامل." %}</p>
       </div>
+    </section>
 
-      <div class="card">
-        <h1 class="card__title">{% translate "تسجيل الدخول" %}</h1>
-        <p class="card__subtitle">{% translate "أهلاً بك في نظام خان مندي" %}</p>
-
+    <section class="ui-auth__panel">
+      <div class="ui-auth__card">
+        <header class="ui-auth__header">
+          <h2>{% translate "تسجيل الدخول" %}</h2>
+          <p>{% translate "أدخل اسم المستخدم أو رقم الهاتف للمتابعة." %}</p>
+        </header>
         {% include "partials/login_form.html" %}
-
-        <p class="card__meta">
-          {% translate "نسيت كلمة المرور؟ راجع مسؤول النظام." %}
-        </p>
+        <p class="ui-auth__help">{% translate "نسيت كلمة المرور؟ تواصل مع مسؤول النظام." %}</p>
       </div>
-
-    </div>
+    </section>
   </main>
 {% endblock %}

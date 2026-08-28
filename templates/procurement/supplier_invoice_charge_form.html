@@ -3,13 +3,13 @@
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 {% block page %}
-<section class="workspace-page workspace-form-page" id="supplier-charge-form" aria-labelledby="charge-form-title">
-  <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}"><a href="{% url 'procurement:supplier_invoice_list' %}">{% translate "فواتير الموردين" %}</a><span aria-hidden="true">/</span><a href="{% url 'procurement:supplier_invoice_detail' invoice.pk %}"><bdi dir="ltr">{{ invoice.number|default:invoice.supplier_invoice_number }}</bdi></a><span aria-hidden="true">/</span><span aria-current="page">{{ page_title }}</span></nav>
-  <div class="pagehead"><div><p class="pagehead__eyebrow">{{ invoice.supplier.code }} — {{ invoice.supplier.name_ar }}</p><h1 class="pagehead__title" id="charge-form-title">{{ page_title }}</h1><p class="pagehead__hint">{{ page_hint }}</p></div></div>
-  <form class="formcard workspace-form-card" method="post" novalidate hx-post="{{ request.path }}" hx-target="#supplier-charge-form" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+<section class="ui-page ui-page--form" id="supplier-charge-form" aria-labelledby="charge-form-title">
+  <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}"><a href="{% url 'procurement:supplier_invoice_list' %}">{% translate "فواتير المشتريات" %}</a><span aria-hidden="true">/</span><a href="{% url 'procurement:supplier_invoice_detail' invoice.pk %}"><bdi dir="ltr">{{ invoice.number|default:invoice.supplier_invoice_number }}</bdi></a><span aria-hidden="true">/</span><span aria-current="page">{{ page_title }}</span></nav>
+  <div class="ui-page-header"><div><p class="ui-page-header__eyebrow">{{ invoice.supplier.code }} — {{ invoice.supplier.name }}</p><h1 class="ui-page-header__title" id="charge-form-title">{{ page_title }}</h1><p class="ui-page-header__hint">{{ page_hint }}</p></div></div>
+  <form class="ui-card ui-form-card" method="post" novalidate hx-post="{{ request.path }}" hx-target="#supplier-charge-form" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
     {% csrf_token %}{% include "components/form_error_summary.html" with form=form %}
-    <div class="formgrid">{% for field in form.visible_fields %}<div class="formrow{% if field.errors %} formrow--invalid{% endif %}"><label class="formrow__label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="formrow__help">{{ field.help_text }}</p>{% endif %}{% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}</div>{% endfor %}</div>
-    <div class="formactions"><button class="btn btn--primary" type="submit">{% translate "حفظ التكلفة" %}</button><a class="btn btn--ghost" href="{% url 'procurement:supplier_invoice_detail' invoice.pk %}">{% translate "إلغاء" %}</a></div>
+    <div class="ui-form-grid">{% for field in form.visible_fields %}<div class="ui-field{% if field.errors %} ui-field--invalid{% endif %}"><label class="ui-field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="ui-field__hint">{{ field.help_text }}</p>{% endif %}{% for error in field.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}</div>{% endfor %}</div>
+    <div class="ui-form-actions"><button class="ui-button ui-button--primary" type="submit">{% translate "حفظ التكلفة" %}</button><a class="ui-button ui-button--ghost" href="{% url 'procurement:supplier_invoice_detail' invoice.pk %}">{% translate "إلغاء" %}</a></div>
   </form>
 </section>
 {% endblock %}

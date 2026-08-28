@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# The confirmation before the goods leave. Its own page rather than a       #}
@@ -8,47 +8,47 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="inventory-page inventory-detail-page" aria-labelledby="dispatch-title">
-    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--detail" aria-labelledby="dispatch-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{{ back_url }}">{% translate "تفاصيل التحويل" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{% translate "تأكيد الإرسال" %}</span>
     </nav>
-    <header class="pagehead inventory-document-hero">
+    <header class="ui-page-header ui-document-hero">
       <div>
-        <div class="inventory-detail-kicker">
+        <div class="ui-document-hero__meta">
           {% include "components/status_badge.html" with status=transfer.status label=transfer.get_status_display %}
           {% if transfer.transfer_number %}<code><bdi dir="ltr">{{ transfer.transfer_number }}</bdi></code>{% endif %}
         </div>
-        <h1 class="pagehead__title" id="dispatch-title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+        <h1 class="ui-page-header__title" id="dispatch-title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">{{ page_hint }}</p>
       </div>
-    <div class="rowactions">
-      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+    <div class="ui-actions">
+      <a class="ui-button ui-button--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
     </div>
     </header>
 
-  <dl class="factgrid" aria-label="{% translate 'بيانات الإرسال' %}">
+  <dl class="ui-definition-list" aria-label="{% translate 'بيانات الإرسال' %}">
     <div>
       <dt>{% translate "من" %}</dt>
       <dd>
         <code><bdi dir="ltr">{{ transfer.source_warehouse.code }}</bdi></code>
-        {{ transfer.source_warehouse.branch.name_ar }}
+        {{ transfer.source_warehouse.branch.name }}
       </dd>
     </div>
     <div>
       <dt>{% translate "إلى" %}</dt>
       <dd>
         <code><bdi dir="ltr">{{ transfer.destination_warehouse.code }}</bdi></code>
-        {{ transfer.destination_warehouse.branch.name_ar }}
+        {{ transfer.destination_warehouse.branch.name }}
       </dd>
     </div>
     <div><dt>{% translate "يوم العمل" %}</dt><dd><bdi dir="ltr">{{ transfer.business_date|date:"Y-m-d" }}</bdi></dd></div>
     <div><dt>{% translate "مرجع الإثبات" %}</dt><dd><bdi dir="ltr">{{ transfer.evidence_reference }}</bdi></dd></div>
   </dl>
 
-  <div class="tablewrap responsive-table">
-    <table class="table data-table">
+  <div class="ui-data-card ui-table-scroll">
+    <table class="ui-table ui-table--responsive">
       <thead>
         <tr>
           <th scope="col">#</th>
@@ -62,7 +62,7 @@
         {% for line in lines %}
           <tr>
             <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
-            <td data-label="{% translate 'الصنف' %}"><code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name_ar }}</td>
+            <td data-label="{% translate 'الصنف' %}"><code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name }}</td>
             <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
             <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr">{{ line.base_quantity }}</bdi></td>
             <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ line.item.base_unit.code }}</bdi></td>
@@ -80,12 +80,12 @@
   </div>
 
   {% if can_dispatch and lines %}
-    <form class="formcard" method="post"
+    <form class="ui-card ui-form-card" method="post"
           data-confirm="{% translate 'ستغادر الكميات مخزن المصدر وتصبح بضاعة بالطريق حتى الاستلام. هل تريد تأكيد الإرسال؟' %}"
           data-confirm-title="{% translate 'إرسال البضاعة' %}">
       {% csrf_token %}
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "تأكيد الإرسال" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "تأكيد الإرسال" %}</button>
       </div>
     </form>
   {% endif %}

@@ -11,23 +11,23 @@
 {% load i18n money_tags %}
 
 {% if is_preview %}
-  <p class="banner banner--warning" role="status">
+  <p class="ui-notice ui-notice--warning" role="status">
     <strong>{% translate "معاينة — غير معتمدة" %}</strong>
     {% translate "هذه النسخة ما زالت مسودة أو قيد المراجعة. الأرقام للاطلاع فقط، ولا يمكن حفظ لقطة كلفة منها." %}
   </p>
 {% endif %}
 
-<section class="formcard" id="cost-card-summary">
+<section class="ui-form-card" id="cost-card-summary">
   <h2>{% translate "كلفة المواد المباشرة" %}</h2>
-  <dl class="detailgrid">
+  <dl class="ui-definition-list">
     <dt>{% translate "الوصفة" %}</dt>
-    <dd>{{ card.recipe.code }} — {{ card.recipe.name_ar }}</dd>
+    <dd>{{ card.recipe.code }} — {{ card.recipe.name }}</dd>
 
     <dt>{% translate "النسخة" %}</dt>
     <dd>v{{ card.version.version_number }} — {{ card.version.get_status_display }}</dd>
 
     <dt>{% translate "المخزن" %}</dt>
-    <dd>{{ card.warehouse.code }} — {{ card.warehouse.name_ar }}</dd>
+    <dd>{{ card.warehouse.code }} — {{ card.warehouse.name }}</dd>
 
     <dt>{% translate "بتاريخ" %}</dt>
     <dd><code dir="ltr">{{ card.as_of_date|date:"Y-m-d" }}</code></dd>
@@ -35,7 +35,7 @@
     <dt>{% translate "أساس التقييم" %}</dt>
     <dd>
       {% translate "حسب تاريخ الترحيل" %}
-      <span class="muted">(<code dir="ltr">{{ card.valuation_mode }}</code>)</span>
+      <span class="ui-text-muted">(<code dir="ltr">{{ card.valuation_mode }}</code>)</span>
     </dd>
 
     {# The reproducibility evidence. Given the organization and this integer, #}
@@ -54,14 +54,14 @@
 </section>
 
 {% if missing %}
-  <section class="formcard" id="cost-missing-valuation">
-    <h2 class="text-danger">{% translate "مكوّنات بلا تقييم" %}</h2>
-    <p class="muted">
+  <section class="ui-form-card" id="cost-missing-valuation">
+    <h2 class="ui-text-danger">{% translate "مكوّنات بلا تقييم" %}</h2>
+    <p class="ui-text-muted">
       {% translate "لا يوجد رصيد مقوَّم لهذه الأصناف في هذا المخزن بهذا التاريخ. لا تُفترض كلفة صفر ولا يُستبدل سعر آخر، ولا يمكن حفظ لقطة كلفة قبل معالجتها." %}
     </p>
-    <div class="data-table-shell" tabindex="0">
-      <table class="table responsive-table">
-        <caption class="visually-hidden">{% translate "المكوّنات غير المقوَّمة" %}</caption>
+    <div class="ui-table-scroll" tabindex="0">
+      <table class="ui-table ui-table--responsive">
+        <caption class="ui-visually-hidden">{% translate "المكوّنات غير المقوَّمة" %}</caption>
         <thead>
           <tr>
             <th scope="col">{% translate "الصنف" %}</th>
@@ -92,14 +92,14 @@
   </section>
 {% endif %}
 
-<section class="formcard" id="cost-card-lines">
+<section class="ui-form-card" id="cost-card-lines">
   <h2>{% translate "أسطر الكلفة" %}</h2>
-  <p class="muted">
+  <p class="ui-text-muted">
     {% translate "الأسطر المباشرة أولاً، ثم كل وصفة فرعية بترتيبها. الصنف نفسه على مسارين يبقى سطرين، لأن البطاقة موجودة ليمكن تتبّعها." %}
   </p>
-  <div class="data-table-shell" tabindex="0">
-    <table class="table responsive-table">
-      <caption class="visually-hidden">{% translate "تفصيل كلفة المواد" %}</caption>
+  <div class="ui-table-scroll" tabindex="0">
+    <table class="ui-table ui-table--responsive">
+      <caption class="ui-visually-hidden">{% translate "تفصيل كلفة المواد" %}</caption>
       <thead>
         <tr>
           <th scope="col">#</th>
@@ -125,7 +125,7 @@
                 {{ line.source_recipe.code }} v{{ line.source_version.version_number }}
               {% endif %}
             </td>
-            <td data-label="{% translate 'الصنف' %}">{{ line.item.code }} — {{ line.item.name_ar }}</td>
+            <td data-label="{% translate 'الصنف' %}">{{ line.item.code }} — {{ line.item.name }}</td>
             <td data-label="{% translate 'الفئة' %}">{{ line.recipe_line.get_cost_class_display }}</td>
             <td data-label="{% translate 'المعامل التراكمي' %}"><code dir="ltr">{{ line.multiplier_display }}</code></td>
             <td data-label="{% translate 'الكمية الفعّالة' %}"><code dir="ltr">{{ line.quantity_display }}</code></td>
@@ -133,13 +133,13 @@
               {% if line.is_valued %}
                 <code dir="ltr">{{ line.unit_cost_display }}</code>
               {% else %}
-                <span class="text-danger">{% translate "غير مقوَّم" %}</span>
+                <span class="ui-text-danger">{% translate "غير مقوَّم" %}</span>
               {% endif %}
             </td>
             <td data-label="{% translate 'القيمة' %}">{{ line.allocated_extension|money }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="9" class="muted" data-empty-state>{% translate "لا توجد أسطر." %}</td></tr>
+          <tr><td colspan="9" class="ui-text-muted" data-empty-state>{% translate "لا توجد أسطر." %}</td></tr>
         {% endfor %}
       </tbody>
       <tfoot>
@@ -152,14 +152,14 @@
   </div>
 </section>
 
-<section class="formcard" id="cost-card-classes">
+<section class="ui-form-card" id="cost-card-classes">
   <h2>{% translate "الإجماليات حسب الفئة" %}</h2>
-  <p class="muted">
+  <p class="ui-text-muted">
     {% translate "مجموع الفئات يساوي الإجمالي تماماً: التوزيع يعيد الإجمالي المقرَّب على الأسطر بدل أن يقرِّب كل سطر على حدة." %}
   </p>
-  <div class="data-table-shell" tabindex="0">
-    <table class="table">
-      <caption class="visually-hidden">{% translate "الكلفة حسب الفئة" %}</caption>
+  <div class="ui-table-scroll" tabindex="0">
+    <table class="ui-table">
+      <caption class="ui-visually-hidden">{% translate "الكلفة حسب الفئة" %}</caption>
       <tbody>
         {% for label, amount in class_totals %}
           <tr>
@@ -185,8 +185,8 @@
           <tr>
             <th scope="row">{% translate "الحصة الأساسية" %}</th>
             <td>
-              {{ card.plate.serving.code }} — {{ card.plate.serving.name_ar }}
-              <span class="muted">
+              {{ card.plate.serving.code }} — {{ card.plate.serving.name }}
+              <span class="ui-text-muted">
                 (<code dir="ltr">{{ card.plate.serving.quantity_display }}</code>
                 {{ card.plate.serving.serving_unit.code }})
               </span>
@@ -203,7 +203,7 @@
         {% else %}
           <tr>
             <th scope="row">{% translate "كلفة الطبق" %}</th>
-            <td class="text-danger">
+            <td class="ui-text-danger">
               {{ card.plate_problem.message }}
               <code dir="ltr">{{ card.plate_problem.code }}</code>
             </td>
@@ -214,7 +214,7 @@
         {# ratio means "not calculated", not "free".                            #}
         <tr>
           <th scope="row">{% translate "نسبة الكلفة" %}</th>
-          <td class="muted">
+          <td class="ui-text-muted">
             — {% translate "لا يوجد سعر بيع في هذه المرحلة؛ النسبة تُحسب في مرحلة المبيعات." %}
           </td>
         </tr>
@@ -224,17 +224,17 @@
 </section>
 
 {% if servings %}
-  <section class="formcard" id="cost-card-servings">
+  <section class="ui-form-card" id="cost-card-servings">
     <h2>{% translate "كلفة الحصص" %}</h2>
-    <p class="muted">
+    <p class="ui-text-muted">
       {% translate "كل تعريف حصة بديل مستقل، لا يُجمع مع غيره: كل سيناريو يوزّع الإجمالي كاملاً. «كلفة الحصة» معدّل بستة أرقام عشرية، و«مجموع التوزيع» يساوي إجمالي الوصفة إلى الفلس." %}
     </p>
-    <p class="muted">
+    <p class="ui-text-muted">
       {% translate "التوزيع مضغوط وليس مختصراً: الحصص الكاملة متساوية الوزن، فلا ينتج التوزيع سوى مبلغين — مبلغ عادي ومبلغ أعلى بفلس واحد للحصص التي استوعبت الباقي. العددان والمبلغان هما التوزيع كله، ومنهما يُعاد بناؤه مهما بلغ عدد الحصص." %}
     </p>
-    <div class="data-table-shell" tabindex="0">
-      <table class="table responsive-table">
-        <caption class="visually-hidden">{% translate "كلفة كل حصة" %}</caption>
+    <div class="ui-table-scroll" tabindex="0">
+      <table class="ui-table ui-table--responsive">
+        <caption class="ui-visually-hidden">{% translate "كلفة كل حصة" %}</caption>
         <thead>
           <tr>
             <th scope="col">{% translate "الحصة" %}</th>
@@ -252,9 +252,9 @@
           {% for serving in servings %}
             <tr>
               <td data-label="{% translate 'الحصة' %}">
-                {{ serving.serving.code }} — {{ serving.serving.name_ar }}
+                {{ serving.serving.code }} — {{ serving.serving.name }}
                 {% if serving.serving.is_primary %}
-                  <span class="badge">{% translate "أساسية" %}</span>
+                  <span class="ui-badge">{% translate "أساسية" %}</span>
                 {% endif %}
               </td>
               <td data-label="{% translate 'المعامل' %}"><code dir="ltr">{{ serving.factor_display }}</code></td>
@@ -273,7 +273,7 @@
                 <td data-label="{% translate 'كلفة المتبقي' %}">{{ serving.remainder_cost|money }}</td>
                 <td data-label="{% translate 'مجموع التوزيع' %}"><strong>{{ serving.allocated_total|money }}</strong></td>
               {% else %}
-                <td colspan="3" class="muted">
+                <td colspan="3" class="ui-text-muted">
                   {% translate "الحصة أكبر من ناتج الدفعة، فلا توجد حصة كاملة؛ الناتج كله متبقٍّ ويحمل الكلفة كاملة." %}
                 </td>
                 <td data-label="{% translate 'مجموع التوزيع' %}"><strong>{{ serving.allocated_total|money }}</strong></td>

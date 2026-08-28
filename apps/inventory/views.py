@@ -47,7 +47,6 @@ else:
     _ListView = ListView
 
 from apps.accounting.permissions import MANAGE_ACCOUNT_MAPPINGS
-from apps.accounting.permissions import VIEW_JOURNAL as ACCOUNTING_VIEW_JOURNAL
 from apps.core.views import ModuleViewMixin
 from apps.inventory.adjustments import AdjustmentLineInput
 from apps.inventory.commands import (
@@ -65,7 +64,6 @@ from apps.inventory.commands import (
     create_adjustment,
     create_document,
     create_opening,
-    create_reason_code,
     create_stock_count,
     create_transfer,
     create_transfer_receipt,
@@ -95,7 +93,6 @@ from apps.inventory.commands import (
     resolve_document,
     resolve_movement,
     resolve_opening_document,
-    resolve_reason_code,
     resolve_receipt,
     resolve_shortage,
     resolve_transfer,
@@ -111,14 +108,11 @@ from apps.inventory.commands import (
     submit_opening,
     submit_stock_count,
     update_opening,
-    update_reason_code,
     visible_adjustments,
     visible_counts,
     visible_documents,
-    visible_in_transit,
     visible_movements,
     visible_opening_documents,
-    visible_reason_codes,
     visible_stock,
     visible_transfers,
 )
@@ -135,7 +129,6 @@ from apps.inventory.forms import (
     OperationalDocumentForm,
     OperationalLineForm,
     PackageUnitForm,
-    ReasonCodeForm,
     StockCountForm,
     SupersedeConversionForm,
     TransferForm,
@@ -170,7 +163,6 @@ from apps.inventory.permissions import (
     MANAGE_CONVERSIONS,
     MANAGE_ITEMS,
     MANAGE_PACKAGE_UNITS,
-    MANAGE_REASON_CODES,
     MANAGE_WAREHOUSES,
     POST_ADJUSTMENT,
     POST_OPENING_STOCK,
@@ -178,7 +170,6 @@ from apps.inventory.permissions import (
     REVERSE_MOVEMENT,
     VIEW_ITEM,
     VIEW_STOCK,
-    VIEW_VALUATION,
 )
 from apps.inventory.selectors import (
     readable_warehouses,
@@ -346,9 +337,16 @@ class InventoryListView(InventoryViewMixin, _ListView):
         # HX-Request with the partial — see `_list_fragment.html`.
         context["htmx_list"] = True
         context["inventory_ui"] = True
-        context["list_base_template"] = (
-            "settings/_list_fragment.html" if self.is_htmx() else "shell.html"
-        )
+        # A list has two intentionally different HTMX shapes.  Its own filter
+        # and pagination replace only ``#list-results``; navigation into the
+        # screen replaces ``#main-content`` and therefore needs the complete
+        # page block.  HX-Target is also covered by the shared Vary middleware.
+        if not self.is_htmx():
+            context["list_base_template"] = "shell.html"
+        elif self.request.headers.get("HX-Target") == "main-content":
+            context["list_base_template"] = "settings/_form_fragment.html"
+        else:
+            context["list_base_template"] = "settings/_list_fragment.html"
         # No place to create it means no button. The create view refuses the
         # same request anyway; this only avoids offering a dead end.
         context["create_url"] = (
@@ -364,7 +362,7 @@ class ItemCategoryListView(InventoryListView):
     page_hint = _(
         "ثلاثة مستويات كحد أقصى. الأصناف تُربط بالمستوى الأخير فقط، حتى تبقى تقارير المجموعات صحيحة."
     )
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     manage_permission = MANAGE_CATEGORIES
     create_url_name = "inventory:category_create"
     create_label = _("مجموعة جديدة")
@@ -381,7 +379,7 @@ class PackageUnitListView(InventoryListView):
         "الكرتونة والكيس والعلبة. لا تحمل معامل تحويل عام — كرتونة الدجاج "
         "ليست كرتونة الزيت، والمعامل يُسجَّل لكل صنف على حدة."
     )
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     manage_permission = MANAGE_PACKAGE_UNITS
     create_url_name = "inventory:package_unit_create"
     create_label = _("وحدة تعبئة جديدة")
@@ -395,7 +393,7 @@ class ItemListView(InventoryListView):
     context_object_name = "items"
     page_title = _("الأصناف")
     page_hint = _("سجل الأصناف على مستوى المؤسسة، مشترك بين الفروع.")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     manage_permission = MANAGE_ITEMS
     # Registering and changing an item are separate acts (ADR-034); archiving
     # stays with `manage_items`. The buttons follow the act each one performs.
@@ -403,7 +401,7 @@ class ItemListView(InventoryListView):
     edit_permission = EDIT_ITEM
     create_url_name = "inventory:item_create"
     create_label = _("صنف جديد")
-    search_placeholder = _("ابحث عن صنف بالرمز أو الاسم العربي أو الإنجليزي…")
+    search_placeholder = _("ابحث عن صنف بالرمز أو الاسم…")
     result_label = _("صنف")
 
     def scoped_queryset(self) -> QuerySet[Any]:
@@ -445,7 +443,7 @@ class WarehouseListView(InventoryListView):
     page_title = _("المخازن")
     page_hint = _("المخزن يتبع فرعاً واحداً، وهو الذي يملك قيمة المخزون.")
     required_permission = MANAGE_WAREHOUSES
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     manage_permission = MANAGE_WAREHOUSES
     manage_scope = "branch"
     create_url_name = "inventory:warehouse_create"
@@ -621,8 +619,7 @@ class ItemCategoryCreateView(InventoryWriteView):
         create_item_category(
             organization=form.cleaned_data["organization"],
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             parent=form.cleaned_data["parent"],
         )
 
@@ -641,8 +638,7 @@ class ItemCategoryUpdateView(InventoryWriteView):
         return {
             "organization": instance.organization,
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "parent": instance.parent,
             "is_active": instance.is_active,
         }
@@ -655,8 +651,7 @@ class ItemCategoryUpdateView(InventoryWriteView):
     def perform(self, instance: Any, form: Any) -> None:
         update_item_category(
             category=instance,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             parent=form.cleaned_data["parent"],
             is_active=form.cleaned_data["is_active"],
         )
@@ -677,8 +672,7 @@ class ItemCategoryActionView(InventoryActionView):
     def perform(self, instance: Any) -> None:
         update_item_category(
             category=instance,
-            name_ar=instance.name_ar,
-            name_en=instance.name_en,
+            name=instance.name,
             parent=instance.parent,
             is_active=self.activate,
         )
@@ -709,8 +703,7 @@ class PackageUnitCreateView(InventoryWriteView):
         create_package_unit(
             organization=form.cleaned_data["organization"],
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
         )
 
 
@@ -740,8 +733,7 @@ class PackageUnitQuickCreateView(InventoryViewMixin, View):
         create_package_unit(
             organization=form.cleaned_data["organization"],
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
         )
         if request.headers.get("HX-Request") == "true":
             response = HttpResponse(status=204)
@@ -765,8 +757,7 @@ class PackageUnitUpdateView(InventoryWriteView):
         return {
             "organization": instance.organization,
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "is_active": instance.is_active,
         }
 
@@ -778,8 +769,7 @@ class PackageUnitUpdateView(InventoryWriteView):
     def perform(self, instance: Any, form: Any) -> None:
         update_package_unit(
             package_unit=instance,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             is_active=form.cleaned_data["is_active"],
         )
 
@@ -799,8 +789,7 @@ class PackageUnitActionView(InventoryActionView):
     def perform(self, instance: Any) -> None:
         update_package_unit(
             package_unit=instance,
-            name_ar=instance.name_ar,
-            name_en=instance.name_en,
+            name=instance.name,
             is_active=self.activate,
         )
 
@@ -828,8 +817,7 @@ class ItemCreateView(InventoryWriteView):
         create_item(
             organization=form.cleaned_data["organization"],
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             category=form.cleaned_data["category"],
             item_type=form.cleaned_data["item_type"],
             base_unit=form.cleaned_data["base_unit"],
@@ -855,8 +843,7 @@ class ItemUpdateView(InventoryWriteView):
         return {
             "organization": instance.organization,
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "category": instance.category,
             "item_type": instance.item_type,
             "base_unit": instance.base_unit,
@@ -873,8 +860,7 @@ class ItemUpdateView(InventoryWriteView):
     def perform(self, instance: Any, form: Any) -> None:
         update_item(
             item=instance,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             category=form.cleaned_data["category"],
             item_type=form.cleaned_data["item_type"],
             tracks_lots=form.cleaned_data["tracks_lots"],
@@ -898,8 +884,7 @@ class ItemActionView(InventoryActionView):
     def perform(self, instance: Any) -> None:
         update_item(
             item=instance,
-            name_ar=instance.name_ar,
-            name_en=instance.name_en,
+            name=instance.name,
             category=instance.category,
             item_type=instance.item_type,
             shelf_life_days=instance.shelf_life_days,
@@ -1080,8 +1065,7 @@ class WarehouseCreateView(InventoryWriteView):
         create_warehouse(
             branch=form.cleaned_data["branch"],
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             warehouse_type=form.cleaned_data["warehouse_type"],
         )
 
@@ -1100,8 +1084,7 @@ class WarehouseUpdateView(InventoryWriteView):
         return {
             "branch": instance.branch,
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "warehouse_type": instance.warehouse_type,
             "is_active": instance.is_active,
         }
@@ -1112,8 +1095,7 @@ class WarehouseUpdateView(InventoryWriteView):
     def perform(self, instance: Any, form: Any) -> None:
         update_warehouse(
             warehouse=instance,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             is_active=form.cleaned_data["is_active"],
         )
 
@@ -1131,8 +1113,7 @@ class WarehouseActionView(InventoryActionView):
     def perform(self, instance: Any) -> None:
         update_warehouse(
             warehouse=instance,
-            name_ar=instance.name_ar,
-            name_en=instance.name_en,
+            name=instance.name,
             is_active=self.activate,
         )
 
@@ -1755,9 +1736,6 @@ class OperationalDetailView(InventoryViewMixin, View):
                 "inventory_account",
                 "contra_account",
                 "movement",
-                "source_issue_line",
-                "source_issue_line__document",
-                "reason_code",
             ).order_by("sequence")
         )
         show_cost = may_see_cost(self.actor)
@@ -1774,8 +1752,6 @@ class OperationalDetailView(InventoryViewMixin, View):
             "line_form": line_form,
             "is_draft": document.status == InventoryDocumentStatus.DRAFT,
             "is_posted": document.status == InventoryDocumentStatus.POSTED,
-            "is_receipt": document.document_type == InventoryDocumentType.RECEIPT,
-            "is_return": document.document_type == InventoryDocumentType.RETURN_IN,
             "is_waste": document.document_type == InventoryDocumentType.WASTE,
             "can_prepare": has_warehouse_permission(
                 self.actor, CREATE_DRAFT_MOVEMENT, document.warehouse
@@ -1853,9 +1829,6 @@ class OperationalDetailView(InventoryViewMixin, View):
                         entered_package_quantity=form.cleaned_data["entered_package_quantity"],
                         measured_base_quantity=form.cleaned_data["measured_base_quantity"],
                         base_quantity=form.cleaned_data["base_quantity"],
-                        unit_cost=form.cleaned_data.get("unit_cost"),
-                        source_issue_line=form.cleaned_data.get("source_issue_line"),
-                        reason_code=form.cleaned_data.get("reason_code"),
                         line_comment=form.cleaned_data.get("line_comment", ""),
                     ),
                 )
@@ -1916,77 +1889,6 @@ class OperationalActionView(InventoryViewMixin, View):
         return HttpResponseRedirect(detail)
 
 
-class ReconciliationView(InventoryViewMixin, View):
-    """
-    Inventory against the general ledger, read-only.
-
-    Requires both halves of the story: `inventory.view_valuation` for the
-    stock values and `accounting.view_journal` for the GL. There is no repair
-    button because there is no repair — a mismatch is investigated.
-    """
-
-    template_name = "inventory/reconciliation.html"
-    required_permission = VIEW_VALUATION
-
-    def test_func(self) -> bool:
-        user = self.request.user
-        return bool(
-            user.is_authenticated
-            and user.has_perm(VIEW_VALUATION)
-            and user.has_perm(ACCOUNTING_VIEW_JOURNAL)
-        )
-
-    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        from apps.inventory.reconciliation import verify_inventory_accounting
-        from apps.organizations.authorization import organization_scope, resolve_organization
-        from apps.organizations.models import Organization
-        from apps.organizations.selectors import accessible_branches
-
-        reachable_ids = set(organization_scope(self.actor))
-        reachable_ids.update(
-            accessible_branches(self.actor).values_list("organization_id", flat=True)
-        )
-        organizations = Organization.objects.filter(pk__in=reachable_ids, is_active=True).order_by(
-            "code"
-        )
-
-        selected = None
-        mismatches: list[str] | None = None
-        raw = request.GET.get("organization", "").strip()
-        if raw.isdigit():
-            selected = resolve_organization(self.actor, int(raw))
-            mismatches = verify_inventory_accounting(selected)
-
-        return render(
-            request,
-            self.template_name,
-            {
-                "page_title": _("مطابقة المخزون مع الأستاذ"),
-                "page_hint": _(
-                    "ثلاث مقارنات للقراءة فقط: كل مستند مع آثاره، والأرصدة مع إعادة "
-                    "بناء الدفتر، وقيمة المخزون مع حسابات المراقبة. الاختلاف عيب "
-                    "يُحقَّق فيه ولا يُصلَّح تلقائياً."
-                ),
-                "organizations": organizations,
-                "selected": selected,
-                "mismatches": mismatches,
-            },
-        )
-
-
-# ---------------------------------------------------------------------------
-# Transfers (Task 1.5 §W)
-# ---------------------------------------------------------------------------
-#
-# A transfer is a multi-event aggregate, so its screens are too: one page for
-# the agreement, one for each arrival, one for the closure, and a timeline on
-# the detail page that shows the events in the order they were posted.
-#
-# Every action button is decided from the same authorization the command layer
-# checks. Hiding a button is presentation, never protection — a hand-made POST
-# to a hidden action is refused on its merits.
-
-
 class TransferListView(InventoryListView):
     """Transfers the caller can see from either end."""
 
@@ -2008,25 +1910,6 @@ class TransferListView(InventoryListView):
 
     def scoped_queryset(self) -> QuerySet[Any]:
         return visible_transfers(self.actor)
-
-    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-        context = super().get_context_data(**kwargs)
-        context["show_cost"] = may_see_cost(self.actor)
-        return context
-
-
-class InTransitView(InventoryListView):
-    """Goods that have left one place and not arrived at another."""
-
-    template_name = "inventory/in_transit_list.html"
-    context_object_name = "rows"
-    required_permission = VIEW_STOCK
-    page_title = _("بضاعة بالطريق")
-    page_hint = _("الكميات المُرسلة التي لم تُستلم ولم تُقفل بعجز. ملك الفرع المُرسِل حتى الآن.")
-    search_fields = ("item__code", "item__name_ar", "transfer__transfer_number")
-
-    def scoped_queryset(self) -> QuerySet[Any]:
-        return visible_in_transit(self.actor)
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -2533,89 +2416,6 @@ class TransferShortageActionView(InventoryViewMixin, View):
 # after submission and only by somebody who may approve.
 
 
-class ReasonCodeListView(InventoryListView):
-    """The organization's vocabulary for why stock went."""
-
-    template_name = "inventory/reason_code_list.html"
-    context_object_name = "reason_codes"
-    required_permission = VIEW_ITEM
-    search_fields = ("code", "name_ar", "name_en")
-    manage_permission = MANAGE_REASON_CODES
-    manage_scope = "organization"
-    page_title = _("أسباب الحركات المخزنية")
-    page_hint = _("أسبابك أنت. الرمز ومجاله لا يتغيّران بعد الإنشاء، والمؤرشف يبقى محجوزاً.")
-    create_url_name = "inventory:reason_code_create"
-    create_label = _("سبب جديد")
-
-    def scoped_queryset(self) -> QuerySet[Any]:
-        return visible_reason_codes(self.actor)
-
-
-class ReasonCodeCreateView(InventoryWriteView):
-    form_class = ReasonCodeForm
-    required_permission = MANAGE_REASON_CODES
-    page_title = _("سبب جديد")
-    page_hint = _("الرمز ومجال الاستخدام يُثبّتان عند الإنشاء ولا يتغيّران بعده.")
-    success_message = _("أُضيف السبب.")
-    success_url_name = "inventory:reason_code_list"
-
-    def authorize(self, instance: Any, form: Any) -> None:
-        require_reachable_organization_permission(
-            self.actor, MANAGE_REASON_CODES, form.cleaned_data["organization"]
-        )
-
-    def perform(self, instance: Any, form: Any) -> None:
-        create_reason_code(
-            actor=self.actor,
-            organization=form.cleaned_data["organization"],
-            code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            applies_to=form.cleaned_data["applies_to"],
-            name_en=form.cleaned_data["name_en"],
-            requires_comment=form.cleaned_data["requires_comment"],
-            requires_evidence=form.cleaned_data["requires_evidence"],
-        )
-
-
-class ReasonCodeUpdateView(InventoryWriteView):
-    form_class = ReasonCodeForm
-    required_permission = MANAGE_REASON_CODES
-    page_title = _("تعديل سبب")
-    success_message = _("حُفظ السبب.")
-    success_url_name = "inventory:reason_code_list"
-
-    def load(self) -> Any:
-        return resolve_reason_code(self.actor, self.kwargs["pk"])
-
-    def initial_for(self, instance: Any) -> dict[str, Any]:
-        return {
-            "organization": instance.organization,
-            "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
-            "applies_to": instance.applies_to,
-            "requires_comment": instance.requires_comment,
-            "requires_evidence": instance.requires_evidence,
-            "is_active": instance.is_active,
-        }
-
-    def authorize(self, instance: Any, form: Any) -> None:
-        require_reachable_organization_permission(
-            self.actor, MANAGE_REASON_CODES, instance.organization
-        )
-
-    def perform(self, instance: Any, form: Any) -> None:
-        update_reason_code(
-            actor=self.actor,
-            reason_code=instance,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
-            requires_comment=form.cleaned_data["requires_comment"],
-            requires_evidence=form.cleaned_data["requires_evidence"],
-            is_active=form.cleaned_data["is_active"],
-        )
-
-
 class StockCountListView(InventoryListView):
     """Counts, with the freeze state visible on every row."""
 
@@ -3012,7 +2812,7 @@ class AdjustmentDetailView(InventoryViewMixin, View):
     def _context(self, document: Any, form: Any) -> dict[str, Any]:
         lines = list(
             document.lines.select_related(
-                "item", "item__base_unit", "lot", "reason_code", "movement", "control_account"
+                "item", "item__base_unit", "lot", "movement", "control_account"
             ).order_by("sequence")
         )
         return {
@@ -3056,7 +2856,6 @@ class AdjustmentDetailView(InventoryViewMixin, View):
                         kind=form.cleaned_data["kind"],
                         item=item,
                         lot=lot,
-                        reason_code=form.cleaned_data["reason_code"],
                         base_quantity=form.cleaned_data["base_quantity"],
                         unit_cost=form.cleaned_data["unit_cost"],
                         zero_cost_confirmed=form.cleaned_data["zero_cost_confirmed"],

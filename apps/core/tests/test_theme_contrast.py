@@ -1,13 +1,8 @@
 """
-Contrast, asserted from the tokens rather than from a screenshot.
+Contrast, asserted from the rebuilt design-system tokens rather than a screenshot.
 
-The dark theme shipped a top bar that stayed near-white while the text on it
-stayed near-white too — about 1.19:1, which is text nobody can read. It was a
-literal colour in a rule that every other surface had already tokenised, and no
-test could have caught it because nothing here compared two colours.
-
-So this module reads `static/css/app.css`, resolves each theme's token block,
-and measures the pairs the reader actually looks at, in every theme: WCAG AA is
+This module reads `static/css/erp-design-system.css`, resolves each theme's
+token block, and measures the pairs the reader actually looks at. WCAG AA is
 4.5:1 for body text, 3:1 for large text, icons and the boundaries of controls.
 A token that fails is named with its ratio, because "contrast failed" is not a
 finding anybody can act on.
@@ -20,14 +15,14 @@ from pathlib import Path
 
 import pytest
 
-STYLES = Path(__file__).resolve().parents[3] / "static" / "css" / "app.css"
+STYLES = Path(__file__).resolve().parents[3] / "static" / "css" / "erp-design-system.css"
 
 #: The three ways a reader can end up in a theme: the default, the operating
 #: system's preference, and an explicit choice.
 THEME_SELECTORS = {
-    "light": r"^:root \{",
-    "dark (system)": r':root:not\(\[data-theme="light"\]\) \{\n    color-scheme: dark;',
-    "dark (chosen)": r'^:root\[data-theme="dark"\] \{',
+    "light": r"^\s*:root\s*\{",
+    "dark (system)": r'^\s*:root:not\(\[data-theme="light"\]\)\s*\{',
+    "dark (chosen)": r'^\s*:root\[data-theme="dark"\]\s*\{',
 }
 
 TEXT_AA = 4.5
@@ -102,20 +97,12 @@ def contrast(foreground: str, background: str, *, backdrop: str) -> float:
 #: on the page, and holding a hairline to that ratio would coarsen the whole
 #: register look for no reader's benefit.
 PAIRS: tuple[tuple[str, str, float, str], ...] = (
-    ("--ink", "--topbar-surface", TEXT_AA, "the module name in the top bar"),
-    ("--ink-subtle", "--topbar-surface", LARGE_AA, "the top bar's icons"),
-    ("--ink-muted", "--topbar-surface", TEXT_AA, "the search box's placeholder"),
-    ("--control-border", "--topbar-surface", LARGE_AA, "the boundary of a control in the top bar"),
-    ("--ink", "--surface", TEXT_AA, "body text on a card"),
-    ("--ink-muted", "--surface", TEXT_AA, "secondary text on a card"),
-    ("--ink", "--surface-subtle", TEXT_AA, "body text on a sunken panel"),
-    ("--ink-muted", "--surface-muted", TEXT_AA, "text on a muted panel"),
-    ("--control-border", "--surface", LARGE_AA, "the boundary of a field"),
-    ("--info-700", "--surface", LARGE_AA, "the focus ring"),
-    ("--danger-700", "--danger-100", TEXT_AA, "an error message on its tint"),
-    ("--warning-700", "--warning-100", TEXT_AA, "a warning on its tint"),
-    ("--success-100", "--success-700", TEXT_AA, "a success chip"),
-    ("--brand-700", "--brand-50", TEXT_AA, "a brand-tinted chip"),
+    ("--ui-text", "--ui-surface", TEXT_AA, "body text on a card"),
+    ("--ui-text-soft", "--ui-surface", TEXT_AA, "supporting text on a card"),
+    ("--ui-text-muted", "--ui-surface", LARGE_AA, "large muted labels and icons"),
+    ("--ui-text", "--ui-bg", TEXT_AA, "body text on the application canvas"),
+    ("--ui-text-soft", "--ui-bg", TEXT_AA, "supporting text on the canvas"),
+    ("--ui-text", "--ui-surface-soft", TEXT_AA, "body text on a soft panel"),
 )
 
 
@@ -125,8 +112,7 @@ def test_every_theme_meets_wcag_aa_on_the_pairs_a_reader_looks_at(theme: str) ->
     # A theme block states only what differs; the light block is the base.
     base = _tokens(THEME_SELECTORS["light"])
     resolved = {**base, **tokens}
-    # `--topbar-surface` is translucent, so it is flattened onto the page ground.
-    backdrop = resolved.get("--canvas", resolved["--surface"])
+    backdrop = resolved["--ui-bg"]
 
     failures = []
     for foreground, background, minimum, description in PAIRS:
@@ -140,15 +126,13 @@ def test_every_theme_meets_wcag_aa_on_the_pairs_a_reader_looks_at(theme: str) ->
     assert not failures, f"{theme} theme —\n  " + "\n  ".join(failures)
 
 
-def test_the_top_bar_takes_its_colour_from_a_token_in_every_theme() -> None:
-    """
-    The defect this module exists for: a literal near-white on `.topbar` that
-    the dark theme could not reach.
-    """
+def test_the_app_header_takes_its_colour_from_a_token_in_every_theme() -> None:
+    """The rebuilt header must follow the selected theme, not pin a light literal."""
     css = STYLES.read_text(encoding="utf-8")
-    topbar = css[css.index(".topbar {") :]
-    topbar = topbar[: topbar.index("\n}")]
-    assert "background: var(--topbar-surface)" in css
-    assert "rgba(255, 255, 255" not in topbar
+    header = css[css.index(".ui-app-header {") :]
+    header = header[: header.index("\n  }")]
+    assert "background: color-mix(in srgb, var(--ui-surface) 94%, transparent)" in header
+    assert "rgba(255, 255, 255" not in header
     for selector in THEME_SELECTORS.values():
-        assert "--topbar-surface" in _tokens(selector), selector
+        resolved = {**_tokens(THEME_SELECTORS["light"]), **_tokens(selector)}
+        assert "--ui-surface" in resolved, selector

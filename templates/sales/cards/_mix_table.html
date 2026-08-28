@@ -5,36 +5,36 @@
 {# encoding; colour only separates neighbouring bands. The share is computed  #}
 {# by the read layer against gross, so the bars sum to the period.            #}
 {% load i18n l10n money_tags %}
-<div class="panel__head">
-  <h2 class="panel__title">{{ card.label }}</h2>
-  <p class="pagehead__hint">
+<div class="ui-card__header">
+  <h2 class="ui-card__title">{{ card.label }}</h2>
+  <p class="ui-page-header__subtitle">
     {% blocktranslate with what=mix_label trimmed %}
       الإجمالي والحصة لكل {{ what }} في المدة
     {% endblocktranslate %}
   </p>
 </div>
 {% if rows %}
-  <div class="bars">
+  <div class="ui-bars">
     {% for row in rows %}
-      <div class="bar">
-        <span class="bar__name" title="{{ row.label }}">
+      <div class="ui-bars__row">
+        <span class="ui-bars__label" title="{{ row.label }}">
           {{ row.label }}
-          <span class="muted">· {{ row.line_count }} {% translate "سطراً" %}</span>
+          <span class="ui-text-muted">· {{ row.line_count }} {% translate "سطراً" %}</span>
         </span>
-        <div class="bar__track">
-          <div class="bar__fill"
+        <div class="ui-bars__track">
+          <div class="ui-bars__fill"
                style="inline-size: {{ row.share|unlocalize }}%;
-                      background: var(--series-{% cycle '1' '2' '3' '4' '5' '6' %});"></div>
+                      background: var(--ui-chart-{% cycle '1' '2' '3' '4' '5' '6' %});"></div>
         </div>
-        <span class="bar__value"><bdi dir="ltr">{{ row.gross|iqd }}</bdi></span>
+        <span class="ui-bars__value"><bdi dir="ltr">{{ row.gross|iqd }}</bdi></span>
       </div>
     {% endfor %}
   </div>
-  <p class="panel__foot">
+  <p class="ui-card__footer">
     {% blocktranslate with label=rows.0.label share=rows.0.share|unlocalize trimmed %}
       {{ label }} وحدها {{ share }}% من إجمالي المدة.
     {% endblocktranslate %}
   </p>
 {% else %}
-  <p class="empty">{% translate "لا توجد سطور مرحّلة في هذه المدة." %}</p>
+  <p class="ui-table__empty">{% translate "لا توجد سطور مرحّلة في هذه المدة." %}</p>
 {% endif %}

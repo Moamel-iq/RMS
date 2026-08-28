@@ -1,13 +1,13 @@
 {% load i18n %}
 <div id="opening-lines-workspace" aria-live="polite">
   {% if opening_line_feedback %}
-    <p class="opening-line-feedback" role="status" tabindex="-1">{{ opening_line_feedback }}</p>
+    <p class="ui-inline-feedback" role="status" tabindex="-1">{{ opening_line_feedback }}</p>
   {% endif %}
 
   <section aria-labelledby="opening-lines-title">
-    <h2 class="section__title" id="opening-lines-title">{% translate "سطور الرصيد الافتتاحي" %}</h2>
-    <div class="tablewrap responsive-table">
-      <table class="table data-table">
+    <h2 class="ui-section-title" id="opening-lines-title">{% translate "سطور الرصيد الافتتاحي" %}</h2>
+    <div class="ui-data-card ui-table-scroll">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>
             <th scope="col">#</th>
@@ -30,7 +30,7 @@
             <tr>
               <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
               <td data-label="{% translate 'المخزن' %}"><code><bdi dir="ltr">{{ line.warehouse.code }}</bdi></code></td>
-              <td data-label="{% translate 'الصنف' %}"><code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name_ar }}</td>
+              <td data-label="{% translate 'الصنف' %}"><code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name }}</td>
               <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
               <td data-label="{% translate 'الكمية' %}"><code><bdi dir="ltr">{{ line.base_quantity|stringformat:"f" }}</bdi></code></td>
               <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ line.item.base_unit.code }}</bdi></td>
@@ -41,7 +41,7 @@
                   {% if line.inventory_account %}
                     <code><bdi dir="ltr">{{ line.inventory_account.code }}</bdi></code>
                   {% else %}
-                    <span class="muted">{% translate "يُحسم عند الترحيل" %}</span>
+                    <span class="ui-text-muted">{% translate "يُحسم عند الترحيل" %}</span>
                   {% endif %}
                 </td>
               {% endif %}
@@ -60,8 +60,8 @@
                         action="{% url 'inventory:opening_line_delete' document.pk line.pk %}"
                         data-confirm="{% translate 'سيُحذف هذا السطر من المسودة. هل تريد المتابعة؟' %}">
                     {% csrf_token %}
-                    <button class="btn btn--danger btn--sm" type="submit"
-                            aria-label="{% translate 'حذف سطر الصنف' %} {{ line.item.name_ar }}">
+                    <button class="ui-button ui-button--danger ui-button--small" type="submit"
+                            aria-label="{% translate 'حذف سطر الصنف' %} {{ line.item.name }}">
                       {% translate "حذف" %}
                     </button>
                   </form>
@@ -92,26 +92,26 @@
   </section>
 
   {% if is_draft and can_prepare %}
-    <form class="formcard opening-line-form" method="post" action="{{ request.path }}" novalidate
+    <form class="ui-card ui-form-card ui-line-form" method="post" action="{{ request.path }}" novalidate
           hx-post="{{ request.path }}" hx-target="#opening-lines-workspace" hx-swap="outerHTML"
           hx-disabled-elt="find button[type='submit']" hx-indicator="#opening-line-saving">
       {% csrf_token %}
-      <h2 class="section__title">{% translate "إضافة سطر" %}</h2>
+      <h2 class="ui-section-title">{% translate "إضافة سطر" %}</h2>
       {% include "components/form_error_summary.html" with form=line_form %}
 
-      <p class="opening-line-form__intro">
+      <p class="ui-line-form__intro">
         {% translate "للتسجيل السريع: اختر المخزن والصنف، ثم أدخل الكمية وكلفة الوحدة." %}
       </p>
-      <div class="formgrid opening-line-form__primary">
+      <div class="ui-form-grid ui-line-form__primary">
         {% include "settings/_field.html" with field=line_form.warehouse %}
         {% include "settings/_field.html" with field=line_form.item %}
         {% include "settings/_field.html" with field=line_form.base_quantity %}
         {% include "settings/_field.html" with field=line_form.unit_cost %}
       </div>
-      <details class="opening-line-form__more"{% if line_form.lot_code.errors or line_form.lot_expiry.errors or line_form.package_conversion.errors or line_form.entered_package_quantity.errors or line_form.measured_base_quantity.errors %} open{% endif %}>
+      <details class="ui-disclosure"{% if line_form.lot_code.errors or line_form.lot_expiry.errors or line_form.package_conversion.errors or line_form.entered_package_quantity.errors or line_form.measured_base_quantity.errors %} open{% endif %}>
         <summary>{% translate "خيارات إضافية: دفعة أو إدخال بالعبوات" %}</summary>
         <p>{% translate "استخدمها فقط للصنف الذي يتتبع الدفعات أو عند العد بالعبوات." %}</p>
-        <div class="formgrid">
+        <div class="ui-form-grid">
           {% include "settings/_field.html" with field=line_form.lot_code %}
           {% include "settings/_field.html" with field=line_form.lot_expiry %}
           {% include "settings/_field.html" with field=line_form.package_conversion %}
@@ -119,11 +119,11 @@
           {% include "settings/_field.html" with field=line_form.measured_base_quantity %}
         </div>
       </details>
-      <div class="formactions">
-        <span class="htmx-indicator opening-line-form__saving" id="opening-line-saving" role="status">
+      <div class="ui-form-actions">
+        <span class="htmx-indicator ui-line-form__saving" id="opening-line-saving" role="status">
           {% translate "جارٍ إضافة السطر…" %}
         </span>
-        <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
+        <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة السطر" %}</button>
       </div>
     </form>
   {% endif %}

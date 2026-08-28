@@ -20,7 +20,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.db.models import QuerySet
+from django.db.models import Count, QuerySet
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
@@ -81,7 +81,7 @@ class SalesDayListView(SalesListView):
     result_label = _("يوم")
 
     def scoped_queryset(self) -> QuerySet[Any]:
-        queryset = visible_sales_days(self.actor)
+        queryset = visible_sales_days(self.actor).annotate(line_count=Count("lines"))
         status = self.request.GET.get("status", "").strip()
         if status in SalesDayStatus.values:
             queryset = queryset.filter(status=status)

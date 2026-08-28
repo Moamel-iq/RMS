@@ -41,11 +41,11 @@ STATE_LABELS: dict[str, Label] = {
 }
 
 STATE_CHIPS = {
-    BuildState.COMPLETE: "chip--on",
-    BuildState.IN_PROGRESS: "chip--brand",
-    BuildState.NOT_STARTED: "chip--neutral",
-    BuildState.LOCKED: "chip--off",
-    BuildState.READY: "chip--brand",
+    BuildState.COMPLETE: "ui-badge--success",
+    BuildState.IN_PROGRESS: "ui-badge--info",
+    BuildState.NOT_STARTED: "ui-badge--neutral",
+    BuildState.LOCKED: "ui-badge--danger",
+    BuildState.READY: "ui-badge--info",
 }
 
 

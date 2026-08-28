@@ -74,7 +74,7 @@ def test_menu_recipe_cannot_cross_organization(
         MenuItem.objects.create(
             organization=other_organization,
             code="BAD-CROSS-TENANT-MENU",
-            name_ar="صنف غير صالح",
+            name="صنف غير صالح",
             fulfillment_source="RECIPE_SERVING",
             recipe=scenario_recipe,
             serving_code="WHOLE",

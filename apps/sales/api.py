@@ -263,8 +263,7 @@ class MenuItemOut(Schema):
     id: int
     public_id: str
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     organization_id: int
     category_code: str | None
     recipe_code: str | None
@@ -293,7 +292,7 @@ class ChannelOut(Schema):
     id: int
     public_id: str
     code: str
-    name_ar: str
+    name: str
     category: str
     default_tender: str
     cost_center_code: str
@@ -306,7 +305,7 @@ class ApplicationOut(Schema):
     id: int
     public_id: str
     code: str
-    name_ar: str
+    name: str
     settlement_cycle_days: int
     receivable_account_code: str | None
     is_active: bool
@@ -329,7 +328,7 @@ class DiscountOut(Schema):
     id: int
     public_id: str
     code: str
-    name_ar: str
+    name: str
     discount_percent: str | None
     discount_amount: str | None
     restaurant_funded_share: str
@@ -771,8 +770,7 @@ def _menu_item_out(item: Any) -> dict[str, Any]:
         "id": item.pk,
         "public_id": str(item.public_id),
         "code": item.code,
-        "name_ar": item.name_ar,
-        "name_en": item.name_en,
+        "name": item.name,
         "organization_id": item.organization_id,
         "category_code": item.category.code if item.category_id else None,
         "recipe_code": item.recipe.code if item.recipe_id else None,
@@ -807,7 +805,7 @@ def _channel_out(channel: Any) -> dict[str, Any]:
         "id": channel.pk,
         "public_id": str(channel.public_id),
         "code": channel.code,
-        "name_ar": channel.name_ar,
+        "name": channel.name,
         "category": channel.category,
         "default_tender": channel.default_tender,
         "cost_center_code": channel.cost_center.code,
@@ -822,7 +820,7 @@ def _application_out(application: Any) -> dict[str, Any]:
         "id": application.pk,
         "public_id": str(application.public_id),
         "code": application.code,
-        "name_ar": application.name_ar,
+        "name": application.name,
         "settlement_cycle_days": application.settlement_cycle_days,
         "receivable_account_code": (
             application.receivable_account.code if application.receivable_account_id else None
@@ -851,7 +849,7 @@ def _discount_out(program: Any) -> dict[str, Any]:
         "id": program.pk,
         "public_id": str(program.public_id),
         "code": program.code,
-        "name_ar": program.name_ar,
+        "name": program.name,
         "discount_percent": _money(program.discount_percent),
         "discount_amount": _money(program.discount_amount),
         "restaurant_funded_share": str(program.restaurant_funded_share),
@@ -1177,7 +1175,7 @@ def _mix_out(row: Any) -> dict[str, Any]:
 def list_menu_items(request: HttpRequest, q: str = "", active: bool | None = None) -> list[Any]:
     rows = visible_menu_items(_require_view(request))
     if q:
-        rows = rows.filter(code__icontains=q) | rows.filter(name_ar__icontains=q)
+        rows = rows.filter(code__icontains=q) | rows.filter(name__icontains=q)
     if active is not None:
         rows = rows.filter(is_active=active)
     return [_menu_item_out(row) for row in rows.order_by("code")[:PAGE_LIMIT]]

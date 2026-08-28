@@ -58,8 +58,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -69,7 +69,7 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 def _csv(*lines: str) -> bytes:
@@ -100,7 +100,7 @@ class TestSupplierImport:
         self, organization: Organization, manager: User
     ) -> None:
         first = _csv(
-            "code,name_ar,payment_terms_days",
+            "code,name,payment_terms_days",
             "GROC-01,مورد المواد,30",
             "MEAT-01,مورد اللحوم,0",
         )
@@ -110,7 +110,7 @@ class TestSupplierImport:
             applied = apply_batch(batch=batch)
         assert applied.applied_row_count == 2
         grocery = Supplier.objects.get(organization=organization, code="GROC-01")
-        assert grocery.name_ar == "مورد المواد"
+        assert grocery.name == "مورد المواد"
         assert grocery.payment_terms_days == 30
 
         # The same content again is a retry, recognised and refused.
@@ -122,7 +122,7 @@ class TestSupplierImport:
         # A changed row updates through the service; an identical one counts
         # as unchanged rather than as a change.
         second = _csv(
-            "code,name_ar,payment_terms_days",
+            "code,name,payment_terms_days",
             "GROC-01,مورد المواد الغذائية,30",
             "MEAT-01,مورد اللحوم,0",
         )
@@ -149,7 +149,7 @@ class TestSupplierImport:
         create_supplier(
             organization=organization,
             code="GROC-01",
-            name_ar="مورد المواد",
+            name="مورد المواد",
             phone="07701234567",
         )
         stored = Supplier.objects.get(organization=organization, code="GROC-01")
@@ -159,7 +159,7 @@ class TestSupplierImport:
             organization=organization,
             kind=ImportKind.SUPPLIER,
             raw=_csv(
-                "code,name_ar,phone",
+                "code,name,phone",
                 # Local format and padded whitespace: the same supplier.
                 "GROC-01,  مورد المواد  ,0770 123 4567",
             ),
@@ -172,7 +172,7 @@ class TestSupplierImport:
         assert [row.applied_action for row in applied.rows.all()] == ["unchanged"]
         stored.refresh_from_db()
         assert stored.phone == "+9647701234567"
-        assert stored.name_ar == "مورد المواد"
+        assert stored.name == "مورد المواد"
 
     def test_an_unusable_phone_fails_its_row_instead_of_the_apply(
         self, organization: Organization, manager: User
@@ -181,7 +181,7 @@ class TestSupplierImport:
         batch = _run(
             organization=organization,
             kind=ImportKind.SUPPLIER,
-            raw=_csv("code,name_ar,phone", "GROC-01,مورد,not-a-number"),
+            raw=_csv("code,name,phone", "GROC-01,مورد,not-a-number"),
             actor=manager,
         )
         assert batch.status == ImportBatchStatus.FAILED_VALIDATION
@@ -194,7 +194,7 @@ class TestSupplierImport:
         batch = _run(
             organization=organization,
             kind=ImportKind.SUPPLIER,
-            raw=_csv("code,name_ar", "GROC-01,مورد", "BAD-01,"),
+            raw=_csv("code,name", "GROC-01,مورد", "BAD-01,"),
             actor=manager,
         )
         assert batch.status == ImportBatchStatus.FAILED_VALIDATION
@@ -208,7 +208,7 @@ class TestSupplierImport:
         batch = _run(
             organization=organization,
             kind=ImportKind.SUPPLIER,
-            raw=_csv("code,name_ar", "GROC-01,مورد", "GROC-01,مورد آخر"),
+            raw=_csv("code,name", "GROC-01,مورد", "GROC-01,مورد آخر"),
             actor=manager,
         )
         assert batch.status == ImportBatchStatus.FAILED_VALIDATION
@@ -219,7 +219,7 @@ class TestCatalogueImport:
     def test_a_valid_row_reaches_the_catalogue_through_the_service(
         self, organization: Organization, manager: User, rice: InventoryItem
     ) -> None:
-        create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
+        create_supplier(organization=organization, code="GROC-01", name="مورد")
         batch = _run(
             organization=organization,
             kind=ImportKind.SUPPLIER_ITEM,
@@ -242,8 +242,8 @@ class TestCatalogueImport:
         self, organization: Organization, manager: User, rice: InventoryItem
     ) -> None:
         """The compound identity: supplier *and* item, never item alone."""
-        create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
-        create_supplier(organization=organization, code="MEAT-01", name_ar="مورد آخر")
+        create_supplier(organization=organization, code="GROC-01", name="مورد")
+        create_supplier(organization=organization, code="MEAT-01", name="مورد آخر")
         batch = _run(
             organization=organization,
             kind=ImportKind.SUPPLIER_ITEM,
@@ -268,7 +268,7 @@ class TestCatalogueImport:
         exist — in the other organization — fail as unknown, the same answer
         the screen would give and one that reveals nothing about elsewhere.
         """
-        create_supplier(organization=other_organization, code="RIVAL-01", name_ar="مورد منافس")
+        create_supplier(organization=other_organization, code="RIVAL-01", name="مورد منافس")
         batch = _run(
             organization=organization,
             kind=ImportKind.SUPPLIER_ITEM,
@@ -298,8 +298,8 @@ class TestPurchaseRequestDraftImport:
         create_item(
             organization=organization,
             code="OIL",
-            name_ar="زيت",
-            category=create_item_category(organization=organization, code="OILS", name_ar="زيوت"),
+            name="زيت",
+            category=create_item_category(organization=organization, code="OILS", name="زيوت"),
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
         )
@@ -475,7 +475,7 @@ class TestBoundaryAndAccess:
             assert not any(word in kind for word in forbidden), kind
 
     def test_each_procurement_kind_demands_its_own_permission(self) -> None:
-        from apps.inventory.import_views import permission_for_kind
+        from apps.inventory.imports import permission_for_kind
 
         assert permission_for_kind(ImportKind.SUPPLIER) == "procurement.import_supplier"
         assert permission_for_kind(ImportKind.SUPPLIER_ITEM) == "procurement.import_supplier_item"
@@ -501,7 +501,7 @@ class TestBoundaryAndAccess:
         batch = _run(
             organization=organization,
             kind=ImportKind.SUPPLIER,
-            raw=_csv("code,name_ar", "GROC-01,مورد"),
+            raw=_csv("code,name", "GROC-01,مورد"),
             actor=manager,
         )
         response = client_for(keeper).post(

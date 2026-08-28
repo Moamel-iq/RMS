@@ -11,22 +11,22 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page workspace-form-page" id="kitchen-batch-links">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <section class="ui-page ui-page--form" id="kitchen-batch-links">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {{ page_title }} — <bdi dir="ltr"><code>{{ batch.number|default:"—" }}</code></bdi>
         </h1>
-        <p class="pagehead__hint">{{ link_statement }}</p>
+        <p class="ui-page-header__subtitle">{{ link_statement }}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_consumption' batch.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:report_batch_consumption' batch.pk %}">
           {% translate "رجوع" %}
         </a>
       </div>
     </div>
 
-    <p class="banner" role="note">
+    <p class="ui-notice" role="note">
       {% if is_custody %}
         {% translate "إرجاع العهدة ليس عكساً لصرف الإنتاج: المادة غادرت عهدة المطبخ إلى المخزن، ولم يُلغَ شيء مما طُبخ. هذا الربط يجعل الحركة قابلة للعثور من الدفعة، ولا ينقص كميتها المرحّلة ولا قيمتها." %}
       {% else %}
@@ -34,11 +34,11 @@
       {% endif %}
     </p>
 
-    <p class="muted">
+    <p class="ui-text-muted">
       {% translate "الكمية المنسوبة لا يجوز أن تتجاوز كمية سطر المستند بعد خصم ما نُسب منه سابقاً، ولا يمكن ربط السطر نفسه بالدفعة نفسها مرتين. القاعدتان محفوظتان في الخدمة وفي قاعدة البيانات." %}
     </p>
 
-    <form class="formcard"
+    <form class="ui-form-card"
           method="post"
           novalidate
           action="{{ request.path }}"
@@ -50,28 +50,28 @@
       {% if form.non_field_errors %}
         {# The card already draws the edge, so the summary uses the in-card    #}
         {# error style rather than `alert`, which draws one of its own.        #}
-        <div class="formcard__errors" role="alert">
+        <div class="ui-error-summary" role="alert">
           {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
 
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
 
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "إنشاء الربط" %}</button>
-        <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_consumption' batch.pk %}">
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "إنشاء الربط" %}</button>
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:report_batch_consumption' batch.pk %}">
           {% translate "تراجع" %}
         </a>
       </div>
     </form>
 
     {% if links %}
-      <div class="tablewrap">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "النوع" %}</th>

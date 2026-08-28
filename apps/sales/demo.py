@@ -195,7 +195,7 @@ DEMO_ACTORS: dict[str, tuple[str, str, str]] = {
     "accounting": ("demo-sales-accounting", "مدير محاسبة", "تجريبي"),
 }
 
-#: `(code, name_ar, recipe code, serving code, price)`. The recipes are the
+#: `(code, name, recipe code, serving code, price)`. The recipes are the
 #: kitchen demo's own, and the servings are theirs — a menu item that named a
 #: serving no version offers could not be sold, which is the check
 #: `verify_sales` makes first.
@@ -207,7 +207,7 @@ MENU: tuple[tuple[str, str, str, str, str], ...] = (
     ("DEMO-MENU-SIDE", "طبق جانبي", "DEMO-RCP-PROD", "PORTION", "4000"),
 )
 
-#: `(code, name_ar, category, tender, cost centre)`. Four categories, because
+#: `(code, name, category, tender, cost centre)`. Four categories, because
 #: the posting behaviour differs by category and a demo with one channel would
 #: exercise one third of the journal.
 CHANNELS: tuple[tuple[str, str, str, str, str], ...] = (
@@ -229,7 +229,7 @@ CHANNELS: tuple[tuple[str, str, str, str, str], ...] = (
     ),
 )
 
-#: `(code, name_ar, settlement cycle days)`. Fictional companies.
+#: `(code, name, settlement cycle days)`. Fictional companies.
 APPLICATIONS: tuple[tuple[str, str, int], ...] = (
     ("DEMO-APP-ALPHA", "تطبيق ألفا (تجريبي)", 15),
     ("DEMO-APP-BETA", "تطبيق بيتا (تجريبي)", 30),
@@ -397,14 +397,14 @@ def _seed_menu(result: SalesDemo) -> None:
         category = create_menu_category(
             organization=organization,
             code="DEMO-MENU-MAIN",
-            name_ar=f"الأطباق الرئيسية — {DEMO_BANNER}",
+            name=f"الأطباق الرئيسية — {DEMO_BANNER}",
             display_order=1,
         )
         result.note(made=True)
     else:
         result.note(made=False)
 
-    for order, (code, name_ar, recipe_code, serving_code, price) in enumerate(MENU, start=1):
+    for order, (code, name, recipe_code, serving_code, price) in enumerate(MENU, start=1):
         item = MenuItem.objects.filter(organization=organization, code=code).first()
         if item is None:
             recipe = Recipe.objects.filter(organization=organization, code=recipe_code).first()
@@ -416,7 +416,7 @@ def _seed_menu(result: SalesDemo) -> None:
             item = create_menu_item(
                 organization=organization,
                 code=code,
-                name_ar=name_ar,
+                name=name,
                 recipe=recipe,
                 serving_code=serving_code,
                 category=category,
@@ -453,13 +453,13 @@ def _seed_menu(result: SalesDemo) -> None:
 
 def _seed_channels(result: SalesDemo) -> None:
     organization = result.organization
-    for order, (code, name_ar, category, tender, center_code) in enumerate(CHANNELS, start=1):
+    for order, (code, name, category, tender, center_code) in enumerate(CHANNELS, start=1):
         channel = SalesChannel.objects.filter(organization=organization, code=code).first()
         if channel is None:
             channel = create_sales_channel(
                 organization=organization,
                 code=code,
-                name_ar=name_ar,
+                name=name,
                 category=category,
                 cost_center=_cost_center(organization, center_code),
                 default_tender=tender,
@@ -475,7 +475,7 @@ def _seed_channels(result: SalesDemo) -> None:
 
 def _seed_applications(result: SalesDemo) -> None:
     organization = result.organization
-    for code, name_ar, cycle in APPLICATIONS:
+    for code, name, cycle in APPLICATIONS:
         application = DeliveryApplication.objects.filter(
             organization=organization, code=code
         ).first()
@@ -483,7 +483,7 @@ def _seed_applications(result: SalesDemo) -> None:
             application = create_delivery_application(
                 organization=organization,
                 code=code,
-                name_ar=name_ar,
+                name=name,
                 settlement_cycle_days=cycle,
                 notes=DEMO_BANNER,
             )
@@ -546,13 +546,13 @@ def _seed_discounts(result: SalesDemo) -> None:
         ("DEMO-DISC-APP", "عرض ممول من التطبيق ٢٠٪", "20", "0", "100", "DEMO-APP-ALPHA"),
         ("DEMO-DISC-SHARED", "عرض مشترك ١٥٪", "15", "50", "50", "DEMO-APP-BETA"),
     )
-    for code, name_ar, percent, restaurant, application_share, application_code in wanted:
+    for code, name, percent, restaurant, application_share, application_code in wanted:
         program = DiscountProgram.objects.filter(organization=organization, code=code).first()
         if program is None:
             program = create_discount_program(
                 organization=organization,
                 code=code,
-                name_ar=name_ar,
+                name=name,
                 effective_from=MASTER_EFFECTIVE,
                 discount_percent=Decimal(percent),
                 restaurant_funded_share=Decimal(restaurant),

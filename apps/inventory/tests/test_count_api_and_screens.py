@@ -42,11 +42,8 @@ from apps.accounting.services import (
     open_fiscal_year,
 )
 from apps.inventory.commands import (
-    add_document_line,
     create_document,
-    create_reason_code,
     create_stock_count,
-    post_document,
     record_stock_counts,
     start_stock_count,
     submit_stock_count,
@@ -56,13 +53,11 @@ from apps.inventory.models import (
     InventoryAdjustmentDocument,
     InventoryDocumentType,
     InventoryItem,
-    InventoryReasonCode,
-    ReasonCodeApplication,
     StockCount,
     StockCountLine,
     Warehouse,
 )
-from apps.inventory.operations import DocumentLineInput
+from apps.inventory.tests.stock_seed import seed_stock
 from apps.organizations.models import Branch, Organization, Role
 from apps.organizations.services import grant_branch_access, grant_organization_access
 from apps.users.models import User
@@ -122,17 +117,6 @@ def keeper(branch: Branch) -> User:
 
 
 @pytest.fixture
-def spoilage(boss: User, organization: Organization) -> InventoryReasonCode:
-    return create_reason_code(
-        actor=boss,
-        organization=organization,
-        code="SPOIL",
-        name_ar="تلف",
-        applies_to=ReasonCodeApplication.WASTE,
-    )
-
-
-@pytest.fixture
 def stocked(
     boss: User,
     organization: Organization,
@@ -141,21 +125,16 @@ def stocked(
     rice: InventoryItem,
     mapped: None,
 ) -> None:
-    document = create_document(
+    seed_stock(
         actor=boss,
         organization=organization,
-        branch=branch,
         warehouse=main_store,
-        document_type=InventoryDocumentType.RECEIPT,
+        item=rice,
+        quantity="100",
+        unit_cost="1500",
+        control_account=Account.objects.get(organization=organization, code="1-03-01-001"),
         effective_at=WHEN,
-        evidence_reference="DN-1",
     )
-    add_document_line(
-        actor=boss,
-        document=document,
-        line=DocumentLineInput(item=rice, base_quantity=Decimal("100"), unit_cost=Decimal("1500")),
-    )
-    post_document(actor=boss, document=document)
 
 
 @pytest.fixture
@@ -384,7 +363,6 @@ class TestWasteAndAdjustmentApi:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
         client_for: Callable[[User], Client],
     ) -> None:
         client = client_for(boss)
@@ -403,7 +381,6 @@ class TestWasteAndAdjustmentApi:
                         {
                             "item_id": rice.pk,
                             "base_quantity": "10",
-                            "reason_code_id": spoilage.pk,
                         }
                     ],
                 }
@@ -418,7 +395,6 @@ class TestWasteAndAdjustmentApi:
         payload = _json(posted)
         assert payload["status"] == "POSTED"
         assert payload["document_number"].startswith("WST-")
-        assert payload["lines"][0]["reason_code"] == "SPOIL"
         assert payload["lines"][0]["total_value"] == "15000.000"
 
     def test_a_waste_id_does_not_resolve_under_the_issue_route(
@@ -429,7 +405,6 @@ class TestWasteAndAdjustmentApi:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
         client_for: Callable[[User], Client],
     ) -> None:
         document = create_document(
@@ -457,13 +432,6 @@ class TestWasteAndAdjustmentApi:
         stocked: None,
         client_for: Callable[[User], Client],
     ) -> None:
-        fix = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="FIX",
-            name_ar="تصحيح",
-            applies_to=ReasonCodeApplication.MANUAL_ADJUSTMENT,
-        )
         client = client_for(boss)
         created = client.post(
             f"{API}/adjustments/",
@@ -479,7 +447,6 @@ class TestWasteAndAdjustmentApi:
                         {
                             "kind": "VALUE_ONLY",
                             "item_id": rice.pk,
-                            "reason_code_id": fix.pk,
                             "value_adjustment": "30000",
                         }
                     ],
@@ -499,7 +466,6 @@ class TestWasteAndAdjustmentApi:
         row = redacted["lines"][0]
         assert "total_value" not in row
         assert "value_adjustment" not in row
-        assert row["reason_code"] == "FIX"
 
     def test_a_storekeeper_cannot_create_an_adjustment(
         self,
@@ -536,13 +502,6 @@ class TestWasteAndAdjustmentApi:
         stocked: None,
         client_for: Callable[[User], Client],
     ) -> None:
-        fix = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="FIX",
-            name_ar="تصحيح",
-            applies_to=ReasonCodeApplication.MANUAL_ADJUSTMENT,
-        )
         client = client_for(boss)
         created = _json(
             client.post(
@@ -559,7 +518,6 @@ class TestWasteAndAdjustmentApi:
                             {
                                 "kind": "QUANTITY_LOSS",
                                 "item_id": rice.pk,
-                                "reason_code_id": fix.pk,
                                 "base_quantity": "1",
                             }
                         ],
@@ -579,55 +537,14 @@ class TestWasteAndAdjustmentApi:
 
 
 # ---------------------------------------------------------------------------
-# Reason codes and the screens
+# The screens
 # ---------------------------------------------------------------------------
 
 
-class TestReasonCodesAndScreens:
-    def test_a_reason_code_round_trips_through_the_api(
-        self, boss: User, organization: Organization, client_for: Callable[[User], Client]
-    ) -> None:
-        client = client_for(boss)
-        created = client.post(
-            f"{API}/reason-codes/",
-            data=json.dumps(
-                {
-                    "organization_id": organization.pk,
-                    "code": "  break ",
-                    "name_ar": "كسر",
-                    "applies_to": "WASTE",
-                    "requires_comment": True,
-                }
-            ),
-            content_type="application/json",
-        )
-        assert created.status_code == 201
-        assert _json(created)["code"] == "BREAK"
-
-        listed = _json(client.get(f"{API}/reason-codes/?applies_to=WASTE"))
-        assert [row["code"] for row in listed] == ["BREAK"]
-
-    def test_a_storekeeper_cannot_create_a_reason_code(
-        self, keeper: User, organization: Organization, client_for: Callable[[User], Client]
-    ) -> None:
-        response = client_for(keeper).post(
-            f"{API}/reason-codes/",
-            data=json.dumps(
-                {
-                    "organization_id": organization.pk,
-                    "code": "CONVENIENT",
-                    "name_ar": "سبب مريح",
-                    "applies_to": "WASTE",
-                }
-            ),
-            content_type="application/json",
-        )
-        assert response.status_code == 403
-
+class TestScreens:
     @pytest.mark.parametrize(
         "url_name",
         [
-            "inventory:reason_code_list",
             "inventory:count_list",
             "inventory:adjustment_list",
             "inventory:inventory_waste_list",
@@ -683,29 +600,6 @@ class TestReasonCodesAndScreens:
         # And the add view is refused outright.
         assert client_for(superuser).get("/admin/inventory/stockcount/add/").status_code == 403
 
-    def test_the_admin_cannot_mutate_a_reason_code(
-        self,
-        boss: User,
-        organization: Organization,
-        superuser: User,
-        client_for: Callable[[User], Client],
-    ) -> None:
-        code = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="SPOIL",
-            name_ar="تلف",
-            applies_to=ReasonCodeApplication.WASTE,
-        )
-        client = client_for(superuser)
-        assert client.get("/admin/inventory/inventoryreasoncode/add/").status_code == 403
-        response = client.post(
-            f"/admin/inventory/inventoryreasoncode/{code.pk}/change/", data={"name_ar": "غير"}
-        )
-        assert response.status_code in (403, 302)
-        code.refresh_from_db()
-        assert code.name_ar == "تلف"
-
 
 class TestAdjustmentScreens:
     def test_an_adjustment_draft_and_post_run_through_the_screens(
@@ -718,13 +612,6 @@ class TestAdjustmentScreens:
         stocked: None,
         client_for: Callable[[User], Client],
     ) -> None:
-        fix = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="FIX",
-            name_ar="تصحيح",
-            applies_to=ReasonCodeApplication.MANUAL_ADJUSTMENT,
-        )
         client = client_for(boss)
         created = client.post(
             reverse("inventory:adjustment_create"),
@@ -748,7 +635,6 @@ class TestAdjustmentScreens:
                 "base_quantity": "5",
                 "unit_cost": "",
                 "value_adjustment": "",
-                "reason_code": fix.pk,
                 "line_comment": "",
             },
         )
@@ -768,13 +654,6 @@ class TestAdjustmentScreens:
         stocked: None,
         client_for: Callable[[User], Client],
     ) -> None:
-        fix = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="FIX",
-            name_ar="تصحيح",
-            applies_to=ReasonCodeApplication.MANUAL_ADJUSTMENT,
-        )
         client = client_for(boss)
         client.post(
             reverse("inventory:adjustment_create"),
@@ -796,7 +675,6 @@ class TestAdjustmentScreens:
                 "base_quantity": "5,5",
                 "unit_cost": "",
                 "value_adjustment": "",
-                "reason_code": fix.pk,
                 "line_comment": "",
             },
         )

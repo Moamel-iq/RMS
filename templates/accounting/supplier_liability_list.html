@@ -11,40 +11,40 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="accounting-supplier-liabilities">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <div class="ui-page" id="accounting-supplier-liabilities">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
     </div>
 
-    <form class="toolbar" method="get"
+    <form class="ui-filter-bar" method="get"
           hx-get="{% url 'accounting:supplier_liability_list' %}"
           hx-target="#accounting-supplier-liabilities"
           hx-swap="outerHTML"
           hx-push-url="true"
-          hx-trigger="submit, change from:find select, change from:find input[type=date], keyup changed delay:350ms from:find input[type=search]"
+          hx-trigger="submit, change, keyup changed delay:350ms from:#supplier-search, search from:#supplier-search"
           hx-indicator="#supplier-loading">
-      <div class="toolbar__search">
-        <label class="sr-only" for="supplier-search">{% translate "بحث" %}</label>
+      <div class="ui-search">
+        <label class="ui-sr-only" for="supplier-search">{% translate "بحث" %}</label>
         <input type="search" id="supplier-search" name="q" value="{{ search }}"
                placeholder="{% translate 'ابحث باسم المورد أو رمزه…' %}" autocomplete="off">
       </div>
-      <label class="field">
-        <span class="field__label">{% translate "المؤسسة" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "المؤسسة" %}</span>
         <select name="organization">
           {% for row in organizations %}
             <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>{{ row.code }}</option>
           {% endfor %}
         </select>
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "بتاريخ" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "بتاريخ" %}</span>
         <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}">
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "شريحة العمر" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "شريحة العمر" %}</span>
         <select name="bucket">
           <option value="">{% translate "الكل" %}</option>
           <option value="current" {% if selected_bucket == "current" %}selected{% endif %}>{% translate "غير مستحق" %}</option>
@@ -54,42 +54,42 @@
           <option value="older" {% if selected_bucket == "older" %}selected{% endif %}>90+</option>
         </select>
       </label>
-      <button class="btn btn--secondary toolbar__submit" type="submit">{% translate "تطبيق" %}</button>
-      <span class="inventory-loading" id="supplier-loading" role="status" aria-live="polite">
+      <button class="ui-button ui-button--secondary ui-filter-bar__submit" type="submit">{% translate "تطبيق" %}</button>
+      <span class="ui-loading" id="supplier-loading" role="status" aria-live="polite">
         {% translate "جارٍ التحميل…" %}
       </span>
     </form>
 
-    <section class="formcard {% if not reconciled %}card--warn{% endif %}" id="supplier-reconciliation">
+    <section class="ui-form-card {% if not reconciled %}ui-card--warning{% endif %}" id="supplier-reconciliation">
       <h2>{% translate "المطابقة مع دفتر الأستاذ" %}</h2>
-      <div class="summary-row">
-        <div class="summary-row__item">
-          <span class="summary-row__label">{% translate "رصيد الذمم من المستندات" %}</span>
-          <span class="summary-row__value"><bdi dir="ltr">{{ subledger_total|money_full }}</bdi></span>
+      <div class="ui-summary-grid">
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">{% translate "رصيد الذمم من المستندات" %}</span>
+          <span class="ui-summary-item__value"><bdi dir="ltr">{{ subledger_total|money_full }}</bdi></span>
         </div>
-        <div class="summary-row__item">
-          <span class="summary-row__label">
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">
             {% translate "رصيد حساب الذمم" %}
             {% if gl_account %}<code dir="ltr">{{ gl_account.code }}</code>{% endif %}
           </span>
-          <span class="summary-row__value"><bdi dir="ltr">{{ gl_balance|money_full }}</bdi></span>
+          <span class="ui-summary-item__value"><bdi dir="ltr">{{ gl_balance|money_full }}</bdi></span>
         </div>
-        <div class="summary-row__item">
-          <span class="summary-row__label">{% translate "الفرق" %}</span>
-          <span class="summary-row__value"><bdi dir="ltr">{{ difference|money_full }}</bdi></span>
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">{% translate "الفرق" %}</span>
+          <span class="ui-summary-item__value"><bdi dir="ltr">{{ difference|money_full }}</bdi></span>
         </div>
       </div>
       {% if not gl_account %}
-        <p class="chip chip--warn">{% translate "دور ذمم الموردين غير مربوط بحساب في هذا التاريخ." %}</p>
+        <p class="ui-badge ui-badge--warning">{% translate "دور ذمم الموردين غير مربوط بحساب في هذا التاريخ." %}</p>
       {% elif reconciled %}
-        <p class="chip chip--ok">{% translate "مطابق" %}</p>
+        <p class="ui-badge ui-badge--success">{% translate "مطابق" %}</p>
       {% else %}
-        <p class="chip chip--warn">{% translate "غير مطابق — يُعرض الفرق ولا يُصلَح تلقائياً." %}</p>
+        <p class="ui-badge ui-badge--warning">{% translate "غير مطابق — يُعرض الفرق ولا يُصلَح تلقائياً." %}</p>
       {% endif %}
       {% if findings %}
-        <ul class="chip-list">
+        <ul class="ui-badge-list">
           {% for finding in findings %}
-            <li class="chip chip--warn">
+            <li class="ui-badge ui-badge--warning">
               {{ finding.scope }} · {{ finding.field }} ·
               <bdi dir="ltr">{{ finding.expected }}</bdi> ≠ <bdi dir="ltr">{{ finding.actual }}</bdi>
             </li>
@@ -98,13 +98,13 @@
       {% endif %}
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الأعمار حسب المورد" %}</h2>
-      <p class="card__hint">
+      <p class="ui-card__subtitle">
         {% translate "الأعمار تُحسب من تاريخ الاستحقاق المثبَّت على الفاتورة نفسها، لا من شروط السداد الحالية — إعادة التفاوض في آذار يجب ألّا تعيد ترتيب أعمار كانون الثاني." %}
       </p>
-      <div class="data-table-shell">
-        <table class="table responsive-table" id="supplier-aging-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive" id="supplier-aging-table">
           <thead><tr>
             <th>{% translate "المورد" %}</th>
             <th>{% translate "غير مستحق" %}</th>
@@ -129,7 +129,7 @@
                 <td><bdi dir="ltr">{{ row.net_position|money_full }}</bdi></td>
               </tr>
             {% empty %}
-              <tr><td colspan="10" class="empty">{% translate "لا توجد ذمم مفتوحة." %}</td></tr>
+              <tr><td colspan="10" class="ui-table__empty">{% translate "لا توجد ذمم مفتوحة." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>

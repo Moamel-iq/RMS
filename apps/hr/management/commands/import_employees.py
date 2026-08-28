@@ -60,7 +60,7 @@ def _load(path: pathlib.Path) -> dict[str, Any]:
             employees.append(
                 {
                     "seq": int((row.get("ت") or index) or index),
-                    "name_ar": name,
+                    "name": name,
                     "department": (row.get("القسم") or "").strip(),
                     "job_title": (row.get("المسمى الوظيفي") or "").strip(),
                     "basic_salary": (row.get("الراتب الأساسي") or "0").strip(),
@@ -119,8 +119,7 @@ class Command(SeedCommand):
                         employee = create_employee(
                             organization=organization,
                             code=code,
-                            name_ar=row["name_ar"],
-                            name_en="",
+                            name=row["name"],
                             phone="",
                             email="",
                             identity_number="",
@@ -132,7 +131,7 @@ class Command(SeedCommand):
                             branch=branch,
                             department=row["department"],
                             job_title=row["job_title"],
-                            workplace=branch.name_ar,
+                            workplace=branch.name,
                             hire_date=datetime.date.fromisoformat(row["hire_date"]),
                             payment_method=EmployeePaymentMethod.CASH,
                             payment_reference="",
@@ -141,7 +140,7 @@ class Command(SeedCommand):
                         )
                         made += 1
                     except ValidationError as refused:
-                        skipped.append((row["name_ar"], "; ".join(refused.messages)))
+                        skipped.append((row["name"], "; ".join(refused.messages)))
                         continue
                 else:
                     reused += 1
@@ -165,7 +164,7 @@ class Command(SeedCommand):
                     )
                     contracts += 1
                 except ValidationError as refused:
-                    skipped.append((row["name_ar"], "; ".join(refused.messages)))
+                    skipped.append((row["name"], "; ".join(refused.messages)))
 
             total = sum(Decimal(r["basic_salary"]) for r in payload["employees"])
             self.write("")

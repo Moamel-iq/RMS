@@ -82,7 +82,7 @@ def _version_with_servings(
         add_recipe_serving(
             version=draft,
             code=code,
-            name_ar=f"حصة {code}",
+            name=f"حصة {code}",
             serving_quantity=Decimal(quantity),
             serving_unit=kilogram,
             is_primary=primary,
@@ -402,14 +402,14 @@ class TestTheServingAllocation:
         serving = add_recipe_serving(
             version=draft,
             code="SMALL",
-            name_ar="حصة صغيرة",
+            name="حصة صغيرة",
             serving_quantity=Decimal("0.35"),
             serving_unit=kilogram,
             is_primary=True,
         )
         update_recipe_serving(
             serving=serving,
-            name_ar="حصة صغيرة",
+            name="حصة صغيرة",
             serving_quantity=Decimal("0.35"),
             serving_unit=kilogram,
             rounding_increment=Decimal("5"),

@@ -86,7 +86,7 @@ def role_label(key: str) -> str:
     if is_builtin_key(key):
         return str(Role(key).label)
     definition = definition_for_key(key)
-    return definition.name_ar if definition is not None else key
+    return definition.name if definition is not None else key
 
 
 def validate_role_key(role: Role | str, organization: Organization) -> str:
@@ -139,10 +139,10 @@ def role_choices(organizations: Iterable[Organization] | None = None) -> list[tu
     definitions = RoleDefinition.objects.filter(is_active=True).select_related("organization")
     if organizations is not None:
         definitions = definitions.filter(organization__in=list(organizations))
-    rows = list(definitions.order_by("organization__code", "name_ar"))
+    rows = list(definitions.order_by("organization__code", "name"))
     several = len({row.organization_id for row in rows}) > 1
     for row in rows:
-        label = f"{row.organization.code} — {row.name_ar}" if several else row.name_ar
+        label = f"{row.organization.code} — {row.name}" if several else row.name
         choices.append((row.key, label))
     return choices
 

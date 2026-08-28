@@ -31,7 +31,7 @@ STATIC = ROOT / "static"
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
@@ -41,8 +41,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="011",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -89,12 +88,11 @@ def test_dashboard_grids_may_be_narrower_than_their_contents() -> None:
     the Sales dashboard 1,677px wide inside a 1,250px window — the reader
     panned the whole page, navigation included, instead of one card.
     """
-    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
-    grid = css[css.index(".dashgrid {") : css.index(".dashgrid--even {") + 200]
-    assert "minmax(0, 1.6fr)" in grid
-    assert "minmax(0, 1fr)" in grid
-    assert re.search(r"grid-template-columns:\s*1\.6fr", grid) is None
-    assert re.search(r"grid-template-columns:\s*1fr 1fr", grid) is None
+    css = (STATIC / "css" / "erp-design-system.css").read_text(encoding="utf-8")
+    grid = css[css.index(".ui-dashboard-grid {") : css.index(".ui-dashboard-grid--even {") + 200]
+    assert "minmax(0, 1.7fr)" in grid
+    assert "minmax(18rem, 1fr)" in grid
+    assert re.search(r"grid-template-columns:\s*1\.7fr", grid) is None
 
 
 def test_wide_tables_are_contained_named_and_reachable() -> None:
@@ -105,7 +103,7 @@ def test_wide_tables_are_contained_named_and_reachable() -> None:
     """
     script = (STATIC / "js" / "inventory-htmx.js").read_text(encoding="utf-8")
     assert "const containWideTables" in script
-    assert 'shell.className = "data-table-shell"' in script
+    assert 'shell.className = "ui-table-scroll"' in script
     assert "const regionName" in script
     assert 'shell.setAttribute("role", "region")' in script
     assert 'shell.setAttribute("tabindex", "0")' in script
@@ -114,12 +112,11 @@ def test_wide_tables_are_contained_named_and_reachable() -> None:
     assert 'shell.removeAttribute("tabindex")' in script
 
 
-def test_an_identity_column_can_be_pinned() -> None:
-    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
-    assert "[data-sticky-identity]" in css
-    assert "inset-inline-start: 0" in css
+def test_an_identity_table_keeps_its_progressive_enhancement_hook() -> None:
     attendance = (TEMPLATES / "hr" / "attendance_list.html").read_text(encoding="utf-8")
     assert "data-sticky-identity" in attendance
+    assert 'class="ui-table ui-table--responsive"' in attendance
+    assert 'class="ui-table-scroll"' in attendance
 
 
 def test_every_confirmation_goes_through_the_shared_dialog() -> None:
@@ -128,7 +125,7 @@ def test_every_confirmation_goes_through_the_shared_dialog() -> None:
     no amount, no severity, and a button that says OK. Approvals, postings,
     terminations and deletions are confirmed in the system's own dialog.
     """
-    shell = (STATIC / "js" / "app-shell.js").read_text(encoding="utf-8")
+    shell = (STATIC / "js" / "ui-shell.js").read_text(encoding="utf-8")
     assert 'document.addEventListener("htmx:confirm"' in shell
     assert "event.detail.issueRequest(true)" in shell
     assert "const dressConfirm" in shell
@@ -155,13 +152,13 @@ def test_a_reason_that_is_kept_forever_is_asked_for_with_a_label() -> None:
 
 
 def test_the_command_palette_folds_arabic_and_lists_each_screen_once() -> None:
-    shell_js = (STATIC / "js" / "app-shell.js").read_text(encoding="utf-8")
+    shell_js = (STATIC / "js" / "ui-shell.js").read_text(encoding="utf-8")
     select_js = (STATIC / "js" / "searchable-select.js").read_text(encoding="utf-8")
     assert "window.KhanMandiText" in select_js
     assert "window.KhanMandiText" in shell_js
     assert 'toLocaleLowerCase("ar")' in shell_js  # kept as the no-script fallback only
-    shell_html = (TEMPLATES / "shell.html").read_text(encoding="utf-8")
-    assert "section.url_name != module.url_name" in shell_html
+    palette = (TEMPLATES / "layouts" / "_command_palette.html").read_text(encoding="utf-8")
+    assert "section.url_name != module.url_name" in palette
 
 
 def test_settings_does_not_call_a_built_screen_unbuilt(reader: Client) -> None:

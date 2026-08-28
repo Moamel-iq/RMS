@@ -12,12 +12,12 @@
 {% block title %}{% translate "التقرير المالي الشامل" %} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="accounting-income-statement">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <p class="pagehead__eyebrow">{% translate "قائمة الدخل والأداء التشغيلي" %}</p>
-        <h1 class="pagehead__title">{% translate "التقرير المالي الشامل" %}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <div class="ui-page" id="accounting-income-statement">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{% translate "قائمة الدخل والأداء التشغيلي" %}</p>
+        <h1 class="ui-page-header__title">{% translate "التقرير المالي الشامل" %}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
     </div>
 
@@ -26,66 +26,66 @@
         {% include "accounting/_report_filters.html" %}
       {% endwith %}
 
-      <p class="muted">
+      <p class="ui-text-muted">
         {% blocktranslate with start=date_from|date:"Y-m-d" end=date_to|date:"Y-m-d" %}من {{ start }} إلى {{ end }}{% endblocktranslate %}
       </p>
 
-      <section class="financial-overview" aria-labelledby="financial-overview-title">
-        <div class="financial-overview__head">
+      <section class="ui-card" aria-labelledby="financial-overview-title">
+        <div class="ui-card__header">
           <div>
             <h2 id="financial-overview-title">{% translate "ملخص الأداء المالي" %}</h2>
             <p>{% translate "المبيعات والمصاريف والأرباح من القيود المُرحّلة ضمن الفترة المختارة." %}</p>
           </div>
           {% if report.is_approvable %}
-            <span class="chip chip--ok">{% translate "الأرقام قابلة للاعتماد" %}</span>
+            <span class="ui-badge ui-badge--success">{% translate "الأرقام قابلة للاعتماد" %}</span>
           {% else %}
-            <span class="chip chip--warn">{% translate "توجد ملاحظات قبل الاعتماد" %}</span>
+            <span class="ui-badge ui-badge--warning">{% translate "توجد ملاحظات قبل الاعتماد" %}</span>
           {% endif %}
         </div>
-        <div class="financial-metrics">
-          <article class="financial-metric">
-            <span class="financial-metric__label">{% translate "المبيعات والإيرادات" %}</span>
-            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.revenue.total|iqd_full }}</bdi></strong>
+        <div class="ui-metric-grid">
+          <article class="ui-metric">
+            <span class="ui-metric__label">{% translate "المبيعات والإيرادات" %}</span>
+            <strong class="ui-metric__value"><bdi dir="ltr">{{ report.revenue.total|iqd_full }}</bdi></strong>
           </article>
-          <article class="financial-metric financial-metric--outflow">
-            <span class="financial-metric__label">{% translate "كلفة المبيعات" %}</span>
-            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.cost_of_sales.total|iqd_full }}</bdi></strong>
+          <article class="ui-metric ui-metric--danger">
+            <span class="ui-metric__label">{% translate "كلفة المبيعات" %}</span>
+            <strong class="ui-metric__value"><bdi dir="ltr">{{ report.cost_of_sales.total|iqd_full }}</bdi></strong>
           </article>
-          <article class="financial-metric financial-metric--strong">
-            <span class="financial-metric__label">{% translate "مجمل الربح" %}</span>
-            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.gross_profit|iqd_full }}</bdi></strong>
+          <article class="ui-metric ui-metric--accent">
+            <span class="ui-metric__label">{% translate "مجمل الربح" %}</span>
+            <strong class="ui-metric__value"><bdi dir="ltr">{{ report.gross_profit|iqd_full }}</bdi></strong>
           </article>
-          <article class="financial-metric financial-metric--outflow">
-            <span class="financial-metric__label">{% translate "المصاريف التشغيلية" %}</span>
-            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.operating_expenses.total|iqd_full }}</bdi></strong>
+          <article class="ui-metric ui-metric--danger">
+            <span class="ui-metric__label">{% translate "المصاريف التشغيلية" %}</span>
+            <strong class="ui-metric__value"><bdi dir="ltr">{{ report.operating_expenses.total|iqd_full }}</bdi></strong>
           </article>
-          <article class="financial-metric financial-metric--strong">
-            <span class="financial-metric__label">{% translate "الربح التشغيلي" %}</span>
-            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.operating_profit|iqd_full }}</bdi></strong>
+          <article class="ui-metric ui-metric--accent">
+            <span class="ui-metric__label">{% translate "الربح التشغيلي" %}</span>
+            <strong class="ui-metric__value"><bdi dir="ltr">{{ report.operating_profit|iqd_full }}</bdi></strong>
           </article>
-          <article class="financial-metric financial-metric--net">
-            <span class="financial-metric__label">{% translate "صافي الربح" %}</span>
-            <strong class="financial-metric__value"><bdi dir="ltr">{{ report.net_profit|iqd_full }}</bdi></strong>
+          <article class="ui-metric ui-metric--accent">
+            <span class="ui-metric__label">{% translate "صافي الربح" %}</span>
+            <strong class="ui-metric__value"><bdi dir="ltr">{{ report.net_profit|iqd_full }}</bdi></strong>
           </article>
         </div>
       </section>
 
       {% if report.unmapped %}
-        <section class="formcard card--warn" id="income-unmapped">
+        <section class="ui-form-card ui-card--warning" id="income-unmapped">
           <h2>{% translate "غير مصنّف" %}</h2>
-          <p class="card__hint">
+          <p class="ui-card__subtitle">
             {% translate "حسابات لها رصيد ولا تحمل مجموعة قوائم مالية. تُعرض هنا وتمنع اعتماد القائمة — حذفها كان سيُنتج قائمة متوازنة وخاطئة." %}
           </p>
-          <div class="data-table-shell">
-            <table class="table responsive-table">
-              <thead><tr><th>{% translate "الحساب" %}</th><th>{% translate "الرصيد" %}</th><th scope="col"><span class="sr-only">إجراءات</span></th></tr></thead>
+          <div class="ui-table-scroll">
+            <table class="ui-table ui-table--responsive">
+              <thead><tr><th>{% translate "الحساب" %}</th><th>{% translate "الرصيد" %}</th><th scope="col"><span class="ui-sr-only">إجراءات</span></th></tr></thead>
               <tbody>
                 {% for account, balance in report.unmapped %}
                   <tr>
-                    <td><code dir="ltr">{{ account.code }}</code> {{ account.name_ar }}</td>
+                    <td><code dir="ltr">{{ account.code }}</code> {{ account.name }}</td>
                     <td><bdi dir="ltr">{{ balance|iqd_full }}</bdi></td>
-                    <td class="cell-actions">
-                      <a class="btn btn--secondary btn--sm" href="{% url 'accounting:account_detail' account.pk %}">{% translate "تصنيف" %}</a>
+                    <td class="ui-table__actions">
+                      <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' account.pk %}">{% translate "تصنيف" %}</a>
                     </td>
                   </tr>
                 {% endfor %}
@@ -96,24 +96,24 @@
       {% endif %}
 
       {% if report.cost_of_sales_missing %}
-        <section class="formcard card--warn" id="income-missing-cogs" role="alert">
+        <section class="ui-form-card ui-card--warning" id="income-missing-cogs" role="alert">
           <h2>{% translate "كلفة المبيعات غير مُرحّلة" %}</h2>
-          <p class="card__hint">{% translate "توجد إيرادات مرحّلة ولكن رصيد كلفة المبيعات صفر. القائمة تعرض القيود الحالية بدقة، لكنها لا تُعتمد كربحية نهائية حتى تُرحّل دفعات الإنتاج أو قيد كلفة المبيعات." %}</p>
+          <p class="ui-card__subtitle">{% translate "توجد إيرادات مرحّلة ولكن رصيد كلفة المبيعات صفر. القائمة تعرض القيود الحالية بدقة، لكنها لا تُعتمد كربحية نهائية حتى تُرحّل دفعات الإنتاج أو قيد كلفة المبيعات." %}</p>
         </section>
       {% endif %}
 
-      <section class="formcard financial-detail">
-        <div class="section-heading">
+      <section class="ui-form-card ui-statement">
+        <div class="ui-section-heading">
           <div>
             <h2>{% translate "تفاصيل قائمة الدخل" %}</h2>
             <p>{% translate "يمكن فتح كل حساب لمراجعة حركته في دفتر الأستاذ." %}</p>
           </div>
         </div>
-        <div class="data-table-shell">
-          <table class="table" id="income-statement-table">
+        <div class="ui-table-scroll">
+          <table class="ui-table" id="income-statement-table">
             <tbody>
               {% for section in trading_sections %}
-                <tr class="statement-row statement-row--section">
+                <tr class="ui-statement__row ui-statement__row--subtotal">
                   <th colspan="2">{{ section.label }}</th>
                   <th><bdi dir="ltr">{{ section.total|iqd_full }}</bdi></th>
                 </tr>
@@ -122,19 +122,19 @@
                     <td></td>
                     <td>
                       <a href="{% url 'accounting:general_ledger' %}?organization={{ organization.pk }}&account={{ account.pk }}">
-                        <code dir="ltr">{{ account.code }}</code> {{ account.name_ar }}
+                        <code dir="ltr">{{ account.code }}</code> {{ account.name }}
                       </a>
                     </td>
                     <td><bdi dir="ltr">{{ balance|iqd_full }}</bdi></td>
                   </tr>
                 {% endfor %}
               {% endfor %}
-              <tr class="statement-row statement-row--total">
+              <tr class="ui-statement__row ui-statement__row--total">
                 <th colspan="2">{% translate "مجمل الربح" %}</th>
                 <th><bdi dir="ltr">{{ report.gross_profit|iqd_full }}</bdi></th>
               </tr>
 
-              <tr class="statement-row statement-row--section">
+              <tr class="ui-statement__row ui-statement__row--subtotal">
                 <th colspan="2">{{ report.operating_expenses.label }}</th>
                 <th><bdi dir="ltr">{{ report.operating_expenses.total|iqd_full }}</bdi></th>
               </tr>
@@ -143,32 +143,32 @@
                   <td></td>
                   <td>
                     <a href="{% url 'accounting:general_ledger' %}?organization={{ organization.pk }}&account={{ account.pk }}">
-                      <code dir="ltr">{{ account.code }}</code> {{ account.name_ar }}
+                      <code dir="ltr">{{ account.code }}</code> {{ account.name }}
                     </a>
                   </td>
                   <td><bdi dir="ltr">{{ balance|iqd_full }}</bdi></td>
                 </tr>
               {% endfor %}
-              <tr class="statement-row statement-row--total">
+              <tr class="ui-statement__row ui-statement__row--total">
                 <th colspan="2">{% translate "الربح التشغيلي" %}</th>
                 <th><bdi dir="ltr">{{ report.operating_profit|iqd_full }}</bdi></th>
               </tr>
 
               {% for section in other_sections %}
-                <tr class="statement-row statement-row--section">
+                <tr class="ui-statement__row ui-statement__row--subtotal">
                   <th colspan="2">{{ section.label }}</th>
                   <th><bdi dir="ltr">{{ section.total|iqd_full }}</bdi></th>
                 </tr>
                 {% for account, balance in section.rows %}
                   <tr>
                     <td></td>
-                    <td><code dir="ltr">{{ account.code }}</code> {{ account.name_ar }}</td>
+                    <td><code dir="ltr">{{ account.code }}</code> {{ account.name }}</td>
                     <td><bdi dir="ltr">{{ balance|iqd_full }}</bdi></td>
                   </tr>
                 {% endfor %}
               {% endfor %}
 
-              <tr class="statement-row statement-row--grand">
+              <tr class="ui-statement__row ui-statement__row--total">
                 <th colspan="2">{% translate "صافي الربح" %}</th>
                 <th><bdi dir="ltr">{{ report.net_profit|iqd_full }}</bdi></th>
               </tr>
@@ -177,7 +177,7 @@
         </div>
       </section>
     {% else %}
-      <section class="formcard"><p class="empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
+      <section class="ui-form-card"><p class="ui-table__empty">{% translate "لا توجد مؤسسة في نطاقك." %}</p></section>
     {% endif %}
   </div>
 {% endblock %}

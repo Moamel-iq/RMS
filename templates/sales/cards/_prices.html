@@ -3,23 +3,23 @@
 {# Read from the price lists, not from sales, so it answers before the first #}
 {# posted day. One tile per base→channel pair, naming the items on it.       #}
 {% load i18n l10n money_tags %}
-<div class="panel__head">
-  <h2 class="panel__title">{{ card.label }}</h2>
-  <p class="pagehead__hint">{% translate "سعر قناة التطبيقات مقابل سعر الصالة" %}</p>
+<div class="ui-card__header">
+  <h2 class="ui-card__title">{{ card.label }}</h2>
+  <p class="ui-page-header__subtitle">{% translate "سعر قناة التطبيقات مقابل سعر الصالة" %}</p>
 </div>
 {% if rows %}
-  <div class="tiles" style="grid-template-columns: 1fr">
+  <div class="ui-metric-grid" style="grid-template-columns: 1fr">
     {% for row in rows %}
-      <div class="tile">
-        <span class="tile__value">
+      <div class="ui-metric">
+        <span class="ui-metric__value">
           <bdi dir="ltr">{{ row.base_price|iqd }}</bdi> ← <bdi dir="ltr">{{ row.channel_price|iqd }}</bdi>
-          <span class="trend trend--flat"><bdi dir="ltr">+{{ row.premium_share|unlocalize }}%</bdi></span>
+          <span class="ui-trend ui-trend--flat"><bdi dir="ltr">+{{ row.premium_share|unlocalize }}%</bdi></span>
         </span>
-        <span class="tile__label">{{ row.items|join:" · " }}</span>
+        <span class="ui-metric__label">{{ row.items|join:" · " }}</span>
       </div>
     {% endfor %}
   </div>
-  <p class="panel__foot">{% translate "الفارق يمتصّ جزءاً من عمولة التطبيق — ولا يغطّيها كاملة." %}</p>
+  <p class="ui-card__footer">{% translate "الفارق يمتصّ جزءاً من عمولة التطبيق — ولا يغطّيها كاملة." %}</p>
 {% else %}
-  <p class="empty">{% translate "لا سعر قناة أعلى من سعر الصالة ضمن نطاقك." %}</p>
+  <p class="ui-table__empty">{% translate "لا سعر قناة أعلى من سعر الصالة ضمن نطاقك." %}</p>
 {% endif %}

@@ -100,10 +100,8 @@ from apps.inventory.models import (
     InventoryDocumentType,
     InventoryItem,
     InventoryLot,
-    InventoryReasonCode,
     ItemPackageConversion,
     MovementType,
-    ReasonCodeApplication,
     StockBalance,
     Warehouse,
 )
@@ -130,7 +128,6 @@ class AdjustmentLineInput:
 
     kind: str
     item: InventoryItem
-    reason_code: InventoryReasonCode
     lot: InventoryLot | None = None
     package_conversion: ItemPackageConversion | None = None
     entered_package_quantity: Decimal | None = None
@@ -348,7 +345,6 @@ def add_adjustment_line(
             params={"kind": line.kind},
         )
     _validate_target(locked, line)
-    _validate_reason_code(locked, line)
 
     base_quantity = ZERO
     unit_cost: Decimal | None = None
@@ -397,7 +393,6 @@ def add_adjustment_line(
             line.zero_cost_confirmed and line.kind == AdjustmentLineKind.QUANTITY_GAIN
         ),
         value_adjustment=value_adjustment,
-        reason_code=line.reason_code,
         line_comment=line.line_comment.strip(),
     )
     stored.full_clean()
@@ -546,40 +541,6 @@ def _validate_target(document: InventoryAdjustmentDocument, line: AdjustmentLine
             _("Item %(code)s does not track lots, so the line must not name one."),
             code="lot_not_allowed",
             params={"code": line.item.code},
-        )
-
-
-def _validate_reason_code(document: InventoryAdjustmentDocument, line: AdjustmentLineInput) -> None:
-    reason_code = line.reason_code
-    if reason_code.organization_id != document.organization_id:
-        raise ValidationError(
-            _("Reason code %(code)s belongs to another organization."),
-            code="reason_code_organization_mismatch",
-            params={"code": reason_code.code},
-        )
-    if reason_code.applies_to != ReasonCodeApplication.MANUAL_ADJUSTMENT:
-        raise ValidationError(
-            _("Reason code %(code)s is not a manual-adjustment reason."),
-            code="reason_code_wrong_application",
-            params={"code": reason_code.code},
-        )
-    if not reason_code.is_active:
-        raise ValidationError(
-            _("Reason code %(code)s is archived."),
-            code="reason_code_archived",
-            params={"code": reason_code.code},
-        )
-    if reason_code.requires_comment and not line.line_comment.strip():
-        raise ValidationError(
-            _("Reason code %(code)s requires a comment on the line."),
-            code="reason_code_comment_required",
-            params={"code": reason_code.code},
-        )
-    if reason_code.requires_evidence and not document.evidence_reference.strip():
-        raise ValidationError(  # pragma: no cover - the constraint demands one anyway
-            _("Reason code %(code)s requires an evidence reference."),
-            code="reason_code_evidence_required",
-            params={"code": reason_code.code},
         )
 
 

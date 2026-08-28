@@ -137,11 +137,10 @@ if TYPE_CHECKING:
 
 
 @transaction.atomic
-def create_organization(*, code: str, name_ar: str, name_en: str) -> Organization:
+def create_organization(*, code: str, name: str) -> Organization:
     organization = Organization(
         code=code.strip().upper(),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
     )
     organization.full_clean()
     organization.save()
@@ -155,8 +154,7 @@ def create_organization(*, code: str, name_ar: str, name_en: str) -> Organizatio
 def update_organization(
     *,
     organization: Organization,
-    name_ar: str,
-    name_en: str,
+    name: str,
     is_active: bool,
     actor: User | None = None,
 ) -> Organization:
@@ -172,11 +170,10 @@ def update_organization(
     # during validation, so an in-memory snapshot taken here would already
     # hold the NEW values and the audit trail would record before == after.
     before = snapshot(Organization.objects.get(pk=organization.pk))
-    organization.name_ar = name_ar.strip()
-    organization.name_en = name_en.strip()
+    organization.name = name.strip()
     organization.is_active = is_active
     organization.full_clean()
-    organization.save(update_fields=["name_ar", "name_en", "is_active", "updated_at"])
+    organization.save(update_fields=["name", "is_active", "updated_at"])
     record_audit_event(
         action=AuditAction.UPDATED if is_active else AuditAction.DEACTIVATED,
         target=organization,
@@ -191,8 +188,7 @@ def create_branch(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
-    name_en: str,
+    name: str,
     business_day_start_time: time,
     timezone: str = settings.TIME_ZONE,
     actor: User | None = None,
@@ -208,8 +204,7 @@ def create_branch(
     branch = Branch(
         organization=organization,
         code=code.strip().upper(),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         business_day_start_time=business_day_start_time,
         timezone=timezone,
     )
@@ -225,8 +220,7 @@ def create_branch(
 def update_branch(
     *,
     branch: Branch,
-    name_ar: str,
-    name_en: str,
+    name: str,
     business_day_start_time: time,
     timezone: str,
     is_active: bool,
@@ -243,8 +237,7 @@ def update_branch(
     _require_org_settings_administrator(actor=actor, organization=branch.organization)
     # Re-read: see the note in update_organization.
     before = snapshot(Branch.objects.get(pk=branch.pk))
-    branch.name_ar = name_ar.strip()
-    branch.name_en = name_en.strip()
+    branch.name = name.strip()
     branch.business_day_start_time = business_day_start_time
     branch.timezone = timezone
     branch.is_active = is_active
@@ -735,9 +728,8 @@ def create_role_definition(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
+    name: str,
     permissions: Sequence[str],
-    name_en: str = "",
     description: str = "",
     based_on: Role | str = "",
     actor: User | None = None,
@@ -755,8 +747,7 @@ def create_role_definition(
     definition = RoleDefinition(
         organization=organization,
         code=code.strip().lower(),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         description=description.strip(),
         based_on=based_on.value if isinstance(based_on, Role) else str(based_on),
     )
@@ -778,8 +769,7 @@ def create_role_definition(
 def update_role_definition(
     *,
     definition: RoleDefinition,
-    name_ar: str | None = None,
-    name_en: str | None = None,
+    name: str | None = None,
     description: str | None = None,
     permissions: Sequence[str] | None = None,
     actor: User | None = None,
@@ -796,14 +786,12 @@ def update_role_definition(
     before = snapshot(RoleDefinition.objects.get(pk=definition.pk))
     before_permissions = _permission_names(definition)
 
-    if name_ar is not None:
-        definition.name_ar = name_ar.strip()
-    if name_en is not None:
-        definition.name_en = name_en.strip()
+    if name is not None:
+        definition.name = name.strip()
     if description is not None:
         definition.description = description.strip()
     definition.full_clean()
-    definition.save(update_fields=["name_ar", "name_en", "description", "updated_at"])
+    definition.save(update_fields=["name", "description", "updated_at"])
 
     if permissions is not None:
         definition.permissions.set(resolve_permissions(permissions))

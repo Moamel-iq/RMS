@@ -42,7 +42,7 @@ PASSWORD = "pw-not-real-1234"
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
@@ -50,8 +50,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="011",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -127,12 +126,12 @@ def test_the_sheet_declares_no_paper_of_its_own() -> None:
     assert "@page" not in template
     assert "sheet--wide" not in template
     assert "data-print-landscape" in template
-    styles = (ROOT / "static" / "css" / "app.css").read_text(encoding="utf-8")
+    styles = (ROOT / "static" / "css" / "erp-design-system.css").read_text(encoding="utf-8")
     assert styles.count("@page") == 1
 
     # Nothing in the sheet may be wider than the page it is printed on.
-    section = styles[styles.index("19. Any screen on paper") :]
-    assert "max-inline-size: 100%" in section
+    section = styles[styles.index("@layer print") :]
+    assert ".ui-sheet" in section and "inline-size: 100%" in section
 
 
 def test_no_template_comment_can_leak_onto_the_paper() -> None:
@@ -159,7 +158,7 @@ def test_the_letterhead_is_optional_and_never_breaks_the_sheet() -> None:
 
 
 def _sheet_rows(body: str) -> list[list[str]]:
-    table = re.search(r'<table class="sheet__table">(.*?)</table>', body, re.S)
+    table = re.search(r'<table class="ui-sheet__table">(.*?)</table>', body, re.S)
     assert table, "the sheet has no table"
     rows = []
     for line in re.findall(r"<tr>(.*?)</tr>", table.group(1), re.S):
@@ -182,7 +181,7 @@ def test_a_report_prints_the_rows_its_export_writes(
     printed = client.get(url + query + "&print=1")
     assert printed.status_code == 200
     body = printed.content.decode()
-    assert 'class="sheet' in body
+    assert 'class="ui-sheet"' in body
     assert "data-print-toolbar" in body
 
     exported = client.get(url + query + "&export=csv")
@@ -232,7 +231,7 @@ def test_an_inventory_report_prints_every_row_not_only_the_page(
     response = client.get(reverse("inventory:report_valuation") + "?print=1")
     assert response.status_code in {200, 403}
     if response.status_code == 200:
-        assert 'class="sheet' in response.content.decode()
+        assert 'class="ui-sheet"' in response.content.decode()
 
 
 # ---------------------------------------------------------------------------
@@ -242,41 +241,41 @@ def test_an_inventory_report_prints_every_row_not_only_the_page(
 
 def test_every_screen_carries_the_paper_furniture(accountant: User) -> None:
     body = _client(accountant).get(reverse("accounting:journal_list")).content.decode()
-    assert 'class="printhead print-only"' in body
-    assert 'class="printfoot print-only"' in body
+    assert 'class="ui-print-header ui-print-only"' in body
+    assert 'class="ui-print-footer ui-print-only"' in body
     assert "data-print-menu" in body
     assert 'data-print-part="signature"' in body
     # The application's own chrome is removed by rule rather than by a marker
     # in the markup, so the shell's tested class attributes stay as they are.
-    assert 'class="topbar"' in body
-    assert 'class="shell__nav"' in body
+    assert 'class="ui-app-header"' in body
+    assert 'class="ui-navigation-drawer"' in body
 
 
 def test_the_print_rules_remove_the_chrome_and_free_the_tables() -> None:
-    styles = (ROOT / "static" / "css" / "app.css").read_text(encoding="utf-8")
-    section = styles[styles.index("19. Any screen on paper") :]
+    styles = (ROOT / "static" / "css" / "erp-design-system.css").read_text(encoding="utf-8")
+    section = styles[styles.index("@layer print") :]
     for hidden in (
-        ".toolbar",
-        ".pagination",
-        ".rowactions",
-        ".pagehead__actions",
-        ".list-statusbar",
+        ".ui-app-header",
+        ".ui-navigation-drawer",
+        ".ui-page-header__actions",
+        ".ui-toolbar",
+        ".ui-filter-bar",
     ):
         assert hidden in section, hidden
     # A table clipped by its scroll box would print with columns missing.
-    assert ".data-table-shell" in section and "overflow: visible !important" in section
+    assert ".ui-table-scroll" in section and "overflow: visible !important" in section
     # Headers repeat, rows are not split, and paper is white in either theme.
     assert "display: table-header-group" in section
     assert "break-inside: avoid" in section
-    assert ':root:not([data-theme="light"])' in section
+    assert ":root { color-scheme: light" in section
 
 
 def test_printed_sheet_keeps_the_signature_with_a_short_statement() -> None:
     """Browser print headers leave too little landscape height for 2rem gaps."""
-    styles = (ROOT / "static" / "css" / "app.css").read_text(encoding="utf-8")
-    section = styles[styles.index("19. Any screen on paper") :]
-    assert ".sheet__foot" in section and "margin-block-start: 0;" in section
-    assert ".sheet__sign" in section and "padding-block-start: 0.25cm;" in section
+    styles = (ROOT / "static" / "css" / "erp-design-system.css").read_text(encoding="utf-8")
+    section = styles[styles.index("@layer print") :]
+    assert ".ui-sheet__foot" in section and "padding-block-start: 6mm;" in section
+    assert ".ui-sheet__sign" in section and "padding-block-start: 12mm;" in section
 
 
 def test_the_options_are_remembered_and_reach_both_layouts() -> None:
@@ -299,9 +298,9 @@ def test_the_sheet_layout_never_renders_the_application(
         .get(reverse("accounting:trial_balance") + f"?organization={organization.pk}&print=1")
         .content.decode()
     )
-    assert "shell__nav" not in body
-    assert "topbar" not in body
-    assert "command-trigger" not in body
+    assert "ui-navigation-drawer" not in body
+    assert "ui-app-header" not in body
+    assert "ui-command-trigger" not in body
 
 
 def test_a_filter_is_named_the_way_the_screen_names_it() -> None:

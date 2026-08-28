@@ -51,7 +51,7 @@ PASSWORD = "pw-for-tests-only"
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM-HR-OV", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM-HR-OV", name="خان مندي")
 
 
 @pytest.fixture
@@ -59,8 +59,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK-OV",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9),
     )
 
@@ -97,8 +96,7 @@ def employee(organization: Organization, branch: Branch, maker: User) -> Employe
     return create_employee(
         organization=organization,
         code="EMP-OV-1",
-        name_ar="موظف اللوحة",
-        name_en="Overview Employee",
+        name="موظف اللوحة",
         phone="07700000010",
         email="overview@example.test",
         identity_number="ID-OV-SECRET",

@@ -23,3 +23,8 @@
 {# the defect is invisible until somebody opens the panel rather than the    #}
 {# page.                                                                     #}
 {% block page %}{% endblock %}
+{% if shell_navigation_oob %}
+  {% include "layouts/_primary_navigation.html" with navigation_oob=True %}
+  {% include "layouts/_mobile_modules.html" with navigation_oob=True %}
+  {% include "layouts/_secondary_navigation_panel.html" with navigation_oob=True %}
+{% endif %}

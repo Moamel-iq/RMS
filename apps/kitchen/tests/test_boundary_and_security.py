@@ -83,7 +83,7 @@ class TestZeroLedgerEffect:
         recipe = create_recipe(
             organization=organization,
             code="ZERO",
-            name_ar="بلا أثر",
+            name="بلا أثر",
             recipe_type=RecipeType.PORTION,
             created_by=manager,
         )
@@ -100,7 +100,7 @@ class TestZeroLedgerEffect:
         add_recipe_serving(
             version=draft,
             code="ONE",
-            name_ar="حصة",
+            name="حصة",
             serving_quantity=Decimal("1"),
             serving_unit=kilogram,
             is_primary=True,
@@ -241,7 +241,6 @@ class TestDependencyDirection:
                 "reports",
                 "demo",
                 "seed_inventory_demo",
-                "reason_codes",
                 "permissions",
             }
         }
@@ -424,7 +423,7 @@ class TestScreens:
     def test_the_detail_screen_renders(self, manager_client: Client, recipe: Recipe) -> None:
         response = manager_client.get(reverse("kitchen:recipe_detail", args=[recipe.pk]))
         assert response.status_code == 200
-        assert recipe.name_ar in response.content.decode()
+        assert recipe.name in response.content.decode()
 
     def test_the_detail_screen_says_the_version_is_a_draft(
         self, manager_client: Client, draft: RecipeVersion

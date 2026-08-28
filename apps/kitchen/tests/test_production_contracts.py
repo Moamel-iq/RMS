@@ -234,13 +234,13 @@ class TestTheWarehouseAuthorizationMirror:
         first = Warehouse.objects.create(
             branch=branch,
             code="MIRROR-1",
-            name_ar="مخزن أول",
+            name="مخزن أول",
             warehouse_type=WarehouseType.PHYSICAL,
         )
         second = Warehouse.objects.create(
             branch=branch,
             code="MIRROR-2",
-            name_ar="مخزن ثانٍ",
+            name="مخزن ثانٍ",
             warehouse_type=WarehouseType.PHYSICAL,
         )
         return first, second

@@ -98,7 +98,7 @@ class TestDemoDataset:
             InventoryItem.objects.create(
                 organization=organization,
                 code=code,
-                name_ar=code,
+                name=code,
                 category=item_category,
                 item_type=kind,
                 base_unit=unit,
@@ -243,7 +243,7 @@ class TestDemoDataset:
     ) -> None:
         real_names = ("حنيذ", "مدفون", "زربيان", "مضغوط", "مزموم", "كبسة", "مضبي")
         for recipe in seeded:
-            assert not [word for word in real_names if word in recipe.name_ar]
+            assert not [word for word in real_names if word in recipe.name]
         # The book's carving weight must not appear as a demo quantity, with two
         # deliberate exceptions. `DEMO-RCP-RICE` predates this test;
         # `DEMO-RCP-COST` carries a half serving **because a half is the case
@@ -314,7 +314,7 @@ class TestConcurrency:
             create_recipe(
                 organization=organization,
                 code="RACE",
-                name_ar=f"سباق {index}",
+                name=f"سباق {index}",
                 recipe_type="PORTION",
                 created_by=manager,
             )
@@ -352,7 +352,7 @@ class TestConcurrency:
             add_recipe_serving(
                 version=draft,
                 code=f"P{index}",
-                name_ar=f"حصة {index}",
+                name=f"حصة {index}",
                 serving_quantity=Decimal("1"),
                 serving_unit=kilogram,
                 is_primary=True,

@@ -46,8 +46,7 @@ def meat(organization: Organization) -> Supplier:
     return create_supplier(
         organization=organization,
         code="meat-01",
-        name_ar="مورد اللحوم",
-        name_en="Meat Supplier",
+        name="مورد اللحوم",
         contact_name="أبو علي",
         phone="07701234567",
         payment_terms_days=30,
@@ -67,35 +66,35 @@ class TestSupplierCode:
         self, organization: Organization, meat: Supplier
     ) -> None:
         with pytest.raises(ValidationError):
-            create_supplier(organization=organization, code="  meat-01 ", name_ar="آخر")
+            create_supplier(organization=organization, code="  meat-01 ", name="آخر")
 
     def test_the_database_refuses_a_duplicate_too(
         self, organization: Organization, meat: Supplier
     ) -> None:
         """The service check is a courtesy; the constraint is the guarantee."""
         with pytest.raises(IntegrityError), transaction.atomic():
-            Supplier.objects.create(organization=organization, code="MEAT-01", name_ar="تكرار")
+            Supplier.objects.create(organization=organization, code="MEAT-01", name="تكرار")
 
     def test_the_same_code_is_allowed_in_another_organization(
         self, other_organization: Organization, meat: Supplier
     ) -> None:
-        twin = create_supplier(organization=other_organization, code="MEAT-01", name_ar="مورد آخر")
+        twin = create_supplier(organization=other_organization, code="MEAT-01", name="مورد آخر")
         assert twin.pk != meat.pk
 
     def test_an_archived_code_stays_reserved(
         self, organization: Organization, meat: Supplier
     ) -> None:
-        update_supplier(supplier=meat, name_ar=meat.name_ar, is_active=False)
+        update_supplier(supplier=meat, name=meat.name, is_active=False)
         with pytest.raises(ValidationError):
-            create_supplier(organization=organization, code="MEAT-01", name_ar="بديل")
+            create_supplier(organization=organization, code="MEAT-01", name="بديل")
 
     def test_a_malformed_code_is_refused(self, organization: Organization) -> None:
         with pytest.raises(ValidationError):
-            create_supplier(organization=organization, code="مورد ١", name_ar="خطأ")
+            create_supplier(organization=organization, code="مورد ١", name="خطأ")
 
     def test_an_empty_code_is_refused(self, organization: Organization) -> None:
         with pytest.raises(ValidationError):
-            create_supplier(organization=organization, code="   ", name_ar="خطأ")
+            create_supplier(organization=organization, code="   ", name="خطأ")
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +139,7 @@ class TestOwnershipAndLifecycle:
 
     def test_a_malformed_phone_is_refused(self, organization: Organization) -> None:
         with pytest.raises(ValidationError):
-            create_supplier(organization=organization, code="BAD", name_ar="خطأ", phone="12345")
+            create_supplier(organization=organization, code="BAD", name="خطأ", phone="12345")
 
     def test_a_negative_credit_limit_is_refused_by_the_database(
         self, organization: Organization
@@ -149,19 +148,19 @@ class TestOwnershipAndLifecycle:
             Supplier.objects.create(
                 organization=organization,
                 code="NEG",
-                name_ar="سالب",
+                name="سالب",
                 credit_limit=Decimal("-1.000"),
             )
 
     def test_archive_and_reactivate_keep_the_row(self, meat: Supplier) -> None:
-        update_supplier(supplier=meat, name_ar=meat.name_ar, is_active=False)
+        update_supplier(supplier=meat, name=meat.name, is_active=False)
         assert Supplier.objects.get(pk=meat.pk).is_active is False
 
-        update_supplier(supplier=meat, name_ar=meat.name_ar, is_active=True)
+        update_supplier(supplier=meat, name=meat.name, is_active=True)
         assert Supplier.objects.get(pk=meat.pk).is_active is True
 
     def test_creating_and_editing_are_audited_with_a_real_before(self, meat: Supplier) -> None:
-        update_supplier(supplier=meat, name_ar="مورد اللحوم المحدث")
+        update_supplier(supplier=meat, name="مورد اللحوم المحدث")
         events = AuditEvent.objects.filter(
             target_type="procurement.Supplier", target_id=str(meat.pk)
         ).order_by("id")
@@ -169,8 +168,8 @@ class TestOwnershipAndLifecycle:
 
         edit = events[1]
         assert edit.previous_state is not None and edit.new_state is not None
-        assert edit.previous_state["name_ar"] == "مورد اللحوم"
-        assert edit.new_state["name_ar"] == "مورد اللحوم المحدث"
+        assert edit.previous_state["name"] == "مورد اللحوم"
+        assert edit.new_state["name"] == "مورد اللحوم المحدث"
         assert edit.previous_state["payment_terms_days"] == 30
         assert edit.new_state["payment_terms_days"] == 30
 
@@ -179,7 +178,7 @@ class TestOwnershipAndLifecycle:
     ) -> None:
         assert meat.payment_terms_days == 30
         with pytest.raises(ValidationError) as refusal:
-            update_supplier(supplier=meat, name_ar=meat.name_ar, payment_terms_days=45)
+            update_supplier(supplier=meat, name=meat.name, payment_terms_days=45)
         assert refusal.value.code == "supplier_credit_terms_are_versioned"
 
 
@@ -192,7 +191,7 @@ class TestScope:
     def test_another_organizations_supplier_is_invisible(
         self, other_organization: Organization, manager: User, meat: Supplier
     ) -> None:
-        theirs = create_supplier(organization=other_organization, code="RIVAL-01", name_ar="منافس")
+        theirs = create_supplier(organization=other_organization, code="RIVAL-01", name="منافس")
         codes = set(visible_suppliers(manager).values_list("code", flat=True))
         assert "MEAT-01" in codes
         assert theirs.code not in codes
@@ -200,14 +199,14 @@ class TestScope:
     def test_a_foreign_supplier_id_is_out_of_scope(
         self, other_organization: Organization, manager: User
     ) -> None:
-        theirs = create_supplier(organization=other_organization, code="RIVAL-02", name_ar="منافس")
+        theirs = create_supplier(organization=other_organization, code="RIVAL-02", name="منافس")
         with pytest.raises(OutOfScope):
             resolve_supplier(manager, theirs.pk)
 
     def test_an_archived_supplier_stays_visible_to_management(
         self, manager: User, meat: Supplier
     ) -> None:
-        update_supplier(supplier=meat, name_ar=meat.name_ar, is_active=False)
+        update_supplier(supplier=meat, name=meat.name, is_active=False)
         assert meat.pk in set(visible_suppliers(manager).values_list("pk", flat=True))
 
     def test_a_branch_membership_reaches_the_organizations_suppliers(
@@ -295,7 +294,7 @@ class TestScreens:
         self, client_for: Callable[[User], Client], manager: User, meat: Supplier
     ) -> None:
         client = client_for(manager)
-        create_supplier(organization=meat.organization, code="VEG-01", name_ar="مورد الخضار")
+        create_supplier(organization=meat.organization, code="VEG-01", name="مورد الخضار")
         body = client.get(
             reverse("procurement:supplier_list"), {"q": "MEAT"}, headers=HX
         ).content.decode()
@@ -323,7 +322,7 @@ class TestScreens:
             {
                 "organization": str(organization.pk),
                 "code": " chicken-01 ",
-                "name_ar": "مورد الدجاج",
+                "name": "مورد الدجاج",
                 "payment_terms_days": "14",
             },
         )
@@ -340,7 +339,7 @@ class TestScreens:
         manager: User,
         other_organization: Organization,
     ) -> None:
-        theirs = create_supplier(organization=other_organization, code="RIVAL-03", name_ar="منافس")
+        theirs = create_supplier(organization=other_organization, code="RIVAL-03", name="منافس")
         response = client_for(manager).get(reverse("procurement:supplier_update", args=[theirs.pk]))
         assert response.status_code == 404
 
@@ -390,11 +389,11 @@ class TestAdminIsReadOnly:
     ) -> None:
         response = client_for(superuser).post(
             f"/admin/procurement/supplier/{meat.pk}/change/",
-            {"name_ar": "مغيَّر"},
+            {"name": "مغيَّر"},
         )
         assert response.status_code in {302, 403}
         meat.refresh_from_db()
-        assert meat.name_ar == "مورد اللحوم"
+        assert meat.name == "مورد اللحوم"
 
 
 # ---------------------------------------------------------------------------
@@ -424,5 +423,5 @@ class TestDemoSuppliers:
         from apps.procurement.demo import seed_demo_suppliers
 
         for supplier in seed_demo_suppliers(organization=organization):
-            assert supplier.name_ar
+            assert supplier.name
             assert supplier.code.startswith("DEMO-")

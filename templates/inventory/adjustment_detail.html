@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# One manual adjustment: header, lines of all three kinds, and the actions  #}
@@ -8,43 +8,43 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="inventory-page inventory-detail-page" aria-labelledby="adjustment-title">
-    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--detail" aria-labelledby="adjustment-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{{ back_url }}">{% translate "التسويات المخزنية" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{% translate "تفاصيل التسوية" %}</span>
     </nav>
-    <header class="pagehead inventory-document-hero">
+    <header class="ui-page-header ui-document-hero">
       <div>
-        <div class="inventory-detail-kicker">
+        <div class="ui-document-hero__meta">
           {% include "components/status_badge.html" with status=document.status label=document.get_status_display %}
           {% if document.document_number %}<code><bdi dir="ltr">{{ document.document_number }}</bdi></code>{% endif %}
         </div>
-        <h1 class="pagehead__title" id="adjustment-title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ document.reason }}</p>
+        <h1 class="ui-page-header__title" id="adjustment-title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">{{ document.reason }}</p>
       </div>
-    <div class="rowactions">
-      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+    <div class="ui-actions">
+      <a class="ui-button ui-button--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
       {% if is_draft and can_post %}
         <form method="post" action="{% url 'inventory:adjustment_delete' document.pk %}"
               data-confirm="{% translate 'سيُحذف مستند التسوية ومسودته نهائياً. هل تريد المتابعة؟' %}"
               data-confirm-title="{% translate 'حذف مسودة التسوية' %}">
           {% csrf_token %}
-          <button class="btn btn--danger" type="submit">{% translate "حذف المسودة" %}</button>
+          <button class="ui-button ui-button--danger" type="submit">{% translate "حذف المسودة" %}</button>
         </form>
         <form method="post" action="{% url 'inventory:adjustment_post' document.pk %}"
               data-confirm="{% translate 'سيُرحّل أثر التسوية إلى المخزون والمحاسبة، ولن يعود المستند قابلاً للتعديل. هل تريد المتابعة؟' %}"
               data-confirm-title="{% translate 'ترحيل التسوية' %}">
           {% csrf_token %}
-          <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+          <button class="ui-button ui-button--primary" type="submit">{% translate "ترحيل" %}</button>
         </form>
       {% endif %}
     </div>
     </header>
 
-    <dl class="factgrid" aria-label="{% translate 'بيانات التسوية' %}">
-      <div><dt>{% translate "المخزن" %}</dt><dd><code><bdi dir="ltr">{{ document.warehouse.code }}</bdi></code> {{ document.warehouse.name_ar }}</dd></div>
-      <div><dt>{% translate "الفرع" %}</dt><dd><code><bdi dir="ltr">{{ document.branch.code }}</bdi></code> {{ document.branch.name_ar }}</dd></div>
+    <dl class="ui-definition-list" aria-label="{% translate 'بيانات التسوية' %}">
+      <div><dt>{% translate "المخزن" %}</dt><dd><code><bdi dir="ltr">{{ document.warehouse.code }}</bdi></code> {{ document.warehouse.name }}</dd></div>
+      <div><dt>{% translate "الفرع" %}</dt><dd><code><bdi dir="ltr">{{ document.branch.code }}</bdi></code> {{ document.branch.name }}</dd></div>
       <div><dt>{% translate "يوم العمل" %}</dt><dd><bdi dir="ltr">{{ document.business_date|date:"Y-m-d" }}</bdi></dd></div>
       <div><dt>{% translate "مرجع الإثبات" %}</dt><dd><bdi dir="ltr">{{ document.evidence_reference }}</bdi></dd></div>
       <div><dt>{% translate "أنشأه" %}</dt><dd>{{ document.created_by|default:"—" }}</dd></div>
@@ -53,28 +53,28 @@
     </dl>
 
   {% if is_posted and can_reverse %}
-    <form class="formcard" method="post"
+    <form class="ui-card ui-form-card" method="post"
           action="{% url 'inventory:adjustment_reverse' document.pk %}"
           data-confirm="{% translate 'سيُنشئ هذا الإجراء آثاراً عكسية في المخزون والمحاسبة. هل تريد عكس التسوية؟' %}"
           data-confirm-title="{% translate 'عكس التسوية' %}">
       {% csrf_token %}
-      <div class="formgrid">
-        <div class="formrow">
-          <label class="formrow__label" for="reverse-reason">
+      <div class="ui-form-grid">
+        <div class="ui-field">
+          <label class="ui-field__label" for="reverse-reason">
             {% translate "عكس التسوية — السبب" %}
           </label>
           <textarea id="reverse-reason" name="reason" rows="2" required></textarea>
         </div>
       </div>
-      <div class="formactions">
-        <button class="btn btn--danger" type="submit">{% translate "عكس التسوية" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--danger" type="submit">{% translate "عكس التسوية" %}</button>
       </div>
     </form>
   {% endif %}
 
-  <h2 class="section__title" id="adjustment-lines-title">{% translate "سطور التسوية" %}</h2>
-  <div class="tablewrap responsive-table" aria-labelledby="adjustment-lines-title">
-    <table class="table data-table">
+  <h2 class="ui-section-title" id="adjustment-lines-title">{% translate "سطور التسوية" %}</h2>
+  <div class="ui-data-card ui-table-scroll" aria-labelledby="adjustment-lines-title">
+    <table class="ui-table ui-table--responsive">
       <thead>
         <tr>
           <th scope="col">#</th>
@@ -82,7 +82,7 @@
           <th scope="col">{% translate "الصنف" %}</th>
           <th scope="col">{% translate "الدفعة" %}</th>
           <th scope="col">{% translate "الكمية" %}</th>
-          <th scope="col">{% translate "السبب" %}</th>
+          <th scope="col">{% translate "ملاحظة" %}</th>
           {% if show_cost %}
             <th scope="col">{% translate "كلفة الوحدة" %}</th>
             <th scope="col">{% translate "قيمة التعديل" %}</th>
@@ -97,28 +97,25 @@
           <tr>
             <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
             <td data-label="{% translate 'النوع' %}">{{ line.get_kind_display }}</td>
-            <td data-label="{% translate 'الصنف' %}"><code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name_ar }}</td>
+            <td data-label="{% translate 'الصنف' %}"><code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name }}</td>
             <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
             <td data-label="{% translate 'الكمية' %}">
               {% if line.base_quantity %}
                 <code><bdi dir="ltr">{{ line.base_quantity|stringformat:"f" }}</bdi></code>
                 <bdi dir="ltr">{{ line.item.base_unit.code }}</bdi>
               {% else %}
-                <span class="muted">{% translate "بلا حركة كمية" %}</span>
+                <span class="ui-text-muted">{% translate "بلا حركة كمية" %}</span>
               {% endif %}
             </td>
-            <td data-label="{% translate 'السبب' %}">
-              <code><bdi dir="ltr">{{ line.reason_code.code }}</bdi></code>
-              {% if line.line_comment %}
-                <br><span class="muted">{{ line.line_comment }}</span>
-              {% endif %}
+            <td data-label="{% translate 'ملاحظة' %}">
+              {% if line.line_comment %}{{ line.line_comment }}{% else %}—{% endif %}
             </td>
             {% if show_cost %}
               <td data-label="{% translate 'كلفة الوحدة' %}">
                 {% if line.unit_cost is not None %}
                   <code><bdi dir="ltr">{{ line.unit_cost|stringformat:"f" }}</bdi></code>
                   {% if line.zero_cost_confirmed %}
-                    <span class="muted">{% translate "صفر مؤكّد" %}</span>
+                    <span class="ui-text-muted">{% translate "صفر مؤكّد" %}</span>
                   {% endif %}
                 {% else %}—{% endif %}
               </td>
@@ -158,17 +155,17 @@
   </div>
 
   {% if is_draft and can_post %}
-    <form class="formcard" method="post">
+    <form class="ui-card ui-form-card" method="post">
       {% csrf_token %}
       <h2>{% translate "إضافة سطر" %}</h2>
       {% include "components/form_error_summary.html" with form=line_form %}
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in line_form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
-      <div class="formactions">
-        <button class="btn btn--ghost" type="submit">{% translate "إضافة السطر" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--ghost" type="submit">{% translate "إضافة السطر" %}</button>
       </div>
     </form>
   {% endif %}

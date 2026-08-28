@@ -901,13 +901,11 @@ def _verify_matching_moved_nothing(organization: Organization) -> list[Discrepan
 
 def verify_supplier_returns(organization: Organization) -> list[Discrepancy]:
     """
-    Every posted return moved what it says it moved, and no more than arrived.
+    Every posted standalone return moved what it says it moved.
 
         posted value          == the sum of its lines' posted values
                               == the debit on SUPPLIER_RETURN_CLEARING
                               == the credit on the inventory control accounts
-        returned quantity     <= the delivery line's accepted quantity
-
     The return variance account is `verify_supplier_credit_notes`' to explain
     now: Task 2.14 is what posts to it, and every fils in it must trace to a
     posted credit note's agreed-versus-book difference.
@@ -966,30 +964,6 @@ def verify_supplier_returns(organization: Organization) -> list[Discrepancy]:
                     field="return_inventory_credit",
                     expected=line_total,
                     actual=from_inventory,
-                )
-            )
-
-    # The quantity bound, recomputed from the rows rather than trusted to the
-    # service that wrote them — the same belt-and-braces the over-allocation
-    # check uses, and for the reason ADR-023 §3 gives: a guard that lives only
-    # inside one service function is one refactor away from not existing.
-    returned: dict[int, Decimal] = {}
-    for row in (
-        SupplierReturnLine.objects.filter(supplier_return__organization=organization)
-        .exclude(supplier_return__status=SupplierReturnStatus.REVERSED)
-        .values("goods_receipt_line_id", "returned_base_quantity")
-    ):
-        key = row["goods_receipt_line_id"]
-        returned[key] = returned.get(key, ZERO) + row["returned_base_quantity"]
-    for line_id, quantity in returned.items():
-        receipt_line = GoodsReceiptLine.objects.select_related("item").get(pk=line_id)
-        if quantity > receipt_line.accepted_base_quantity:
-            problems.append(
-                Discrepancy(
-                    scope=f"{receipt_line.receipt_id}#{receipt_line.sequence}",
-                    field="returned_more_than_arrived",
-                    expected=receipt_line.accepted_base_quantity,
-                    actual=quantity,
                 )
             )
 

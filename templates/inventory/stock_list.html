@@ -26,7 +26,7 @@
   {% for balance in balances %}
     <tr>
       <td data-label="{% translate 'المخزن' %}"><bdi dir="ltr"><code>{{ balance.warehouse.code }}</code></bdi></td>
-      <td data-label="{% translate 'الصنف' %}"><bdi dir="ltr"><code>{{ balance.item.code }}</code></bdi> {{ balance.item.name_ar }}</td>
+      <td data-label="{% translate 'الصنف' %}"><bdi dir="ltr"><code>{{ balance.item.code }}</code></bdi> {{ balance.item.name }}</td>
       <td data-label="{% translate 'الدفعة' %}">{% if balance.lot %}<bdi dir="ltr"><code>{{ balance.lot.code }}</code></bdi>{% else %}—{% endif %}</td>
       {# Technical values: a period, never a locale comma. #}
       <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ balance.quantity|stringformat:"f" }}</code></bdi></td>

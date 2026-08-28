@@ -48,7 +48,7 @@ def plain_user() -> User:
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
@@ -56,8 +56,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -91,12 +90,13 @@ class TestScreensLiveInTheShell:
     def test_every_screen_renders_inside_the_shell(
         self, client: Client, staff: User, url_name: str
     ) -> None:
-        """Not Django admin: the same rail, sidebar, and top bar as the rest."""
+        """Not Django admin: the same primary, secondary, and header shell."""
         client.force_login(staff)
         body = client.get(reverse(url_name)).content.decode()
-        assert 'class="shell"' in body
-        assert 'class="rail"' in body
-        assert 'class="topbar"' in body
+        assert 'class="ui-app-shell"' in body
+        assert 'class="ui-primary-nav"' in body
+        assert 'class="ui-secondary-nav"' in body
+        assert 'class="ui-app-header"' in body
 
     @pytest.mark.parametrize("url_name", FOUNDATION_LIST_URLS)
     def test_every_screen_is_right_to_left_in_arabic(
@@ -128,7 +128,7 @@ class TestOrganizationScreens:
         client.force_login(staff)
         response = client.post(
             reverse("organizations:organization_create"),
-            {"code": "NEWORG", "name_ar": "جديدة", "name_en": "New Org"},
+            {"code": "NEWORG", "name": "جديدة"},
         )
         assert response.status_code == 302
         created = Organization.objects.get(code="NEWORG")
@@ -142,7 +142,7 @@ class TestOrganizationScreens:
         client.force_login(staff)
         client.post(
             reverse("organizations:organization_create"),
-            {"code": "AUDITED", "name_ar": "مدققة", "name_en": "Audited"},
+            {"code": "AUDITED", "name": "مدققة"},
         )
         event = AuditEvent.objects.get(target_id=str(Organization.objects.get(code="AUDITED").pk))
         assert event.actor == staff
@@ -160,7 +160,7 @@ class TestOrganizationScreens:
         client.force_login(staff)
         response = client.post(
             reverse("organizations:organization_create"),
-            {"code": "bad code", "name_ar": "س", "name_en": "S"},
+            {"code": "bad code", "name": "س"},
         )
         assert response.status_code == 200
         assert response.context["form"].errors
@@ -185,8 +185,7 @@ class TestBranchScreens:
             {
                 "organization": organization.pk,
                 "code": "NOCUT",
-                "name_ar": "بلا",
-                "name_en": "No cutoff",
+                "name": "بلا",
                 "timezone": "Asia/Baghdad",
             },
         )
@@ -200,8 +199,7 @@ class TestBranchScreens:
         client.post(
             reverse("organizations:branch_update", args=[branch.pk]),
             {
-                "name_ar": branch.name_ar,
-                "name_en": branch.name_en,
+                "name": branch.name,
                 "timezone": "Asia/Baghdad",
                 "business_day_start_time": "10:00",
                 "is_active": "on",
@@ -221,8 +219,7 @@ class TestUnitScreens:
         client.force_login(staff)
         create_unit(
             code="OUNCE",
-            name_ar="أونصة",
-            name_en="Ounce",
+            name="أونصة",
             dimension=Dimension.MASS,
             factor_to_base=Decimal("0.028349523125"),
         )
@@ -241,8 +238,7 @@ class TestUnitScreens:
         client.cookies[settings.LANGUAGE_COOKIE_NAME] = "ar"
         create_unit(
             code="OUNCE2",
-            name_ar="أونصة",
-            name_en="Ounce",
+            name="أونصة",
             dimension=Dimension.MASS,
             factor_to_base=Decimal("0.028349523125"),
         )
@@ -256,8 +252,7 @@ class TestUnitScreens:
             reverse("units:unit_create"),
             {
                 "code": "SPOON",
-                "name_ar": "ملعقة",
-                "name_en": "Spoon",
+                "name": "ملعقة",
                 "dimension": Dimension.VOLUME,
                 "factor_to_base": "0.015",
             },
@@ -272,8 +267,7 @@ class TestUnitScreens:
         client.force_login(staff)
         base = create_unit(
             code="BASEKG",
-            name_ar="كغم",
-            name_en="Kilogram",
+            name="كغم",
             dimension=Dimension.MASS,
             factor_to_base=Decimal("1"),
             is_base=True,
@@ -284,7 +278,7 @@ class TestUnitScreens:
 
 class TestUserScreens:
     def test_create_account(self, client: Client, staff: User) -> None:
-        organization = create_organization(code="USERORG", name_ar="مستخدم", name_en="User Org")
+        organization = create_organization(code="USERORG", name="مستخدم")
         client.force_login(staff)
         response = client.post(
             reverse("users:user_create"),
@@ -303,7 +297,7 @@ class TestUserScreens:
         assert created.phone == "+9647701234567"
 
     def test_mismatched_passwords_are_refused(self, client: Client, staff: User) -> None:
-        organization = create_organization(code="MISMATCH", name_ar="تجربة", name_en="Test")
+        organization = create_organization(code="MISMATCH", name="تجربة")
         client.force_login(staff)
         response = client.post(
             reverse("users:user_create"),
@@ -319,7 +313,7 @@ class TestUserScreens:
         assert not User.objects.filter(username="mismatch").exists()
 
     def test_the_password_is_never_in_the_audit_snapshot(self, client: Client, staff: User) -> None:
-        organization = create_organization(code="HASHORG", name_ar="تشفير", name_en="Hash Org")
+        organization = create_organization(code="HASHORG", name="تشفير")
         client.force_login(staff)
         client.post(
             reverse("users:user_create"),
@@ -372,8 +366,8 @@ class TestAuditScreen:
         client.force_login(staff)
         body = client.get(reverse("core:audit_list")).content.decode()
         # No actions column at all, and no create button.
-        assert 'class="table__actions"' not in body
-        assert 'class="btn btn--primary"' not in body
+        assert 'class="ui-table__actions"' not in body
+        assert 'class="ui-button ui-button--primary"' not in body
 
     def test_previous_and_new_state_actually_differ_on_an_edit(
         self, client: Client, staff: User, branch: Branch
@@ -387,8 +381,7 @@ class TestAuditScreen:
         client.post(
             reverse("organizations:branch_update", args=[branch.pk]),
             {
-                "name_ar": "اسم جديد",
-                "name_en": branch.name_en,
+                "name": "اسم جديد",
                 "timezone": "Asia/Baghdad",
                 "business_day_start_time": "09:00",
                 "is_active": "on",
@@ -399,8 +392,8 @@ class TestAuditScreen:
         ).latest("occurred_at")
         assert event.previous_state is not None
         assert event.new_state is not None
-        assert event.previous_state["name_ar"] == "البنوك"
-        assert event.new_state["name_ar"] == "اسم جديد"
+        assert event.previous_state["name"] == "البنوك"
+        assert event.new_state["name"] == "اسم جديد"
 
     def test_can_be_filtered_by_action(self, client: Client, staff: User, branch: Branch) -> None:
         client.force_login(staff)

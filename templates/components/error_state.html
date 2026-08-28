@@ -1,0 +1,15 @@
+{% load i18n %}
+{% translate "تعذّر تحميل المحتوى" as default_error_title %}
+{% translate "حاول مرة أخرى. إذا استمرت المشكلة فتواصل مع مسؤول النظام." as default_error_description %}
+<div class="ui-state ui-state--error" role="alert">
+  <span class="ui-state__icon" aria-hidden="true">!</span>
+  <strong class="ui-state__title">{{ title|default:default_error_title }}</strong>
+  <p class="ui-state__description">{{ description|default:default_error_description }}</p>
+  {% if retry_url %}
+    <button class="ui-button ui-button--secondary" type="button"
+            hx-get="{{ retry_url }}" hx-target="{{ retry_target|default:'#main-content' }}"
+            hx-swap="{{ retry_swap|default:'innerHTML' }}">
+      {% translate "إعادة المحاولة" %}
+    </button>
+  {% endif %}
+</div>

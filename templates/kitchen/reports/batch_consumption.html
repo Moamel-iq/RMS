@@ -13,36 +13,36 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page" id="kitchen-batch-consumption">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <section class="ui-page" id="kitchen-batch-consumption">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {{ page_title }} — <bdi dir="ltr"><code>{{ batch.number|default:"—" }}</code></bdi>
         </h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "الدفعة" %}
         </a>
-        <a class="btn btn--ghost" href="{% url 'kitchen:report_batch_variance' batch.pk %}">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:report_batch_variance' batch.pk %}">
           {% translate "الانحراف" %}
         </a>
       </div>
     </div>
 
     {% if report.is_reversed %}
-      <p class="banner" role="note">
+      <p class="ui-notice" role="note">
         {% translate "هذه الدفعة معكوسة. ما يظهر أدناه هو ما استهلكته فعلاً وقت الترحيل — وهذا تاريخ حدث. أثرها الصافي على استهلاك الفترة يصبح صفراً بعد إدراج حركات العكس." %}
       </p>
     {% endif %}
 
     {# The batch identity is a fact list, so it gets a card of its own rather #}
     {# than sitting loose on the screen root.                                 #}
-    <section class="formcard">
-      <dl class="deflist">
+    <section class="ui-form-card">
+      <dl class="ui-definition-list">
         <dt>{% translate "الوصفة" %}</dt>
-        <dd>{{ batch.recipe.code }} — {{ batch.recipe.name_ar }}</dd>
+        <dd>{{ batch.recipe.code }} — {{ batch.recipe.name }}</dd>
         <dt>{% translate "النسخة" %}</dt>
         <dd><bdi dir="ltr"><code>v{{ batch.recipe_version.version_number }}</code></bdi></dd>
         <dt>{% translate "المخزن" %}</dt>
@@ -55,23 +55,23 @@
     </section>
 
     {# ---- The evidence checks ------------------------------------------ #}
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "مطابقة الأدلة" %}</h2>
-      <ul class="checklist">
+      <ul class="ui-timeline">
         <li>
           {% if report.quantity_matches %}
-            <span class="chip chip--ok">{% translate "مطابق" %}</span>
+            <span class="ui-badge ui-badge--success">{% translate "مطابق" %}</span>
           {% else %}
-            <span class="chip chip--bad">{% translate "غير مطابق" %}</span>
+            <span class="ui-badge ui-badge--danger">{% translate "غير مطابق" %}</span>
           {% endif %}
           {% translate "مجموع الكميات الفعلية المسجّلة = مجموع حركات صرف الإنتاج، لكل صنف." %}
         </li>
         {% if show_cost %}
           <li>
             {% if report.value_matches %}
-              <span class="chip chip--ok">{% translate "مطابق" %}</span>
+              <span class="ui-badge ui-badge--success">{% translate "مطابق" %}</span>
             {% else %}
-              <span class="chip chip--bad">{% translate "غير مطابق" %}</span>
+              <span class="ui-badge ui-badge--danger">{% translate "غير مطابق" %}</span>
             {% endif %}
             {% translate "مجموع قيم حركات الإدخال = قيمة مدخلات الدفعة = قيمة ناتجها." %}
             <bdi dir="ltr"><code>{{ report.input_movement_value }} = {{ batch.input_value }} = {{ batch.output_value }}</code></bdi>
@@ -81,7 +81,7 @@
 
       {% if not report.quantity_matches %}
         {# `notice` inside a card, not `alert`: the card already draws the edge. #}
-        <div class="notice banner--bad" role="alert">
+        <div class="ui-notice ui-notice--error" role="alert">
           <div>
             <p>{% translate "فروق الكميات لكل صنف:" %}</p>
             <ul>
@@ -95,10 +95,10 @@
     </section>
 
     {# ---- What actually went in ---------------------------------------- #}
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "المستهلك الفعلي" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "المسار" %}</th>
@@ -115,13 +115,13 @@
               <tr>
                 <td data-label="{% translate 'المسار' %}">
                   <bdi dir="ltr"><code>{{ row.source_line_path }}</code></bdi>
-                  <p class="muted">{{ row.source_line_label }}</p>
+                  <p class="ui-text-muted">{{ row.source_line_label }}</p>
                 </td>
                 <td data-label="{% translate 'الصنف' %}">{{ row.item_code }} — {{ row.item_name }}</td>
                 <td data-label="{% translate 'النوع' %}">
                   {{ row.kind }}
                   {% if row.is_substitute and row.substitute_reason %}
-                    <p class="muted">{{ row.substitute_reason }}</p>
+                    <p class="ui-text-muted">{{ row.substitute_reason }}</p>
                   {% endif %}
                 </td>
                 <td data-label="{% translate 'المُدخل' %}">
@@ -143,7 +143,7 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="{% if show_cost %}7{% else %}6{% endif %}" class="empty">
+                <td colspan="{% if show_cost %}7{% else %}6{% endif %}" class="ui-table__empty">
                   {% translate "لا توجد سطور فعلية موجبة على هذه الدفعة." %}
                 </td>
               </tr>
@@ -154,18 +154,18 @@
     </section>
 
     {# ---- Attribution, outside the arithmetic -------------------------- #}
-    <section class="formcard" id="kitchen-batch-links">
+    <section class="ui-form-card" id="kitchen-batch-links">
       <h2>{% translate "الروابط التفسيرية" %}</h2>
-      <p class="notice" role="note">{{ link_statement }}</p>
+      <p class="ui-notice" role="note">{{ link_statement }}</p>
 
       {% if may_link %}
-        <div class="rowactions">
-          <a class="btn btn--secondary"
+        <div class="ui-table__actions">
+          <a class="ui-button ui-button--secondary"
              href="{% url 'kitchen:batch_link_waste' batch.pk %}"
              hx-get="{% url 'kitchen:batch_link_waste' batch.pk %}"
              hx-target="#kitchen-batch-links"
              hx-swap="outerHTML">{% translate "ربط الهالك بالدفعة" %}</a>
-          <a class="btn btn--secondary"
+          <a class="ui-button ui-button--secondary"
              href="{% url 'kitchen:batch_link_custody' batch.pk %}"
              hx-get="{% url 'kitchen:batch_link_custody' batch.pk %}"
              hx-target="#kitchen-batch-links"
@@ -173,8 +173,8 @@
         </div>
       {% endif %}
 
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "النوع" %}</th>
@@ -183,7 +183,7 @@
               <th scope="col">{% translate "الكمية المنسوبة" %}</th>
               <th scope="col">{% translate "السبب" %}</th>
               <th scope="col">{% translate "الحالة" %}</th>
-              <th scope="col"><span class="sr-only">إجراءات</span></th>
+              <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
             </tr>
           </thead>
           <tbody>
@@ -200,13 +200,13 @@
                 <td data-label="{% translate 'السبب' %}">
                   {{ link.reason }}
                   {% if link.cancellation_reason %}
-                    <p class="muted">{% translate "سبب الإلغاء" %}: {{ link.cancellation_reason }}</p>
+                    <p class="ui-text-muted">{% translate "سبب الإلغاء" %}: {{ link.cancellation_reason }}</p>
                   {% endif %}
                 </td>
                 <td data-label="{% translate 'الحالة' %}">{{ link.get_status_display }}</td>
                 <td>
                   {% if link.is_active and may_link %}
-                    <a class="btn btn--ghost"
+                    <a class="ui-button ui-button--ghost"
                        href="{% url 'kitchen:batch_link_cancel' link.pk %}">
                       {% translate "إلغاء" %}
                     </a>
@@ -215,7 +215,7 @@
               </tr>
             {% empty %}
               <tr>
-                <td colspan="7" class="empty">
+                <td colspan="7" class="ui-table__empty">
                   {% translate "لا توجد روابط تفسيرية على هذه الدفعة. غيابها لا يغيّر أي رقم أعلاه." %}
                 </td>
               </tr>

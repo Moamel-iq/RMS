@@ -6,8 +6,8 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "نوع القناة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "نوع القناة" %}</span>
     <select name="category">
       <option value="">{% translate "كل الأنواع" %}</option>
       {% for value, label in categories %}
@@ -32,20 +32,20 @@
   {% for channel in channels %}
     <tr>
       <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ channel.code }}</code></bdi></td>
-      <td data-label="{% translate 'الاسم' %}">{{ channel.name_ar }}</td>
-      <td data-label="{% translate 'النوع' %}"><span class="chip">{{ channel.get_category_display }}</span></td>
+      <td data-label="{% translate 'الاسم' %}">{{ channel.name }}</td>
+      <td data-label="{% translate 'النوع' %}"><span class="ui-badge">{{ channel.get_category_display }}</span></td>
       <td data-label="{% translate 'وجهة التحصيل' %}">{{ channel.get_default_tender_display }}</td>
       <td data-label="{% translate 'مركز الكلفة' %}">
-        <bdi dir="ltr"><code>{{ channel.cost_center.code }}</code></bdi> {{ channel.cost_center.name_ar }}
+        <bdi dir="ltr"><code>{{ channel.cost_center.code }}</code></bdi> {{ channel.cost_center.name }}
       </td>
       <td data-label="{% translate 'عبر الصندوق' %}">
         {% if channel.requires_cashier %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}
       </td>
       <td data-label="{% translate 'الحالة' %}">
         {% if channel.is_active %}
-          <span class="chip chip--on">{% translate "فعّالة" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّالة" %}</span>
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشفة" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "مؤرشفة" %}</span>
         {% endif %}
       </td>
       {% include "inventory/_rowactions.html" with row=channel owner_id=channel.organization_id edit_url="sales:channel_update" archive_url="sales:channel_archive" reactivate_url="sales:channel_reactivate" %}

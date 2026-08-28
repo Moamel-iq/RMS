@@ -29,15 +29,15 @@
   {% for recipe in recipes %}
     <tr>
       <td><a href="{% url 'kitchen:recipe_detail' recipe.pk %}"><code>{{ recipe.code }}</code></a></td>
-      <td>{{ recipe.name_ar }}</td>
+      <td>{{ recipe.name }}</td>
       <td>{{ recipe.get_recipe_type_display }}</td>
-      <td>{% if recipe.category %}{{ recipe.category.name_ar }}{% else %}—{% endif %}</td>
+      <td>{% if recipe.category %}{{ recipe.category.name }}{% else %}—{% endif %}</td>
       <td>{% if recipe.output_item %}<code>{{ recipe.output_item.code }}</code>{% else %}—{% endif %}</td>
       <td>
         {% if recipe.is_active %}
-          <span class="chip chip--on">{% translate "فعّالة" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّالة" %}</span>
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشفة" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "مؤرشفة" %}</span>
         {% endif %}
       </td>
       {% include "inventory/_rowactions.html" with row=recipe owner_id=recipe.organization_id edit_url="kitchen:recipe_update" archive_url="kitchen:recipe_archive" reactivate_url="kitchen:recipe_reactivate" %}

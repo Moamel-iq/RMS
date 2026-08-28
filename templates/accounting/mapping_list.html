@@ -8,8 +8,8 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "المؤسسة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "المؤسسة" %}</span>
     <select name="organization">
       <option value="">{% translate "كل المؤسسات" %}</option>
       {% for organization in organizations %}
@@ -19,8 +19,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "الدور" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الدور" %}</span>
     <select name="role">
       <option value="">{% translate "كل الأدوار" %}</option>
       {% for role in roles %}
@@ -28,8 +28,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="state">
       <option value="">{% translate "الكل" %}</option>
       <option value="active" {% if selected_state == "active" %}selected{% endif %}>{% translate "سارٍ اليوم" %}</option>
@@ -40,14 +40,14 @@
 {% endblock %}
 
 {% block pageactions %}
-  <button class="btn btn--secondary" type="button"
+  <button class="ui-button ui-button--secondary" type="button"
           hx-get="{% url 'accounting:mapping_preview' %}"
           hx-target="#mapping-preview"
           hx-swap="innerHTML"
           hx-indicator="#list-loading">
     {% translate "معاينة بتاريخ" %}
   </button>
-  {% if create_url %}<a class="btn btn--primary" href="{{ create_url }}">{{ create_label }}</a>{% endif %}
+  {% if create_url %}<a class="ui-button ui-button--primary" href="{{ create_url }}">{{ create_label }}</a>{% endif %}
 {% endblock %}
 
 {% block columns %}
@@ -58,7 +58,7 @@
   <th>{% translate "سارٍ حتى" %}</th>
   <th>{% translate "الإصدار" %}</th>
   <th>{% translate "الحالة" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 
 {% block rows %}
@@ -68,7 +68,7 @@
       <td><code dir="ltr">{{ mapping.account_role.code }}</code></td>
       <td>
         <a href="{% url 'accounting:account_detail' mapping.account.pk %}">
-          <code dir="ltr">{{ mapping.account.code }}</code> {{ mapping.account.name_ar }}
+          <code dir="ltr">{{ mapping.account.code }}</code> {{ mapping.account.name }}
         </a>
       </td>
       <td><bdi dir="ltr">{{ mapping.effective_from|date:"Y-m-d" }}</bdi></td>
@@ -76,42 +76,42 @@
       <td><bdi dir="ltr">{{ mapping.version }}</bdi></td>
       <td>
         {% if not mapping.is_active %}
-          <span class="chip chip--muted">{% translate "مؤرشف" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "مؤرشف" %}</span>
         {% elif mapping.pk in used_mapping_ids %}
-          <span class="chip chip--ok">{% translate "مستعمَل" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "مستعمَل" %}</span>
         {% else %}
-          <span class="chip">{% translate "فعّال" %}</span>
+          <span class="ui-badge">{% translate "فعّال" %}</span>
         {% endif %}
       </td>
-      <td class="cell-actions">
+      <td class="ui-table__actions">
         {% if mapping.organization_id in manageable_ids %}
           {% if mapping.pk in used_mapping_ids %}
-            <span class="muted" title="{% translate 'رُحِّل عبر هذا الربط — يُغلق ويُستبدل بإصدار جديد' %}">
+            <span class="ui-text-muted" title="{% translate 'رُحِّل عبر هذا الربط — يُغلق ويُستبدل بإصدار جديد' %}">
               {% translate "لا يُعدَّل" %}
             </span>
           {% else %}
-            <a class="btn btn--secondary btn--sm" href="{% url 'accounting:mapping_amend' mapping.pk %}">{% translate "تعديل" %}</a>
+            <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:mapping_amend' mapping.pk %}">{% translate "تعديل" %}</a>
           {% endif %}
-          <a class="btn btn--secondary btn--sm" href="{% url 'accounting:mapping_close' mapping.pk %}">{% translate "إغلاق" %}</a>
+          <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:mapping_close' mapping.pk %}">{% translate "إغلاق" %}</a>
         {% endif %}
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="8" class="empty">{% translate "لا توجد روابط مطابقة." %}</td></tr>
+    <tr><td colspan="8" class="ui-table__empty">{% translate "لا توجد روابط مطابقة." %}</td></tr>
   {% endfor %}
 {% endblock %}
 
 {% block results %}
   {{ block.super }}
   {% if continuity_gaps %}
-    <section class="card card--warn" id="mapping-gaps">
-      <h2 class="card__title">{% translate "فجوات في التغطية" %}</h2>
-      <p class="card__hint">
+    <section class="ui-card ui-card--warning" id="mapping-gaps">
+      <h2 class="ui-card__title">{% translate "فجوات في التغطية" %}</h2>
+      <p class="ui-card__subtitle">
         {% translate "قيد التداخل يمنع إصدارين على اليوم نفسه، ولا شيء يمنع الفجوة — والفجوة تُكتشف عند فشل ترحيل مؤرَّخ داخلها بعد أشهر." %}
       </p>
-      <ul class="chip-list">
+      <ul class="ui-badge-list">
         {% for gap in continuity_gaps %}
-          <li class="chip chip--warn">
+          <li class="ui-badge ui-badge--warning">
             {{ gap.organization.code }} · <code dir="ltr">{{ gap.role.code }}</code> ·
             <bdi dir="ltr">{{ gap.starts|date:"Y-m-d" }}</bdi> — <bdi dir="ltr">{{ gap.ends|date:"Y-m-d" }}</bdi>
           </li>

@@ -133,7 +133,7 @@ class Command(SeedCommand):
             )
 
             self.write("")
-            self.write(f"=== {organization.code} — {organization.name_ar} / {branch.code} ===")
+            self.write(f"=== {organization.code} — {organization.name} / {branch.code} ===")
             self.write(f"  وصفات جديدة   : {len(created)}")
             self.write(f"  وصفات موجودة  : {len(skipped)}")
             self.write(f"  سطور مخزنية   : {lines}")
@@ -233,7 +233,7 @@ class Command(SeedCommand):
             categories[row["code"]] = create_menu_category(
                 organization=organization,
                 code=row["code"],
-                name_ar=row["name_ar"],
+                name=row["name"],
                 display_order=int(row.get("display_order", 1)),
             )
         return categories
@@ -296,8 +296,7 @@ class Command(SeedCommand):
             if "notes_recipe_ar" in fix or "description_ar" in fix:
                 update_recipe(
                     recipe=recipe,
-                    name_ar=recipe.name_ar,
-                    name_en=recipe.name_en,
+                    name=recipe.name,
                     description_ar=fix.get("description_ar", recipe.description_ar),
                     category=recipe.category,
                     output_item=recipe.output_item,
@@ -368,7 +367,7 @@ class Command(SeedCommand):
                 menu_item = create_menu_item(
                     organization=organization,
                     code=row["code"],
-                    name_ar=row["name_ar"],
+                    name=row["name"],
                     category=menu_categories[row["category"]],
                     fulfillment_source=FulfillmentSource.DIRECT_STOCK,
                     inventory_item=item,
@@ -437,7 +436,7 @@ class Command(SeedCommand):
             recipe = create_recipe(
                 organization=organization,
                 code=code,
-                name_ar=row["name_ar"],
+                name=row["name"],
                 recipe_type=RecipeType.BATCH if batch else RecipeType.PORTION,
                 description_ar=row.get("description_ar", ""),
                 category=(self._batch_category(organization) if batch else recipe_category),
@@ -489,7 +488,7 @@ class Command(SeedCommand):
             add_recipe_serving(
                 version=version,
                 code=serving["code"],
-                name_ar=serving["name_ar"],
+                name=serving["name"],
                 serving_quantity=Decimal(serving["quantity"]),
                 serving_unit=units[serving["unit"]],
                 is_primary=True,
@@ -539,7 +538,7 @@ class Command(SeedCommand):
             item = create_menu_item(
                 organization=organization,
                 code=menu["code"],
-                name_ar=menu["name_ar"],
+                name=menu["name"],
                 recipe=recipe,
                 serving_code=serving_code,
                 category=category,

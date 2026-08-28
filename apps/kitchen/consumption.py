@@ -714,7 +714,7 @@ def kitchen_warehouse_flow(user: User, filters: FlowFilters) -> WarehouseFlow:
                 warehouse_code=movement.warehouse.code,
                 item_id=movement.item_id,
                 item_code=item.code,
-                item_name=item.name_ar,
+                item_name=item.name,
                 base_unit_code=item.base_unit.code,
             )
             flows[group] = flow
@@ -995,7 +995,7 @@ def batch_actual_consumption(
                     source_line_label=line.component_label_path,
                     source_recipe_line_id=line.source_line_id,
                     item_code=actual.item.code,
-                    item_name=actual.item.name_ar,
+                    item_name=actual.item.name,
                     base_unit_code=actual.item.base_unit.code,
                     entered_quantity=actual.entered_quantity,
                     entered_unit_code=actual.entered_unit.code

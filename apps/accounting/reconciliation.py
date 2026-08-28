@@ -439,10 +439,10 @@ def verify_statement_mapping(organization: Organization) -> list[Finding]:
             continue
         if account_balance(account=account) != ZERO:
             findings.append(
-                _error("unmapped_account_with_balance", f"{account.code} {account.name_ar}")
+                _error("unmapped_account_with_balance", f"{account.code} {account.name}")
             )
         else:
-            findings.append(_advisory("unmapped_account", f"{account.code} {account.name_ar}"))
+            findings.append(_advisory("unmapped_account", f"{account.code} {account.name}"))
     return findings
 
 

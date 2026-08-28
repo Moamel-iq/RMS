@@ -64,6 +64,7 @@ LOCAL_APPS: list[str] = [
     "apps.accounting",
     "apps.inventory",
     "apps.procurement",
+    "apps.supplier_quotes",
     "apps.kitchen",
     "apps.sales",
     "apps.hr",
@@ -98,12 +99,18 @@ MIDDLEWARE = [
     # Serves the immutable files built by collectstatic in production. It must
     # follow SecurityMiddleware so security headers apply to static responses.
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    # Measure dynamic requests and database calls, then compress their
+    # responses. WhiteNoise handles immutable static files before either one.
+    "config.middleware.RequestPerformanceMiddleware",
+    "django.middleware.gzip.GZipMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     # Must sit after SessionMiddleware and before CommonMiddleware, which
     # relies on the active locale. Replaces django.middleware.locale.
     # LocaleMiddleware so the browser's Accept-Language cannot flip an
     # Arabic RTL interface into a left-to-right layout.
     "config.middleware.ExplicitLocaleMiddleware",
+    # Full pages and HTMX fragments share URLs but never cache entries.
+    "config.middleware.HtmxVaryMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -116,6 +123,13 @@ MIDDLEWARE = [
     # event would record no actor.
     "apps.core.middleware.AuditContextMiddleware",
 ]
+
+# Safe request/DB timing. The middleware records route names and numeric
+# timings only; SQL, bound parameters, paths and request bodies are never kept.
+PERFORMANCE_MONITORING_ENABLED = env.bool("DJANGO_PERFORMANCE_MONITORING", default=True)
+PERFORMANCE_LOG_ALL_REQUESTS = env.bool("DJANGO_PERFORMANCE_LOG_ALL", default=True)
+PERFORMANCE_SLOW_REQUEST_MS = env.int("DJANGO_SLOW_REQUEST_MS", default=500)
+PERFORMANCE_SLOW_DB_QUERY_MS = env.int("DJANGO_SLOW_DB_QUERY_MS", default=100)
 
 ROOT_URLCONF = "config.urls"
 

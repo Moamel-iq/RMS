@@ -157,7 +157,7 @@ class TestMasterDataApi:
                 {
                     "organization_id": organization.pk,
                     "code": "oil-1",
-                    "name_ar": "زيت",
+                    "name": "زيت",
                     "category_id": leaf_category.pk,
                     "item_type": ItemType.RAW_MATERIAL,
                     "base_unit_id": kilogram.pk,
@@ -186,7 +186,7 @@ class TestMasterDataApi:
                 {
                     "organization_id": organization.pk,
                     "code": "STEAL",
-                    "name_ar": "سرقة",
+                    "name": "سرقة",
                     "category_id": leaf_category.pk,
                     "item_type": ItemType.RAW_MATERIAL,
                     "base_unit_id": kilogram.pk,
@@ -219,7 +219,7 @@ class TestMasterDataApi:
                 {
                     "organization_id": organization.pk,
                     "code": "NOPE",
-                    "name_ar": "لا",
+                    "name": "لا",
                     "category_id": leaf_category.pk,
                     "item_type": ItemType.RAW_MATERIAL,
                     "base_unit_id": kilogram.pk,
@@ -245,7 +245,7 @@ class TestMasterDataApi:
                 {
                     "organization_id": organization.pk,
                     "code": "BAD",
-                    "name_ar": "خطأ",
+                    "name": "خطأ",
                     "category_id": category.pk,
                     "item_type": ItemType.RAW_MATERIAL,
                     "base_unit_id": kilogram.pk,
@@ -401,7 +401,7 @@ class TestAdminLockdown:
         url = reverse("admin:inventory_inventoryitem_change", args=[rice.pk])
 
         assert client.get(url).status_code == 200
-        client.post(url, data={"name_ar": "اسم مزيف"})
+        client.post(url, data={"name": "اسم مزيف"})
 
         rice.refresh_from_db()
-        assert rice.name_ar != "اسم مزيف"
+        assert rice.name != "اسم مزيف"

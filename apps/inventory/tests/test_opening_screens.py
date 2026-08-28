@@ -332,25 +332,6 @@ class TestMappingScreens:
         assert client_for(manager).get(reverse("inventory:mapping_list")).status_code == 403
 
 
-class TestReconciliationScreen:
-    def test_it_renders_and_verifies_for_accounting_authority(
-        self,
-        accounting_manager: User,
-        client_for: Any,
-        organization: Organization,
-        accounting: None,
-    ) -> None:
-        client = client_for(accounting_manager)
-        url = reverse("inventory:reconciliation")
-        assert client.get(url).status_code == 200
-        verified = client.get(url, {"organization": organization.pk})
-        assert verified.status_code == 200
-        assert "متطابقة" in verified.content.decode()
-
-    def test_a_storekeeper_is_refused(self, storekeeper: User, client_for: Any) -> None:
-        assert client_for(storekeeper).get(reverse("inventory:reconciliation")).status_code == 403
-
-
 class TestProvenanceRegression:
     """§U: the two halves of authorization must come from the same place."""
 

@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# One receipt, issue, or return: header, lines, totals, and the actions its #}
@@ -8,30 +8,30 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="inventory-page inventory-detail-page" aria-labelledby="document-title">
-    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--detail" aria-labelledby="document-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{{ back_url }}">{% translate "المستندات المخزنية" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ document.get_document_type_display }}</span>
     </nav>
 
-    <header class="pagehead inventory-document-hero">
+    <header class="ui-page-header ui-document-hero">
       <div>
-        <div class="inventory-detail-kicker">
+        <div class="ui-document-hero__meta">
           {% include "components/status_badge.html" with status=document.status label=document.get_status_display %}
           {% if document.document_number %}<code><bdi dir="ltr">{{ document.document_number }}</bdi></code>{% endif %}
         </div>
-        <h1 class="pagehead__title" id="document-title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{% translate "تفاصيل المستند وسطور أثره المخزني والمحاسبي." %}</p>
+        <h1 class="ui-page-header__title" id="document-title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">{% translate "تفاصيل المستند وسطور أثره المخزني والمحاسبي." %}</p>
       </div>
-    <div class="rowactions">
-      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
+    <div class="ui-actions">
+      <a class="ui-button ui-button--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
       {% if is_draft and can_prepare %}
         <form method="post" action="{% url action_url_names.delete document.pk %}"
               data-confirm="{% translate 'سيُحذف هذا المستند ومسودته نهائياً. هل تريد المتابعة؟' %}"
               data-confirm-title="{% translate 'حذف المسودة' %}">
           {% csrf_token %}
-          <button class="btn btn--danger" type="submit">{% translate "حذف المسودة" %}</button>
+          <button class="ui-button ui-button--danger" type="submit">{% translate "حذف المسودة" %}</button>
         </form>
       {% endif %}
       {% if is_draft and can_post %}
@@ -39,53 +39,53 @@
               data-confirm="{% translate 'سيُرحّل المستند ويُثبت أثره في المخزون والمحاسبة، ولن يعود قابلاً للتعديل. هل تريد المتابعة؟' %}"
               data-confirm-title="{% translate 'ترحيل المستند' %}">
           {% csrf_token %}
-          <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+          <button class="ui-button ui-button--primary" type="submit">{% translate "ترحيل" %}</button>
         </form>
       {% endif %}
     </div>
     </header>
 
-    <dl class="factgrid" aria-label="{% translate 'بيانات المستند' %}">
+    <dl class="ui-definition-list" aria-label="{% translate 'بيانات المستند' %}">
       <div><dt>{% translate "نوع المستند" %}</dt><dd>{{ document.get_document_type_display }}</dd></div>
-      <div><dt>{% translate "المخزن" %}</dt><dd><code><bdi dir="ltr">{{ document.warehouse.code }}</bdi></code> {{ document.warehouse.name_ar }}</dd></div>
-      <div><dt>{% translate "الفرع" %}</dt><dd><code><bdi dir="ltr">{{ document.branch.code }}</bdi></code> {{ document.branch.name_ar }}</dd></div>
+      <div><dt>{% translate "المخزن" %}</dt><dd><code><bdi dir="ltr">{{ document.warehouse.code }}</bdi></code> {{ document.warehouse.name }}</dd></div>
+      <div><dt>{% translate "الفرع" %}</dt><dd><code><bdi dir="ltr">{{ document.branch.code }}</bdi></code> {{ document.branch.name }}</dd></div>
       <div><dt>{% translate "يوم العمل" %}</dt><dd><bdi dir="ltr">{{ document.business_date|date:"Y-m-d" }}</bdi></dd></div>
       <div><dt>{% translate "مرجع الإثبات" %}</dt><dd><bdi dir="ltr">{{ document.evidence_reference }}</bdi></dd></div>
       <div><dt>{% translate "أنشأه" %}</dt><dd>{{ document.created_by|default:"—" }}</dd></div>
-      {% if document.cost_center %}<div><dt>{% translate "مركز الكلفة" %}</dt><dd><code><bdi dir="ltr">{{ document.cost_center.code }}</bdi></code> {{ document.cost_center.name_ar }}</dd></div>{% endif %}
+      {% if document.cost_center %}<div><dt>{% translate "مركز الكلفة" %}</dt><dd><code><bdi dir="ltr">{{ document.cost_center.code }}</bdi></code> {{ document.cost_center.name }}</dd></div>{% endif %}
       {% if document.posted_by %}<div><dt>{% translate "رحّله" %}</dt><dd>{{ document.posted_by }}</dd></div>{% endif %}
     </dl>
 
   {% if is_posted and can_reverse %}
-    <form class="formcard" method="post" action="{% url action_url_names.reverse document.pk %}"
+    <form class="ui-card ui-form-card" method="post" action="{% url action_url_names.reverse document.pk %}"
           data-confirm="{% translate 'سيُنشئ هذا الإجراء آثاراً عكسية في المخزون والمحاسبة. هل تريد عكس المستند؟' %}"
           data-confirm-title="{% translate 'عكس المستند' %}">
       {% csrf_token %}
-      <div class="formgrid">
-        <div class="formrow">
-          <label class="formrow__label" for="reverse-reason">
+      <div class="ui-form-grid">
+        <div class="ui-field">
+          <label class="ui-field__label" for="reverse-reason">
             {% translate "عكس المستند كاملاً — السبب" %}
           </label>
           <textarea id="reverse-reason" name="reason" rows="2" required></textarea>
         </div>
       </div>
-      <div class="formactions">
-        <button class="btn btn--danger" type="submit">{% translate "عكس المستند" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--danger" type="submit">{% translate "عكس المستند" %}</button>
       </div>
     </form>
   {% endif %}
 
   <div id="operational-lines-workspace" aria-live="polite">
   <section aria-labelledby="document-lines-title">
-    <h2 class="section__title" id="document-lines-title">{% translate "سطور المستند" %}</h2>
-    <div class="tablewrap responsive-table">
-    <table class="table data-table">
+    <h2 class="ui-section-title" id="document-lines-title">{% translate "سطور المستند" %}</h2>
+    <div class="ui-data-card ui-table-scroll">
+    <table class="ui-table ui-table--responsive">
       <thead>
         <tr>
           <th scope="col">#</th>
           <th scope="col">{% translate "الصنف" %}</th>
           <th scope="col">{% translate "الدفعة" %}</th>
-          {% if is_waste %}<th scope="col">{% translate "السبب" %}</th>{% endif %}
+          {% if is_waste %}<th scope="col">{% translate "ملاحظة" %}</th>{% endif %}
           <th scope="col">{% translate "الكمية" %}</th>
           <th scope="col">{% translate "الوحدة" %}</th>
           {% if show_cost %}
@@ -103,21 +103,12 @@
           <tr>
             <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
             <td data-label="{% translate 'الصنف' %}">
-              <code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name_ar }}
-              {% if line.source_issue_line %}
-                <br><span class="muted">
-                  {% translate "مقابل صرف" %}
-                  <code><bdi dir="ltr">{{ line.source_issue_line.document.document_number }}</bdi></code>
-                </span>
-              {% endif %}
+              <code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name }}
             </td>
             <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
             {% if is_waste %}
-              <td data-label="{% translate 'السبب' %}">
-                <code><bdi dir="ltr">{{ line.reason_code.code }}</bdi></code> {{ line.reason_code.name_ar }}
-                {% if line.line_comment %}
-                  <br><span class="muted">{{ line.line_comment }}</span>
-                {% endif %}
+              <td data-label="{% translate 'ملاحظة' %}">
+                {% if line.line_comment %}{{ line.line_comment }}{% else %}—{% endif %}
               </td>
             {% endif %}
             {# Technical values: a period, never a locale comma. #}
@@ -128,7 +119,7 @@
                 {% if line.unit_cost %}
                   <code><bdi dir="ltr">{{ line.unit_cost|stringformat:"f" }}</bdi></code>
                 {% else %}
-                  <span class="muted">{% translate "يُحسم عند الترحيل" %}</span>
+                  <span class="ui-text-muted">{% translate "يُحسم عند الترحيل" %}</span>
                 {% endif %}
               </td>
               <td data-label="{% translate 'القيمة' %}">
@@ -164,8 +155,8 @@
                       action="{% url line_delete_url_name document.pk line.pk %}"
                       data-confirm="{% translate 'سيُحذف هذا السطر من المسودة. هل تريد المتابعة؟' %}">
                   {% csrf_token %}
-                  <button class="btn btn--danger btn--sm" type="submit"
-                          aria-label="{% translate 'حذف سطر الصنف' %} {{ line.item.name_ar }}">
+                  <button class="ui-button ui-button--danger ui-button--small" type="submit"
+                          aria-label="{% translate 'حذف سطر الصنف' %} {{ line.item.name }}">
                     {% translate "حذف" %}
                   </button>
                 </form>
@@ -196,7 +187,7 @@
   </section>
 
   {% if document.journal_entry %}
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <p>
         {% translate "قيد اليومية:" %}
         <code><bdi dir="ltr">{{ document.journal_entry.entry_number }}</bdi></code>
@@ -206,40 +197,31 @@
         {% endif %}
       </p>
       {% if document.reversal_reason %}
-        <p class="muted">{% translate "سبب العكس:" %} {{ document.reversal_reason }}</p>
+        <p class="ui-text-muted">{% translate "سبب العكس:" %} {{ document.reversal_reason }}</p>
       {% endif %}
     </div>
   {% endif %}
 
   {% if is_draft and can_prepare %}
-    <form class="formcard document-line-form" method="post" action="{{ request.path }}" novalidate
+    <form class="ui-card ui-form-card ui-line-form" method="post" action="{{ request.path }}" novalidate
           hx-post="{{ request.path }}" hx-target="#operational-lines-workspace" hx-swap="outerHTML"
           hx-disabled-elt="find button[type='submit']" hx-indicator="#document-line-saving">
       {% csrf_token %}
-      <h2 class="section__title">{% translate "إضافة سطر" %}</h2>
+      <h2 class="ui-section-title">{% translate "إضافة سطر" %}</h2>
       {% include "components/form_error_summary.html" with form=line_form %}
 
-      <p class="document-line-form__intro">
-        {% if is_receipt %}
-          {% translate "للتسجيل السريع: اختر الصنف، ثم أدخل الكمية وكلفة الوحدة." %}
-        {% else %}
-          {% translate "للتسجيل السريع: اختر الصنف ثم أدخل الكمية." %}
-        {% endif %}
+      <p class="ui-line-form__intro">
+        {% translate "للتسجيل السريع: اختر الصنف ثم أدخل الكمية." %}
       </p>
-      <div class="formgrid document-line-form__primary">
+      <div class="ui-form-grid ui-line-form__primary">
         {% include "settings/_field.html" with field=line_form.item %}
-        {% if is_return %}{% include "settings/_field.html" with field=line_form.source_issue_line %}{% endif %}
         {% include "settings/_field.html" with field=line_form.base_quantity %}
-        {% if is_receipt %}{% include "settings/_field.html" with field=line_form.unit_cost %}{% endif %}
-        {% if is_waste %}
-          {% include "settings/_field.html" with field=line_form.reason_code %}
-          {% include "settings/_field.html" with field=line_form.line_comment %}
-        {% endif %}
+        {% if is_waste %}{% include "settings/_field.html" with field=line_form.line_comment %}{% endif %}
       </div>
-      <details class="document-line-form__more"{% if line_form.lot_code.errors or line_form.lot_expiry.errors or line_form.package_conversion.errors or line_form.entered_package_quantity.errors or line_form.measured_base_quantity.errors %} open{% endif %}>
+      <details class="ui-disclosure"{% if line_form.lot_code.errors or line_form.lot_expiry.errors or line_form.package_conversion.errors or line_form.entered_package_quantity.errors or line_form.measured_base_quantity.errors %} open{% endif %}>
         <summary>{% translate "خيارات إضافية: دفعة أو إدخال بالعبوات" %}</summary>
         <p>{% translate "استخدمها فقط للصنف الذي يتتبع الدفعات أو عند العد بالعبوات." %}</p>
-        <div class="formgrid">
+        <div class="ui-form-grid">
           {% include "settings/_field.html" with field=line_form.lot_code %}
           {% include "settings/_field.html" with field=line_form.lot_expiry %}
           {% include "settings/_field.html" with field=line_form.package_conversion %}
@@ -247,11 +229,11 @@
           {% include "settings/_field.html" with field=line_form.measured_base_quantity %}
         </div>
       </details>
-      <div class="formactions">
-        <span class="htmx-indicator document-line-form__saving" id="document-line-saving" role="status">
+      <div class="ui-form-actions">
+        <span class="htmx-indicator ui-line-form__saving" id="document-line-saving" role="status">
           {% translate "جارٍ إضافة السطر…" %}
         </span>
-        <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
+        <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة السطر" %}</button>
       </div>
     </form>
   {% endif %}

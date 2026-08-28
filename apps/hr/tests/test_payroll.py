@@ -99,7 +99,7 @@ BAGHDAD = ZoneInfo("Asia/Baghdad")
 
 @pytest.fixture
 def organization() -> Organization:
-    organization = create_organization(code="KM-PAY", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM-PAY", name="خان مندي")
     configure_accounting(organization=organization, fiscal_year_start_month=1)
     open_fiscal_year(organization=organization, year=DAY.year)
     return organization
@@ -107,7 +107,7 @@ def organization() -> Organization:
 
 @pytest.fixture
 def other_organization() -> Organization:
-    return create_organization(code="OTHER-PAY", name_ar="منافس", name_en="Other")
+    return create_organization(code="OTHER-PAY", name="منافس")
 
 
 @pytest.fixture
@@ -115,8 +115,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK-PAY",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         timezone="Asia/Baghdad",
         business_day_start_time=time(9),
     )
@@ -184,8 +183,7 @@ def employee(organization: Organization, branch: Branch, maker: User) -> Employe
     return create_employee(
         organization=organization,
         code="PAY-001",
-        name_ar="موظف الرواتب",
-        name_en="Payroll Employee",
+        name="موظف الرواتب",
         phone="",
         email="",
         identity_number="",
@@ -250,8 +248,7 @@ def assigned(employee: Employee, branch: Branch, maker: User) -> ShiftAssignment
         branch=branch,
         code="DAY",
         actor=maker,
-        name_ar="صباحية",
-        name_en="Day",
+        name="صباحية",
         start_time=time(9),
         end_time=time(17),
         crosses_midnight=False,
@@ -487,7 +484,7 @@ def test_calculation_snapshots_approved_inputs_and_is_idempotent(
     assert payslip.status_code == 200
     payslip_html = payslip.content.decode()
     assert "قسيمة راتب" in payslip_html
-    assert employee.name_ar in payslip_html
+    assert employee.name in payslip_html
     assert "1087500.000" in payslip_html
     assert "687500.000" in payslip_html
     assert "BANK-PAY-1" in payslip_html

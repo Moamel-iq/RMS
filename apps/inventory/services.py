@@ -152,8 +152,7 @@ def create_item_category(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     parent: ItemCategory | None = None,
 ) -> ItemCategory:
     """Add a category. Depth and parentage are validated before anything is written."""
@@ -162,8 +161,7 @@ def create_item_category(
     category = ItemCategory(
         organization=organization,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         parent=parent,
         depth=depth,
     )
@@ -177,8 +175,7 @@ def create_item_category(
 def update_item_category(
     *,
     category: ItemCategory,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     parent: ItemCategory | None = None,
     is_active: bool = True,
 ) -> ItemCategory:
@@ -199,8 +196,7 @@ def update_item_category(
         )
         category.parent = parent
 
-    category.name_ar = name_ar.strip()
-    category.name_en = name_en.strip()
+    category.name = name.strip()
     category.is_active = is_active
     category.full_clean()
     category.save()
@@ -223,9 +219,7 @@ def update_item_category(
 
 
 @transaction.atomic
-def create_package_unit(
-    *, organization: Organization, code: str, name_ar: str, name_en: str = ""
-) -> PackageUnit:
+def create_package_unit(*, organization: Organization, code: str, name: str) -> PackageUnit:
     """
     Add a package unit — carton, sack, tin.
 
@@ -236,8 +230,7 @@ def create_package_unit(
     package_unit = PackageUnit(
         organization=organization,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
     )
     package_unit.full_clean()
     package_unit.save()
@@ -249,11 +242,10 @@ def create_package_unit(
 
 @transaction.atomic
 def update_package_unit(
-    *, package_unit: PackageUnit, name_ar: str, name_en: str = "", is_active: bool = True
+    *, package_unit: PackageUnit, name: str, is_active: bool = True
 ) -> PackageUnit:
     before = snapshot(PackageUnit.objects.get(pk=package_unit.pk))
-    package_unit.name_ar = name_ar.strip()
-    package_unit.name_en = name_en.strip()
+    package_unit.name = name.strip()
     package_unit.is_active = is_active
     package_unit.full_clean()
     package_unit.save()
@@ -285,11 +277,10 @@ def create_item(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
+    name: str,
     category: ItemCategory,
     item_type: str,
     base_unit: UnitOfMeasure,
-    name_en: str = "",
     tracks_lots: bool = False,
     tracks_expiry: bool = False,
     shelf_life_days: int | None = None,
@@ -313,8 +304,7 @@ def create_item(
     item = InventoryItem(
         organization=organization,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         category=category,
         item_type=item_type,
         base_unit=base_unit,
@@ -344,10 +334,9 @@ def _item_has_movements(item: InventoryItem) -> bool:
 def update_item(
     *,
     item: InventoryItem,
-    name_ar: str,
+    name: str,
     category: ItemCategory,
     item_type: str,
-    name_en: str = "",
     tracks_lots: bool | None = None,
     tracks_expiry: bool | None = None,
     shelf_life_days: int | None = None,
@@ -390,8 +379,7 @@ def update_item(
     else:
         verify_control_account = None
 
-    item.name_ar = name_ar.strip()
-    item.name_en = name_en.strip()
+    item.name = name.strip()
     item.category = category
     item.item_type = item_type
     if tracks_lots is not None:
@@ -845,8 +833,7 @@ def create_warehouse(
     *,
     branch: Branch,
     code: str,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     warehouse_type: str = WarehouseType.PHYSICAL,
 ) -> Warehouse:
     """
@@ -866,8 +853,7 @@ def create_warehouse(
     warehouse = Warehouse(
         branch=branch,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         warehouse_type=warehouse_type,
         is_system=False,
     )
@@ -883,9 +869,7 @@ def create_warehouse(
 
 
 @transaction.atomic
-def update_warehouse(
-    *, warehouse: Warehouse, name_ar: str, name_en: str = "", is_active: bool = True
-) -> Warehouse:
+def update_warehouse(*, warehouse: Warehouse, name: str, is_active: bool = True) -> Warehouse:
     """
     Rename or archive a warehouse.
 
@@ -915,8 +899,7 @@ def update_warehouse(
             )
 
     before = snapshot(Warehouse.objects.get(pk=warehouse.pk))
-    warehouse.name_ar = name_ar.strip()
-    warehouse.name_en = name_en.strip()
+    warehouse.name = name.strip()
     warehouse.is_active = is_active
     warehouse.full_clean()
     warehouse.save()
@@ -949,8 +932,7 @@ def ensure_in_transit_warehouse(*, branch: Branch) -> Warehouse:
     warehouse = Warehouse(
         branch=branch,
         code="IN-TRANSIT",
-        name_ar="بضاعة بالطريق",
-        name_en="In Transit",
+        name="بضاعة بالطريق",
         warehouse_type=WarehouseType.IN_TRANSIT,
         is_system=True,
     )

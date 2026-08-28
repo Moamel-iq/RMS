@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# Every offer against one request, normalised so they can be compared.      #}
@@ -8,39 +8,39 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{% translate "مقارنة العروض" %}</h1>
-        <p class="pagehead__hint">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{% translate "مقارنة العروض" %}</h1>
+        <p class="ui-page-header__hint">
           {% if request_document.number %}<span dir="ltr">{{ request_document.number }}</span> — {% endif %}
           {{ request_document.purpose }}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'procurement:purchase_request_detail' request_document.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:purchase_request_detail' request_document.pk %}">
           {% translate "الطلب" %}
         </a>
       </div>
     </div>
 
-    <div class="formcard">
-      <p class="muted">
+    <div class="ui-card ui-form-card">
+      <p class="ui-text-muted">
         {% translate "الأسعار مُوحَّدة إلى وحدة الصنف الأساسية. أجور النقل تُعرض منفصلة وداخل الكلفة النهائية معاً — إخفاؤها داخل السعر يجعل مورداً غالي التوصيل يبدو رخيصاً، وإخفاؤها خارجه يجعله أرخص مما هو." %}
       </p>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "النظام يرتّب ويُبرز فقط. الاختيار قرار بشري، والسبب يُسجَّل." %}
       </p>
     </div>
 
     {% if request_document.awarded_quotation %}
-      <div class="formcard">
+      <div class="ui-card ui-form-card">
         <h2>{% translate "العرض المُرسى" %}</h2>
-        <dl class="detailgrid">
+        <dl class="ui-detail-grid">
           <dt>{% translate "العرض" %}</dt>
           <dd><code dir="ltr">{{ request_document.awarded_quotation.number }}</code></dd>
           <dt>{% translate "المورد" %}</dt>
-          <dd>{{ request_document.awarded_quotation.supplier.name_ar }}</dd>
+          <dd>{{ request_document.awarded_quotation.supplier.name }}</dd>
           <dt>{% translate "أرساه" %}</dt>
           <dd>{{ request_document.awarded_by.username }}</dd>
           <dt>{% translate "بتاريخ" %}</dt>
@@ -48,19 +48,19 @@
           <dt>{% translate "السبب" %}</dt>
           <dd>{{ request_document.award_reason }}</dd>
         </dl>
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "الإرساء لا يُنشئ مخزوناً ولا قيداً ولا ذمة. أمر الشراء هو الالتزام." %}
         </p>
       </div>
     {% endif %}
 
-    <form class="filters"
+    <form class="ui-filter-bar"
           hx-get="{% url 'procurement:quotation_comparison' request_document.pk %}"
           hx-target="#comparison-results"
           hx-swap="outerHTML"
-          hx-trigger="change from:find select">
-      <label class="field">
-        <span class="field__label">{% translate "الصنف" %}</span>
+          hx-trigger="change">
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "الصنف" %}</span>
         <select name="item">
           <option value="">{% translate "كل الأصناف" %}</option>
           {% for code in items %}
@@ -68,12 +68,12 @@
           {% endfor %}
         </select>
       </label>
-      <noscript><button class="btn btn--ghost" type="submit">{% translate "تطبيق" %}</button></noscript>
+      <noscript><button class="ui-button ui-button--ghost" type="submit">{% translate "تطبيق" %}</button></noscript>
     </form>
 
     {# The partial's root IS the table: htmx swaps it in place and the wrapper  #}
     {# stays, so the comparison keeps its card edge across every filter change. #}
-    <div class="tablewrap">
+    <div class="ui-data-card ui-table-scroll">
       {% include "procurement/_comparison_rows.html" %}
     </div>
   </section>

@@ -46,16 +46,16 @@ pytestmark = pytest.mark.django_db
 
 class TestCategoryHierarchy:
     def test_code_is_unique_per_organization(self, organization: Organization) -> None:
-        create_item_category(organization=organization, code="DRY", name_ar="جافة")
+        create_item_category(organization=organization, code="DRY", name="جافة")
 
         with pytest.raises(ValidationError):
-            create_item_category(organization=organization, code="DRY", name_ar="مكرر")
+            create_item_category(organization=organization, code="DRY", name="مكرر")
 
     def test_the_same_code_is_allowed_in_another_organization(
         self, organization: Organization, other_organization: Organization
     ) -> None:
-        create_item_category(organization=organization, code="DRY", name_ar="جافة")
-        rival = create_item_category(organization=other_organization, code="DRY", name_ar="جافة")
+        create_item_category(organization=organization, code="DRY", name="جافة")
+        rival = create_item_category(organization=other_organization, code="DRY", name="جافة")
 
         assert rival.pk is not None
 
@@ -63,10 +63,10 @@ class TestCategoryHierarchy:
         self, organization: Organization, category: ItemCategory
     ) -> None:
         child = create_item_category(
-            organization=organization, code="MEAT", name_ar="لحوم", parent=category
+            organization=organization, code="MEAT", name="لحوم", parent=category
         )
         grandchild = create_item_category(
-            organization=organization, code="BEEF", name_ar="بقر", parent=child
+            organization=organization, code="BEEF", name="بقر", parent=child
         )
 
         assert (category.depth, child.depth, grandchild.depth) == (1, 2, 3)
@@ -75,15 +75,15 @@ class TestCategoryHierarchy:
         self, organization: Organization, category: ItemCategory
     ) -> None:
         child = create_item_category(
-            organization=organization, code="MEAT", name_ar="لحوم", parent=category
+            organization=organization, code="MEAT", name="لحوم", parent=category
         )
         grandchild = create_item_category(
-            organization=organization, code="BEEF", name_ar="بقر", parent=child
+            organization=organization, code="BEEF", name="بقر", parent=child
         )
 
         with pytest.raises(ValidationError) as caught:
             create_item_category(
-                organization=organization, code="RIBEYE", name_ar="ريب آي", parent=grandchild
+                organization=organization, code="RIBEYE", name="ريب آي", parent=grandchild
             )
 
         assert caught.value.code == "category_too_deep"
@@ -92,11 +92,11 @@ class TestCategoryHierarchy:
         self, organization: Organization, category: ItemCategory
     ) -> None:
         child = create_item_category(
-            organization=organization, code="MEAT", name_ar="لحوم", parent=category
+            organization=organization, code="MEAT", name="لحوم", parent=category
         )
 
         with pytest.raises(ValidationError) as caught:
-            update_item_category(category=category, name_ar="أغذية", parent=child)
+            update_item_category(category=category, name="أغذية", parent=child)
 
         assert caught.value.code == "category_cycle"
 
@@ -104,14 +104,14 @@ class TestCategoryHierarchy:
         self, organization: Organization, category: ItemCategory
     ) -> None:
         child = create_item_category(
-            organization=organization, code="MEAT", name_ar="لحوم", parent=category
+            organization=organization, code="MEAT", name="لحوم", parent=category
         )
         grandchild = create_item_category(
-            organization=organization, code="BEEF", name_ar="بقر", parent=child
+            organization=organization, code="BEEF", name="بقر", parent=child
         )
 
         with pytest.raises(ValidationError) as caught:
-            update_item_category(category=category, name_ar="أغذية", parent=grandchild)
+            update_item_category(category=category, name="أغذية", parent=grandchild)
 
         assert caught.value.code == "category_cycle"
 
@@ -123,18 +123,16 @@ class TestCategoryHierarchy:
         hung under a level-two parent, because its leaf would land at four.
         """
         child = create_item_category(
-            organization=organization, code="MEAT", name_ar="لحوم", parent=category
+            organization=organization, code="MEAT", name="لحوم", parent=category
         )
-        create_item_category(organization=organization, code="BEEF", name_ar="بقر", parent=child)
-        other_root = create_item_category(
-            organization=organization, code="SUPPLIES", name_ar="لوازم"
-        )
+        create_item_category(organization=organization, code="BEEF", name="بقر", parent=child)
+        other_root = create_item_category(organization=organization, code="SUPPLIES", name="لوازم")
         other_child = create_item_category(
-            organization=organization, code="CLEAN", name_ar="تنظيف", parent=other_root
+            organization=organization, code="CLEAN", name="تنظيف", parent=other_root
         )
 
         with pytest.raises(ValidationError) as caught:
-            update_item_category(category=child, name_ar="لحوم", parent=other_child)
+            update_item_category(category=child, name="لحوم", parent=other_child)
 
         assert caught.value.code == "category_too_deep"
 
@@ -142,13 +140,13 @@ class TestCategoryHierarchy:
         self, organization: Organization, category: ItemCategory
     ) -> None:
         child = create_item_category(
-            organization=organization, code="MEAT", name_ar="لحوم", parent=category
+            organization=organization, code="MEAT", name="لحوم", parent=category
         )
         grandchild = create_item_category(
-            organization=organization, code="BEEF", name_ar="بقر", parent=child
+            organization=organization, code="BEEF", name="بقر", parent=child
         )
 
-        update_item_category(category=child, name_ar="لحوم", parent=None)
+        update_item_category(category=child, name="لحوم", parent=None)
 
         child.refresh_from_db()
         grandchild.refresh_from_db()
@@ -161,7 +159,7 @@ class TestCategoryHierarchy:
             create_item_category(
                 organization=organization,
                 code="MEAT",
-                name_ar="لحوم",
+                name="لحوم",
                 parent=other_category,
             )
 
@@ -186,7 +184,7 @@ class TestCategoriesHoldItemsOrChildrenNeverBoth:
             create_item(
                 organization=organization,
                 code="RICE",
-                name_ar="رز",
+                name="رز",
                 category=category,  # has `leaf_category` beneath it
                 item_type=ItemType.RAW_MATERIAL,
                 base_unit=kilogram,
@@ -201,7 +199,7 @@ class TestCategoriesHoldItemsOrChildrenNeverBoth:
             create_item_category(
                 organization=organization,
                 code="BEEF",
-                name_ar="بقر",
+                name="بقر",
                 parent=leaf_category,  # already holds `rice`
             )
 
@@ -224,7 +222,7 @@ class TestCategoriesHoldItemsOrChildrenNeverBoth:
         leaf_category: ItemCategory,
         rice: InventoryItem,
     ) -> None:
-        orphan = create_item_category(organization=organization, code="SPARE", name_ar="احتياطي")
+        orphan = create_item_category(organization=organization, code="SPARE", name="احتياطي")
 
         with pytest.raises(IntegrityError), transaction.atomic():
             ItemCategory.objects.filter(pk=orphan.pk).update(parent=leaf_category)
@@ -240,7 +238,7 @@ class TestItemCode:
         item = create_item(
             organization=organization,
             code="  rice-272  ",
-            name_ar="رز",
+            name="رز",
             category=leaf_category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
@@ -263,7 +261,7 @@ class TestItemCode:
             create_item(
                 organization=organization,
                 code=" rice-272 ",
-                name_ar="مكرر",
+                name="مكرر",
                 category=leaf_category,
                 item_type=ItemType.RAW_MATERIAL,
                 base_unit=kilogram,
@@ -279,7 +277,7 @@ class TestItemCode:
             create_item(
                 organization=organization,
                 code="   ",
-                name_ar="فارغ",
+                name="فارغ",
                 category=leaf_category,
                 item_type=ItemType.RAW_MATERIAL,
                 base_unit=kilogram,
@@ -297,7 +295,7 @@ class TestItemCode:
         twin = create_item(
             organization=other_organization,
             code="RICE-272",
-            name_ar="رز",
+            name="رز",
             category=other_category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
@@ -318,7 +316,7 @@ class TestItemCode:
         """
         update_item(
             item=rice,
-            name_ar=rice.name_ar,
+            name=rice.name,
             category=leaf_category,
             item_type=rice.item_type,
             is_active=False,
@@ -328,7 +326,7 @@ class TestItemCode:
             create_item(
                 organization=organization,
                 code="RICE-272",
-                name_ar="رز جديد",
+                name="رز جديد",
                 category=leaf_category,
                 item_type=ItemType.RAW_MATERIAL,
                 base_unit=kilogram,
@@ -360,7 +358,7 @@ class TestItemTypes:
         bread = create_item(
             organization=organization,
             code="BREAD-TRAY",
-            name_ar="صينية خبز",
+            name="صينية خبز",
             category=leaf_category,
             item_type=ItemType.FINISHED_GOOD,
             base_unit=kilogram,
@@ -389,7 +387,7 @@ class TestItemFlags:
             create_item(
                 organization=organization,
                 code="MILK",
-                name_ar="حليب",
+                name="حليب",
                 category=leaf_category,
                 item_type=ItemType.RAW_MATERIAL,
                 base_unit=kilogram,
@@ -405,7 +403,7 @@ class TestItemFlags:
         milk = create_item(
             organization=organization,
             code="MILK",
-            name_ar="حليب",
+            name="حليب",
             category=leaf_category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
@@ -466,7 +464,7 @@ class TestBaseUnitCorrection:
         garlic = create_item(
             organization=organization,
             code="GARLIC",
-            name_ar="ثوم",
+            name="ثوم",
             category=leaf_category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=piece,
@@ -515,13 +513,13 @@ class TestPackageUnitsCarryNoFactor:
         assert not issubclass(PackageUnit, UnitOfMeasure)
 
     def test_code_unique_per_organization(self, organization: Organization) -> None:
-        create_package_unit(organization=organization, code="TIN", name_ar="علبة")
+        create_package_unit(organization=organization, code="TIN", name="علبة")
 
         with pytest.raises(ValidationError):
-            create_package_unit(organization=organization, code="TIN", name_ar="مكرر")
+            create_package_unit(organization=organization, code="TIN", name="مكرر")
 
     def test_the_code_is_canonicalised(self, organization: Organization) -> None:
-        unit = create_package_unit(organization=organization, code=" tin ", name_ar="علبة")
+        unit = create_package_unit(organization=organization, code=" tin ", name="علبة")
         assert unit.code == "TIN"
 
 
@@ -593,9 +591,7 @@ class TestItemConversions:
     def test_a_package_from_another_organization_is_refused(
         self, rice: InventoryItem, other_organization: Organization
     ) -> None:
-        foreign = create_package_unit(
-            organization=other_organization, code="CARTON", name_ar="كرتون"
-        )
+        foreign = create_package_unit(organization=other_organization, code="CARTON", name="كرتون")
 
         with pytest.raises(ValidationError) as caught:
             create_item_conversion(

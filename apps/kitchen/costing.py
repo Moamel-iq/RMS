@@ -855,7 +855,7 @@ def _build_card(
                 missing.append(
                     MissingValuation(
                         item_code=leaf.line.item.code,
-                        item_name=leaf.line.item.name_ar,
+                        item_name=leaf.line.item.name,
                         warehouse_code=warehouse.code,
                         component_path=line.path_display,
                         recipe_code=leaf.recipe.code,

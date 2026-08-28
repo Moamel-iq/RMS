@@ -27,8 +27,7 @@ def count_unit() -> UnitOfMeasure:
         return existing
     return create_unit(
         code="PIECE",
-        name_ar="حبة",
-        name_en="Piece",
+        name="حبة",
         dimension=Dimension.COUNT,
         factor_to_base=Decimal("1"),
         is_base=True,
@@ -43,7 +42,7 @@ def direct_stock_candidates(
     category = create_item_category(
         organization=organization,
         code="RESALE",
-        name_ar="إعادة البيع",
+        name="إعادة البيع",
     )
     rows = {}
     for key, code, item_type, tracks_lots in (
@@ -54,7 +53,7 @@ def direct_stock_candidates(
         rows[key] = create_item(
             organization=organization,
             code=code,
-            name_ar=code,
+            name=code,
             category=category,
             item_type=item_type,
             base_unit=count_unit,
@@ -71,7 +70,7 @@ def direct_menu_item(
     return create_menu_item(
         organization=organization,
         code="MENU-WATER",
-        name_ar="ماء",
+        name="ماء",
         fulfillment_source=FulfillmentSource.DIRECT_STOCK,
         inventory_item=direct_stock_candidates["resale"],
         direct_stock_base_quantity=Decimal("1"),
@@ -104,7 +103,7 @@ class TestDirectStockMenuForm:
             data={
                 "organization": organization.pk,
                 "code": "menu-water",
-                "name_ar": "ماء",
+                "name": "ماء",
                 "fulfillment_source": FulfillmentSource.DIRECT_STOCK,
                 "inventory_item": direct_stock_candidates["resale"].pk,
                 "direct_stock_base_quantity": "1",
@@ -126,7 +125,7 @@ class TestDirectStockBranchForm:
         branch: Branch,
         direct_menu_item: MenuItem,
     ) -> None:
-        create_warehouse(branch=branch, code="MAIN", name_ar="المخزن الرئيسي")
+        create_warehouse(branch=branch, code="MAIN", name="المخزن الرئيسي")
         form = BranchAvailabilityForm(
             actor=manager,
             menu_item=direct_menu_item,
@@ -143,8 +142,8 @@ class TestDirectStockBranchForm:
         second_branch: Branch,
         direct_menu_item: MenuItem,
     ) -> None:
-        create_warehouse(branch=branch, code="MAIN", name_ar="المخزن الرئيسي")
-        other = create_warehouse(branch=second_branch, code="MAIN", name_ar="مخزن الفرع الآخر")
+        create_warehouse(branch=branch, code="MAIN", name="المخزن الرئيسي")
+        other = create_warehouse(branch=second_branch, code="MAIN", name="مخزن الفرع الآخر")
         form = BranchAvailabilityForm(
             actor=superuser,
             menu_item=direct_menu_item,
@@ -169,7 +168,7 @@ class TestDirectStockMenuScreens:
         direct_stock_candidates: dict[str, InventoryItem],
         client_for: Any,
     ) -> None:
-        warehouse = create_warehouse(branch=branch, code="MAIN", name_ar="المخزن الرئيسي")
+        warehouse = create_warehouse(branch=branch, code="MAIN", name="المخزن الرئيسي")
         client = client_for(manager)
         create_url = reverse("sales:menu_item_create")
 
@@ -183,7 +182,7 @@ class TestDirectStockMenuScreens:
             {
                 "organization": organization.pk,
                 "code": "MENU-WATER",
-                "name_ar": "ماء",
+                "name": "ماء",
                 "fulfillment_source": FulfillmentSource.DIRECT_STOCK,
                 "inventory_item": direct_stock_candidates["resale"].pk,
                 "direct_stock_base_quantity": "1",

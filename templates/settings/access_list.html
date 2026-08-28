@@ -6,24 +6,24 @@
   <th>{% translate "الفرع" %}</th>
   <th>{% translate "الدور" %}</th>
   <th>{% translate "الحالة" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 {% block rows %}
   {% for membership in memberships %}
     <tr>
       <td><strong>{{ membership.user.username }}</strong></td>
-      <td>{{ membership.branch.name_ar }} <span class="muted">({{ membership.branch.code }})</span></td>
+      <td>{{ membership.branch.name }} <span class="ui-text-muted">({{ membership.branch.code }})</span></td>
       <td>{{ membership.role_label }}</td>
       <td>
         {% if membership.is_active %}
-          <span class="chip chip--on">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--off">{% translate "مسحوب" %}</span>
+          <span class="ui-badge ui-badge--danger">{% translate "مسحوب" %}</span>
         {% endif %}
       </td>
-      <td class="table__actions">—</td>
+      <td class="ui-table__actions">—</td>
     </tr>
   {% empty %}
-    <tr><td colspan="5"><p class="empty">{% translate "لا توجد صلاحيات ممنوحة." %}</p></td></tr>
+    <tr><td colspan="5"><p class="ui-empty">{% translate "لا توجد صلاحيات ممنوحة." %}</p></td></tr>
   {% endfor %}
 {% endblock %}

@@ -71,7 +71,6 @@ from apps.inventory.models import (
     StockCountStatus,
     StockLocationBalance,
     StockMovement,
-    StockTransfer,
     StockTransferStatus,
     Warehouse,
 )
@@ -134,7 +133,6 @@ class ReportFilters:
     item_id: int | None = None
     lot_id: int | None = None
     cost_center_id: int | None = None
-    reason_code_id: int | None = None
     include_inactive: bool = False
     date_from: datetime.date | None = None
     date_to: datetime.date | None = None
@@ -154,7 +152,6 @@ class ReportFilters:
             "item_id",
             "lot_id",
             "cost_center_id",
-            "reason_code_id",
         ):
             value = getattr(self, name)
             if value is not None:
@@ -383,9 +380,9 @@ def _valuation_row(position: Position, *, include_valuation: bool) -> dict[str, 
     row: dict[str, Any] = {
         "branch_code": position.warehouse.branch.code,
         "warehouse_code": position.warehouse.code,
-        "warehouse_name": position.warehouse.name_ar,
+        "warehouse_name": position.warehouse.name,
         "item_code": position.item.code,
-        "item_name": position.item.name_ar,
+        "item_name": position.item.name,
         "category_code": position.item.category.code,
         "lot_code": position.lot.code if position.lot else "",
         "expiry_date": position.lot.expiry_date if position.lot else None,
@@ -485,89 +482,6 @@ OPEN_TRANSFER_STATUSES = (
 )
 
 
-def in_transit_aging(
-    user: User,
-    filters: ReportFilters,
-    *,
-    include_valuation: bool,
-    today: datetime.date | None = None,
-) -> list[dict[str, Any]]:
-    """
-    What left one warehouse and has not arrived at the other, and how long ago.
-
-    Age is measured from the dispatch business date, not from `created_at`: a
-    transfer keyed in late was still in transit from the day it left, and
-    ageing it from the keystroke would hide exactly the stale ones worth
-    chasing.
-    """
-    today = today or timezone.localdate()
-    reachable = readable_warehouses(user)
-    transfers = StockTransfer.objects.filter(
-        source_warehouse__in=reachable, status__in=OPEN_TRANSFER_STATUSES
-    )
-    if filters.organization_id is not None:
-        transfers = transfers.filter(organization_id=filters.organization_id)
-    if filters.branch_id is not None:
-        transfers = transfers.filter(
-            Q(source_warehouse__branch_id=filters.branch_id)
-            | Q(destination_warehouse__branch_id=filters.branch_id)
-        )
-    if filters.warehouse_id is not None:
-        transfers = transfers.filter(
-            Q(source_warehouse_id=filters.warehouse_id)
-            | Q(destination_warehouse_id=filters.warehouse_id)
-        )
-
-    rows: list[dict[str, Any]] = []
-    for transfer in (
-        transfers.select_related(
-            "source_warehouse",
-            "source_warehouse__branch",
-            "destination_warehouse",
-            "destination_warehouse__branch",
-        )
-        .prefetch_related("lines__item", "lines__item__base_unit", "lines__lot")
-        .order_by("-business_date", "transfer_number")
-    ):
-        lines = (
-            _apply_item_filters(transfer.lines.all(), filters)
-            if (filters.item_id or filters.category_id or filters.lot_id or filters.search)
-            else transfer.lines.all()
-        )
-        for line in lines:
-            received_quantity = quantize_quantity(line.base_quantity - line.remaining_quantity)
-            row: dict[str, Any] = {
-                "transfer_number": transfer.transfer_number,
-                "transfer_id": transfer.pk,
-                "status": transfer.status,
-                "status_label": transfer.get_status_display(),
-                "source_branch": transfer.source_warehouse.branch.code,
-                "source_warehouse": transfer.source_warehouse.code,
-                "destination_branch": transfer.destination_warehouse.branch.code,
-                "destination_warehouse": transfer.destination_warehouse.code,
-                "dispatch_date": transfer.business_date,
-                "item_code": line.item.code,
-                "item_name": line.item.name_ar,
-                "lot_code": line.lot.code if line.lot else "",
-                "unit": line.item.base_unit.code,
-                "dispatched_quantity": line.base_quantity,
-                "received_quantity": received_quantity,
-                "remaining_quantity": line.remaining_quantity,
-                "age_days": (today - transfer.business_date).days
-                if transfer.business_date
-                else None,
-            }
-            if include_valuation:
-                # `total_value` is null only on a line that has not dispatched,
-                # and an undispatched line cannot be in an open transfer.
-                dispatched_value = line.total_value or ZERO
-                row["dispatched_value"] = dispatched_value
-                row["received_value"] = quantize_money(dispatched_value - line.remaining_value)
-                row["remaining_value"] = line.remaining_value
-            rows.append(row)
-    return rows
-
-
 # ---------------------------------------------------------------------------
 # 4. Expiry
 # ---------------------------------------------------------------------------
@@ -613,7 +527,7 @@ def expiry(
             "branch_code": balance.warehouse.branch.code,
             "warehouse_code": balance.warehouse.code,
             "item_code": balance.item.code,
-            "item_name": balance.item.name_ar,
+            "item_name": balance.item.name,
             "lot_code": lot.code,
             "expiry_date": lot.expiry_date,
             "days_to_expiry": days,
@@ -686,7 +600,7 @@ def reorder(user: User, filters: ReportFilters, *, include_valuation: bool) -> l
         row: dict[str, Any] = {
             "branch_code": setting.branch.code,
             "item_code": setting.item.code,
-            "item_name": setting.item.name_ar,
+            "item_name": setting.item.name,
             "unit": setting.item.base_unit.code,
             "on_hand": quantize_quantity(held),
             "reorder_point": point,
@@ -718,8 +632,6 @@ def waste_summary(
         document__status="POSTED",
     )
     lines = _apply_item_filters(lines, filters)
-    if filters.reason_code_id is not None:
-        lines = lines.filter(reason_code_id=filters.reason_code_id)
     if filters.cost_center_id is not None:
         lines = lines.filter(document__cost_center_id=filters.cost_center_id)
     if filters.date_from is not None:
@@ -736,7 +648,6 @@ def waste_summary(
         "item",
         "item__base_unit",
         "lot",
-        "reason_code",
     ).order_by("-document__business_date", "document__document_number", "sequence"):
         row: dict[str, Any] = {
             "document_number": line.document.document_number,
@@ -744,12 +655,10 @@ def waste_summary(
             "branch_code": line.document.warehouse.branch.code,
             "warehouse_code": line.document.warehouse.code,
             "item_code": line.item.code,
-            "item_name": line.item.name_ar,
+            "item_name": line.item.name,
             "lot_code": line.lot.code if line.lot else "",
             "unit": line.item.base_unit.code,
             "quantity": line.base_quantity,
-            "reason_code": line.reason_code.code if line.reason_code else "",
-            "reason_name": line.reason_code.name_ar if line.reason_code else "",
             "comment": line.line_comment,
             "cost_center": line.document.cost_center.code if line.document.cost_center else "",
         }
@@ -794,7 +703,6 @@ def count_variance(
         "item",
         "item__base_unit",
         "lot",
-        "reason_code",
     ).order_by("-count__business_date", "count__count_number", "sequence"):
         row: dict[str, Any] = {
             "count_number": line.count.count_number,
@@ -806,14 +714,13 @@ def count_variance(
             "conductor": line.count.conducted_by.username if line.count.conducted_by else "",
             "approver": line.count.approved_by.username if line.count.approved_by else "",
             "item_code": line.item.code,
-            "item_name": line.item.name_ar,
+            "item_name": line.item.name,
             "lot_code": line.lot.code if line.lot else "",
             "unit": line.item.base_unit.code,
             "book_quantity": line.book_quantity,
             "counted_quantity": line.counted_quantity,
             "variance_quantity": line.variance_quantity,
             "is_unexpected": line.is_unexpected,
-            "reason_code": line.reason_code.code if line.reason_code else "",
         }
         if include_valuation:
             row["variance_value"] = line.variance_value
@@ -841,8 +748,6 @@ def adjustments(
         document__status__in=["POSTED", "REVERSED"],
     )
     lines = _apply_item_filters(lines, filters)
-    if filters.reason_code_id is not None:
-        lines = lines.filter(reason_code_id=filters.reason_code_id)
     if filters.cost_center_id is not None:
         lines = lines.filter(document__cost_center_id=filters.cost_center_id)
     if filters.date_from is not None:
@@ -860,7 +765,6 @@ def adjustments(
         "item",
         "item__base_unit",
         "lot",
-        "reason_code",
     ).order_by("-document__business_date", "document__document_number", "sequence"):
         row: dict[str, Any] = {
             "document_number": line.document.document_number,
@@ -872,11 +776,10 @@ def adjustments(
             "kind": line.kind,
             "kind_label": line.get_kind_display(),
             "item_code": line.item.code,
-            "item_name": line.item.name_ar,
+            "item_name": line.item.name,
             "lot_code": line.lot.code if line.lot else "",
             "unit": line.item.base_unit.code,
             "quantity": line.base_quantity or ZERO,
-            "reason_code": line.reason_code.code if line.reason_code else "",
             "comment": line.line_comment,
             "cost_center": line.document.cost_center.code if line.document.cost_center else "",
             "actor": line.document.posted_by.username if line.document.posted_by else "",
@@ -928,9 +831,9 @@ def location_balances(
                 "branch_code": balance.warehouse.branch.code,
                 "warehouse_code": balance.warehouse.code,
                 "location_code": balance.location.code,
-                "location_name": balance.location.name_ar,
+                "location_name": balance.location.name,
                 "item_code": balance.item.code,
-                "item_name": balance.item.name_ar,
+                "item_name": balance.item.name,
                 "lot_code": balance.lot.code if balance.lot else "",
                 "unit": balance.item.base_unit.code,
                 "quantity": balance.quantity,
@@ -956,7 +859,7 @@ def location_balances(
                 "location_code": "—",
                 "location_name": _("غير مخصص لموقع"),
                 "item_code": balance.item.code,
-                "item_name": balance.item.name_ar,
+                "item_name": balance.item.name,
                 "lot_code": balance.lot.code if balance.lot else "",
                 "unit": balance.item.base_unit.code,
                 "quantity": remainder,
@@ -1048,7 +951,7 @@ def gl_reconciliation(organization: Organization) -> tuple[list[ReconciliationRo
     rows = [
         ReconciliationRow(
             account_code=accounts[account_id].code,
-            account_name=accounts[account_id].name_ar,
+            account_name=accounts[account_id].name,
             ledger_value=quantize_money(ledger.get(account_id, ZERO)),
             projection_value=quantize_money(projection.get(account_id, ZERO)),
             gl_value=quantize_money(gl.get(account_id, ZERO)),

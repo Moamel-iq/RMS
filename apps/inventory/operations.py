@@ -1,29 +1,22 @@
 """
-Operational stock documents: goods receipt, consumption issue, return-in.
+Operational stock documents: consumption issue and waste note.
 
-Three documents, one lifecycle — DRAFT → POSTED → REVERSED — and one posting
+Two documents, one lifecycle — DRAFT → POSTED → REVERSED — and one posting
 routine that differs only in how each side of the journal is found:
 
-    RECEIPT     Dr resolved INVENTORY_CONTROL      Cr GOODS_RECEIVED_NOT_INVOICED
     ISSUE       Dr resolved INVENTORY_CONSUMPTION  Cr the account the stock is in
-    RETURN_IN   Dr the original issue's control    Cr the original issue's consumption
-
-What each of those sentences protects is worth stating.
-
-**A receipt is not a supplier invoice.** Goods arrived; nobody is owed a
-stated amount until an invoice says so. The credit is a clearing liability
-that Procurement will clear in Phase 2 — not a payable, not a payment, not a
-cash purchase.
+    WASTE       Dr resolved INVENTORY_WASTE_EXPENSE Cr the account the stock is in
 
 **An issue credits the account the stock actually sits in**, read from the
 balance's own control-account identity, never from a fresh resolution. A
 mapping changed since the goods arrived must not credit them out of an
 account they were never in (§D).
 
-**A return is not a reversal.** It is a new operational fact — unused stock
-coming back — valued from the issue it goes back against so the pair nets to
-zero however the average has moved. A reversal corrects a document that
-should not exist; a return records something that happened.
+**Both take stock out.** The two documents that put it back — the un-invoiced
+receipt and the return-from-issue — were withdrawn from the product: goods now
+enter through a purchase goods receipt, which carries the supplier and the
+liability an un-invoiced receipt never had. Nothing in this module debits
+inventory any more.
 
 ## Locking
 
@@ -51,12 +44,10 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.accounting.models import (
-    GOODS_RECEIVED_NOT_INVOICED,
     INVENTORY_CONSUMPTION,
     INVENTORY_CONTROL,
     INVENTORY_WASTE_EXPENSE,
@@ -73,7 +64,6 @@ from apps.accounting.validators import PostingLine, validate_period_accepts_post
 from apps.core.context import get_actor
 from apps.core.locks import lock_account_mappings_shared
 from apps.core.models import AuditAction
-from apps.core.money import quantize_money, quantize_unit_price
 from apps.core.quantity import quantize_quantity
 from apps.core.services import record_audit_event, snapshot
 from apps.inventory.accounts import resolve_inventory_account
@@ -94,10 +84,8 @@ from apps.inventory.models import (
     InventoryLot,
     InventoryMovementDocument,
     InventoryMovementDocumentLine,
-    InventoryReasonCode,
     ItemPackageConversion,
     MovementType,
-    ReasonCodeApplication,
     StockBalance,
     StockMovement,
     Warehouse,
@@ -111,30 +99,23 @@ ZERO = Decimal("0")
 #: The posting rule stamped on each journal. Bump one when its accounting
 #: treatment changes, so old entries still say which rule produced them.
 POSTING_RULE: dict[str, str] = {
-    InventoryDocumentType.RECEIPT: "inventory-receipt-v1",
     InventoryDocumentType.ISSUE: "inventory-issue-v1",
-    InventoryDocumentType.RETURN_IN: "inventory-return-in-v1",
     InventoryDocumentType.WASTE: "inventory-waste-v1",
 }
 
 #: Which stock movement each document type produces.
 MOVEMENT_TYPE: dict[str, str] = {
-    InventoryDocumentType.RECEIPT: MovementType.RECEIPT,
     InventoryDocumentType.ISSUE: MovementType.ISSUE,
-    InventoryDocumentType.RETURN_IN: MovementType.RETURN_IN,
     InventoryDocumentType.WASTE: MovementType.WASTE,
 }
 
 OPERATIONAL_TYPES = frozenset(MOVEMENT_TYPE)
 
-#: Which document types debit inventory. Waste credits it, like an issue.
-INVENTORY_IS_DEBITED = frozenset({InventoryDocumentType.RECEIPT, InventoryDocumentType.RETURN_IN})
-
 #: Which document types carry a cost centre of their own. An issue names where
 #: the stock was consumed; a waste note names whose loss it was — and its
 #: account is a class-6 operating expense, so the centre is not merely offered
-#: but demanded. A receipt has no destination yet and a return reuses the
-#: original issue's.
+#: but demanded. Both surviving types bear one; the set is kept because the
+#: rule is about the *type*, and the next one added will have to answer it.
 COST_CENTRE_BEARING_TYPES = frozenset({InventoryDocumentType.ISSUE, InventoryDocumentType.WASTE})
 
 
@@ -153,12 +134,8 @@ class DocumentLineInput:
     entered_package_quantity: Decimal | None = None
     measured_base_quantity: Decimal | None = None
     base_quantity: Decimal | None = None
-    #: Receipt only. An issue and a return are valued by the ledger.
-    unit_cost: Decimal | None = None
-    #: Return only: the issue line being returned against.
-    source_issue_line: InventoryMovementDocumentLine | None = None
-    #: Waste only, and mandatory there.
-    reason_code: InventoryReasonCode | None = None
+    #: Waste only: why this quantity was destroyed, in the writer's own words.
+    #: It replaced a coded reason when the reason vocabulary was withdrawn.
     line_comment: str = ""
 
 
@@ -405,69 +382,20 @@ def _validate_line_target(document: InventoryMovementDocument, line: DocumentLin
         )
 
 
-def _validate_line_reason_code(
-    document: InventoryMovementDocument, line: DocumentLineInput
-) -> None:
+def _validate_line_comment(document: InventoryMovementDocument, line: DocumentLineInput) -> None:
     """
-    A reason code belongs to a waste line, comes from this organization, and
-    was declared for this use.
+    A note belongs to a waste line and to nothing else.
 
-    The `applies_to` check is the one that matters. Without it a `COUNT_VARIANCE`
-    code could be selected on a waste note, and every waste report grouped by
-    reason would silently contain rows nobody meant to put there — the figures
-    would look complete while measuring the wrong thing.
+    This is what is left of the reason-code check once the reason vocabulary
+    was withdrawn: an issue still may not carry an explanation nothing reads,
+    and a waste note still explains itself — now in words rather than in a
+    code the organization had to maintain.
     """
-    if document.document_type != InventoryDocumentType.WASTE:
-        if line.reason_code is not None:
-            raise ValidationError(
-                _("A %(type)s line takes no reason code."),
-                code="reason_code_not_accepted",
-                params={"type": document.get_document_type_display()},
-            )
-        if line.line_comment.strip():
-            raise ValidationError(
-                _("A %(type)s line takes no reason comment."),
-                code="line_comment_not_accepted",
-                params={"type": document.get_document_type_display()},
-            )
-        return
-
-    reason_code = line.reason_code
-    if reason_code is None:
+    if document.document_type != InventoryDocumentType.WASTE and line.line_comment.strip():
         raise ValidationError(
-            _("Every waste line needs a reason code."), code="waste_reason_code_required"
-        )
-    if reason_code.organization_id != document.organization_id:
-        # 404 belongs at the command layer; by the time a resolved object
-        # reaches here, a mismatch is a programming error worth naming.
-        raise ValidationError(
-            _("Reason code %(code)s belongs to another organization."),
-            code="reason_code_organization_mismatch",
-            params={"code": reason_code.code},
-        )
-    if reason_code.applies_to != ReasonCodeApplication.WASTE:
-        raise ValidationError(
-            _("Reason code %(code)s is not a waste reason."),
-            code="reason_code_wrong_application",
-            params={"code": reason_code.code},
-        )
-    if not reason_code.is_active:
-        raise ValidationError(
-            _("Reason code %(code)s is archived."),
-            code="reason_code_archived",
-            params={"code": reason_code.code},
-        )
-    if reason_code.requires_comment and not line.line_comment.strip():
-        raise ValidationError(
-            _("Reason code %(code)s requires a comment on the line."),
-            code="reason_code_comment_required",
-            params={"code": reason_code.code},
-        )
-    if reason_code.requires_evidence and not document.evidence_reference.strip():
-        raise ValidationError(  # pragma: no cover - the document constraint demands one anyway
-            _("Reason code %(code)s requires an evidence reference on the document."),
-            code="reason_code_evidence_required",
-            params={"code": reason_code.code},
+            _("A %(type)s line takes no note."),
+            code="line_comment_not_accepted",
+            params={"type": document.get_document_type_display()},
         )
 
 
@@ -543,77 +471,6 @@ def _derive_base_quantity(document: InventoryMovementDocument, line: DocumentLin
     return quantize_quantity(line.entered_package_quantity * conversion.factor_to_base)
 
 
-def returnable(line: InventoryMovementDocumentLine) -> tuple[Decimal, Decimal]:
-    """
-    How much of an issue line is still returnable, in quantity and value.
-
-        remaining_quantity = issued quantity − active returned quantity
-        remaining_value    = issued value    − active returned value
-
-    "Active" excludes returns whose document was itself reversed: reversing a
-    return puts the quantity back on the shelf of what may be returned, which
-    is the whole point of reversing it.
-    """
-    returned = line.return_lines.filter(document__status=InventoryDocumentStatus.POSTED).aggregate(
-        quantity=Sum("base_quantity"), value=Sum("total_value")
-    )
-    used_quantity = returned["quantity"] or ZERO
-    used_value = returned["value"] or ZERO
-    return (
-        quantize_quantity(line.base_quantity - used_quantity),
-        quantize_money((line.total_value or ZERO) - used_value),
-    )
-
-
-def _validate_return_source(
-    document: InventoryMovementDocument, line: DocumentLineInput
-) -> InventoryMovementDocumentLine:
-    """Everything a return's original must be, before any value is taken from it."""
-    source = line.source_issue_line
-    if source is None:
-        raise ValidationError(
-            _("A return line must name the issue line it returns against."),
-            code="source_issue_required",
-        )
-    if source.document.document_type != InventoryDocumentType.ISSUE:
-        raise ValidationError(
-            _("A return goes back against a consumption issue, not a %(type)s."),
-            code="source_is_not_an_issue",
-            params={"type": source.document.get_document_type_display()},
-        )
-    if source.document.status != InventoryDocumentStatus.POSTED:
-        raise ValidationError(
-            _("The original issue is %(status)s; only a posted issue can be returned against."),
-            code="source_issue_not_posted",
-            params={"status": source.document.get_status_display()},
-        )
-    if source.document.organization_id != document.organization_id:
-        raise ValidationError(
-            _("The original issue belongs to another organization."),
-            code="source_issue_organization_mismatch",
-        )
-    if source.item_id != line.item.pk:
-        raise ValidationError(
-            _("The original issue was for %(item)s."),
-            code="return_item_mismatch",
-            params={"item": source.item.code},
-        )
-    if source.lot_id != (line.lot.pk if line.lot is not None else None):
-        raise ValidationError(
-            _("The original issue was for a different lot."), code="return_lot_mismatch"
-        )
-    if source.document.warehouse_id != document.warehouse_id:
-        # Returning into a different warehouse would be a transfer wearing a
-        # return's clothes, and it would move value between two positions
-        # without either journal saying so. Transfers are Task 1.5.
-        raise ValidationError(
-            _("Stock returns to the warehouse it was issued from, %(code)s. Use a transfer."),
-            code="return_warehouse_mismatch",
-            params={"code": source.document.warehouse.code},
-        )
-    return source
-
-
 @transaction.atomic
 def add_line(
     *, document: InventoryMovementDocument, line: DocumentLineInput
@@ -629,42 +486,9 @@ def add_line(
             _("The quantity must be greater than zero."), code="quantity_not_positive"
         )
 
-    unit_cost: Decimal | None = None
-    total_value: Decimal | None = None
-    source_issue: InventoryMovementDocumentLine | None = None
-
-    if locked.document_type == InventoryDocumentType.RECEIPT:
-        if line.unit_cost is None:
-            raise ValidationError(_("A receipt line needs a unit cost."), code="unit_cost_required")
-        unit_cost = quantize_unit_price(line.unit_cost)
-        if unit_cost <= ZERO:
-            raise ValidationError(
-                _("The unit cost must be greater than zero."), code="unit_cost_not_positive"
-            )
-        total_value = quantize_money(base_quantity * unit_cost)
-        if total_value <= ZERO:
-            raise ValidationError(
-                _("The line value rounds to zero; a positive quantity needs a real value."),
-                code="line_value_not_positive",
-            )
-    else:
-        if line.unit_cost is not None:
-            raise ValidationError(
-                _("A %(type)s is valued by the ledger; it takes no entered cost."),
-                code="unit_cost_not_accepted",
-                params={"type": locked.get_document_type_display()},
-            )
-        if locked.document_type == InventoryDocumentType.RETURN_IN:
-            source_issue = _validate_return_source(locked, line)
-            remaining_quantity, _remaining_value = returnable(source_issue)
-            if base_quantity > remaining_quantity:
-                raise ValidationError(
-                    _("Only %(remaining)s of that issue is still returnable."),
-                    code="return_exceeds_issue",
-                    params={"remaining": str(remaining_quantity)},
-                )
-
-    _validate_line_reason_code(locked, line)
+    # Both surviving types are valued by the ledger at the standing average:
+    # the cost is decided at posting and is never entered here.
+    _validate_line_comment(locked, line)
 
     if locked.lines.filter(item=line.item, lot=line.lot).exists():
         raise ValidationError(
@@ -682,10 +506,6 @@ def add_line(
         entered_package_quantity=line.entered_package_quantity,
         measured_base_quantity=line.measured_base_quantity,
         base_quantity=base_quantity,
-        unit_cost=unit_cost,
-        total_value=total_value,
-        source_issue_line=source_issue,
-        reason_code=line.reason_code,
         line_comment=line.line_comment.strip(),
     )
     stored.full_clean()
@@ -834,8 +654,6 @@ def post_document(*, document: InventoryMovementDocument) -> InventoryMovementDo
             "item__category__parent__parent",
             "lot",
             "package_conversion",
-            "source_issue_line",
-            "source_issue_line__document",
         ).order_by("sequence")
     )
     if not lines:
@@ -857,20 +675,6 @@ def post_document(*, document: InventoryMovementDocument) -> InventoryMovementDo
     # global order, so no mutation can interleave with the resolution below.
     lock_account_mappings_shared(locked.organization_id)
 
-    # 3. The source issue lines, for a return: locked before their remaining
-    # returnable amount is read, so two concurrent returns against one issue
-    # cannot both see the same quantity as available. Ordered by primary key,
-    # so two returns naming the same two issues cannot deadlock.
-    if locked.document_type == InventoryDocumentType.RETURN_IN:
-        source_ids = sorted(
-            line.source_issue_line_id for line in lines if line.source_issue_line_id is not None
-        )
-        list(
-            InventoryMovementDocumentLine.objects.select_for_update()
-            .filter(pk__in=source_ids)
-            .order_by("pk")
-        )
-
     return _post_effects(locked, lines, period=period, actor=actor)
 
 
@@ -882,14 +686,10 @@ def _post_effects(
     actor: User,
 ) -> InventoryMovementDocument:
     """The half of posting that differs per document type, then the half that does not."""
-    if document.document_type == InventoryDocumentType.RECEIPT:
-        plan = _plan_receipt(document, lines)
-    elif document.document_type == InventoryDocumentType.ISSUE:
+    if document.document_type == InventoryDocumentType.ISSUE:
         plan = _plan_issue(document, lines)
-    elif document.document_type == InventoryDocumentType.WASTE:
-        plan = _plan_waste(document, lines)
     else:
-        plan = _plan_return(document, lines)
+        plan = _plan_waste(document, lines)
 
     # 4/5. Stock effects, through the kernel's own locking and valuation.
     stock_entry = post_stock_entry(
@@ -987,48 +787,6 @@ class _Plan:
     mappings: dict[int, tuple[InventoryAccountMapping | None, OrganizationAccountMapping | None]]
 
 
-def _plan_receipt(
-    document: InventoryMovementDocument, lines: list[InventoryMovementDocumentLine]
-) -> _Plan:
-    """Dr resolved INVENTORY_CONTROL, Cr GOODS_RECEIVED_NOT_INVOICED."""
-    grni = resolve_inventory_account(
-        organization=document.organization,
-        role=GOODS_RECEIVED_NOT_INVOICED,
-        item=None,
-        on_date=document.business_date,
-    )
-    require_cost_center_where_the_account_demands_one(
-        account=grni.account, cost_center=document.cost_center
-    )
-
-    effects: list[MovementInput] = []
-    accounts: dict[int, tuple[Account, Account, CostCenter | None]] = {}
-    mappings: dict[
-        int, tuple[InventoryAccountMapping | None, OrganizationAccountMapping | None]
-    ] = {}
-    for line in lines:
-        control = resolve_inventory_account(
-            organization=document.organization,
-            role=INVENTORY_CONTROL,
-            item=line.item,
-            on_date=document.business_date,
-        )
-        require_cost_center_where_the_account_demands_one(
-            account=control.account, cost_center=document.cost_center
-        )
-        accounts[line.pk] = (control.account, grni.account, None)
-        mappings[line.pk] = (control.inventory_mapping, control.organization_mapping)
-        effects.append(
-            _effect_of(
-                document,
-                line,
-                unit_cost=line.unit_cost,
-                control_account=control.account,
-            )
-        )
-    return _Plan(effects=effects, accounts=accounts, mappings=mappings)
-
-
 def _plan_issue(
     document: InventoryMovementDocument, lines: list[InventoryMovementDocumentLine]
 ) -> _Plan:
@@ -1105,7 +863,6 @@ def _plan_waste(
         int, tuple[InventoryAccountMapping | None, OrganizationAccountMapping | None]
     ] = {}
     for line in lines:
-        _require_waste_line_is_complete(line)
         standing = _standing_control_account(document, line)
         if standing is None:
             standing = resolve_inventory_account(
@@ -1117,110 +874,6 @@ def _plan_waste(
         accounts[line.pk] = (standing, waste.account, document.cost_center)
         mappings[line.pk] = (waste.inventory_mapping, waste.organization_mapping)
         effects.append(_effect_of(document, line, unit_cost=None, control_account=standing))
-    return _Plan(effects=effects, accounts=accounts, mappings=mappings)
-
-
-def _require_waste_line_is_complete(line: InventoryMovementDocumentLine) -> None:
-    """
-    A waste line says why, in the vocabulary the organization chose, and adds
-    the words the chosen reason demands.
-
-    Checked here as well as at `add_line` because a reason code's
-    `requires_comment` can be switched on after a draft was written, and the
-    draft would otherwise post without the explanation the organization has
-    since decided it needs.
-    """
-    reason_code = line.reason_code
-    if reason_code is None:
-        raise ValidationError(
-            _("Every waste line needs a reason code."),
-            code="waste_reason_code_required",
-        )
-    if not reason_code.is_active:
-        raise ValidationError(
-            _("Reason code %(code)s is archived and cannot be used on a new posting."),
-            code="reason_code_archived",
-            params={"code": reason_code.code},
-        )
-    if reason_code.requires_comment and not line.line_comment.strip():
-        raise ValidationError(
-            _("Reason code %(code)s requires a comment on the line."),
-            code="reason_code_comment_required",
-            params={"code": reason_code.code},
-        )
-
-
-def _plan_return(
-    document: InventoryMovementDocument, lines: list[InventoryMovementDocumentLine]
-) -> _Plan:
-    """
-    Mirror the returned part of the original issue, using **its** accounts.
-
-    Today's consumption mapping is not consulted: the pair must net to zero in
-    the account and cost centre the consumption actually landed in, or the
-    expense stays booked somewhere the return never credited.
-
-    The value is the original issue's, not the current average — and the final
-    return of everything left takes the exact remaining value, so cumulative
-    returns equal the original issue to the dinar with no residual.
-    """
-    effects: list[MovementInput] = []
-    accounts: dict[int, tuple[Account, Account, CostCenter | None]] = {}
-    mappings: dict[
-        int, tuple[InventoryAccountMapping | None, OrganizationAccountMapping | None]
-    ] = {}
-    for line in lines:
-        source = line.source_issue_line
-        assert source is not None  # noqa: S101 - the trigger refuses a return without one
-        remaining_quantity, remaining_value = returnable(source)
-        if line.base_quantity > remaining_quantity:
-            raise ValidationError(
-                _("Only %(remaining)s of that issue is still returnable."),
-                code="return_exceeds_issue",
-                params={"remaining": str(remaining_quantity)},
-            )
-        if source.inventory_account is None or source.contra_account is None:
-            raise ValidationError(  # pragma: no cover - a posted issue always has both
-                _("The original issue carries no accounts to return against."),
-                code="source_issue_has_no_accounts",
-            )
-
-        if line.base_quantity == remaining_quantity:
-            # The last return takes everything left, so the cumulative returns
-            # equal the issue exactly rather than leaving a rounding residual
-            # that no later document could ever clear.
-            value = remaining_value
-        else:
-            issue_unit_cost = source.unit_cost or ZERO
-            value = quantize_money(line.base_quantity * issue_unit_cost)
-            if value > remaining_value:
-                value = remaining_value
-        if value <= ZERO:
-            raise ValidationError(
-                _("The return value rounds to zero; there is nothing left to return."),
-                code="return_value_not_positive",
-            )
-
-        unit_cost = quantize_unit_price(value / line.base_quantity)
-        line.total_value = value
-        line.unit_cost = unit_cost
-        accounts[line.pk] = (
-            source.inventory_account,
-            source.contra_account,
-            source.contra_cost_center,
-        )
-        mappings[line.pk] = (source.resolved_mapping, source.resolved_organization_mapping)
-        effects.append(
-            _effect_of(
-                document,
-                line,
-                unit_cost=unit_cost,
-                control_account=source.inventory_account,
-                # The exact figure, not `quantity x unit_cost` re-derived: a
-                # final return must land on the remaining value to the dinar.
-                inbound_value=value,
-            )
-        )
     return _Plan(effects=effects, accounts=accounts, mappings=mappings)
 
 
@@ -1260,8 +913,8 @@ def _journal_lines(
         contra_key = (contra_account.pk, contra_center.pk if contra_center else None)
         contra_side[contra_key] = contra_side.get(contra_key, ZERO) + value
 
-    inventory_is_debit = document.document_type in INVENTORY_IS_DEBITED
-
+    # Inventory is always the credit side here: an issue and a waste both take
+    # stock out. The two document types that debited it have been withdrawn.
     posting_lines: list[PostingLine] = []
     for account_id, amount in sorted(
         inventory_side.items(), key=lambda pair: accounts[pair[0]].code
@@ -1270,8 +923,8 @@ def _journal_lines(
             PostingLine(
                 account=accounts[account_id],
                 branch=document.branch,
-                debit=amount if inventory_is_debit else ZERO,
-                credit=ZERO if inventory_is_debit else amount,
+                debit=ZERO,
+                credit=amount,
             )
         )
     for (account_id, center_id), amount in sorted(
@@ -1282,8 +935,8 @@ def _journal_lines(
                 account=accounts[account_id],
                 branch=document.branch,
                 cost_center=centers.get(center_id) if center_id is not None else None,
-                debit=ZERO if inventory_is_debit else amount,
-                credit=amount if inventory_is_debit else ZERO,
+                debit=amount,
+                credit=ZERO,
             )
         )
     return posting_lines
@@ -1298,14 +951,11 @@ def _link_lines(
     journal: JournalEntry,
 ) -> None:
     """Write the immutable traceability, while the lines are still unfrozen."""
-    inventory_is_debit = document.document_type in INVENTORY_IS_DEBITED
     journal_lines = list(journal.lines.all())
     by_account: dict[int, JournalLine] = {}
     for journal_line in journal_lines:
-        is_inventory_line = (
-            journal_line.debit > ZERO if inventory_is_debit else journal_line.credit > ZERO
-        )
-        if is_inventory_line:
+        # Inventory is the credit side for both surviving document types.
+        if journal_line.credit > ZERO:
             by_account[journal_line.account_id] = journal_line
 
     for line in lines:
@@ -1367,22 +1017,6 @@ def reverse_document(
         raise ValidationError(
             _("Reversing needs a signed-in actor to record."), code="actor_required"
         )
-
-    if locked.document_type == InventoryDocumentType.ISSUE:
-        dependent = InventoryMovementDocumentLine.objects.filter(
-            source_issue_line__document=locked,
-            document__status=InventoryDocumentStatus.POSTED,
-        ).select_related("document")
-        first = dependent.first()
-        if first is not None:
-            raise ValidationError(
-                _(
-                    "Return %(number)s took stock back against this issue. Reverse the "
-                    "return first."
-                ),
-                code="issue_has_active_returns",
-                params={"number": first.document.document_number},
-            )
 
     now = timezone.now()
     reversal_business_date = resolve_business_day(locked.branch, now).business_date

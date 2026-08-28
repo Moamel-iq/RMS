@@ -129,12 +129,11 @@ class World:
 
 @pytest.fixture
 def world(units: None) -> World:
-    organization = create_organization(code="KMG", name_ar="خان مندي", name_en="KM")
+    organization = create_organization(code="KMG", name="خان مندي")
     branch = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=datetime.time(9, 0),
     )
     people: dict[str, User] = {}
@@ -150,13 +149,13 @@ def world(units: None) -> World:
         people[name] = User.objects.get(pk=user.pk)
 
     category = ItemCategory.objects.create(
-        organization=organization, code="FOOD", name_ar="أغذية", depth=1
+        organization=organization, code="FOOD", name="أغذية", depth=1
     )
     kilogram = UnitOfMeasure.objects.get(code="KG")
     rice = InventoryItem.objects.create(
         organization=organization,
         code="RICE",
-        name_ar="رز",
+        name="رز",
         category=category,
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
@@ -174,7 +173,7 @@ def _recipe(world: World, code: str) -> Recipe:
     return create_recipe(
         organization=world.organization,
         code=code,
-        name_ar=f"وصفة {code}",
+        name=f"وصفة {code}",
         recipe_type=RecipeType.PORTION,
         created_by=world.people["author"],
     )
@@ -196,7 +195,7 @@ def _draft(world: World, recipe: Recipe) -> RecipeVersion:
     add_recipe_serving(
         version=version,
         code="ONE",
-        name_ar="حصة",
+        name="حصة",
         serving_quantity=Decimal("1"),
         serving_unit=world.kilogram,
         is_primary=True,

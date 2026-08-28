@@ -235,6 +235,21 @@ def test_every_card_route_answers_as_a_fragment(
         assert "<html" not in response.content.decode("utf-8").lower(), card.slug
 
 
+def test_every_card_route_is_a_complete_page_when_opened_directly(
+    scenario: dict[str, Any], accounting_manager: User, client_for: Callable[[User], Client]
+) -> None:
+    """The same card URL is bookmarkable without placing a fragment in a tab."""
+    client = client_for(accounting_manager)
+    for card in CARDS:
+        response = client.get(reverse("sales:dashboard_card", args=[card.slug]))
+        body = response.content.decode("utf-8").lower()
+        assert response.status_code == 200, card.slug
+        assert "<html" in body, card.slug
+        assert 'class="shell"' in body, card.slug
+        vary = {value.strip().lower() for value in response.headers["Vary"].split(",")}
+        assert "hx-request" in vary
+
+
 def test_every_detail_screen_answers_as_a_page_and_as_a_real_fragment(
     scenario: dict[str, Any], accounting_manager: User, client_for: Callable[[User], Client]
 ) -> None:

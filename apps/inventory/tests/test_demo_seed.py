@@ -33,13 +33,11 @@ from apps.inventory.models import (
     InventoryItem,
     InventoryLot,
     InventoryMovementDocument,
-    InventoryReasonCode,
     ItemCategory,
     PackageUnit,
     StockBalance,
     StockCount,
     StockCountStatus,
-    StockLedgerEntry,
     StockMovement,
     StockTransfer,
     StockTransferStatus,
@@ -206,25 +204,35 @@ class TestTheDataset:
                 Decimal("0.000"),
             )
 
-        assert quantity("DEMO-MAIN", "DEMO-RICE") == Decimal("145.000")
-        assert quantity("DEMO-MAIN", "DEMO-OIL") == Decimal("65.000")
-        # 1000 opening − 100 issued − 200 dispatched − 10 written down + 15 found
-        assert quantity("DEMO-MAIN", "DEMO-CONTAINER") == Decimal("705.000")
-        assert quantity("DEMO-MAIN", "DEMO-MEAT") == Decimal("75.650")
-        # Four lots: 46 in the ninety-day lot (50 opening less 4 spoiled), 12
-        # in the twenty-day lot and 5 in the already-expired one, plus the
-        # batch that received 8 and lost all 8 to waste. Task 1.7A added the
-        # dated lots so the expiry report has a row in every bucket; this
-        # expectation moved with them.
-        assert quantity("DEMO-MAIN", "DEMO-CHICKEN") == Decimal("63.000")
-        assert quantity("DEMO-KITCHEN", "DEMO-RICE") == Decimal("29.500")
-        assert quantity("DEMO-DEST-MAIN", "DEMO-CONTAINER") == Decimal("120.000")
+        # One dict, so a failure names every figure that moved rather than
+        # stopping at the first.
+        assert {
+            ("DEMO-MAIN", "DEMO-RICE"): quantity("DEMO-MAIN", "DEMO-RICE"),
+            ("DEMO-MAIN", "DEMO-OIL"): quantity("DEMO-MAIN", "DEMO-OIL"),
+            ("DEMO-MAIN", "DEMO-CONTAINER"): quantity("DEMO-MAIN", "DEMO-CONTAINER"),
+            ("DEMO-MAIN", "DEMO-MEAT"): quantity("DEMO-MAIN", "DEMO-MEAT"),
+            ("DEMO-MAIN", "DEMO-CHICKEN"): quantity("DEMO-MAIN", "DEMO-CHICKEN"),
+            ("DEMO-KITCHEN", "DEMO-RICE"): quantity("DEMO-KITCHEN", "DEMO-RICE"),
+            ("DEMO-DEST-MAIN", "DEMO-CONTAINER"): quantity("DEMO-DEST-MAIN", "DEMO-CONTAINER"),
+        } == {
+            # 150 opening − 20 issued − 30 dispatched − 20 dispatched again.
+            # The 60 that arrived on an un-invoiced receipt and the 5 that came
+            # back on a return left with those documents.
+            ("DEMO-MAIN", "DEMO-RICE"): Decimal("80.000"),
+            ("DEMO-MAIN", "DEMO-OIL"): Decimal("65.000"),
+            # 1000 opening − 100 issued − 200 dispatched − 10 written down + 15 found
+            ("DEMO-MAIN", "DEMO-CONTAINER"): Decimal("705.000"),
+            ("DEMO-MAIN", "DEMO-MEAT"): Decimal("40.000"),
+            ("DEMO-MAIN", "DEMO-CHICKEN"): Decimal("46.000"),
+            ("DEMO-KITCHEN", "DEMO-RICE"): Decimal("29.500"),
+            ("DEMO-DEST-MAIN", "DEMO-CONTAINER"): Decimal("120.000"),
+        }
 
     def test_the_value_only_adjustment_moved_value_and_not_quantity(self, seeded: str) -> None:
         """
         The reason the adjustment aggregate exists at all.
 
-        Rice is still 145.000 KG after a 5,000 write-down, and the average cost
+        Rice is still 80.000 KG after a 5,000 write-down, and the average cost
         is what fell — a change no signed movement of goods could express.
         """
         balance = StockBalance.objects.get(
@@ -232,18 +240,21 @@ class TestTheDataset:
             warehouse__code="DEMO-MAIN",
             item__code="DEMO-RICE",
         )
-        assert balance.quantity == Decimal("145.000")
-        assert balance.value == Decimal("216642.857")
+        assert balance.quantity == Decimal("80.000")
+        assert balance.value == Decimal("115000.000")
 
-    def test_the_expired_lot_was_received_and_written_off_to_zero(self, seeded: str) -> None:
+    def test_the_expired_lot_stands_dated_and_is_written_off_to_zero(self, seeded: str) -> None:
         """
-        Expired stock arrives, and waste is what resolves it.
+        A dated batch stands in stock, and waste is what resolves it.
 
-        Receiving an out-of-date batch is legitimate; issuing it is not. The
-        batch is left at zero quantity and zero value rather than stranded.
+        The batch used to arrive on an un-invoiced receipt; that document was
+        withdrawn, so the opening sheet carries it instead — which is the other
+        honest way for a dated batch to be standing there on day one. What the
+        test is about is unchanged: the write-off leaves it at zero quantity
+        and zero value rather than stranded.
         """
         organization = demo_organization()
-        lot = InventoryLot.objects.get(item__code="DEMO-CHICKEN", code="DEMO-CHK-LOT-02")
+        lot = InventoryLot.objects.get(item__code="DEMO-CHICKEN", code="DEMO-CHK-LOT-04")
         assert lot.expiry_date is not None
         assert lot.expiry_date < timezone.localdate()
 
@@ -310,33 +321,6 @@ class TestTheDataset:
         )
         assert line.base_quantity == received + shortage
         assert line.remaining_quantity == Decimal("0.000")
-
-    def test_the_reversed_receipt_stays_visible_with_its_reversal(self, seeded: str) -> None:
-        """
-        History keeps both halves.
-
-        A correction is a reversal and a replacement, never an edit, so the
-        original posting must still be there. The reversal is its own ledger
-        entry rather than a second line on the original document — both name
-        the same source document, one `POSTED` and one `REVERSED`.
-        """
-        organization = demo_organization()
-        original = InventoryMovementDocument.objects.get(
-            organization=organization,
-            evidence_reference=f"{NAMESPACE}/RECEIPT-03-REVERSED",
-        )
-        assert original.status == "REVERSED"
-
-        entries = StockLedgerEntry.objects.filter(
-            organization=organization, source_document_id=str(original.public_id)
-        )
-        assert {entry.source_event for entry in entries} == {"POSTED", "REVERSED"}
-        reversal = entries.get(source_event="REVERSED")
-        assert reversal.reverses_id == entries.get(source_event="POSTED").pk
-
-        movements = StockMovement.objects.filter(entry__source_document_id=str(original.public_id))
-        assert movements.count() == 2, "the posting and its reversal are both movements"
-        assert sum(movement.base_quantity for movement in movements) == Decimal("0.000")
 
     def test_all_four_transfer_states_are_represented(self, seeded: str) -> None:
         """A UI shown only terminal states has not been shown its lifecycle."""
@@ -542,41 +526,6 @@ class TestReset:
         assert not InventoryItem.objects.filter(code__startswith="DEMO-").exists()
         assert any("items" in line for line in report.removed)
 
-    def test_reset_archives_reason_codes_rather_than_deleting_them(
-        self, owner: User, settings: object
-    ) -> None:
-        """
-        A reason code's code stays reserved, and a trigger enforces it.
-
-        The reset does not get an exemption from an invariant for being
-        development tooling — it archives, which is what the domain calls
-        "gone".
-        """
-        settings.DEBUG = True  # type: ignore[attr-defined]
-        run_seed(user=owner.username)
-
-        reset_demo()
-
-        codes = InventoryReasonCode.objects.filter(code__startswith="DEMO-")
-        assert codes.exists(), "the codes stay reserved"
-        assert not codes.filter(is_active=True).exists()
-
-    def test_a_reseed_after_reset_revives_the_archived_reason_codes(
-        self, owner: User, settings: object
-    ) -> None:
-        """An archived reason cannot be selected, so waste would have refused it."""
-        settings.DEBUG = True  # type: ignore[attr-defined]
-        run_seed(user=owner.username)
-        reset_demo()
-
-        run_seed(user=owner.username, confirm_demo=True)
-
-        assert (
-            InventoryReasonCode.objects.filter(code__startswith="DEMO-", is_active=True).count()
-            == 4
-        )
-        assert StockMovement.objects.filter(organization=demo_organization()).exists()
-
 
 # ---------------------------------------------------------------------------
 # Every implemented section has something to show
@@ -593,15 +542,11 @@ SECTIONS: list[tuple[str, str]] = [
     ("inventory:movement_list", "DEMO-RICE"),
     ("inventory:opening_list", "OPN-"),
     ("inventory:mapping_list", "5-01-02-002"),
-    ("inventory:inventory_receipt_list", "RCV-"),
     ("inventory:inventory_issue_list", "ISS-"),
-    ("inventory:inventory_return_in_list", "RTN-"),
     ("inventory:transfer_list", "TRF-"),
-    ("inventory:in_transit", "DEMO-CONTAINER"),
     ("inventory:inventory_waste_list", "WST-"),
     ("inventory:count_list", "CNT-"),
     ("inventory:adjustment_list", "ADJ-"),
-    ("inventory:reason_code_list", "DEMO-SPOILED"),
 ]
 
 

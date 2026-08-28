@@ -19,6 +19,7 @@ from typing import Any
 from django.db.models import Q, Sum
 from django.utils import timezone
 
+from apps.core.money import quantize_money, quantize_rate
 from apps.inventory.reports import ReportFilters
 from apps.organizations.authorization import organizations_with_permission
 from apps.procurement.credit_notes import (
@@ -44,6 +45,8 @@ from apps.procurement.models import (
     SupplierInvoicePostingStatus,
     SupplierInvoiceStatus,
     SupplierPayment,
+    SupplierPaymentCycle,
+    SupplierPaymentCycleStatus,
     SupplierPaymentStatus,
     SupplierReturn,
     SupplierReturnStatus,
@@ -94,7 +97,7 @@ def _suppliers(user: User, filters: ProcurementReportFilters) -> list[Supplier]:
         queryset = queryset.filter(pk=filters.supplier_id)
     if filters.search:
         queryset = queryset.filter(
-            Q(code__icontains=filters.search) | Q(name_ar__icontains=filters.search)
+            Q(code__icontains=filters.search) | Q(name__icontains=filters.search)
         )
     return list(queryset.order_by("organization__code", "code"))
 
@@ -167,7 +170,7 @@ def supplier_aging(
             continue
         row: dict[str, Any] = {
             "supplier_code": supplier.code,
-            "supplier_name": supplier.name_ar,
+            "supplier_name": supplier.name,
         }
         if include_cost:
             row.update(
@@ -322,8 +325,38 @@ def supplier_statement(
                     advance=advance_remainder(payment),
                 )
             )
+        ordered = sorted(events, key=_statement_sort_key)
+
+        # A reset date does not hide the past, it folds it. Everything before
+        # the date becomes one opening line carrying the balance as it stood,
+        # and the movements listed start from the date itself. Every earlier
+        # document stays exactly where it is, and the closing balance is the
+        # same number it would have been without a reset — which is the whole
+        # reason a statement may carry one at all.
+        reset_on = supplier.balance_reset_date
         balance = ZERO
-        for event in sorted(events, key=_statement_sort_key):
+        if reset_on is not None:
+            before = [event for event in ordered if event.business_date < reset_on]
+            ordered = [event for event in ordered if event.business_date >= reset_on]
+            balance = sum((event.debit - event.credit for event in before), start=ZERO)
+            opening: dict[str, Any] = {
+                "supplier_code": supplier.code,
+                "date": reset_on,
+                "document_kind": "رصيد ما قبل التصفير",
+                "number": f"{len(before)} مستنداً",
+            }
+            if include_cost:
+                opening.update(
+                    {
+                        "charged": balance if balance > ZERO else ZERO,
+                        "settled": -balance if balance < ZERO else ZERO,
+                        "advance": ZERO,
+                        "balance": balance,
+                    }
+                )
+            rows.append(opening)
+
+        for event in ordered:
             date, kind, number = event.business_date, event.kind, event.number
             debit, credit, advance = event.debit, event.credit, event.advance
             balance += debit - credit
@@ -343,6 +376,143 @@ def supplier_statement(
                     }
                 )
             rows.append(row)
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# 2b. Settlement floors that were not met
+# ---------------------------------------------------------------------------
+
+
+def settlement_breaches(
+    user: User, filters: ProcurementReportFilters, *, include_cost: bool
+) -> list[dict[str, Any]]:
+    """
+    Posted invoices past their due date that have not been settled far enough.
+
+    Only for suppliers whose agreement states a floor: a supplier with no
+    `minimum_settlement_percent` has agreed to nothing to breach, and listing
+    every merely-overdue invoice here would duplicate the aging report and
+    bury the ones that broke a promise.
+
+    The comparison is against the invoice's **posted amount**, not its
+    outstanding balance, because the promise was a share of the whole. Credit
+    notes and payments both reduce what is outstanding, and both therefore
+    count towards the share — what the supplier agreed was that the debt would
+    have shrunk by this much, not how it shrank.
+    """
+    today = timezone.localdate()
+    rows: list[dict[str, Any]] = []
+    for supplier in _suppliers(user, filters):
+        required = supplier.minimum_settlement_percent
+        if required is None:
+            continue
+        for invoice in (
+            SupplierInvoice.objects.filter(
+                supplier=supplier, status=SupplierInvoiceStatus.POSTED, due_date__lt=today
+            )
+            .filter(_in_window(filters, "business_date"))
+            .order_by("due_date", "number")
+        ):
+            charged = invoice.posted_amount or ZERO
+            if charged <= ZERO:
+                continue
+            settled = charged - outstanding_amount(invoice)
+            settled_percent = quantize_rate(settled / charged * 100)
+            if settled_percent >= required:
+                continue
+
+            row: dict[str, Any] = {
+                "supplier_code": supplier.code,
+                "supplier_name": supplier.name,
+                "number": invoice.number,
+                "invoice_date": invoice.invoice_date,
+                "due_date": invoice.due_date,
+                "days_overdue": (today - invoice.due_date).days,
+            }
+            if include_cost:
+                row.update(
+                    {
+                        "charged": charged,
+                        "settled": settled,
+                        "settled_percent": settled_percent,
+                        "required_percent": required,
+                        "shortfall": quantize_money(charged * required / 100 - settled),
+                    }
+                )
+            rows.append(row)
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# 2c. The settlement cycles themselves
+# ---------------------------------------------------------------------------
+
+
+def payment_cycles(
+    user: User, filters: ProcurementReportFilters, *, include_cost: bool
+) -> list[dict[str, Any]]:
+    """
+    Every unsettled settlement window, soonest due first.
+
+    The breach report above looks backwards at invoices that already failed a
+    promise. This one looks forwards, at the windows still running: what falls
+    due when, how much of it is still owed, and what has to move to honour the
+    agreed share. A settled cycle is not listed — it has no question left.
+
+    `days_remaining` is signed, and the ordering is by due date, so the row a
+    person needs to act on today is the first one they read. A window whose
+    date has passed sorts to the top with a negative number rather than being
+    dropped: still owed is exactly the state worth showing.
+
+    The required amount follows the settlement screen's rule — the outstanding
+    balance times the agreed share — so the figure reported and the figure the
+    screen proposes to pay can never disagree.
+    """
+    from apps.procurement.cycles import cycle_invoices, days_remaining
+    from apps.procurement.settlement import target_for
+
+    today = timezone.localdate()
+    rows: list[dict[str, Any]] = []
+    for supplier in _suppliers(user, filters):
+        cycles = (
+            SupplierPaymentCycle.objects.filter(supplier=supplier)
+            .exclude(status=SupplierPaymentCycleStatus.SETTLED)
+            .filter(_in_window(filters, "due_date"))
+            .order_by("due_date", "sequence")
+        )
+        for cycle in cycles:
+            invoices = cycle_invoices(cycle)
+            charged = quantize_money(sum((i.posted_amount or ZERO for i in invoices), ZERO))
+            outstanding = quantize_money(
+                sum((outstanding_amount(invoice) for invoice in invoices), ZERO)
+            )
+            row: dict[str, Any] = {
+                "supplier_code": supplier.code,
+                "supplier_name": supplier.name,
+                "sequence": cycle.sequence,
+                "status": cycle.get_status_display(),
+                "opened_on": cycle.opened_on,
+                "due_date": cycle.due_date,
+                "days_remaining": days_remaining(cycle, on=today),
+                "invoice_count": len(invoices),
+            }
+            if include_cost:
+                required = target_for(outstanding, cycle.minimum_settlement_percent)
+                row.update(
+                    {
+                        "charged": charged,
+                        "settled": quantize_money(charged - outstanding),
+                        "outstanding": outstanding,
+                        "required_percent": cycle.minimum_settlement_percent,
+                        "required_amount": required,
+                    }
+                )
+            rows.append(row)
+    # Across suppliers as well as within one: whoever reads this is deciding
+    # what to pay this week, and that question is not asked one supplier at a
+    # time.
+    rows.sort(key=lambda row: (row["due_date"], str(row["supplier_code"])))
     return rows
 
 
@@ -379,7 +549,7 @@ def open_purchase_orders(
             "order_number": line.order.number,
             "supplier_code": line.order.supplier.code,
             "item_code": line.item.code,
-            "item_name": line.item.name_ar,
+            "item_name": line.item.name,
             "ordered": line.ordered_base_quantity,
             "received": received,
             "outstanding": outstanding,
@@ -616,7 +786,7 @@ def purchase_spend(
             key,
             {
                 "supplier_code": invoice.supplier.code,
-                "supplier_name": invoice.supplier.name_ar,
+                "supplier_name": invoice.supplier.name,
                 "month": month,
                 "invoice_count": 0,
                 **({"spend": ZERO} if include_cost else {}),

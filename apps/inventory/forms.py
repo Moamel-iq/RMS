@@ -35,13 +35,10 @@ from apps.inventory.models import (
     AdjustmentLineKind,
     ConversionType,
     InventoryItem,
-    InventoryMovementDocumentLine,
-    InventoryReasonCode,
     ItemCategory,
     ItemPackageConversion,
     ItemType,
     PackageUnit,
-    ReasonCodeApplication,
     StockTransferLine,
     Warehouse,
     WarehouseType,
@@ -56,11 +53,9 @@ from apps.inventory.permissions import (
     MANAGE_CATEGORIES,
     MANAGE_CONVERSIONS,
     MANAGE_PACKAGE_UNITS,
-    MANAGE_REASON_CODES,
     MANAGE_WAREHOUSES,
     POST_ADJUSTMENT,
 )
-from apps.inventory.reason_codes import selectable_reason_codes
 from apps.inventory.selectors import (
     visible_categories,
     visible_items,
@@ -121,8 +116,7 @@ class ItemCategoryForm(ScopedForm):
         max_length=32,
         help_text=_("حروف إنجليزية كبيرة وأرقام. يُوحَّد تلقائياً ولا يمكن تغييره لاحقاً."),
     )
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     parent = forms.ModelChoiceField(
         queryset=ItemCategory.objects.none(),
         label=_("المجموعة الأعلى"),
@@ -157,7 +151,7 @@ class ItemCategoryForm(ScopedForm):
         self.fields["parent"].queryset = parents.order_by("depth", "code")  # type: ignore[attr-defined]
 
     def clean_name_en(self) -> str:
-        return str(self.cleaned_data.get("name_en") or "")
+        return str(self.cleaned_data.get("name") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +177,7 @@ class PackageUnitForm(ScopedForm):
         max_length=32,
         help_text=_("مثل CARTON أو SACK. يُوحَّد تلقائياً ولا يمكن تغييره لاحقاً."),
     )
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=100)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=100, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=100)
     is_active = forms.BooleanField(label=_("فعّالة"), required=False, initial=True)
 
     def __init__(
@@ -202,7 +195,7 @@ class PackageUnitForm(ScopedForm):
             )
 
     def clean_name_en(self) -> str:
-        return str(self.cleaned_data.get("name_en") or "")
+        return str(self.cleaned_data.get("name") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -232,8 +225,7 @@ class InventoryItemForm(ScopedForm):
         max_length=32,
         help_text=_("يُوحَّد تلقائياً إلى حروف كبيرة. لا يمكن تغييره لاحقاً."),
     )
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     category = forms.ModelChoiceField(
         queryset=ItemCategory.objects.none(),
         label=_("المجموعة"),
@@ -279,7 +271,7 @@ class InventoryItemForm(ScopedForm):
         self.fields["category"].queryset = categories.order_by("code")  # type: ignore[attr-defined]
 
     def clean_name_en(self) -> str:
-        return str(self.cleaned_data.get("name_en") or "")
+        return str(self.cleaned_data.get("name") or "")
 
     def clean_notes(self) -> str:
         return str(self.cleaned_data.get("notes") or "")
@@ -485,8 +477,7 @@ class WarehouseForm(ScopedForm):
         max_length=32,
         help_text=_("يُوحَّد تلقائياً إلى حروف كبيرة. لا يمكن تغييره لاحقاً."),
     )
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     warehouse_type = forms.ChoiceField(choices=USER_CREATABLE_WAREHOUSE_TYPES, label=_("النوع"))
     is_active = forms.BooleanField(label=_("فعّال"), required=False, initial=True)
 
@@ -507,7 +498,7 @@ class WarehouseForm(ScopedForm):
             self.fields["warehouse_type"].choices = WarehouseType.choices  # type: ignore[attr-defined]
 
     def clean_name_en(self) -> str:
-        return str(self.cleaned_data.get("name_en") or "")
+        return str(self.cleaned_data.get("name") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -945,23 +936,11 @@ class OperationalLineForm(ScopedForm):
         required=False,
         help_text=_("دينار عراقي لكل وحدة أساس."),
     )
-    source_issue_line = forms.ModelChoiceField(
-        queryset=InventoryMovementDocumentLine.objects.none(),
-        label=_("سطر الصرف الأصلي"),
-        required=False,
-        help_text=_("الصرف الذي تعود منه البضاعة."),
-    )
-    reason_code = forms.ModelChoiceField(
-        queryset=InventoryReasonCode.objects.none(),
-        label=_("سبب الإتلاف"),
-        required=False,
-        help_text=_("من قائمة أسباب المنظمة. مطلوب لكل سطر إتلاف."),
-    )
     line_comment = forms.CharField(
         label=_("ملاحظة السطر"),
         max_length=200,
         required=False,
-        help_text=_("مطلوبة إن كان السبب يقتضيها."),
+        help_text=_("لماذا أُتلفت هذه الكمية."),
     )
 
     def __init__(
@@ -973,7 +952,6 @@ class OperationalLineForm(ScopedForm):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, actor=actor, **kwargs)
-        from apps.inventory.commands import returnable_issue_lines
         from apps.inventory.models import InventoryDocumentType
 
         self.document = document
@@ -994,36 +972,16 @@ class OperationalLineForm(ScopedForm):
             "item__code", "package_unit__code"
         )
 
-        if document.document_type == InventoryDocumentType.RECEIPT:
-            del self.fields["source_issue_line"]
-            self.fields["unit_cost"].required = True
-            self.fields["unit_cost"].error_messages["required"] = _("أدخل كلفة الوحدة.")
-        else:
-            del self.fields["unit_cost"]
+        # Nothing left in this family states its own cost: an issue and a
+        # waste both take the standing average. The field went out with the
+        # un-invoiced receipt, which was the only document that priced itself.
+        del self.fields["unit_cost"]
 
-        # The reason code belongs to a waste note and to nothing else. Removed
-        # rather than merely optional elsewhere: a field on the screen is an
-        # invitation to fill it in, and nothing would read the answer.
-        if document.document_type == InventoryDocumentType.WASTE:
-            self.fields["reason_code"].queryset = selectable_reason_codes(  # type: ignore[attr-defined]
-                organization=document.organization,
-                applies_to=ReasonCodeApplication.WASTE,
-            )
-            self.fields["reason_code"].required = True
-        else:
-            del self.fields["reason_code"]
+        # The note belongs to a waste and to nothing else. Removed rather than
+        # merely optional elsewhere: a field on the screen is an invitation to
+        # fill it in, and nothing would read the answer.
+        if document.document_type != InventoryDocumentType.WASTE:
             del self.fields["line_comment"]
-
-        if document.document_type == InventoryDocumentType.RETURN_IN:
-            sources = returnable_issue_lines(actor).filter(
-                document__warehouse_id=document.warehouse_id
-            )
-            if selected_item is not None:
-                sources = sources.filter(item=selected_item)
-            self.fields["source_issue_line"].queryset = sources  # type: ignore[attr-defined]
-            self.fields["source_issue_line"].required = True
-        elif "source_issue_line" in self.fields:
-            del self.fields["source_issue_line"]
 
         if selected_item is not None and not self.is_bound:
             self.fields["item"].initial = selected_item
@@ -1396,52 +1354,6 @@ class TransferShortageForm(ScopedForm):
 # ---------------------------------------------------------------------------
 
 
-class ReasonCodeForm(ScopedForm):
-    """
-    Create or amend one reason code.
-
-    On an existing code, `code` and `applies_to` are **disabled**, not merely
-    ignored: a disabled field takes its value from `initial`, so a hand-made
-    POST cannot smuggle a new one past the form — and the database trigger
-    refuses it again behind that.
-    """
-
-    scope_permission = MANAGE_REASON_CODES
-
-    organization = forms.ModelChoiceField(queryset=Organization.objects.none(), label=_("المؤسسة"))
-    code = forms.CharField(
-        label=_("الرمز"),
-        max_length=32,
-        help_text=_("حروف إنجليزية كبيرة وأرقام. يُوحَّد تلقائياً ولا يتغيّر بعد الإنشاء."),
-    )
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200, required=False)
-    applies_to = forms.ChoiceField(
-        choices=ReasonCodeApplication.choices,
-        label=_("مجال الاستخدام"),
-        help_text=_("لا يتغيّر بعد الإنشاء: تغييره يعيد تفسير كل مستند رُحّل به."),
-    )
-    requires_comment = forms.BooleanField(label=_("يستلزم ملاحظة"), required=False)
-    requires_evidence = forms.BooleanField(label=_("يستلزم إثباتاً"), required=False)
-    is_active = forms.BooleanField(label=_("فعّال"), required=False, initial=True)
-
-    def __init__(self, *args: Any, actor: User, instance: Any = None, **kwargs: Any) -> None:
-        super().__init__(*args, actor=actor, **kwargs)
-        self.instance = instance
-        if instance is None:
-            self.fields["organization"].queryset = self.organization_choices()  # type: ignore[attr-defined]
-        else:
-            self.fields["code"].disabled = True
-            self.fields["applies_to"].disabled = True
-            self.fields["organization"].disabled = True
-            self.fields["organization"].queryset = Organization.objects.filter(  # type: ignore[attr-defined]
-                pk=instance.organization_id
-            )
-
-    def clean_name_en(self) -> str:
-        return str(self.cleaned_data.get("name_en") or "")
-
-
 class StockCountForm(ScopedForm):
     """
     The header of a count, before anything is frozen.
@@ -1621,9 +1533,9 @@ class AdjustmentLineForm(ScopedForm):
         required=False,
         help_text=_("لإعادة التقييم فقط. موجبة ترفع القيمة، سالبة تخفضها."),
     )
-    reason_code = forms.ModelChoiceField(
-        queryset=InventoryReasonCode.objects.none(), label=_("سبب التسوية")
-    )
+    #: The reason vocabulary was withdrawn with its management screen, so a
+    #: line explains itself in words or not at all. `line_comment` is where
+    #: that explanation goes and is the only account an adjustment now gives.
     line_comment = forms.CharField(label=_("ملاحظة السطر"), max_length=200, required=False)
 
     def __init__(self, *args: Any, actor: User, document: Any, **kwargs: Any) -> None:
@@ -1633,10 +1545,6 @@ class AdjustmentLineForm(ScopedForm):
             visible_items(actor)
             .filter(organization_id=document.organization_id, is_active=True)
             .order_by("code")
-        )
-        self.fields["reason_code"].queryset = selectable_reason_codes(  # type: ignore[attr-defined]
-            organization=document.organization,
-            applies_to=ReasonCodeApplication.MANUAL_ADJUSTMENT,
         )
 
     def clean_base_quantity(self) -> Decimal | None:

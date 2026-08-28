@@ -78,7 +78,7 @@ class Command(SeedCommand):
             raise CommandError(f"{path} is missing.")
 
         menu = {
-            item.name_ar.strip(): item
+            item.name.strip(): item
             for item in MenuItem.objects.filter(organization=organization, is_active=True)
         }
         channels = {
@@ -152,7 +152,7 @@ class Command(SeedCommand):
                         made_lines += 1
                     except ValidationError as refused:
                         problems.append(
-                            f"سطر {line['row']} ({line['menu_item'].name_ar}): "
+                            f"سطر {line['row']} ({line['menu_item'].name}): "
                             f"{'; '.join(refused.messages)}"
                         )
 

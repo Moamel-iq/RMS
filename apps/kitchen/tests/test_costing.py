@@ -794,7 +794,7 @@ def _three_line_version(
     add_recipe_serving(
         version=draft,
         code="ONE",
-        name_ar="حصة",
+        name="حصة",
         serving_quantity=Decimal("1"),
         serving_unit=kilogram,
         is_primary=True,

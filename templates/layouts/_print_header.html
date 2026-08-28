@@ -1,0 +1,27 @@
+{% load i18n static %}
+<div class="ui-print-header ui-print-only" aria-hidden="true">
+  <div class="ui-print-header__identity">
+    <div class="ui-print-header__logo" data-part="logo">
+      {% if print_logo %}
+        <img src="{% static print_logo %}" alt="{% translate 'شعار خان مندي' %}" width="96" height="96">
+      {% else %}
+        <span class="ui-print-header__wordmark">{% translate "خان مندي" %}</span>
+      {% endif %}
+    </div>
+    <div>
+      <p class="ui-print-header__issuer" data-part="issuer">
+        {% if print_organization %}{{ print_organization }}{% endif %}
+        {% if print_branch %}<span>{{ print_branch }}</span>{% endif %}
+      </p>
+      <h2 class="ui-print-header__title" data-print-title>
+        {% if page_title %}{{ page_title }}{% else %}{{ active_module.label }}{% if active_section %} — {{ active_section.label }}{% endif %}{% endif %}
+      </h2>
+      <p class="ui-print-header__where">{{ active_module.label }}{% if active_section %} — {{ active_section.label }}{% endif %}</p>
+      {% if filter_query %}<p class="ui-print-header__filters" data-part="period">{% translate "المرشحات" %}: <bdi dir="ltr">{{ filter_query }}</bdi></p>{% endif %}
+    </div>
+  </div>
+  <p class="ui-print-header__stamp" data-part="stamp">
+    {% translate "طُبع" %}: {% now "Y-m-d H:i" %}
+    {% if user.is_authenticated %} — {% translate "بواسطة" %} {{ user.get_full_name|default:user.username }}{% endif %}
+  </p>
+</div>

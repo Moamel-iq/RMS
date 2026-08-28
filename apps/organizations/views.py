@@ -50,7 +50,7 @@ class OrganizationListView(FoundationListView):
     page_hint = _("الحد الأعلى للنشاط. كل فرع يتبع مؤسسة واحدة.")
     create_url_name = "organizations:organization_create"
     create_label = _("مؤسسة جديدة")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     required_permission = MANAGE_ORG_SETTINGS
 
     def get_queryset(self) -> QuerySet[Organization]:
@@ -83,8 +83,7 @@ class OrganizationCreateView(FoundationFormViewMixin, CreateView):
         # applied in the one place that owns them.
         create_organization(
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
         )
         return HttpResponseRedirect(self.get_success_url())
 
@@ -112,8 +111,7 @@ class OrganizationUpdateView(FoundationFormViewMixin, UpdateView):
         actor: User = self.request.user  # type: ignore[assignment]
         update_organization(
             organization=self.object,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             is_active=form.cleaned_data["is_active"],
             actor=actor,
         )
@@ -128,7 +126,7 @@ class BranchListView(FoundationListView):
     page_hint = _("لكل فرع منطقته الزمنية وبداية يوم عمله، وعليهما يُبنى تاريخ العمل.")
     create_url_name = "organizations:branch_create"
     create_label = _("فرع جديد")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     required_permission = MANAGE_ORG_SETTINGS
 
     def get_queryset(self) -> QuerySet[Branch]:
@@ -163,8 +161,7 @@ class BranchCreateView(FoundationFormViewMixin, CreateView):
         create_branch(
             organization=form.cleaned_data["organization"],
             code=form.cleaned_data["code"],
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             business_day_start_time=form.cleaned_data["business_day_start_time"],
             timezone=form.cleaned_data["timezone"],
             actor=actor,
@@ -201,8 +198,7 @@ class BranchUpdateView(FoundationFormViewMixin, UpdateView):
         actor: User = self.request.user  # type: ignore[assignment]
         update_branch(
             branch=self.object,
-            name_ar=form.cleaned_data["name_ar"],
-            name_en=form.cleaned_data["name_en"],
+            name=form.cleaned_data["name"],
             business_day_start_time=form.cleaned_data["business_day_start_time"],
             timezone=form.cleaned_data["timezone"],
             is_active=form.cleaned_data["is_active"],

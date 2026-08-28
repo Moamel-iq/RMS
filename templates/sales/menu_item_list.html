@@ -8,19 +8,19 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "المجموعة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "المجموعة" %}</span>
     <select name="category">
       <option value="">{% translate "كل المجموعات" %}</option>
       {% for category in categories %}
         <option value="{{ category.pk }}" {% if selected_category == category.pk|stringformat:"s" %}selected{% endif %}>
-          {{ category.name_ar }}
+          {{ category.name }}
         </option>
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="state">
       <option value="">{% translate "الكل" %}</option>
       <option value="active" {% if selected_state == "active" %}selected{% endif %}>{% translate "فعّال" %}</option>
@@ -45,32 +45,32 @@
       <td data-label="{% translate 'الرمز' %}">
         <a href="{% url 'sales:menu_item_detail' item.pk %}"><bdi dir="ltr"><code>{{ item.code }}</code></bdi></a>
       </td>
-      <td data-label="{% translate 'الاسم' %}">{{ item.name_ar }}</td>
-      <td data-label="{% translate 'المجموعة' %}">{{ item.category.name_ar|default:"—" }}</td>
+      <td data-label="{% translate 'الاسم' %}">{{ item.name }}</td>
+      <td data-label="{% translate 'المجموعة' %}">{{ item.category.name|default:"—" }}</td>
       <td data-label="{% translate 'مصدر التنفيذ' %}">
-        <span class="chip">{{ item.get_fulfillment_source_display }}</span>
+        <span class="ui-badge">{{ item.get_fulfillment_source_display }}</span>
       </td>
       <td data-label="{% translate 'تفاصيل التنفيذ' %}">
         {% if item.fulfillment_source == "DIRECT_STOCK" %}
           {% if item.inventory_item %}
             <bdi dir="ltr"><code>{{ item.inventory_item.code }}</code></bdi>
-            {{ item.inventory_item.name_ar }}
-            <span class="muted">· <bdi dir="ltr">{{ item.direct_stock_base_quantity|floatformat:"-6" }} {{ item.inventory_item.base_unit.code }}</bdi></span>
+            {{ item.inventory_item.name }}
+            <span class="ui-text-muted">· <bdi dir="ltr">{{ item.direct_stock_base_quantity|floatformat:"-6" }} {{ item.inventory_item.base_unit.code }}</bdi></span>
           {% else %}
             —
           {% endif %}
         {% elif item.recipe %}
-          <bdi dir="ltr"><code>{{ item.recipe.code }}</code></bdi> {{ item.recipe.name_ar }}
-          <span class="muted">· <bdi dir="ltr"><code>{{ item.serving_code }}</code></bdi></span>
+          <bdi dir="ltr"><code>{{ item.recipe.code }}</code></bdi> {{ item.recipe.name }}
+          <span class="ui-text-muted">· <bdi dir="ltr"><code>{{ item.serving_code }}</code></bdi></span>
         {% else %}
           —
         {% endif %}
       </td>
       <td data-label="{% translate 'الحالة' %}">
         {% if item.is_active %}
-          <span class="chip chip--on">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشف" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "مؤرشف" %}</span>
         {% endif %}
       </td>
       {% include "inventory/_rowactions.html" with row=item owner_id=item.organization_id edit_url="sales:menu_item_update" archive_url="sales:menu_item_archive" reactivate_url="sales:menu_item_reactivate" extra_url="sales:menu_item_detail" extra_label=_("التوفّر والأسعار") %}

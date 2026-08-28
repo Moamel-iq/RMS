@@ -21,8 +21,8 @@
 {# There is no cost column, no unit cost, no valuation and no lot. None of     #}
 {# them is hidden — a draft has none of those things until Task 3.5.           #}
 
-<div class="data-table-shell" id="production-requirements">
-  <table class="table">
+<div class="ui-table-scroll" id="production-requirements">
+  <table class="ui-table">
     <thead>
       <tr>
         <th>{% translate "#" %}</th>
@@ -46,14 +46,14 @@
             {% if row.line.component_path %}
               <code dir="ltr">{{ row.line.component_path }}</code>
             {% else %}
-              <span class="muted">{% translate "سطر مباشر" %}</span>
+              <span class="ui-text-muted">{% translate "سطر مباشر" %}</span>
             {% endif %}
           </td>
-          <td><span class="muted" dir="ltr">{{ row.line.component_label_path }}</span></td>
+          <td><span class="ui-text-muted" dir="ltr">{{ row.line.component_label_path }}</span></td>
           <td>
             <code>{{ row.line.item_code }}</code> {{ row.line.item_name }}
             {% if row.line.is_optional %}
-              <span class="pill">{% translate "اختياري" %}</span>
+              <span class="ui-badge">{% translate "اختياري" %}</span>
             {% endif %}
           </td>
           <td><code>{{ row.line.base_unit_code }}</code></td>
@@ -64,19 +64,19 @@
             {% if row.comparison.is_comparable %}
               <code dir="ltr">{{ row.comparison.comparable_quantity|stringformat:"f" }}</code>
             {% else %}
-              <span class="muted">—</span>
+              <span class="ui-text-muted">—</span>
             {% endif %}
           </td>
           <td>
             {% if row.comparison.is_comparable %}
               <code dir="ltr">{{ row.comparison.variance_display }}</code>
             {% else %}
-              <span class="muted">{{ row.comparison.statement }}</span>
+              <span class="ui-text-muted">{{ row.comparison.statement }}</span>
             {% endif %}
           </td>
           <td>
             {% if can_draft %}
-              <a class="btn btn--ghost"
+              <a class="ui-button ui-button--ghost"
                  href="{% url 'kitchen:production_substitute_create' row.line.pk %}">
                 {% translate "بديل" %}
               </a>
@@ -86,15 +86,15 @@
 
         {# Every actual row on its own line, never summed across dimensions. #}
         {% for actual in row.actuals %}
-          <tr class="subrow">
+          <tr class="ui-table__subrow">
             <td></td>
             <td colspan="2">
-              <span class="pill">{{ actual.get_kind_display }}</span>
+              <span class="ui-badge">{{ actual.get_kind_display }}</span>
             </td>
             <td>
-              <code>{{ actual.item.code }}</code> {{ actual.item.name_ar }}
+              <code>{{ actual.item.code }}</code> {{ actual.item.name }}
               {% if actual.substitute %}
-                <span class="muted">
+                <span class="ui-text-muted">
                   {% translate "بموجب اعتماد" %}
                   <code dir="ltr">#{{ actual.substitute.priority }}</code>
                 </span>
@@ -112,22 +112,22 @@
             <td><code dir="ltr">{{ actual.factor_display }}</code></td>
             <td><code dir="ltr">{{ actual.quantity_display }}</code></td>
             <td colspan="2">
-              <span class="muted">{{ actual.reason }}{{ actual.note }}</span>
+              <span class="ui-text-muted">{{ actual.reason }}{{ actual.note }}</span>
             </td>
             <td>
               {% if can_draft and batch.is_draft %}
-                <a class="btn btn--ghost"
+                <a class="ui-button ui-button--ghost"
                    href="{% url 'kitchen:production_actual_update' actual.pk %}">
                   {% translate "تعديل" %}
                 </a>
                 {# Where this quantity came from. Required before posting for a #}
                 {# lot-tracked item, and offered for every row because naming   #}
                 {# the bin is what makes the picking record answerable.         #}
-                <a class="btn btn--ghost"
+                <a class="ui-button ui-button--ghost"
                    href="{% url 'kitchen:production_allocate' actual.pk %}">
                   {% translate "التخصيص" %}
                 </a>
-                <a class="btn btn--ghost"
+                <a class="ui-button ui-button--ghost"
                    href="{% url 'kitchen:production_actual_delete' actual.pk %}">
                   {% translate "حذف" %}
                 </a>

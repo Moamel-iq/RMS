@@ -45,8 +45,7 @@ def _cashbox(
         branch=branch,
         account=account,
         code=code,
-        name_ar="صندوق",
-        name_en="Cashbox",
+        name="صندوق",
         opened_on=datetime.date(2026, 1, 1),
     )
 
@@ -122,8 +121,7 @@ class TestOneAccountOneRecord:
                 account=cash,
                 code="BANK-1",
                 bank_name="مصرف",
-                name_ar="حساب",
-                name_en="Account",
+                name="حساب",
                 masked_account_number="12345678",
             )
         assert refused.value.code == "account_already_a_cashbox"
@@ -173,8 +171,7 @@ class TestTheAccountNumberIsMasked:
             account=cash,
             code="BANK-1",
             bank_name="مصرف",
-            name_ar="حساب",
-            name_en="Account",
+            name="حساب",
             masked_account_number="9876543210123456",
         )
         assert bank.masked_account_number == "****3456"

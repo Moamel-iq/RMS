@@ -11,9 +11,9 @@
 {# The screen root is the wrapper's job, not the partial's: the partial keeps  #}
 {# its own panel so an HTMX swap lands on the same element it replaced.        #}
 {% block page %}
-  <div class="workspace-page">
+  <div class="ui-page">
     {% if base_template == "shell.html" %}
-      <h1 class="sr-only">{{ batch.number }} — {% translate "حركة الترحيل" %}</h1>
+      <h1 class="ui-sr-only">{{ batch.number }} — {% translate "حركة الترحيل" %}</h1>
     {% endif %}
     {% include "kitchen/_production_movements.html" %}
   </div>

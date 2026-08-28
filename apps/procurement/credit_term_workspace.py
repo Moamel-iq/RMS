@@ -124,7 +124,7 @@ def supplier_term_rows(
     if filters.search:
         term = filters.search.strip()
         suppliers = suppliers.filter(
-            Q(code__icontains=term) | Q(name_ar__icontains=term) | Q(name_en__icontains=term)
+            Q(code__icontains=term) | Q(name__icontains=term) | Q(name_en__icontains=term)
         )
     if filters.state == "active":
         suppliers = suppliers.filter(is_active=True)

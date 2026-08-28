@@ -497,8 +497,8 @@ def visible_supplier_returns(user: User) -> QuerySet[SupplierReturn]:
         "organization",
         "branch",
         "supplier",
-        "receipt",
         "warehouse",
+        "location",
         "reason_code",
         "created_by",
         "journal_entry",
@@ -523,31 +523,6 @@ def resolve_return_line(
     return line
 
 
-def returnable_receipt_lines(supplier_return: SupplierReturn) -> list[dict[str, object]]:
-    """
-    What the cited delivery still has to send back, line by line.
-
-    Derived from standing returns every time, exactly as `outstanding_order_lines`
-    derives from posted receipts: a stored "remaining" column would drift the
-    first time a return was reversed. Wholly rejected lines are shown with a
-    zero bound rather than hidden — the reader who wonders why a line cannot be
-    returned deserves the answer on the screen.
-    """
-    from apps.procurement.returns import return_availability, returned_quantity_for
-
-    return [
-        {
-            "line": line,
-            "accepted": line.accepted_base_quantity,
-            "returned": returned_quantity_for(line),
-            "available": return_availability(line),
-        }
-        for line in supplier_return.receipt.lines.select_related(
-            "item", "item__base_unit", "lot"
-        ).order_by("sequence")
-    ]
-
-
 # ---------------------------------------------------------------------------
 # Supplier credit notes (Task 2.14)
 # ---------------------------------------------------------------------------
@@ -570,7 +545,7 @@ def visible_supplier_credit_notes(user: User) -> QuerySet[SupplierCreditNote]:
         "branch",
         "supplier",
         "supplier_return",
-        "supplier_return__receipt",
+        "supplier_return__warehouse",
         "created_by",
         "journal_entry",
     )

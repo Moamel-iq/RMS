@@ -15,38 +15,38 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="sales-menu-item-detail">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="ui-page" id="sales-menu-item-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:menu_item_list' %}">{% translate "أصناف المنيو" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ item.code }}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ item.name_ar }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ item.name }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
-      <div class="pagehead__actions">
+      <div class="ui-page-header__actions">
         {% if may_manage %}
-          <a class="btn btn--secondary" href="{% url 'sales:menu_item_update' item.pk %}">{% translate "تعديل الصنف" %}</a>
-          <a class="btn btn--primary" href="{% url 'sales:menu_price_create' %}">{% translate "سعر جديد" %}</a>
+          <a class="ui-button ui-button--secondary" href="{% url 'sales:menu_item_update' item.pk %}">{% translate "تعديل الصنف" %}</a>
+          <a class="ui-button ui-button--primary" href="{% url 'sales:menu_price_create' %}">{% translate "سعر جديد" %}</a>
         {% endif %}
       </div>
     </div>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "بيانات الصنف" %}</h2>
-      <dl class="factgrid">
+      <dl class="ui-summary-grid">
         <div><dt>{% translate "الرمز" %}</dt><dd><bdi dir="ltr"><code>{{ item.code }}</code></bdi></dd></div>
-        <div><dt>{% translate "المجموعة" %}</dt><dd>{{ item.category.name_ar|default:"—" }}</dd></div>
+        <div><dt>{% translate "المجموعة" %}</dt><dd>{{ item.category.name|default:"—" }}</dd></div>
         <div><dt>{% translate "مصدر التنفيذ" %}</dt><dd>{{ item.get_fulfillment_source_display }}</dd></div>
         {% if item.fulfillment_source == "DIRECT_STOCK" %}
           <div>
             <dt>{% translate "الصنف المخزني" %}</dt>
             <dd>
               {% if item.inventory_item %}
-                <bdi dir="ltr"><code>{{ item.inventory_item.code }}</code></bdi> {{ item.inventory_item.name_ar }}
+                <bdi dir="ltr"><code>{{ item.inventory_item.code }}</code></bdi> {{ item.inventory_item.name }}
               {% else %}—{% endif %}
             </dd>
           </div>
@@ -61,7 +61,7 @@
         {% else %}
           <div>
             <dt>{% translate "الوصفة" %}</dt>
-            <dd>{% if item.recipe %}<bdi dir="ltr"><code>{{ item.recipe.code }}</code></bdi> {{ item.recipe.name_ar }}{% else %}—{% endif %}</dd>
+            <dd>{% if item.recipe %}<bdi dir="ltr"><code>{{ item.recipe.code }}</code></bdi> {{ item.recipe.name }}{% else %}—{% endif %}</dd>
           </div>
           <div><dt>{% translate "رمز الحصة" %}</dt><dd>{% if item.serving_code %}<bdi dir="ltr"><code>{{ item.serving_code }}</code></bdi>{% else %}—{% endif %}</dd></div>
         {% endif %}
@@ -72,7 +72,7 @@
       </dl>
     </section>
 
-    <p class="banner" role="note">
+    <p class="ui-notice" role="note">
       {% if item.fulfillment_source == "DIRECT_STOCK" %}
         {% translate "عند البيع تُثبَّت هوية الصنف المخزني والكمية ومخزن الصرف على سطر المبيعات، ثم يُخصم المخزون وتُثبت كلفة البضاعة عند الترحيل." %}
       {% else %}
@@ -81,10 +81,10 @@
       {% translate "الأسعار المعروضة هنا هي السارية اليوم فقط." %}
     </p>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "التوفّر والأسعار حسب الفرع" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "الفرع" %}</th>
@@ -98,38 +98,38 @@
             {% for row in rows %}
               <tr>
                 <td data-label="{% translate 'الفرع' %}">
-                  <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name_ar }}
+                  <bdi dir="ltr"><code>{{ row.branch.code }}</code></bdi> {{ row.branch.name }}
                 </td>
                 <td data-label="{% translate 'التوفّر' %}">
                   {% if not row.offered %}
-                    <span class="chip">{% translate "غير معروض في هذا الفرع" %}</span>
+                    <span class="ui-badge">{% translate "غير معروض في هذا الفرع" %}</span>
                   {% elif row.available %}
-                    <span class="chip chip--on">{% translate "متاح" %}</span>
+                    <span class="ui-badge ui-badge--success">{% translate "متاح" %}</span>
                   {% else %}
-                    <span class="chip chip--off">{% translate "موقوف مؤقتاً" %}</span>
+                    <span class="ui-badge ui-badge--neutral">{% translate "موقوف مؤقتاً" %}</span>
                   {% endif %}
                 </td>
                 <td data-label="{% translate 'الاسم المحلي' %}">{{ row.setting.local_name_ar|default:"—" }}</td>
                 <td data-label="{% translate 'مخزن الصرف' %}">
                   {% if row.setting.source_warehouse %}
                     <bdi dir="ltr"><code>{{ row.setting.source_warehouse.code }}</code></bdi>
-                    {{ row.setting.source_warehouse.name_ar }}
+                    {{ row.setting.source_warehouse.name }}
                   {% else %}—{% endif %}
                 </td>
                 <td data-label="{% translate 'الأسعار السارية اليوم' %}">
                   {% for price in row.prices %}
                     <div>
-                      <span class="chip">{{ price.get_scope_display }}</span>
+                      <span class="ui-badge">{{ price.get_scope_display }}</span>
                       <bdi dir="ltr"><code>{{ price.price_display|iqd }}</code></bdi>
-                      {% if price.channel %}<span class="muted">{{ price.channel.name_ar }}</span>{% endif %}
+                      {% if price.channel %}<span class="ui-text-muted">{{ price.channel.name }}</span>{% endif %}
                     </div>
                   {% empty %}
-                    <span class="muted">{% translate "لا يوجد سعر ساري — لا يمكن بيع الصنف في هذا الفرع اليوم." %}</span>
+                    <span class="ui-text-muted">{% translate "لا يوجد سعر ساري — لا يمكن بيع الصنف في هذا الفرع اليوم." %}</span>
                   {% endfor %}
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="5" class="empty">{% translate "لا توجد فروع متاحة لك في هذه المؤسسة." %}</td></tr>
+              <tr><td colspan="5" class="ui-table__empty">{% translate "لا توجد فروع متاحة لك في هذه المؤسسة." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -137,26 +137,26 @@
     </section>
 
     {% if availability_form %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "تحديث التوفّر" %}</h2>
         <form method="post" novalidate
               hx-post="{{ request.path }}" hx-target="#sales-menu-item-detail" hx-swap="outerHTML">
           {% csrf_token %}
           {% include "components/form_error_summary.html" with form=availability_form %}
-          <div class="formgrid">
+          <div class="ui-form-grid">
             {% for field in availability_form %}
               {% if field.field.widget.input_type == "checkbox" %}
-                <div class="formrow formrow--check" data-field>
+                <div class="ui-field ui-field--check" data-field>
                   {{ field }}
-                  <label class="formrow__label formrow__label--inline" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  <label class="ui-field__label ui-field__label--inline" for="{{ field.id_for_label }}">{{ field.label }}</label>
                 </div>
               {% else %}
                 {% include "settings/_field.html" with field=field %}
               {% endif %}
             {% endfor %}
           </div>
-          <div class="formactions">
-            <button class="btn btn--primary" type="submit">{% translate "حفظ التوفّر" %}</button>
+          <div class="ui-form-actions">
+            <button class="ui-button ui-button--primary" type="submit">{% translate "حفظ التوفّر" %}</button>
           </div>
         </form>
       </section>

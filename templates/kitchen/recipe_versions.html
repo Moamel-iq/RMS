@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# One recipe's whole version history, with the effective-date timeline the   #}
@@ -10,22 +10,22 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ recipe.code }} — {% translate "سجل النسخ" %}</h1>
-        <p class="pagehead__hint">{{ recipe.name_ar }}</p>
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ recipe.code }} — {% translate "سجل النسخ" %}</h1>
+        <p class="ui-page-header__subtitle">{{ recipe.name }}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:recipe_detail' recipe.pk %}">{% translate "بطاقة الوصفة" %}</a>
-        <a class="btn btn--ghost" href="{% url 'kitchen:version_resolve' recipe.pk %}">{% translate "أي نسخة تسري؟" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:recipe_detail' recipe.pk %}">{% translate "بطاقة الوصفة" %}</a>
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_resolve' recipe.pk %}">{% translate "أي نسخة تسري؟" %}</a>
       </div>
     </div>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "النسخ" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead><tr>
             <th>{% translate "النسخة" %}</th>
             <th>{% translate "الحالة" %}</th>
@@ -40,7 +40,7 @@
               <tr>
                 <td data-label="{% translate 'النسخة' %}"><a href="{% url 'kitchen:version_detail' version.pk %}">v{{ version.version_number }}</a></td>
                 <td data-label="{% translate 'الحالة' %}">
-                  <span class="chip {% if version.status == 'ACTIVE' %}chip--on{% else %}chip--off{% endif %}">
+                  <span class="ui-badge {% if version.status == 'ACTIVE' %}ui-badge--success{% else %}ui-badge--neutral{% endif %}">
                     {{ version.get_status_display }}
                   </span>
                 </td>
@@ -55,7 +55,7 @@
                     <a href="{% url 'kitchen:version_detail' version.superseded_by_version.pk %}">v{{ version.superseded_by_version.version_number }}</a>
                   {% else %}—{% endif %}
                 </td>
-                <td data-label="{% translate 'إجراءات' %}"><a class="btn btn--ghost" href="{% url 'kitchen:version_compare' version.pk %}">{% translate "قارن" %}</a></td>
+                <td data-label="{% translate 'إجراءات' %}"><a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_compare' version.pk %}">{% translate "قارن" %}</a></td>
               </tr>
             {% empty %}
               <tr><td colspan="7" data-empty-state>{% translate "لا توجد نسخ بعد." %}</td></tr>
@@ -65,10 +65,10 @@
       </div>
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الخط الزمني للسريان" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
           <thead><tr>
             <th>{% translate "النسخة" %}</th>
             <th>{% translate "الفرع" %}</th>
@@ -80,7 +80,7 @@
             {% for row in timeline %}
               <tr>
                 <td data-label="{% translate 'النسخة' %}">v{{ row.version.version_number }}</td>
-                <td data-label="{% translate 'الفرع' %}"><code>{{ row.branch.code }}</code> {{ row.branch.name_ar }}</td>
+                <td data-label="{% translate 'الفرع' %}"><code>{{ row.branch.code }}</code> {{ row.branch.name }}</td>
                 <td data-label="{% translate 'من' %}"><code dir="ltr">{{ row.effective_from|date:"Y-m-d" }}</code></td>
                 <td data-label="{% translate 'إلى' %}">{% if row.effective_to %}<code dir="ltr">{{ row.effective_to|date:"Y-m-d" }}</code>{% else %}{% translate "مفتوح" %}{% endif %}</td>
                 <td data-label="{% translate 'على مستوى المؤسسة' %}">{% if row.is_organization_wide %}✓{% else %}—{% endif %}</td>

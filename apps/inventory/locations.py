@@ -81,7 +81,7 @@ ZERO = Decimal("0")
 
 @transaction.atomic
 def create_location(
-    *, warehouse: Warehouse, code: str, name_ar: str, name_en: str = "", notes: str = ""
+    *, warehouse: Warehouse, code: str, name: str, notes: str = ""
 ) -> StockLocation:
     """A new bin inside a warehouse."""
     if warehouse.is_system:
@@ -93,8 +93,7 @@ def create_location(
     location = StockLocation(
         warehouse=warehouse,
         code=canonical_code(code),
-        name_ar=name_ar,
-        name_en=name_en,
+        name=name,
         notes=notes,
     )
     location.full_clean()
@@ -107,8 +106,7 @@ def create_location(
 def update_location(
     *,
     location: StockLocation,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     notes: str = "",
     is_active: bool = True,
 ) -> StockLocation:
@@ -126,12 +124,11 @@ def update_location(
             code="location_not_empty",
             params={"code": locked.code},
         )
-    locked.name_ar = name_ar
-    locked.name_en = name_en
+    locked.name = name
     locked.notes = notes
     locked.is_active = is_active
     locked.full_clean()
-    locked.save(update_fields=["name_ar", "name_en", "notes", "is_active", "updated_at"])
+    locked.save(update_fields=["name", "notes", "is_active", "updated_at"])
     record_audit_event(
         action=AuditAction.UPDATED, target=locked, previous_state=before, new_state=snapshot(locked)
     )

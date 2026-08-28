@@ -205,7 +205,7 @@ class Command(SeedCommand):
 
     def _report(self, result: SalesDemo, *, user: Any, post_documents: bool) -> None:
         self.write("")
-        self.write(f"Organization  {result.organization.code} - {result.organization.name_ar}")
+        self.write(f"Organization  {result.organization.code} - {result.organization.name}")
         self.write(
             f"Branches      {result.branch.code} (posted, drawer) / "
             f"{result.second_branch.code} (reversed)"
@@ -219,13 +219,13 @@ class Command(SeedCommand):
         self.write("")
         self.write("master data:")
         for item in result.menu_items:
-            self.write(f"  menu    {item.code:<24} {item.serving_code:<8} {item.name_ar}")
+            self.write(f"  menu    {item.code:<24} {item.serving_code:<8} {item.name}")
         for code, channel in result.channels.items():
             self.write(f"  channel {code:<24} {channel.category:<22} {channel.default_tender}")
         for code, application in result.applications.items():
             self.write(
                 f"  app     {code:<24} cycle {application.settlement_cycle_days:>3}d  "
-                f"{application.name_ar}"
+                f"{application.name}"
             )
         for code, program in result.programs.items():
             self.write(

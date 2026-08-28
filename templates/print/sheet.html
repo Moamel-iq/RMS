@@ -10,12 +10,12 @@
 {% block title %}{{ sheet.title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block content %}
-  <div class="printbar no-print" data-print-toolbar>
-    <div class="printbar__actions">
-      <button class="btn btn--primary" type="button" data-print-now>{% translate "طباعة / حفظ PDF" %}</button>
-      <button class="btn btn--ghost" type="button" data-print-back>{% translate "رجوع" %}</button>
+  <div class="ui-sheet-toolbar ui-no-print" data-print-toolbar>
+    <div class="ui-sheet-toolbar__actions">
+      <button class="ui-button ui-button--primary" type="button" data-print-now>{% translate "طباعة / حفظ PDF" %}</button>
+      <button class="ui-button ui-button--ghost" type="button" data-print-back>{% translate "رجوع" %}</button>
     </div>
-    <fieldset class="printbar__options">
+    <fieldset class="ui-sheet-toolbar__options">
       <legend>{% translate "ما يظهر في الورقة" %}</legend>
       <label><input type="checkbox" data-print-part="logo" checked> {% translate "الشعار" %}</label>
       <label><input type="checkbox" data-print-part="issuer" checked> {% translate "المؤسسة والفرع" %}</label>
@@ -24,39 +24,39 @@
       <label><input type="checkbox" data-print-part="signature" checked> {% translate "حقل التوقيع" %}</label>
       <label><input type="checkbox" data-print-landscape> {% translate "ورقة أفقية" %}</label>
     </fieldset>
-    <p class="printbar__hint">
+    <p class="ui-sheet-toolbar__hint">
       {% translate "في نافذة الطباعة اختر «حفظ بصيغة PDF» لتحصل على الملف. اختياراتك محفوظة للمرات القادمة." %}
       {% translate "ولإخفاء التاريخ والرابط أعلى الورقة وأسفلها: «إعدادات أخرى» ثم أزل علامة «الترويسات والتذييلات»." %}
     </p>
   </div>
 
-  <article class="sheet" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
-    <header class="sheet__head">
-      <div class="sheet__identity">
-        <div class="sheet__logo" data-part="logo">
+  <article class="ui-sheet" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+    <header class="ui-sheet__head">
+      <div class="ui-sheet__identity">
+        <div class="ui-sheet__logo" data-part="logo">
           {% if logo_path %}
             <img src="{% static logo_path %}" alt="{% translate 'شعار خان مندي' %}" width="120" height="120">
           {% else %}
-            <span class="sheet__wordmark">{% translate "خان مندي" %}</span>
+            <span class="ui-sheet__wordmark">{% translate "خان مندي" %}</span>
           {% endif %}
         </div>
-        <div class="sheet__titles">
-          <p class="sheet__issuer" data-part="issuer">
+        <div class="ui-sheet__titles">
+          <p class="ui-sheet__issuer" data-part="issuer">
             {% if sheet.organization_label %}{{ sheet.organization_label }}{% endif %}
-            {% if sheet.branch_label %}<span class="sheet__branch">{{ sheet.branch_label }}</span>{% endif %}
+            {% if sheet.branch_label %}<span class="ui-sheet__branch">{{ sheet.branch_label }}</span>{% endif %}
           </p>
-          <h1 class="sheet__title">{{ sheet.title }}</h1>
-          {% if sheet.subtitle %}<p class="sheet__subtitle">{{ sheet.subtitle }}</p>{% endif %}
+          <h1 class="ui-sheet__title">{{ sheet.title }}</h1>
+          {% if sheet.subtitle %}<p class="ui-sheet__subtitle">{{ sheet.subtitle }}</p>{% endif %}
           {% if sheet.period_label %}
-            <p class="sheet__period" data-part="period">{{ sheet.period_label }}</p>
+            <p class="ui-sheet__period" data-part="period">{{ sheet.period_label }}</p>
           {% endif %}
         </div>
       </div>
 
       {% if sheet.filters %}
-        <dl class="sheet__filters" data-part="period">
+        <dl class="ui-sheet__filters" data-part="period">
           {% for filter in sheet.filters %}
-            <div class="sheet__filter">
+            <div class="ui-sheet__filter">
               <dt>{{ filter.label }}</dt>
               <dd>{{ filter.value }}</dd>
             </div>
@@ -64,31 +64,31 @@
         </dl>
       {% endif %}
 
-      <p class="sheet__stamp" data-part="stamp">
+      <p class="ui-sheet__stamp" data-part="stamp">
         {% translate "طُبع" %}: <time datetime="{{ printed_at|date:'c' }}">{{ printed_at|date:"Y-m-d H:i" }}</time>
         {% if printed_by %} — {% translate "بواسطة" %} {{ printed_by }}{% endif %}
       </p>
     </header>
 
-    <div class="sheet__body">
+    <div class="ui-sheet__body">
       {% if sheet.body_template %}
         {% include sheet.body_template with context=sheet.body_context only %}
       {% elif sheet.rows %}
-        <table class="sheet__table">
+        <table class="ui-sheet__table">
           <thead>
             <tr>
-              <th class="sheet__seq">#</th>
+              <th class="ui-sheet__seq">#</th>
               {% for column in sheet.columns %}
-                <th{% if column.numeric %} class="sheet__num"{% endif %}>{{ column.label }}</th>
+                <th{% if column.numeric %} class="ui-sheet__num"{% endif %}>{{ column.label }}</th>
               {% endfor %}
             </tr>
           </thead>
           <tbody>
             {% for row in sheet.rows %}
               <tr>
-                <td class="sheet__seq">{{ forloop.counter }}</td>
+                <td class="ui-sheet__seq">{{ forloop.counter }}</td>
                 {% for cell in row %}
-                  <td{% if cell.numeric %} class="sheet__num"{% elif cell.code %} class="sheet__code"{% endif %}>{{ cell.value }}</td>
+                  <td{% if cell.numeric %} class="ui-sheet__num"{% elif cell.code %} class="ui-sheet__code"{% endif %}>{{ cell.value }}</td>
                 {% endfor %}
               </tr>
             {% endfor %}
@@ -96,12 +96,12 @@
           {% if sheet.totals %}
             <tfoot>
               <tr>
-                <th scope="col"><span class="sr-only">إجراءات</span></th>
+                <th scope="col"><span class="ui-visually-hidden">إجراءات</span></th>
                 {% for cell in sheet.totals %}
                   {% if forloop.first %}
                     <th>{{ sheet.totals_label }}</th>
                   {% else %}
-                    <th{% if cell.numeric %} class="sheet__num"{% endif %}>{{ cell.value }}</th>
+                    <th{% if cell.numeric %} class="ui-sheet__num"{% endif %}>{{ cell.value }}</th>
                   {% endif %}
                 {% endfor %}
               </tr>
@@ -109,17 +109,17 @@
           {% endif %}
         </table>
       {% else %}
-        <p class="sheet__empty">{{ sheet.empty_message }}</p>
+        <p class="ui-sheet__empty">{{ sheet.empty_message }}</p>
       {% endif %}
 
-      {% if sheet.note %}<p class="sheet__note">{{ sheet.note }}</p>{% endif %}
+      {% if sheet.note %}<p class="ui-sheet__note">{{ sheet.note }}</p>{% endif %}
     </div>
 
-    <footer class="sheet__foot">
-      <div class="sheet__signature" data-part="signature">
-        <div class="sheet__sign"><span>{% translate "أعدّه" %}</span></div>
-        <div class="sheet__sign"><span>{% translate "راجعه" %}</span></div>
-        <div class="sheet__sign"><span>{% translate "اعتمده" %}</span></div>
+    <footer class="ui-sheet__foot">
+      <div class="ui-sheet__signature" data-part="signature">
+        <div class="ui-sheet__sign"><span>{% translate "أعدّه" %}</span></div>
+        <div class="ui-sheet__sign"><span>{% translate "راجعه" %}</span></div>
+        <div class="ui-sheet__sign"><span>{% translate "اعتمده" %}</span></div>
       </div>
     </footer>
   </article>

@@ -110,11 +110,11 @@ CATALOGUE: tuple[Entry, ...] = (
     ),
     Entry(
         "inventory.post_receipt",
-        "ترحيل استلام مخزني غير مفوتر",
+        "ترحيل إدخال مخزني",
         section_ar="الحركات المخزنية",
         kind="post",
         sensitive=True,
-        note_ar="استلام غير مفوتر إلى المخزن؛ الاستلام مقابل أمر شراء يمرّ عبر استلام البضاعة في المشتريات",
+        note_ar="كل إدخال إلى مخزن: استلام البضاعة في المشتريات، وارد التحويل، إنتاج المطبخ، فائض الجرد، والتسوية اليدوية",
     ),
     Entry(
         "inventory.post_issue",
@@ -123,14 +123,6 @@ CATALOGUE: tuple[Entry, ...] = (
         kind="post",
         sensitive=True,
         note_ar="صرف للاستهلاك من المخزن",
-    ),
-    Entry(
-        "inventory.post_return_in",
-        "ترحيل إرجاع من صرف سابق",
-        section_ar="الحركات المخزنية",
-        kind="post",
-        sensitive=True,
-        note_ar="يُقيَّم بكلفة الصرف الذي يعكسه؛ لا قرار كلفة فيه",
     ),
     Entry(
         "inventory.post_transfer",
@@ -186,32 +178,18 @@ CATALOGUE: tuple[Entry, ...] = (
         sensitive=True,
     ),
     Entry(
-        "inventory.manage_reason_codes",
-        "إدارة أسباب الحركات",
-        section_ar="الضبط والمطابقة",
-        kind="manage",
-        note_ar="أسباب الإتلاف والتسويات المشتركة على مستوى المنشأة",
-    ),
-    Entry(
         "inventory.import_master_data",
         "استيراد البيانات الأساسية للمخزون",
-        section_ar="الضبط والمطابقة",
+        section_ar="البيانات الأساسية",
         kind="import",
         note_ar="الأصناف والمجموعات ووحدات التعبئة والتحويلات من ملف؛ لا يرحّل مخزونًا",
     ),
     Entry(
         "inventory.import_opening_draft",
         "استيراد مسودة الأرصدة الافتتاحية",
-        section_ar="الضبط والمطابقة",
+        section_ar="البيانات الأساسية",
         kind="import",
         note_ar="محجوزة؛ غير مفعّلة في هذا الإصدار ولا تُمنح لأي دور",
-    ),
-    Entry(
-        "inventory.view_import_history",
-        "عرض سجل الاستيراد",
-        section_ar="الضبط والمطابقة",
-        kind="view",
-        note_ar="قراءة ما استُورد ومن استورده دون صلاحية التطبيق",
     ),
     Entry(
         "inventory.create_item",

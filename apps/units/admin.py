@@ -12,18 +12,17 @@ from apps.units.models import UnitOfMeasure
 class UnitOfMeasureAdmin(admin.ModelAdmin):
     list_display = (
         "code",
-        "name_ar",
-        "name_en",
+        "name",
         "dimension",
         "factor_to_base",
         "is_base",
         "is_active",
     )
     list_filter = ("dimension", "is_base", "is_active")
-    search_fields = ("code", "name_ar", "name_en")
+    search_fields = ("code", "name")
     ordering = ("dimension", "-is_base", "code")
     fieldsets = (
-        (None, {"fields": ("code", "name_ar", "name_en", "is_active")}),
+        (None, {"fields": ("code", "name", "is_active")}),
         (
             _("Conversion"),
             {

@@ -359,8 +359,7 @@ class TestPostingAgainstInventory:
                 account = create_account(
                     organization=organization,
                     code="1-03-01-095",
-                    name_ar="حساب سباق",
-                    name_en="Race account",
+                    name="حساب سباق",
                 )
                 create_inventory_mapping(
                     organization=organization,

@@ -1,0 +1,33 @@
+{% load i18n %}
+<nav class="ui-primary-nav" id="primary-navigation" aria-label="{% translate 'وحدات النظام' %}" data-primary-navigation
+     {% if navigation_oob %}hx-swap-oob="outerHTML:#primary-navigation"{% endif %}>
+  <a class="ui-brand" href="{% url 'users:home' %}" data-module-key="overview"
+     hx-get="{% url 'users:home' %}" hx-target="#main-content"
+     hx-swap="innerHTML show:top" hx-push-url="true"
+     hx-indicator="#app-loading" hx-sync="#main-content:replace"
+     aria-label="{% translate 'خان مندي — الرئيسية' %}">
+    <span class="ui-brand__mark" aria-hidden="true">
+      <svg width="32" height="32" viewBox="0 0 40 40"><path d="M16 4h8v12h12v8H24v12h-8V24H4v-8h12z"/></svg>
+    </span>
+    <span class="ui-brand__name">{% translate "خان مندي" %}</span>
+  </a>
+
+  <ul class="ui-primary-nav__list">
+    {% for module in nav_modules %}
+      <li class="ui-primary-nav__entry">
+        <a class="ui-primary-nav__item{% if module.key == active_module.key %} is-active{% endif %}{% if not module.available %} is-unavailable{% endif %}"
+           href="{% if module.available %}{% url module.url_name %}{% else %}{% url 'users:home' %}?module={{ module.key }}{% endif %}"
+           hx-get="{% if module.available %}{% url module.url_name %}{% else %}{% url 'users:home' %}?module={{ module.key }}{% endif %}"
+           hx-target="#main-content" hx-swap="innerHTML show:top" hx-push-url="true"
+           hx-indicator="#app-loading" hx-sync="#main-content:replace"
+           data-module-key="{{ module.key }}"
+           title="{{ module.label }}{% if not module.available %} — {{ module.phase }}{% endif %}"
+           {% if module.key == active_module.key %}aria-current="page"{% endif %}>
+          <span class="ui-primary-nav__icon" aria-hidden="true">{{ module.icon }}</span>
+          <span class="ui-primary-nav__label">{{ module.label }}</span>
+          {% if not module.available %}<span class="ui-visually-hidden">— {% translate "غير متاحة بعد" %}</span>{% endif %}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+</nav>

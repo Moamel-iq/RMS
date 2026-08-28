@@ -9,12 +9,12 @@
 {% load i18n money_tags %}
 
 {% block filters %}
-  <label class="field field--check">
+  <label class="ui-field ui-field--check">
     <input type="checkbox" name="current" value="1" {% if only_current == "1" %}checked{% endif %}>
     <span>{% translate "السارية اليوم فقط" %}</span>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "التمويل" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "التمويل" %}</span>
     <select name="funding">
       <option value="">{% translate "كل الخصومات" %}</option>
       <option value="restaurant" {% if selected_funding == "restaurant" %}selected{% endif %}>{% translate "من المطعم بالكامل" %}</option>
@@ -41,7 +41,7 @@
   {% for program in programs %}
     <tr>
       <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ program.code }}</code></bdi></td>
-      <td data-label="{% translate 'الاسم' %}">{{ program.name_ar }}</td>
+      <td data-label="{% translate 'الاسم' %}">{{ program.name }}</td>
       <td data-label="{% translate 'الخصم' %}">
         {% if program.discount_percent is not None %}
           <bdi dir="ltr"><code>{{ program.percent_display }}%</code></bdi>
@@ -49,7 +49,7 @@
           <bdi dir="ltr"><code>{{ program.discount_amount|iqd }}</code></bdi>
         {% endif %}
         {% if program.maximum_amount %}
-          <span class="muted">
+          <span class="ui-text-muted">
             {% blocktranslate with cap=program.maximum_amount|iqd %}بحد أقصى {{ cap }}{% endblocktranslate %}
           </span>
         {% endif %}
@@ -60,15 +60,15 @@
       <td data-label="{% translate 'حصة التطبيق' %}">
         <bdi dir="ltr"><code>{{ program.application_funded_share }}%</code></bdi>
         {% if program.delivery_application %}
-          <span class="muted">{{ program.delivery_application.name_ar }}</span>
+          <span class="ui-text-muted">{{ program.delivery_application.name }}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'النطاق' %}">
-        {% if program.branch %}<span class="chip">{{ program.branch.code }}</span>{% endif %}
-        {% if program.channel %}<span class="chip">{{ program.channel.name_ar }}</span>{% endif %}
-        {% if program.menu_item %}<span class="chip">{{ program.menu_item.code }}</span>{% endif %}
+        {% if program.branch %}<span class="ui-badge">{{ program.branch.code }}</span>{% endif %}
+        {% if program.channel %}<span class="ui-badge">{{ program.channel.name }}</span>{% endif %}
+        {% if program.menu_item %}<span class="ui-badge">{{ program.menu_item.code }}</span>{% endif %}
         {% if not program.branch and not program.channel and not program.menu_item and not program.delivery_application %}
-          <span class="muted">{% translate "كل المبيعات" %}</span>
+          <span class="ui-text-muted">{% translate "كل المبيعات" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'من' %}"><bdi dir="ltr"><code>{{ program.effective_from|date:"Y-m-d" }}</code></bdi></td>
@@ -76,26 +76,26 @@
         {% if program.effective_to %}
           <bdi dir="ltr"><code>{{ program.effective_to|date:"Y-m-d" }}</code></bdi>
         {% else %}
-          <span class="muted">{% translate "مفتوح" %}</span>
+          <span class="ui-text-muted">{% translate "مفتوح" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'الحالة' %}">
         {% if not program.is_active %}
-          <span class="chip chip--off">{% translate "ملغى" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "ملغى" %}</span>
         {% elif program.effective_to and program.effective_to < today %}
-          <span class="chip">{% translate "منتهٍ" %}</span>
+          <span class="ui-badge">{% translate "منتهٍ" %}</span>
         {% elif program.effective_from > today %}
-          <span class="chip">{% translate "مستقبلي" %}</span>
+          <span class="ui-badge">{% translate "مستقبلي" %}</span>
         {% else %}
-          <span class="chip chip--on">{% translate "ساري" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "ساري" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'إجراءات' %}">
-        <div class="rowactions">
+        <div class="ui-table__actions">
           {% if program.organization_id in manageable_ids and program.is_active and not program.effective_to %}
-            <a class="btn btn--quiet btn--sm" href="{% url 'sales:discount_close' program.pk %}">{% translate "إنهاء" %}</a>
+            <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'sales:discount_close' program.pk %}">{% translate "إنهاء" %}</a>
           {% else %}
-            <span class="muted">—</span>
+            <span class="ui-text-muted">—</span>
           {% endif %}
         </div>
       </td>

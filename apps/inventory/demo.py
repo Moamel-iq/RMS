@@ -105,13 +105,11 @@ from apps.inventory.models import (
     InventoryItem,
     InventoryLot,
     InventoryMovementDocument,
-    InventoryReasonCode,
     ItemCategory,
     ItemPackageConversion,
     ItemType,
     OpeningStockDocument,
     PackageUnit,
-    ReasonCodeApplication,
     StockCount,
     StockCountLine,
     StockLocation,
@@ -138,12 +136,7 @@ from apps.inventory.operations import (
     post_document,
     reverse_document,
 )
-from apps.inventory.permissions import VIEW_IMPORT_HISTORY, VIEW_STOCK, VIEW_VALUATION
-from apps.inventory.reason_codes import (
-    archive_reason_code,
-    create_reason_code,
-    update_reason_code,
-)
+from apps.inventory.permissions import VIEW_STOCK, VIEW_VALUATION
 from apps.inventory.services import (
     create_item,
     create_item_category,
@@ -310,15 +303,6 @@ ACCOUNT_MAPPINGS: list[tuple[str, str]] = [
     (INVENTORY_ADJUSTMENT, "7-09-03-001"),
 ]
 
-#: code, Arabic, what it may be selected for, requires a comment
-REASON_CODES: list[tuple[str, str, str, bool]] = [
-    ("DEMO-EXPIRED", "انتهاء الصلاحية", ReasonCodeApplication.WASTE, False),
-    ("DEMO-SPOILED", "تلف أثناء التخزين", ReasonCodeApplication.WASTE, True),
-    ("DEMO-MISCOUNT", "خطأ في الجرد السابق", ReasonCodeApplication.COUNT_VARIANCE, False),
-    ("DEMO-ENTRY-ERROR", "خطأ إدخال بيانات", ReasonCodeApplication.MANUAL_ADJUSTMENT, True),
-]
-
-
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
@@ -395,16 +379,13 @@ def ensure_organization(log: DemoLog, *, code: str) -> Organization:
         )
     organization = create_organization(
         code=DEMO_ORGANIZATION_CODE,
-        name_ar="خان مندي — بيانات تجريبية",
-        name_en="Khan Mandi — Demo Data",
+        name="خان مندي — بيانات تجريبية",
     )
     log.record("organization", organization.code, created=True)
     return organization
 
 
-def ensure_branch(
-    log: DemoLog, *, organization: Organization, code: str, name_ar: str, name_en: str
-) -> Branch:
+def ensure_branch(log: DemoLog, *, organization: Organization, code: str, name: str) -> Branch:
     existing = Branch.objects.filter(organization=organization, code=code).first()
     if existing is not None:
         log.record("branch", existing.code, created=False)
@@ -418,8 +399,7 @@ def ensure_branch(
     branch = create_branch(
         organization=organization,
         code=code,
-        name_ar=name_ar,
-        name_en=name_en,
+        name=name,
         # A restaurant's day rolls over long after midnight; 06:00 is the
         # project's worked example and keeps the business date legible.
         business_day_start_time=datetime.time(6, 0),
@@ -431,7 +411,7 @@ def ensure_branch(
 
 def ensure_categories(log: DemoLog, *, organization: Organization) -> dict[str, ItemCategory]:
     categories: dict[str, ItemCategory] = {}
-    for code, name_ar, parent_code in CATEGORIES:
+    for code, name, parent_code in CATEGORIES:
         existing = ItemCategory.objects.filter(organization=organization, code=code).first()
         if existing is not None:
             categories[code] = existing
@@ -440,7 +420,7 @@ def ensure_categories(log: DemoLog, *, organization: Organization) -> dict[str, 
         categories[code] = create_item_category(
             organization=organization,
             code=code,
-            name_ar=name_ar,
+            name=name,
             parent=categories[parent_code] if parent_code else None,
         )
         log.record("category", code, created=True)
@@ -449,13 +429,13 @@ def ensure_categories(log: DemoLog, *, organization: Organization) -> dict[str, 
 
 def ensure_package_units(log: DemoLog, *, organization: Organization) -> dict[str, PackageUnit]:
     units: dict[str, PackageUnit] = {}
-    for code, name_ar in PACKAGE_UNITS:
+    for code, name in PACKAGE_UNITS:
         existing = PackageUnit.objects.filter(organization=organization, code=code).first()
         if existing is not None:
             units[code] = existing
             log.record("package unit", code, created=False)
             continue
-        units[code] = create_package_unit(organization=organization, code=code, name_ar=name_ar)
+        units[code] = create_package_unit(organization=organization, code=code, name=name)
         log.record("package unit", code, created=True)
     return units
 
@@ -464,7 +444,7 @@ def ensure_items(
     log: DemoLog, *, organization: Organization, categories: dict[str, ItemCategory]
 ) -> dict[str, InventoryItem]:
     items: dict[str, InventoryItem] = {}
-    for code, name_ar, category_code, item_type, unit_code, lots, expiry in ITEMS:
+    for code, name, category_code, item_type, unit_code, lots, expiry in ITEMS:
         existing = InventoryItem.objects.filter(organization=organization, code=code).first()
         if existing is not None:
             items[code] = existing
@@ -473,7 +453,7 @@ def ensure_items(
         items[code] = create_item(
             organization=organization,
             code=code,
-            name_ar=name_ar,
+            name=name,
             category=categories[category_code],
             item_type=item_type,
             base_unit=UnitOfMeasure.objects.get(code=unit_code),
@@ -523,14 +503,14 @@ def ensure_warehouses(
     log: DemoLog, *, branch: Branch, wanted: list[tuple[str, str, str]]
 ) -> dict[str, Warehouse]:
     warehouses: dict[str, Warehouse] = {}
-    for code, name_ar, warehouse_type in wanted:
+    for code, name, warehouse_type in wanted:
         existing = Warehouse.objects.filter(branch=branch, code=code).first()
         if existing is not None:
             warehouses[code] = existing
             log.record("warehouse", f"{branch.code}/{code}", created=False)
             continue
         warehouses[code] = create_warehouse(
-            branch=branch, code=code, name_ar=name_ar, warehouse_type=warehouse_type
+            branch=branch, code=code, name=name, warehouse_type=warehouse_type
         )
         log.record("warehouse", f"{branch.code}/{code}", created=True)
 
@@ -645,32 +625,6 @@ def ensure_packaging_override(
     log.record("inventory mapping", "DEMO-PACKAGING consumption", created=True)
 
 
-def ensure_reason_codes(
-    log: DemoLog, *, organization: Organization
-) -> dict[str, InventoryReasonCode]:
-    codes: dict[str, InventoryReasonCode] = {}
-    for code, name_ar, applies_to, requires_comment in REASON_CODES:
-        existing = InventoryReasonCode.objects.filter(organization=organization, code=code).first()
-        if existing is not None:
-            # A reset archives rather than deletes these, so a reseed finds an
-            # inactive code it must revive — an archived reason cannot be
-            # selected, and the waste and adjustment steps would refuse it.
-            if not existing.is_active:
-                existing = update_reason_code(reason_code=existing, name_ar=name_ar, is_active=True)
-            codes[code] = existing
-            log.record("reason code", code, created=False)
-            continue
-        codes[code] = create_reason_code(
-            organization=organization,
-            code=code,
-            name_ar=name_ar,
-            applies_to=applies_to,
-            requires_comment=requires_comment,
-        )
-        log.record("reason code", code, created=True)
-    return codes
-
-
 def ensure_access(
     log: DemoLog,
     *,
@@ -727,10 +681,9 @@ def ensure_access(
         definition = create_role_definition(
             organization=organization,
             code=REPORTS_ROLE_CODE,
-            name_ar="قارئ تقارير المخزون (تجريبي)",
-            name_en="Inventory reports reader (demo)",
+            name="قارئ تقارير المخزون (تجريبي)",
             description="يرى الأرصدة والقيمة والحركات ولا يغيّر شيئاً.",
-            permissions=[VIEW_STOCK, VIEW_VALUATION, VIEW_IMPORT_HISTORY],
+            permissions=[VIEW_STOCK, VIEW_VALUATION],
         )
     log.record("role", definition.key, created=role_created)
 
@@ -807,6 +760,20 @@ def _opening(
         code="DEMO-CHK-LOT-01",
         expiry_date=business_date + datetime.timedelta(days=90),
     )
+    # Two more dated batches, so the expiry report has a row in every bucket:
+    # one expiring soon, one already past. They used to arrive on un-invoiced
+    # receipts; that document was withdrawn, and an opening sheet is the other
+    # honest way for a batch to be standing there on day one.
+    expiring_lot = ensure_opening_lot(
+        item=items["DEMO-CHICKEN"],
+        code="DEMO-CHK-LOT-03",
+        expiry_date=business_date + datetime.timedelta(days=20),
+    )
+    expired_lot = ensure_opening_lot(
+        item=items["DEMO-CHICKEN"],
+        code="DEMO-CHK-LOT-04",
+        expiry_date=business_date - datetime.timedelta(days=3),
+    )
     meat_lot = ensure_opening_lot(item=items["DEMO-MEAT"], code="DEMO-MEAT-LOT-01")
 
     for line in (
@@ -822,6 +789,20 @@ def _opening(
             lot=chicken_lot,
             unit_cost=Decimal("3250.000000"),
             base_quantity=Decimal("50.000"),
+        ),
+        OpeningLineInput(
+            warehouse=warehouse,
+            item=items["DEMO-CHICKEN"],
+            lot=expiring_lot,
+            unit_cost=Decimal("3300.000000"),
+            base_quantity=Decimal("12.000"),
+        ),
+        OpeningLineInput(
+            warehouse=warehouse,
+            item=items["DEMO-CHICKEN"],
+            lot=expired_lot,
+            unit_cost=Decimal("3150.000000"),
+            base_quantity=Decimal("5.000"),
         ),
         OpeningLineInput(
             warehouse=warehouse,
@@ -859,99 +840,6 @@ def _find_operational(
     return InventoryMovementDocument.objects.filter(
         organization=organization, document_type=document_type, evidence_reference=slug
     ).first()
-
-
-def _receipt_fixed_package(
-    log: DemoLog,
-    *,
-    organization: Organization,
-    branch: Branch,
-    warehouse: Warehouse,
-    items: dict[str, InventoryItem],
-    conversions: dict[str, ItemPackageConversion],
-    business_date: datetime.date,
-) -> InventoryMovementDocument:
-    """2 SACK of rice — 60.000 KG, because a sack is exactly thirty kilos."""
-    slug = reference("RECEIPT-01-FIXED")
-    existing = _find_operational(
-        organization=organization, document_type=InventoryDocumentType.RECEIPT, slug=slug
-    )
-    if existing is not None:
-        log.record("receipt", existing.document_number or slug, created=False)
-        return existing
-
-    document = create_document(
-        organization=organization,
-        branch=branch,
-        warehouse=warehouse,
-        document_type=InventoryDocumentType.RECEIPT,
-        effective_at=_at(business_date, 9),
-        evidence_reference=slug,
-        narration="استلام رز — عبوة ثابتة",
-    )
-    add_line(
-        document=document,
-        line=DocumentLineInput(
-            item=items["DEMO-RICE"],
-            package_conversion=conversions["DEMO-RICE"],
-            entered_package_quantity=Decimal("2.000"),
-            unit_cost=Decimal("1600.000000"),
-        ),
-    )
-    posted = post_document(document=document)
-    log.record("receipt", posted.document_number, created=True)
-    return posted
-
-
-def _receipt_variable_package(
-    log: DemoLog,
-    *,
-    organization: Organization,
-    branch: Branch,
-    warehouse: Warehouse,
-    items: dict[str, InventoryItem],
-    conversions: dict[str, ItemPackageConversion],
-    business_date: datetime.date,
-) -> InventoryMovementDocument:
-    """
-    2 CONTAINER of meat that weighed 35.650 KG.
-
-    The planning factor says 36.000; the scale says 35.650. Both are kept: the
-    movement stores the package quantity, the measured quantity, the planning
-    factor, the implied actual factor, and the conversion version — which is
-    what makes the variance reportable instead of invisible.
-    """
-    slug = reference("RECEIPT-02-VARIABLE")
-    existing = _find_operational(
-        organization=organization, document_type=InventoryDocumentType.RECEIPT, slug=slug
-    )
-    if existing is not None:
-        log.record("receipt", existing.document_number or slug, created=False)
-        return existing
-
-    document = create_document(
-        organization=organization,
-        branch=branch,
-        warehouse=warehouse,
-        document_type=InventoryDocumentType.RECEIPT,
-        effective_at=_at(business_date, 9, 30),
-        evidence_reference=slug,
-        narration="استلام لحم — عبوة متغيرة موزونة",
-    )
-    add_line(
-        document=document,
-        line=DocumentLineInput(
-            item=items["DEMO-MEAT"],
-            lot=InventoryLot.objects.get(item=items["DEMO-MEAT"], code="DEMO-MEAT-LOT-01"),
-            package_conversion=conversions["DEMO-MEAT"],
-            entered_package_quantity=Decimal("2.000"),
-            measured_base_quantity=Decimal("35.650"),
-            unit_cost=Decimal("12000.000000"),
-        ),
-    )
-    posted = post_document(document=document)
-    log.record("receipt", posted.document_number, created=True)
-    return posted
 
 
 def _issue(
@@ -994,102 +882,6 @@ def _issue(
         )
     posted = post_document(document=document)
     log.record("issue", posted.document_number, created=True)
-    return posted
-
-
-def _return_in(
-    log: DemoLog,
-    *,
-    organization: Organization,
-    branch: Branch,
-    warehouse: Warehouse,
-    issue: InventoryMovementDocument,
-    items: dict[str, InventoryItem],
-    business_date: datetime.date,
-) -> InventoryMovementDocument:
-    """
-    5.000 KG of the issued rice comes back.
-
-    Valued at the original issue's cost and posted against the original
-    account and cost centre, never today's average, so the pair nets to zero.
-    """
-    slug = reference("RETURN-01")
-    existing = _find_operational(
-        organization=organization, document_type=InventoryDocumentType.RETURN_IN, slug=slug
-    )
-    if existing is not None:
-        log.record("return", existing.document_number or slug, created=False)
-        return existing
-
-    issue_line = issue.lines.get(item=items["DEMO-RICE"])
-    document = create_document(
-        organization=organization,
-        branch=branch,
-        warehouse=warehouse,
-        document_type=InventoryDocumentType.RETURN_IN,
-        effective_at=_at(business_date, 10, 30),
-        evidence_reference=slug,
-        narration="إرجاع رز غير مستخدم",
-    )
-    add_line(
-        document=document,
-        line=DocumentLineInput(
-            item=items["DEMO-RICE"],
-            base_quantity=Decimal("5.000"),
-            source_issue_line=issue_line,
-        ),
-    )
-    posted = post_document(document=document)
-    log.record("return", posted.document_number, created=True)
-    return posted
-
-
-def _reversed_receipt(
-    log: DemoLog,
-    *,
-    organization: Organization,
-    branch: Branch,
-    warehouse: Warehouse,
-    items: dict[str, InventoryItem],
-    conversions: dict[str, ItemPackageConversion],
-    business_date: datetime.date,
-) -> InventoryMovementDocument:
-    """
-    One posted receipt, reversed straight away, both left visible.
-
-    A receipt of oil that nothing between posting and reversal consumes — so
-    the reversal is always valid, and re-running the seed cannot turn it into a
-    negative-stock refusal.
-    """
-    slug = reference("RECEIPT-03-REVERSED")
-    existing = _find_operational(
-        organization=organization, document_type=InventoryDocumentType.RECEIPT, slug=slug
-    )
-    if existing is not None:
-        log.record("reversal", existing.document_number or slug, created=False)
-        return existing
-
-    document = create_document(
-        organization=organization,
-        branch=branch,
-        warehouse=warehouse,
-        document_type=InventoryDocumentType.RECEIPT,
-        effective_at=_at(business_date, 11),
-        evidence_reference=slug,
-        narration="استلام زيت — سيُعكس",
-    )
-    add_line(
-        document=document,
-        line=DocumentLineInput(
-            item=items["DEMO-OIL"],
-            package_conversion=conversions["DEMO-OIL"],
-            entered_package_quantity=Decimal("1.000"),
-            unit_cost=Decimal("2800.000000"),
-        ),
-    )
-    posted = post_document(document=document)
-    reverse_document(document=posted, reason="استلام سُجّل على المخزن الخطأ — عكس تجريبي")
-    log.record("reversal", posted.document_number, created=True)
     return posted
 
 
@@ -1267,7 +1059,6 @@ def _waste(
     branch: Branch,
     warehouse: Warehouse,
     items: dict[str, InventoryItem],
-    reason_codes: dict[str, InventoryReasonCode],
     cost_center: CostCenter,
     business_date: datetime.date,
 ) -> InventoryMovementDocument:
@@ -1302,13 +1093,107 @@ def _waste(
             item=items["DEMO-CHICKEN"],
             lot=InventoryLot.objects.get(item=items["DEMO-CHICKEN"], code="DEMO-CHK-LOT-01"),
             base_quantity=Decimal("4.000"),
-            reason_code=reason_codes["DEMO-SPOILED"],
             line_comment="انقطاع التيار عن الثلاجة ليلاً",
         ),
     )
     posted = post_document(document=document)
     log.record("waste", posted.document_number, created=True)
     return posted
+
+
+def _expired_waste(
+    log: DemoLog,
+    *,
+    organization: Organization,
+    branch: Branch,
+    warehouse: Warehouse,
+    items: dict[str, InventoryItem],
+    cost_center: CostCenter,
+    business_date: datetime.date,
+) -> InventoryMovementDocument:
+    """
+    The expired batch written off in full.
+
+    A full depletion: the balance goes to zero quantity and surrenders its
+    entire remaining book value, which is the rule the stock screen shows and
+    the one an eyeballed demo should contain a case of.
+    """
+    slug = reference("WASTE-02-EXPIRED")
+    existing = _find_operational(
+        organization=organization, document_type=InventoryDocumentType.WASTE, slug=slug
+    )
+    if existing is not None:
+        log.record("waste", existing.document_number or slug, created=False)
+        return existing
+
+    document = create_document(
+        organization=organization,
+        branch=branch,
+        warehouse=warehouse,
+        document_type=InventoryDocumentType.WASTE,
+        effective_at=_at(business_date, 15, 45),
+        evidence_reference=slug,
+        narration="إتلاف دفعة منتهية الصلاحية",
+        cost_center=cost_center,
+    )
+    add_line(
+        document=document,
+        line=DocumentLineInput(
+            item=items["DEMO-CHICKEN"],
+            lot=InventoryLot.objects.get(item=items["DEMO-CHICKEN"], code="DEMO-CHK-LOT-04"),
+            base_quantity=Decimal("5.000"),
+            line_comment="انتهت صلاحية الدفعة",
+        ),
+    )
+    posted = post_document(document=document)
+    log.record("waste", posted.document_number, created=True)
+    return posted
+
+
+def _reversed_issue(
+    log: DemoLog,
+    *,
+    organization: Organization,
+    branch: Branch,
+    warehouse: Warehouse,
+    items: dict[str, InventoryItem],
+    cost_center: CostCenter,
+    business_date: datetime.date,
+) -> InventoryMovementDocument:
+    """
+    One issue posted and then reversed, so a reversal is visible on a card.
+
+    A reversal is a state every screen has to render and every reader has to
+    recognise, and the demo lost its only one when the un-invoiced receipt was
+    withdrawn. It reads better on the issue anyway: correcting a consumption
+    keyed against the wrong store is the mistake that actually happens.
+    """
+    slug = reference("ISSUE-02-REVERSED")
+    existing = _find_operational(
+        organization=organization, document_type=InventoryDocumentType.ISSUE, slug=slug
+    )
+    if existing is not None:
+        log.record("issue", existing.document_number or slug, created=False)
+        return existing
+
+    document = create_document(
+        organization=organization,
+        branch=branch,
+        warehouse=warehouse,
+        document_type=InventoryDocumentType.ISSUE,
+        effective_at=_at(business_date, 11, 30),
+        evidence_reference=slug,
+        narration="صرف زيت — سُجّل على المخزن الخطأ",
+        cost_center=cost_center,
+    )
+    add_line(
+        document=document,
+        line=DocumentLineInput(item=items["DEMO-OIL"], base_quantity=Decimal("5.000")),
+    )
+    posted = post_document(document=document)
+    reversed_document = reverse_document(document=posted, reason="سُجّل على المخزن الخطأ")
+    log.record("issue", reversed_document.document_number, created=True)
+    return reversed_document
 
 
 def _posted_count(
@@ -1318,7 +1203,6 @@ def _posted_count(
     branch: Branch,
     warehouse: Warehouse,
     items: dict[str, InventoryItem],
-    reason_codes: dict[str, InventoryReasonCode],
     conductor: User,
     approver: User,
     business_date: datetime.date,
@@ -1353,9 +1237,6 @@ def _posted_count(
             CountEntry(
                 line=line,
                 base_quantity=counted[line.item.code],
-                reason_code=reason_codes["DEMO-MISCOUNT"]
-                if line.item.code == "DEMO-RICE"
-                else None,
             )
             for line in StockCountLine.objects.filter(count=started).select_related("item")
             if line.item.code in counted
@@ -1420,7 +1301,6 @@ def _adjustment(
     branch: Branch,
     warehouse: Warehouse,
     items: dict[str, InventoryItem],
-    reason_codes: dict[str, InventoryReasonCode],
     cost_center: CostCenter,
     business_date: datetime.date,
 ) -> InventoryAdjustmentDocument:
@@ -1453,7 +1333,6 @@ def _adjustment(
         line=AdjustmentLineInput(
             kind=AdjustmentLineKind.QUANTITY_LOSS,
             item=items["DEMO-CONTAINER"],
-            reason_code=reason_codes["DEMO-ENTRY-ERROR"],
             base_quantity=Decimal("10.000"),
             line_comment="أُدخلت الكمية مرتين في مستند الاستلام الورقي",
         ),
@@ -1471,42 +1350,15 @@ def _drafts(
     source: Warehouse,
     destination: Warehouse,
     items: dict[str, InventoryItem],
-    conversions: dict[str, ItemPackageConversion],
     business_date: datetime.date,
 ) -> None:
     """
-    One unposted receipt and one undispatched transfer.
+    One undispatched transfer.
 
     Not everything is posted on purpose: a UI that only ever shows terminal
     states has not been shown its own lifecycle, and the draft actions are the
     ones a reviewer most needs to try.
     """
-    receipt_slug = reference("RECEIPT-04-DRAFT")
-    if _find_operational(
-        organization=organization, document_type=InventoryDocumentType.RECEIPT, slug=receipt_slug
-    ):
-        log.record("draft", receipt_slug, created=False)
-    else:
-        draft = create_document(
-            organization=organization,
-            branch=branch,
-            warehouse=source,
-            document_type=InventoryDocumentType.RECEIPT,
-            effective_at=_at(business_date, 18),
-            evidence_reference=receipt_slug,
-            narration="مسودة استلام — لم تُرحّل",
-        )
-        add_line(
-            document=draft,
-            line=DocumentLineInput(
-                item=items["DEMO-RICE"],
-                package_conversion=conversions["DEMO-RICE"],
-                entered_package_quantity=Decimal("1.000"),
-                unit_cost=Decimal("1650.000000"),
-            ),
-        )
-        log.record("draft", draft.document_number or receipt_slug, created=True)
-
     transfer_slug = reference("TRANSFER-04-DRAFT")
     if StockTransfer.objects.filter(
         organization=organization, evidence_reference=transfer_slug
@@ -1533,113 +1385,6 @@ def _drafts(
 # ---------------------------------------------------------------------------
 
 
-def _expired_lot_receipt(
-    log: DemoLog,
-    *,
-    organization: Organization,
-    branch: Branch,
-    warehouse: Warehouse,
-    items: dict[str, InventoryItem],
-    business_date: datetime.date,
-) -> InventoryMovementDocument:
-    """
-    Stock received into a lot that is already past its date.
-
-    Receiving expired goods is legitimate and happens — a delivery arrives with
-    a batch nobody checked. What the system refuses is *issuing* it for
-    consumption. The lot is created here rather than by an opening document
-    because it postdates the ledger; `ensure_opening_lot` is the only
-    lot-creating service until Procurement brings its own in Phase 2.
-
-    Nothing is stranded: `_expired_waste` writes the whole batch off in the
-    same run, which is the flow Task 1.6 built for exactly this.
-    """
-    slug = reference("RECEIPT-05-EXPIRED-LOT")
-    existing = _find_operational(
-        organization=organization, document_type=InventoryDocumentType.RECEIPT, slug=slug
-    )
-    if existing is not None:
-        log.record("receipt", existing.document_number or slug, created=False)
-        return existing
-
-    lot = ensure_opening_lot(
-        item=items["DEMO-CHICKEN"],
-        code="DEMO-CHK-LOT-02",
-        expiry_date=business_date - datetime.timedelta(days=5),
-    )
-    document = create_document(
-        organization=organization,
-        branch=branch,
-        warehouse=warehouse,
-        document_type=InventoryDocumentType.RECEIPT,
-        effective_at=_at(business_date, 9, 45),
-        evidence_reference=slug,
-        narration="استلام دجاج — دفعة منتهية الصلاحية",
-    )
-    add_line(
-        document=document,
-        line=DocumentLineInput(
-            item=items["DEMO-CHICKEN"],
-            lot=lot,
-            base_quantity=Decimal("8.000"),
-            unit_cost=Decimal("3100.000000"),
-        ),
-    )
-    posted = post_document(document=document)
-    log.record("receipt", posted.document_number, created=True)
-    return posted
-
-
-def _expired_waste(
-    log: DemoLog,
-    *,
-    organization: Organization,
-    branch: Branch,
-    warehouse: Warehouse,
-    items: dict[str, InventoryItem],
-    reason_codes: dict[str, InventoryReasonCode],
-    cost_center: CostCenter,
-    business_date: datetime.date,
-) -> InventoryMovementDocument:
-    """
-    The expired batch written off in full.
-
-    A full depletion: the balance goes to zero quantity and surrenders its
-    entire remaining book value, which is the rule the stock screen shows and
-    the one an eyeballed demo should contain a case of.
-    """
-    slug = reference("WASTE-02-EXPIRED")
-    existing = _find_operational(
-        organization=organization, document_type=InventoryDocumentType.WASTE, slug=slug
-    )
-    if existing is not None:
-        log.record("waste", existing.document_number or slug, created=False)
-        return existing
-
-    document = create_document(
-        organization=organization,
-        branch=branch,
-        warehouse=warehouse,
-        document_type=InventoryDocumentType.WASTE,
-        effective_at=_at(business_date, 15, 45),
-        evidence_reference=slug,
-        narration="إتلاف دفعة منتهية الصلاحية",
-        cost_center=cost_center,
-    )
-    add_line(
-        document=document,
-        line=DocumentLineInput(
-            item=items["DEMO-CHICKEN"],
-            lot=InventoryLot.objects.get(item=items["DEMO-CHICKEN"], code="DEMO-CHK-LOT-02"),
-            base_quantity=Decimal("8.000"),
-            reason_code=reason_codes["DEMO-EXPIRED"],
-        ),
-    )
-    posted = post_document(document=document)
-    log.record("waste", posted.document_number, created=True)
-    return posted
-
-
 def _gain_adjustment(
     log: DemoLog,
     *,
@@ -1647,7 +1392,6 @@ def _gain_adjustment(
     branch: Branch,
     warehouse: Warehouse,
     items: dict[str, InventoryItem],
-    reason_codes: dict[str, InventoryReasonCode],
     cost_center: CostCenter,
     business_date: datetime.date,
 ) -> InventoryAdjustmentDocument:
@@ -1680,7 +1424,6 @@ def _gain_adjustment(
         line=AdjustmentLineInput(
             kind=AdjustmentLineKind.QUANTITY_GAIN,
             item=items["DEMO-CONTAINER"],
-            reason_code=reason_codes["DEMO-ENTRY-ERROR"],
             base_quantity=Decimal("15.000"),
             unit_cost=Decimal("250.000000"),
             line_comment="كرتون لم يُدخل في مستند الاستلام",
@@ -1698,7 +1441,6 @@ def _revaluation_adjustment(
     branch: Branch,
     warehouse: Warehouse,
     items: dict[str, InventoryItem],
-    reason_codes: dict[str, InventoryReasonCode],
     cost_center: CostCenter,
     business_date: datetime.date,
 ) -> InventoryAdjustmentDocument:
@@ -1731,7 +1473,6 @@ def _revaluation_adjustment(
         line=AdjustmentLineInput(
             kind=AdjustmentLineKind.VALUE_ONLY,
             item=items["DEMO-RICE"],
-            reason_code=reason_codes["DEMO-ENTRY-ERROR"],
             value_adjustment=Decimal("-5000.000"),
             line_comment="كلفة نقل مكررة تُطرح من قيمة الرصيد",
         ),
@@ -1839,67 +1580,6 @@ REORDER_ROWS: list[tuple[str, str, str]] = [
     ("DEMO-OIL", "75.000", "60.000"),  # on hand  75.000 -> exactly at
     ("DEMO-CONTAINER", "500.000", "250.000"),  # on hand 785.000 -> above
 ]
-
-
-def _expiry_lots(
-    log: DemoLog,
-    *,
-    organization: Organization,
-    branch: Branch,
-    warehouse: Warehouse,
-    items: dict[str, InventoryItem],
-    business_date: datetime.date,
-) -> None:
-    """
-    Two more dated lots, so the expiry report shows every bucket at once.
-
-    One already past its date and one due in twenty days, both holding stock,
-    joining the ninety-day lot the opening created. Received through the real
-    receipt service — a lot with a hand-written balance would be invisible to
-    the valuation kernel and would break the projection verifier.
-
-    The expired batch is deliberately left standing rather than written off:
-    it is what the expiry screen exists to surface, and waste is the flow that
-    resolves it. It is not stranded — a reviewer can clear it from the UI.
-    """
-    for slug, code, offset_days, quantity, unit_cost in (
-        ("RECEIPT-06-EXPIRING-SOON", "DEMO-CHK-LOT-03", 20, "12.000", "3300.000000"),
-        ("RECEIPT-07-EXPIRED-STANDING", "DEMO-CHK-LOT-04", -3, "5.000", "3150.000000"),
-    ):
-        reference_slug = reference(slug)
-        if _find_operational(
-            organization=organization,
-            document_type=InventoryDocumentType.RECEIPT,
-            slug=reference_slug,
-        ):
-            log.record("receipt", reference_slug, created=False)
-            continue
-
-        lot = ensure_opening_lot(
-            item=items["DEMO-CHICKEN"],
-            code=code,
-            expiry_date=business_date + datetime.timedelta(days=offset_days),
-        )
-        document = create_document(
-            organization=organization,
-            branch=branch,
-            warehouse=warehouse,
-            document_type=InventoryDocumentType.RECEIPT,
-            effective_at=_at(business_date, 9, 50 if offset_days > 0 else 55),
-            evidence_reference=reference_slug,
-            narration="استلام دجاج — دفعة مؤرخة",
-        )
-        add_line(
-            document=document,
-            line=DocumentLineInput(
-                item=items["DEMO-CHICKEN"],
-                lot=lot,
-                base_quantity=Decimal(quantity),
-                unit_cost=Decimal(unit_cost),
-            ),
-        )
-        posted = post_document(document=document)
-        log.record("receipt", posted.document_number, created=True)
 
 
 def _find_batch(*, organization: Organization, filename: str) -> ImportBatch | None:
@@ -2020,16 +1700,22 @@ def _locations(
     Rice is put away and then partly moved between two bins — a move that posts
     no `StockMovement` at all, because nothing entered or left the warehouse.
     Oil is put away whole. Meat, chicken and packaging stay unlocated.
+
+    The rice figures are three quarters of what they were: the scenario used to
+    receive 60 kg through an un-invoiced receipt and take 5 back through a
+    return, and both documents were withdrawn from the product. The shape is
+    what matters — some located, some not, and an internal move across bins —
+    and the shape is unchanged.
     """
     created: dict[str, StockLocation] = {}
-    for code, name_ar in DEMO_LOCATIONS:
+    for code, name in DEMO_LOCATIONS:
         existing = StockLocation.objects.filter(warehouse=warehouse, code=code).first()
         if existing is not None:
             created[code] = existing
             log.record("location", f"{warehouse.code}/{code}", created=False)
             continue
         with audit_context(actor=actor):
-            created[code] = create_location(warehouse=warehouse, code=code, name_ar=name_ar)
+            created[code] = create_location(warehouse=warehouse, code=code, name=name)
         log.record("location", f"{warehouse.code}/{code}", created=True)
 
     # Idempotent by state: if anything is already put away, this ran before.
@@ -2041,7 +1727,7 @@ def _locations(
         put_away(
             location=created["BIN-A"],
             item=items["DEMO-RICE"],
-            quantity=Decimal("100.000"),
+            quantity=Decimal("60.000"),
             reference=reference("PUT-AWAY-RICE"),
         )
         put_away(
@@ -2056,7 +1742,7 @@ def _locations(
             source=created["BIN-A"],
             destination=created["BIN-C"],
             item=items["DEMO-RICE"],
-            quantity=Decimal("25.000"),
+            quantity=Decimal("15.000"),
             reference=reference("MOVE-RICE-A-TO-C"),
         )
     log.record("location stock", "put-away and internal move", created=True)
@@ -2091,15 +1777,13 @@ def seed_inventory_demo(
         log,
         organization=organization,
         code=source_branch_code,
-        name_ar="فرع البنوك — تجريبي",
-        name_en="Al-Bunook Branch — Demo",
+        name="فرع البنوك — تجريبي",
     )
     destination_branch = ensure_branch(
         log,
         organization=organization,
         code=destination_branch_code,
-        name_ar="فرع ثانٍ — تجريبي",
-        name_en="Second Branch — Demo",
+        name="فرع ثانٍ — تجريبي",
     )
     if source_branch.pk == destination_branch.pk:
         raise DemoSelectionError(
@@ -2114,7 +1798,7 @@ def seed_inventory_demo(
     )
     units = ensure_package_units(log, organization=organization)
     items = ensure_items(log, organization=organization, categories=categories)
-    conversions = ensure_conversions(log, items=items, units=units, business_date=business_date)
+    ensure_conversions(log, items=items, units=units, business_date=business_date)
     source_warehouses = ensure_warehouses(log, branch=source_branch, wanted=SOURCE_WAREHOUSES)
     destination_warehouses = ensure_warehouses(
         log, branch=destination_branch, wanted=DESTINATION_WAREHOUSES
@@ -2125,7 +1809,6 @@ def seed_inventory_demo(
         destination_branch=destination_branch,
         items=items,
     )
-    reason_codes = ensure_reason_codes(log, organization=organization)
     conductor = ensure_access(
         log,
         user=user,
@@ -2152,65 +1835,13 @@ def seed_inventory_demo(
             poster=user,
             business_date=business_date,
         )
-        _receipt_fixed_package(
-            log,
-            organization=organization,
-            branch=source_branch,
-            warehouse=main,
-            items=items,
-            conversions=conversions,
-            business_date=business_date,
-        )
-        _receipt_variable_package(
-            log,
-            organization=organization,
-            branch=source_branch,
-            warehouse=main,
-            items=items,
-            conversions=conversions,
-            business_date=business_date,
-        )
-        _expired_lot_receipt(
-            log,
-            organization=organization,
-            branch=source_branch,
-            warehouse=main,
-            items=items,
-            business_date=business_date,
-        )
-        _expiry_lots(
-            log,
-            organization=organization,
-            branch=source_branch,
-            warehouse=main,
-            items=items,
-            business_date=business_date,
-        )
-        issue = _issue(
+        _issue(
             log,
             organization=organization,
             branch=source_branch,
             warehouse=main,
             items=items,
             cost_center=kitchen_cost_center,
-            business_date=business_date,
-        )
-        _return_in(
-            log,
-            organization=organization,
-            branch=source_branch,
-            warehouse=main,
-            issue=issue,
-            items=items,
-            business_date=business_date,
-        )
-        _reversed_receipt(
-            log,
-            organization=organization,
-            branch=source_branch,
-            warehouse=main,
-            items=items,
-            conversions=conversions,
             business_date=business_date,
         )
         _completed_transfer(
@@ -2244,7 +1875,6 @@ def seed_inventory_demo(
             branch=source_branch,
             warehouse=main,
             items=items,
-            reason_codes=reason_codes,
             cost_center=kitchen_cost_center,
             business_date=business_date,
         )
@@ -2254,7 +1884,15 @@ def seed_inventory_demo(
             branch=source_branch,
             warehouse=main,
             items=items,
-            reason_codes=reason_codes,
+            cost_center=kitchen_cost_center,
+            business_date=business_date,
+        )
+        _reversed_issue(
+            log,
+            organization=organization,
+            branch=source_branch,
+            warehouse=main,
+            items=items,
             cost_center=kitchen_cost_center,
             business_date=business_date,
         )
@@ -2264,7 +1902,6 @@ def seed_inventory_demo(
             branch=source_branch,
             warehouse=kitchen,
             items=items,
-            reason_codes=reason_codes,
             conductor=conductor,
             approver=user,
             business_date=business_date,
@@ -2275,7 +1912,6 @@ def seed_inventory_demo(
             branch=source_branch,
             warehouse=main,
             items=items,
-            reason_codes=reason_codes,
             cost_center=warehouse_cost_center,
             business_date=business_date,
         )
@@ -2285,7 +1921,6 @@ def seed_inventory_demo(
             branch=source_branch,
             warehouse=main,
             items=items,
-            reason_codes=reason_codes,
             cost_center=warehouse_cost_center,
             business_date=business_date,
         )
@@ -2295,7 +1930,6 @@ def seed_inventory_demo(
             branch=source_branch,
             warehouse=main,
             items=items,
-            reason_codes=reason_codes,
             cost_center=warehouse_cost_center,
             business_date=business_date,
         )
@@ -2306,7 +1940,6 @@ def seed_inventory_demo(
             source=main,
             destination=kitchen,
             items=items,
-            conversions=conversions,
             business_date=business_date,
         )
         # The imports need the branch item settings to exist, which
@@ -2424,18 +2057,6 @@ def reset_demo(*, organization_code: str = DEMO_ORGANIZATION_CODE) -> ResetRepor
         )
         report.kept.append(f"all {NAMESPACE} master data, because posted movements reference it")
         return report
-
-    # A reason code is archived, never deleted: its code stays reserved, and a
-    # database trigger enforces that. Archiving is the reset for these — the
-    # invariant is not negotiable to make a development command tidier.
-    archived = 0
-    for reason_code in InventoryReasonCode.objects.filter(
-        organization=organization, code__startswith="DEMO-", is_active=True
-    ):
-        archive_reason_code(reason_code=reason_code, reason="إعادة تهيئة البيانات التجريبية")
-        archived += 1
-    if archived:
-        report.removed.append(f"{archived} reason codes archived (codes stay reserved)")
 
     # Nothing posted: the rest of the master data is genuinely unused and can
     # go. Children first — a conversion, a lot and a branch stocking decision

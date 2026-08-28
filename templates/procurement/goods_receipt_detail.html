@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# One delivery: what arrived, what inspection made of it, and — once it has #}
@@ -12,37 +12,37 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {% if receipt.number %}<span dir="ltr">{{ receipt.number }}</span>{% else %}{% translate "مسودة استلام" %}{% endif %}
         </h1>
-        <p class="pagehead__hint">
-          {{ receipt.supplier.name_ar }} —
+        <p class="ui-page-header__hint">
+          {{ receipt.supplier.name }} —
           {% if receipt.is_ready_to_post and receipt.status == "DRAFT" %}
-            <span class="chip">{% translate "مفحوص وجاهز للترحيل" %}</span>
+            <span class="ui-badge">{% translate "مفحوص وجاهز للترحيل" %}</span>
           {% else %}
-            <span class="chip">{{ receipt.get_status_display }}</span>
+            <span class="ui-badge">{{ receipt.get_status_display }}</span>
           {% endif %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'procurement:goods_receipt_list' %}">{% translate "رجوع" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:goods_receipt_list' %}">{% translate "رجوع" %}</a>
       </div>
     </div>
 
-    <div class="formcard">
-      <dl class="detailgrid">
-        <dt>{% translate "المورد" %}</dt><dd>{{ receipt.supplier.code }} — {{ receipt.supplier.name_ar }}</dd>
-        <dt>{% translate "المخزن" %}</dt><dd>{{ receipt.warehouse.name_ar }}</dd>
-        <dt>{% translate "الموقع" %}</dt><dd>{{ receipt.location.name_ar|default:"—" }}</dd>
+    <div class="ui-card ui-form-card">
+      <dl class="ui-detail-grid">
+        <dt>{% translate "المورد" %}</dt><dd>{{ receipt.supplier.code }} — {{ receipt.supplier.name }}</dd>
+        <dt>{% translate "المخزن" %}</dt><dd>{{ receipt.warehouse.name }}</dd>
+        <dt>{% translate "الموقع" %}</dt><dd>{{ receipt.location.name|default:"—" }}</dd>
         <dt>{% translate "تاريخ الاستلام" %}</dt><dd><span dir="ltr">{{ receipt.received_at|date:"Y-m-d" }}</span></dd>
         <dt>{% translate "أمر الشراء" %}</dt>
         <dd>
           {% if receipt.order %}
             {{ receipt.order.number }}
-            <span class="muted">({% blocktranslate with number=receipt.order_version %}الإصدار {{ number }}{% endblocktranslate %})</span>
+            <span class="ui-text-muted">({% blocktranslate with number=receipt.order_version %}الإصدار {{ number }}{% endblocktranslate %})</span>
           {% else %}
             {% translate "بلا أمر — شراء مباشر" %}
           {% endif %}
@@ -76,16 +76,16 @@
           <dd>{{ receipt.reversal_reason }}</dd>
         {% endif %}
       </dl>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "الكمية المقبولة وحدها تدخل المخزون. المرفوضة تُسجَّل للمطالبة على المورد ولا تُنشئ حركة مخزنية ولا قيداً ولا ذمة." %}
       </p>
     </div>
 
     {% if outstanding %}
-      <div class="formcard">
+      <div class="ui-card ui-form-card">
         <h2>{% translate "المتبقي على أمر الشراء" %}</h2>
-        <div class="data-table-shell">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll">
+          <table class="ui-table ui-table--responsive">
             <thead>
               <tr>
                 <th>{% translate "الصنف" %}</th>
@@ -97,7 +97,7 @@
             <tbody>
               {% for row in outstanding %}
                 <tr>
-                  <td>{{ row.line.item.code }} — {{ row.line.item.name_ar }}</td>
+                  <td>{{ row.line.item.code }} — {{ row.line.item.name }}</td>
                   {# Re-enterable exact values: never localised. #}
                   <td><span dir="ltr">{{ row.ordered|stringformat:"f" }}</span></td>
                   <td><span dir="ltr">{{ row.received|stringformat:"f" }}</span></td>
@@ -107,14 +107,14 @@
             </tbody>
           </table>
         </div>
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "المستلم يُحتسب من الاستلامات المرحّلة فقط، ويُشتق في كل مرة بدلاً من تخزينه." %}
         </p>
       </div>
     {% endif %}
 
-    <div class="tablewrap">
-      <table class="table responsive-table">
+    <div class="ui-data-card ui-table-scroll">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>
             <th>#</th>
@@ -136,28 +136,28 @@
           {% for line in lines %}
             <tr>
               <td>{{ line.sequence }}</td>
-              <td>{{ line.item.code }} — {{ line.item.name_ar }}</td>
+              <td>{{ line.item.code }} — {{ line.item.name }}</td>
               <td><span dir="ltr">{{ line.delivered_quantity|stringformat:"f" }}</span></td>
-              <td>{{ line.package_unit.name_ar|default:"—" }}</td>
+              <td>{{ line.package_unit.name|default:"—" }}</td>
               <td>
                 <span dir="ltr">{{ line.delivered_base_quantity|stringformat:"f" }}</span>
                 {{ line.item.base_unit.code }}
                 {% if line.measured_base_quantity %}
-                  <span class="chip">{% translate "موزون" %}</span>
+                  <span class="ui-badge">{% translate "موزون" %}</span>
                 {% endif %}
               </td>
               <td><span dir="ltr">{{ line.accepted_base_quantity|stringformat:"f" }}</span></td>
               <td><span dir="ltr">{{ line.rejected_base_quantity|stringformat:"f" }}</span></td>
               <td>
                 {% if line.quality_result == "ACCEPTED" %}
-                  <span class="chip chip--on">{{ line.get_quality_result_display }}</span>
+                  <span class="ui-badge ui-badge--success">{{ line.get_quality_result_display }}</span>
                 {% elif line.quality_result == "REJECTED" %}
-                  <span class="chip chip--off">{{ line.get_quality_result_display }}</span>
+                  <span class="ui-badge ui-badge--danger">{{ line.get_quality_result_display }}</span>
                 {% else %}
-                  <span class="chip">{{ line.get_quality_result_display }}</span>
+                  <span class="ui-badge">{{ line.get_quality_result_display }}</span>
                 {% endif %}
                 {% if line.rejection_reason %}
-                  <span class="muted">{{ line.rejection_reason.name_ar }}</span>
+                  <span class="ui-text-muted">{{ line.rejection_reason.name }}</span>
                 {% endif %}
               </td>
               <td>{{ line.lot.code|default:"—" }}</td>
@@ -167,7 +167,7 @@
                   {% if line.posted_value is not None %}
                     <span dir="ltr">{{ line.posted_value|stringformat:"f" }}</span>
                     {% if line.inventory_account %}
-                      <span class="muted" dir="ltr">{{ line.inventory_account.code }}</span>
+                      <span class="ui-text-muted" dir="ltr">{{ line.inventory_account.code }}</span>
                     {% endif %}
                   {% else %}—{% endif %}
                 </td>
@@ -177,24 +177,24 @@
                   <span dir="ltr">#{{ line.movement_id }}</span>
                 {% elif receipt.status == "POSTED" %}
                   {# Wholly rejected: correct, and stated rather than left blank. #}
-                  <span class="muted">{% translate "مرفوض — لا حركة" %}</span>
+                  <span class="ui-text-muted">{% translate "مرفوض — لا حركة" %}</span>
                 {% else %}—{% endif %}
               </td>
               {% if may_inspect or may_edit %}
                 <td>
-                  <div class="rowactions">
+                  <div class="ui-actions">
                     {% if may_inspect %}
                       <form method="post" action="{% url 'procurement:goods_receipt_inspect' receipt.pk line.pk %}">
                         {% csrf_token %}
                         <input type="text" name="accepted_base_quantity"
                                placeholder="{{ line.delivered_base_quantity|stringformat:'f' }}" required>
-                        <button class="btn btn--ghost btn--sm" type="submit">{% translate "فحص" %}</button>
+                        <button class="ui-button ui-button--ghost ui-button--small" type="submit">{% translate "فحص" %}</button>
                       </form>
                     {% endif %}
                     {% if may_edit %}
                       <form method="post" action="{% url 'procurement:goods_receipt_line_delete' receipt.pk line.pk %}">
                         {% csrf_token %}
-                        <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                        <button class="ui-button ui-button--ghost ui-button--small" type="submit">{% translate "حذف" %}</button>
                       </form>
                     {% endif %}
                   </div>
@@ -209,32 +209,32 @@
     </div>
 
     {% if may_edit %}
-      <form class="formcard" method="post" novalidate>
+      <form class="ui-card ui-form-card" method="post" novalidate>
         <h2>{% translate "تسجيل صنف مستلم" %}</h2>
         {% csrf_token %}
         {% if form.non_field_errors %}
-          <div class="alert" role="alert">
+          <div class="ui-alert" role="alert">
             {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
           </div>
         {% endif %}
-        <div class="formgrid">
+        <div class="ui-form-grid">
           {% for field in form %}
-            <label class="field">
-              <span class="field__label">{{ field.label }}</span>
+            <label class="ui-field">
+              <span class="ui-field__label">{{ field.label }}</span>
               {{ field }}
-              {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
-              {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+              {% if field.help_text %}<span class="ui-field__hint">{{ field.help_text }}</span>{% endif %}
+              {% for error in field.errors %}<span class="ui-field__error">{{ error }}</span>{% endfor %}
             </label>
           {% endfor %}
         </div>
-        <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+        <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة" %}</button>
       </form>
     {% endif %}
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "الترحيل" %}</h2>
       {% if receipt.status == "DRAFT" %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% if receipt.is_ready_to_post %}
             {% translate "هذا الاستلام مفحوص بالكامل وجاهز. الترحيل يُدخل الكمية المقبولة إلى المخزون ويُنشئ القيد في معاملة واحدة: مدين مراقبة المخزون، دائن بضاعة مستلمة غير مفوترة." %}
           {% else %}
@@ -244,37 +244,37 @@
         {% if may_post %}
           <form method="post" action="{% url 'procurement:goods_receipt_post' receipt.pk %}">
             {% csrf_token %}
-            <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+            <button class="ui-button ui-button--primary" type="submit">{% translate "ترحيل" %}</button>
           </form>
         {% endif %}
       {% elif receipt.status == "POSTED" %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "مرحّل. المخزون والقيد المحاسبي أُنشئا معاً؛ الاستلام المرحّل لا يُعدَّل، ويُصحَّح بالعكس ثم بإعادة تسجيله." %}
         </p>
         {% if may_reverse %}
           <form method="post" action="{% url 'procurement:goods_receipt_reverse' receipt.pk %}">
             {% csrf_token %}
-            <label class="field">
-              <span class="field__label">{% translate "سبب العكس" %}</span>
+            <label class="ui-field">
+              <span class="ui-field__label">{% translate "سبب العكس" %}</span>
               <input type="text" name="reason" required>
-              <span class="field__hint">
+              <span class="ui-field__hint">
                 {% translate "العكس يُخرج نفس الكمية بنفس القيمة ويعكس نفس الحسابات. يُرفض إذا كانت البضاعة قد صُرفت." %}
               </span>
             </label>
-            <button class="btn btn--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
+            <button class="ui-button ui-button--ghost" type="submit">{% translate "عكس الترحيل" %}</button>
           </form>
         {% endif %}
       {% else %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "معكوس. السجل باقٍ كما هو؛ التصحيح يكون باستلام جديد." %}
         </p>
       {% endif %}
     </div>
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "المسار الزمني" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <tbody>
             {% for event in timeline %}
               <tr>

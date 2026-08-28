@@ -226,7 +226,7 @@ class Command(SeedCommand):
 
         units = {u.code: u for u in UnitOfMeasure.objects.filter(is_active=True)}
         existing = {
-            fold(i.name_ar): i for i in InventoryItem.objects.filter(organization=organization)
+            fold(i.name): i for i in InventoryItem.objects.filter(organization=organization)
         }
 
         made = reused = 0
@@ -238,12 +238,10 @@ class Command(SeedCommand):
 
         with transaction.atomic():
             categories: dict[str, ItemCategory] = {}
-            for category_type, (code, name_ar) in CATEGORIES.items():
+            for category_type, (code, name) in CATEGORIES.items():
                 category = ItemCategory.objects.filter(organization=organization, code=code).first()
                 if category is None:
-                    category = create_item_category(
-                        organization=organization, code=code, name_ar=name_ar
-                    )
+                    category = create_item_category(organization=organization, code=code, name=name)
                 categories[category_type] = category
 
             for number, row in enumerate(rows, start=1):
@@ -273,14 +271,14 @@ class Command(SeedCommand):
                         # amends rather than reporting a match and moving on.
                         update_item(
                             item=found,
-                            name_ar=found.name_ar,
+                            name=found.name,
                             category=categories[wanted],
                             item_type=wanted,
                             notes=found.notes,
                         )
                         reclassified.append(f"{name}: {was} → {wanted}")
                     else:
-                        matched.append(f"{name}  ≡  {found.name_ar}")
+                        matched.append(f"{name}  ≡  {found.name}")
                     reused += 1
                     continue
 
@@ -290,7 +288,7 @@ class Command(SeedCommand):
                     item = create_item(
                         organization=organization,
                         code=f"STK-{number:04d}",
-                        name_ar=name,
+                        name=name,
                         category=categories[item_type],
                         item_type=item_type,
                         base_unit=units[unit_code],

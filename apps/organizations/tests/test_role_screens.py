@@ -31,7 +31,7 @@ PASSWORD = "pw-not-real-1234"
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
@@ -39,8 +39,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="011",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -58,7 +57,7 @@ def registrar(organization: Organization) -> RoleDefinition:
     return create_role_definition(
         organization=organization,
         code="registrar",
-        name_ar="مسجّل أصناف",
+        name="مسجّل أصناف",
         permissions=[VIEW_ITEM, CREATE_ITEM],
     )
 
@@ -102,8 +101,7 @@ def test_saving_defines_the_post_through_the_service(
         {
             "organization": organization.pk,
             "code": "Registrar",
-            "name_ar": "مسجّل أصناف",
-            "name_en": "",
+            "name": "مسجّل أصناف",
             "description": "",
             "based_on": "",
             "permissions": [VIEW_ITEM, CREATE_ITEM],
@@ -126,22 +124,20 @@ def test_editing_changes_the_acts_and_an_invented_code_is_refused(
     response = staff.post(
         url,
         {
-            "name_ar": "مسجّل ومحرّر",
-            "name_en": "",
+            "name": "مسجّل ومحرّر",
             "description": "",
             "permissions": [VIEW_ITEM, EDIT_ITEM],
         },
     )
     assert response.status_code == 302
     registrar.refresh_from_db()
-    assert registrar.name_ar == "مسجّل ومحرّر"
+    assert registrar.name == "مسجّل ومحرّر"
     assert {p.codename for p in registrar.permissions.all()} == {"view_item", "edit_item"}
 
     refused = staff.post(
         url,
         {
-            "name_ar": "x",
-            "name_en": "",
+            "name": "x",
             "description": "",
             "permissions": ["inventory.no_such_act"],
         },

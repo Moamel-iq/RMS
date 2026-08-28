@@ -9,28 +9,28 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="accounting-periods">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <div class="ui-page" id="accounting-periods">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
     </div>
 
-    <form class="toolbar" method="get"
+    <form class="ui-filter-bar" method="get"
           hx-get="{% url 'accounting:period_list' %}"
           hx-target="#accounting-periods" hx-swap="outerHTML" hx-push-url="true"
-          hx-trigger="change from:find select">
-      <label class="field">
-        <span class="field__label">{% translate "المؤسسة" %}</span>
+          hx-trigger="change">
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "المؤسسة" %}</span>
         <select name="organization">
           {% for row in organizations %}
             <option value="{{ row.pk }}" {% if organization and organization.pk == row.pk %}selected{% endif %}>{{ row.code }}</option>
           {% endfor %}
         </select>
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "الحالة" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "الحالة" %}</span>
         <select name="state">
           <option value="">{% translate "الكل" %}</option>
           {% for value, label in states %}
@@ -41,23 +41,23 @@
     </form>
 
     {% for year in years %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>
           {% translate "السنة المالية" %} <bdi dir="ltr">{{ year.fiscal_year.year }}</bdi>
           {% if year.is_closed %}
-            <span class="chip chip--muted">{% translate "مقفلة بالكامل" %}</span>
+            <span class="ui-badge ui-badge--neutral">{% translate "مقفلة بالكامل" %}</span>
           {% else %}
-            <span class="chip chip--ok">{% translate "مفتوحة" %}</span>
+            <span class="ui-badge ui-badge--success">{% translate "مفتوحة" %}</span>
           {% endif %}
         </h2>
-        <p class="card__hint">
+        <p class="ui-card__subtitle">
           {% blocktranslate with open=year.open_count soft=year.soft_closed_count closed=year.closed_count %}مفتوحة {{ open }} · مغلقة مبدئياً {{ soft }} · مقفلة {{ closed }}{% endblocktranslate %}
         </p>
-        <div class="data-table-shell">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll">
+          <table class="ui-table ui-table--responsive">
             <thead><tr>
               <th>{% translate "الفترة" %}</th><th>{% translate "من" %}</th>
-              <th>{% translate "إلى" %}</th><th>{% translate "الحالة" %}</th><th scope="col"><span class="sr-only">إجراءات</span></th>
+              <th>{% translate "إلى" %}</th><th>{% translate "الحالة" %}</th><th scope="col"><span class="ui-sr-only">إجراءات</span></th>
             </tr></thead>
             <tbody>
               {% for period in year.periods %}
@@ -66,24 +66,24 @@
                   <td><bdi dir="ltr">{{ period.start_date|date:"Y-m-d" }}</bdi></td>
                   <td><bdi dir="ltr">{{ period.end_date|date:"Y-m-d" }}</bdi></td>
                   <td>
-                    {% if period.state == "OPEN" %}<span class="chip chip--ok">{{ period.get_state_display }}</span>
-                    {% elif period.state == "SOFT_CLOSED" %}<span class="chip chip--warn">{{ period.get_state_display }}</span>
-                    {% else %}<span class="chip chip--muted">{{ period.get_state_display }}</span>{% endif %}
+                    {% if period.state == "OPEN" %}<span class="ui-badge ui-badge--success">{{ period.get_state_display }}</span>
+                    {% elif period.state == "SOFT_CLOSED" %}<span class="ui-badge ui-badge--warning">{{ period.get_state_display }}</span>
+                    {% else %}<span class="ui-badge ui-badge--neutral">{{ period.get_state_display }}</span>{% endif %}
                   </td>
-                  <td class="cell-actions">
-                    <a class="btn btn--secondary btn--sm" href="{% url 'accounting:period_detail' period.pk %}">{% translate "تفاصيل" %}</a>
+                  <td class="ui-table__actions">
+                    <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:period_detail' period.pk %}">{% translate "تفاصيل" %}</a>
                   </td>
                 </tr>
               {% empty %}
-                <tr><td colspan="5" class="empty">{% translate "لا فترات مطابقة." %}</td></tr>
+                <tr><td colspan="5" class="ui-table__empty">{% translate "لا فترات مطابقة." %}</td></tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
       </section>
     {% empty %}
-      <section class="formcard">
-        <p class="empty">{% translate "لم تُفتح سنة مالية لهذه المؤسسة بعد." %}</p>
+      <section class="ui-form-card">
+        <p class="ui-table__empty">{% translate "لم تُفتح سنة مالية لهذه المؤسسة بعد." %}</p>
       </section>
     {% endfor %}
   </div>

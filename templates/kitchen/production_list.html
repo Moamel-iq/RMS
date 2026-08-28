@@ -34,7 +34,7 @@
     <tr>
       <td>
         <a href="{% url 'kitchen:production_detail' batch.pk %}">
-          <code>{{ batch.recipe.code }}</code> {{ batch.recipe.name_ar }}
+          <code>{{ batch.recipe.code }}</code> {{ batch.recipe.name }}
         </a>
       </td>
       <td><code dir="ltr">v{{ batch.recipe_version.version_number }}</code></td>
@@ -51,10 +51,10 @@
         {% if batch.actual_output_base_quantity is not None %}
           <code dir="ltr">{{ batch.actual_output_display }}</code>
         {% else %}
-          <span class="muted">{% translate "لم يُدخل" %}</span>
+          <span class="ui-text-muted">{% translate "لم يُدخل" %}</span>
         {% endif %}
       </td>
-      <td><span class="pill">{{ batch.get_status_display }}</span></td>
+      <td><span class="ui-badge">{{ batch.get_status_display }}</span></td>
     </tr>
   {% empty %}
     <tr><td colspan="9">{% translate "لا توجد مسودات إنتاج مطابقة." %}</td></tr>

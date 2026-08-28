@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{% translate "غير مصرح" %} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block content %}
+  <main class="ui-standalone">
+    {% url 'users:home' as back_url %}
+    {% include "components/permission_state.html" with back_url=back_url %}
+  </main>
+{% endblock %}

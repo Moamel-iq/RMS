@@ -543,7 +543,7 @@ class TestStepIngredientLinks:
         other_recipe = create_recipe(
             organization=organization,
             code="OTHER",
-            name_ar="وصفة أخرى",
+            name="وصفة أخرى",
             recipe_type=RecipeType.PORTION,
             created_by=manager,
         )
@@ -566,7 +566,7 @@ class TestServings:
         serving = add_recipe_serving(
             version=draft,
             code="FULL",
-            name_ar="حصة",
+            name="حصة",
             serving_quantity=Decimal("2"),
             serving_unit=kilogram,
             is_primary=True,
@@ -585,7 +585,7 @@ class TestServings:
         whole = add_recipe_serving(
             version=draft,
             code="WHOLE",
-            name_ar="كاملة",
+            name="كاملة",
             serving_quantity=Decimal("2"),
             serving_unit=kilogram,
             is_primary=True,
@@ -593,7 +593,7 @@ class TestServings:
         half = add_recipe_serving(
             version=draft,
             code="HALF",
-            name_ar="نصف",
+            name="نصف",
             serving_quantity=Decimal("1"),
             serving_unit=kilogram,
         )
@@ -606,7 +606,7 @@ class TestServings:
         portion = add_recipe_serving(
             version=draft,
             code="G350",
-            name_ar="حصة ٣٥٠",
+            name="حصة ٣٥٠",
             serving_quantity=Decimal("350"),
             serving_unit=gram,
             source_document="كتاب وصفات المطبخ خان مندي",
@@ -625,7 +625,7 @@ class TestServings:
             add_recipe_serving(
                 version=draft,
                 code="ML80",
-                name_ar="كاسة",
+                name="كاسة",
                 serving_quantity=Decimal("80"),
                 serving_unit=litre,
             )
@@ -636,7 +636,7 @@ class TestServings:
         add_recipe_serving(
             version=draft,
             code="DUP",
-            name_ar="واحد",
+            name="واحد",
             serving_quantity=Decimal("1"),
             serving_unit=kilogram,
         )
@@ -644,7 +644,7 @@ class TestServings:
             add_recipe_serving(
                 version=draft,
                 code="dup",
-                name_ar="اثنان",
+                name="اثنان",
                 serving_quantity=Decimal("2"),
                 serving_unit=kilogram,
             )
@@ -655,7 +655,7 @@ class TestServings:
         first = add_recipe_serving(
             version=draft,
             code="A",
-            name_ar="أ",
+            name="أ",
             serving_quantity=Decimal("1"),
             serving_unit=kilogram,
             is_primary=True,
@@ -663,7 +663,7 @@ class TestServings:
         add_recipe_serving(
             version=draft,
             code="B",
-            name_ar="ب",
+            name="ب",
             serving_quantity=Decimal("2"),
             serving_unit=kilogram,
             is_primary=True,
@@ -678,7 +678,7 @@ class TestServings:
         add_recipe_serving(
             version=draft,
             code="A",
-            name_ar="أ",
+            name="أ",
             serving_quantity=Decimal("1"),
             serving_unit=kilogram,
             is_primary=True,
@@ -686,7 +686,7 @@ class TestServings:
         second = add_recipe_serving(
             version=draft,
             code="B",
-            name_ar="ب",
+            name="ب",
             serving_quantity=Decimal("2"),
             serving_unit=kilogram,
         )
@@ -703,7 +703,7 @@ class TestServings:
         serving = add_recipe_serving(
             version=draft,
             code="FULL",
-            name_ar="حصة",
+            name="حصة",
             serving_quantity=Decimal("2"),
             serving_unit=kilogram,
             is_primary=True,
@@ -790,7 +790,7 @@ class TestFactorIsLocaleIndependent:
         serving = add_recipe_serving(
             version=draft,
             code="THIRD",
-            name_ar="ثلث",
+            name="ثلث",
             serving_quantity=Decimal("1"),
             serving_unit=kilogram,
             is_primary=True,
@@ -807,7 +807,7 @@ class TestFactorIsLocaleIndependent:
         add_recipe_serving(
             version=draft,
             code="THIRD",
-            name_ar="ثلث",
+            name="ثلث",
             serving_quantity=Decimal("1"),
             serving_unit=kilogram,
             is_primary=True,

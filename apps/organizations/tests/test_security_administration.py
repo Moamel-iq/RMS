@@ -41,20 +41,19 @@ def _branch(organization: Organization, code: str) -> Branch:
     return create_branch(
         organization=organization,
         code=code,
-        name_ar=code,
-        name_en=code,
+        name=code,
         business_day_start_time=time(9, 0),
     )
 
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
 def rival() -> Organization:
-    return create_organization(code="RIVAL", name_ar="منافس", name_en="Rival")
+    return create_organization(code="RIVAL", name="منافس")
 
 
 @pytest.fixture

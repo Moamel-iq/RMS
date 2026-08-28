@@ -64,8 +64,7 @@ class TestCategoryWorkflow:
                 # Deliberately lower case with padding: the service
                 # canonicalises before it validates or stores.
                 "code": " drinks ",
-                "name_ar": "مشروبات",
-                "name_en": "Drinks",
+                "name": "مشروبات",
                 "parent": "",
                 "is_active": "on",
             },
@@ -89,8 +88,7 @@ class TestCategoryWorkflow:
         response = client_for(manager).post(
             reverse("inventory:category_update", args=[category.pk]),
             {
-                "name_ar": "أغذية ومشروبات",
-                "name_en": "Food and Drink",
+                "name": "أغذية ومشروبات",
                 "parent": "",
                 "is_active": "on",
             },
@@ -99,8 +97,8 @@ class TestCategoryWorkflow:
         assert response.status_code == 302
         event = _events_for(category).filter(action=AuditAction.UPDATED).last()
         assert event is not None
-        assert event.previous_state["name_ar"] == "أغذية"
-        assert event.new_state["name_ar"] == "أغذية ومشروبات"
+        assert event.previous_state["name"] == "أغذية"
+        assert event.new_state["name"] == "أغذية ومشروبات"
         assert event.previous_state != event.new_state
 
     def test_archive_then_reactivate(
@@ -126,7 +124,7 @@ class TestCategoryWorkflow:
 
         response = client.post(
             reverse("inventory:category_update", args=[category.pk]),
-            {"name_ar": "أغذية", "name_en": "", "parent": leaf_category.pk, "is_active": "on"},
+            {"name": "أغذية", "parent": leaf_category.pk, "is_active": "on"},
         )
 
         assert response.status_code == 200
@@ -148,8 +146,7 @@ class TestCategoryWorkflow:
             {
                 "organization": organization.pk,
                 "code": "",  # required
-                "name_ar": "",  # required
-                "name_en": "",
+                "name": "",  # required
                 "parent": "",
             },
         )
@@ -172,12 +169,12 @@ class TestCategoryWorkflow:
         holds `rice`; giving it a child would stop its children summing to it.
         """
         orphan = ItemCategory.objects.create(
-            organization=organization, code="SPARE", name_ar="احتياطي", depth=1
+            organization=organization, code="SPARE", name="احتياطي", depth=1
         )
 
         response = client_for(manager).post(
             reverse("inventory:category_update", args=[orphan.pk]),
-            {"name_ar": "احتياطي", "name_en": "", "parent": leaf_category.pk, "is_active": "on"},
+            {"name": "احتياطي", "parent": leaf_category.pk, "is_active": "on"},
         )
 
         assert response.status_code == 200
@@ -225,16 +222,16 @@ class TestPackageUnitWorkflow:
 
         client.post(
             reverse("inventory:package_unit_create"),
-            {"organization": organization.pk, "code": "tray", "name_ar": "صينية", "name_en": ""},
+            {"organization": organization.pk, "code": "tray", "name": "صينية"},
         )
         unit = PackageUnit.objects.get(organization=organization, code="TRAY")
 
         client.post(
             reverse("inventory:package_unit_update", args=[unit.pk]),
-            {"name_ar": "صينية كبيرة", "name_en": "", "is_active": "on"},
+            {"name": "صينية كبيرة", "is_active": "on"},
         )
         unit.refresh_from_db()
-        assert unit.name_ar == "صينية كبيرة"
+        assert unit.name == "صينية كبيرة"
 
         client.post(reverse("inventory:package_unit_archive", args=[unit.pk]))
         unit.refresh_from_db()
@@ -262,8 +259,7 @@ class TestItemWorkflow:
             {
                 "organization": organization.pk,
                 "code": "bread-01",
-                "name_ar": "صمون",
-                "name_en": "",
+                "name": "صمون",
                 "category": leaf_category.pk,
                 "item_type": ItemType.FINISHED_GOOD,
                 "base_unit": piece.pk,
@@ -276,7 +272,7 @@ class TestItemWorkflow:
         assert response.status_code == 302
         item = InventoryItem.objects.get(organization=organization, code="BREAD-01")
         assert item.item_type == ItemType.FINISHED_GOOD
-        assert item.name_en == ""  # optional, by decision
+        assert item.name == ""  # optional, by decision
 
     def test_expiry_without_lots_is_refused_in_the_form(
         self,
@@ -291,8 +287,7 @@ class TestItemWorkflow:
             {
                 "organization": organization.pk,
                 "code": "MILK-01",
-                "name_ar": "حليب",
-                "name_en": "",
+                "name": "حليب",
                 "category": leaf_category.pk,
                 "item_type": ItemType.RAW_MATERIAL,
                 "base_unit": kilogram.pk,
@@ -335,8 +330,7 @@ class TestItemWorkflow:
             {
                 "organization": organization.pk,
                 "code": "MISFILED",
-                "name_ar": "مصنّف خطأ",
-                "name_en": "",
+                "name": "مصنّف خطأ",
                 "category": category.pk,
                 "item_type": ItemType.RAW_MATERIAL,
                 "base_unit": kilogram.pk,
@@ -369,8 +363,7 @@ class TestItemWorkflow:
         client_for(manager).post(
             reverse("inventory:item_update", args=[rice.pk]),
             {
-                "name_ar": "رز ٢٧٢",
-                "name_en": "",
+                "name": "رز ٢٧٢",
                 "category": leaf_category.pk,
                 "item_type": ItemType.RAW_MATERIAL,
                 "base_unit": litre.pk,
@@ -605,8 +598,7 @@ class TestWarehouseWorkflow:
             {
                 "branch": branch.pk,
                 "code": "cold",
-                "name_ar": "المبرد",
-                "name_en": "",
+                "name": "المبرد",
                 "warehouse_type": WarehouseType.PHYSICAL,
                 "is_active": "on",
             },
@@ -615,10 +607,10 @@ class TestWarehouseWorkflow:
 
         client.post(
             reverse("inventory:warehouse_update", args=[warehouse.pk]),
-            {"name_ar": "المبرد الرئيسي", "name_en": "", "is_active": "on"},
+            {"name": "المبرد الرئيسي", "is_active": "on"},
         )
         warehouse.refresh_from_db()
-        assert warehouse.name_ar == "المبرد الرئيسي"
+        assert warehouse.name == "المبرد الرئيسي"
 
         client.post(reverse("inventory:warehouse_archive", args=[warehouse.pk]))
         warehouse.refresh_from_db()
@@ -649,8 +641,7 @@ class TestWarehouseWorkflow:
             {
                 "branch": branch.pk,
                 "code": "SNEAKY",
-                "name_ar": "تهريب",
-                "name_en": "",
+                "name": "تهريب",
                 "warehouse_type": WarehouseType.IN_TRANSIT,
                 "is_active": "on",
             },
@@ -667,11 +658,11 @@ class TestWarehouseWorkflow:
 
         renamed = client.post(
             reverse("inventory:warehouse_update", args=[system.pk]),
-            {"name_ar": "مخزن عادي", "name_en": "", "is_active": "on"},
+            {"name": "مخزن عادي", "is_active": "on"},
         )
         assert renamed.status_code == 200
         system.refresh_from_db()
-        assert system.name_ar == "بضاعة بالطريق"
+        assert system.name == "بضاعة بالطريق"
 
         client.post(reverse("inventory:warehouse_archive", args=[system.pk]))
         system.refresh_from_db()
@@ -720,8 +711,7 @@ class TestButtonsAreNotTheProtection:
         response = client_for(storekeeper).post(
             reverse("inventory:item_update", args=[rice.pk]),
             {
-                "name_ar": "مسروق",
-                "name_en": "",
+                "name": "مسروق",
                 "category": leaf_category.pk,
                 "item_type": ItemType.RAW_MATERIAL,
                 "shelf_life_days": "",
@@ -732,7 +722,7 @@ class TestButtonsAreNotTheProtection:
 
         assert response.status_code == 403
         rice.refresh_from_db()
-        assert rice.name_ar == "رز ٢٧٢"
+        assert rice.name == "رز ٢٧٢"
 
     def test_the_hidden_archive_action_is_refused_too(
         self, storekeeper: User, client_for: Any, rice: InventoryItem
@@ -757,7 +747,7 @@ class TestButtonsAreNotTheProtection:
 
         response = client.post(
             reverse("inventory:category_create"),
-            {"organization": organization.pk, "code": "NOCSRF", "name_ar": "بلا", "parent": ""},
+            {"organization": organization.pk, "code": "NOCSRF", "name": "بلا", "parent": ""},
         )
 
         assert response.status_code == 403
@@ -783,8 +773,7 @@ class TestCrossOrganizationInjection:
             {
                 "organization": other_organization.pk,
                 "code": "STOLEN",
-                "name_ar": "مسروق",
-                "name_en": "",
+                "name": "مسروق",
                 "category": other_category.pk,
                 "item_type": ItemType.RAW_MATERIAL,
                 "base_unit": kilogram.pk,
@@ -838,8 +827,7 @@ class TestCrossOrganizationInjection:
         response = client_for(intruder).post(
             reverse("inventory:item_update", args=[rice.pk]),
             {
-                "name_ar": "مسروق",
-                "name_en": "",
+                "name": "مسروق",
                 "category": leaf_category.pk,
                 "item_type": ItemType.RAW_MATERIAL,
                 "shelf_life_days": "",
@@ -850,7 +838,7 @@ class TestCrossOrganizationInjection:
 
         assert response.status_code == 403
         rice.refresh_from_db()
-        assert rice.name_ar == "رز ٢٧٢"
+        assert rice.name == "رز ٢٧٢"
 
     def test_and_the_buttons_are_absent_for_them_too(
         self, client_for: Any, other_branch: Branch, branch: Branch, rice: InventoryItem
@@ -926,8 +914,7 @@ class TestSuccessIsVisible:
             {
                 "organization": organization.pk,
                 "code": "SWEETS",
-                "name_ar": "حلويات",
-                "name_en": "",
+                "name": "حلويات",
                 "parent": "",
             },
             follow=True,

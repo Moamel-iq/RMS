@@ -509,7 +509,7 @@ def nested_race_draft(
     recipe = create_recipe(
         organization=organization,
         code="RACE-DISH",
-        name_ar="طبخة للتسابق",
+        name="طبخة للتسابق",
         recipe_type="BATCH",
         output_item=cooked_rice,
         created_by=manager,

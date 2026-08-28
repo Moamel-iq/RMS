@@ -1,0 +1,31 @@
+{% extends shell_base_template|default:"shell.html" %}
+
+{% block page %}
+  <section class="ui-page ui-quotes-page" aria-labelledby="quote-line-form-title">
+    <nav class="ui-breadcrumb" aria-label="مسار الصفحة"><a href="{% url 'supplier_quotes:list' %}">عروض الموردين</a><span aria-hidden="true">/</span><a href="{% url 'supplier_quotes:detail' quote.pk %}">{{ quote.supplier_name }}</a><span aria-hidden="true">/</span><span aria-current="page">تعديل السطر</span></nav>
+    <header class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">عرض المورد</p>
+        <h1 class="ui-page-header__title" id="quote-line-form-title">تعديل سطر العرض</h1>
+        <p class="ui-page-header__subtitle">عدّل الصنف أو الوحدة أو الكمية والسعر؛ يُعاد احتساب إجمالي السطر عند الحفظ.</p>
+      </div>
+      <div class="ui-page-header__actions"><a class="ui-button ui-button--ghost" href="{% url 'supplier_quotes:detail' quote.pk %}">رجوع إلى العرض</a></div>
+    </header>
+
+    <form method="post" class="ui-form ui-form-card">
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="ui-error-summary" role="alert">{% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
+      <div class="ui-form-grid">
+        {% for field in form %}
+          <div class="ui-field{% if field.errors %} ui-field--invalid{% endif %}{% if field.name == 'notes' %} ui-field--wide{% endif %}">
+            <label class="ui-field__label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="ui-field__required" aria-hidden="true"> *</span>{% endif %}</label>
+            {{ field }}
+            {% if field.help_text %}<p class="ui-field__hint">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <footer class="ui-form-actions"><a class="ui-button ui-button--ghost" href="{% url 'supplier_quotes:detail' quote.pk %}">إلغاء</a><button class="ui-button ui-button--primary" type="submit">حفظ التعديل</button></footer>
+    </form>
+  </section>
+{% endblock %}

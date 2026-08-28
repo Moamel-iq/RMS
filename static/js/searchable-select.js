@@ -119,14 +119,14 @@
 
   /** Undo restored-but-dead markup so the select can be enhanced afresh. */
   const unwrapStale = (select) => {
-    const stale = select.closest(".combo");
+    const stale = select.closest(".ui-combobox");
     if (!stale) return;
     // The popup sits on <body>, so it is reached through the box that names it.
-    const controls = stale.querySelector(".combo__input")?.getAttribute("aria-controls");
+    const controls = stale.querySelector(".ui-combobox__input")?.getAttribute("aria-controls");
     if (controls) document.getElementById(controls)?.remove();
-    stale.querySelector(".combo__list")?.remove();
+    stale.querySelector(".ui-combobox__list")?.remove();
     stale.replaceWith(select);
-    select.classList.remove("combo__native");
+    select.classList.remove("ui-combobox__native");
     select.removeAttribute("aria-hidden");
     select.removeAttribute("tabindex");
     delete select.dataset.comboReady;
@@ -146,12 +146,12 @@
     sequence += 1;
     const baseId = select.id || `combo-${sequence}`;
     const wrapper = document.createElement("div");
-    wrapper.className = "combo";
+    wrapper.className = "ui-combobox";
     wrapper.dataset.combo = "";
 
     const input = document.createElement("input");
     input.type = "text";
-    input.className = "combo__input";
+    input.className = "ui-combobox__input";
     input.id = `${baseId}-combo`;
     input.setAttribute("role", "combobox");
     input.setAttribute("aria-autocomplete", "list");
@@ -189,7 +189,7 @@
     else if (labelText) input.setAttribute("aria-label", labelText);
 
     const list = document.createElement("ul");
-    list.className = "combo__list";
+    list.className = "ui-combobox__list";
     list.id = `${baseId}-listbox`;
     list.setAttribute("role", "listbox");
     list.hidden = true;
@@ -202,7 +202,7 @@
         label.htmlFor = input.id;
       });
     }
-    select.classList.add("combo__native");
+    select.classList.add("ui-combobox__native");
     select.tabIndex = -1;
     select.setAttribute("aria-hidden", "true");
 
@@ -276,14 +276,14 @@
         if (!matches(row.folded, folded)) return;
         if (row.group !== lastGroup && row.group) {
           const heading = document.createElement("li");
-          heading.className = "combo__group";
+          heading.className = "ui-combobox__group";
           heading.setAttribute("role", "presentation");
           heading.textContent = row.group;
           fragment.append(heading);
         }
         lastGroup = row.group;
         const item = document.createElement("li");
-        item.className = "combo__option";
+        item.className = "ui-combobox__option";
         item.id = `${baseId}-option-${index}`;
         item.setAttribute("role", "option");
         item.dataset.index = String(index);
@@ -294,7 +294,7 @@
           item.classList.add("is-disabled");
         }
         if (row.label === "" || row.option.value === "") {
-          item.classList.add("combo__option--blank");
+          item.classList.add("ui-combobox__option--blank");
           item.textContent = row.label || "—";
         } else {
           item.textContent = row.label;
@@ -304,7 +304,7 @@
       });
       if (!visible.length) {
         const empty = document.createElement("li");
-        empty.className = "combo__empty";
+        empty.className = "ui-combobox__empty";
         empty.setAttribute("role", "presentation");
         empty.textContent = text.empty;
         fragment.append(empty);
@@ -462,7 +462,7 @@
       event.preventDefault();
     });
     list.addEventListener("click", (event) => {
-      const item = event.target.closest(".combo__option");
+      const item = event.target.closest(".ui-combobox__option");
       if (!item) return;
       event.preventDefault();
       event.stopPropagation();
@@ -470,7 +470,7 @@
       input.focus();
     });
     list.addEventListener("mousemove", (event) => {
-      const item = event.target.closest(".combo__option");
+      const item = event.target.closest(".ui-combobox__option");
       if (!item) return;
       const index = visible.findIndex((entry) => entry.element === item);
       if (index >= 0 && index !== active) setActive(index, false);
@@ -532,7 +532,7 @@
    * enhancement rebuild is both safe and complete.
    */
   const restore = () => {
-    document.querySelectorAll("body > .combo__list").forEach((node) => node.remove());
+    document.querySelectorAll("body > .ui-combobox__list").forEach((node) => node.remove());
     enhanceWithin(document);
   };
 

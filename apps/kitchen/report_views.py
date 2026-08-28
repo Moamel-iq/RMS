@@ -500,7 +500,7 @@ class RecipeCostReportView(KitchenReportView):
                 "recipe": f"{snapshot.recipe_code} — {snapshot.recipe_name}",
                 "version": f"v{snapshot.version_number} · {snapshot.version_status}",
                 "effective_period": f"{effective_from} — {effective_to}",
-                "branch": f"{snapshot.branch.code} — {snapshot.branch.name_ar}",
+                "branch": f"{snapshot.branch.code} — {snapshot.branch.name}",
                 "output": f"{snapshot.output_quantity_display} {snapshot.output_unit_code}",
                 "ingredients": ingredients,
                 "ingredient_count": len(lines),
@@ -820,7 +820,7 @@ class ProductionRegisterView(KitchenReportView):
             row: dict[str, Any] = {
                 "number": batch.number,
                 "business_date": batch.planned_business_date.isoformat(),
-                "recipe": f"{batch.recipe.code} — {batch.recipe.name_ar}",
+                "recipe": f"{batch.recipe.code} — {batch.recipe.name}",
                 "version": f"v{batch.recipe_version.version_number}",
                 "warehouse": batch.warehouse.code,
                 "multiplier": batch.multiplier_display,
@@ -883,7 +883,7 @@ class ProductivityReportView(KitchenReportView):
             row: dict[str, Any] = {
                 "number": batch.number,
                 "business_date": batch.planned_business_date.isoformat(),
-                "recipe": f"{batch.recipe.code} — {batch.recipe.name_ar}",
+                "recipe": f"{batch.recipe.code} — {batch.recipe.name}",
                 "expected_output": f"{entry.expected_output:f}",
                 "actual_output": f"{entry.actual_output:f}",
                 "output_variance": f"{entry.output_variance:f}",

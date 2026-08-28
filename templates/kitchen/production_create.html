@@ -13,23 +13,23 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page workspace-form-page" id="production-create">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+  <div class="ui-page ui-page--form" id="production-create">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="ui-page-header__subtitle">{{ page_hint }}</p>{% endif %}
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_preview' %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_preview' %}">
           {% translate "معاينة قبل الإنشاء" %}
         </a>
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_list' %}">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_list' %}">
           {% translate "أوامر الإنتاج" %}
         </a>
       </div>
     </div>
 
-    <form class="formcard"
+    <form class="ui-form-card"
           method="post"
           novalidate
           action="{% url 'kitchen:production_create' %}"
@@ -39,20 +39,20 @@
       {% csrf_token %}
 
       {% if form.non_field_errors %}
-        <div class="alert" role="alert">
+        <div class="ui-notice" role="alert">
           {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
 
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
 
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "أنشئ المسودة" %}</button>
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_list' %}">
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "أنشئ المسودة" %}</button>
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_list' %}">
           {% translate "إلغاء" %}
         </a>
       </div>

@@ -9,8 +9,8 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "المؤسسة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "المؤسسة" %}</span>
     <select name="organization">
       <option value="">{% translate "كل المؤسسات" %}</option>
       {% for organization in organizations %}
@@ -20,8 +20,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "الصنف" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الصنف" %}</span>
     <select name="account_class">
       <option value="">{% translate "كل الأصناف" %}</option>
       {% for value, label in account_classes %}
@@ -29,32 +29,32 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "قابل للترحيل" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "قابل للترحيل" %}</span>
     <select name="postable">
       <option value="">{% translate "الكل" %}</option>
       <option value="yes" {% if selected_postable == "yes" %}selected{% endif %}>{% translate "نعم" %}</option>
       <option value="no" {% if selected_postable == "no" %}selected{% endif %}>{% translate "لا" %}</option>
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="state">
       <option value="">{% translate "الفعّالة" %}</option>
       <option value="archived" {% if selected_state == "archived" %}selected{% endif %}>{% translate "المؤرشفة" %}</option>
       <option value="all" {% if selected_state == "all" %}selected{% endif %}>{% translate "الكل" %}</option>
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "مركز الكلفة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "مركز الكلفة" %}</span>
     <select name="cost_center">
       <option value="">{% translate "الكل" %}</option>
       <option value="required" {% if selected_cost_center == "required" %}selected{% endif %}>{% translate "مطلوب" %}</option>
       <option value="not_required" {% if selected_cost_center == "not_required" %}selected{% endif %}>{% translate "غير مطلوب" %}</option>
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "القيد اليدوي" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "القيد اليدوي" %}</span>
     <select name="policy">
       <option value="">{% translate "الكل" %}</option>
       {% for value, label in policies %}
@@ -62,8 +62,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "مجموعة القوائم" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "مجموعة القوائم" %}</span>
     <select name="group">
       <option value="">{% translate "الكل" %}</option>
       <option value="unmapped" {% if selected_group == "unmapped" %}selected{% endif %}>{% translate "غير مصنّف" %}</option>
@@ -84,7 +84,7 @@
   <th>{% translate "قيد يدوي" %}</th>
   <th>{% translate "مجموعة القوائم" %}</th>
   <th>{% translate "الحالة" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 
 {% block rows %}
@@ -93,8 +93,8 @@
       <td>{{ account.organization.code }}</td>
       <td><code dir="ltr">{{ account.code }}</code></td>
       <td>
-        {{ account.name_ar }}
-        {% if account.is_system %}<span class="chip chip--muted">{% translate "نظامي" %}</span>{% endif %}
+        {{ account.name }}
+        {% if account.is_system %}<span class="ui-badge ui-badge--neutral">{% translate "نظامي" %}</span>{% endif %}
       </td>
       <td>{{ account.get_account_class_display }}</td>
       <td>{% if account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
@@ -106,23 +106,23 @@
         {% elif account.is_postable %}
           {# Shown, never omitted: an unclassified account with a balance      #}
           {# blocks the financial statements (ADR-031 section 2).             #}
-          <span class="chip chip--warn">{% translate "غير مصنّف" %}</span>
+          <span class="ui-badge ui-badge--warning">{% translate "غير مصنّف" %}</span>
         {% else %}
           —
         {% endif %}
       </td>
       <td>
         {% if account.is_active %}
-          <span class="chip chip--ok">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--muted">{% translate "مؤرشف" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "مؤرشف" %}</span>
         {% endif %}
       </td>
-      <td class="cell-actions">
-        <a class="btn btn--secondary btn--sm" href="{% url 'accounting:account_detail' account.pk %}">{% translate "تفاصيل" %}</a>
+      <td class="ui-table__actions">
+        <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' account.pk %}">{% translate "تفاصيل" %}</a>
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="10" class="empty">{% translate "لا توجد حسابات مطابقة." %}</td></tr>
+    <tr><td colspan="10" class="ui-table__empty">{% translate "لا توجد حسابات مطابقة." %}</td></tr>
   {% endfor %}
 {% endblock %}

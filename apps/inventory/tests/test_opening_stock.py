@@ -297,7 +297,7 @@ class TestLineRules:
     def test_a_warehouse_of_another_branch_is_rejected(
         self, draft: OpeningStockDocument, manager: User, second_branch: Branch, rice: InventoryItem
     ) -> None:
-        elsewhere = create_warehouse(branch=second_branch, code="KAR", name_ar="مخزن الكرادة")
+        elsewhere = create_warehouse(branch=second_branch, code="KAR", name="مخزن الكرادة")
         with pytest.raises(ValidationError) as caught:
             add_opening_line(actor=manager, document=draft, line=_line(elsewhere, rice, "1", "1"))
         assert caught.value.code == "warehouse_branch_mismatch"
@@ -359,7 +359,7 @@ class TestLineRules:
         chicken = create_item(
             organization=organization,
             code="CHICKEN",
-            name_ar="دجاج",
+            name="دجاج",
             category=leaf_category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
@@ -392,7 +392,7 @@ class TestLineRules:
         chicken = create_item(
             organization=organization,
             code="CHICKEN2",
-            name_ar="دجاج ٢",
+            name="دجاج ٢",
             category=leaf_category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
@@ -681,7 +681,7 @@ class TestPosting:
         assert caught.value.code == "opening_key_already_has_history"
 
         # A third, for a different warehouse, succeeds with the next number.
-        other_store = create_warehouse(branch=branch, code="COLD", name_ar="المبردات")
+        other_store = create_warehouse(branch=branch, code="COLD", name="المبردات")
         third = create_opening(
             actor=manager,
             organization=organization,
@@ -769,7 +769,7 @@ class TestPosting:
         oil = create_item(
             organization=organization,
             code="OIL",
-            name_ar="زيت",
+            name="زيت",
             category=leaf_category,
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,

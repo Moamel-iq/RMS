@@ -134,7 +134,7 @@ class TestTheServiceRefuses:
         with pytest.raises(ValidationError):
             update_recipe_serving(
                 serving=serving,
-                name_ar="أخرى",
+                name="أخرى",
                 serving_quantity=Decimal("2"),
                 serving_unit=kilogram,
             )
@@ -142,7 +142,7 @@ class TestTheServiceRefuses:
             add_recipe_serving(
                 version=frozen,
                 code="TWO",
-                name_ar="ثانية",
+                name="ثانية",
                 serving_quantity=Decimal("2"),
                 serving_unit=kilogram,
             )
@@ -184,7 +184,7 @@ class TestTheDatabaseRefusesRawWrites:
         [
             (RecipeLine, "base_quantity", Decimal("999")),
             (RecipeStep, "instruction_ar", "مكتوبة من الخارج"),
-            (RecipeServing, "name_ar", "مكتوبة من الخارج"),
+            (RecipeServing, "name", "مكتوبة من الخارج"),
             (RecipeLineSubstitute, "priority", 9),
             (RecipeStepIngredient, "share", Decimal("0.5")),
         ],
@@ -276,7 +276,7 @@ class TestChildRowsCannotChangeParent:
         elsewhere = create_recipe(
             organization=organization,
             code="ELSEWHERE",
-            name_ar="وصفة أخرى",
+            name="وصفة أخرى",
             recipe_type=RecipeType.PORTION,
             created_by=manager,
         )

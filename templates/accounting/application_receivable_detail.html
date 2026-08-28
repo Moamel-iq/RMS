@@ -8,58 +8,58 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page" id="accounting-application-statement">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page" id="accounting-application-statement">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'accounting:application_receivable_list' %}">{% translate "ذمم التطبيقات" %}</a>
       <span aria-hidden="true">/</span>
-      <span aria-current="page">{{ application.name_ar }}</span>
+      <span aria-current="page">{{ application.name }}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ application.name_ar }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ application.name }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--secondary" href="{% url 'sales:application_detail' application.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--secondary" href="{% url 'sales:application_detail' application.pk %}">
           {% translate "بطاقة التطبيق في المبيعات" %}
         </a>
       </div>
     </div>
 
     {% if position %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "الوضع الحالي" %}</h2>
-        <div class="summary-row">
-          <div class="summary-row__item">
-            <span class="summary-row__label">{% translate "الرصيد" %}</span>
-            <span class="summary-row__value"><bdi dir="ltr">{{ position.balance|money_full }}</bdi></span>
+        <div class="ui-summary-grid">
+          <div class="ui-summary-item">
+            <span class="ui-summary-item__label">{% translate "الرصيد" %}</span>
+            <span class="ui-summary-item__value"><bdi dir="ltr">{{ position.balance|money_full }}</bdi></span>
           </div>
-          <div class="summary-row__item">
-            <span class="summary-row__label">{% translate "أقدم دين مفتوح" %}</span>
-            <span class="summary-row__value">
+          <div class="ui-summary-item">
+            <span class="ui-summary-item__label">{% translate "أقدم دين مفتوح" %}</span>
+            <span class="ui-summary-item__value">
               {% if position.oldest_open_date %}<bdi dir="ltr">{{ position.oldest_open_date|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}
             </span>
           </div>
-          <div class="summary-row__item">
-            <span class="summary-row__label">{% translate "التسوية المتوقَّعة" %}</span>
-            <span class="summary-row__value">
+          <div class="ui-summary-item">
+            <span class="ui-summary-item__label">{% translate "التسوية المتوقَّعة" %}</span>
+            <span class="ui-summary-item__value">
               {% if position.expected_settlement_date %}<bdi dir="ltr">{{ position.expected_settlement_date|date:"Y-m-d" }}</bdi>{% else %}—{% endif %}
             </span>
           </div>
         </div>
-        <ul class="chip-list">
+        <ul class="ui-badge-list">
           {% for bucket in position.buckets %}
-            <li class="chip">{{ bucket.label }}: <bdi dir="ltr">{{ bucket.amount|money_full }}</bdi></li>
+            <li class="ui-badge">{{ bucket.label }}: <bdi dir="ltr">{{ bucket.amount|money_full }}</bdi></li>
           {% endfor %}
         </ul>
       </section>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "سجل الذمم" %}</h2>
-      <div class="data-table-shell" tabindex="0">
-        <table class="table responsive-table" id="application-ledger-table">
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive" id="application-ledger-table">
           <thead><tr>
             <th>{% translate "تاريخ العمل" %}</th>
             <th>{% translate "المصدر" %}</th>
@@ -82,7 +82,7 @@
                 <td data-label="{% translate 'الرصيد' %}"><bdi dir="ltr">{{ row.running|money_full }}</bdi></td>
               </tr>
             {% empty %}
-              <tr><td colspan="6" class="empty" data-empty-state>{% translate "لا حركة على هذا التطبيق." %}</td></tr>
+              <tr><td colspan="6" class="ui-table__empty" data-empty-state>{% translate "لا حركة على هذا التطبيق." %}</td></tr>
             {% endfor %}
           </tbody>
         </table>

@@ -92,7 +92,7 @@ class Command(SeedCommand):
 
             for row in payload["lines"]:
                 item = InventoryItem.objects.filter(
-                    organization=organization, name_ar=row["item"]
+                    organization=organization, name=row["item"]
                 ).first()
                 if item is None:
                     skipped.append((row["item"], "لا صنف بهذا الاسم"))

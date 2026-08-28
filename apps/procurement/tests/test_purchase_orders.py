@@ -88,8 +88,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -99,7 +99,7 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
     from apps.inventory.services import create_item_conversion, create_package_unit
 
-    package = create_package_unit(organization=organization, code="SACK", name_ar="كيس")
+    package = create_package_unit(organization=organization, code="SACK", name="كيس")
     create_item_conversion(
         item=rice,
         package_unit=package,
@@ -114,7 +114,7 @@ def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 @pytest.fixture
@@ -122,7 +122,7 @@ def grocery(organization: Organization) -> Supplier:
     return create_supplier(
         organization=organization,
         code="GROC-01",
-        name_ar="مورد المواد",
+        name="مورد المواد",
         payment_terms_days=30,
     )
 
@@ -238,7 +238,7 @@ class TestArithmeticAndSnapshots:
         current = grocery.credit_terms.get()
         replacement = create_credit_term_draft(
             supplier=grocery,
-            name_ar="60 يوم",
+            name="60 يوم",
             net_days=60,
             effective_from=datetime.date(2026, 3, 1),
             created_by=buyer,
@@ -259,7 +259,7 @@ class TestArithmeticAndSnapshots:
     ) -> None:
         from apps.inventory.services import create_package_unit
 
-        box = create_package_unit(organization=organization, code="BOX", name_ar="علبة")
+        box = create_package_unit(organization=organization, code="BOX", name="علبة")
         with pytest.raises(ValidationError) as refused:
             add_order_line(
                 order=draft,
@@ -431,11 +431,10 @@ class TestScopeAndSources:
         other = create_branch(
             organization=organization,
             code="FARBR",
-            name_ar="فرع بعيد",
-            name_en="Far",
+            name="فرع بعيد",
             business_day_start_time=datetime.time(9, 0),
         )
-        elsewhere = create_warehouse(branch=other, code="FARW", name_ar="بعيد")
+        elsewhere = create_warehouse(branch=other, code="FARW", name="بعيد")
         with pytest.raises(ValidationError) as refused:
             create_purchase_order(
                 supplier=grocery,
@@ -453,7 +452,7 @@ class TestScopeAndSources:
         buyer: User,
         other_organization: Organization,
     ) -> None:
-        theirs = create_supplier(organization=other_organization, code="RIVAL-01", name_ar="منافس")
+        theirs = create_supplier(organization=other_organization, code="RIVAL-01", name="منافس")
         with pytest.raises(ValidationError) as refused:
             create_purchase_order(
                 supplier=theirs,
@@ -487,14 +486,13 @@ class TestScopeAndSources:
         other = create_branch(
             organization=organization,
             code="OTHERBR",
-            name_ar="فرع",
-            name_en="Other",
+            name="فرع",
             business_day_start_time=datetime.time(9, 0),
         )
         theirs = create_purchase_order(
-            supplier=create_supplier(organization=organization, code="X-01", name_ar="مورد"),
+            supplier=create_supplier(organization=organization, code="X-01", name="مورد"),
             branch=other,
-            warehouse=create_warehouse(branch=other, code="W", name_ar="م"),
+            warehouse=create_warehouse(branch=other, code="W", name="م"),
             created_by=buyer,
             ordered_on=ORDERED,
         )

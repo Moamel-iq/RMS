@@ -36,7 +36,6 @@ from apps.inventory.commands import (
     create_adjustment,
     create_document,
     create_opening,
-    create_reason_code,
     create_stock_count,
     create_transfer,
     create_transfer_receipt,
@@ -63,10 +62,8 @@ from apps.inventory.commands import (
     resolve_count,
     resolve_count_line,
     resolve_document,
-    resolve_document_line,
     resolve_movement,
     resolve_opening_document,
-    resolve_reason_code,
     resolve_receipt,
     resolve_shortage,
     resolve_transfer,
@@ -85,17 +82,14 @@ from apps.inventory.commands import (
     update_adjustment,
     update_document,
     update_opening,
-    update_reason_code,
     update_stock_count,
     update_transfer,
     update_transfer_receipt,
     visible_adjustments,
     visible_counts,
     visible_documents,
-    visible_in_transit,
     visible_movements,
     visible_opening_documents,
-    visible_reason_codes,
     visible_stock,
     visible_transfers,
 )
@@ -185,8 +179,7 @@ def _require_view(request: HttpRequest) -> User:
 class CategoryIn(Schema):
     organization_id: int
     code: str
-    name_ar: str
-    name_en: str = ""
+    name: str
     parent_id: int | None = None
 
 
@@ -194,8 +187,7 @@ class CategoryOut(Schema):
     id: int
     organization_id: int
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     parent_id: int | None
     depth: int
     is_active: bool
@@ -204,27 +196,24 @@ class CategoryOut(Schema):
 class PackageUnitIn(Schema):
     organization_id: int
     code: str
-    name_ar: str
-    name_en: str = ""
+    name: str
 
 
 class PackageUnitOut(Schema):
     id: int
     organization_id: int
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     is_active: bool
 
 
 class ItemIn(Schema):
     organization_id: int
     code: str
-    name_ar: str
+    name: str
     category_id: int
     item_type: str
     base_unit_id: int
-    name_en: str = ""
     tracks_lots: bool = False
     tracks_expiry: bool = False
     shelf_life_days: int | None = None
@@ -235,8 +224,7 @@ class ItemOut(Schema):
     id: int
     organization_id: int
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     category_id: int
     item_type: str
     base_unit_id: int
@@ -281,8 +269,7 @@ class ConversionOut(Schema):
 class WarehouseIn(Schema):
     branch_id: int
     code: str
-    name_ar: str
-    name_en: str = ""
+    name: str
     warehouse_type: str = WarehouseType.PHYSICAL
 
 
@@ -290,8 +277,7 @@ class WarehouseOut(Schema):
     id: int
     branch_id: int
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     warehouse_type: str
     is_system: bool
     is_active: bool
@@ -302,8 +288,7 @@ def _serialize_item(item: Any) -> dict[str, Any]:
         "id": item.pk,
         "organization_id": item.organization_id,
         "code": item.code,
-        "name_ar": item.name_ar,
-        "name_en": item.name_en,
+        "name": item.name,
         "category_id": item.category_id,
         "item_type": item.item_type,
         "base_unit_id": item.base_unit_id,
@@ -353,8 +338,7 @@ def create_category(request: HttpRequest, payload: CategoryIn) -> Status[Any]:
     category = create_item_category(
         organization=organization,
         code=payload.code,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
+        name=payload.name,
         parent=parent,
     )
     return Status(201, category)
@@ -379,8 +363,7 @@ def create_package(request: HttpRequest, payload: PackageUnitIn) -> Status[Any]:
     package_unit = create_package_unit(
         organization=organization,
         code=payload.code,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
+        name=payload.name,
     )
     return Status(201, package_unit)
 
@@ -419,8 +402,7 @@ def create_inventory_item(request: HttpRequest, payload: ItemIn) -> Status[Any]:
     item = create_item(
         organization=organization,
         code=payload.code,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
+        name=payload.name,
         category=category,
         item_type=payload.item_type,
         base_unit=base_unit,
@@ -492,8 +474,7 @@ def create_new_warehouse(request: HttpRequest, payload: WarehouseIn) -> Status[A
     warehouse = create_warehouse(
         branch=branch,
         code=payload.code,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
+        name=payload.name,
         warehouse_type=payload.warehouse_type,
     )
     return Status(201, warehouse)
@@ -564,7 +545,7 @@ def _serialize_balance(balance: Any, *, with_cost: bool) -> dict[str, Any]:
         "branch_code": balance.warehouse.branch.code,
         "item_id": balance.item_id,
         "item_code": balance.item.code,
-        "item_name_ar": balance.item.name_ar,
+        "item_name_ar": balance.item.name,
         "base_unit_code": balance.item.base_unit.code,
         "lot_id": balance.lot_id,
         "lot_code": balance.lot.code if balance.lot else None,
@@ -811,7 +792,7 @@ def _serialize_opening_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
         "warehouse_code": line.warehouse.code,
         "item_id": line.item_id,
         "item_code": line.item.code,
-        "item_name_ar": line.item.name_ar,
+        "item_name_ar": line.item.name,
         "base_unit_code": line.item.base_unit.code,
         "lot_code": line.lot.code if line.lot else None,
         "base_quantity": f"{line.base_quantity:f}",
@@ -1007,12 +988,6 @@ class DocumentLineIn(Schema):
     entered_package_quantity: str | None = None
     measured_base_quantity: str | None = None
     base_quantity: str | None = None
-    #: Receipts only. An issue and a return are valued by the ledger.
-    unit_cost: str | None = None
-    #: Returns only: the posted issue line being returned against.
-    source_issue_line_id: int | None = None
-    #: Waste only, and mandatory there.
-    reason_code_id: int | None = None
     line_comment: str = ""
 
 
@@ -1028,8 +1003,6 @@ class DocumentLineOut(Schema):
     movement_id: int | None
     inventory_account_code: str | None
     contra_account_code: str | None
-    source_issue_line_id: int | None
-    reason_code: str | None
     line_comment: str
     unit_cost: str | None = None
     total_value: str | None = None
@@ -1114,10 +1087,6 @@ def _document_line_input(actor: User, payload: DocumentLineIn) -> DocumentLineIn
                 code="unknown_conversion",
             )
 
-    source_line = None
-    if payload.source_issue_line_id is not None:
-        source_line = resolve_document_line(actor, payload.source_issue_line_id)
-
     return DocumentLineInput(
         item=item,
         lot=lot,
@@ -1129,13 +1098,6 @@ def _document_line_input(actor: User, payload: DocumentLineIn) -> DocumentLineIn
             payload.measured_base_quantity, field="measured_base_quantity"
         ),
         base_quantity=_optional_decimal(payload.base_quantity, field="base_quantity"),
-        unit_cost=_optional_decimal(payload.unit_cost, field="unit_cost"),
-        source_issue_line=source_line,
-        reason_code=(
-            resolve_reason_code(actor, payload.reason_code_id)
-            if payload.reason_code_id is not None
-            else None
-        ),
         line_comment=payload.line_comment,
     )
 
@@ -1146,7 +1108,7 @@ def _serialize_document_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
         "sequence": line.sequence,
         "item_id": line.item_id,
         "item_code": line.item.code,
-        "item_name_ar": line.item.name_ar,
+        "item_name_ar": line.item.name,
         "base_unit_code": line.item.base_unit.code,
         "lot_code": line.lot.code if line.lot else None,
         "base_quantity": f"{line.base_quantity:f}",
@@ -1155,8 +1117,6 @@ def _serialize_document_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
             line.inventory_account.code if line.inventory_account_id else None
         ),
         "contra_account_code": line.contra_account.code if line.contra_account_id else None,
-        "source_issue_line_id": line.source_issue_line_id,
-        "reason_code": line.reason_code.code if line.reason_code_id else None,
         "line_comment": line.line_comment,
     }
     if with_cost:
@@ -1173,7 +1133,6 @@ def _serialize_document(document: Any, *, with_cost: bool, with_lines: bool) -> 
             "lot",
             "inventory_account",
             "contra_account",
-            "reason_code",
         ).order_by("sequence")
     )
     payload: dict[str, Any] = {
@@ -1389,9 +1348,7 @@ def _register_document_endpoints(path: str, document_type: str, label: str) -> N
         )
 
 
-_register_document_endpoints("receipts", InventoryDocumentType.RECEIPT, "goods receipt")
 _register_document_endpoints("issues", InventoryDocumentType.ISSUE, "consumption issue")
-_register_document_endpoints("returns-in", InventoryDocumentType.RETURN_IN, "return-in")
 # Task 1.6. Waste joins the loop rather than getting a hand-written set,
 # because it *is* one of these documents — and a fourth hand-copied block would
 # be the first to miss whatever the other three gain next.
@@ -1587,19 +1544,6 @@ class TransferShortageIn(Schema):
     cost_center_id: int
 
 
-class InTransitOut(Schema):
-    transfer_id: int
-    transfer_number: str
-    source_warehouse_code: str
-    destination_warehouse_code: str
-    item_code: str
-    item_name_ar: str
-    base_unit_code: str
-    lot_code: str | None
-    remaining_quantity: str
-    remaining_value: str | None = None
-
-
 def _transfer_line_input(actor: User, payload: TransferLineIn) -> TransferLineInput:
     """One requested line, every identifier resolved with the caller."""
     from apps.inventory.models import InventoryLot, ItemPackageConversion
@@ -1655,7 +1599,7 @@ def _serialize_transfer_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
         "sequence": line.sequence,
         "item_id": line.item_id,
         "item_code": line.item.code,
-        "item_name_ar": line.item.name_ar,
+        "item_name_ar": line.item.name,
         "base_unit_code": line.item.base_unit.code,
         "lot_code": line.lot.code if line.lot else None,
         "base_quantity": f"{line.base_quantity:f}",
@@ -2146,29 +2090,6 @@ def reverse_shortage_endpoint(request: HttpRequest, shortage_id: int, payload: R
     return _serialize_shortage(reversed_shortage, with_cost=may_see_cost(actor))
 
 
-@router.get("/in-transit/", response=list[InTransitOut], summary="Goods standing in transit")
-def in_transit_report(request: HttpRequest) -> Any:
-    actor = _actor(request)
-    with_cost = may_see_cost(actor)
-    rows = []
-    for line in visible_in_transit(actor):
-        row: dict[str, Any] = {
-            "transfer_id": line.transfer_id,
-            "transfer_number": line.transfer.transfer_number,
-            "source_warehouse_code": line.transfer.source_warehouse.code,
-            "destination_warehouse_code": line.transfer.destination_warehouse.code,
-            "item_code": line.item.code,
-            "item_name_ar": line.item.name_ar,
-            "base_unit_code": line.item.base_unit.code,
-            "lot_code": line.lot.code if line.lot is not None else None,
-            "remaining_quantity": f"{line.remaining_quantity:f}",
-        }
-        if with_cost:
-            row["remaining_value"] = f"{line.remaining_value:f}"
-        rows.append(row)
-    return rows
-
-
 # ---------------------------------------------------------------------------
 # Reason codes, counts and adjustments (Task 1.6 §AD)
 # ---------------------------------------------------------------------------
@@ -2206,95 +2127,6 @@ def _conversion_of(item: Any, conversion_id: int | None) -> Any:
             f"Conversion {conversion_id} does not exist.", code="unknown_conversion"
         )
     return conversion
-
-
-class ReasonCodeIn(Schema):
-    organization_id: int
-    code: str
-    name_ar: str
-    applies_to: str
-    name_en: str = ""
-    requires_comment: bool = False
-    requires_evidence: bool = False
-
-
-class ReasonCodePatch(Schema):
-    name_ar: str
-    name_en: str = ""
-    requires_comment: bool | None = None
-    requires_evidence: bool | None = None
-    is_active: bool | None = None
-
-
-class ReasonCodeOut(Schema):
-    id: int
-    organization_id: int
-    code: str
-    name_ar: str
-    name_en: str
-    applies_to: str
-    requires_comment: bool
-    requires_evidence: bool
-    is_active: bool
-
-
-def _serialize_reason_code(code: Any) -> dict[str, Any]:
-    return {
-        "id": code.pk,
-        "organization_id": code.organization_id,
-        "code": code.code,
-        "name_ar": code.name_ar,
-        "name_en": code.name_en,
-        "applies_to": code.applies_to,
-        "requires_comment": code.requires_comment,
-        "requires_evidence": code.requires_evidence,
-        "is_active": code.is_active,
-    }
-
-
-@router.get("/reason-codes/", response=list[ReasonCodeOut], summary="Reason codes in scope")
-def list_reason_codes(request: HttpRequest, applies_to: str | None = None) -> Any:
-    actor = _actor(request)
-    return [
-        _serialize_reason_code(code) for code in visible_reason_codes(actor, applies_to=applies_to)
-    ]
-
-
-@router.post("/reason-codes/", response={201: ReasonCodeOut}, summary="Add a reason code")
-def create_reason_code_endpoint(request: HttpRequest, payload: ReasonCodeIn) -> Status[Any]:
-    actor = _actor(request)
-    organization = resolve_organization(actor, payload.organization_id)
-    code = create_reason_code(
-        actor=actor,
-        organization=organization,
-        code=payload.code,
-        name_ar=payload.name_ar,
-        applies_to=payload.applies_to,
-        name_en=payload.name_en,
-        requires_comment=payload.requires_comment,
-        requires_evidence=payload.requires_evidence,
-    )
-    return Status(201, _serialize_reason_code(code))
-
-
-@router.patch(
-    "/reason-codes/{reason_code_id}/",
-    response=ReasonCodeOut,
-    summary="Rename or archive a reason code",
-)
-def patch_reason_code(request: HttpRequest, reason_code_id: int, payload: ReasonCodePatch) -> Any:
-    actor = _actor(request)
-    code = resolve_reason_code(actor, reason_code_id)
-    updated = update_reason_code(
-        actor=actor,
-        reason_code=code,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
-        requires_comment=payload.requires_comment,
-        requires_evidence=payload.requires_evidence,
-        is_active=payload.is_active,
-    )
-    return _serialize_reason_code(updated)
 
 
 class StockCountIn(Schema):
@@ -2423,7 +2255,7 @@ def _serialize_count_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
         "id": line.pk,
         "sequence": line.sequence,
         "item_code": line.item.code,
-        "item_name_ar": line.item.name_ar,
+        "item_name_ar": line.item.name,
         "base_unit_code": line.base_unit.code,
         "lot_code": line.lot.code if line.lot_id else None,
         "is_unexpected": line.is_unexpected,
@@ -2679,7 +2511,7 @@ def add_unexpected_endpoint(
             "id": line.pk,
             "sequence": line.sequence,
             "item_code": line.item.code,
-            "item_name_ar": line.item.name_ar,
+            "item_name_ar": line.item.name,
             "base_unit_code": line.base_unit.code,
             "lot_code": line.lot.code if line.lot_id else None,
             "tracks_lots": line.item.tracks_lots,
@@ -2753,7 +2585,6 @@ def reverse_count_endpoint(request: HttpRequest, count_id: int, payload: ReasonI
 class AdjustmentLineIn(Schema):
     kind: str
     item_id: int
-    reason_code_id: int
     lot_id: int | None = None
     package_conversion_id: int | None = None
     entered_package_quantity: str | None = None
@@ -2774,7 +2605,6 @@ class AdjustmentLineOut(Schema):
     base_unit_code: str
     lot_code: str | None
     base_quantity: str
-    reason_code: str
     line_comment: str
     movement_id: int | None
     unit_cost: str | None = None
@@ -2832,11 +2662,10 @@ def _serialize_adjustment_line(line: Any, *, with_cost: bool) -> dict[str, Any]:
         "sequence": line.sequence,
         "kind": line.kind,
         "item_code": line.item.code,
-        "item_name_ar": line.item.name_ar,
+        "item_name_ar": line.item.name,
         "base_unit_code": line.item.base_unit.code,
         "lot_code": line.lot.code if line.lot_id else None,
         "base_quantity": f"{line.base_quantity:f}",
-        "reason_code": line.reason_code.code,
         "line_comment": line.line_comment,
         "movement_id": line.movement_id,
     }
@@ -2856,7 +2685,7 @@ def _serialize_adjustment(document: Any, *, with_cost: bool, with_lines: bool) -
     lines = (
         list(
             document.lines.select_related(
-                "item", "item__base_unit", "lot", "reason_code", "control_account"
+                "item", "item__base_unit", "lot", "control_account"
             ).order_by("sequence")
         )
         if with_lines
@@ -2895,7 +2724,6 @@ def _adjustment_line_input(actor: Any, payload: AdjustmentLineIn) -> AdjustmentL
     return AdjustmentLineInput(
         kind=payload.kind,
         item=item,
-        reason_code=resolve_reason_code(actor, payload.reason_code_id),
         lot=_lot_of(item, payload.lot_id),
         package_conversion=_conversion_of(item, payload.package_conversion_id),
         entered_package_quantity=_optional_decimal(

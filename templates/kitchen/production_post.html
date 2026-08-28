@@ -16,35 +16,35 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page workspace-form-page" id="production-action">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">
+  <div class="ui-page ui-page--form" id="production-action">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">
           {% translate "الترحيل يستهلك كل سطر فعلي ويُدخل الناتج بقيمة ما خرج بالضبط. لا يمكن التراجع إلا بعكسٍ يبقى في السجل." %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "رجوع إلى المسودة" %}
         </a>
       </div>
     </div>
 
     {% if not is_ready %}
-      <p class="banner" role="alert">
+      <p class="ui-notice" role="alert">
         {% translate "هذه الدفعة غير جاهزة للترحيل بعد." %}
       </p>
-      <ul class="findings">
+      <ul class="ui-findings">
         {% for problem in readiness.problems %}<li>{{ problem.message }}</li>{% endfor %}
       </ul>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "ما سيخرج" %}</h2>
       {% if plan %}
-        <div class="data-table-shell">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll">
+          <table class="ui-table ui-table--responsive">
             <thead>
               <tr>
                 <th scope="col">{% translate "الصنف" %}</th>
@@ -56,7 +56,7 @@
             <tbody>
               {% for row in plan.consumptions %}
                 <tr>
-                  <td data-label="{% translate 'الصنف' %}">{{ row.item.code }} — {{ row.item.name_ar }}</td>
+                  <td data-label="{% translate 'الصنف' %}">{{ row.item.code }} — {{ row.item.name }}</td>
                   <td data-label="{% translate 'الكمية' %}"><code dir="ltr">{{ row.quantity }}</code> {{ row.item.base_unit.code }}</td>
                   <td data-label="{% translate 'اللوط' %}">{% if row.lot %}<code dir="ltr">{{ row.lot.code }}</code>{% else %}—{% endif %}</td>
                   <td data-label="{% translate 'الموقع' %}">{% if row.location %}<code dir="ltr">{{ row.location.code }}</code>{% else %}—{% endif %}</td>
@@ -66,14 +66,14 @@
           </table>
         </div>
       {% else %}
-        <p class="empty">{% translate "لا توجد خطة ترحيل بعد." %}</p>
+        <p class="ui-table__empty">{% translate "لا توجد خطة ترحيل بعد." %}</p>
       {% endif %}
     </section>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الناتج" %}</h2>
       {% if plan %}
-        <dl class="deflist">
+        <dl class="ui-definition-list">
           <dt>{% translate "الناتج" %}</dt>
           <dd>
             {{ plan.output_item.code }} —
@@ -83,12 +83,12 @@
         </dl>
       {% endif %}
 
-      <p class="pagehead__hint">
+      <p class="ui-page-header__subtitle">
         {% translate "الفاقد في الإنتاج يُستوعب في كلفة وحدة الناتج. لا يوجد حساب انحراف مردود ولا قيد له." %}
       </p>
     </section>
 
-    <form class="formcard"
+    <form class="ui-form-card"
           method="post"
           novalidate
           action="{{ request.path }}"
@@ -98,20 +98,20 @@
       {% csrf_token %}
 
       {% if form.non_field_errors %}
-        <div class="alert" role="alert">
+        <div class="ui-notice" role="alert">
           {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
 
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
 
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "تأكيد الترحيل" %}</button>
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "تأكيد الترحيل" %}</button>
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "إلغاء" %}
         </a>
       </div>

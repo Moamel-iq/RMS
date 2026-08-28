@@ -25,17 +25,19 @@ from django.http import HttpRequest, JsonResponse
 from ninja import Router, Schema, Status
 
 from apps.accounting.models import Account, CostCenter
-from apps.inventory.models import InventoryReasonCode
+from apps.inventory.models import InventoryItem, InventoryLot, InventoryReasonCode, StockLocation
 from apps.inventory.selectors import resolve_item, resolve_package_unit
 from apps.organizations.authorization import (
     OutOfScope,
     PermissionMissing,
+    accessible_warehouses,
     require_organization_permission,
     require_reachable_organization_permission,
     require_warehouse_permission,
     resolve_branch,
     resolve_organization,
 )
+from apps.organizations.selectors import accessible_branches
 from apps.procurement.credit_notes import (
     add_credit_allocation,
     add_return_allocation,
@@ -202,8 +204,7 @@ class SupplierOut(Schema):
     public_id: str
     organization_id: int
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     contact_name: str
     phone: str
     email: str
@@ -213,30 +214,34 @@ class SupplierOut(Schema):
     #: indistinguishable from a supplier with no agreed limit, which is a
     #: different statement from "you were not shown it".
     payment_terms_days: int | None = None
+    minimum_settlement_percent: str | None = None
+    balance_reset_date: datetime.date | None = None
     credit_limit: str | None = None
 
 
 class SupplierIn(Schema):
     organization_id: int
     code: str
-    name_ar: str
-    name_en: str = ""
+    name: str
     contact_name: str = ""
     phone: str = ""
     email: str = ""
     address: str = ""
     payment_terms_days: int = 0
+    minimum_settlement_percent: str | None = None
+    balance_reset_date: datetime.date | None = None
     credit_limit: str | None = None
     notes: str = ""
 
 
 class SupplierUpdateIn(Schema):
-    name_ar: str
-    name_en: str = ""
+    name: str
     contact_name: str = ""
     phone: str = ""
     email: str = ""
     address: str = ""
+    minimum_settlement_percent: str | None = None
+    balance_reset_date: datetime.date | None = None
     credit_limit: str | None = None
     notes: str = ""
     is_active: bool = True
@@ -255,8 +260,7 @@ def _serialize(supplier: Supplier, *, include_cost: bool) -> dict[str, Any]:
         "public_id": str(supplier.public_id),
         "organization_id": supplier.organization_id,
         "code": supplier.code,
-        "name_ar": supplier.name_ar,
-        "name_en": supplier.name_en,
+        "name": supplier.name,
         "contact_name": supplier.contact_name,
         "phone": supplier.phone,
         "email": supplier.email,
@@ -264,6 +268,12 @@ def _serialize(supplier: Supplier, *, include_cost: bool) -> dict[str, Any]:
     }
     if include_cost:
         body["payment_terms_days"] = supplier.payment_terms_days
+        body["minimum_settlement_percent"] = (
+            format(supplier.minimum_settlement_percent, "f")
+            if supplier.minimum_settlement_percent is not None
+            else None
+        )
+        body["balance_reset_date"] = supplier.balance_reset_date
         body["credit_limit"] = (
             format(supplier.credit_limit, "f") if supplier.credit_limit is not None else None
         )
@@ -297,13 +307,16 @@ def create(request: HttpRequest, payload: SupplierIn) -> Status[Any]:
     supplier = create_supplier(
         organization=organization,
         code=payload.code,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
+        name=payload.name,
         contact_name=payload.contact_name,
         phone=payload.phone,
         email=payload.email,
         address=payload.address,
         payment_terms_days=payload.payment_terms_days,
+        minimum_settlement_percent=_money(
+            payload.minimum_settlement_percent, field="minimum_settlement_percent"
+        ),
+        balance_reset_date=payload.balance_reset_date,
         credit_limit=_money(payload.credit_limit, field="credit_limit"),
         notes=payload.notes,
     )
@@ -318,12 +331,15 @@ def update(request: HttpRequest, supplier_id: int, payload: SupplierUpdateIn) ->
 
     updated = update_supplier(
         supplier=supplier,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
+        name=payload.name,
         contact_name=payload.contact_name,
         phone=payload.phone,
         email=payload.email,
         address=payload.address,
+        minimum_settlement_percent=_money(
+            payload.minimum_settlement_percent, field="minimum_settlement_percent"
+        ),
+        balance_reset_date=payload.balance_reset_date,
         credit_limit=_money(payload.credit_limit, field="credit_limit"),
         notes=payload.notes,
         is_active=payload.is_active,
@@ -344,8 +360,7 @@ class SupplierCreditTermOut(Schema):
     supplier_code: str
     version: int
     status: str
-    name_ar: str
-    name_en: str
+    name: str
     net_days: int
     effective_from: str
     effective_to: str | None
@@ -357,8 +372,7 @@ class SupplierCreditTermOut(Schema):
 
 class SupplierCreditTermIn(Schema):
     supplier_id: int
-    name_ar: str
-    name_en: str = ""
+    name: str
     net_days: int
     effective_from: str
     effective_to: str | None = None
@@ -366,8 +380,7 @@ class SupplierCreditTermIn(Schema):
 
 
 class SupplierCreditTermUpdateIn(Schema):
-    name_ar: str
-    name_en: str = ""
+    name: str
     net_days: int
     effective_from: str
     effective_to: str | None = None
@@ -383,8 +396,7 @@ def _serialize_credit_term(term: SupplierCreditTerm) -> dict[str, Any]:
         "supplier_code": term.supplier.code,
         "version": term.version,
         "status": term.status,
-        "name_ar": term.name_ar,
-        "name_en": term.name_en,
+        "name": term.name,
         "net_days": term.net_days,
         "effective_from": term.effective_from.isoformat(),
         "effective_to": term.effective_to.isoformat() if term.effective_to else None,
@@ -447,8 +459,7 @@ def create_credit_term_api(request: HttpRequest, payload: SupplierCreditTermIn) 
     )
     term = create_credit_term_draft(
         supplier=supplier,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
+        name=payload.name,
         net_days=payload.net_days,
         effective_from=_required_date(payload.effective_from, field="effective_from"),
         effective_to=_date(payload.effective_to, field="effective_to"),
@@ -472,8 +483,7 @@ def update_credit_term_api(
     require_organization_permission(actor, CREATE_SUPPLIER_CREDIT_TERM, term.organization)
     updated = update_credit_term_draft(
         term=term,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
+        name=payload.name,
         net_days=payload.net_days,
         effective_from=_required_date(payload.effective_from, field="effective_from"),
         effective_to=_date(payload.effective_to, field="effective_to"),
@@ -519,7 +529,7 @@ class SupplierItemOut(Schema):
     supplier_code: str
     item_id: int
     item_code: str
-    item_name_ar: str
+    item_name: str
     base_unit_code: str
     package_unit_id: int | None
     package_unit_code: str | None
@@ -572,7 +582,7 @@ def _serialize_catalogue(row: SupplierItem, *, include_cost: bool) -> dict[str, 
         "supplier_code": row.supplier.code,
         "item_id": row.item_id,
         "item_code": row.item.code,
-        "item_name_ar": row.item.name_ar,
+        "item_name": row.item.name,
         "base_unit_code": row.item.base_unit.code,
         "package_unit_id": row.package_unit_id,
         "package_unit_code": row.package_unit.code if row.package_unit else None,
@@ -1549,7 +1559,6 @@ def _reload_match(match: PurchaseMatch) -> PurchaseMatch:
 class ReturnLineOut(Schema):
     id: int
     sequence: int
-    goods_receipt_line_id: int
     item_id: int
     item_code: str
     lot_code: str | None = None
@@ -1570,8 +1579,6 @@ class SupplierReturnOut(Schema):
     branch_id: int
     supplier_id: int
     supplier_code: str
-    receipt_id: int
-    receipt_number: str
     warehouse_code: str
     number: str
     status: str
@@ -1587,7 +1594,10 @@ class SupplierReturnOut(Schema):
 
 
 class SupplierReturnIn(Schema):
-    receipt_id: int
+    supplier_id: int
+    branch_id: int
+    warehouse_id: int
+    location_id: int | None = None
     returned_at: str
     reason_code_id: int | None = None
     reason: str = ""
@@ -1596,7 +1606,8 @@ class SupplierReturnIn(Schema):
 
 
 class ReturnLineIn(Schema):
-    receipt_line_id: int
+    item_id: int
+    lot_id: int | None = None
     returned_base_quantity: str
     expected_credit_value: str | None = None
     note: str = ""
@@ -1613,7 +1624,6 @@ def _serialize_return_line(line: SupplierReturnLine, *, include_cost: bool) -> d
     payload: dict[str, Any] = {
         "id": line.pk,
         "sequence": line.sequence,
-        "goods_receipt_line_id": line.goods_receipt_line_id,
         "item_id": line.item_id,
         "item_code": line.item.code,
         "lot_code": line.lot.code if line.lot else None,
@@ -1654,8 +1664,6 @@ def _serialize_return(supplier_return: SupplierReturn, *, include_cost: bool) ->
         "branch_id": supplier_return.branch_id,
         "supplier_id": supplier_return.supplier_id,
         "supplier_code": supplier_return.supplier.code,
-        "receipt_id": supplier_return.receipt_id,
-        "receipt_number": supplier_return.receipt.number,
         "warehouse_code": supplier_return.warehouse.code,
         "number": supplier_return.number,
         "status": supplier_return.status,
@@ -1707,27 +1715,52 @@ def read_supplier_return(request: HttpRequest, return_id: int) -> Any:
 @router.post(
     "/supplier-returns/",
     response={201: SupplierReturnOut},
-    summary="Open a draft return against a posted delivery",
+    summary="Open a standalone draft supplier return",
 )
 def create_return(request: HttpRequest, payload: SupplierReturnIn) -> Status[Any]:
     actor = _actor(request)
-    # Resolved through the caller's own warehouse scope; the receipt names
-    # the warehouse, and the permission is checked against that warehouse.
-    receipt = visible_goods_receipts(actor).filter(pk=payload.receipt_id).first()
-    if receipt is None:
-        raise OutOfScope(f"Goods receipt {payload.receipt_id} does not exist.")
-    require_warehouse_permission(actor, CREATE_SUPPLIER_RETURN, receipt.warehouse)
+    warehouse = (
+        accessible_warehouses(actor)
+        .select_related("branch__organization")
+        .filter(pk=payload.warehouse_id)
+        .first()
+    )
+    supplier = visible_suppliers(actor).filter(pk=payload.supplier_id).first()
+    branch = accessible_branches(actor).filter(pk=payload.branch_id).first()
+    if (
+        warehouse is None
+        or supplier is None
+        or branch is None
+        or warehouse.branch.organization_id != supplier.organization_id
+        or branch.organization_id != supplier.organization_id
+    ):
+        raise OutOfScope(
+            "Supplier, branch, and warehouse must belong to the same accessible organization."
+        )
+    require_warehouse_permission(actor, CREATE_SUPPLIER_RETURN, warehouse)
+    location = (
+        StockLocation.objects.filter(pk=payload.location_id, warehouse=warehouse).first()
+        if payload.location_id
+        else None
+    )
+    if payload.location_id and location is None:
+        raise OutOfScope(f"Stock location {payload.location_id} does not exist.")
 
     reason_code = None
     if payload.reason_code_id is not None:
         reason_code = InventoryReasonCode.objects.filter(
-            pk=payload.reason_code_id, organization_id=receipt.organization_id
+            pk=payload.reason_code_id,
+            organization_id=warehouse.branch.organization_id,
         ).first()
         if reason_code is None:
             raise OutOfScope(f"Reason code {payload.reason_code_id} does not exist.")
 
     supplier_return = create_supplier_return(
-        receipt=receipt,
+        organization=warehouse.branch.organization,
+        branch=branch,
+        supplier=supplier,
+        warehouse=warehouse,
+        location=location,
         created_by=actor,
         returned_at=_required_date(payload.returned_at, field="returned_at"),
         reason_code=reason_code,
@@ -1752,7 +1785,7 @@ def delete_return(request: HttpRequest, return_id: int) -> Status[Any]:
 @router.post(
     "/supplier-returns/{return_id}/lines/",
     response={201: SupplierReturnOut},
-    summary="Send part of one delivery line back",
+    summary="Add an inventory item to a standalone return",
 )
 def add_return_line_endpoint(
     request: HttpRequest, return_id: int, payload: ReturnLineIn
@@ -1761,17 +1794,21 @@ def add_return_line_endpoint(
     supplier_return = resolve_supplier_return(actor, return_id)
     require_warehouse_permission(actor, CREATE_SUPPLIER_RETURN, supplier_return.warehouse)
 
-    # Under the return's own delivery, never by id alone — the service
-    # re-checks, but the resolution itself must not widen access.
-    receipt_line = GoodsReceiptLine.objects.filter(
-        pk=payload.receipt_line_id, receipt_id=supplier_return.receipt_id
+    item = InventoryItem.objects.filter(
+        pk=payload.item_id, organization_id=supplier_return.organization_id
     ).first()
-    if receipt_line is None:
-        raise OutOfScope(f"Receipt line {payload.receipt_line_id} does not exist.")
+    lot = (
+        InventoryLot.objects.filter(pk=payload.lot_id, item=item).first()
+        if payload.lot_id
+        else None
+    )
+    if item is None or (payload.lot_id and lot is None):
+        raise OutOfScope("Item or lot does not exist in this organization.")
 
     add_return_line(
         supplier_return=supplier_return,
-        receipt_line=receipt_line,
+        item=item,
+        lot=lot,
         returned_base_quantity=_required_money(
             payload.returned_base_quantity, field="returned_base_quantity"
         ),
@@ -1826,7 +1863,7 @@ def reverse_return(request: HttpRequest, return_id: int, payload: ReasonIn) -> A
 def _reload_return(supplier_return: SupplierReturn) -> SupplierReturn:
     """Re-read after a line change, so the response carries the stored rows."""
     return SupplierReturn.objects.select_related(
-        "supplier", "receipt", "warehouse", "reason_code", "journal_entry"
+        "supplier", "warehouse", "reason_code", "journal_entry"
     ).get(pk=supplier_return.pk)
 
 

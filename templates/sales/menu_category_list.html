@@ -15,22 +15,22 @@
   {% for category in categories %}
     <tr>
       <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ category.code }}</code></bdi></td>
-      <td data-label="{% translate 'الاسم' %}">{{ category.name_ar }}</td>
+      <td data-label="{% translate 'الاسم' %}">{{ category.name }}</td>
       <td data-label="{% translate 'الترتيب' %}"><bdi dir="ltr">{{ category.display_order }}</bdi></td>
-      <td data-label="{% translate 'عدد الأصناف' %}"><bdi dir="ltr">{{ category.items.count }}</bdi></td>
+      <td data-label="{% translate 'عدد الأصناف' %}"><bdi dir="ltr">{{ category.item_count }}</bdi></td>
       <td data-label="{% translate 'الحالة' %}">
         {% if category.is_active %}
-          <span class="chip chip--on">{% translate "فعّالة" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّالة" %}</span>
         {% else %}
-          <span class="chip chip--off">{% translate "مؤرشفة" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "مؤرشفة" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'إجراءات' %}">
-        <div class="rowactions">
+        <div class="ui-table__actions">
           {% if category.organization_id in manageable_ids %}
-            <a class="btn btn--quiet btn--sm" href="{% url 'sales:menu_category_update' category.pk %}">{% translate "تعديل" %}</a>
+            <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'sales:menu_category_update' category.pk %}">{% translate "تعديل" %}</a>
           {% else %}
-            <span class="muted">—</span>
+            <span class="ui-text-muted">—</span>
           {% endif %}
         </div>
       </td>

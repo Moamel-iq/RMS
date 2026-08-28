@@ -359,7 +359,7 @@ class TestStockedSubRecipesAreNotExpanded:
         stocked = create_recipe(
             organization=organization,
             code="STOCKED-1",
-            name_ar="نصف مصنّع",
+            name="نصف مصنّع",
             recipe_type="BATCH",
             output_item=cooked_rice,
             created_by=manager,

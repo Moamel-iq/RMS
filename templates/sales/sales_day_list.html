@@ -7,8 +7,8 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="status">
       <option value="">{% translate "كل الحالات" %}</option>
       {% for value, label in statuses %}
@@ -36,29 +36,29 @@
         </a>
       </td>
       <td data-label="{% translate 'الفرع' %}">
-        <bdi dir="ltr"><code>{{ day.branch.code }}</code></bdi> {{ day.branch.name_ar }}
+        <bdi dir="ltr"><code>{{ day.branch.code }}</code></bdi> {{ day.branch.name }}
       </td>
       <td data-label="{% translate 'الرقم' %}">
         {% if day.number %}
           <bdi dir="ltr"><code>{{ day.number }}</code></bdi>
         {% else %}
           {# A number exists exactly when the day has reached the ledger. #}
-          <span class="muted">{% translate "لم يُرحَّل" %}</span>
+          <span class="ui-text-muted">{% translate "لم يُرحَّل" %}</span>
         {% endif %}
       </td>
-      <td data-label="{% translate 'عدد السطور' %}"><bdi dir="ltr">{{ day.lines.count }}</bdi></td>
+      <td data-label="{% translate 'عدد السطور' %}"><bdi dir="ltr">{{ day.line_count }}</bdi></td>
       <td data-label="{% translate 'الحالة' %}">
         {% if day.status == "POSTED" %}
-          <span class="chip chip--ok">{{ day.get_status_display }}</span>
+          <span class="ui-badge ui-badge--success">{{ day.get_status_display }}</span>
         {% elif day.status == "REVERSED" %}
-          <span class="chip chip--bad">{{ day.get_status_display }}</span>
+          <span class="ui-badge ui-badge--danger">{{ day.get_status_display }}</span>
         {% else %}
-          <span class="chip">{{ day.get_status_display }}</span>
+          <span class="ui-badge">{{ day.get_status_display }}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'إجراءات' %}">
-        <div class="rowactions">
-          <a class="btn btn--quiet btn--sm" href="{% url 'sales:day_detail' day.pk %}">
+        <div class="ui-table__actions">
+          <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'sales:day_detail' day.pk %}">
             {% translate "فتح" %}
           </a>
         </div>

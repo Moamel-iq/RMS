@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n money_tags quantity_tags %}
 
 {# One reconciliation: which delivery covers which invoice line, and by how  #}
@@ -12,32 +12,32 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {% if match.number %}<span dir="ltr">{{ match.number }}</span>
           {% else %}{% translate "مسودة مطابقة" %}{% endif %}
         </h1>
-        <p class="pagehead__hint">
-          {{ match.supplier.name_ar }} —
-          <span class="chip">{{ match.get_status_display }}</span>
+        <p class="ui-page-header__hint">
+          {{ match.supplier.name }} —
+          <span class="ui-badge">{{ match.get_status_display }}</span>
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'procurement:purchase_match_list' %}">{% translate "رجوع" %}</a>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:purchase_match_list' %}">{% translate "رجوع" %}</a>
       </div>
     </div>
 
-    <div class="formcard">
-      <dl class="detailgrid">
-        <dt>{% translate "المورد" %}</dt><dd>{{ match.supplier.code }} — {{ match.supplier.name_ar }}</dd>
+    <div class="ui-card ui-form-card">
+      <dl class="ui-detail-grid">
+        <dt>{% translate "المورد" %}</dt><dd>{{ match.supplier.code }} — {{ match.supplier.name }}</dd>
         <dt>{% translate "الفاتورة" %}</dt>
         <dd>
           <a href="{% url 'procurement:supplier_invoice_detail' invoice.pk %}">
             <span dir="ltr">{{ invoice.supplier_invoice_number }}</span>
           </a>
-          <span class="chip">{{ invoice.get_status_display }}</span>
+          <span class="ui-badge">{{ invoice.get_status_display }}</span>
         </dd>
         <dt>{% translate "فتحها" %}</dt><dd>{{ match.created_by.username }}</dd>
         <dt>{% translate "أجازها" %}</dt><dd>{{ match.ready_by.username|default:"—" }}</dd>
@@ -51,7 +51,7 @@
         {% if posting %}
           <dt>{% translate "القيد المحاسبي" %}</dt>
           <dd><span dir="ltr">{{ posting.journal_entry.entry_number }}</span>
-            <span class="chip">{% translate "الترحيل رقم" %} {{ posting.generation }}</span></dd>
+            <span class="ui-badge">{% translate "الترحيل رقم" %} {{ posting.generation }}</span></dd>
           {% if may_see_cost %}
             <dt>{% translate "المُسوّى من البضاعة المستلمة غير المفوترة" %}</dt>
             <dd><span dir="ltr">{{ posting.goods_cleared_value|money_full }}</span></dd>
@@ -61,20 +61,20 @@
         {% endif %}
       </dl>
       {% if posting %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "رُحِّلت هذه المطابقة مالياً: سُوّي حساب البضاعة المستلمة غير المفوترة بقيمة ما استلمته المخازن فعلاً، وقُيِّد الفرق في حساب تسوية فروقات أسعار المشتريات. لم تتحرّك أي كمية مخزنية ولم يتغيّر متوسط التكلفة." %}
         </p>
       {% else %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "المطابقة أدلة، لا نقود. لا تُنشئ قيداً محاسبياً ولا تُسوّي حساب البضاعة المستلمة غير المفوترة ولا تُحرّك مخزوناً، وتبقى الفاتورة معتمدة حتى تُرحَّل مالياً." %}
         </p>
       {% endif %}
     </div>
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "تغطية الفاتورة" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th>{% translate "الصنف" %}</th>
@@ -89,7 +89,7 @@
           <tbody>
             {% for row in coverage %}
               <tr>
-                <td>{{ row.line.item.code }} — {{ row.line.item.name_ar }}</td>
+                <td>{{ row.line.item.code }} — {{ row.line.item.name }}</td>
                 {# Re-enterable exact values: never localised. #}
                 <td><span dir="ltr">{{ row.invoiced_quantity|quantity }}</span></td>
                 <td><span dir="ltr">{{ row.matched_quantity|quantity }}</span></td>
@@ -100,11 +100,11 @@
                 {% endif %}
                 <td>
                   {% if row.state == "MATCHED" %}
-                    <span class="chip chip--on">{{ row.state }}</span>
+                    <span class="ui-badge ui-badge--success">{{ row.state }}</span>
                   {% elif row.state == "EXCEPTION" %}
-                    <span class="chip chip--off">{{ row.state }}</span>
+                    <span class="ui-badge ui-badge--danger">{{ row.state }}</span>
                   {% else %}
-                    <span class="chip">{{ row.state }}</span>
+                    <span class="ui-badge">{{ row.state }}</span>
                   {% endif %}
                 </td>
               </tr>
@@ -112,13 +112,13 @@
           </tbody>
         </table>
       </div>
-      <p class="muted">
+      <p class="ui-text-muted">
         {% translate "الكمية غير المطابَقة وفرق السعر مشكلتان مختلفتان: الأولى بضاعة لم يُقَل ما يُغطّيها، والثانية اتفاق على الكمية واختلاف على المبلغ. لا تُجمعان في رقم واحد." %}
       </p>
     </div>
 
-    <div class="tablewrap">
-      <table class="table responsive-table">
+    <div class="ui-data-card ui-table-scroll">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>
             <th>#</th>
@@ -143,7 +143,7 @@
                   <span dir="ltr">{{ row.purchase_order_line.order.number }}</span>
                   {# The version this was matched against, not today's. A later #}
                   {# revision must not restate what was agreed here.            #}
-                  <span class="muted">({% translate "الإصدار" %} {{ row.purchase_order_version }})</span>
+                  <span class="ui-text-muted">({% translate "الإصدار" %} {{ row.purchase_order_version }})</span>
                 {% else %}
                   {% translate "بلا أمر" %}
                 {% endif %}
@@ -159,7 +159,7 @@
                   <form method="post"
                         action="{% url 'procurement:match_allocation_delete' match.pk row.pk %}">
                     {% csrf_token %}
-                    <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                    <button class="ui-button ui-button--ghost ui-button--small" type="submit">{% translate "حذف" %}</button>
                   </form>
                 </td>
               {% endif %}
@@ -172,60 +172,60 @@
     </div>
 
     {% if may_edit %}
-      <form class="formcard" method="post" novalidate>
+      <form class="ui-card ui-form-card" method="post" novalidate>
         <h2>{% translate "تخصيص جديد" %}</h2>
         {% csrf_token %}
         {% if form.non_field_errors %}
-          <div class="alert" role="alert">
+          <div class="ui-alert" role="alert">
             {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
           </div>
         {% endif %}
-        <div class="formgrid">
+        <div class="ui-form-grid">
           {% for field in form %}
-            <label class="field">
-              <span class="field__label">{{ field.label }}</span>
+            <label class="ui-field">
+              <span class="ui-field__label">{{ field.label }}</span>
               {{ field }}
-              {% if field.help_text %}<span class="field__hint">{{ field.help_text }}</span>{% endif %}
-              {% for error in field.errors %}<span class="field__error">{{ error }}</span>{% endfor %}
+              {% if field.help_text %}<span class="ui-field__hint">{{ field.help_text }}</span>{% endif %}
+              {% for error in field.errors %}<span class="ui-field__error">{{ error }}</span>{% endfor %}
             </label>
           {% endfor %}
         </div>
-        <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+        <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة" %}</button>
       </form>
     {% endif %}
 
-    <div class="formcard">
+    <div class="ui-card ui-form-card">
       <h2>{% translate "الإجراءات" %}</h2>
       {% if match.status == "DRAFT" %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "الإجازة تُجمّد التخصيصات: بعدها لا تُعدَّل ولا تُحذف، والتصحيح يكون بالإلغاء ثم بمطابقة بديلة." %}
         </p>
         {% if may_ready %}
           <form method="post" action="{% url 'procurement:purchase_match_ready' match.pk %}">
             {% csrf_token %}
-            <button class="btn btn--primary" type="submit">{% translate "إجازة المطابقة" %}</button>
+            <button class="ui-button ui-button--primary" type="submit">{% translate "إجازة المطابقة" %}</button>
           </form>
         {% endif %}
       {% elif match.status == "READY" and posting %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "الأدلة مُجمّدة والفاتورة مُرحّلة. التصحيح يكون بعكس الفاتورة: ذلك يعكس القيد ويُلغي هذه المطابقة ويُحرّر الشحنات، ثم تُفتح مطابقة جديدة وتُرحَّل الفاتورة من جديد." %}
         </p>
       {% elif match.status == "READY" %}
-        <p class="muted">
+        <p class="ui-text-muted">
           {% translate "الأدلة مُجمّدة ولم يُرحَّل أي مبلغ بعد. ترحيل الفاتورة هو ما يُسوّي حساب البضاعة المستلمة غير المفوترة ويُنشئ الذمة." %}
         </p>
       {% else %}
-        <p class="muted">{% translate "ملغاة. الكميات والقيم التي كانت محجوزة عادت متاحة للمطابقة." %}</p>
+        <p class="ui-text-muted">{% translate "ملغاة. الكميات والقيم التي كانت محجوزة عادت متاحة للمطابقة." %}</p>
       {% endif %}
 
       {% if may_cancel and not posting %}
         <form method="post" action="{% url 'procurement:purchase_match_cancel' match.pk %}">
           {% csrf_token %}
-          <label class="field">
-            <span class="field__label">{% translate "سبب الإلغاء" %}</span>
+          <label class="ui-field">
+            <span class="ui-field__label">{% translate "سبب الإلغاء" %}</span>
             <input type="text" name="reason" required>
           </label>
-          <button class="btn btn--ghost" type="submit">{% translate "إلغاء المطابقة" %}</button>
+          <button class="ui-button ui-button--ghost" type="submit">{% translate "إلغاء المطابقة" %}</button>
         </form>
       {% endif %}
     </div>

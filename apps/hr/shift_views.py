@@ -31,7 +31,7 @@ class ShiftListView(HumanResourcesMixin, InventoryListView):
     context_object_name = "shifts"
     page_title = _("الورديات")
     page_hint = _("إصدارات فعّالة تحفظ جدول كل موظف كما كان عند تسجيل الحضور.")
-    search_fields = ("code", "name_ar", "name_en", "branch__code", "branch__name_ar")
+    search_fields = ("code", "name", "branch__code", "branch__name")
     manage_permission = MANAGE_SHIFT
     create_url_name = "hr:shift_create"
     create_label = _("وردية جديدة")

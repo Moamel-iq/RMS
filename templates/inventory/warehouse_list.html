@@ -18,7 +18,7 @@
   {% for warehouse in warehouses %}
     <tr>
       <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ warehouse.code }}</code></bdi></td>
-      <td data-label="{% translate 'الاسم' %}"><strong>{{ warehouse.name_ar }}</strong></td>
+      <td data-label="{% translate 'الاسم' %}"><strong>{{ warehouse.name }}</strong></td>
       <td data-label="{% translate 'الفرع' %}"><bdi dir="ltr"><code>{{ warehouse.branch.code }}</code></bdi></td>
       <td data-label="{% translate 'النوع' %}">
         {{ warehouse.get_warehouse_type_display }}
@@ -41,7 +41,7 @@
       {# arrived at another would break transfers that are mid-flight, so the #}
       {# service refuses it and the screen does not pretend otherwise.        #}
       {% if warehouse.is_system %}
-        <td data-label="{% translate 'إجراءات' %}"><span class="muted">{% translate "محمي" %}</span></td>
+        <td data-label="{% translate 'إجراءات' %}"><span class="ui-text-muted">{% translate "محمي" %}</span></td>
       {% else %}
         {% include "inventory/_rowactions.html" with row=warehouse owner_id=warehouse.branch_id edit_url="inventory:warehouse_update" archive_url="inventory:warehouse_archive" reactivate_url="inventory:warehouse_reactivate" %}
       {% endif %}

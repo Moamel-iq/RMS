@@ -34,8 +34,7 @@ class Employee(TimeStampedModel):
         "organizations.Organization", on_delete=models.PROTECT, related_name="employees"
     )
     code = models.CharField(max_length=40)
-    name_ar = models.CharField(max_length=200)
-    name_en = models.CharField(max_length=200, blank=True)
+    name = models.CharField(max_length=200)
     phone = models.CharField(max_length=32, blank=True)
     email = models.EmailField(blank=True)
     identity_number = models.CharField(max_length=80, blank=True)
@@ -101,7 +100,7 @@ class Employee(TimeStampedModel):
 
     @property
     def display_name(self) -> str:
-        return self.name_ar or self.name_en
+        return self.name or self.name
 
     @property
     def is_editable(self) -> bool:
@@ -154,8 +153,7 @@ class PayrollPolicy(TimeStampedModel):
         "organizations.Organization", on_delete=models.PROTECT, related_name="payroll_policies"
     )
     code = models.CharField(max_length=40)
-    name_ar = models.CharField(max_length=160)
-    name_en = models.CharField(max_length=160, blank=True)
+    name = models.CharField(max_length=160)
     version = models.PositiveIntegerField(default=1)
     effective_from = models.DateField()
     effective_to = models.DateField(null=True, blank=True)
@@ -219,7 +217,7 @@ class PayrollPolicy(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} v{self.version} — {self.name_ar}"
+        return f"{self.code} v{self.version} — {self.name}"
 
 
 class ContractType(models.TextChoices):
@@ -352,8 +350,7 @@ class Shift(TimeStampedModel):
     )
     code = models.CharField(max_length=40)
     version = models.PositiveIntegerField()
-    name_ar = models.CharField(max_length=160)
-    name_en = models.CharField(max_length=160, blank=True)
+    name = models.CharField(max_length=160)
     start_time = models.TimeField()
     end_time = models.TimeField()
     crosses_midnight = models.BooleanField(default=False)
@@ -412,7 +409,7 @@ class Shift(TimeStampedModel):
 
     @property
     def display_name(self) -> str:
-        return self.name_ar or self.name_en
+        return self.name or self.name
 
     def __str__(self) -> str:
         return f"{self.branch.code} · {self.code} v{self.version} — {self.display_name}"
@@ -640,8 +637,7 @@ class LeaveType(TimeStampedModel):
         "organizations.Organization", on_delete=models.PROTECT, related_name="leave_types"
     )
     code = models.CharField(max_length=40)
-    name_ar = models.CharField(max_length=160)
-    name_en = models.CharField(max_length=160, blank=True)
+    name = models.CharField(max_length=160)
     paid_treatment = models.CharField(max_length=12, choices=PaidTreatment.choices)
     requires_evidence = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -662,7 +658,7 @@ class LeaveType(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class RequestStatus(models.TextChoices):

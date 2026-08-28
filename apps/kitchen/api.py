@@ -204,9 +204,8 @@ def _require_view(request: HttpRequest) -> User:
 class RecipeIn(Schema):
     organization_id: int
     code: str
-    name_ar: str
+    name: str
     recipe_type: str
-    name_en: str = ""
     description_ar: str = ""
     description_en: str = ""
     category_id: int | None = None
@@ -219,8 +218,7 @@ class RecipeIn(Schema):
 
 
 class RecipePatch(Schema):
-    name_ar: str
-    name_en: str = ""
+    name: str
     description_ar: str = ""
     description_en: str = ""
     category_id: int | None = None
@@ -232,8 +230,7 @@ class RecipeOut(Schema):
     id: int
     public_id: str
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     recipe_type: str
     organization_id: int
     category_id: int | None
@@ -360,10 +357,9 @@ class StepLinkOut(Schema):
 
 class ServingIn(Schema):
     code: str
-    name_ar: str
+    name: str
     serving_quantity: str
     serving_unit_code: str
-    name_en: str = ""
     is_primary: bool = False
     rounding_increment: str | None = None
     rounding_policy: str = ServingRoundingPolicy.NONE
@@ -379,7 +375,7 @@ class ServingOut(Schema):
     id: int
     version_id: int
     code: str
-    name_ar: str
+    name: str
     serving_quantity: str
     base_quantity: str
     factor_of_batch: str
@@ -395,8 +391,7 @@ def _recipe_out(recipe: Any) -> dict[str, Any]:
         "id": recipe.pk,
         "public_id": str(recipe.public_id),
         "code": recipe.code,
-        "name_ar": recipe.name_ar,
-        "name_en": recipe.name_en,
+        "name": recipe.name,
         "recipe_type": recipe.recipe_type,
         "organization_id": recipe.organization_id,
         "category_id": recipe.category_id,
@@ -454,7 +449,7 @@ def _serving_out(serving: Any) -> dict[str, Any]:
         "id": serving.pk,
         "version_id": serving.version_id,
         "code": serving.code,
-        "name_ar": serving.name_ar,
+        "name": serving.name,
         "serving_quantity": str(serving.serving_quantity),
         "base_quantity": str(serving.base_quantity),
         "factor_of_batch": str(serving.factor_of_batch),
@@ -494,8 +489,7 @@ def post_recipe(request: HttpRequest, payload: RecipeIn) -> tuple[int, dict[str,
     recipe = create_recipe(
         organization=organization,
         code=payload.code,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
+        name=payload.name,
         recipe_type=payload.recipe_type,
         description_ar=payload.description_ar,
         description_en=payload.description_en,
@@ -524,8 +518,7 @@ def patch_recipe(request: HttpRequest, recipe_id: int, payload: RecipePatch) -> 
     return _recipe_out(
         update_recipe(
             recipe=recipe,
-            name_ar=payload.name_ar,
-            name_en=payload.name_en,
+            name=payload.name,
             description_ar=payload.description_ar,
             description_en=payload.description_en,
             category=(
@@ -858,8 +851,7 @@ def post_serving(
     serving = add_recipe_serving(
         version=version,
         code=payload.code,
-        name_ar=payload.name_ar,
-        name_en=payload.name_en,
+        name=payload.name,
         serving_quantity=Decimal(payload.serving_quantity),
         serving_unit=unit_by_code(payload.serving_unit_code),
         is_primary=payload.is_primary,
@@ -884,8 +876,7 @@ def patch_serving(request: HttpRequest, serving_id: int, payload: ServingIn) -> 
     return _serving_out(
         update_recipe_serving(
             serving=serving,
-            name_ar=payload.name_ar,
-            name_en=payload.name_en,
+            name=payload.name,
             serving_quantity=Decimal(payload.serving_quantity),
             serving_unit=unit_by_code(payload.serving_unit_code),
             is_primary=payload.is_primary,
@@ -1279,7 +1270,7 @@ def _component_out(component: Any) -> dict[str, Any]:
         "line_order": component.line_order,
         "component_version_id": component.component_version_id,
         "component_recipe_code": component.component_recipe.code,
-        "component_recipe_name": component.component_recipe.name_ar,
+        "component_recipe_name": component.component_recipe.name,
         "component_version_number": component.component_version.version_number,
         "component_version_status": component.component_version.status,
         "multiplier": component.multiplier_display,
@@ -1415,7 +1406,7 @@ def get_component_tree(request: HttpRequest, version_id: int) -> list[dict[str, 
             "depth": node.depth,
             "line_order": node.line_order,
             "recipe_code": node.recipe.code,
-            "recipe_name": node.recipe.name_ar,
+            "recipe_name": node.recipe.name,
             "version_number": node.version.version_number,
             "version_status": node.version.status,
             "multiplier": node.multiplier_display,
@@ -1495,8 +1486,7 @@ class CostServingOut(Schema):
     """
 
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     is_primary: bool
     factor_of_batch: str
     cost_per_serving: str
@@ -1554,7 +1544,7 @@ def _card_out(card: RecipeCostCard) -> dict[str, Any]:
     """
     return {
         "recipe_code": card.recipe.code,
-        "recipe_name": card.recipe.name_ar,
+        "recipe_name": card.recipe.name,
         "version_number": card.version.version_number,
         "version_status": card.version_status,
         "warehouse_code": card.warehouse.code,
@@ -1585,7 +1575,7 @@ def _card_out(card: RecipeCostCard) -> dict[str, Any]:
                 "source_version_number": line.source_version.version_number,
                 "recipe_line_id": line.recipe_line.pk,
                 "item_code": line.item.code,
-                "item_name": line.item.name_ar,
+                "item_name": line.item.name,
                 "cost_class": line.cost_class,
                 "cumulative_multiplier": line.multiplier_display,
                 "effective_quantity": str(line.effective_quantity),
@@ -1614,8 +1604,7 @@ def _card_out(card: RecipeCostCard) -> dict[str, Any]:
         "servings": [
             {
                 "code": serving.serving.code,
-                "name_ar": serving.serving.name_ar,
-                "name_en": serving.serving.name_en,
+                "name": serving.serving.name,
                 "is_primary": serving.serving.is_primary,
                 "factor_of_batch": serving.factor_display,
                 "cost_per_serving": str(serving.cost_per_serving),
@@ -1812,8 +1801,7 @@ def _snapshot_detail_out(snapshot: Any) -> dict[str, Any]:
     payload["servings"] = [
         {
             "code": serving.code,
-            "name_ar": serving.name_ar,
-            "name_en": serving.name_en,
+            "name": serving.name,
             "is_primary": serving.is_primary,
             "factor_of_batch": str(serving.factor_of_batch),
             "cost_per_serving": str(serving.cost_per_serving),
@@ -2048,7 +2036,7 @@ def _actual_out(row: Any) -> dict[str, Any]:
         "entry_order": row.entry_order,
         "kind": row.kind,
         "item_code": row.item.code,
-        "item_name": row.item.name_ar,
+        "item_name": row.item.name,
         "substitute_id": row.substitute_id,
         "entered_quantity": str(row.entered_quantity),
         "entered_unit_code": row.entered_unit.code if row.entered_unit_id else None,
@@ -2111,7 +2099,7 @@ def _batch_out(batch: Any) -> dict[str, Any]:
         "status": batch.status,
         "number": batch.number,
         "recipe_code": batch.recipe.code,
-        "recipe_name": batch.recipe.name_ar,
+        "recipe_name": batch.recipe.name,
         "version_number": batch.recipe_version.version_number,
         "branch_code": batch.branch.code,
         "warehouse_code": batch.warehouse.code,
@@ -2571,7 +2559,7 @@ def get_production_preview(
                 "component_label_path": leaf.label_path,
                 "source_kind": str(leaf.kind),
                 "item_code": leaf.line.item.code,
-                "item_name": leaf.line.item.name_ar,
+                "item_name": leaf.line.item.name,
                 "cumulative_multiplier": leaf.multiplier_display,
                 "planned_base_quantity": str(quantity),
                 "cost_class": leaf.cost_class,
@@ -3673,7 +3661,7 @@ def _meal_out(record: Any) -> dict[str, Any]:
         "status": record.status,
         "branch_code": record.branch.code,
         "recipe_code": record.recipe.code,
-        "recipe_name": record.recipe.name_ar,
+        "recipe_name": record.recipe.name,
         "version_number": record.recipe_version.version_number,
         "recipe_version_id": record.recipe_version_id,
         "serving_code": serving.code if serving is not None else "",

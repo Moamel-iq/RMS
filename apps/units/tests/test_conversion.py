@@ -146,8 +146,7 @@ class TestBaseHelpers:
         """The database forbids it, but an in-memory unit could still carry it."""
         broken = UnitOfMeasure(
             code="BROKEN",
-            name_ar="معطل",
-            name_en="Broken",
+            name="معطل",
             dimension=Dimension.MASS,
             factor_to_base=Decimal("0"),
         )

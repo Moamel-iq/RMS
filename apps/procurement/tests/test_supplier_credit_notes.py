@@ -153,8 +153,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -164,12 +164,12 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 @pytest.fixture
 def grocery(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد")
 
 
 @pytest.fixture
@@ -215,7 +215,11 @@ def posted_return(
     post_goods_receipt(receipt=receipt, actor=keeper)
 
     supplier_return = create_supplier_return(
-        receipt=receipt,
+        organization=receipt.organization,
+        branch=receipt.branch,
+        supplier=receipt.supplier,
+        warehouse=receipt.warehouse,
+        location=receipt.location,
         created_by=keeper,
         returned_at=RETURNED,
         reason="بضاعة تالفة",
@@ -223,7 +227,7 @@ def posted_return(
     )
     add_return_line(
         supplier_return=supplier_return,
-        receipt_line=receipt.lines.get(),
+        item=rice,
         returned_base_quantity=Decimal("10.000"),
     )
     return post_supplier_return(supplier_return=supplier_return, actor=keeper)
@@ -467,14 +471,18 @@ class TestTheClaim:
         inspect_receipt_line(line=line, accepted_base_quantity=Decimal("7.000"), actor=keeper)
         post_goods_receipt(receipt=receipt, actor=keeper)
         supplier_return = create_supplier_return(
-            receipt=receipt,
+            organization=receipt.organization,
+            branch=receipt.branch,
+            supplier=receipt.supplier,
+            warehouse=receipt.warehouse,
+            location=receipt.location,
             created_by=keeper,
             returned_at=RETURNED,
             evidence_reference="وصل",
         )
         add_return_line(
             supplier_return=supplier_return,
-            receipt_line=receipt.lines.get(),
+            item=rice,
             returned_base_quantity=Decimal("7.000"),
         )
         posted = post_supplier_return(supplier_return=supplier_return, actor=keeper)
@@ -536,8 +544,8 @@ class TestTheClaim:
         sugar = create_item(
             organization=organization,
             code="SUGAR",
-            name_ar="سكر",
-            category=create_item_category(organization=organization, code="SWEET", name_ar="سكر"),
+            name="سكر",
+            category=create_item_category(organization=organization, code="SWEET", name="سكر"),
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
         )
@@ -560,15 +568,20 @@ class TestTheClaim:
             inspect_receipt_line(line=line, accepted_base_quantity=Decimal("10.000"), actor=keeper)
         post_goods_receipt(receipt=receipt, actor=keeper)
         supplier_return = create_supplier_return(
-            receipt=receipt,
+            organization=receipt.organization,
+            branch=receipt.branch,
+            supplier=receipt.supplier,
+            warehouse=receipt.warehouse,
+            location=receipt.location,
             created_by=keeper,
             returned_at=RETURNED,
             evidence_reference="وصل",
         )
-        for receipt_line in receipt.lines.order_by("sequence"):
+        for receipt_line in receipt.lines.select_related("item", "lot").order_by("sequence"):
             add_return_line(
                 supplier_return=supplier_return,
-                receipt_line=receipt_line,
+                item=receipt_line.item,
+                lot=receipt_line.lot,
                 returned_base_quantity=Decimal("10.000"),
             )
         posted = post_supplier_return(supplier_return=supplier_return, actor=keeper)
@@ -1057,14 +1070,18 @@ class TestLifecycle:
         inspect_receipt_line(line=line, accepted_base_quantity=Decimal("50.000"), actor=keeper)
         post_goods_receipt(receipt=receipt, actor=keeper)
         supplier_return = create_supplier_return(
-            receipt=receipt,
+            organization=receipt.organization,
+            branch=receipt.branch,
+            supplier=receipt.supplier,
+            warehouse=receipt.warehouse,
+            location=receipt.location,
             created_by=keeper,
             returned_at=RETURNED,
             evidence_reference="وصل",
         )
         add_return_line(
             supplier_return=supplier_return,
-            receipt_line=receipt.lines.get(),
+            item=rice,
             returned_base_quantity=Decimal("10.000"),
         )
         posted = post_supplier_return(supplier_return=supplier_return, actor=keeper)
@@ -1243,7 +1260,7 @@ class TestTheSurface:
 
         note = _draft_note(posted_return=posted_return, keeper=keeper, amount="14000.000")
         outsider = User.objects.create_user(username="scn-outsider", password=PASSWORD)
-        rival = create_organization(code="RIV3", name_ar="منافس", name_en="Rival Three")
+        rival = create_organization(code="RIV3", name="منافس")
         grant_organization_access(user=outsider, organization=rival, role=Role.MANAGER)
         outsider = User.objects.get(pk=outsider.pk)
         client.force_login(outsider)

@@ -1,0 +1,9 @@
+{% load i18n %}
+<div class="ui-toast-region" aria-live="polite" aria-atomic="true" data-toast-region>
+  {% for message in messages %}
+    <div class="ui-toast ui-toast--{{ message.tags|default:'info' }}" role="status">
+      <span>{{ message }}</span>
+      <button class="ui-icon-button" type="button" data-toast-dismiss aria-label="{% translate 'إغلاق الرسالة' %}">×</button>
+    </div>
+  {% endfor %}
+</div>

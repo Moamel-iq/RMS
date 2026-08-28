@@ -63,14 +63,14 @@ def _load(path: pathlib.Path) -> dict[str, Any]:
                 continue
             sections.setdefault((row.get("القسم") or "المنيو").strip(), []).append(
                 {
-                    "name_ar": name,
+                    "name": name,
                     "variant": (row.get("الحجم") or "").strip(),
                     "price": (row.get("السعر") or "").strip(),
                     "recipe": (row.get("رمز الوصفة") or "").strip(),
                     "note_ar": (row.get("ملاحظات") or "").strip(),
                 }
             )
-    return {"sections": [{"name_ar": k, "items": v} for k, v in sections.items()]}
+    return {"sections": [{"name": k, "items": v} for k, v in sections.items()]}
 
 
 class Command(SeedCommand):
@@ -102,9 +102,9 @@ class Command(SeedCommand):
 
         with transaction.atomic():
             for order, section in enumerate(payload["sections"], start=1):
-                category = self._category(organization, section["name_ar"], order)
+                category = self._category(organization, section["name"], order)
                 for index, row in enumerate(section["items"], start=1):
-                    label = row["name_ar"] + (f" ({row['variant']})" if row.get("variant") else "")
+                    label = row["name"] + (f" ({row['variant']})" if row.get("variant") else "")
 
                     if not row.get("recipe"):
                         skipped.append((label, row.get("note_ar") or "لا وصفة مرتبطة"))
@@ -126,7 +126,7 @@ class Command(SeedCommand):
                         item = create_menu_item(
                             organization=organization,
                             code=code,
-                            name_ar=label,
+                            name=label,
                             recipe=recipe,
                             serving_code="PLATE",
                             category=category,
@@ -169,4 +169,4 @@ class Command(SeedCommand):
         existing = MenuCategory.objects.filter(organization=organization, code=code).first()
         if existing is not None:
             return existing
-        return create_menu_category(organization=organization, code=code, name_ar=name)
+        return create_menu_category(organization=organization, code=code, name=name)

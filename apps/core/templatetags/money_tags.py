@@ -5,7 +5,7 @@ Templates must never reach for Django's `floatformat`: it converts through
 float, which is exactly what the whole policy forbids. These filters go
 through `apps.core.money`, which is Decimal end to end.
 
-    {{ line.amount|money }}          normal UI      -> 1,250 دينار عراقي
+    {{ line.amount|money }}          normal UI      -> 1,250 or 1,250.001 دينار عراقي
     {{ line.amount|money_full }}     ledger/audit   -> 1,250.001 دينار عراقي
     {{ line.amount|iqd }}            normal UI      -> 1,250 دينار عراقي
     {{ line.amount|iqd_full }}       ledger/audit   -> 1,250.001 دينار عراقي
@@ -22,7 +22,7 @@ register = template.Library()
 
 @register.filter(name="money")
 def money_filter(value: object) -> str:
-    """Whole Iraqi dinars with an explicit currency label."""
+    """Iraqi dinars with an explicit currency label and needed precision."""
     return money.money_with_currency(value)
 
 
@@ -34,7 +34,7 @@ def money_full_filter(value: object) -> str:
 
 @register.filter(name="iqd")
 def iqd_filter(value: object) -> str:
-    """Whole Iraqi dinars with grouping and an explicit currency label."""
+    """Grouped Iraqi dinars with an explicit currency label."""
     return money.money_with_currency(value)
 
 

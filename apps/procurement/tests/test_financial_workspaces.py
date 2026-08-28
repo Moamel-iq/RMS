@@ -188,14 +188,14 @@ class TestTheSnapshotIsWhatCarriesCorrectness:
 class TestNavigationIsBackedByRoutes:
     """An active entry that 404s is worse than an obviously unfinished one."""
 
-    def test_all_three_financial_entries_are_active_and_reversible(self) -> None:
+    def test_remaining_financial_entries_are_active_and_reversible(self) -> None:
         from django.urls import reverse
 
         from apps.core.navigation import MODULES
 
         procurement = next(module for module in MODULES if module.key == "procurement")
 
-        for label in ("فواتير الموردين", "التكاليف الإضافية", "شروط الائتمان"):
+        for label in ("فواتير المشتريات", "مرتجعات الموردين", "دفعات الموردين"):
             # Section labels are lazy strings, so compare the rendered value.
             section = next(s for s in procurement.sections if str(s.label) == label)
             assert section.available is True, f"{label} is still inert"

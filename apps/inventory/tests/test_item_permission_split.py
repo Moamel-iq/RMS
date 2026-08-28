@@ -32,7 +32,7 @@ def clerk(organization: Organization, branch: Branch) -> User:
     post = create_role_definition(
         organization=organization,
         code="registrar",
-        name_ar="مسجّل أصناف",
+        name="مسجّل أصناف",
         permissions=[VIEW_ITEM, CREATE_ITEM],
     )
     grant_branch_access(user=user, branch=branch, role=post.key)
@@ -72,8 +72,7 @@ def test_registering_an_item_works_with_create_item_alone(
         {
             "organization": organization.pk,
             "code": "STK-9001",
-            "name_ar": "صنف المسجّل",
-            "name_en": "Registrar item",
+            "name": "صنف المسجّل",
             "category": leaf_category.pk,
             "item_type": "RAW_MATERIAL",
             "base_unit": kilogram.pk,

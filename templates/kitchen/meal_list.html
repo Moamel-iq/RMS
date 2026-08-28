@@ -11,39 +11,39 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div id="kitchen-meal-list" class="workspace-page workspace-list-page inventory-page inventory-list-page">
-    <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div id="kitchen-meal-list" class="ui-page ui-page--list">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url active_module.url_name %}">{{ active_module.label }}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ page_title }}</span>
     </nav>
-    <div class="pagehead">
+    <div class="ui-page-header">
       <div>
-        <p class="pagehead__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
-        <div class="pagehead__title-row">
-          <h1 class="pagehead__title">{{ page_title }}</h1>
-          <span class="result-count" role="status">
+        <p class="ui-page-header__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
+        <div class="ui-page-header__title-row">
+          <h1 class="ui-page-header__title">{{ page_title }}</h1>
+          <span class="ui-result-count" role="status">
             {% blocktranslate count total=total_rows %}سجل واحد{% plural %}{{ total }} سجل{% endblocktranslate %}
           </span>
         </div>
-        <p class="pagehead__hint">{{ meal_statement }}</p>
+        <p class="ui-page-header__subtitle">{{ meal_statement }}</p>
       </div>
       {% if can_record %}
-        <div class="rowactions">
-          <a class="btn btn--primary" href="{{ create_url }}">{% translate "تسجيل وجبة" %}</a>
+        <div class="ui-table__actions">
+          <a class="ui-button ui-button--primary" href="{{ create_url }}">{% translate "تسجيل وجبة" %}</a>
         </div>
       {% endif %}
     </div>
 
-    <form class="filterbar"
+    <form class="ui-filter-bar"
           method="get"
           hx-get="{{ request.path }}"
           hx-target="#kitchen-meal-list"
           hx-swap="outerHTML"
           hx-push-url="true"
           data-prune-empty-params>
-      <label class="field">
-        <span class="field__label">{% translate "الحالة" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "الحالة" %}</span>
         <select name="status">
           <option value="">{% translate "الكل" %}</option>
           {% for value, label in statuses %}
@@ -53,20 +53,20 @@
           {% endfor %}
         </select>
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "من تاريخ" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "من تاريخ" %}</span>
         <input type="date" name="date_from" value="{{ filters.date_from }}">
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "إلى تاريخ" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "إلى تاريخ" %}</span>
         <input type="date" name="date_to" value="{{ filters.date_to }}">
       </label>
-      <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button>
+      <button class="ui-button ui-button--primary" type="submit">{% translate "تصفية" %}</button>
     </form>
 
-    <div class="tablewrap">
-      <div class="data-table-shell" tabindex="0" role="region" aria-label="{{ page_title }}">
-      <table class="table data-table responsive-table">
+    <div class="ui-table-scroll">
+      <div class="ui-table-scroll" tabindex="0" role="region" aria-label="{{ page_title }}">
+      <table class="ui-table ui-table--responsive">
         <thead>
           <tr>
             <th scope="col">{% translate "تاريخ الاستهلاك" %}</th>
@@ -77,7 +77,7 @@
             <th scope="col">{% translate "العدد" %}</th>
             <th scope="col">{% translate "المستفيد" %}</th>
             <th scope="col">{% translate "الحالة" %}</th>
-            <th scope="col"><span class="sr-only">{% translate "إجراءات" %}</span></th>
+            <th scope="col"><span class="ui-sr-only">{% translate "إجراءات" %}</span></th>
           </tr>
         </thead>
         <tbody>
@@ -85,23 +85,23 @@
             <tr>
               <td><bdi dir="ltr"><code>{{ row.consumed_on|date:"Y-m-d" }}</code></bdi></td>
               <td>{{ row.branch.code }}</td>
-              <td>{{ row.recipe.code }} — {{ row.recipe.name_ar }}</td>
+              <td>{{ row.recipe.code }} — {{ row.recipe.name }}</td>
               <td><bdi dir="ltr"><code>v{{ row.recipe_version.version_number }}</code></bdi></td>
-              <td>{% if row.serving_id %}{{ row.serving.name_ar }}{% else %}—{% endif %}</td>
+              <td>{% if row.serving_id %}{{ row.serving.name }}{% else %}—{% endif %}</td>
               <td><bdi dir="ltr"><code>{{ row.quantity_display }}</code></bdi></td>
               <td>{{ row.beneficiary|default:"—" }}</td>
               <td>
-                <span class="pill">{{ row.get_status_display }}</span>
+                <span class="ui-badge">{{ row.get_status_display }}</span>
               </td>
               <td>
-                <a class="btn btn--ghost" href="{% url 'kitchen:meal_detail' row.pk %}">
+                <a class="ui-button ui-button--ghost" href="{% url 'kitchen:meal_detail' row.pk %}">
                   {% translate "تفاصيل" %}
                 </a>
               </td>
             </tr>
           {% empty %}
             <tr>
-              <td colspan="9" class="empty">
+              <td colspan="9" class="ui-table__empty">
                 {% translate "لا توجد سجلات مطابقة. عدّل الفترة أو الحالة ثم أعد المحاولة." %}
               </td>
             </tr>
@@ -112,17 +112,17 @@
     </div>
 
     {% if is_paginated %}
-      <nav class="pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
+      <nav class="ui-pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
         {% if page_obj.has_previous %}
-          <a class="btn btn--ghost" href="?page={{ page_obj.previous_page_number }}"
+          <a class="ui-button ui-button--ghost" href="?page={{ page_obj.previous_page_number }}"
              hx-get="?page={{ page_obj.previous_page_number }}"
              hx-target="#kitchen-meal-list" hx-swap="outerHTML">{% translate "السابق" %}</a>
         {% endif %}
-        <span class="muted">
+        <span class="ui-text-muted">
           {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
         </span>
         {% if page_obj.has_next %}
-          <a class="btn btn--ghost" href="?page={{ page_obj.next_page_number }}"
+          <a class="ui-button ui-button--ghost" href="?page={{ page_obj.next_page_number }}"
              hx-get="?page={{ page_obj.next_page_number }}"
              hx-target="#kitchen-meal-list" hx-swap="outerHTML">{% translate "التالي" %}</a>
         {% endif %}

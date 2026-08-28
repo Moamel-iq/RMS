@@ -173,7 +173,7 @@ class TestValueConservation:
         # And there is no account for it to have gone to instead.
         from apps.accounting.models import Account
 
-        assert not Account.objects.filter(name_ar__icontains="فاقد").exists()
+        assert not Account.objects.filter(name__icontains="فاقد").exists()
         assert not JournalEntry.objects.filter(narration__icontains="yield").exists()
 
     def test_the_number_is_drawn_only_on_success(

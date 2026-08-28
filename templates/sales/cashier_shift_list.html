@@ -12,8 +12,8 @@
 {% load i18n money_tags %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="status">
       <option value="">{% translate "كل الحالات" %}</option>
       {% for value, label in statuses %}
@@ -46,7 +46,7 @@
       </td>
       <td data-label="{% translate 'الفرع' %}">
         <bdi dir="ltr"><code>{{ shift.branch.code }}</code></bdi>
-        {{ shift.branch.name_ar }}
+        {{ shift.branch.name }}
       </td>
       <td data-label="{% translate 'الكاشير' %}">{{ shift.cashier.get_full_name|default:shift.cashier.username }}</td>
       {# Recorded, never posted: the restaurant's own money moved from a safe #}
@@ -56,29 +56,29 @@
       </td>
       <td data-label="{% translate 'المتوقَّع' %}">
         {% if shift.status == "OPEN" %}
-          <span class="muted">{% translate "لم يُقفل" %}</span>
+          <span class="ui-text-muted">{% translate "لم يُقفل" %}</span>
         {% else %}
           <bdi dir="ltr"><code>{{ shift.expected_cash|iqd }}</code></bdi>
         {% endif %}
       </td>
       <td data-label="{% translate 'المعدود' %}">
         {% if shift.status == "OPEN" %}
-          <span class="muted">—</span>
+          <span class="ui-text-muted">—</span>
         {% else %}
           <bdi dir="ltr"><code>{{ shift.counted_cash|iqd }}</code></bdi>
         {% endif %}
       </td>
       <td data-label="{% translate 'الفرق' %}">
         {% if shift.status == "OPEN" %}
-          <span class="muted">—</span>
+          <span class="ui-text-muted">—</span>
         {% elif shift.variance_amount == 0 %}
-          <span class="chip chip--ok">{% translate "مطابق" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "مطابق" %}</span>
         {% else %}
           <bdi dir="ltr"><code>{{ shift.variance_amount|iqd }}</code></bdi>
           {% if shift.is_short %}
-            <span class="chip chip--bad">{% translate "عجز" %}</span>
+            <span class="ui-badge ui-badge--danger">{% translate "عجز" %}</span>
           {% else %}
-            <span class="chip">{% translate "زيادة" %}</span>
+            <span class="ui-badge">{% translate "زيادة" %}</span>
           {% endif %}
         {% endif %}
       </td>
@@ -86,21 +86,21 @@
         {% if shift.number %}
           <bdi dir="ltr"><code>{{ shift.number }}</code></bdi>
         {% else %}
-          <span class="muted">{% translate "لم يُعتمد" %}</span>
+          <span class="ui-text-muted">{% translate "لم يُعتمد" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'الحالة' %}">
         {% if shift.status == "APPROVED" %}
-          <span class="chip chip--ok">{{ shift.get_status_display }}</span>
+          <span class="ui-badge ui-badge--success">{{ shift.get_status_display }}</span>
         {% elif shift.status == "REVERSED" %}
-          <span class="chip chip--bad">{{ shift.get_status_display }}</span>
+          <span class="ui-badge ui-badge--danger">{{ shift.get_status_display }}</span>
         {% else %}
-          <span class="chip">{{ shift.get_status_display }}</span>
+          <span class="ui-badge">{{ shift.get_status_display }}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'إجراءات' %}">
-        <div class="rowactions">
-          <a class="btn btn--quiet btn--sm" href="{% url 'sales:shift_detail' shift.pk %}">
+        <div class="ui-table__actions">
+          <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'sales:shift_detail' shift.pk %}">
             {% translate "فتح" %}
           </a>
         </div>

@@ -7,8 +7,8 @@
 {% load i18n money_tags %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "الفرع" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الفرع" %}</span>
     <select name="branch">
       <option value="">{% translate "كل الفروع" %}</option>
       {% for branch in branches %}
@@ -16,8 +16,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="status">
       <option value="">{% translate "الكل" %}</option>
       {% for value, label in statuses %}
@@ -25,16 +25,16 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "مصدر الدفع" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "مصدر الدفع" %}</span>
     <select name="source">
       <option value="">{% translate "الكل" %}</option>
       <option value="cashbox" {% if selected_source == "cashbox" %}selected{% endif %}>{% translate "صندوق" %}</option>
       <option value="bank" {% if selected_source == "bank" %}selected{% endif %}>{% translate "مصرف" %}</option>
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "مركز الكلفة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "مركز الكلفة" %}</span>
     <select name="cost_center">
       <option value="">{% translate "الكل" %}</option>
       {% for center in cost_centers %}
@@ -42,12 +42,12 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "من تاريخ" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "من تاريخ" %}</span>
     <input type="date" name="from" value="{{ selected_from }}">
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "إلى تاريخ" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "إلى تاريخ" %}</span>
     <input type="date" name="to" value="{{ selected_to }}">
   </label>
 {% endblock %}
@@ -61,7 +61,7 @@
   <th>{% translate "المبلغ" %}</th>
   <th>{% translate "الحالة" %}</th>
   <th>{% translate "أنشأه" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 
 {% block rows %}
@@ -71,29 +71,29 @@
         {% if voucher.number %}
           <bdi dir="ltr">{{ voucher.number }}</bdi>
         {% else %}
-          <span class="muted">{% translate "مسودة" %} #<bdi dir="ltr">{{ voucher.pk }}</bdi></span>
+          <span class="ui-text-muted">{% translate "مسودة" %} #<bdi dir="ltr">{{ voucher.pk }}</bdi></span>
         {% endif %}
       </td>
       <td><bdi dir="ltr">{{ voucher.business_date|date:"Y-m-d" }}</bdi></td>
       <td>{{ voucher.branch.code }}</td>
       <td>{{ voucher.beneficiary }}</td>
       <td>
-        {% if voucher.cashbox %}{{ voucher.cashbox.name_ar }}
-        {% elif voucher.bank_account %}{{ voucher.bank_account.name_ar }}
+        {% if voucher.cashbox %}{{ voucher.cashbox.name }}
+        {% elif voucher.bank_account %}{{ voucher.bank_account.name }}
         {% else %}—{% endif %}
       </td>
       <td><bdi dir="ltr">{{ voucher.total_amount|money_full }}</bdi></td>
       <td>
-        {% if voucher.status == "POSTED" %}<span class="chip chip--ok">{{ voucher.get_status_display }}</span>
-        {% elif voucher.status == "REVERSED" %}<span class="chip chip--warn">{{ voucher.get_status_display }}</span>
-        {% else %}<span class="chip chip--muted">{{ voucher.get_status_display }}</span>{% endif %}
+        {% if voucher.status == "POSTED" %}<span class="ui-badge ui-badge--success">{{ voucher.get_status_display }}</span>
+        {% elif voucher.status == "REVERSED" %}<span class="ui-badge ui-badge--warning">{{ voucher.get_status_display }}</span>
+        {% else %}<span class="ui-badge ui-badge--neutral">{{ voucher.get_status_display }}</span>{% endif %}
       </td>
       <td>{% if voucher.created_by %}{{ voucher.created_by.get_full_name|default:voucher.created_by.username }}{% else %}—{% endif %}</td>
-      <td class="cell-actions">
-        <a class="btn btn--secondary btn--sm" href="{% url 'accounting:expense_detail' voucher.pk %}">{% translate "تفاصيل" %}</a>
+      <td class="ui-table__actions">
+        <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:expense_detail' voucher.pk %}">{% translate "تفاصيل" %}</a>
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="9" class="empty">{% translate "لا توجد سندات مصروف مطابقة." %}</td></tr>
+    <tr><td colspan="9" class="ui-table__empty">{% translate "لا توجد سندات مصروف مطابقة." %}</td></tr>
   {% endfor %}
 {% endblock %}

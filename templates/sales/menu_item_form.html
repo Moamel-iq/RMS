@@ -9,66 +9,65 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page workspace-form-page" aria-labelledby="sales-menu-item-form-title">
-    <nav class="workspace-breadcrumb sales-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--form" aria-labelledby="sales-menu-item-form-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:menu_item_list' %}">{% translate "أصناف المنيو" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ page_title }}</span>
     </nav>
 
-    <div class="pagehead">
+    <div class="ui-page-header">
       <div>
-        <p class="pagehead__eyebrow">{% translate "المنيو" %}</p>
-        <h1 class="pagehead__title" id="sales-menu-item-form-title">{{ page_title }}</h1>
-        {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+        <p class="ui-page-header__eyebrow">{% translate "المنيو" %}</p>
+        <h1 class="ui-page-header__title" id="sales-menu-item-form-title">{{ page_title }}</h1>
+        {% if page_hint %}<p class="ui-page-header__subtitle">{{ page_hint }}</p>{% endif %}
       </div>
     </div>
 
-    <form class="formcard workspace-form-card" method="post" novalidate
+    <form class="ui-form-card" method="post" novalidate
           data-sales-menu-item-form
-          hx-post="{{ request.path }}" hx-target="closest .workspace-form-page"
+          hx-post="{{ request.path }}" hx-target="closest .ui-page--form"
           hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
       {% csrf_token %}
       {% include "components/form_error_summary.html" with form=form %}
 
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% if form.organization %}{% include "settings/_field.html" with field=form.organization %}{% endif %}
         {% include "settings/_field.html" with field=form.code %}
-        {% include "settings/_field.html" with field=form.name_ar %}
-        {% include "settings/_field.html" with field=form.name_en %}
+        {% include "settings/_field.html" with field=form.name %}
         {% include "settings/_field.html" with field=form.category %}
         {% include "settings/_field.html" with field=form.fulfillment_source %}
       </div>
 
-      <fieldset class="formcard" data-fulfillment-panel="RECIPE_SERVING">
-        <legend class="section-title">{% translate "تنفيذ من وصفة" %}</legend>
-        <p class="muted">{% translate "اختر الوصفة ثم أدخل رمز الحصة الثابت كما يظهر داخل نسخها." %}</p>
-        <div class="formgrid">
+      <fieldset class="ui-form-card" data-fulfillment-panel="RECIPE_SERVING">
+        <legend class="ui-section-title">{% translate "تنفيذ من وصفة" %}</legend>
+        <p class="ui-text-muted">{% translate "اختر الوصفة ثم أدخل رمز الحصة الثابت كما يظهر داخل نسخها." %}</p>
+        <div class="ui-form-grid">
           {% include "settings/_field.html" with field=form.recipe %}
           {% include "settings/_field.html" with field=form.serving_code %}
         </div>
       </fieldset>
 
-      <fieldset class="formcard" data-fulfillment-panel="DIRECT_STOCK">
-        <legend class="section-title">{% translate "صرف مباشر من المخزون" %}</legend>
-        <p class="muted">
+      <fieldset class="ui-form-card" data-fulfillment-panel="DIRECT_STOCK">
+        <legend class="ui-section-title">{% translate "صرف مباشر من المخزون" %}</legend>
+        <p class="ui-text-muted">
           {% translate "للماء والمشروبات والعسل واللبن والبضاعة المشتراة لإعادة البيع. يُحدد مخزن الصرف لكل فرع بعد حفظ الصنف." %}
         </p>
-        <div class="formgrid">
+        <div class="ui-form-grid">
           {% include "settings/_field.html" with field=form.inventory_item %}
           {% include "settings/_field.html" with field=form.direct_stock_base_quantity %}
         </div>
       </fieldset>
 
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% include "settings/_field.html" with field=form.description_ar %}
         {% include "settings/_field.html" with field=form.display_order %}
         {% include "settings/_field.html" with field=form.notes %}
       </div>
 
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "حفظ" %}</button>
-        <a class="btn btn--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "حفظ" %}</button>
+        <a class="ui-button ui-button--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
       </div>
     </form>
   </section>

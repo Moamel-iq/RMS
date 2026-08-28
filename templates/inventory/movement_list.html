@@ -2,11 +2,11 @@
 {% load i18n %}
 
 {% block pageactions %}
-  <span class="inventory-list-note">{% translate "السجل للقراءة فقط" %}</span>
+  <span class="ui-notice">{% translate "السجل للقراءة فقط" %}</span>
 {% endblock %}
 
 {% block filters %}
-  <select class="inventory-movement-filter" name="movement_type" aria-label="{% translate 'نوع الحركة' %}">
+  <select class="ui-filter-bar" name="movement_type" aria-label="{% translate 'نوع الحركة' %}">
     <option value="">{% translate "كل أنواع الحركة" %}</option>
     {% for value, label in movement_types %}<option value="{{ value }}" {% if value == selected_movement_type %}selected{% endif %}>{{ label }}</option>{% endfor %}
   </select>
@@ -15,7 +15,7 @@
 {% block active_filter_chips %}
   {% if selected_movement_type %}
     {% for value, label in movement_types %}
-      {% if value == selected_movement_type %}<span class="filter-chip"><span>{% translate "نوع الحركة" %}</span>{{ label }}</span>{% endif %}
+      {% if value == selected_movement_type %}<span class="ui-filter-chip"><span>{% translate "نوع الحركة" %}</span>{{ label }}</span>{% endif %}
     {% endfor %}
   {% endif %}
 {% endblock %}
@@ -35,21 +35,21 @@
   {% translate "لا توجد حركات مخزنية بعد" as empty_title %}
   {% translate "يظهر سجل الحركة هنا فور ترحيل أول مستند مخزني." as empty_description %}
   {% for movement in movements %}
-    <tr class="inventory-movement-row">
-      <td class="inventory-movement-row__identity" data-label="{% translate 'الحركة' %}">
-        <a class="inventory-movement-link" href="{% url 'inventory:movement_detail' movement.pk %}">
-          <span class="inventory-status">{{ movement.get_movement_type_display }}</span>
+    <tr class="ui-item-row">
+      <td class="ui-table__cell" data-label="{% translate 'الحركة' %}">
+        <a class="ui-cell-stack" href="{% url 'inventory:movement_detail' movement.pk %}">
+          <span class="ui-badge ui-badge--neutral">{{ movement.get_movement_type_display }}</span>
           <strong>{% translate "حركة" %} <bdi dir="ltr"><code>#{{ movement.posted_sequence }}</code></bdi></strong>
           <small>{% if movement.entry.source_event %}{{ movement.entry.source_document_type }}{% else %}{% translate "ترحيل يدوي" %}{% endif %}</small>
         </a>
       </td>
       <td data-label="{% translate 'الصنف والمخزن' %}">
-        <div class="inventory-cell-stack"><span><bdi dir="ltr"><code>{{ movement.item.code }}</code></bdi> {{ movement.item.name_ar }}</span><small><bdi dir="ltr"><code>{{ movement.warehouse.code }}</code></bdi> · {{ movement.warehouse.name_ar }}</small></div>
+        <div class="ui-cell-stack"><span><bdi dir="ltr"><code>{{ movement.item.code }}</code></bdi> {{ movement.item.name }}</span><small><bdi dir="ltr"><code>{{ movement.warehouse.code }}</code></bdi> · {{ movement.warehouse.name }}</small></div>
       </td>
-      <td data-label="{% translate 'الكمية' %}"><bdi class="inventory-number" dir="ltr">{{ movement.base_quantity|stringformat:"f" }}</bdi><small class="inventory-unit"><bdi dir="ltr">{{ movement.item.base_unit.code }}</bdi></small></td>
-      <td data-label="{% translate 'الرصيد بعد الحركة' %}"><bdi class="inventory-number" dir="ltr">{{ movement.quantity_after|stringformat:"f" }}</bdi><small class="inventory-unit"><bdi dir="ltr">{{ movement.item.base_unit.code }}</bdi></small></td>
-      {% if show_cost %}<td data-label="{% translate 'القيمة' %}"><bdi class="inventory-number" dir="ltr">{{ movement.inventory_value|stringformat:"f" }}</bdi><small class="inventory-unit">{% translate "قيمة الحركة" %}</small></td>{% endif %}
-      <td data-label="{% translate 'الأثر والترحيل' %}"><div class="inventory-cell-stack"><bdi dir="ltr"><time datetime="{{ movement.effective_at|date:'c' }}">{{ movement.effective_at|date:"Y-m-d" }}</time></bdi><small><bdi dir="ltr">{{ movement.posted_at|date:"H:i" }} · #{{ movement.posted_sequence }}</bdi></small></div></td>
+      <td data-label="{% translate 'الكمية' %}"><bdi class="ui-numeric" dir="ltr">{{ movement.base_quantity|stringformat:"f" }}</bdi><small class="ui-text-muted"><bdi dir="ltr">{{ movement.item.base_unit.code }}</bdi></small></td>
+      <td data-label="{% translate 'الرصيد بعد الحركة' %}"><bdi class="ui-numeric" dir="ltr">{{ movement.quantity_after|stringformat:"f" }}</bdi><small class="ui-text-muted"><bdi dir="ltr">{{ movement.item.base_unit.code }}</bdi></small></td>
+      {% if show_cost %}<td data-label="{% translate 'القيمة' %}"><bdi class="ui-numeric" dir="ltr">{{ movement.inventory_value|stringformat:"f" }}</bdi><small class="ui-text-muted">{% translate "قيمة الحركة" %}</small></td>{% endif %}
+      <td data-label="{% translate 'الأثر والترحيل' %}"><div class="ui-cell-stack"><bdi dir="ltr"><time datetime="{{ movement.effective_at|date:'c' }}">{{ movement.effective_at|date:"Y-m-d" }}</time></bdi><small><bdi dir="ltr">{{ movement.posted_at|date:"H:i" }} · #{{ movement.posted_sequence }}</bdi></small></div></td>
     </tr>
   {% empty %}
     <tr><td colspan="{% if show_cost %}6{% else %}5{% endif %}" data-empty-state>

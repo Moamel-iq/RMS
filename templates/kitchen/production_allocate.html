@@ -15,33 +15,33 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="production-allocate">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">
+  <div class="ui-page" id="production-allocate">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">
           {{ actual.item.code }} — <code dir="ltr">{{ actual.quantity_display }}</code>
           {{ actual.item.base_unit.code }}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:production_detail' batch.pk %}">
           {% translate "رجوع إلى المسودة" %}
         </a>
       </div>
     </div>
 
     {% if allocation_required %}
-      <p class="banner" role="alert">
+      <p class="ui-notice" role="alert">
         {% translate "هذا الصنف يتتبع اللوطات: يجب تخصيص لوط لكل كمية قبل الترحيل." %}
       </p>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "التخصيصات الحالية" %}</h2>
       {% if allocations %}
-        <div class="data-table-shell">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll">
+          <table class="ui-table ui-table--responsive">
             <thead>
               <tr>
                 <th scope="col">#</th>
@@ -63,35 +63,35 @@
           </table>
         </div>
         {% if can_draft %}
-          <form class="formactions" method="post" action="{{ request.path }}">
+          <form class="ui-form-actions" method="post" action="{{ request.path }}">
             {% csrf_token %}
             <input type="hidden" name="clear" value="1">
-            <button class="btn btn--danger" type="submit">{% translate "امسح التخصيصات" %}</button>
+            <button class="ui-button ui-button--danger" type="submit">{% translate "امسح التخصيصات" %}</button>
           </form>
         {% endif %}
       {% else %}
-        <p class="empty">{% translate "لا يوجد تخصيص بعد." %}</p>
+        <p class="ui-table__empty">{% translate "لا يوجد تخصيص بعد." %}</p>
       {% endif %}
     </section>
 
     {% if can_draft %}
-      <form class="formcard" method="post" novalidate action="{{ request.path }}">
+      <form class="ui-form-card" method="post" novalidate action="{{ request.path }}">
         {% csrf_token %}
 
         {% if form.non_field_errors %}
-          <div class="alert" role="alert">
+          <div class="ui-notice" role="alert">
             {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
           </div>
         {% endif %}
 
-        <div class="formgrid">
+        <div class="ui-form-grid">
           {% for field in form %}
             {% include "settings/_field.html" with field=field %}
           {% endfor %}
         </div>
 
-        <div class="formactions">
-          <button class="btn btn--primary" type="submit">{% translate "أضف تخصيصاً" %}</button>
+        <div class="ui-form-actions">
+          <button class="ui-button ui-button--primary" type="submit">{% translate "أضف تخصيصاً" %}</button>
         </div>
       </form>
     {% endif %}

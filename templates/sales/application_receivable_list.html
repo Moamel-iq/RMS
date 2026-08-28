@@ -12,8 +12,8 @@
 {% load i18n money_tags %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "حتى تاريخ" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "حتى تاريخ" %}</span>
     <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}">
   </label>
 {% endblock %}
@@ -36,7 +36,7 @@
         <a href="{% url 'sales:receivable_detail' position.delivery_application.pk %}">
           <bdi dir="ltr"><code>{{ position.delivery_application.code }}</code></bdi>
         </a>
-        {{ position.delivery_application.name_ar }}
+        {{ position.delivery_application.name }}
       </td>
       <td data-label="{% translate 'الرصيد' %}">
         <bdi dir="ltr"><code>{{ position.balance|iqd }}</code></bdi>
@@ -46,7 +46,7 @@
           {% if bucket.amount %}
             <bdi dir="ltr"><code>{{ bucket.amount|iqd }}</code></bdi>
           {% else %}
-            <span class="muted">—</span>
+            <span class="ui-text-muted">—</span>
           {% endif %}
         </td>
       {% endfor %}
@@ -54,22 +54,22 @@
         {% if position.oldest_open_date %}
           <bdi dir="ltr"><code>{{ position.oldest_open_date|date:"Y-m-d" }}</code></bdi>
         {% else %}
-          <span class="muted">—</span>
+          <span class="ui-text-muted">—</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'الاستحقاق' %}">
         {% if position.expected_settlement_date %}
           <bdi dir="ltr"><code>{{ position.expected_settlement_date|date:"Y-m-d" }}</code></bdi>
-          <span class="muted">
+          <span class="ui-text-muted">
             {% blocktranslate with days=position.delivery_application.settlement_cycle_days %}دورة {{ days }} يوماً{% endblocktranslate %}
           </span>
         {% else %}
-          <span class="muted">—</span>
+          <span class="ui-text-muted">—</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'إجراءات' %}">
-        <div class="rowactions">
-          <a class="btn btn--quiet btn--sm"
+        <div class="ui-table__actions">
+          <a class="ui-button ui-button--ghost ui-button--sm"
              href="{% url 'sales:receivable_detail' position.delivery_application.pk %}">
             {% translate "كشف الحساب" %}
           </a>

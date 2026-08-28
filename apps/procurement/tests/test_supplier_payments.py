@@ -116,7 +116,7 @@ def mapped(organization: Organization, accounting: None) -> None:
 
 @pytest.fixture
 def grocery(organization: Organization, mapped: None) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد")
 
 
 @pytest.fixture
@@ -643,7 +643,7 @@ class TestTheSurface:
 
         payment = _draft_payment(supplier=grocery, branch=branch, actor=keeper, amount="100.000")
         outsider = User.objects.create_user(username="spay-outsider", password=PASSWORD)
-        rival = create_organization(code="RIV4", name_ar="منافس", name_en="Rival Four")
+        rival = create_organization(code="RIV4", name="منافس")
         grant_organization_access(user=outsider, organization=rival, role=Role.MANAGER)
         outsider = User.objects.get(pk=outsider.pk)
         client.force_login(outsider)

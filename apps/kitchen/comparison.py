@@ -331,7 +331,7 @@ def _serving_section(left: RecipeVersion, right: RecipeVersion) -> ComparisonSec
             serving.code: serving for serving in right.servings.select_related("serving_unit")
         },
         attributes=(
-            ("name_ar", str(_("الاسم"))),
+            ("name", str(_("الاسم"))),
             ("serving_quantity", str(_("كمية الحصة"))),
             ("base_quantity", str(_("بوحدة الناتج"))),
             ("factor_display", str(_("معامل الدفعة"))),
@@ -371,7 +371,7 @@ def _lines_by_item(version: RecipeVersion) -> dict[str, _Row]:
         "line_order"
     ):
         rows[line.item.code] = _Row(
-            label=f"{line.item.code} — {line.item.name_ar}",
+            label=f"{line.item.code} — {line.item.name}",
             entered_quantity=line.entered_quantity,
             entered_unit_code=line.entered_unit.code if line.entered_unit else None,
             package_code=line.package_unit.code if line.package_unit else None,
@@ -396,7 +396,7 @@ def _components_by_child_recipe(version: RecipeVersion) -> dict[str, _Row]:
     for component in query.order_by("line_order"):
         child_recipe = component.component_recipe
         rows[child_recipe.code] = _Row(
-            label=f"{child_recipe.code} — {child_recipe.name_ar}",
+            label=f"{child_recipe.code} — {child_recipe.name}",
             # The exact edition, compared as a value. `v1` -> `v2` on this row is
             # a replacement parent adopting a newer child; no row at all means
             # the child was superseded somewhere else and this parent, correctly,

@@ -11,32 +11,32 @@
 <h2>
   {% translate "فحص ما قبل الإغلاق" %}
   {% if blocking_count %}
-    <span class="chip chip--warn">{{ blocking_count }}</span>
+    <span class="ui-badge ui-badge--warning">{{ blocking_count }}</span>
   {% else %}
-    <span class="chip chip--ok">{% translate "جاهزة" %}</span>
+    <span class="ui-badge ui-badge--success">{% translate "جاهزة" %}</span>
   {% endif %}
 </h2>
 
 {% if blockers %}
-  <ul class="blocker-list" id="period-blocker-list">
+  <ul class="ui-blocker-list" id="period-blocker-list">
     {% for blocker in blockers %}
-      <li class="blocker blocker--{% if blocker.is_blocking %}blocking{% else %}advisory{% endif %}">
-        <span class="chip {% if blocker.is_blocking %}chip--warn{% else %}chip--muted{% endif %}">
+      <li class="ui-blocker ui-blocker--{% if blocker.is_blocking %}blocking{% else %}advisory{% endif %}">
+        <span class="ui-badge {% if blocker.is_blocking %}ui-badge--warning{% else %}ui-badge--neutral{% endif %}">
           {% if blocker.is_blocking %}{% translate "مانع" %}{% else %}{% translate "تنبيه" %}{% endif %}
         </span>
-        <span class="blocker__message">{{ blocker.message }}</span>
-        {% if blocker.count %}<bdi dir="ltr" class="blocker__count">{{ blocker.count }}</bdi>{% endif %}
+        <span class="ui-blocker__message">{{ blocker.message }}</span>
+        {% if blocker.count %}<bdi dir="ltr" class="ui-blocker__count">{{ blocker.count }}</bdi>{% endif %}
         {% if blocker.url_name %}
-          <a class="blocker__link" href="{% url blocker.url_name %}">{% translate "فتح" %}</a>
+          <a class="ui-blocker__link" href="{% url blocker.url_name %}">{% translate "فتح" %}</a>
         {% endif %}
       </li>
     {% endfor %}
   </ul>
-  <p class="card__hint">
+  <p class="ui-card__subtitle">
     {% translate "تُعرض المعوّقات ولا تُصلَح من هنا: كل واحد منها مستند تملكه وحدة أخرى." %}
   </p>
 {% else %}
-  <p class="card__hint">
+  <p class="ui-card__subtitle">
     {% translate "لا معوّقات. الفترة جاهزة للإقفال." %}
   </p>
 {% endif %}

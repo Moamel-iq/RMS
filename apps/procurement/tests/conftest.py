@@ -30,12 +30,12 @@ PASSWORD = "pw-not-real-1234"
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
 def other_organization() -> Organization:
-    return create_organization(code="RIVAL", name_ar="منافس", name_en="Rival")
+    return create_organization(code="RIVAL", name="منافس")
 
 
 @pytest.fixture
@@ -43,8 +43,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 

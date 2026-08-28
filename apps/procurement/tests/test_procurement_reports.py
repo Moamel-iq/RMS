@@ -174,8 +174,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -185,12 +185,12 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 @pytest.fixture
 def grocery(organization: Organization, mapped: None) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد")
 
 
 @pytest.fixture
@@ -360,7 +360,11 @@ def posted_return(
 ) -> SupplierReturn:
     """Ten kilograms go back: a 14,000 claim standing against the supplier."""
     supplier_return = create_supplier_return(
-        receipt=partial_receipt,
+        organization=partial_receipt.organization,
+        branch=partial_receipt.branch,
+        supplier=partial_receipt.supplier,
+        warehouse=partial_receipt.warehouse,
+        location=partial_receipt.location,
         created_by=keeper,
         returned_at=_today() - datetime.timedelta(days=3),
         reason="بضاعة تالفة",
@@ -368,7 +372,8 @@ def posted_return(
     )
     add_return_line(
         supplier_return=supplier_return,
-        receipt_line=partial_receipt.lines.get(),
+        item=partial_receipt.lines.get().item,
+        lot=partial_receipt.lines.get().lot,
         returned_base_quantity=Decimal("10.000"),
     )
     return post_supplier_return(supplier_return=supplier_return, actor=org_manager)
@@ -1136,7 +1141,7 @@ class TestExports:
         the file, and a supplier whose name begins with a formula trigger
         reaches the spreadsheet as text, not as code on the reader's machine.
         """
-        hostile = create_supplier(organization=organization, code="EVIL-01", name_ar="=cmd|احتيال")
+        hostile = create_supplier(organization=organization, code="EVIL-01", name="=cmd|احتيال")
         _posted_expense_invoice(
             organization=organization,
             supplier=hostile,
@@ -1178,7 +1183,7 @@ class TestExports:
         keeper: User,
         org_manager: User,
     ) -> None:
-        other = create_supplier(organization=organization, code="MEAT-01", name_ar="مورد لحم")
+        other = create_supplier(organization=organization, code="MEAT-01", name="مورد لحم")
         _posted_expense_invoice(
             organization=organization,
             supplier=other,

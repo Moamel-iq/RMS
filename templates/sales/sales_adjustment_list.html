@@ -12,8 +12,8 @@
 {% load i18n %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="status">
       <option value="">{% translate "كل الحالات" %}</option>
       {% for value, label in statuses %}
@@ -21,8 +21,8 @@
       {% endfor %}
     </select>
   </label>
-  <label class="field">
-    <span class="field__label">{% translate "النوع" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "النوع" %}</span>
     <select name="kind">
       <option value="">{% translate "كل الأنواع" %}</option>
       {% for value, label in kinds %}
@@ -52,7 +52,7 @@
         </a>
       </td>
       <td data-label="{% translate 'الفرع' %}">
-        <bdi dir="ltr"><code>{{ adjustment.branch.code }}</code></bdi> {{ adjustment.branch.name_ar }}
+        <bdi dir="ltr"><code>{{ adjustment.branch.code }}</code></bdi> {{ adjustment.branch.name }}
       </td>
       <td data-label="{% translate 'اليوم المصحَّح' %}">
         <a href="{% url 'sales:day_detail' adjustment.sales_day.pk %}">
@@ -62,9 +62,9 @@
       <td data-label="{% translate 'النوع' %}">
         {% if adjustment.reduces_theoretical_consumption %}
           {# The only kind the kitchen's theoretical consumption sees. #}
-          <span class="chip chip--ok">{{ adjustment.get_reason_kind_display }}</span>
+          <span class="ui-badge ui-badge--success">{{ adjustment.get_reason_kind_display }}</span>
         {% else %}
-          <span class="chip">{{ adjustment.get_reason_kind_display }}</span>
+          <span class="ui-badge">{{ adjustment.get_reason_kind_display }}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'الرقم' %}">
@@ -72,7 +72,7 @@
           <bdi dir="ltr"><code>{{ adjustment.number }}</code></bdi>
         {% else %}
           {# A number exists exactly when the adjustment has reached the ledger. #}
-          <span class="muted">{% translate "لم تُرحَّل" %}</span>
+          <span class="ui-text-muted">{% translate "لم تُرحَّل" %}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'المستند' %}">
@@ -80,16 +80,16 @@
       </td>
       <td data-label="{% translate 'الحالة' %}">
         {% if adjustment.status == "POSTED" %}
-          <span class="chip chip--ok">{{ adjustment.get_status_display }}</span>
+          <span class="ui-badge ui-badge--success">{{ adjustment.get_status_display }}</span>
         {% elif adjustment.status == "REVERSED" %}
-          <span class="chip chip--bad">{{ adjustment.get_status_display }}</span>
+          <span class="ui-badge ui-badge--danger">{{ adjustment.get_status_display }}</span>
         {% else %}
-          <span class="chip">{{ adjustment.get_status_display }}</span>
+          <span class="ui-badge">{{ adjustment.get_status_display }}</span>
         {% endif %}
       </td>
       <td data-label="{% translate 'إجراءات' %}">
-        <div class="rowactions">
-          <a class="btn btn--quiet btn--sm" href="{% url 'sales:adjustment_detail' adjustment.pk %}">
+        <div class="ui-table__actions">
+          <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'sales:adjustment_detail' adjustment.pk %}">
             {% translate "فتح" %}
           </a>
         </div>

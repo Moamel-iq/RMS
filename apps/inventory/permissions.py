@@ -1,35 +1,34 @@
 """
-The twenty-eight inventory permissions, their scope, and which role holds them.
+The twenty-seven inventory permissions, their scope, and which role holds them.
 
 Eighteen were approved with Task 1.0. The nineteenth, `manage_package_units`,
 follows from the amendment that made `PackageUnit` its own model: a model
 nobody may administer is a model nobody can populate. The twentieth,
 `create_opening_stock`, arrived with the Task 1.3 opening document: preparing
 a branch's opening list and *posting* it to the ledger are different acts, and
-maker-checker needs them separable. The twenty-first, `post_return_in`, came
-with Task 1.4: putting stock back is a different decision from taking it out,
-and a deployment that trusts one and not the other must be able to say so.
-The twenty-second, `close_transfer_shortage`, comes with Task 1.5 and is the
-most sensitive of the set — it turns stock that has gone missing into an
-expense, which is the one inventory act indistinguishable from concealing a
-theft if the wrong person may perform it. The twenty-third,
-`manage_reason_codes`, arrives with Task 1.6: waste and adjustment reasons are
-organization master data, and whoever can invent a reason can make any loss
-look routine.
+maker-checker needs them separable. The twenty-first,
+`close_transfer_shortage`, comes with Task 1.5 and is the most sensitive of
+the set — it turns stock that has gone missing into an expense, which is the
+one inventory act indistinguishable from concealing a theft if the wrong
+person may perform it.
 
-The twenty-fourth, twenty-fifth and twenty-sixth arrive with Task 1.7 and
-split the import boundary three ways, because they are three different risks.
-`import_master_data` reshapes what the organization stocks — wide, reversible,
-and wrong in a way somebody notices. `import_opening_draft` would prepare a
-*draft* opening document from a spreadsheet; even as a draft that is the
-ledger's starting position, so it belongs with accounting authority rather
-than with whoever maintains the item master. **The kind it guards is deferred
-and the permission is therefore reserved and granted to no role** — the same
-treatment `override_negative_stock` gets, and for the same reason: a grant for
-a capability nobody can exercise is a grant nobody can audit. `view_import_history` is separate from
-both because reading what somebody uploaded is an audit act: an accountant who
-may not apply a single row still has to be able to see what was applied, by
-whom, and what it changed.
+`import_master_data` and `import_opening_draft` arrive with Task 1.7 and split
+the import boundary, because they are two different risks. `import_master_data`
+reshapes what the organization stocks — wide, reversible, and wrong in a way
+somebody notices. `import_opening_draft` would prepare a *draft* opening
+document from a spreadsheet; even as a draft that is the ledger's starting
+position, so it belongs with accounting authority rather than with whoever
+maintains the item master. **The kind it guards is deferred and the permission
+is therefore reserved and granted to no role** — the same treatment
+`override_negative_stock` gets, and for the same reason: a grant for a
+capability nobody can exercise is a grant nobody can audit.
+
+Three permissions were **withdrawn** when their screens were: `post_return_in`
+(the return-from-issue document), `manage_reason_codes` (the movement-reason
+vocabulary) and `view_import_history` (the import log). `post_receipt`
+deliberately stayed: a purchase goods receipt, a transfer in, a production
+output, a count gain and a manual adjustment all post through it, so it never
+belonged to the un-invoiced receipt alone.
 
 No permission imports *posted* stock. There is no such permission because
 there is no such path — an uploaded spreadsheet reaches the ledger only by
@@ -125,7 +124,6 @@ CREATE_ITEM = f"{APP_LABEL}.create_item"
 EDIT_ITEM = f"{APP_LABEL}.edit_item"
 MANAGE_CONVERSIONS = f"{APP_LABEL}.manage_conversions"
 MANAGE_WAREHOUSES = f"{APP_LABEL}.manage_warehouses"
-MANAGE_REASON_CODES = f"{APP_LABEL}.manage_reason_codes"
 VIEW_STOCK = f"{APP_LABEL}.view_stock"
 VIEW_VALUATION = f"{APP_LABEL}.view_valuation"
 CREATE_DRAFT_MOVEMENT = f"{APP_LABEL}.create_draft_movement"
@@ -133,7 +131,6 @@ CREATE_OPENING_STOCK = f"{APP_LABEL}.create_opening_stock"
 POST_OPENING_STOCK = f"{APP_LABEL}.post_opening_stock"
 POST_RECEIPT = f"{APP_LABEL}.post_receipt"
 POST_ISSUE = f"{APP_LABEL}.post_issue"
-POST_RETURN_IN = f"{APP_LABEL}.post_return_in"
 POST_TRANSFER = f"{APP_LABEL}.post_transfer"
 CLOSE_TRANSFER_SHORTAGE = f"{APP_LABEL}.close_transfer_shortage"
 POST_WASTE = f"{APP_LABEL}.post_waste"
@@ -144,7 +141,6 @@ REVERSE_MOVEMENT = f"{APP_LABEL}.reverse_movement"
 OVERRIDE_NEGATIVE_STOCK = f"{APP_LABEL}.override_negative_stock"
 IMPORT_MASTER_DATA = f"{APP_LABEL}.import_master_data"
 IMPORT_OPENING_DRAFT = f"{APP_LABEL}.import_opening_draft"
-VIEW_IMPORT_HISTORY = f"{APP_LABEL}.view_import_history"
 MANAGE_LOCATIONS = f"{APP_LABEL}.manage_locations"
 MOVE_LOCATION_STOCK = f"{APP_LABEL}.move_location_stock"
 
@@ -157,7 +153,6 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     EDIT_ITEM,
     MANAGE_CONVERSIONS,
     MANAGE_WAREHOUSES,
-    MANAGE_REASON_CODES,
     VIEW_STOCK,
     VIEW_VALUATION,
     CREATE_DRAFT_MOVEMENT,
@@ -165,7 +160,6 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     POST_OPENING_STOCK,
     POST_RECEIPT,
     POST_ISSUE,
-    POST_RETURN_IN,
     POST_TRANSFER,
     CLOSE_TRANSFER_SHORTAGE,
     POST_WASTE,
@@ -176,7 +170,6 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     OVERRIDE_NEGATIVE_STOCK,
     IMPORT_MASTER_DATA,
     IMPORT_OPENING_DRAFT,
-    VIEW_IMPORT_HISTORY,
     MANAGE_LOCATIONS,
     MOVE_LOCATION_STOCK,
 )
@@ -197,14 +190,12 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # destroyed or corrected. One branch inventing its own would make the waste
     # analysis incomparable across the group, which is the whole reason the
     # figure is collected.
-    MANAGE_REASON_CODES: PermissionScope.ORGANIZATION_MASTER_DATA,
     # An import of items, categories, packages or conversions reshapes the
     # shared master, so it is answered where that master lives. Reading the
     # history is scoped the same way: a batch names the organization it ran
     # against, and an audit that stopped at a branch boundary would hide
     # exactly the cross-branch change worth looking at.
     IMPORT_MASTER_DATA: PermissionScope.ORGANIZATION_MASTER_DATA,
-    VIEW_IMPORT_HISTORY: PermissionScope.ORGANIZATION_MASTER_DATA,
     # Custody structures and figures belong to the branch.
     MANAGE_WAREHOUSES: PermissionScope.BRANCH,
     # A location lives inside one warehouse, so maintaining the bins is
@@ -234,7 +225,6 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # A movement names a warehouse, so posting is answered per warehouse.
     POST_RECEIPT: PermissionScope.WAREHOUSE,
     POST_ISSUE: PermissionScope.WAREHOUSE,
-    POST_RETURN_IN: PermissionScope.WAREHOUSE,
     POST_TRANSFER: PermissionScope.WAREHOUSE,
     POST_WASTE: PermissionScope.WAREHOUSE,
     CONDUCT_STOCK_COUNT: PermissionScope.WAREHOUSE,
@@ -276,7 +266,6 @@ _ACCOUNTING_MANAGER = frozenset(
         # not a warehouse operation — which is why it sits with the role that
         # holds no routine dispatch or receipt authority at all.
         CLOSE_TRANSFER_SHORTAGE,
-        VIEW_IMPORT_HISTORY,
     }
 )
 
@@ -296,14 +285,12 @@ _MANAGER = frozenset(
         MANAGE_WAREHOUSES,
         MANAGE_LOCATIONS,
         MOVE_LOCATION_STOCK,
-        MANAGE_REASON_CODES,
         VIEW_STOCK,
         VIEW_VALUATION,
         CREATE_DRAFT_MOVEMENT,
         CREATE_OPENING_STOCK,
         POST_RECEIPT,
         POST_ISSUE,
-        POST_RETURN_IN,
         POST_TRANSFER,
         CLOSE_TRANSFER_SHORTAGE,
         POST_WASTE,
@@ -316,17 +303,11 @@ _MANAGER = frozenset(
         # are deliberately absent: a manager prepares the branch's opening by
         # hand and accounting posts it.
         IMPORT_MASTER_DATA,
-        VIEW_IMPORT_HISTORY,
     }
 )
 
 #: Moves goods. Deliberately **cannot see cost**, cannot approve their own
 #: count, and cannot waste, adjust, reverse, or override.
-#:
-#: `post_return_in` sits here because returning unused stock to the shelf is
-#: the same custody act as issuing it, done backwards — the storekeeper who
-#: handed the goods out is the one who takes them back. It carries no cost
-#: decision at all: a return is valued from the issue it reverses.
 _STOREKEEPER = frozenset(
     {
         VIEW_ITEM,
@@ -334,7 +315,6 @@ _STOREKEEPER = frozenset(
         CREATE_DRAFT_MOVEMENT,
         POST_RECEIPT,
         POST_ISSUE,
-        POST_RETURN_IN,
         POST_TRANSFER,
         CONDUCT_STOCK_COUNT,
         # Putting stock away and picking it is the storekeeper's job, and
@@ -348,12 +328,9 @@ _STOREKEEPER = frozenset(
 #: arrived.
 _PURCHASING = frozenset({VIEW_ITEM, VIEW_STOCK, VIEW_VALUATION})
 
-#: Reads the figures, and reads what was imported. Posting opening stock is
-#: Accounting Manager authority — it sets the ledger's starting point — and so
-#: is applying an import. Reading the history is not: an accountant who may
-#: apply nothing still has to be able to see what was applied and by whom,
-#: which is the point of keeping the history permission separate.
-_ACCOUNTANT = frozenset({VIEW_ITEM, VIEW_STOCK, VIEW_VALUATION, VIEW_IMPORT_HISTORY})
+#: Reads the figures. Posting opening stock is Accounting Manager authority —
+#: it sets the ledger's starting point — and so is applying an import.
+_ACCOUNTANT = frozenset({VIEW_ITEM, VIEW_STOCK, VIEW_VALUATION})
 
 #: Reads what exists, never what it cost.
 _VIEWER = frozenset({VIEW_ITEM, VIEW_STOCK})

@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# Create and edit for every kitchen record.                                 #}
@@ -9,39 +9,39 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page workspace-form-page" aria-labelledby="kitchen-form-title">
-  <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--form" aria-labelledby="kitchen-form-title">
+  <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
     <a href="{% url active_module.url_name %}">{{ active_module.label }}</a>
     <span aria-hidden="true">/</span>
     <span aria-current="page">{{ page_title }}</span>
   </nav>
-  <div class="pagehead">
+  <div class="ui-page-header">
     <div>
-      <p class="pagehead__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
-      <h1 class="pagehead__title" id="kitchen-form-title">{{ page_title }}</h1>
-      {% if page_hint %}<p class="pagehead__hint">{{ page_hint }}</p>{% endif %}
+      <p class="ui-page-header__eyebrow">{{ active_nav_group|default:active_module.label }}</p>
+      <h1 class="ui-page-header__title" id="kitchen-form-title">{{ page_title }}</h1>
+      {% if page_hint %}<p class="ui-page-header__subtitle">{{ page_hint }}</p>{% endif %}
     </div>
   </div>
 
-  <form class="formcard workspace-form-card" method="post" novalidate>
+  <form class="ui-form-card" method="post" novalidate>
     {% csrf_token %}
 
     {% if form.non_field_errors %}
-      <div class="alert" role="alert">
+      <div class="ui-notice" role="alert">
         {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
       </div>
     {% endif %}
 
-    <div class="formgrid">
+    <div class="ui-form-grid">
       {% for field in form %}
         {% if field.field.widget.input_type == "checkbox" %}
-          <div class="formrow formrow--check{% if field.errors %} formrow--invalid{% endif %}">
+          <div class="ui-field ui-field--check{% if field.errors %} ui-field--invalid{% endif %}">
             {{ field }}
-            <label class="formrow__label" style="margin:0" for="{{ field.id_for_label }}">
+            <label class="ui-field__label" style="margin:0" for="{{ field.id_for_label }}">
               {{ field.label }}
             </label>
-            {% if field.help_text %}<p class="formrow__help">{{ field.help_text }}</p>{% endif %}
-            {% for error in field.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}
+            {% if field.help_text %}<p class="ui-field__hint">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}
           </div>
         {% else %}
           {% include "settings/_field.html" with field=field %}
@@ -49,9 +49,9 @@
       {% endfor %}
     </div>
 
-    <div class="formactions">
-      <button class="btn btn--primary" type="submit">{% translate "حفظ" %}</button>
-      <a class="btn btn--ghost" href="{% url 'kitchen:recipe_list' %}">{% translate "إلغاء" %}</a>
+    <div class="ui-form-actions">
+      <button class="ui-button ui-button--primary" type="submit">{% translate "حفظ" %}</button>
+      <a class="ui-button ui-button--ghost" href="{% url 'kitchen:recipe_list' %}">{% translate "إلغاء" %}</a>
     </div>
   </form>
   </section>

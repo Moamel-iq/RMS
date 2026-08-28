@@ -99,7 +99,7 @@ class CashboxListView(AccountingListView):
         "كل صندوق مرتبط بحساب نقدية واحد، والرصيد مشتق من القيود المُرحَّلة — "
         "لا يوجد رصيد مخزّن يمكن أن يخالف دفتر الأستاذ."
     )
-    search_fields = ("code", "name_ar", "name_en", "account__code")
+    search_fields = ("code", "name", "account__code")
     search_placeholder = _("ابحث برمز الصندوق أو اسمه…")
     result_label = _("صندوق")
     create_url_name = "accounting:cashbox_create"
@@ -166,8 +166,7 @@ class CashboxCreateView(AccountingWriteView):
             branch_id=data["branch"].pk,
             account_id=data["account"].pk,
             code=data["code"],
-            name_ar=data["name_ar"],
-            name_en=data["name_en"],
+            name=data["name"],
             opened_on=data["opened_on"],
             responsible_note=data.get("responsible_note", ""),
             notes=data.get("notes", ""),
@@ -206,8 +205,7 @@ class CashboxUpdateView(AccountingWriteView):
 
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "responsible_note": instance.responsible_note,
             "notes": instance.notes,
         }
@@ -220,8 +218,7 @@ class CashboxUpdateView(AccountingWriteView):
         amend_cashbox(
             actor=self.actor,
             cashbox_id=instance.pk,
-            name_ar=data["name_ar"],
-            name_en=data["name_en"],
+            name=data["name"],
             responsible_note=data.get("responsible_note", ""),
             notes=data.get("notes", ""),
             reason=data.get("reason", ""),
@@ -332,7 +329,7 @@ class BankAccountListView(AccountingListView):
         "رقم الحساب يُخزَّن مقنَّعاً. الرصيد مشتق من القيود المُرحَّلة، ولا يوجد "
         "استيراد كشوف في الإصدار الأول."
     )
-    search_fields = ("code", "name_ar", "name_en", "bank_name", "account__code")
+    search_fields = ("code", "name", "bank_name", "account__code")
     search_placeholder = _("ابحث بالاسم أو المصرف…")
     result_label = _("حساب")
     create_url_name = "accounting:bank_account_create"
@@ -384,8 +381,7 @@ class BankAccountCreateView(AccountingWriteView):
             account_id=data["account"].pk,
             code=data["code"],
             bank_name=data["bank_name"],
-            name_ar=data["name_ar"],
-            name_en=data["name_en"],
+            name=data["name"],
             masked_account_number=data["masked_account_number"],
             iban=data.get("iban", ""),
             notes=data.get("notes", ""),
@@ -422,8 +418,7 @@ class BankAccountUpdateView(AccountingWriteView):
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {
             "bank_name": instance.bank_name,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "masked_account_number": instance.masked_account_number,
             "iban": instance.iban,
             "notes": instance.notes,
@@ -438,8 +433,7 @@ class BankAccountUpdateView(AccountingWriteView):
             actor=self.actor,
             bank_id=instance.pk,
             bank_name=data["bank_name"],
-            name_ar=data["name_ar"],
-            name_en=data["name_en"],
+            name=data["name"],
             masked_account_number=data["masked_account_number"],
             iban=data.get("iban", ""),
             notes=data.get("notes", ""),

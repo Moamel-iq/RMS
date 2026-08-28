@@ -80,7 +80,7 @@ class Command(SeedCommand):
             total_observations += len(observations)
 
             self.write("")
-            self.write(f"{organization.code} - {organization.name_ar}")
+            self.write(f"{organization.code} - {organization.name}")
             self.write(f"  production drafts checked: {checked}")
             for finding in defects:
                 self.write(f"  DEFECT      {finding.code}  batch {finding.batch_id}")

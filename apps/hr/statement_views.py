@@ -27,7 +27,7 @@ class EmployeeStatementListView(HumanResourcesMixin, InventoryListView):
     context_object_name = "employees"
     page_title = _("كشوف الموظفين")
     page_hint = _("كشوف الرواتب والسلف والاستقطاعات والمدفوعات والحضور لكل موظف.")
-    search_fields = ("code", "name_ar", "name_en", "branch__name_ar", "job_title")
+    search_fields = ("code", "name", "branch__name", "job_title")
     create_url_name = ""
     result_label = _("موظف")
 
@@ -69,7 +69,7 @@ class EmployeeStatementDetailView(HumanResourcesMixin, View):
             request,
             self.template_name,
             {
-                "page_title": _("كشف الموظف %(employee)s") % {"employee": employee.name_ar},
+                "page_title": _("كشف الموظف %(employee)s") % {"employee": employee.name},
                 "statement": statement,
                 "employee": employee,
             },

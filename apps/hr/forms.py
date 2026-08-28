@@ -57,8 +57,8 @@ class EmployeeForm(forms.ModelForm):  # type: ignore[type-arg]
         fields = (
             "organization",
             "code",
-            "name_ar",
-            "name_en",
+            "name",
+            "name",
             "phone",
             "email",
             "identity_number",
@@ -85,8 +85,7 @@ class EmployeeForm(forms.ModelForm):  # type: ignore[type-arg]
         labels = {
             "organization": _("المؤسسة"),
             "code": _("رمز الموظف"),
-            "name_ar": _("الاسم بالعربية"),
-            "name_en": _("الاسم بالإنجليزية"),
+            "name": _("الاسم بالعربية"),
             "phone": _("رقم الهاتف"),
             "email": _("البريد الإلكتروني"),
             "identity_number": _("رقم الهوية"),
@@ -262,8 +261,8 @@ class ShiftForm(forms.ModelForm):  # type: ignore[type-arg]
         fields = (
             "branch",
             "code",
-            "name_ar",
-            "name_en",
+            "name",
+            "name",
             "start_time",
             "end_time",
             "crosses_midnight",
@@ -287,8 +286,7 @@ class ShiftForm(forms.ModelForm):  # type: ignore[type-arg]
         labels = {
             "branch": _("الفرع"),
             "code": _("رمز الوردية"),
-            "name_ar": _("الاسم بالعربية"),
-            "name_en": _("الاسم بالإنجليزية"),
+            "name": _("الاسم بالعربية"),
             "start_time": _("وقت البداية"),
             "end_time": _("وقت النهاية"),
             "crosses_midnight": _("تمتد بعد منتصف الليل"),
@@ -438,8 +436,8 @@ class LeaveTypeForm(forms.ModelForm):  # type: ignore[type-arg]
         fields = (
             "organization",
             "code",
-            "name_ar",
-            "name_en",
+            "name",
+            "name",
             "paid_treatment",
             "requires_evidence",
             "is_active",
@@ -448,8 +446,7 @@ class LeaveTypeForm(forms.ModelForm):  # type: ignore[type-arg]
         labels = {
             "organization": _("المؤسسة"),
             "code": _("رمز نوع الإجازة"),
-            "name_ar": _("الاسم بالعربية"),
-            "name_en": _("الاسم بالإنجليزية"),
+            "name": _("الاسم بالعربية"),
             "paid_treatment": _("معالجة الأجر"),
             "requires_evidence": _("يتطلب مستنداً"),
             "is_active": _("نشط"),

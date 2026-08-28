@@ -51,12 +51,12 @@ def _codes(error: ValidationError) -> set[str]:
 
 @pytest.fixture
 def khan() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
 def rival() -> Organization:
-    return create_organization(code="RIVAL", name_ar="منافس", name_en="Rival")
+    return create_organization(code="RIVAL", name="منافس")
 
 
 @pytest.fixture
@@ -64,8 +64,7 @@ def bunook(khan: Organization) -> Branch:
     return create_branch(
         organization=khan,
         code="011",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=OPENING,
     )
 
@@ -75,8 +74,7 @@ def rival_branch(rival: Organization) -> Branch:
     return create_branch(
         organization=rival,
         code="R01",
-        name_ar="فرع المنافس",
-        name_en="Rival branch",
+        name="فرع المنافس",
         business_day_start_time=OPENING,
     )
 
@@ -92,7 +90,7 @@ def registrar(khan: Organization) -> RoleDefinition:
     return create_role_definition(
         organization=khan,
         code="registrar",
-        name_ar="مسجّل أصناف",
+        name="مسجّل أصناف",
         permissions=[VIEW_ITEM, CREATE_ITEM],
     )
 
@@ -112,14 +110,12 @@ class TestDefinition:
         self, khan: Organization, rival: Organization, registrar: RoleDefinition
     ) -> None:
         with pytest.raises(ValidationError):
-            create_role_definition(
-                organization=khan, code="Registrar!", name_ar="x", permissions=[]
-            )
+            create_role_definition(organization=khan, code="Registrar!", name="x", permissions=[])
         with pytest.raises(ValidationError):
-            create_role_definition(organization=khan, code="registrar", name_ar="x", permissions=[])
+            create_role_definition(organization=khan, code="registrar", name="x", permissions=[])
         # The same code in another organization is another post entirely.
         other = create_role_definition(
-            organization=rival, code="registrar", name_ar="x", permissions=[]
+            organization=rival, code="registrar", name="x", permissions=[]
         )
         assert other.key != registrar.key
 
@@ -130,7 +126,7 @@ class TestDefinition:
             create_role_definition(
                 organization=khan,
                 code="admin-ish",
-                name_ar="x",
+                name="x",
                 permissions=[VIEW_ITEM, "auth.add_user"],
             )
         assert "unknown_permission" in _codes(refused.value)

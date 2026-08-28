@@ -60,13 +60,13 @@ CHECKER_USERNAME = "demo-storekeeper"
 #: names rather than literal paths: a hard-coded path is a second copy of
 #: the URL configuration, and the copy is the one that goes stale.
 INSPECTION_ROUTES: list[tuple[str, str]] = [
-    ("procurement:supplier_list", "الموردون"),
+    ("procurement:supplier_list", "المشتريات"),
     ("procurement:supplier_item_list", "كتالوج الموردين"),
     ("procurement:purchase_request_list", "طلبات الشراء"),
     ("procurement:quotation_list", "عروض الموردين"),
     ("procurement:purchase_order_list", "أوامر الشراء"),
     ("procurement:goods_receipt_list", "استلام البضاعة"),
-    ("procurement:supplier_invoice_list", "فواتير الموردين"),
+    ("procurement:supplier_invoice_list", "فواتير المشتريات"),
     ("procurement:supplier_invoice_charge_list", "التكاليف الإضافية"),
     ("procurement:matching_queue", "قائمة المطابقة"),
     ("procurement:purchase_match_list", "مطابقة المشتريات"),
@@ -196,10 +196,10 @@ class Command(SeedCommand):
             ]
 
         self.write("")
-        self.write(f"Organization  {organization.code} — {organization.name_ar}")
+        self.write(f"Organization  {organization.code} — {organization.name}")
         self.write("suppliers:")
         for supplier in suppliers:
-            self.write(f"  {supplier.code:<24} {supplier.name_ar}")
+            self.write(f"  {supplier.code:<24} {supplier.name}")
         self.write("")
         self.write("catalogue:")
         for row in catalogue:

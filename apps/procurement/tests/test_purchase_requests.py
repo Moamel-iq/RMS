@@ -84,7 +84,7 @@ def kilogram(units: None) -> UnitOfMeasure:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="المخزن الرئيسي")
+    return create_warehouse(branch=branch, code="MAIN", name="المخزن الرئيسي")
 
 
 @pytest.fixture
@@ -92,12 +92,12 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     from apps.inventory.services import create_item, create_item_category
 
     category: ItemCategory = create_item_category(
-        organization=organization, code="GRAINS", name_ar="حبوب"
+        organization=organization, code="GRAINS", name="حبوب"
     )
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
+        name="رز",
         category=category,
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
@@ -108,7 +108,7 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def sack(organization: Organization, rice: InventoryItem) -> PackageUnit:
     from apps.inventory.services import create_item_conversion, create_package_unit
 
-    package = create_package_unit(organization=organization, code="SACK", name_ar="كيس")
+    package = create_package_unit(organization=organization, code="SACK", name="كيس")
     create_item_conversion(
         item=rice,
         package_unit=package,
@@ -377,7 +377,7 @@ class TestLines:
     ) -> None:
         from apps.inventory.services import create_package_unit
 
-        box = create_package_unit(organization=organization, code="BOX", name_ar="علبة")
+        box = create_package_unit(organization=organization, code="BOX", name="علبة")
         with pytest.raises(ValidationError) as refused:
             add_request_line(
                 request=draft, item=rice, package_unit=box, entered_quantity=Decimal("1.000")
@@ -422,8 +422,8 @@ class TestLines:
         theirs = create_item(
             organization=other_organization,
             code="THEIRS",
-            name_ar="صنف",
-            category=create_item_category(organization=other_organization, code="X", name_ar="س"),
+            name="صنف",
+            category=create_item_category(organization=other_organization, code="X", name="س"),
             item_type=ItemType.RAW_MATERIAL,
             base_unit=kilogram,
         )
@@ -440,11 +440,10 @@ class TestLines:
         other = create_branch(
             organization=organization,
             code="KARRADA",
-            name_ar="الكرادة",
-            name_en="Karrada",
+            name="الكرادة",
             business_day_start_time=datetime.time(9, 0),
         )
-        elsewhere = create_warehouse(branch=other, code="FAR", name_ar="بعيد")
+        elsewhere = create_warehouse(branch=other, code="FAR", name="بعيد")
         with pytest.raises(ValidationError) as refused:
             create_purchase_request(
                 branch=branch,
@@ -471,8 +470,7 @@ class TestScopeAndPermissions:
         other = create_branch(
             organization=organization,
             code="FARBR",
-            name_ar="فرع بعيد",
-            name_en="Far Branch",
+            name="فرع بعيد",
             business_day_start_time=datetime.time(9, 0),
         )
         far_user = User.objects.create_user(username="far", password="pw-not-real-1234")
@@ -480,7 +478,7 @@ class TestScopeAndPermissions:
         theirs = create_purchase_request(
             branch=other,
             requested_by=far_user,
-            warehouse=create_warehouse(branch=other, code="FARW", name_ar="مخزن"),
+            warehouse=create_warehouse(branch=other, code="FARW", name="مخزن"),
             required_date=REQUIRED,
             purpose="طلبهم",
         )

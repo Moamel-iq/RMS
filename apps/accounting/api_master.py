@@ -80,8 +80,7 @@ def _actor(request: HttpRequest) -> User:
 class AccountIn(Schema):
     organization_id: int
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     requires_cost_center: bool | None = None
     manual_posting_policy: str = ManualPostingPolicy.ALLOWED
     external_accounting_system: str = ""
@@ -89,8 +88,7 @@ class AccountIn(Schema):
 
 
 class AccountPatchIn(Schema):
-    name_ar: str
-    name_en: str
+    name: str
     requires_cost_center: bool
     manual_posting_policy: str
     reason: str = ""
@@ -141,16 +139,14 @@ class CashboxIn(Schema):
     branch_id: int
     account_id: int
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     opened_on: datetime.date
     responsible_note: str = ""
     notes: str = ""
 
 
 class CashboxPatchIn(Schema):
-    name_ar: str
-    name_en: str
+    name: str
     responsible_note: str = ""
     notes: str = ""
     reason: str = ""
@@ -161,8 +157,7 @@ class BankAccountIn(Schema):
     account_id: int
     code: str
     bank_name: str
-    name_ar: str
-    name_en: str
+    name: str
     masked_account_number: str
     branch_id: int | None = None
     iban: str = ""
@@ -171,8 +166,7 @@ class BankAccountIn(Schema):
 
 class BankAccountPatchIn(Schema):
     bank_name: str
-    name_ar: str
-    name_en: str
+    name: str
     masked_account_number: str
     iban: str = ""
     notes: str = ""
@@ -193,8 +187,7 @@ class AccountOut(Schema):
     id: int
     organization_id: int
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     account_class: str
     parent_id: int | None
     is_postable: bool
@@ -208,8 +201,7 @@ class RoleOut(Schema):
     id: int
     code: str
     domain: str
-    name_ar: str
-    name_en: str
+    name: str
     is_system: bool
 
 
@@ -244,8 +236,7 @@ class CashboxOut(Schema):
     account_id: int
     account_code: str
     code: str
-    name_ar: str
-    name_en: str
+    name: str
     opened_on: datetime.date
     responsible_note: str
     is_active: bool
@@ -260,8 +251,7 @@ class BankAccountOut(Schema):
     account_code: str
     code: str
     bank_name: str
-    name_ar: str
-    name_en: str
+    name: str
     masked_account_number: str
     iban: str
     is_active: bool
@@ -273,8 +263,7 @@ def _account(account: Account) -> dict[str, Any]:
         "id": account.pk,
         "organization_id": account.organization_id,
         "code": account.code,
-        "name_ar": account.name_ar,
-        "name_en": account.name_en,
+        "name": account.name,
         "account_class": account.account_class,
         "parent_id": account.parent_id,
         "is_postable": account.is_postable,
@@ -290,8 +279,7 @@ def _role(role: AccountRole) -> dict[str, Any]:
         "id": role.pk,
         "code": role.code,
         "domain": role.domain,
-        "name_ar": role.name_ar,
-        "name_en": role.name_en,
+        "name": role.name,
         "is_system": role.is_system,
     }
 
@@ -332,8 +320,7 @@ def _cashbox(cashbox: Cashbox) -> dict[str, Any]:
         "account_id": cashbox.account_id,
         "account_code": cashbox.account.code,
         "code": cashbox.code,
-        "name_ar": cashbox.name_ar,
-        "name_en": cashbox.name_en,
+        "name": cashbox.name,
         "opened_on": cashbox.opened_on,
         "responsible_note": cashbox.responsible_note,
         "is_active": cashbox.is_active,
@@ -350,8 +337,7 @@ def _bank(bank: BankAccount) -> dict[str, Any]:
         "account_code": bank.account.code,
         "code": bank.code,
         "bank_name": bank.bank_name,
-        "name_ar": bank.name_ar,
-        "name_en": bank.name_en,
+        "name": bank.name,
         "masked_account_number": bank.masked_account_number,
         "iban": bank.iban,
         "is_active": bank.is_active,

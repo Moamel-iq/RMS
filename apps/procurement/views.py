@@ -23,7 +23,18 @@ from typing import Any
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import DecimalField, Exists, OuterRef, Q, QuerySet, Subquery, Sum, Value
+from django.db.models import (
+    Count,
+    DecimalField,
+    Exists,
+    F,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Sum,
+    Value,
+)
 from django.db.models.functions import Coalesce
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
@@ -32,6 +43,8 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 
+from apps.core.money import money_display, quantize_money
+from apps.inventory.models import Warehouse, WarehouseType
 from apps.inventory.views import (
     InventoryActionView,
     InventoryListView,
@@ -82,6 +95,8 @@ from apps.procurement.credit_terms import (
     create_credit_term_draft,
     update_credit_term_draft,
 )
+from apps.procurement.cycles import days_remaining as cycle_days_remaining
+from apps.procurement.cycles import unsettled_cycles
 from apps.procurement.dashboard import procurement_overview
 from apps.procurement.forms import (
     CreditAllocationForm,
@@ -97,6 +112,7 @@ from apps.procurement.forms import (
     PurchaseOrderLineForm,
     PurchaseRequestForm,
     PurchaseRequestLineForm,
+    SettlementPlanForm,
     SupplierCreditNoteForm,
     SupplierCreditTermForm,
     SupplierForm,
@@ -147,6 +163,7 @@ from apps.procurement.models import (
     SupplierInvoiceChargeManualShare,
     SupplierInvoiceChargeTreatment,
     SupplierInvoiceLine,
+    SupplierInvoiceLineType,
     SupplierInvoicePosting,
     SupplierInvoiceStatus,
     SupplierPaymentStatus,
@@ -157,6 +174,7 @@ from apps.procurement.payments import (
     add_payment_allocation,
     advance_remainder,
     create_supplier_payment,
+    draft_settlement,
     payment_timeline,
     post_supplier_payment,
     remove_payment_allocation,
@@ -249,7 +267,6 @@ from apps.procurement.selectors import (
     resolve_supplier_item,
     resolve_supplier_payment,
     resolve_supplier_return,
-    returnable_receipt_lines,
     visible_goods_receipts,
     visible_purchase_matches,
     visible_purchase_orders,
@@ -292,6 +309,7 @@ from apps.procurement.services import (
     update_supplier,
     update_supplier_item,
 )
+from apps.procurement.settlement import cycle_invoice_rows, workspace_for
 
 
 class SupplierListView(InventoryListView):
@@ -299,12 +317,12 @@ class SupplierListView(InventoryListView):
     required_permission = VIEW_SUPPLIER
     template_name = "procurement/supplier_list.html"
     context_object_name = "suppliers"
-    page_title = _("الموردون")
+    page_title = _("المشتريات")
     page_hint = _(
         "سجل الموردين على مستوى المؤسسة، مشترك بين الفروع. الرصيد المستحق "
         "يُحتسب من الفواتير والدفعات المرحّلة، ولا يُخزَّن في هذا السجل."
     )
-    search_fields = ("code", "name_ar", "name_en", "contact_name", "phone")
+    search_fields = ("code", "name", "contact_name", "phone")
     manage_permission = MANAGE_SUPPLIERS
     create_url_name = "procurement:supplier_create"
     create_label = _("مورد جديد")
@@ -323,12 +341,13 @@ class SupplierWriteView(InventoryWriteView):
     def _fields(self, form: Any) -> dict[str, Any]:
         data = form.cleaned_data
         fields = {
-            "name_ar": data["name_ar"],
-            "name_en": data.get("name_en", ""),
+            "name": data["name"],
             "contact_name": data.get("contact_name", ""),
             "phone": data.get("phone", ""),
             "email": data.get("email", ""),
             "address": data.get("address", ""),
+            "minimum_settlement_percent": data.get("minimum_settlement_percent"),
+            "balance_reset_date": data.get("balance_reset_date"),
             "credit_limit": data.get("credit_limit"),
             "notes": data.get("notes", ""),
         }
@@ -366,13 +385,14 @@ class SupplierUpdateView(SupplierWriteView):
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {
             "code": instance.code,
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "contact_name": instance.contact_name,
             "phone": instance.phone,
             "email": instance.email,
             "address": instance.address,
             "payment_terms_days": instance.payment_terms_days,
+            "minimum_settlement_percent": instance.minimum_settlement_percent,
+            "balance_reset_date": instance.balance_reset_date,
             "credit_limit": instance.credit_limit,
             "notes": instance.notes,
         }
@@ -406,8 +426,7 @@ class SupplierActionView(InventoryActionView):
     def perform(self, instance: Any) -> None:
         update_supplier(
             supplier=instance,
-            name_ar=instance.name_ar,
-            name_en=instance.name_en,
+            name=instance.name,
             contact_name=instance.contact_name,
             phone=instance.phone,
             email=instance.email,
@@ -432,7 +451,7 @@ class SupplierCreditTermListView(InventoryListView):
     page_hint = _(
         "نسخ مؤرخة لشروط السداد. الاعتماد يثبّت النسخة على الفاتورة ولا يعيد حساب التاريخ لاحقاً."
     )
-    search_fields = ("supplier__code", "supplier__name_ar", "name_ar", "name_en")
+    search_fields = ("supplier__code", "supplier__name", "name")
     manage_permission = CREATE_SUPPLIER_CREDIT_TERM
     create_url_name = "procurement:credit_term_create"
     create_label = _("إضافة شرط ائتمان")
@@ -495,8 +514,7 @@ class SupplierCreditTermWriteView(InventoryWriteView):
     def _fields(self, form: SupplierCreditTermForm) -> dict[str, Any]:
         data = form.cleaned_data
         return {
-            "name_ar": data["name_ar"],
-            "name_en": data.get("name_en", ""),
+            "name": data["name"],
             "net_days": data["net_days"],
             "effective_from": data["effective_from"],
             "effective_to": data.get("effective_to"),
@@ -538,8 +556,7 @@ class SupplierCreditTermUpdateView(SupplierCreditTermWriteView):
 
     def initial_for(self, instance: Any) -> dict[str, Any]:
         return {
-            "name_ar": instance.name_ar,
-            "name_en": instance.name_en,
+            "name": instance.name,
             "net_days": instance.net_days,
             "effective_from": instance.effective_from,
             "effective_to": instance.effective_to,
@@ -674,9 +691,9 @@ class SupplierItemListView(InventoryListView):
     )
     search_fields = (
         "supplier__code",
-        "supplier__name_ar",
+        "supplier__name",
         "item__code",
-        "item__name_ar",
+        "item__name",
         "supplier_sku",
     )
     manage_permission = MANAGE_SUPPLIER_ITEMS
@@ -1031,7 +1048,7 @@ class SupplierQuotationListView(InventoryListView):
         "ما يقوله المورد إن السعر سيكون. إثبات لا التزام — لا مخزون ولا قيد "
         "ولا ذمة في أي حالة، حتى بعد الإرساء."
     )
-    search_fields = ("number", "supplier_reference", "supplier__code", "supplier__name_ar")
+    search_fields = ("number", "supplier_reference", "supplier__code", "supplier__name")
     manage_permission = MANAGE_QUOTATIONS
     create_url_name = "procurement:quotation_create"
     create_label = _("عرض جديد")
@@ -1285,7 +1302,7 @@ class PurchaseOrderListView(InventoryListView):
         "الالتزام التجاري. لا يزيد مخزوناً ولا يُنشئ ذمة في أي حالة — حتى بعد "
         "الإرسال للمورد. لا شيء مستحق قبل وصول البضاعة وفاتورة تذكر مبلغاً."
     )
-    search_fields = ("number", "supplier__code", "supplier__name_ar", "supplier_reference")
+    search_fields = ("number", "supplier__code", "supplier__name", "supplier_reference")
     manage_permission = CREATE_PURCHASE_ORDER
     manage_scope = "branch"
     create_url_name = "procurement:purchase_order_create"
@@ -1549,7 +1566,7 @@ class GoodsReceiptListView(InventoryListView):
         "المرفوضة تُسجَّل للمطالبة ولا ترحّل شيئاً. الترحيل يُنشئ الحركة "
         "المخزنية والقيد المحاسبي معاً في معاملة واحدة."
     )
-    search_fields = ("number", "delivery_reference", "supplier__code", "supplier__name_ar")
+    search_fields = ("number", "delivery_reference", "supplier__code", "supplier__name")
     manage_permission = CREATE_GOODS_RECEIPT
     manage_scope = "branch"
     create_url_name = "procurement:goods_receipt_create"
@@ -1794,17 +1811,25 @@ class SupplierInvoiceListView(InventoryListView):
     required_permission = VIEW_SUPPLIER_INVOICE
     template_name = "procurement/supplier_invoice_list.html"
     context_object_name = "invoices"
-    page_title = _("فواتير الموردين")
+    page_title = _("فواتير المشتريات")
     page_hint = _(
-        "ما يقوله المورد إنه مستحق. الفاتورة لا تحرّك مخزوناً إطلاقاً؛ تُنشئ ذمة "
-        "دائنة فقط. أسطر البضاعة تنتظر المطابقة الثلاثية قبل الترحيل، وأسطر "
-        "المصروف المباشر تُرحّل فوراً."
+        "الفاتورة هي مستند الاستلام: عند ترحيلها تُدخل سطور البضاعة مباشرةً "
+        "إلى المخزن الرئيسي وتُنشئ ذمة المورد والقيد المحاسبي في العملية نفسها."
     )
-    search_fields = ("number", "supplier_invoice_number", "supplier__code", "supplier__name_ar")
+    search_fields = ("number", "supplier_invoice_number", "supplier__code", "supplier__name")
     manage_permission = CREATE_SUPPLIER_INVOICE
     manage_scope = "organization"
     create_url_name = "procurement:supplier_invoice_create"
-    create_label = _("فاتورة جديدة")
+    create_label = _("فاتورة مشتريات جديدة")
+    search_placeholder = _("ابحث برقم الفاتورة أو المورد")
+    result_label = _("فاتورة")
+
+    PERIOD_CHOICES = (
+        ("all", _("كل البيانات")),
+        ("today", _("اليوم")),
+        ("week", _("هذا الأسبوع")),
+        ("month", _("هذا الشهر")),
+    )
 
     MATCHING_CHOICES = (
         ("DIRECT", _("مصروف مباشر")),
@@ -1820,7 +1845,17 @@ class SupplierInvoiceListView(InventoryListView):
         except ValueError:
             return None
 
-    def scoped_queryset(self) -> QuerySet[Any]:
+    def _selected_period(self) -> str:
+        selected = self.request.GET.get("period", "all").strip().lower()
+        return selected if selected in {value for value, _label in self.PERIOD_CHOICES} else "all"
+
+    def _annotated_queryset(self) -> QuerySet[Any]:
+        """Financial annotations shared by the list rows and payable KPI.
+
+        The allocation totals stay as correlated subqueries. Joining both
+        allocation tables into the invoice queryset would multiply rows and
+        overstate the outstanding supplier liability.
+        """
         active_match = PurchaseMatch.objects.filter(supplier_invoice_id=OuterRef("pk")).exclude(
             status=PurchaseMatchStatus.CANCELLED
         )
@@ -1839,9 +1874,12 @@ class SupplierInvoiceListView(InventoryListView):
             .values("total")[:1]
         )
         money_field = DecimalField(max_digits=20, decimal_places=3)
-        queryset = visible_supplier_invoices(self.actor).annotate(
+        return visible_supplier_invoices(self.actor).annotate(
             has_inventory_lines=Exists(
-                SupplierInvoiceLine.objects.filter(invoice_id=OuterRef("pk"), line_type="INVENTORY")
+                SupplierInvoiceLine.objects.filter(
+                    invoice_id=OuterRef("pk"),
+                    line_type=SupplierInvoiceLineType.INVENTORY,
+                )
             ),
             active_match_status=Subquery(active_match.values("status")[:1]),
             credited_total=Coalesce(
@@ -1855,6 +1893,9 @@ class SupplierInvoiceListView(InventoryListView):
                 output_field=money_field,
             ),
         )
+
+    def scoped_queryset(self) -> QuerySet[Any]:
+        queryset = self._annotated_queryset()
         status = self.request.GET.get("status", "").strip().upper()
         if status in SupplierInvoiceStatus.values:
             queryset = queryset.filter(status=status)
@@ -1864,6 +1905,23 @@ class SupplierInvoiceListView(InventoryListView):
         branch = self.request.GET.get("branch", "").strip()
         if branch.isdigit():
             queryset = queryset.filter(branch_id=int(branch))
+        warehouse = self.request.GET.get("warehouse", "").strip()
+        if warehouse.isdigit():
+            # Supplier invoices do not store a selectable destination. Their
+            # posting rule always resolves the active physical MAIN warehouse
+            # of the invoice branch. Filtering by warehouse therefore filters
+            # by the branch owning that exact MAIN warehouse; it never changes
+            # the destination or duplicates it on the invoice header.
+            queryset = queryset.filter(
+                branch_id__in=Warehouse.objects.filter(
+                    pk=int(warehouse),
+                    code="MAIN",
+                    warehouse_type=WarehouseType.PHYSICAL,
+                    is_active=True,
+                ).values("branch_id")
+            )
+        elif warehouse:
+            queryset = queryset.none()
         matching = self.request.GET.get("matching", "").strip().upper()
         if matching == "DIRECT":
             queryset = queryset.filter(has_inventory_lines=False)
@@ -1882,8 +1940,6 @@ class SupplierInvoiceListView(InventoryListView):
         for key, lookup in (
             ("invoice_from", "invoice_date__gte"),
             ("invoice_to", "invoice_date__lte"),
-            ("accounting_from", "business_date__gte"),
-            ("accounting_to", "business_date__lte"),
             ("due_from", "due_date__gte"),
             ("due_to", "due_date__lte"),
         ):
@@ -1895,28 +1951,113 @@ class SupplierInvoiceListView(InventoryListView):
             queryset = queryset.filter(
                 status=SupplierInvoiceStatus.POSTED,
                 due_date__lt=today,
-                posted_amount__gt=Value(Decimal("0.000"))
-                + Coalesce(Subquery(credit_total), Value(Decimal("0.000")))
-                + Coalesce(Subquery(payment_total), Value(Decimal("0.000"))),
+                posted_amount__gt=F("credited_total") + F("paid_total"),
             )
+        selected_period = self._selected_period()
+        today = timezone.localdate()
+        if selected_period == "today":
+            queryset = queryset.filter(invoice_date=today)
+        elif selected_period == "week":
+            queryset = queryset.filter(
+                invoice_date__gte=today - datetime.timedelta(days=today.weekday())
+            )
+        elif selected_period == "month":
+            queryset = queryset.filter(invoice_date__gte=today.replace(day=1))
         return queryset.order_by("-id")
+
+    def _kpis(self, *, may_see_cost: bool, organization_ids: list[int]) -> dict[str, Any]:
+        """Actual operational figures, calculated without changing stored facts."""
+        today = timezone.localdate()
+        visible = visible_supplier_invoices(self.actor)
+        active_today = visible.filter(invoice_date=today).exclude(
+            status=SupplierInvoiceStatus.REVERSED
+        )
+        money_field = DecimalField(max_digits=20, decimal_places=3)
+        summary = active_today.aggregate(
+            invoice_count=Count("pk"),
+            draft_count=Count("pk", filter=Q(status=SupplierInvoiceStatus.DRAFT)),
+        )
+
+        current_timezone = timezone.get_current_timezone()
+        received_from = timezone.make_aware(
+            datetime.datetime.combine(today, datetime.time.min), current_timezone
+        )
+        received_until = received_from + datetime.timedelta(days=1)
+        summary["received_item_count"] = (
+            SupplierInvoiceLine.objects.filter(
+                invoice__organization_id__in=organization_ids,
+                invoice__status=SupplierInvoiceStatus.POSTED,
+                invoice__posted_at__gte=received_from,
+                invoice__posted_at__lt=received_until,
+                line_type=SupplierInvoiceLineType.INVENTORY,
+                item__isnull=False,
+            )
+            .values("item_id")
+            .distinct()
+            .count()
+        )
+
+        if not may_see_cost:
+            summary["today_value"] = None
+            summary["supplier_liability"] = None
+            return summary
+
+        summary["today_value"] = active_today.aggregate(
+            total=Coalesce(
+                Sum("total_amount"),
+                Value(Decimal("0.000")),
+                output_field=money_field,
+            )
+        )["total"]
+        summary["supplier_liability"] = (
+            self._annotated_queryset()
+            .filter(status=SupplierInvoiceStatus.POSTED)
+            .aggregate(
+                total=Coalesce(
+                    Sum(F("posted_amount") - F("credited_total") - F("paid_total")),
+                    Value(Decimal("0.000")),
+                    output_field=money_field,
+                )
+            )["total"]
+        )
+        return summary
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["statuses"] = SupplierInvoiceStatus.choices
         context["selected_status"] = self.request.GET.get("status", "")
-        context["may_see_cost"] = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        may_see_cost = self.actor.has_perm(VIEW_SUPPLIER_COST)
+        context["may_see_cost"] = may_see_cost
         context["matching_choices"] = self.MATCHING_CHOICES
         context["selected_matching"] = self.request.GET.get("matching", "")
         context["suppliers"] = visible_suppliers(self.actor).order_by("code")
-        organization_ids = organizations_with_permission(
-            self.actor, VIEW_SUPPLIER_INVOICE
-        ).values_list("pk", flat=True)
+        organization_ids = list(
+            organizations_with_permission(self.actor, VIEW_SUPPLIER_INVOICE).values_list(
+                "pk", flat=True
+            )
+        )
         from apps.organizations.models import Branch
 
         context["branches"] = Branch.objects.filter(
             organization_id__in=organization_ids, is_active=True
         ).order_by("code")
+        warehouses = list(
+            Warehouse.objects.filter(
+                branch__organization_id__in=organization_ids,
+                code="MAIN",
+                warehouse_type=WarehouseType.PHYSICAL,
+                is_active=True,
+            )
+            .select_related("branch")
+            .order_by("branch__code", "code")
+        )
+        context["warehouses"] = warehouses
+        context["selected_warehouse"] = self.request.GET.get("warehouse", "")
+        context["period_choices"] = self.PERIOD_CHOICES
+        context["selected_period"] = self._selected_period()
+        context["invoice_kpis"] = self._kpis(
+            may_see_cost=may_see_cost, organization_ids=organization_ids
+        )
         for key in (
             "supplier",
             "branch",
@@ -1924,15 +2065,15 @@ class SupplierInvoiceListView(InventoryListView):
             "number",
             "invoice_from",
             "invoice_to",
-            "accounting_from",
-            "accounting_to",
             "due_from",
             "due_to",
             "overdue",
         ):
             context[f"selected_{key}"] = self.request.GET.get(key, "")
         today = timezone.localdate()
+        main_warehouse_by_branch = {warehouse.branch_id: warehouse for warehouse in warehouses}
         for invoice in context["invoices"]:
+            invoice.display_warehouse = main_warehouse_by_branch.get(invoice.branch_id)
             if not invoice.has_inventory_lines:
                 invoice.matching_state = "DIRECT"
             elif invoice.active_match_status == PurchaseMatchStatus.READY:
@@ -1960,8 +2101,11 @@ class SupplierInvoiceCreateView(InventoryWriteView):
     form_class = SupplierInvoiceForm
     required_permission = CREATE_SUPPLIER_INVOICE
     success_url_name = "procurement:supplier_invoice_list"
-    page_title = _("فاتورة مورد جديدة")
-    page_hint = _("تُفتح كمسودة. لا ذمة ولا قيد حتى الاعتماد ثم الترحيل.")
+    page_title = _("فاتورة مشتريات جديدة")
+    page_hint = _(
+        "تُفتح كمسودة. عند الترحيل المباشر تدخل البضاعة إلى المخزن الرئيسي "
+        "وتُنشأ الذمة والقيد معاً، من دون اعتماد أو سند استلام منفصل."
+    )
     success_message = _("تم إنشاء المسودة. أضف الأسطر ثم اعتمدها.")
 
     def authorize(self, instance: Any, form: Any) -> None:
@@ -1977,7 +2121,6 @@ class SupplierInvoiceCreateView(InventoryWriteView):
             created_by=self.actor,
             supplier_invoice_number=data["supplier_invoice_number"],
             invoice_date=data["invoice_date"],
-            business_date=data.get("business_date"),
             supplier_reference=data.get("supplier_reference", ""),
             currency_code=data["currency_code"],
             freight_amount=data.get("freight_amount"),
@@ -1998,7 +2141,7 @@ class SupplierInvoiceUpdateView(InventoryWriteView):
     form_class = SupplierInvoiceForm
     required_permission = CREATE_SUPPLIER_INVOICE
     success_url_name = "procurement:supplier_invoice_list"
-    page_title = _("تعديل مسودة فاتورة المورد")
+    page_title = _("تعديل مسودة فاتورة مشتريات")
     page_hint = _("تُعدَّل بيانات المسودة فقط؛ المورد والفرع جزء من هوية الوثيقة ولا يتغيران.")
     success_message = _("تم تحديث مسودة الفاتورة.")
 
@@ -2014,7 +2157,6 @@ class SupplierInvoiceUpdateView(InventoryWriteView):
             "branch": instance.branch,
             "supplier_invoice_number": instance.supplier_invoice_number,
             "invoice_date": instance.invoice_date,
-            "business_date": instance.business_date,
             "supplier_reference": instance.supplier_reference,
             "currency_code": instance.currency_code,
             "freight_amount": instance.freight_amount,
@@ -2031,7 +2173,6 @@ class SupplierInvoiceUpdateView(InventoryWriteView):
             invoice=instance,
             supplier_invoice_number=data["supplier_invoice_number"],
             invoice_date=data["invoice_date"],
-            business_date=data["business_date"],
             supplier_reference=data.get("supplier_reference", ""),
             currency_code=data["currency_code"],
             freight_amount=data.get("freight_amount") or Decimal("0.000"),
@@ -2120,17 +2261,10 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
             "page_title": invoice.number or invoice.supplier_invoice_number,
             "may_edit": may_edit and invoice.is_editable,
             "may_manage_charges": may_manage_charges and invoice.is_editable,
-            "may_approve": has_organization_permission(
-                self.actor, APPROVE_SUPPLIER_INVOICE, invoice.organization
-            )
-            and invoice.status == SupplierInvoiceStatus.DRAFT,
-            "may_return": has_organization_permission(
-                self.actor, APPROVE_SUPPLIER_INVOICE, invoice.organization
-            )
-            and invoice.status == SupplierInvoiceStatus.APPROVED,
             "may_post": has_organization_permission(
                 self.actor, POST_SUPPLIER_INVOICE, invoice.organization
             )
+            and invoice.status == SupplierInvoiceStatus.DRAFT
             and invoice.is_ready_to_post,
             "may_reverse": has_organization_permission(
                 self.actor, REVERSE_SUPPLIER_INVOICE, invoice.organization
@@ -2351,7 +2485,7 @@ class SupplierInvoiceChargeListView(InventoryListView):
     context_object_name = "charges"
     page_title = _("التكاليف الإضافية")
     page_hint = _(
-        "تكاليف فعلية على فواتير الموردين. التكلفة المباشرة تُرحّل إلى حسابها، "
+        "تكاليف فعلية على فواتير المشتريات. التكلفة المباشرة تُرحّل إلى حسابها، "
         "والتكلفة الواصلة تزيد قيمة مواضع المخزون المطابقة من دون تحريك الكمية."
     )
     search_fields = (
@@ -2360,7 +2494,7 @@ class SupplierInvoiceChargeListView(InventoryListView):
         "invoice__number",
         "invoice__supplier_invoice_number",
         "invoice__supplier__code",
-        "invoice__supplier__name_ar",
+        "invoice__supplier__name",
     )
 
     STATE_CHOICES = (
@@ -2662,7 +2796,7 @@ class PurchaseMatchListView(InventoryListView):
     search_fields = (
         "number",
         "supplier__code",
-        "supplier__name_ar",
+        "supplier__name",
         "supplier_invoice__supplier_invoice_number",
     )
     manage_permission = MATCH_SUPPLIER_INVOICE
@@ -2898,8 +3032,7 @@ class SupplierReturnListView(InventoryListView):
         "number",
         "evidence_reference",
         "supplier__code",
-        "supplier__name_ar",
-        "receipt__number",
+        "supplier__name",
     )
     manage_permission = CREATE_SUPPLIER_RETURN
     manage_scope = "branch"
@@ -2928,18 +3061,22 @@ class SupplierReturnCreateView(InventoryWriteView):
     required_permission = CREATE_SUPPLIER_RETURN
     success_url_name = "procurement:supplier_return_list"
     page_title = _("مرتجع مورد جديد")
-    page_hint = _("يُفتح كمسودة على تسليم مرحّل. لا يتحرك مخزون ولا يُنشأ قيد حتى الترحيل.")
+    page_hint = _("يُفتح كمستند مستقل على المورد والمخزن. لا يتحرك مخزون ولا يُنشأ قيد حتى الترحيل.")
     success_message = _("تم إنشاء المسودة. أضف الأسطر ثم رحّلها.")
 
     def authorize(self, instance: Any, form: Any) -> None:
         require_warehouse_permission(
-            self.actor, CREATE_SUPPLIER_RETURN, form.cleaned_data["receipt"].warehouse
+            self.actor, CREATE_SUPPLIER_RETURN, form.cleaned_data["warehouse"]
         )
 
     def perform(self, instance: Any, form: Any) -> None:
         data = form.cleaned_data
         self.created = create_supplier_return(
-            receipt=data["receipt"],
+            organization=data["branch"].organization,
+            branch=data["branch"],
+            supplier=data["supplier"],
+            warehouse=data["warehouse"],
+            location=data.get("location"),
             created_by=self.actor,
             returned_at=data["returned_at"],
             reason_code=data.get("reason_code"),
@@ -2956,7 +3093,7 @@ class SupplierReturnCreateView(InventoryWriteView):
 
 
 class SupplierReturnDetailView(InventoryViewMixin, View):
-    """Header, lines, and what the cited delivery still has left to send back."""
+    """Standalone supplier-return header and inventory lines."""
 
     module_key = "procurement"
     required_permission = VIEW_SUPPLIER_RETURN
@@ -2975,12 +3112,10 @@ class SupplierReturnDetailView(InventoryViewMixin, View):
                 "item",
                 "item__base_unit",
                 "lot",
-                "goods_receipt_line",
                 "movement",
                 "inventory_account",
                 "contra_account",
             ).order_by("sequence"),
-            "availability": returnable_receipt_lines(supplier_return),
             "form": form,
             "page_title": supplier_return.number or _("مسودة مرتجع"),
             "may_edit": may_edit and supplier_return.is_editable,
@@ -3021,7 +3156,8 @@ class SupplierReturnDetailView(InventoryViewMixin, View):
             try:
                 add_return_line(
                     supplier_return=supplier_return,
-                    receipt_line=data["receipt_line"],
+                    item=data["item"],
+                    lot=data.get("lot"),
                     returned_base_quantity=data["returned_base_quantity"],
                     expected_credit_value=data.get("expected_credit_value"),
                     note=data.get("note", ""),
@@ -3125,7 +3261,7 @@ class SupplierCreditNoteListView(InventoryListView):
         "number",
         "supplier_document_number",
         "supplier__code",
-        "supplier__name_ar",
+        "supplier__name",
         "supplier_return__number",
     )
     manage_permission = CREATE_SUPPLIER_CREDIT_NOTE
@@ -3292,6 +3428,162 @@ class SupplierCreditNoteDetailView(InventoryViewMixin, View):
         return render(request, self.template_name, self.context(credit_note, form=form))
 
 
+class SupplierSettlementView(InventoryViewMixin, View):
+    """
+    تسديد الموردين — one supplier's open account, and the ways to settle it.
+
+    The screen answers three questions in the order they are asked. Which
+    window is running and when does it fall due. How much of it is still owed,
+    and how much of that was agreed to move by the due date. And which
+    invoices a payment of that size actually settles — the part nobody wants
+    to work out by hand against twenty invoices at eleven at night.
+
+    It **drafts**; it does not pay. Confirming a plan produces the ordinary
+    supplier payment with its FIFO allocations already on it, and somebody
+    holding `post_supplier_payment` posts it on the payment screen. Building
+    a second way to pay a supplier would have meant two sets of numbers for
+    one debt, so this builds on the payment document rather than beside it.
+    """
+
+    module_key = "procurement"
+    required_permission = VIEW_SUPPLIER_PAYMENT
+    template_name = "procurement/settlement_workspace.html"
+
+    def selectable_suppliers(self) -> QuerySet[Any]:
+        """Suppliers the caller may read, narrowed to those that owe something."""
+        return (
+            visible_suppliers(self.actor)
+            .filter(
+                invoices__status=SupplierInvoiceStatus.POSTED,
+                is_active=True,
+            )
+            .distinct()
+            .order_by("code")
+        )
+
+    def load_supplier(self) -> Any:
+        raw = self.request.GET.get("supplier") or self.request.POST.get("supplier") or ""
+        if not raw.strip().isdigit():
+            return None
+        return resolve_supplier(self.actor, int(raw))
+
+    def context(self, supplier: Any, *, form: Any = None) -> dict[str, Any]:
+        may_settle = bool(supplier) and has_organization_permission(
+            self.actor, CREATE_SUPPLIER_PAYMENT, supplier.organization
+        )
+        context: dict[str, Any] = {
+            "page_title": _("تسديد الموردين"),
+            "suppliers": self.selectable_suppliers(),
+            "supplier": supplier,
+            "may_see_cost": self.actor.has_perm(VIEW_SUPPLIER_COST),
+            "may_settle": may_settle,
+            "workspace": None,
+            "cycles": [],
+            "form": form,
+        }
+        if supplier is None:
+            return context
+
+        raw_target = (self.request.GET.get("target") or "").strip()
+        target: Decimal | None = None
+        if raw_target:
+            try:
+                target = Decimal(raw_target)
+            except InvalidOperation:
+                messages.error(self.request, _("المبلغ المستهدف غير صالح."))
+            else:
+                if target < 0:
+                    messages.error(self.request, _("المبلغ المستهدف لا يكون سالباً."))
+                    target = None
+
+        workspace = workspace_for(supplier, target=target)
+        context["workspace"] = workspace
+        context["manual_target"] = raw_target
+        context["cycles"] = [
+            {
+                "cycle": cycle,
+                "days_remaining": cycle_days_remaining(cycle),
+                "rows": cycle_invoice_rows(cycle),
+            }
+            for cycle in unsettled_cycles(supplier)
+        ]
+        context["form"] = form or SettlementPlanForm(
+            actor=self.actor,
+            initial={
+                "supplier": supplier.pk,
+                "paid_at": timezone.localdate(),
+                "target": workspace.target,
+            },
+        )
+        return context
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return render(request, self.template_name, self.context(self.load_supplier()))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        supplier = self.load_supplier()
+        if supplier is None:
+            raise Http404("no supplier")
+        require_organization_permission(self.actor, CREATE_SUPPLIER_PAYMENT, supplier.organization)
+        form = SettlementPlanForm(actor=self.actor, data=request.POST)
+        if not form.is_valid():
+            return render(request, self.template_name, self.context(supplier, form=form))
+
+        data = form.cleaned_data
+        # Recomputed, never read back from the browser: the invoices a plan
+        # pays are the arithmetic's answer, and a posted form is not evidence
+        # about anybody's balance.
+        workspace = workspace_for(data["supplier"], target=data["target"])
+        chosen = next((plan for plan in workspace.plans if plan.kind == data["plan"]), None)
+        if chosen is None or not chosen.allocations:
+            form.add_error(None, _("لم تعد هذه الخطة قائمة. راجع الأرصدة وأعد الاختيار."))
+            return render(request, self.template_name, self.context(supplier, form=form))
+        if chosen.total != quantize_money(data["expected_total"]):
+            # Somebody settled one of these invoices while this screen stood
+            # open. Paying the recomputed set would settle invoices nobody
+            # confirmed, so the operator sees the new figures and decides.
+            form.add_error(
+                None,
+                _(
+                    "تغيّرت أرصدة الفواتير منذ عرض الخطة: المؤكَّد %(shown)s والمحتسب "
+                    "الآن %(now)s. راجع الأرقام وأعد التأكيد."
+                )
+                % {
+                    "shown": money_display(data["expected_total"]),
+                    "now": money_display(chosen.total),
+                },
+            )
+            return render(request, self.template_name, self.context(supplier, form=form))
+
+        try:
+            payment = draft_settlement(
+                supplier=data["supplier"],
+                branch=data["branch"],
+                created_by=self.actor,
+                paid_at=data["paid_at"],
+                method=data["method"],
+                allocations=[(line.invoice, line.amount) for line in chosen.allocations],
+                reference=data.get("reference", ""),
+                notes=data.get("notes", ""),
+            )
+        except ValidationError as error:
+            for message in error.messages:
+                form.add_error(None, message)
+            return render(request, self.template_name, self.context(supplier, form=form))
+
+        messages.success(
+            request,
+            _(
+                "أُنشئت مسودة تسديد بمبلغ %(total)s على %(count)s فاتورة. "
+                "راجعها ثم رحّلها ليخرج المال."
+            )
+            % {"total": money_display(chosen.total), "count": chosen.invoice_count},
+        )
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_payment_detail", args=[payment.pk])
+        )
+
+
 class SupplierPaymentListView(InventoryListView):
     module_key = "procurement"
     required_permission = VIEW_SUPPLIER_PAYMENT
@@ -3302,7 +3594,7 @@ class SupplierPaymentListView(InventoryListView):
         "المال الخارج للموردين. المخصص على الفواتير يخفض الذمة، والباقي يقف "
         "سلفة للمورد — أصلاً لا ذمة سالبة — حتى يُستهلك لاحقاً."
     )
-    search_fields = ("number", "reference", "supplier__code", "supplier__name_ar")
+    search_fields = ("number", "reference", "supplier__code", "supplier__name")
     manage_permission = CREATE_SUPPLIER_PAYMENT
     manage_scope = "organization"
     create_url_name = "procurement:supplier_payment_create"

@@ -76,12 +76,11 @@ class _Scene:
 
     def __init__(self) -> None:
         call_command("seed_units", verbosity=0)
-        self.organization = create_organization(code="RACE", name_ar="سباق", name_en="Race")
+        self.organization = create_organization(code="RACE", name="سباق")
         self.branch = create_branch(
             organization=self.organization,
             code="MAIN",
-            name_ar="الرئيسي",
-            name_en="Main",
+            name="الرئيسي",
             business_day_start_time=datetime.time(9, 0),
         )
         configure_accounting(organization=self.organization, fiscal_year_start_month=1)
@@ -99,9 +98,7 @@ class _Scene:
                 account=Account.objects.get(organization=self.organization, code=account_code),
                 effective_from=JAN_1,
             )
-        self.supplier = create_supplier(
-            organization=self.organization, code="SUP-01", name_ar="مورد"
-        )
+        self.supplier = create_supplier(organization=self.organization, code="SUP-01", name="مورد")
         self.keeper = User.objects.create_user(username="race-keeper", password=PASSWORD)
         grant_branch_access(user=self.keeper, branch=self.branch, role=Role.ACCOUNTING_MANAGER)
 

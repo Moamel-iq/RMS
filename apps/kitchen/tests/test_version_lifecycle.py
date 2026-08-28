@@ -132,7 +132,7 @@ class TestSubmission:
         recipe = create_recipe(
             organization=organization,
             code="BATCH-1",
-            name_ar="دفعة",
+            name="دفعة",
             recipe_type=RecipeType.BATCH,
             output_item=cooked_rice,
             created_by=manager,
@@ -881,7 +881,7 @@ class TestSupersession:
         other_recipe = create_recipe(
             organization=organization,
             code="OTHER-1",
-            name_ar="وصفة أخرى",
+            name="وصفة أخرى",
             recipe_type=RecipeType.PORTION,
             created_by=manager,
         )

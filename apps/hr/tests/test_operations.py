@@ -75,12 +75,12 @@ DAY = datetime.date(2026, 8, 10)
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM-OPS", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM-OPS", name="خان مندي")
 
 
 @pytest.fixture
 def other_organization() -> Organization:
-    return create_organization(code="OTHER-OPS", name_ar="منافس", name_en="Other")
+    return create_organization(code="OTHER-OPS", name="منافس")
 
 
 @pytest.fixture
@@ -88,8 +88,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK-OPS",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         timezone="Asia/Baghdad",
         business_day_start_time=time(9),
     )
@@ -121,8 +120,7 @@ def employee(organization: Organization, branch: Branch, maker: User) -> Employe
     return create_employee(
         organization=organization,
         code="OPS-001",
-        name_ar="موظف العمليات",
-        name_en="Operations Employee",
+        name="موظف العمليات",
         phone="",
         email="",
         identity_number="",
@@ -185,8 +183,7 @@ def shift(branch: Branch, maker: User) -> Shift:
         branch=branch,
         code="DAY",
         actor=maker,
-        name_ar="الوردية الصباحية",
-        name_en="Day",
+        name="الوردية الصباحية",
         start_time=time(9),
         end_time=time(17),
         crosses_midnight=False,
@@ -221,8 +218,7 @@ def leave_type(organization: Organization, maker: User) -> LeaveType:
         organization=organization,
         actor=maker,
         code="ANNUAL",
-        name_ar="إجازة سنوية",
-        name_en="Annual leave",
+        name="إجازة سنوية",
         paid_treatment=PaidTreatment.PAID,
         requires_evidence=False,
         is_active=True,
@@ -304,8 +300,7 @@ def test_leave_type_can_require_evidence(
         organization=organization,
         actor=maker,
         code="MEDICAL",
-        name_ar="إجازة مرضية",
-        name_en="Medical",
+        name="إجازة مرضية",
         paid_treatment=PaidTreatment.POLICY,
         requires_evidence=True,
         is_active=True,
@@ -505,10 +500,9 @@ def test_all_operation_screens_have_arabic_full_page_and_htmx_fallbacks(
     ):
         detail = client.get(reverse(f"hr:{name}", args=[obj.pk]))
         assert detail.status_code == 200, name
-        assert employee.name_ar in detail.content.decode(), name
+        assert employee.name in detail.content.decode(), name
     assert (
-        leave_type.name_ar
-        in client.get(reverse("hr:leave_detail", args=[leave.pk])).content.decode()
+        leave_type.name in client.get(reverse("hr:leave_detail", args=[leave.pk])).content.decode()
     )
     assert client_for(viewer).get(reverse("hr:leave_list")).status_code == 403
     outsider = _actor("operations-outsider", other_organization, Role.MANAGER)

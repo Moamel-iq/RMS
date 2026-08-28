@@ -50,16 +50,16 @@ pytestmark = pytest.mark.django_db
 class TestWarehouseModel:
     def test_code_is_unique_per_branch(self, branch: Branch, main_store: Warehouse) -> None:
         with pytest.raises(ValidationError):
-            create_warehouse(branch=branch, code="MAIN", name_ar="مكرر")
+            create_warehouse(branch=branch, code="MAIN", name="مكرر")
 
     def test_the_same_code_is_allowed_at_another_branch(
         self, second_branch: Branch, main_store: Warehouse
     ) -> None:
-        twin = create_warehouse(branch=second_branch, code="MAIN", name_ar="المخزن الرئيسي")
+        twin = create_warehouse(branch=second_branch, code="MAIN", name="المخزن الرئيسي")
         assert twin.pk != main_store.pk
 
     def test_the_code_is_canonicalised(self, branch: Branch) -> None:
-        warehouse = create_warehouse(branch=branch, code=" dry-store ", name_ar="مخزن جاف")
+        warehouse = create_warehouse(branch=branch, code=" dry-store ", name="مخزن جاف")
         assert warehouse.code == "DRY-STORE"
 
     def test_in_transit_cannot_be_created_by_hand(self, branch: Branch) -> None:
@@ -67,7 +67,7 @@ class TestWarehouseModel:
             create_warehouse(
                 branch=branch,
                 code="TRANSIT",
-                name_ar="بالطريق",
+                name="بالطريق",
                 warehouse_type=WarehouseType.IN_TRANSIT,
             )
         assert caught.value.code == "system_warehouse_not_user_creatable"
@@ -84,11 +84,11 @@ class TestWarehouseModel:
         in_transit = ensure_in_transit_warehouse(branch=branch)
 
         with pytest.raises(ValidationError) as caught:
-            update_warehouse(warehouse=in_transit, name_ar="شيء آخر")
+            update_warehouse(warehouse=in_transit, name="شيء آخر")
         assert caught.value.code == "system_warehouse_protected"
 
         with pytest.raises(ValidationError):
-            update_warehouse(warehouse=in_transit, name_ar=in_transit.name_ar, is_active=False)
+            update_warehouse(warehouse=in_transit, name=in_transit.name, is_active=False)
 
     def test_the_database_refuses_a_second_in_transit_per_branch(self, branch: Branch) -> None:
         ensure_in_transit_warehouse(branch=branch)
@@ -97,7 +97,7 @@ class TestWarehouseModel:
             Warehouse.objects.create(
                 branch=branch,
                 code="TRANSIT2",
-                name_ar="ثاني",
+                name="ثاني",
                 warehouse_type=WarehouseType.IN_TRANSIT,
                 is_system=True,
             )
@@ -127,7 +127,7 @@ class TestWarehouseScope:
         """
         assert can_access_warehouse(manager, main_store)
 
-        newly_opened = create_warehouse(branch=branch, code="COLD", name_ar="مخزن مبرد")
+        newly_opened = create_warehouse(branch=branch, code="COLD", name="مخزن مبرد")
 
         assert can_access_warehouse(User.objects.get(pk=manager.pk), newly_opened)
 
@@ -154,7 +154,7 @@ class TestWarehouseScope:
             mode=WarehouseScopeMode.SELECTED,
             warehouses=[main_store],
         )
-        newly_opened = create_warehouse(branch=branch, code="COLD", name_ar="مخزن مبرد")
+        newly_opened = create_warehouse(branch=branch, code="COLD", name="مخزن مبرد")
 
         assert not can_access_warehouse(User.objects.get(pk=manager.pk), newly_opened)
 

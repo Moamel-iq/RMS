@@ -69,7 +69,6 @@ from apps.inventory.commands import (
     cancel_stock_count,
     create_adjustment,
     create_document,
-    create_reason_code,
     create_stock_count,
     create_transfer,
     create_transfer_receipt,
@@ -86,7 +85,6 @@ from apps.inventory.counts import CountEntry
 from apps.inventory.models import (
     InventoryDocumentType,
     MovementType,
-    ReasonCodeApplication,
     StockBalance,
     StockCount,
     StockCountLine,
@@ -95,6 +93,7 @@ from apps.inventory.models import (
     Warehouse,
 )
 from apps.inventory.operations import DocumentLineInput
+from apps.inventory.tests.stock_seed import seed_stock
 from apps.inventory.transfers import ReceiptLineInput, TransferLineInput
 from apps.organizations.models import Role
 from apps.organizations.services import (
@@ -121,19 +120,17 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
     from apps.inventory.services import create_item, create_item_category, create_warehouse
 
     call_command("seed_units", verbosity=0)
-    organization = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM", name="خان مندي")
     first = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=clock(9, 0),
     )
     second = create_branch(
         organization=organization,
         code="KARRADA",
-        name_ar="الكرادة",
-        name_en="Karrada",
+        name="الكرادة",
         business_day_start_time=clock(9, 0),
     )
     year = timezone.localdate().year
@@ -158,13 +155,13 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
             effective_from=effective,
         )
 
-    root = create_item_category(organization=organization, code="FOOD", name_ar="أغذية")
-    leaf = create_item_category(organization=organization, code="MEAT", name_ar="لحوم", parent=root)
+    root = create_item_category(organization=organization, code="FOOD", name="أغذية")
+    leaf = create_item_category(organization=organization, code="MEAT", name="لحوم", parent=root)
     kilogram = UnitOfMeasure.objects.get(code="KG")
     rice = create_item(
         organization=organization,
         code="RICE-272",
-        name_ar="رز",
+        name="رز",
         category=leaf,
         item_type="RAW_MATERIAL",
         base_unit=kilogram,
@@ -172,13 +169,13 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
     chicken = create_item(
         organization=organization,
         code="CHICK-1",
-        name_ar="دجاج",
+        name="دجاج",
         category=leaf,
         item_type="RAW_MATERIAL",
         base_unit=kilogram,
     )
-    main = create_warehouse(branch=first, code="MAIN", name_ar="الرئيسي")
-    kitchen = create_warehouse(branch=first, code="KITCHEN", name_ar="المطبخ")
+    main = create_warehouse(branch=first, code="MAIN", name="الرئيسي")
+    kitchen = create_warehouse(branch=first, code="KITCHEN", name="المطبخ")
 
     conductor = User.objects.create_user(username="counter", password="pw-not-real-1234")
     grant_organization_access(user=conductor, organization=organization, role=Role.OWNER)
@@ -197,20 +194,6 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
         "approver": User.objects.get(pk=approver.pk),
         "center": CostCenter.objects.get(organization=organization, code="WAREHOUSE"),
     }
-    world["spoil"] = create_reason_code(
-        actor=world["actor"],
-        organization=organization,
-        code="SPOIL",
-        name_ar="تلف",
-        applies_to=ReasonCodeApplication.WASTE,
-    )
-    world["fix"] = create_reason_code(
-        actor=world["actor"],
-        organization=organization,
-        code="FIX",
-        name_ar="تصحيح",
-        applies_to=ReasonCodeApplication.MANUAL_ADJUSTMENT,
-    )
     _receive(world, main, rice, "1000", "1000")
     _receive(world, main, chicken, "500", "2000")
     return world
@@ -219,22 +202,16 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
 def _receive(
     world: dict[str, Any], warehouse: Warehouse, item: Any, quantity: str, cost: str
 ) -> None:
-    actor = world["actor"]
-    document = create_document(
-        actor=actor,
-        organization=world["organization"],
-        branch=warehouse.branch,
+    organization = world["organization"]
+    seed_stock(
+        actor=world["actor"],
+        organization=organization,
         warehouse=warehouse,
-        document_type=InventoryDocumentType.RECEIPT,
-        effective_at=timezone.now(),
-        evidence_reference="DN-SEED",
+        item=item,
+        quantity=quantity,
+        unit_cost=cost,
+        control_account=Account.objects.get(organization=organization, code="1-03-01-001"),
     )
-    add_document_line(
-        actor=actor,
-        document=document,
-        line=DocumentLineInput(item=item, base_quantity=Decimal(quantity), unit_cost=Decimal(cost)),
-    )
-    post_document(actor=actor, document=document)
 
 
 def _issue(world: dict[str, Any], item: Any, quantity: str) -> Any:
@@ -272,9 +249,7 @@ def _waste_draft(world: dict[str, Any], quantity: str) -> Any:
     add_document_line(
         actor=actor,
         document=document,
-        line=DocumentLineInput(
-            item=world["rice"], base_quantity=Decimal(quantity), reason_code=world["spoil"]
-        ),
+        line=DocumentLineInput(item=world["rice"], base_quantity=Decimal(quantity)),
     )
     return document
 
@@ -297,7 +272,6 @@ def _adjustment_draft(world: dict[str, Any], item: Any, kind: str, quantity: str
         line=AdjustmentLineInput(
             kind=kind,
             item=item,
-            reason_code=world["fix"],
             base_quantity=Decimal(quantity),
             unit_cost=Decimal("1000") if kind == "QUANTITY_GAIN" else None,
         ),
@@ -663,7 +637,6 @@ class TestRetriesAndOrdering:
                     line=AdjustmentLineInput(
                         kind="QUANTITY_LOSS",
                         item=item,
-                        reason_code=world["fix"],
                         base_quantity=Decimal("5"),
                     ),
                 )

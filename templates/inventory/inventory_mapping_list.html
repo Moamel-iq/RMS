@@ -25,13 +25,13 @@
       <td data-label="{% translate 'الدور' %}"><bdi dir="ltr"><code>{{ mapping.account_role.code }}</code></bdi></td>
       <td data-label="{% translate 'الهدف' %}">
         {% if mapping.item %}
-          <bdi dir="ltr"><code>{{ mapping.item.code }}</code></bdi> {{ mapping.item.name_ar }}
+          <bdi dir="ltr"><code>{{ mapping.item.code }}</code></bdi> {{ mapping.item.name }}
         {% else %}
-          <bdi dir="ltr"><code>{{ mapping.category.code }}</code></bdi> {{ mapping.category.name_ar }}
+          <bdi dir="ltr"><code>{{ mapping.category.code }}</code></bdi> {{ mapping.category.name }}
           ({% translate "مجموعة" %})
         {% endif %}
       </td>
-      <td data-label="{% translate 'الحساب' %}"><bdi dir="ltr"><code>{{ mapping.account.code }}</code></bdi> {{ mapping.account.name_ar }}</td>
+      <td data-label="{% translate 'الحساب' %}"><bdi dir="ltr"><code>{{ mapping.account.code }}</code></bdi> {{ mapping.account.name }}</td>
       <td data-label="{% translate 'سارٍ من' %}"><bdi dir="ltr"><time datetime="{{ mapping.effective_from|date:'Y-m-d' }}">{{ mapping.effective_from|date:"Y-m-d" }}</time></bdi></td>
       <td data-label="{% translate 'سارٍ حتى' %}">{% if mapping.effective_to %}<bdi dir="ltr"><time datetime="{{ mapping.effective_to|date:'Y-m-d' }}">{{ mapping.effective_to|date:"Y-m-d" }}</time></bdi>{% else %}—{% endif %}</td>
       <td data-label="{% translate 'الإصدار' %}"><bdi dir="ltr">{{ mapping.version }}</bdi></td>
@@ -46,15 +46,15 @@
       </td>
       <td data-label="{% translate 'إجراءات' %}">
         {% if mapping.is_active %}
-          <div class="rowactions" aria-label="{% translate 'إجراءات تخصيص الحساب' %}">
-            <a class="btn btn--secondary btn--sm" href="{% url 'inventory:mapping_close' mapping.pk %}">
+          <div class="ui-actions" aria-label="{% translate 'إجراءات تخصيص الحساب' %}">
+            <a class="ui-button ui-button--secondary ui-button--small" href="{% url 'inventory:mapping_close' mapping.pk %}">
               {% translate "إغلاق النطاق" %}
             </a>
             <form method="post" action="{% url 'inventory:mapping_archive' mapping.pk %}"
                   data-confirm="{% translate 'ستتوقف أولوية هذا التخصيص وستعود العمليات الجديدة إلى التخصيص التالي المتاح.' %}"
                   data-confirm-title="{% translate 'تأكيد أرشفة التخصيص' %}">
               {% csrf_token %}
-              <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "أرشفة" %}</button>
+              <button class="ui-button ui-button--danger ui-button--small" type="submit">{% translate "أرشفة" %}</button>
             </form>
           </div>
         {% else %}

@@ -6,7 +6,7 @@
 {# that could not name one of its own buckets would be hiding a column.     #}
 {% load i18n %}
 
-<label class="field">
+<label class="ui-field">
   <span>{% translate "التصنيف" %}</span>
   <select name="bucket">
     <option value="">{% translate "كل التصنيفات" %}</option>
@@ -17,7 +17,7 @@
     {% endfor %}
   </select>
 </label>
-<label class="field">
+<label class="ui-field">
   <span>{% translate "رقم الصنف" %}</span>
   <input type="number" name="item_id" min="1" dir="ltr" value="{{ filters.item_id }}">
 </label>

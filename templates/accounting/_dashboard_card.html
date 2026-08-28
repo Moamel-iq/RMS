@@ -6,9 +6,9 @@
 {# about the number.                                                        #}
 {% load i18n %}
 
-<span class="tile__value{% if payload.state == 'warn' %} tile__value--warn{% elif payload.state == 'muted' %} muted{% endif %}"
+<span class="ui-metric__value{% if payload.state == 'warn' %} ui-text-warning{% elif payload.state == 'muted' %} ui-text-muted{% endif %}"
       aria-live="polite"><bdi dir="auto">{{ payload.value }}</bdi></span>
-<span class="tile__label">
+<span class="ui-metric__label">
   {{ card.label }} · {{ payload.hint }}
   {% if drill %}· <a href="{{ drill }}">{% translate "تفصيل" %}</a>{% endif %}
 </span>

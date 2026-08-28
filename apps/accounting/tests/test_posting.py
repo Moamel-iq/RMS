@@ -434,8 +434,7 @@ class TestOrganizationIsolation:
         foreign_branch = create_branch(
             organization=other_organization,
             code="OTHERBR",
-            name_ar="فرع آخر",
-            name_en="Other",
+            name="فرع آخر",
             business_day_start_time=time(9, 0),
         )
         with pytest.raises(ValidationError) as exc:
@@ -462,9 +461,7 @@ class TestOrganizationIsolation:
     ) -> None:
         from apps.accounting.services import create_cost_center
 
-        foreign_cc = create_cost_center(
-            organization=other_organization, code="HALL", name_ar="صالة", name_en="Hall"
-        )
+        foreign_cc = create_cost_center(organization=other_organization, code="HALL", name="صالة")
         with pytest.raises(ValidationError) as exc:
             post_entry(
                 organization=organization,
@@ -596,8 +593,7 @@ class TestNumbering:
         rival_branch = create_branch(
             organization=other_organization,
             code="RB",
-            name_ar="ر",
-            name_en="RB",
+            name="ر",
             business_day_start_time=time(9, 0),
         )
         rival_cash = Account.objects.get(organization=other_organization, code="1-01-01-001")
@@ -1067,8 +1063,7 @@ class TestTrialBalance:
         other = create_branch(
             organization=organization,
             code="KARRADA",
-            name_ar="الكرادة",
-            name_en="Karrada",
+            name="الكرادة",
             business_day_start_time=time(9, 0),
         )
         post_entry(

@@ -14,51 +14,51 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page workspace-list-page" id="procurement-additional-costs">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{{ page_hint }}</p>
+  <div class="ui-page ui-page--list" id="procurement-additional-costs">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">{{ page_hint }}</p>
       </div>
     </div>
 
-    <p class="banner" role="note">
+    <p class="ui-notice" role="note">
       {% translate "التكلفة الإضافية تُرحَّل مرة واحدة فقط مع فاتورتها: مدين الحساب المباشر المعتمد، دائن ذمم الموردين. لا تُرسمل في كلفة المخزون ولا تغيّر متوسط التكلفة، ولا يوجد لها ترحيل أو عكس مستقل — تصحيحها يكون بعكس الفاتورة وإصدار بديلة." %}
     </p>
 
     {% if show_cost and totals %}
-      <div class="statrow">
-        <div class="stat">
-          <span class="stat__label">{% translate "عدد السطور" %}</span>
-          <span class="stat__value"><bdi dir="ltr">{{ totals.line_count }}</bdi></span>
+      <div class="ui-summary-grid">
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">{% translate "عدد السطور" %}</span>
+          <span class="ui-summary-item__value"><bdi dir="ltr">{{ totals.line_count }}</bdi></span>
         </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "عدد الفواتير" %}</span>
-          <span class="stat__value"><bdi dir="ltr">{{ totals.invoice_count }}</bdi></span>
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">{% translate "عدد الفواتير" %}</span>
+          <span class="ui-summary-item__value"><bdi dir="ltr">{{ totals.invoice_count }}</bdi></span>
         </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "مرحّل" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ totals.posted_total }}</code></bdi></span>
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">{% translate "مرحّل" %}</span>
+          <span class="ui-summary-item__value"><bdi dir="ltr"><code>{{ totals.posted_total }}</code></bdi></span>
         </div>
-        <div class="stat">
-          <span class="stat__label">{% translate "غير مرحّل" %}</span>
-          <span class="stat__value"><bdi dir="ltr"><code>{{ totals.draft_total }}</code></bdi></span>
+        <div class="ui-summary-item">
+          <span class="ui-summary-item__label">{% translate "غير مرحّل" %}</span>
+          <span class="ui-summary-item__value"><bdi dir="ltr"><code>{{ totals.draft_total }}</code></bdi></span>
         </div>
       </div>
     {% endif %}
 
-    <form class="toolbar"
+    <form class="ui-toolbar"
           method="get"
           hx-get="{{ request.path }}"
           hx-target="#procurement-additional-costs"
           hx-swap="outerHTML">
-      <label class="field">
-        <span class="field__label">{% translate "بحث" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "بحث" %}</span>
         <input type="search" name="q" value="{{ filters.q }}"
                placeholder="{% translate 'الوصف، الفاتورة، المورد، الحساب' %}">
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "حالة الفاتورة" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "حالة الفاتورة" %}</span>
         <select name="status">
           <option value="">{% translate "كل الحالات" %}</option>
           {% for value, label in statuses %}
@@ -66,29 +66,29 @@
           {% endfor %}
         </select>
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "من تاريخ" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "من تاريخ" %}</span>
         <input type="date" name="date_from" value="{{ filters.date_from }}">
       </label>
-      <label class="field">
-        <span class="field__label">{% translate "إلى تاريخ" %}</span>
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "إلى تاريخ" %}</span>
         <input type="date" name="date_to" value="{{ filters.date_to }}">
       </label>
-      <label class="field field--check">
+      <label class="ui-field ui-field--check">
         <input type="checkbox" name="overdue" value="1" {% if filters.overdue %}checked{% endif %}>
         <span>{% translate "متأخرة السداد فقط" %}</span>
       </label>
-      <button class="btn btn--primary" type="submit">{% translate "تصفية" %}</button>
-      <a class="btn btn--ghost" href="{{ request.path }}">{% translate "مسح المرشحات" %}</a>
+      <button class="ui-button ui-button--primary" type="submit">{% translate "تصفية" %}</button>
+      <a class="ui-button ui-button--ghost" href="{{ request.path }}">{% translate "مسح المرشحات" %}</a>
     </form>
 
-    <p class="muted">
+    <p class="ui-text-muted">
       {% blocktranslate count total=total_rows %}سطر واحد{% plural %}{{ total }} سطر{% endblocktranslate %}
     </p>
 
-    <div class="tablewrap">
-      <div class="data-table-shell" tabindex="0" role="region" aria-label="{{ page_title }}">
-        <table class="table responsive-table">
+    <div class="ui-data-card ui-table-scroll">
+      <div class="ui-table-scroll" tabindex="0" role="region" aria-label="{{ page_title }}">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">{% translate "الفاتورة" %}</th>
@@ -101,7 +101,7 @@
               <th scope="col">{% translate "تاريخ الاستحقاق" %}</th>
               <th scope="col">{% translate "حالة الفاتورة" %}</th>
               <th scope="col">{% translate "القيد" %}</th>
-              <th scope="col"><span class="sr-only">إجراءات</span></th>
+              <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
             </tr>
           </thead>
           <tbody>
@@ -112,15 +112,15 @@
                     <bdi dir="ltr"><code>{{ row.invoice.number|default:"—" }}</code></bdi>
                   </a>
                 </td>
-                <td data-label="{% translate 'المورد' %}">{{ row.invoice.supplier.name_ar }}</td>
+                <td data-label="{% translate 'المورد' %}">{{ row.invoice.supplier.name }}</td>
                 <td data-label="{% translate 'الوصف' %}">{{ row.description|default:"—" }}</td>
                 <td data-label="{% translate 'الحساب المباشر' %}">
                   {% if row.account_id %}
-                    <bdi dir="ltr"><code>{{ row.account.code }}</code></bdi> {{ row.account.name_ar }}
+                    <bdi dir="ltr"><code>{{ row.account.code }}</code></bdi> {{ row.account.name }}
                   {% else %}—{% endif %}
                 </td>
                 <td data-label="{% translate 'مركز الكلفة' %}">
-                  {% if row.cost_center_id %}{{ row.cost_center.name_ar }}{% else %}—{% endif %}
+                  {% if row.cost_center_id %}{{ row.cost_center.name }}{% else %}—{% endif %}
                 </td>
                 {% if show_cost %}
                   <td data-label="{% translate 'المبلغ' %}">
@@ -133,31 +133,31 @@
                 <td data-label="{% translate 'تاريخ الاستحقاق' %}">
                   <bdi dir="ltr"><code>{{ row.invoice.due_date|date:"Y-m-d" }}</code></bdi>
                   {% if row.invoice.due_date < today and row.invoice.status == "POSTED" %}
-                    <span class="chip chip--bad">{% translate "متأخر" %}</span>
+                    <span class="ui-badge ui-badge--danger">{% translate "متأخر" %}</span>
                   {% endif %}
                 </td>
                 <td data-label="{% translate 'حالة الفاتورة' %}">
-                  <span class="chip">{{ row.invoice.get_status_display }}</span>
+                  <span class="ui-badge">{{ row.invoice.get_status_display }}</span>
                 </td>
                 <td data-label="{% translate 'القيد' %}">
                   {% if row.journal_line_id %}
-                    <span class="chip chip--ok">{% translate "مرحّل" %}</span>
+                    <span class="ui-badge ui-badge--success">{% translate "مرحّل" %}</span>
                   {% else %}—{% endif %}
                 </td>
                 <td>
                   {% if row.invoice.status in editable_statuses %}
-                    <a class="btn btn--ghost"
+                    <a class="ui-button ui-button--ghost"
                        href="{% url 'procurement:supplier_invoice_detail' row.invoice_id %}">
                       {% translate "تعديل في الفاتورة" %}
                     </a>
                   {% else %}
-                    <span class="muted">{% translate "للقراءة فقط" %}</span>
+                    <span class="ui-text-muted">{% translate "للقراءة فقط" %}</span>
                   {% endif %}
                 </td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="{% if show_cost %}11{% else %}10{% endif %}" class="empty">
+                <td colspan="{% if show_cost %}11{% else %}10{% endif %}" class="ui-empty">
                   {% translate "لا توجد تكاليف إضافية مطابقة. تُضاف التكلفة الإضافية كسطر «مصروف أو حساب مباشر» على فاتورة مورد بحالة مسودة." %}
                 </td>
               </tr>
@@ -168,18 +168,18 @@
     </div>
 
     {% if is_paginated %}
-      <nav class="pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
+      <nav class="ui-pagination" aria-label="{% translate 'ترقيم الصفحات' %}">
         {% if page_obj.has_previous %}
-          <a class="btn btn--ghost"
+          <a class="ui-button ui-button--ghost"
              href="?{{ page_query }}&page={{ page_obj.previous_page_number }}"
              hx-get="?{{ page_query }}&page={{ page_obj.previous_page_number }}"
              hx-target="#procurement-additional-costs" hx-swap="outerHTML">{% translate "السابق" %}</a>
         {% endif %}
-        <span class="muted">
+        <span class="ui-text-muted">
           {% blocktranslate with current=page_obj.number total=page_obj.paginator.num_pages %}صفحة {{ current }} من {{ total }}{% endblocktranslate %}
         </span>
         {% if page_obj.has_next %}
-          <a class="btn btn--ghost"
+          <a class="ui-button ui-button--ghost"
              href="?{{ page_query }}&page={{ page_obj.next_page_number }}"
              hx-get="?{{ page_query }}&page={{ page_obj.next_page_number }}"
              hx-target="#procurement-additional-costs" hx-swap="outerHTML">{% translate "التالي" %}</a>

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block title %}{% translate "الصفحة غير موجودة" %} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block content %}
+  <main class="ui-standalone">
+    <div class="ui-state ui-state--empty" role="alert">
+      <span class="ui-state__icon" aria-hidden="true">?</span>
+      <h1 class="ui-state__title">{% translate "الصفحة غير موجودة" %}</h1>
+      <p class="ui-state__description">{% translate "قد يكون الرابط قديماً أو لم تعد لديك صلاحية الوصول إلى هذه الشاشة." %}</p>
+      <a class="ui-button ui-button--primary" href="{% url 'users:home' %}">{% translate "العودة إلى الرئيسية" %}</a>
+    </div>
+  </main>
+{% endblock %}

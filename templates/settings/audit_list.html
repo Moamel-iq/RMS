@@ -4,8 +4,7 @@
 {% block pageactions %}{% endblock %}
 
 {% block filters %}
-  <select name="action" aria-label="{% translate 'الإجراء' %}"
-          style="height:42px;border:1px solid var(--line);border-radius:10px;padding-inline:12px;font:inherit">
+  <select class="ui-control" name="action" aria-label="{% translate 'الإجراء' %}">
     <option value="">{% translate "كل الإجراءات" %}</option>
     {% for value, label in actions %}
       <option value="{{ value }}" {% if value == selected_action %}selected{% endif %}>{{ label }}</option>
@@ -27,19 +26,19 @@
 {% block rows %}
   {% for event in events %}
     <tr>
-      <td class="table__num">{{ event.occurred_at|date:"Y-m-d H:i:s" }}</td>
-      <td><span class="chip chip--neutral">{{ event.get_action_display }}</span></td>
+      <td class="ui-table__numeric">{{ event.occurred_at|date:"Y-m-d H:i:s" }}</td>
+      <td><span class="ui-badge ui-badge--neutral">{{ event.get_action_display }}</span></td>
       {# actor_label, not actor: what the trail recorded at the time. #}
       <td>{{ event.actor_label|default:"—" }}</td>
-      <td><span class="muted">{{ event.target_type }}</span> {{ event.target_id }}</td>
+      <td><span class="ui-text-muted">{{ event.target_type }}</span> {{ event.target_id }}</td>
       <td>{{ event.organization.code|default:"—" }}</td>
       <td>{{ event.branch.code|default:"—" }}</td>
       <td>{{ event.reason|default:"—" }}</td>
-      <td class="table__num" dir="ltr" title="{{ event.correlation_id }}">
+      <td class="ui-table__numeric" dir="ltr" title="{{ event.correlation_id }}">
         {{ event.correlation_id|stringformat:"s"|slice:":8" }}
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="8"><p class="empty">{% translate "لا توجد أحداث." %}</p></td></tr>
+    <tr><td colspan="8"><p class="ui-empty">{% translate "لا توجد أحداث." %}</p></td></tr>
   {% endfor %}
 {% endblock %}

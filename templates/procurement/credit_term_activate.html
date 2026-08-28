@@ -3,10 +3,10 @@
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 {% block page %}
-  <section class="workspace-page workspace-form-page" id="credit-term-activation">
-    <div class="pagehead"><div><p class="pagehead__eyebrow">{% translate "تأكيد الاعتماد" %}</p><h1 class="pagehead__title">{% translate "تفعيل شرط الائتمان" %}</h1><p class="pagehead__hint">{{ term.supplier.name_ar }} · {{ term.name_ar }} · <bdi dir="ltr">v{{ term.version }}</bdi></p></div></div>
-    <div class="formcard"><p>{% translate "بعد التفعيل تصبح النسخة غير قابلة للتعديل، وتُستخدم للفواتير التي يغطيها تاريخ سريانها." %}</p><dl class="detailgrid"><dt>{% translate "الأيام" %}</dt><dd><bdi dir="ltr">{{ term.net_days }}</bdi></dd><dt>{% translate "بداية السريان" %}</dt><dd><bdi dir="ltr">{{ term.effective_from|date:"Y-m-d" }}</bdi></dd></dl>
-      <form method="post" hx-post="{{ request.path }}" hx-target="#credit-term-activation" hx-swap="outerHTML">{% csrf_token %}<div class="formactions"><button class="btn btn--primary" type="submit">{% translate "تأكيد التفعيل" %}</button><a class="btn btn--ghost" href="{% url 'procurement:credit_term_detail' term.pk %}">{% translate "إلغاء" %}</a></div></form>
+  <section class="ui-page ui-page--form" id="credit-term-activation">
+    <div class="ui-page-header"><div><p class="ui-page-header__eyebrow">{% translate "تأكيد الاعتماد" %}</p><h1 class="ui-page-header__title">{% translate "تفعيل شرط الائتمان" %}</h1><p class="ui-page-header__hint">{{ term.supplier.name }} · {{ term.name }} · <bdi dir="ltr">v{{ term.version }}</bdi></p></div></div>
+    <div class="ui-card ui-form-card"><p>{% translate "بعد التفعيل تصبح النسخة غير قابلة للتعديل، وتُستخدم للفواتير التي يغطيها تاريخ سريانها." %}</p><dl class="ui-detail-grid"><dt>{% translate "الأيام" %}</dt><dd><bdi dir="ltr">{{ term.net_days }}</bdi></dd><dt>{% translate "بداية السريان" %}</dt><dd><bdi dir="ltr">{{ term.effective_from|date:"Y-m-d" }}</bdi></dd></dl>
+      <form method="post" hx-post="{{ request.path }}" hx-target="#credit-term-activation" hx-swap="outerHTML">{% csrf_token %}<div class="ui-form-actions"><button class="ui-button ui-button--primary" type="submit">{% translate "تأكيد التفعيل" %}</button><a class="ui-button ui-button--ghost" href="{% url 'procurement:credit_term_detail' term.pk %}">{% translate "إلغاء" %}</a></div></form>
     </div>
   </section>
 {% endblock %}

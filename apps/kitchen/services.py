@@ -150,8 +150,7 @@ def create_recipe_category(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     notes: str = "",
     source_document: str = "",
     source_page: int | None = None,
@@ -164,8 +163,7 @@ def create_recipe_category(
     category = RecipeCategory(
         organization=organization,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         notes=notes.strip(),
         source_document=document,
         source_page=page,
@@ -183,8 +181,7 @@ def create_recipe_category(
 def update_recipe_category(
     *,
     category: RecipeCategory,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     notes: str = "",
     is_active: bool = True,
 ) -> RecipeCategory:
@@ -198,8 +195,8 @@ def update_recipe_category(
     current = RecipeCategory.objects.select_for_update().get(pk=category.pk)
     previous = snapshot(current)
 
-    current.name_ar = name_ar.strip()
-    current.name_en = name_en.strip()
+    current.name = name.strip()
+    current.name = name.strip()
     current.notes = notes.strip()
     current.is_active = is_active
     current.full_clean()
@@ -250,9 +247,8 @@ def create_recipe(
     *,
     organization: Organization,
     code: str,
-    name_ar: str,
+    name: str,
     recipe_type: str,
-    name_en: str = "",
     description_ar: str = "",
     description_en: str = "",
     category: RecipeCategory | None = None,
@@ -283,8 +279,7 @@ def create_recipe(
     recipe = Recipe(
         organization=organization,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         description_ar=description_ar.strip(),
         description_en=description_en.strip(),
         recipe_type=recipe_type,
@@ -308,8 +303,7 @@ def create_recipe(
 def update_recipe(
     *,
     recipe: Recipe,
-    name_ar: str,
-    name_en: str = "",
+    name: str,
     description_ar: str = "",
     description_en: str = "",
     category: RecipeCategory | None = None,
@@ -336,8 +330,8 @@ def update_recipe(
         output_item=output_item,
     )
 
-    current.name_ar = name_ar.strip()
-    current.name_en = name_en.strip()
+    current.name = name.strip()
+    current.name = name.strip()
     current.description_ar = description_ar.strip()
     current.description_en = description_en.strip()
     current.category = category
@@ -1216,10 +1210,9 @@ def add_recipe_serving(
     *,
     version: RecipeVersion,
     code: str,
-    name_ar: str,
+    name: str,
     serving_quantity: object,
     serving_unit: UnitOfMeasure,
-    name_en: str = "",
     is_primary: bool = False,
     rounding_increment: object | None = None,
     rounding_policy: str = ServingRoundingPolicy.NONE,
@@ -1260,8 +1253,7 @@ def add_recipe_serving(
     serving = RecipeServing(
         version=current,
         code=_require_code(code),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         serving_quantity=_require_positive(serving_quantity, "serving_quantity"),
         serving_unit=serving_unit,
         base_quantity=base,
@@ -1291,10 +1283,9 @@ def add_recipe_serving(
 def update_recipe_serving(
     *,
     serving: RecipeServing,
-    name_ar: str,
+    name: str,
     serving_quantity: object,
     serving_unit: UnitOfMeasure,
-    name_en: str = "",
     is_primary: bool = False,
     rounding_increment: object | None = None,
     rounding_policy: str = ServingRoundingPolicy.NONE,
@@ -1312,8 +1303,8 @@ def update_recipe_serving(
     if is_primary and not current.is_primary:
         version.servings.filter(is_primary=True).update(is_primary=False)
 
-    current.name_ar = name_ar.strip()
-    current.name_en = name_en.strip()
+    current.name = name.strip()
+    current.name = name.strip()
     current.serving_quantity = _require_positive(serving_quantity, "serving_quantity")
     current.serving_unit = serving_unit
     current.base_quantity = base

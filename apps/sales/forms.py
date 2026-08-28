@@ -69,14 +69,14 @@ class _DirectStockItemChoiceField(_InventoryItemChoiceField):
     """Show the base unit beside the item because the entered quantity uses it."""
 
     def label_from_instance(self, item: InventoryItem) -> str:
-        return f"{item.code} — {item.name_ar} ({item.base_unit.code})"
+        return f"{item.code} — {item.name} ({item.base_unit.code})"
 
 
 class _SourceWarehouseChoiceField(_WarehouseChoiceField):
     """Warehouse codes are branch-local, so include the branch in every option."""
 
     def label_from_instance(self, warehouse: Warehouse) -> str:
-        return f"{warehouse.branch.code} / {warehouse.code} — {warehouse.name_ar}"
+        return f"{warehouse.branch.code} / {warehouse.code} — {warehouse.name}"
 
 
 class MenuCategoryForm(forms.Form):
@@ -84,8 +84,7 @@ class MenuCategoryForm(forms.Form):
 
     organization = forms.ModelChoiceField(queryset=MenuCategory.objects.none(), label=_("المؤسسة"))
     code = forms.CharField(label=_("الرمز"), max_length=32)
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنكليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     display_order = forms.IntegerField(label=_("ترتيب العرض"), min_value=1, initial=1)
 
     def __init__(
@@ -138,8 +137,7 @@ class MenuItemForm(forms.Form):
 
     organization = forms.ModelChoiceField(queryset=MenuItem.objects.none(), label=_("المؤسسة"))
     code = forms.CharField(label=_("الرمز"), max_length=32)
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنكليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     category = forms.ModelChoiceField(
         queryset=MenuCategory.objects.none(), label=_("المجموعة"), required=False
     )
@@ -304,8 +302,7 @@ class SalesChannelForm(forms.Form):
 
     organization = forms.ModelChoiceField(queryset=SalesChannel.objects.none(), label=_("المؤسسة"))
     code = forms.CharField(label=_("الرمز"), max_length=32)
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنكليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     category = forms.ChoiceField(label=_("نوع القناة"), choices=SalesChannelCategory.choices)
     default_tender = forms.ChoiceField(
         label=_("وجهة التحصيل"),
@@ -552,8 +549,7 @@ class DeliveryApplicationForm(forms.Form):
         queryset=DeliveryApplication.objects.none(), label=_("المؤسسة")
     )
     code = forms.CharField(label=_("الرمز"), max_length=32)
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنكليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     settlement_cycle_days = forms.IntegerField(
         label=_("دورة التسوية (يوم)"),
         min_value=0,
@@ -764,8 +760,7 @@ class DiscountProgramForm(forms.Form):
         queryset=DiscountProgram.objects.none(), label=_("المؤسسة")
     )
     code = forms.CharField(label=_("الرمز"), max_length=32)
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنكليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
 
     discount_percent = forms.DecimalField(
         label=_("نسبة الخصم %"), min_value=0, max_value=100, decimal_places=6, required=False

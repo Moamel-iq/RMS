@@ -19,7 +19,6 @@ import uuid
 from decimal import Decimal
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
@@ -28,6 +27,7 @@ from simple_history.models import HistoricalRecords
 from apps.core.models import TimeStampedModel
 from apps.core.money import (
     MONEY_PLACES,
+    RATE_PLACES,
     UNIT_PRICE_PLACES,
     quantize_money,
     quantize_unit_price,
@@ -42,6 +42,10 @@ CODE_PATTERN = r"^[A-Z0-9][A-Z0-9._-]*$"
 #: Room for a credit limit in IQD, a currency with large nominal amounts.
 MONEY_MAX_DIGITS = MONEY_PLACES + 18
 UNIT_PRICE_MAX_DIGITS = UNIT_PRICE_PLACES + 15
+#: A percentage is a rate, and rates carry six places here. Six integer digits
+#: is far more than 0–100 needs and is the same shape `apps.sales` uses, so a
+#: percentage reads the same wherever it is stored.
+RATE_MAX_DIGITS = RATE_PLACES + 6
 QUANTITY_MAX_DIGITS = QUANTITY_PLACES + 15
 #: A factor is a technical identity at the same precision inventory uses
 #: (ADR-006). Twelve places, because an ounce needs them.
@@ -79,8 +83,7 @@ class Supplier(TimeStampedModel):
         verbose_name=_("organization"),
     )
     code = models.CharField(_("code"), max_length=32)
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
 
     contact_name = models.CharField(_("contact person"), max_length=200, blank=True)
     #: Canonicalised the same way a user's phone is, so the same number is the
@@ -93,6 +96,33 @@ class Supplier(TimeStampedModel):
     #: Zero means cash on delivery, which is the common case in this business
     #: and the reason the default is not null.
     payment_terms_days = models.PositiveSmallIntegerField(_("payment terms (days)"), default=0)
+    #: How much of an invoice must be settled by the day it falls due, as a
+    #: percentage of its total. NULL means the agreement states no such floor,
+    #: which is a different thing from a floor of zero — and the aging report
+    #: reports a breach only where a floor was actually agreed.
+    #:
+    #: Meaningless without a payment term: a floor "by the due date" needs a
+    #: due date, and with terms of zero the invoice is due on the day it is
+    #: raised. The constraint below refuses the combination rather than
+    #: leaving a number nothing could ever test.
+    minimum_settlement_percent = models.DecimalField(
+        _("minimum settlement percent"),
+        max_digits=RATE_MAX_DIGITS,
+        decimal_places=RATE_PLACES,
+        null=True,
+        blank=True,
+    )
+    #: The day this supplier's account starts again — after a settlement
+    #: outside the system, a change of ownership, a fresh season.
+    #:
+    #: **Nothing is deleted.** The statement opens with one line carrying the
+    #: balance as it stood the day before, and lists movements from this date
+    #: onwards; every earlier document stays exactly where it is and the
+    #: closing balance is unchanged. A reset that dropped history would make
+    #: the statement disagree with the ledger, which is the one thing a
+    #: statement may never do.
+    balance_reset_date = models.DateField(_("balance reset date"), null=True, blank=True)
+
     #: NULL means "no stated limit", which is a different statement from zero.
     #: Release 1 reports against it and refuses nothing.
     credit_limit = models.DecimalField(
@@ -146,7 +176,7 @@ class Supplier(TimeStampedModel):
                 name="procurement_supplier_code_format",
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar=""),
+                condition=~Q(name=""),
                 name="procurement_supplier_name_ar_not_empty",
             ),
             # A stated limit is a number the business will be compared against.
@@ -155,13 +185,26 @@ class Supplier(TimeStampedModel):
                 condition=Q(credit_limit__isnull=True) | Q(credit_limit__gte=0),
                 name="procurement_supplier_credit_limit_not_negative",
             ),
+            # A share of an invoice is between none of it and all of it.
+            models.CheckConstraint(
+                condition=Q(minimum_settlement_percent__isnull=True)
+                | Q(minimum_settlement_percent__gte=0, minimum_settlement_percent__lte=100),
+                name="procurement_supplier_settlement_percent_range",
+            ),
+            # And it says something only where there is a due date to say it
+            # by. With terms of zero the invoice is due the day it is raised,
+            # and "settle 50% by then" is not a term anybody agreed to.
+            models.CheckConstraint(
+                condition=Q(minimum_settlement_percent__isnull=True) | Q(payment_terms_days__gt=0),
+                name="procurement_supplier_settlement_needs_terms",
+            ),
         ]
         indexes = [
             models.Index(fields=["organization", "is_active"], name="supplier_org_active_idx"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name_ar}"
+        return f"{self.code} — {self.name}"
 
 
 class SupplierCreditTermStatus(models.TextChoices):
@@ -202,8 +245,7 @@ class SupplierCreditTerm(TimeStampedModel):
         choices=SupplierCreditTermStatus.choices,
         default=SupplierCreditTermStatus.DRAFT,
     )
-    name_ar = models.CharField(_("name (Arabic)"), max_length=200)
-    name_en = models.CharField(_("name (English)"), max_length=200, blank=True)
+    name = models.CharField(_("name"), max_length=200)
     net_days = models.PositiveSmallIntegerField(_("net days"), default=0)
     effective_from = models.DateField(_("effective from"))
     effective_to = models.DateField(_("effective to"), null=True, blank=True)
@@ -255,7 +297,7 @@ class SupplierCreditTerm(TimeStampedModel):
                 name="procurement_credit_term_one_draft_per_supplier",
             ),
             models.CheckConstraint(
-                condition=~Q(name_ar=""),
+                condition=~Q(name=""),
                 name="procurement_credit_term_name_ar_not_empty",
             ),
             models.CheckConstraint(
@@ -287,7 +329,7 @@ class SupplierCreditTerm(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.supplier.code} · v{self.version} · {self.name_ar}"
+        return f"{self.supplier.code} · v{self.version} · {self.name}"
 
 
 class SupplierItem(TimeStampedModel):
@@ -2147,6 +2189,137 @@ class GoodsReceiptLine(TimeStampedModel):
 # ---------------------------------------------------------------------------
 
 
+class SupplierPaymentCycleStatus(models.TextChoices):
+    """
+    Three states, because a cycle genuinely has three.
+
+    `COLLECTING` is the window new invoices join. `DUE` is one that has stopped
+    taking them — its date has passed — and has not been paid off. `SETTLED` is
+    paid.
+
+    The middle state is the one that is easy to leave out and impossible to do
+    without. Passing the due date must not close a cycle: the unpaid balance is
+    exactly what the reports exist to show. But it must stop it collecting, or
+    an invoice keyed afterwards would be overdue in the moment it was entered.
+    Two states forced those two facts into one flag, and the database refused
+    the combination — correctly, and before any of this shipped.
+    """
+
+    COLLECTING = "COLLECTING", _("مفتوحة للفواتير")
+    DUE = "DUE", _("مستحقة")
+    SETTLED = "SETTLED", _("مسدَّدة")
+
+
+class SupplierPaymentCycle(TimeStampedModel):
+    """
+    The window a supplier's invoices are paid off in, opened by the first one.
+
+    The business buys from a supplier continuously and settles periodically,
+    so a due date per invoice describes nobody's actual arrangement: thirty
+    days from the *first* invoice is the day the account is settled, and an
+    invoice raised a week later is due on that same day with twenty-three days
+    left — not thirty of its own.
+
+    **The cycle's due date is fixed when it opens.** Renegotiating the
+    supplier's terms afterwards moves nothing: the terms and the floor are
+    snapshotted here for the same reason an invoice snapshots them, and the
+    invoice keeps its own copy besides. A cycle that could be restated would
+    make every report of what was late disagree with what was late.
+
+    **A cycle stops collecting at its due date.** An invoice dated after it
+    moves the window to `DUE` and opens a new `COLLECTING` one — otherwise the
+    invoice would be overdue in the moment it was keyed, and the database would
+    refuse it anyway (`due_date >= invoice_date`). A supplier may stand with
+    several `DUE` windows at once; that is what a late account looks like.
+    """
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="supplier_payment_cycles",
+        verbose_name=_("organization"),
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="payment_cycles",
+        verbose_name=_("supplier"),
+    )
+    sequence = models.PositiveIntegerField(_("sequence"))
+    status = models.CharField(
+        _("status"),
+        max_length=16,
+        choices=SupplierPaymentCycleStatus.choices,
+        default=SupplierPaymentCycleStatus.COLLECTING,
+    )
+
+    #: The first invoice's own date, and the day the whole cycle falls due.
+    opened_on = models.DateField(_("opened on"))
+    due_date = models.DateField(_("due date"))
+
+    #: Snapshots, for the same reason the invoice keeps its own: what was
+    #: agreed when the cycle opened is what the cycle is judged by, however
+    #: the supplier's record reads later.
+    payment_terms_days = models.PositiveSmallIntegerField(_("payment terms (days)"))
+    minimum_settlement_percent = models.DecimalField(
+        _("minimum settlement percent"),
+        max_digits=RATE_MAX_DIGITS,
+        decimal_places=RATE_PLACES,
+        null=True,
+        blank=True,
+    )
+
+    settled_on = models.DateField(_("settled on"), null=True, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("supplier payment cycle")
+        verbose_name_plural = _("supplier payment cycles")
+        ordering = ["supplier__code", "-sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["supplier", "sequence"],
+                name="procurement_cycle_sequence_unique",
+            ),
+            # One *collecting* cycle per supplier: two would mean two answers
+            # to "which window does this invoice join". Several may stand `DUE`
+            # at once, and often do — a supplier whose account has run late for
+            # months has one unpaid window per month, and hiding that behind a
+            # uniqueness rule would hide the debt.
+            models.UniqueConstraint(
+                fields=["supplier"],
+                condition=Q(status="COLLECTING"),
+                name="procurement_cycle_one_collecting_per_supplier",
+            ),
+            models.CheckConstraint(
+                condition=Q(due_date__gte=models.F("opened_on")),
+                name="procurement_cycle_period_is_ordered",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="SETTLED", settled_on__isnull=False)
+                | (~Q(status="SETTLED") & Q(settled_on__isnull=True)),
+                name="procurement_cycle_settled_iff_dated",
+            ),
+            models.CheckConstraint(
+                condition=Q(minimum_settlement_percent__isnull=True)
+                | Q(minimum_settlement_percent__gte=0, minimum_settlement_percent__lte=100),
+                name="procurement_cycle_settlement_percent_range",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "status", "due_date"],
+                name="supplier_cycle_due_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.supplier.code} · دورة {self.sequence} · {self.due_date}"
+
+
 class SupplierInvoiceStatus(models.TextChoices):
     """
     The four Task 2.0 §9 statuses, and no more.
@@ -2292,6 +2465,17 @@ class SupplierInvoice(TimeStampedModel):
     #: Renegotiating a supplier's terms in March must not restate the due date
     #: of an invoice received in January.
     due_date = models.DateField(_("due date"))
+    #: The cycle this invoice was raised into, and whose due date it carries.
+    #: Nullable for the invoices that predate cycles: their `due_date` is
+    #: their own, computed per invoice, and nothing restates it.
+    cycle = models.ForeignKey(
+        "procurement.SupplierPaymentCycle",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="invoices",
+        verbose_name=_("payment cycle"),
+    )
     payment_terms_days = models.PositiveSmallIntegerField(_("payment terms (days)"), default=0)
     #: Effective-dated term chosen and frozen at approval. The FK is evidence;
     #: the copied public identity, version, label and days are the historical
@@ -2557,56 +2741,27 @@ class SupplierInvoice(TimeStampedModel):
 
     @property
     def blocking_lines(self) -> list[SupplierInvoiceLine]:
-        """
-        The lines that have no complete accounting route yet.
+        """Direct supplier invoices no longer wait for a receipt or match.
 
-        Today that is every `INVENTORY` line, and the reason is specific rather
-        than provisional: Task 2.0 §9 posts the **matched receipt value** to
-        GRNI and the difference to purchase price variance. Both figures come
-        from a match allocation, which is Task 2.11. Posting the invoice amount
-        to GRNI instead would clear a variance nobody computed and leave Task
-        2.12 nothing to recognise — so the invoice waits in `APPROVED` and says
-        why, rather than posting an entry that is merely balanced.
+        Posting the invoice is the receiving event: inventory lines are placed
+        into the branch's ``MAIN`` warehouse and the same transaction creates
+        the payable.  Validation of the warehouse, item-account mapping and
+        accounting period happens in the posting service immediately before
+        any effect is written.
         """
-        lines = list(
-            self.lines.filter(line_type=SupplierInvoiceLineType.INVENTORY).order_by("sequence")
-        )
-        if not lines:
-            return []
-        covered = {
-            row["supplier_invoice_line_id"]: row["quantity"]
-            for row in PurchaseMatchAllocation.objects.filter(
-                match__supplier_invoice=self,
-                match__status=PurchaseMatchStatus.READY,
-            )
-            .values("supplier_invoice_line_id")
-            .annotate(quantity=models.Sum("matched_base_quantity"))
-        }
-        return [
-            line
-            for line in lines
-            if covered.get(line.pk, Decimal("0.000")) != (line.base_quantity or Decimal("0.000"))
-        ]
+        return []
 
     @property
     def is_ready_to_post(self) -> bool:
         """
-        Whether every line has a complete, approved accounting route.
+        Whether this draft has enough information for direct posting.
 
-        Derived, never stored. A readiness flag would be a second opinion that
-        goes stale the moment somebody edits a line.
+        The posting service remains the authority for mappings, the MAIN
+        warehouse, stock availability rules and the accounting period.  This
+        property is deliberately only a UI hint.
         """
         lines = list(self.lines.all())
-        if self.status != SupplierInvoiceStatus.APPROVED or not lines:
-            return False
-        if self.blocking_lines:
-            return False
-        from apps.procurement.additional_costs import preview_charge_allocations
-
-        try:
-            for charge in self.charges.filter(treatment=SupplierInvoiceChargeTreatment.LANDED_COST):
-                preview_charge_allocations(charge)
-        except ValidationError:
+        if self.status != SupplierInvoiceStatus.DRAFT or not lines:
             return False
         return True
 
@@ -2819,9 +2974,9 @@ class SupplierInvoiceLine(TimeStampedModel):
     def target_label(self) -> str:
         """What this line is for, in one string, for a screen or an export."""
         if self.line_type == SupplierInvoiceLineType.INVENTORY and self.item is not None:
-            return f"{self.item.code} — {self.item.name_ar}"
+            return f"{self.item.code} — {self.item.name}"
         if self.account is not None:
-            return f"{self.account.code} — {self.account.name_ar}"
+            return f"{self.account.code} — {self.account.name}"
         return self.description  # pragma: no cover - a constraint refuses this row
 
 
@@ -3596,6 +3751,15 @@ class SupplierInvoicePosting(TimeStampedModel):
     direct_charge_value = models.DecimalField(
         _("direct charges"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
     )
+    #: Inventory received directly from the supplier invoice.  It is kept
+    #: apart from account-based charges so the posting explains why a stock
+    #: ledger entry exists without inventing a purchase match or GRNI amount.
+    direct_inventory_value = models.DecimalField(
+        _("direct inventory receipt"),
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_PLACES,
+        default=Decimal("0.000"),
+    )
     #: Structured costs capitalised into the exact receipt stock positions.
     landed_cost_value = models.DecimalField(
         _("landed costs"),
@@ -3660,7 +3824,9 @@ class SupplierInvoicePosting(TimeStampedModel):
                 condition=Q(status="LIVE", purchase_match__isnull=False),
                 name="procurement_one_live_posting_per_match",
             ),
-            # Goods figures and a match arrive together or not at all.
+            # Matched goods figures arrive with a match. Direct receipts keep
+            # these historical matching figures at zero and state their value
+            # in ``direct_inventory_value`` instead.
             models.CheckConstraint(
                 condition=Q(purchase_match__isnull=False)
                 | Q(goods_cleared_value=0, invoice_matched_value=0, price_variance=0),
@@ -3688,6 +3854,7 @@ class SupplierInvoicePosting(TimeStampedModel):
                 condition=Q(
                     payable_value=models.F("direct_charge_value")
                     + models.F("invoice_matched_value")
+                    + models.F("direct_inventory_value")
                     + models.F("landed_cost_value")
                 ),
                 name="procurement_posting_payable_is_the_whole_invoice",
@@ -3696,14 +3863,20 @@ class SupplierInvoicePosting(TimeStampedModel):
                 condition=Q(goods_cleared_value__gte=0)
                 & Q(invoice_matched_value__gte=0)
                 & Q(direct_charge_value__gte=0)
+                & Q(direct_inventory_value__gte=0)
                 & Q(landed_cost_value__gte=0)
                 & Q(payable_value__gt=0),
                 name="procurement_posting_values_are_not_negative",
             ),
             models.CheckConstraint(
-                condition=Q(landed_cost_value=0, stock_entry__isnull=True)
-                | Q(landed_cost_value__gt=0, stock_entry__isnull=False),
-                name="procurement_posting_landed_cost_names_stock_entry",
+                condition=Q(
+                    landed_cost_value=0,
+                    direct_inventory_value=0,
+                    stock_entry__isnull=True,
+                )
+                | Q(landed_cost_value__gt=0, stock_entry__isnull=False)
+                | Q(direct_inventory_value__gt=0, stock_entry__isnull=False),
+                name="procurement_posting_stock_value_names_stock_entry",
             ),
             models.CheckConstraint(
                 condition=Q(reversal_stock_entry__isnull=True)
@@ -3825,16 +3998,6 @@ class SupplierReturn(TimeStampedModel):
         on_delete=models.PROTECT,
         related_name="returns",
         verbose_name=_("supplier"),
-    )
-    #: The delivery being sent back. Header-level as Task 2.0 §10 specifies,
-    #: and every line must cite a line of *this* receipt — one return, one
-    #: delivery, because the credit note that follows will be about one
-    #: delivery too.
-    receipt = models.ForeignKey(
-        GoodsReceipt,
-        on_delete=models.PROTECT,
-        related_name="returns",
-        verbose_name=_("goods receipt"),
     )
     warehouse = models.ForeignKey(
         "inventory.Warehouse",
@@ -4018,20 +4181,12 @@ class SupplierReturn(TimeStampedModel):
         indexes = [
             models.Index(fields=["organization", "status"], name="sret_org_status_idx"),
             models.Index(fields=["supplier", "status"], name="sret_supplier_status_idx"),
-            models.Index(fields=["receipt"], name="sret_receipt_idx"),
         ]
 
-    #: Task 2.9's reversal guard asks each dependent relation which of its rows
-    #: still stand. A reversed return has given the goods back and holds the
-    #: delivery hostage no longer — the same rule Task 2.11 and 2.12 declare,
-    #: and declared on the model that holds the FK so the guard can read it.
-    #: The `Q` is applied to a queryset of **this** model (the receipt's
-    #: `returns` accessor), so it names `status` directly; the line model
-    #: below reaches the same fact through its header.
     live_dependency = Q(status__in=("DRAFT", "POSTED"))
 
     def __str__(self) -> str:
-        return self.number or f"{self.supplier.code} · {self.receipt}"
+        return self.number or f"{self.supplier.code} · {self.returned_at}"
 
     @property
     def is_editable(self) -> bool:
@@ -4063,14 +4218,6 @@ class SupplierReturnLine(TimeStampedModel):
     line_uid = models.UUIDField(_("line uid"), default=uuid.uuid4, editable=False)
     sequence = models.PositiveIntegerField(_("sequence"))
 
-    #: `PROTECT`, and the reason the guard exists: this line is a claim about
-    #: that delivery, and the delivery cannot be unmade underneath it.
-    goods_receipt_line = models.ForeignKey(
-        GoodsReceiptLine,
-        on_delete=models.PROTECT,
-        related_name="supplier_return_lines",
-        verbose_name=_("delivery line"),
-    )
     item = models.ForeignKey(
         "inventory.InventoryItem",
         on_delete=models.PROTECT,
@@ -4181,10 +4328,7 @@ class SupplierReturnLine(TimeStampedModel):
                 name="procurement_return_line_movement_names_its_account",
             ),
         ]
-        indexes = [
-            models.Index(fields=["goods_receipt_line"], name="sret_line_receipt_line_idx"),
-            models.Index(fields=["item"], name="sret_line_item_idx"),
-        ]
+        indexes = [models.Index(fields=["item"], name="sret_line_item_idx")]
 
     def __str__(self) -> str:
         return f"{self.supplier_return} · {self.sequence}"

@@ -35,7 +35,7 @@ PASSWORD = "pw-not-real-1234"
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
@@ -43,8 +43,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="011",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -56,7 +55,7 @@ def item_reader(organization: Organization, branch: Branch) -> User:
     post = create_role_definition(
         organization=organization,
         code="item-reader",
-        name_ar="قارئ الأصناف",
+        name="قارئ الأصناف",
         permissions=[VIEW_ITEM],
     )
     grant_branch_access(user=user, branch=branch, role=post.key)

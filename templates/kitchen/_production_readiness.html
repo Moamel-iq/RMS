@@ -19,15 +19,15 @@
 {# There is no "post" button here, and not because it is hidden: the service  #}
 {# does not exist and a check constraint refuses a POSTED row outright.       #}
 
-<section class="card" id="production-readiness">
-  <h2 class="card__title">{% translate "جاهزية المسودة" %}</h2>
+<section class="ui-card" id="production-readiness">
+  <h2 class="ui-card__title">{% translate "جاهزية المسودة" %}</h2>
 
   {% if is_ready %}
-    <p class="banner banner--ok" role="status">
+    <p class="ui-notice ui-notice--success" role="status">
       {% translate "لا توجد موانع في المسودة. الترحيل نفسه ليس ضمن هذه المهمة." %}
     </p>
   {% else %}
-    <p class="banner" role="alert">
+    <p class="ui-notice" role="alert">
       {% blocktranslate count counter=readiness.problems|length %}
         مانع واحد يحتاج معالجة.
       {% plural %}
@@ -37,39 +37,39 @@
   {% endif %}
 
   {% if readiness.problems %}
-    <ul class="findings">
+    <ul class="ui-findings">
       {% for problem in readiness.problems %}
         <li>
           {% if problem.line_order %}
             <code dir="ltr">{{ problem.line_order }}</code>
           {% endif %}
           {{ problem.message }}
-          <code class="muted" dir="ltr">{{ problem.code }}</code>
+          <code class="ui-text-muted" dir="ltr">{{ problem.code }}</code>
         </li>
       {% endfor %}
     </ul>
   {% endif %}
 
   {% if readiness.observations %}
-    <h3 class="card__subtitle">{% translate "ملاحظات لا تمنع" %}</h3>
-    <ul class="findings">
+    <h3 class="ui-card__subtitle">{% translate "ملاحظات لا تمنع" %}</h3>
+    <ul class="ui-findings">
       {% for note in readiness.observations %}
         <li>
           {{ note.message }}
-          <code class="muted" dir="ltr">{{ note.code }}</code>
+          <code class="ui-text-muted" dir="ltr">{{ note.code }}</code>
         </li>
       {% endfor %}
     </ul>
   {% endif %}
 
   {% if findings %}
-    <h3 class="card__subtitle">{% translate "نتائج المدقّق" %}</h3>
+    <h3 class="ui-card__subtitle">{% translate "نتائج المدقّق" %}</h3>
     {# Reported, never repaired. There is no repair button because there is #}
     {# no repair: a corrected number nobody can trace is worse than a       #}
     {# finding somebody has to read.                                        #}
-    <ul class="findings">
+    <ul class="ui-findings">
       {% for finding in findings %}
-        <li>{{ finding.message }} <code class="muted" dir="ltr">{{ finding.code }}</code></li>
+        <li>{{ finding.message }} <code class="ui-text-muted" dir="ltr">{{ finding.code }}</code></li>
       {% endfor %}
     </ul>
   {% endif %}

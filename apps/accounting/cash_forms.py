@@ -60,8 +60,7 @@ class CashboxForm(forms.Form):
     code = forms.CharField(
         label=_("الرمز"), max_length=20, widget=forms.TextInput(attrs={"dir": "ltr"})
     )
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     opened_on = forms.DateField(
         label=_("مستعمَل من"), widget=forms.DateInput(attrs={"type": "date"})
     )
@@ -97,8 +96,7 @@ class CashboxForm(forms.Form):
 class CashboxMetadataForm(forms.Form):
     """What a registered drawer may still change. Not its account, not its branch."""
 
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     responsible_note = forms.CharField(label=_("المسؤول"), max_length=200, required=False)
     notes = forms.CharField(
         label=_("ملاحظات"), required=False, widget=forms.Textarea(attrs={"rows": 2})
@@ -126,8 +124,7 @@ class BankAccountForm(forms.Form):
         label=_("الرمز"), max_length=20, widget=forms.TextInput(attrs={"dir": "ltr"})
     )
     bank_name = forms.CharField(label=_("المصرف"), max_length=200)
-    name_ar = forms.CharField(label=_("اسم الحساب بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("اسم الحساب بالإنجليزية"), max_length=200)
+    name = forms.CharField(label=_("اسم الحساب بالعربية"), max_length=200)
     masked_account_number = forms.CharField(
         label=_("رقم الحساب"),
         max_length=40,
@@ -169,8 +166,7 @@ class BankAccountMetadataForm(forms.Form):
     """What a registered bank account may still change. Not its GL account."""
 
     bank_name = forms.CharField(label=_("المصرف"), max_length=200)
-    name_ar = forms.CharField(label=_("اسم الحساب بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("اسم الحساب بالإنجليزية"), max_length=200)
+    name = forms.CharField(label=_("اسم الحساب بالعربية"), max_length=200)
     masked_account_number = forms.CharField(
         label=_("رقم الحساب"), max_length=40, widget=forms.TextInput(attrs={"dir": "ltr"})
     )

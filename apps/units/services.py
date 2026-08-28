@@ -124,16 +124,14 @@ def convert_to_stored_quantity(
 def create_unit(
     *,
     code: str,
-    name_ar: str,
-    name_en: str,
+    name: str,
     dimension: Dimension | str,
     factor_to_base: Decimal,
     is_base: bool = False,
 ) -> UnitOfMeasure:
     unit = UnitOfMeasure(
         code=code.strip().upper(),
-        name_ar=name_ar.strip(),
-        name_en=name_en.strip(),
+        name=name.strip(),
         dimension=dimension,
         factor_to_base=factor_to_base,
         is_base=is_base,
@@ -148,8 +146,7 @@ def create_unit(
 def update_unit(
     *,
     unit: UnitOfMeasure,
-    name_ar: str,
-    name_en: str,
+    name: str,
     factor_to_base: Decimal,
     is_active: bool,
 ) -> UnitOfMeasure:
@@ -166,8 +163,8 @@ def update_unit(
     # during validation, so an in-memory snapshot would already be the new
     # values and the trail would show no change at all.
     before = snapshot(UnitOfMeasure.objects.get(pk=unit.pk))
-    unit.name_ar = name_ar.strip()
-    unit.name_en = name_en.strip()
+    unit.name = name.strip()
+    unit.name = name.strip()
     unit.factor_to_base = factor_to_base
     unit.is_active = is_active
     unit.full_clean()

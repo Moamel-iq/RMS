@@ -158,8 +158,8 @@ def rice(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="RICE",
-        name_ar="رز",
-        category=create_item_category(organization=organization, code="GRAINS", name_ar="حبوب"),
+        name="رز",
+        category=create_item_category(organization=organization, code="GRAINS", name="حبوب"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
     )
@@ -172,8 +172,8 @@ def meat(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
     return create_item(
         organization=organization,
         code="MEAT",
-        name_ar="لحم",
-        category=create_item_category(organization=organization, code="MEATS", name_ar="لحوم"),
+        name="لحم",
+        category=create_item_category(organization=organization, code="MEATS", name="لحوم"),
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
         tracks_lots=True,
@@ -184,7 +184,7 @@ def meat(organization: Organization, kilogram: UnitOfMeasure) -> InventoryItem:
 def container(organization: Organization, meat: InventoryItem) -> PackageUnit:
     from apps.inventory.services import create_item_conversion, create_package_unit
 
-    package = create_package_unit(organization=organization, code="CONTAINER", name_ar="حاوية")
+    package = create_package_unit(organization=organization, code="CONTAINER", name="حاوية")
     create_item_conversion(
         item=meat,
         package_unit=package,
@@ -205,7 +205,7 @@ def reason(organization: Organization) -> InventoryReasonCode:
     return InventoryReasonCode.objects.create(
         organization=organization,
         code="SPOILED",
-        name_ar="تالف عند الاستلام",
+        name="تالف عند الاستلام",
         applies_to=ReasonCodeApplication.WASTE,
     )
 
@@ -214,12 +214,12 @@ def reason(organization: Organization) -> InventoryReasonCode:
 def store(branch: Branch) -> Warehouse:
     from apps.inventory.services import create_warehouse
 
-    return create_warehouse(branch=branch, code="MAIN", name_ar="مخزن")
+    return create_warehouse(branch=branch, code="MAIN", name="مخزن")
 
 
 @pytest.fixture
 def grocery(organization: Organization) -> Supplier:
-    return create_supplier(organization=organization, code="GROC-01", name_ar="مورد")
+    return create_supplier(organization=organization, code="GROC-01", name="مورد")
 
 
 @pytest.fixture
@@ -1034,7 +1034,7 @@ class TestLocationEffect:
     def bin_a(self, store: Warehouse) -> StockLocation:
         from apps.inventory.locations import create_location
 
-        return create_location(warehouse=store, code="BIN-A", name_ar="رف أ")
+        return create_location(warehouse=store, code="BIN-A", name="رف أ")
 
     def test_the_accepted_quantity_lands_in_the_named_bin(
         self,

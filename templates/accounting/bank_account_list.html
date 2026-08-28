@@ -7,8 +7,8 @@
 {% load i18n money_tags %}
 
 {% block filters %}
-  <label class="field">
-    <span class="field__label">{% translate "الحالة" %}</span>
+  <label class="ui-field">
+    <span class="ui-field__label">{% translate "الحالة" %}</span>
     <select name="state">
       <option value="">{% translate "الفعّالة" %}</option>
       <option value="archived" {% if selected_state == "archived" %}selected{% endif %}>{% translate "المؤرشفة" %}</option>
@@ -26,7 +26,7 @@
   <th>{% translate "الحساب المحاسبي" %}</th>
   <th>{% translate "الرصيد" %}</th>
   <th>{% translate "الحالة" %}</th>
-  <th scope="col"><span class="sr-only">إجراءات</span></th>
+  <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
 {% endblock %}
 
 {% block rows %}
@@ -34,7 +34,7 @@
     <tr>
       <td><code dir="ltr">{{ bank.code }}</code></td>
       <td>{{ bank.bank_name }}</td>
-      <td>{{ bank.name_ar }}</td>
+      <td>{{ bank.name }}</td>
       <td><bdi dir="ltr">{{ bank.masked_account_number }}</bdi></td>
       <td>{% if bank.branch %}{{ bank.branch.code }}{% else %}{% translate "المؤسسة" %}{% endif %}</td>
       <td>
@@ -45,16 +45,16 @@
       <td><bdi dir="ltr">{{ bank.derived_balance|money_full }}</bdi></td>
       <td>
         {% if bank.is_active %}
-          <span class="chip chip--ok">{% translate "فعّال" %}</span>
+          <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
         {% else %}
-          <span class="chip chip--muted">{% translate "مؤرشف" %}</span>
+          <span class="ui-badge ui-badge--neutral">{% translate "مؤرشف" %}</span>
         {% endif %}
       </td>
-      <td class="cell-actions">
-        <a class="btn btn--secondary btn--sm" href="{% url 'accounting:bank_account_detail' bank.pk %}">{% translate "الكشف" %}</a>
+      <td class="ui-table__actions">
+        <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:bank_account_detail' bank.pk %}">{% translate "الكشف" %}</a>
       </td>
     </tr>
   {% empty %}
-    <tr><td colspan="9" class="empty">{% translate "لا توجد حسابات بنكية مسجَّلة." %}</td></tr>
+    <tr><td colspan="9" class="ui-table__empty">{% translate "لا توجد حسابات بنكية مسجَّلة." %}</td></tr>
   {% endfor %}
 {% endblock %}

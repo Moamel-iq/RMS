@@ -8,6 +8,7 @@ exercises the authorization protecting the act it tests.
 from __future__ import annotations
 
 import datetime
+import itertools
 import zoneinfo
 from decimal import Decimal
 
@@ -46,7 +47,6 @@ from apps.inventory.commands import (
     cancel_stock_count,
     create_adjustment,
     create_document,
-    create_reason_code,
     create_stock_count,
     post_adjustment,
     post_document,
@@ -58,9 +58,7 @@ from apps.inventory.commands import (
     reverse_stock_count,
     start_stock_count,
     submit_stock_count,
-    update_reason_code,
     visible_counts,
-    visible_reason_codes,
 )
 from apps.inventory.counts import ApprovedCost, CountEntry
 from apps.inventory.models import (
@@ -71,11 +69,9 @@ from apps.inventory.models import (
     InventoryItem,
     InventoryLot,
     InventoryMovementDocument,
-    InventoryReasonCode,
     ItemCategory,
     MovementType,
     PackageUnit,
-    ReasonCodeApplication,
     StockBalance,
     StockCount,
     StockCountLine,
@@ -85,6 +81,7 @@ from apps.inventory.models import (
 )
 from apps.inventory.operations import DocumentLineInput
 from apps.inventory.services import create_item_conversion
+from apps.inventory.tests.stock_seed import seed_stock
 from apps.organizations.authorization import OutOfScope
 from apps.organizations.models import Branch, Organization, Role
 from apps.organizations.services import grant_branch_access, grant_organization_access
@@ -195,28 +192,9 @@ def keeper(branch: Branch) -> User:
     return User.objects.get(pk=user.pk)
 
 
-@pytest.fixture
-def spoilage(organization: Organization) -> InventoryReasonCode:
-    return create_reason_code(
-        actor=User.objects.get(username="boss")
-        if User.objects.filter(username="boss").exists()
-        else User.objects.create_superuser(username="seed", password="pw-not-real-1234"),
-        organization=organization,
-        code="spoil",
-        name_ar="تلف طبيعي",
-        applies_to=ReasonCodeApplication.WASTE,
-    )
-
-
-@pytest.fixture
-def correction(boss: User, organization: Organization) -> InventoryReasonCode:
-    return create_reason_code(
-        actor=boss,
-        organization=organization,
-        code="CORRECT",
-        name_ar="تصحيح قيد",
-        applies_to=ReasonCodeApplication.MANUAL_ADJUSTMENT,
-    )
+#: One counter per call, because `post_stock_movements` refuses a repeated
+#: idempotency key and several tests seed twice.
+_SEED = itertools.count(1)
 
 
 def _seed_stock(
@@ -231,24 +209,25 @@ def _seed_stock(
     lot: InventoryLot | None = None,
     at: datetime.datetime | None = None,
 ) -> None:
-    """Put stock on a shelf through a real posted receipt."""
-    document = create_document(
+    """
+    Put stock on a shelf through the kernel.
+
+    It used to go in through an un-invoiced receipt; that document was
+    withdrawn from the product. `seed_stock` posts what it posted — the goods
+    through the kernel and the money through a balanced journal — so the
+    reconciliation still finds the two ledgers agreeing.
+    """
+    seed_stock(
         actor=actor,
         organization=organization,
-        branch=branch,
         warehouse=warehouse,
-        document_type=InventoryDocumentType.RECEIPT,
+        item=item,
+        quantity=quantity,
+        unit_cost=cost,
+        control_account=Account.objects.get(organization=organization, code="1-03-01-001"),
+        lot=lot,
         effective_at=at or _moment(1),
-        evidence_reference="DN-SEED",
     )
-    add_document_line(
-        actor=actor,
-        document=document,
-        line=DocumentLineInput(
-            item=item, lot=lot, base_quantity=Decimal(quantity), unit_cost=Decimal(cost)
-        ),
-    )
-    post_document(actor=actor, document=document)
 
 
 @pytest.fixture
@@ -293,7 +272,6 @@ def _waste(
     warehouse: Warehouse,
     item: InventoryItem,
     quantity: str,
-    reason_code: InventoryReasonCode,
     *,
     cost_center: CostCenter | None = None,
     lot: InventoryLot | None = None,
@@ -317,128 +295,10 @@ def _waste(
             item=item,
             lot=lot,
             base_quantity=Decimal(quantity),
-            reason_code=reason_code,
             line_comment=comment,
         ),
     )
     return document
-
-
-# ---------------------------------------------------------------------------
-# §D Reason codes
-# ---------------------------------------------------------------------------
-
-
-class TestReasonCodes:
-    def test_a_code_is_canonicalised_to_upper_case(
-        self, boss: User, organization: Organization
-    ) -> None:
-        code = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="  spoil  ",
-            name_ar="تلف",
-            applies_to=ReasonCodeApplication.WASTE,
-        )
-        assert code.code == "SPOIL"
-
-    def test_a_code_is_unique_per_organization(
-        self, boss: User, organization: Organization
-    ) -> None:
-        create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="SPOIL",
-            name_ar="تلف",
-            applies_to=ReasonCodeApplication.WASTE,
-        )
-        with pytest.raises(ValidationError) as refused:
-            create_reason_code(
-                actor=boss,
-                organization=organization,
-                code="spoil",
-                name_ar="تلف آخر",
-                applies_to=ReasonCodeApplication.COUNT_VARIANCE,
-            )
-        assert refused.value.code == "reason_code_taken"
-
-    def test_an_archived_code_stays_reserved(self, boss: User, organization: Organization) -> None:
-        code = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="BREAK",
-            name_ar="كسر",
-            applies_to=ReasonCodeApplication.WASTE,
-        )
-        update_reason_code(actor=boss, reason_code=code, name_ar="كسر", is_active=False)
-        with pytest.raises(ValidationError) as refused:
-            create_reason_code(
-                actor=boss,
-                organization=organization,
-                code="BREAK",
-                name_ar="شيء مختلف تماماً",
-                applies_to=ReasonCodeApplication.MANUAL_ADJUSTMENT,
-            )
-        assert refused.value.code == "reason_code_taken"
-
-    def test_the_code_and_its_application_are_immutable_at_the_database(
-        self, boss: User, organization: Organization
-    ) -> None:
-        code = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="SPOIL",
-            name_ar="تلف",
-            applies_to=ReasonCodeApplication.WASTE,
-        )
-        with pytest.raises(IntegrityError, match="repurposing it"), transaction.atomic():
-            InventoryReasonCode.objects.filter(pk=code.pk).update(
-                applies_to=ReasonCodeApplication.COUNT_VARIANCE
-            )
-
-    def test_the_name_and_its_requirements_may_change(
-        self, boss: User, organization: Organization
-    ) -> None:
-        code = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="OTHER",
-            name_ar="أخرى",
-            applies_to=ReasonCodeApplication.WASTE,
-        )
-        updated = update_reason_code(
-            actor=boss, reason_code=code, name_ar="أسباب أخرى", requires_comment=True
-        )
-        assert updated.name_ar == "أسباب أخرى"
-        assert updated.requires_comment is True
-
-    def test_another_organizations_codes_are_invisible(
-        self,
-        boss: User,
-        organization: Organization,
-        other_organization: Organization,
-        rival_manager: User,
-    ) -> None:
-        create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="SPOIL",
-            name_ar="تلف",
-            applies_to=ReasonCodeApplication.WASTE,
-        )
-        assert visible_reason_codes(rival_manager).count() == 0
-
-    def test_a_storekeeper_cannot_invent_a_reason(
-        self, keeper: User, organization: Organization
-    ) -> None:
-        with pytest.raises(PermissionDenied):
-            create_reason_code(
-                actor=keeper,
-                organization=organization,
-                code="CONVENIENT",
-                name_ar="سبب مريح",
-                applies_to=ReasonCodeApplication.WASTE,
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -455,14 +315,11 @@ class TestWaste:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
         kitchen: CostCenter,
         control_account: Account,
         waste_account: Account,
     ) -> None:
-        document = _waste(
-            boss, organization, branch, main_store, rice, "10", spoilage, cost_center=kitchen
-        )
+        document = _waste(boss, organization, branch, main_store, rice, "10", cost_center=kitchen)
         posted = post_document(actor=boss, document=document)
 
         assert posted.status == InventoryDocumentStatus.POSTED
@@ -490,7 +347,6 @@ class TestWaste:
         main_store: Warehouse,
         rice: InventoryItem,
         mapped: None,
-        spoilage: InventoryReasonCode,
         kitchen: CostCenter,
     ) -> None:
         # Three receipts whose average does not divide evenly.
@@ -499,9 +355,7 @@ class TestWaste:
         _seed_stock(boss, organization, branch, main_store, rice, "1", "1002")
         before = _balance(main_store, rice).value
 
-        document = _waste(
-            boss, organization, branch, main_store, rice, "7", spoilage, cost_center=kitchen
-        )
+        document = _waste(boss, organization, branch, main_store, rice, "7", cost_center=kitchen)
         posted = post_document(actor=boss, document=document)
 
         balance = _balance(main_store, rice)
@@ -517,7 +371,6 @@ class TestWaste:
         branch: Branch,
         main_store: Warehouse,
         mapped: None,
-        spoilage: InventoryReasonCode,
         kitchen: CostCenter,
         leaf_category: ItemCategory,
         kilogram: UnitOfMeasure,
@@ -526,7 +379,7 @@ class TestWaste:
             organization=organization,
             category=leaf_category,
             code="MILK",
-            name_ar="حليب",
+            name="حليب",
             base_unit=kilogram,
             tracks_lots=True,
             tracks_expiry=True,
@@ -567,7 +420,6 @@ class TestWaste:
             main_store,
             milk,
             "10",
-            spoilage,
             cost_center=kitchen,
             lot=lot,
         )
@@ -583,114 +435,12 @@ class TestWaste:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
         kitchen: CostCenter,
     ) -> None:
-        document = _waste(
-            boss, organization, branch, main_store, rice, "500", spoilage, cost_center=kitchen
-        )
+        document = _waste(boss, organization, branch, main_store, rice, "500", cost_center=kitchen)
         with pytest.raises(ValidationError) as refused:
             post_document(actor=boss, document=document)
         assert refused.value.code == "insufficient_stock"
-
-    def test_a_waste_line_needs_a_reason_code(
-        self,
-        boss: User,
-        organization: Organization,
-        branch: Branch,
-        main_store: Warehouse,
-        rice: InventoryItem,
-        stocked: None,
-        kitchen: CostCenter,
-    ) -> None:
-        document = create_document(
-            actor=boss,
-            organization=organization,
-            branch=branch,
-            warehouse=main_store,
-            document_type=InventoryDocumentType.WASTE,
-            effective_at=_moment(),
-            evidence_reference="WASTE-NOTE-1",
-            cost_center=kitchen,
-        )
-        with pytest.raises(ValidationError) as refused:
-            add_document_line(
-                actor=boss,
-                document=document,
-                line=DocumentLineInput(item=rice, base_quantity=Decimal("1")),
-            )
-        assert refused.value.code == "waste_reason_code_required"
-
-    def test_a_count_reason_cannot_be_used_on_a_waste_line(
-        self,
-        boss: User,
-        organization: Organization,
-        branch: Branch,
-        main_store: Warehouse,
-        rice: InventoryItem,
-        stocked: None,
-        kitchen: CostCenter,
-    ) -> None:
-        wrong = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="RECOUNT",
-            name_ar="خطأ عدّ",
-            applies_to=ReasonCodeApplication.COUNT_VARIANCE,
-        )
-        document = create_document(
-            actor=boss,
-            organization=organization,
-            branch=branch,
-            warehouse=main_store,
-            document_type=InventoryDocumentType.WASTE,
-            effective_at=_moment(),
-            evidence_reference="W-1",
-            cost_center=kitchen,
-        )
-        with pytest.raises(ValidationError) as refused:
-            add_document_line(
-                actor=boss,
-                document=document,
-                line=DocumentLineInput(item=rice, base_quantity=Decimal("1"), reason_code=wrong),
-            )
-        assert refused.value.code == "reason_code_wrong_application"
-
-    def test_a_reason_that_demands_a_comment_gets_one(
-        self,
-        boss: User,
-        organization: Organization,
-        branch: Branch,
-        main_store: Warehouse,
-        rice: InventoryItem,
-        stocked: None,
-        kitchen: CostCenter,
-    ) -> None:
-        other = create_reason_code(
-            actor=boss,
-            organization=organization,
-            code="OTHER",
-            name_ar="أخرى",
-            applies_to=ReasonCodeApplication.WASTE,
-            requires_comment=True,
-        )
-        document = create_document(
-            actor=boss,
-            organization=organization,
-            branch=branch,
-            warehouse=main_store,
-            document_type=InventoryDocumentType.WASTE,
-            effective_at=_moment(),
-            evidence_reference="W-1",
-            cost_center=kitchen,
-        )
-        with pytest.raises(ValidationError) as refused:
-            add_document_line(
-                actor=boss,
-                document=document,
-                line=DocumentLineInput(item=rice, base_quantity=Decimal("1"), reason_code=other),
-            )
-        assert refused.value.code == "reason_code_comment_required"
 
     def test_waste_needs_a_cost_centre_because_its_account_demands_one(
         self,
@@ -700,9 +450,8 @@ class TestWaste:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
     ) -> None:
-        document = _waste(boss, organization, branch, main_store, rice, "1", spoilage)
+        document = _waste(boss, organization, branch, main_store, rice, "1")
         with pytest.raises(ValidationError) as refused:
             post_document(actor=boss, document=document)
         assert refused.value.code == "cost_center_required"
@@ -715,15 +464,12 @@ class TestWaste:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
         kitchen: CostCenter,
     ) -> None:
         mapping = organization.account_mappings.get(account_role__code=INVENTORY_WASTE_EXPENSE)
         archive_account_mapping(mapping=mapping, reason="test")
 
-        document = _waste(
-            boss, organization, branch, main_store, rice, "10", spoilage, cost_center=kitchen
-        )
+        document = _waste(boss, organization, branch, main_store, rice, "10", cost_center=kitchen)
         with pytest.raises(ValidationError) as refused:
             post_document(actor=boss, document=document)
         assert refused.value.code == "account_role_unmapped"
@@ -741,12 +487,9 @@ class TestWaste:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
         kitchen: CostCenter,
     ) -> None:
-        document = _waste(
-            boss, organization, branch, main_store, rice, "1", spoilage, cost_center=kitchen
-        )
+        document = _waste(boss, organization, branch, main_store, rice, "1", cost_center=kitchen)
         with pytest.raises(PermissionDenied):
             post_document(actor=keeper, document=document)
 
@@ -758,12 +501,9 @@ class TestWaste:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
         kitchen: CostCenter,
     ) -> None:
-        document = _waste(
-            boss, organization, branch, main_store, rice, "10", spoilage, cost_center=kitchen
-        )
+        document = _waste(boss, organization, branch, main_store, rice, "10", cost_center=kitchen)
         posted = post_document(actor=boss, document=document)
         reversed_document = reverse_document(
             actor=boss, document=posted, reason="wrong shelf counted"
@@ -782,12 +522,9 @@ class TestWaste:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
         kitchen: CostCenter,
     ) -> None:
-        document = _waste(
-            boss, organization, branch, main_store, rice, "10", spoilage, cost_center=kitchen
-        )
+        document = _waste(boss, organization, branch, main_store, rice, "10", cost_center=kitchen)
         post_document(actor=boss, document=document)
         with pytest.raises(ValidationError) as refused:
             post_document(actor=boss, document=document)
@@ -856,13 +593,10 @@ class TestCountStartAndFreeze:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
         kitchen: CostCenter,
     ) -> None:
         _start(boss, _count_of(boss, organization, branch, main_store))
-        document = _waste(
-            boss, organization, branch, main_store, rice, "1", spoilage, cost_center=kitchen
-        )
+        document = _waste(boss, organization, branch, main_store, rice, "1", cost_center=kitchen)
         with pytest.raises(ValidationError) as refused:
             post_document(actor=boss, document=document)
         assert refused.value.code == "warehouse_frozen"
@@ -1063,7 +797,7 @@ class TestBlindEntry:
             organization=organization,
             category=leaf_category,
             code="SALT",
-            name_ar="ملح",
+            name="ملح",
             base_unit=kilogram,
         )
         count = _start(boss, _count_of(boss, organization, branch, main_store))
@@ -1264,7 +998,7 @@ class TestSubmissionAndApproval:
             organization=organization,
             category=leaf_category,
             code="SALT",
-            name_ar="ملح",
+            name="ملح",
             base_unit=kilogram,
         )
         count = _start(boss, _count_of(boss, organization, branch, main_store, cost_center=kitchen))
@@ -1308,7 +1042,7 @@ class TestSubmissionAndApproval:
             organization=organization,
             category=leaf_category,
             code="SALT",
-            name_ar="ملح",
+            name="ملح",
             base_unit=kilogram,
         )
         count = _start(boss, _count_of(boss, organization, branch, main_store, cost_center=kitchen))
@@ -1748,7 +1482,6 @@ class TestManualAdjustments:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        correction: InventoryReasonCode,
     ) -> None:
         document = _adjustment(boss, organization, branch, main_store)
         with pytest.raises(ValidationError) as refused:
@@ -1758,7 +1491,6 @@ class TestManualAdjustments:
                 line=AdjustmentLineInput(
                     kind="QUANTITY_GAIN",
                     item=rice,
-                    reason_code=correction,
                     base_quantity=Decimal("10"),
                 ),
             )
@@ -1772,7 +1504,6 @@ class TestManualAdjustments:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        correction: InventoryReasonCode,
         control_account: Account,
         adjustment_account: Account,
     ) -> None:
@@ -1783,7 +1514,6 @@ class TestManualAdjustments:
             line=AdjustmentLineInput(
                 kind="QUANTITY_GAIN",
                 item=rice,
-                reason_code=correction,
                 base_quantity=Decimal("10"),
                 unit_cost=Decimal("2000"),
             ),
@@ -1809,7 +1539,6 @@ class TestManualAdjustments:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        correction: InventoryReasonCode,
     ) -> None:
         document = _adjustment(boss, organization, branch, main_store)
         add_adjustment_line(
@@ -1818,7 +1547,6 @@ class TestManualAdjustments:
             line=AdjustmentLineInput(
                 kind="QUANTITY_LOSS",
                 item=rice,
-                reason_code=correction,
                 base_quantity=Decimal("20"),
             ),
         )
@@ -1841,7 +1569,6 @@ class TestManualAdjustments:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        correction: InventoryReasonCode,
     ) -> None:
         document = _adjustment(boss, organization, branch, main_store)
         add_adjustment_line(
@@ -1850,7 +1577,6 @@ class TestManualAdjustments:
             line=AdjustmentLineInput(
                 kind="VALUE_ONLY",
                 item=rice,
-                reason_code=correction,
                 value_adjustment=Decimal("30000"),
             ),
         )
@@ -1873,7 +1599,6 @@ class TestManualAdjustments:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        correction: InventoryReasonCode,
     ) -> None:
         document = _adjustment(boss, organization, branch, main_store)
         add_adjustment_line(
@@ -1882,7 +1607,6 @@ class TestManualAdjustments:
             line=AdjustmentLineInput(
                 kind="VALUE_ONLY",
                 item=rice,
-                reason_code=correction,
                 value_adjustment=Decimal("-30000"),
             ),
         )
@@ -1904,7 +1628,6 @@ class TestManualAdjustments:
         branch: Branch,
         main_store: Warehouse,
         mapped: None,
-        correction: InventoryReasonCode,
         leaf_category: ItemCategory,
         kilogram: UnitOfMeasure,
     ) -> None:
@@ -1912,7 +1635,7 @@ class TestManualAdjustments:
             organization=organization,
             category=leaf_category,
             code="SALT",
-            name_ar="ملح",
+            name="ملح",
             base_unit=kilogram,
         )
         document = _adjustment(boss, organization, branch, main_store)
@@ -1923,7 +1646,6 @@ class TestManualAdjustments:
                 line=AdjustmentLineInput(
                     kind="VALUE_ONLY",
                     item=salt,
-                    reason_code=correction,
                     value_adjustment=Decimal("1000"),
                 ),
             )
@@ -1937,7 +1659,6 @@ class TestManualAdjustments:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        correction: InventoryReasonCode,
     ) -> None:
         document = _adjustment(boss, organization, branch, main_store)
         with pytest.raises(ValidationError) as refused:
@@ -1947,35 +1668,10 @@ class TestManualAdjustments:
                 line=AdjustmentLineInput(
                     kind="VALUE_ONLY",
                     item=rice,
-                    reason_code=correction,
                     value_adjustment=Decimal("-200000"),
                 ),
             )
         assert refused.value.code == "value_only_would_go_negative"
-
-    def test_a_wrong_application_reason_is_refused(
-        self,
-        boss: User,
-        organization: Organization,
-        branch: Branch,
-        main_store: Warehouse,
-        rice: InventoryItem,
-        stocked: None,
-        spoilage: InventoryReasonCode,
-    ) -> None:
-        document = _adjustment(boss, organization, branch, main_store)
-        with pytest.raises(ValidationError) as refused:
-            add_adjustment_line(
-                actor=boss,
-                document=document,
-                line=AdjustmentLineInput(
-                    kind="QUANTITY_LOSS",
-                    item=rice,
-                    reason_code=spoilage,
-                    base_quantity=Decimal("1"),
-                ),
-            )
-        assert refused.value.code == "reason_code_wrong_application"
 
     def test_a_storekeeper_cannot_post_an_adjustment(
         self,
@@ -1996,7 +1692,6 @@ class TestManualAdjustments:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        correction: InventoryReasonCode,
     ) -> None:
         document = _adjustment(boss, organization, branch, main_store)
         add_adjustment_line(
@@ -2005,7 +1700,6 @@ class TestManualAdjustments:
             line=AdjustmentLineInput(
                 kind="VALUE_ONLY",
                 item=rice,
-                reason_code=correction,
                 value_adjustment=Decimal("30000"),
             ),
         )
@@ -2025,7 +1719,6 @@ class TestManualAdjustments:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        correction: InventoryReasonCode,
     ) -> None:
         from apps.inventory.models import InventoryAdjustmentDocument
 
@@ -2036,7 +1729,6 @@ class TestManualAdjustments:
             line=AdjustmentLineInput(
                 kind="QUANTITY_LOSS",
                 item=rice,
-                reason_code=correction,
                 base_quantity=Decimal("1"),
             ),
         )
@@ -2054,7 +1746,6 @@ class TestManualAdjustments:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        correction: InventoryReasonCode,
     ) -> None:
         document = _adjustment(boss, organization, branch, main_store)
         add_adjustment_line(
@@ -2063,7 +1754,6 @@ class TestManualAdjustments:
             line=AdjustmentLineInput(
                 kind="QUANTITY_LOSS",
                 item=rice,
-                reason_code=correction,
                 base_quantity=Decimal("1"),
             ),
         )
@@ -2079,7 +1769,6 @@ class TestManualAdjustments:
         branch: Branch,
         main_store: Warehouse,
         mapped: None,
-        correction: InventoryReasonCode,
         leaf_category: ItemCategory,
         kilogram: UnitOfMeasure,
     ) -> None:
@@ -2087,7 +1776,7 @@ class TestManualAdjustments:
             organization=organization,
             category=leaf_category,
             code="MILK",
-            name_ar="حليب",
+            name="حليب",
             base_unit=kilogram,
             tracks_lots=True,
             tracks_expiry=True,
@@ -2109,7 +1798,6 @@ class TestManualAdjustments:
                 kind="QUANTITY_LOSS",
                 item=milk,
                 lot=lot,
-                reason_code=correction,
                 base_quantity=Decimal("10"),
             ),
         )
@@ -2132,8 +1820,6 @@ class TestReconciliation:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
-        correction: InventoryReasonCode,
         kitchen: CostCenter,
     ) -> None:
         """One of each document, then every comparison at once."""
@@ -2142,7 +1828,7 @@ class TestReconciliation:
         post_document(
             actor=boss,
             document=_waste(
-                boss, organization, branch, main_store, rice, "10", spoilage, cost_center=kitchen
+                boss, organization, branch, main_store, rice, "10", cost_center=kitchen
             ),
         )
 
@@ -2153,7 +1839,6 @@ class TestReconciliation:
             line=AdjustmentLineInput(
                 kind="VALUE_ONLY",
                 item=rice,
-                reason_code=correction,
                 value_adjustment=Decimal("1000"),
             ),
         )
@@ -2242,7 +1927,6 @@ class TestReconciliation:
         main_store: Warehouse,
         rice: InventoryItem,
         stocked: None,
-        spoilage: InventoryReasonCode,
         kitchen: CostCenter,
         control_account: Account,
         waste_account: Account,
@@ -2255,7 +1939,7 @@ class TestReconciliation:
         post_document(
             actor=boss,
             document=_waste(
-                boss, organization, branch, main_store, rice, "10", spoilage, cost_center=kitchen
+                boss, organization, branch, main_store, rice, "10", cost_center=kitchen
             ),
         )
         assert verify_inventory_accounting(organization) == []

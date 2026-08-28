@@ -66,12 +66,11 @@ pytestmark = pytest.mark.django_db(transaction=True)
 def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
     """A committed organization with accounting, mappings, items, and users."""
     call_command("seed_units", verbosity=0)
-    organization = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM", name="خان مندي")
     branch = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
     configure_accounting(organization=organization, fiscal_year_start_month=1)
@@ -92,13 +91,13 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
         effective_from=effective,
     )
 
-    root = create_item_category(organization=organization, code="FOOD", name_ar="أغذية")
-    leaf = create_item_category(organization=organization, code="MEAT", name_ar="لحوم", parent=root)
+    root = create_item_category(organization=organization, code="FOOD", name="أغذية")
+    leaf = create_item_category(organization=organization, code="MEAT", name="لحوم", parent=root)
     kilogram = UnitOfMeasure.objects.get(code="KG")
     rice = create_item(
         organization=organization,
         code="RICE-272",
-        name_ar="رز",
+        name="رز",
         category=leaf,
         item_type="RAW_MATERIAL",
         base_unit=kilogram,
@@ -106,13 +105,13 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
     chicken = create_item(
         organization=organization,
         code="CHK",
-        name_ar="دجاج",
+        name="دجاج",
         category=leaf,
         item_type="RAW_MATERIAL",
         base_unit=kilogram,
     )
-    main = create_warehouse(branch=branch, code="MAIN", name_ar="الرئيسي")
-    cold = create_warehouse(branch=branch, code="COLD", name_ar="المبردات")
+    main = create_warehouse(branch=branch, code="MAIN", name="الرئيسي")
+    cold = create_warehouse(branch=branch, code="COLD", name="المبردات")
 
     preparer = User.objects.create_user(username="preparer", password="pw-not-real-1234")
     grant_branch_access(user=preparer, branch=branch, role=Role.MANAGER)

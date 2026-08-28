@@ -39,8 +39,8 @@ def test_item_list_search_is_debounced_shareable_and_has_a_stable_target(
 ) -> None:
     body = client_for(manager).get(reverse("inventory:item_list")).content.decode()
 
-    toolbars = [tag for tag in _tags(body, "form") if "toolbar" in _class_tokens(tag)]
-    results = [tag for tag in _tags(body, "div") if tag.get("id") == "list-results"]
+    toolbars = [tag for tag in _tags(body, "form") if "ui-filter-bar" in _class_tokens(tag)]
+    results = [tag for tag in _tags(body, "section") if tag.get("id") == "list-results"]
 
     assert len(toolbars) == 1
     assert toolbars[0].get("method") == "get"
@@ -62,7 +62,7 @@ def test_item_list_search_loading_and_table_region_have_accessible_names(
     table_regions = [
         tag
         for tag in _tags(body, "div")
-        if tag.get("role") == "region" and "data-table-shell" in _class_tokens(tag)
+        if tag.get("role") == "region" and "ui-table-scroll" in _class_tokens(tag)
     ]
 
     assert len(search) == len(search_labels) == 1
@@ -82,7 +82,7 @@ def test_item_list_announces_swapped_results_and_marks_empty_params_for_pruning(
 ) -> None:
     body = client_for(manager).get(reverse("inventory:item_list")).content.decode()
 
-    toolbars = [tag for tag in _tags(body, "form") if "toolbar" in _class_tokens(tag)]
+    toolbars = [tag for tag in _tags(body, "form") if "ui-filter-bar" in _class_tokens(tag)]
     counters = [tag for tag in _tags(body, "span") if tag.get("id") == "list-result-count"]
 
     assert len(toolbars) == 1
@@ -98,7 +98,7 @@ def test_search_does_not_force_the_additional_filter_panel_open(
 ) -> None:
     body = client_for(manager).get(reverse("inventory:item_list"), {"q": "RICE"}).content.decode()
     disclosures = [
-        tag for tag in _tags(body, "details") if "filter-disclosure" in _class_tokens(tag)
+        tag for tag in _tags(body, "details") if "ui-filter-disclosure" in _class_tokens(tag)
     ]
 
     assert len(disclosures) == 1
@@ -109,11 +109,9 @@ def test_item_list_exposes_the_golden_screen_table_and_compact_card_hooks(
     manager: User, client_for: Callable[[User], Client], rice: object
 ) -> None:
     body = client_for(manager).get(reverse("inventory:item_list")).content.decode()
-    tables = [tag for tag in _tags(body, "table") if "inventory-items-table" in _class_tokens(tag)]
-    rows = [tag for tag in _tags(body, "tr") if "inventory-item-row" in _class_tokens(tag)]
-    filter_labels = [
-        tag for tag in _tags(body, "span") if "filter-field__label" in _class_tokens(tag)
-    ]
+    tables = [tag for tag in _tags(body, "table") if "ui-items-table" in _class_tokens(tag)]
+    rows = [tag for tag in _tags(body, "tr") if "ui-item-row" in _class_tokens(tag)]
+    filter_labels = [tag for tag in _tags(body, "span") if "ui-field__label" in _class_tokens(tag)]
 
     assert len(tables) == 1
     assert rows
@@ -129,7 +127,9 @@ def test_item_list_exposes_active_filters_and_a_reset_destination(
         .content.decode()
     )
 
-    active_filters = [tag for tag in _tags(body, "div") if "active-filters" in _class_tokens(tag)]
+    active_filters = [
+        tag for tag in _tags(body, "div") if "ui-active-filters" in _class_tokens(tag)
+    ]
     reset_links = [
         tag
         for tag in _tags(body, "a")
@@ -159,7 +159,7 @@ def test_invalid_item_form_has_a_linked_error_summary_and_required_cues(
     assert summaries[0].get("tabindex") == "-1"
     assert len(code_inputs) == len(code_labels) == 1
     assert "required" in code_inputs[0]
-    assert any("formrow__required" in _class_tokens(tag) for tag in _tags(body, "span"))
+    assert any("ui-field__required" in _class_tokens(tag) for tag in _tags(body, "span"))
     assert error_links
 
 

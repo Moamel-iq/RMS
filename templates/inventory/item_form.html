@@ -1,93 +1,93 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="inventory-page inventory-form-page" aria-labelledby="item-form-title">
-    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--form" aria-labelledby="item-form-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'inventory:item_list' %}">{% translate "الأصناف" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ page_title }}</span>
     </nav>
 
-    <header class="inventory-item-form__hero">
+    <header class="ui-notice">
       <div>
-        <p class="inventory-eyebrow">{% translate "سجل الصنف" %}</p>
-        <h1 class="pagehead__title" id="item-form-title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{% translate "أنشئ الصنف مرة واحدة، ثم أضف تحويلات العبوات وأرصدة الفروع من الصفحات المخصصة لها." %}</p>
+        <p class="ui-eyebrow">{% translate "سجل الصنف" %}</p>
+        <h1 class="ui-page-header__title" id="item-form-title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">{% translate "أنشئ الصنف مرة واحدة، ثم أضف تحويلات العبوات وأرصدة الفروع من الصفحات المخصصة لها." %}</p>
       </div>
-      <div class="inventory-item-form__hero-note" role="note">
+      <div class="ui-notice__message" role="note">
         <strong>{% translate "راجع قبل الحفظ" %}</strong>
         <span>{% translate "وحدة الأساس لا تتغير بعد أول حركة مخزنية." %}</span>
       </div>
     </header>
 
-    <form class="formcard inventory-form inventory-item-form" method="post" novalidate
+    <form class="ui-card ui-form-card ui-form" method="post" novalidate
           data-inventory-form data-inventory-item-form>
       {% csrf_token %}
       {% include "components/form_error_summary.html" with form=form %}
 
-      <section class="inventory-form-section" aria-labelledby="item-identity-title">
-        <div class="inventory-form-section__heading">
-          <span class="inventory-form__step" aria-hidden="true">1</span>
+      <section class="ui-form-section" aria-labelledby="item-identity-title">
+        <div class="ui-form-section__title">
+          <span class="ui-form-section" aria-hidden="true">1</span>
           <div><h2 id="item-identity-title">{% translate "التعريف والملكية" %}</h2><p>{% translate "حدّد المؤسسة والرمز الثابت للصنف." %}</p></div>
         </div>
-        <div class="formgrid inventory-form__fields">
+        <div class="ui-form-grid">
           {% include "settings/_field.html" with field=form.organization %}
           {% include "settings/_field.html" with field=form.code %}
         </div>
       </section>
 
-      <section class="inventory-form-section" aria-labelledby="item-details-title">
-        <div class="inventory-form-section__heading">
-          <span class="inventory-form__step" aria-hidden="true">2</span>
+      <section class="ui-form-section" aria-labelledby="item-details-title">
+        <div class="ui-form-section__title">
+          <span class="ui-form-section" aria-hidden="true">2</span>
           <div><h2 id="item-details-title">{% translate "بيانات الصنف" %}</h2><p>{% translate "الاسم والتصنيف ووحدة القياس التي تحفظ بها كل الكميات." %}</p></div>
         </div>
-        <div class="formgrid inventory-form__fields">
-          {% include "settings/_field.html" with field=form.name_ar %}
-          {% include "settings/_field.html" with field=form.name_en %}
+        <div class="ui-form-grid">
+          {% include "settings/_field.html" with field=form.name %}
+          {% include "settings/_field.html" with field=form.name %}
           {% include "settings/_field.html" with field=form.category %}
           {% include "settings/_field.html" with field=form.item_type %}
           {% include "settings/_field.html" with field=form.base_unit %}
         </div>
       </section>
 
-      <section class="inventory-form-section" aria-labelledby="item-tracking-title">
-        <div class="inventory-form-section__heading">
-          <span class="inventory-form__step" aria-hidden="true">3</span>
+      <section class="ui-form-section" aria-labelledby="item-tracking-title">
+        <div class="ui-form-section__title">
+          <span class="ui-form-section" aria-hidden="true">3</span>
           <div><h2 id="item-tracking-title">{% translate "التتبع والصلاحية" %}</h2><p>{% translate "فعّل ما تحتاجه فقط. الصلاحية مرتبطة دائماً بدفعة مخزنية." %}</p></div>
         </div>
-        <div class="inventory-tracking-options">
-          <div class="inventory-choice-wrap{% if form.tracks_lots.errors %} formrow--invalid{% endif %}" data-field>
-            <label class="inventory-choice" for="{{ form.tracks_lots.id_for_label }}">
+        <div class="ui-choice-grid">
+          <div class="ui-choice-grid{% if form.tracks_lots.errors %} ui-field--invalid{% endif %}" data-field>
+            <label class="ui-choice" for="{{ form.tracks_lots.id_for_label }}">
               {{ form.tracks_lots }}
-              <span><strong>{{ form.tracks_lots.label }}</strong><small id="{{ form.tracks_lots.auto_id }}_helptext" data-field-description>{% translate "احتفظ برقم الدفعة ومصدرها لكل كمية." %}</small></span>
+              <span><strong>{{ form.tracks_lots.label }}</strong><small id="{{ form.tracks_lots.auto_id }}_ui-field__hint" data-field-description>{% translate "احتفظ برقم الدفعة ومصدرها لكل كمية." %}</small></span>
             </label>
-            {% if form.tracks_lots.errors %}<div id="{{ form.tracks_lots.auto_id }}_error" data-field-description data-field-error>{% for error in form.tracks_lots.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}</div>{% endif %}
+            {% if form.tracks_lots.errors %}<div id="{{ form.tracks_lots.auto_id }}_error" data-field-description data-field-error>{% for error in form.tracks_lots.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}</div>{% endif %}
           </div>
-          <div class="inventory-choice-wrap{% if form.tracks_expiry.errors %} formrow--invalid{% endif %}" data-field>
-            <label class="inventory-choice" for="{{ form.tracks_expiry.id_for_label }}">
+          <div class="ui-choice-grid{% if form.tracks_expiry.errors %} ui-field--invalid{% endif %}" data-field>
+            <label class="ui-choice" for="{{ form.tracks_expiry.id_for_label }}">
               {{ form.tracks_expiry }}
-              <span><strong>{{ form.tracks_expiry.label }}</strong><small id="{{ form.tracks_expiry.auto_id }}_helptext" data-field-description>{% translate "استخدمه للمواد التي تنتهي صلاحيتها." %}</small></span>
+              <span><strong>{{ form.tracks_expiry.label }}</strong><small id="{{ form.tracks_expiry.auto_id }}_ui-field__hint" data-field-description>{% translate "استخدمه للمواد التي تنتهي صلاحيتها." %}</small></span>
             </label>
-            {% if form.tracks_expiry.errors %}<div id="{{ form.tracks_expiry.auto_id }}_error" data-field-description data-field-error>{% for error in form.tracks_expiry.errors %}<p class="formrow__error">{{ error }}</p>{% endfor %}</div>{% endif %}
+            {% if form.tracks_expiry.errors %}<div id="{{ form.tracks_expiry.auto_id }}_error" data-field-description data-field-error>{% for error in form.tracks_expiry.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}</div>{% endif %}
           </div>
         </div>
-        <div class="formgrid inventory-form__fields inventory-shelf-life" data-shelf-life>
+        <div class="ui-form-grid ui-cell-stack" data-shelf-life>
           {% include "settings/_field.html" with field=form.shelf_life_days %}
         </div>
       </section>
 
-      <section class="inventory-form-section" aria-labelledby="item-notes-title">
-        <div class="inventory-form-section__heading">
-          <span class="inventory-form__step" aria-hidden="true">4</span>
+      <section class="ui-form-section" aria-labelledby="item-notes-title">
+        <div class="ui-form-section__title">
+          <span class="ui-form-section" aria-hidden="true">4</span>
           <div><h2 id="item-notes-title">{% translate "ملاحظات وحالة" %}</h2><p>{% translate "هذه المعلومات وصفية ولا تنشئ حركة أو قيمة مخزنية." %}</p></div>
         </div>
-        <div class="formgrid inventory-form__fields">
+        <div class="ui-form-grid">
           {% include "settings/_field.html" with field=form.notes wide=True %}
-          <div class="inventory-choice-wrap" data-field>
-            <label class="inventory-choice inventory-choice--compact" for="{{ form.is_active.id_for_label }}">
+          <div class="ui-choice-grid" data-field>
+            <label class="ui-choice ui-choice--compact" for="{{ form.is_active.id_for_label }}">
               {{ form.is_active }}
               <span><strong>{{ form.is_active.label }}</strong><small>{% translate "يمكن أرشفة الصنف لاحقاً مع بقاء تاريخه محفوظاً." %}</small></span>
             </label>
@@ -95,12 +95,12 @@
         </div>
       </section>
 
-      <footer class="formactions inventory-form__actions">
-        <button class="btn btn--primary" type="submit" data-inventory-submit>
+      <footer class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit" data-inventory-submit>
           <span>{% translate "حفظ الصنف" %}</span>
-          <span class="inventory-submit-wait" aria-hidden="true">{% translate "جارٍ الحفظ…" %}</span>
+          <span class="ui-loading ui-loading--inline" aria-hidden="true">{% translate "جارٍ الحفظ…" %}</span>
         </button>
-        <a class="btn btn--secondary" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
+        <a class="ui-button ui-button--secondary" href="{{ cancel_url }}">{% translate "إلغاء" %}</a>
       </footer>
     </form>
   </section>

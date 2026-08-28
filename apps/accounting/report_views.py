@@ -181,8 +181,8 @@ class AccountingReportView(PrintableReportMixin, AccountingViewMixin, View):
             headers=headers,
             table=rows,
             renderer=_ledger_value,
-            organization_label=f"{filters.organization.code} — {filters.organization.name_ar}",
-            branch_label=f"{branch.code} — {branch.name_ar}" if branch else "",
+            organization_label=f"{filters.organization.code} — {filters.organization.name}",
+            branch_label=f"{branch.code} — {branch.name}" if branch else "",
             period_label=self.period_label(filters),
             filters=self.sheet_filters(filters),
             note=str(self.page_hint),
@@ -208,7 +208,7 @@ class AccountingReportView(PrintableReportMixin, AccountingViewMixin, View):
                 continue
             label = self.FILTER_LABELS.get(key, key)
             if key == "cost_center" and filters.cost_center is not None:
-                value = f"{filters.cost_center.code} — {filters.cost_center.name_ar}"
+                value = f"{filters.cost_center.code} — {filters.cost_center.name}"
             out.append(SheetFilter(label=str(label), value=str(value)))
         return out
 
@@ -296,7 +296,7 @@ class TrialBalanceView(AccountingReportView):
         rows = [
             [
                 row.account.code,
-                row.account.name_ar,
+                row.account.name,
                 row.opening_debit,
                 row.opening_credit,
                 row.period_debit,
@@ -423,10 +423,10 @@ class IncomeStatementView(AccountingReportView):
             report.other_expenses,
         ):
             for account, balance in section.rows:
-                rows.append([str(section.label), f"{account.code} {account.name_ar}", balance])
+                rows.append([str(section.label), f"{account.code} {account.name}", balance])
             rows.append([str(section.label), str(_("المجموع")), section.total])
         for account, balance in report.unmapped:
-            rows.append([str(_("غير مصنّف")), f"{account.code} {account.name_ar}", balance])
+            rows.append([str(_("غير مصنّف")), f"{account.code} {account.name}", balance])
         rows.append(["", str(_("مجمل الربح")), report.gross_profit])
         rows.append(["", str(_("الربح التشغيلي")), report.operating_profit])
         rows.append(["", str(_("صافي الربح")), report.net_profit])
@@ -471,11 +471,11 @@ class BalanceSheetView(AccountingReportView):
             report.equity,
         ):
             for account, balance in section.rows:
-                rows.append([str(section.label), f"{account.code} {account.name_ar}", balance])
+                rows.append([str(section.label), f"{account.code} {account.name}", balance])
             rows.append([str(section.label), str(_("المجموع")), section.total])
         rows.append(["", str(_("أرباح السنة الحالية")), report.current_year_earnings])
         for account, balance in report.unmapped:
-            rows.append([str(_("غير مصنّف")), f"{account.code} {account.name_ar}", balance])
+            rows.append([str(_("غير مصنّف")), f"{account.code} {account.name}", balance])
         rows.append(["", str(_("مجموع الأصول")), report.assets])
         rows.append(
             ["", str(_("مجموع المطلوبات وحقوق الملكية")), report.liabilities + report.equity_total]

@@ -154,8 +154,8 @@ def chart(
     hall_cost_center: CostCenter,
     delivery_cost_center: CostCenter,
 ) -> dict[str, str]:
-    for code, name_ar, name_en in _CHART:
-        create_account(organization=organization, code=code, name_ar=name_ar, name_en=name_en)
+    for code, name, name in _CHART:
+        create_account(organization=organization, code=code, name=name)
     mappings = {
         SALES_REVENUE: "4-01-01-001",
         SALES_DISCOUNT: "4-02-01-001",
@@ -185,8 +185,7 @@ def recipe_setup(organization: Organization) -> tuple[Recipe, RecipeVersion, Rec
 
     unit = UnitOfMeasure.objects.filter(code="KG").first() or UnitOfMeasure.objects.create(
         code="KG",
-        name_ar="كيلوغرام",
-        name_en="Kilogram",
+        name="كيلوغرام",
         dimension="MASS",
         factor_to_base=Decimal("1"),
         is_base=True,
@@ -194,7 +193,7 @@ def recipe_setup(organization: Organization) -> tuple[Recipe, RecipeVersion, Rec
     recipe = Recipe.objects.create(
         organization=organization,
         code="DEMO-MANDI",
-        name_ar="مندي",
+        name="مندي",
         recipe_type=RecipeType.PORTION,
     )
     preparer = User.objects.create_user(username="recipe-preparer", password="pw-not-real-1234")
@@ -209,7 +208,7 @@ def recipe_setup(organization: Organization) -> tuple[Recipe, RecipeVersion, Rec
     RecipeServing.objects.create(
         version=version,
         code="WHOLE",
-        name_ar="حبة كاملة",
+        name="حبة كاملة",
         serving_quantity=Decimal("1.000000"),
         serving_unit=unit,
         base_quantity=Decimal("1.000000"),
@@ -247,7 +246,7 @@ def menu_item(
     item = create_menu_item(
         organization=organization,
         code="MENU-MANDI",
-        name_ar="مندي",
+        name="مندي",
         recipe=recipe,
         serving_code="WHOLE",
     )
@@ -263,7 +262,7 @@ def hall(organization: Organization, hall_cost_center: CostCenter) -> SalesChann
     return create_sales_channel(
         organization=organization,
         code="DINE-IN",
-        name_ar="الصالة",
+        name="الصالة",
         category=SalesChannelCategory.DINE_IN,
         cost_center=hall_cost_center,
         default_tender=TenderDestination.CASH,
@@ -275,7 +274,7 @@ def card_channel(organization: Organization, hall_cost_center: CostCenter) -> Sa
     return create_sales_channel(
         organization=organization,
         code="CARD",
-        name_ar="بطاقة",
+        name="بطاقة",
         category=SalesChannelCategory.TAKEAWAY,
         cost_center=hall_cost_center,
         default_tender=TenderDestination.CARD,

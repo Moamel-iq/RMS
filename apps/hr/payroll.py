@@ -524,7 +524,7 @@ def _employee_calculation(
         contract=contract,
         contract_version=contract.version,
         employee_code=employee.code,
-        employee_name_ar=employee.name_ar,
+        employee_name_ar=employee.name,
         job_title=contract.job_title,
         wage_basis=contract.wage_basis,
         payment_method=contract.payment_method,

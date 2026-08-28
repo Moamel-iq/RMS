@@ -1,0 +1,37 @@
+{% load i18n %}
+<nav class="ui-secondary-nav" id="secondary-navigation" aria-label="{{ active_module.label }}" data-secondary-nav
+     {% if navigation_oob %}hx-swap-oob="outerHTML:#secondary-navigation"{% endif %}>
+  <header class="ui-secondary-nav__header">
+    <div>
+      <span class="ui-secondary-nav__eyebrow">{% translate "وحدة العمل" %}</span>
+      <h2 class="ui-secondary-nav__title">{{ active_module.label }}</h2>
+    </div>
+    <span class="ui-secondary-nav__phase">{{ active_module.phase }}</span>
+  </header>
+
+  {% regroup active_module.sections by group as section_groups %}
+  <div class="ui-secondary-nav__scroll">
+    {% for group in section_groups %}
+      {% if group.grouper %}
+        <details class="ui-secondary-nav__group"
+                 {% if group.grouper == active_nav_group or not active_nav_group and forloop.first %}open{% endif %}>
+          <summary class="ui-secondary-nav__group-title">
+            <span>{{ group.grouper }}</span>
+            <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4"/></svg>
+          </summary>
+          <ul class="ui-secondary-nav__list">
+            {% for section in group.list %}
+              <li>{% include "layouts/_secondary_navigation_item.html" with section=section %}</li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% else %}
+        <ul class="ui-secondary-nav__list ui-secondary-nav__list--plain">
+          {% for section in group.list %}
+            <li>{% include "layouts/_secondary_navigation_item.html" with section=section %}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endfor %}
+  </div>
+</nav>

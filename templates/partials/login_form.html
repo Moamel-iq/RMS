@@ -1,62 +1,55 @@
 {% load i18n %}
-{# htmx swaps this whole element on a failed sign-in, so validation errors #}
-{# appear without a page reload and without losing what was typed.        #}
 <div id="login-form">
-  <form class="form"
+  <form class="ui-form"
         method="post"
         action="{{ login_action }}"
         hx-post="{{ login_action }}"
         hx-target="#login-form"
         hx-swap="outerHTML"
-        hx-disabled-elt="find button[type=submit]">
+        hx-indicator="#login-loading"
+        hx-sync="this:replace"
+        hx-disabled-elt="find button[type=submit]"
+        novalidate>
     {% csrf_token %}
-
     {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
 
     {% if form.non_field_errors %}
-      <div class="alert" role="alert">
-        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+      <div class="ui-notice ui-notice--error" role="alert">
+        <span class="ui-notice__icon" aria-hidden="true">!</span>
+        <div class="ui-notice__copy">
+          <strong class="ui-notice__title">{% translate "تعذّر تسجيل الدخول" %}</strong>
+          {% for error in form.non_field_errors %}<p class="ui-notice__message">{{ error }}</p>{% endfor %}
+        </div>
       </div>
     {% endif %}
 
-    <div class="field{% if form.username.errors %} field--invalid{% endif %}">
-      <label class="field__label" for="{{ form.username.id_for_label }}">
-        {{ form.username.label }}
-      </label>
-      <div class="field__control">
-        <span class="field__icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-            <circle cx="12" cy="7" r="4"/>
-          </svg>
+    <div class="ui-field{% if form.username.errors %} ui-field--invalid{% endif %}">
+      <label class="ui-field__label" for="{{ form.username.id_for_label }}">{{ form.username.label }}</label>
+      <div class="ui-input-group">
+        <span class="ui-input-group__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         </span>
         {{ form.username }}
       </div>
-      {% for error in form.username.errors %}
-        <p class="field__error">{{ error }}</p>
-      {% endfor %}
+      {% for error in form.username.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}
     </div>
 
-    <div class="field{% if form.password.errors %} field--invalid{% endif %}">
-      <label class="field__label" for="{{ form.password.id_for_label }}">
-        {{ form.password.label }}
-      </label>
-      <div class="field__control">
-        <span class="field__icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="4" y="11" width="16" height="10" rx="2"/>
-            <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
-          </svg>
+    <div class="ui-field{% if form.password.errors %} ui-field--invalid{% endif %}">
+      <label class="ui-field__label" for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
+      <div class="ui-input-group">
+        <span class="ui-input-group__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
         </span>
         {{ form.password }}
       </div>
-      {% for error in form.password.errors %}
-        <p class="field__error">{{ error }}</p>
-      {% endfor %}
+      {% for error in form.password.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}
     </div>
 
-    <button class="button" type="submit">{% translate "تسجيل الدخول" %}</button>
+    <button class="ui-button ui-button--primary ui-button--block" type="submit">
+      <span>{% translate "تسجيل الدخول" %}</span>
+      <span class="ui-loading ui-loading--inline" id="login-loading" role="status" aria-label="{% translate 'جارٍ تسجيل الدخول' %}">
+        <span class="ui-loading__spinner" aria-hidden="true"></span>
+      </span>
+    </button>
   </form>
 </div>

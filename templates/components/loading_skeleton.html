@@ -1,0 +1,6 @@
+{% load i18n %}
+<div class="ui-skeleton" role="status" aria-label="{% translate 'جارٍ تحميل المحتوى' %}"{% if id %} id="{{ id }}"{% endif %}>
+  <span class="ui-skeleton__line ui-skeleton__line--title"></span>
+  <span class="ui-skeleton__line"></span>
+  <span class="ui-skeleton__line ui-skeleton__line--short"></span>
+</div>

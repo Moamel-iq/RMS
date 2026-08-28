@@ -55,12 +55,12 @@ def piece(units: None) -> UnitOfMeasure:
 
 @pytest.fixture
 def organization() -> Organization:
-    return create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    return create_organization(code="KM", name="خان مندي")
 
 
 @pytest.fixture
 def other_organization() -> Organization:
-    return create_organization(code="RIVAL", name_ar="منافس", name_en="Rival")
+    return create_organization(code="RIVAL", name="منافس")
 
 
 @pytest.fixture
@@ -68,8 +68,7 @@ def branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
 
@@ -79,8 +78,7 @@ def second_branch(organization: Organization) -> Branch:
     return create_branch(
         organization=organization,
         code="KARRADA",
-        name_ar="الكرادة",
-        name_en="Karrada",
+        name="الكرادة",
         business_day_start_time=time(9, 0),
     )
 
@@ -90,37 +88,36 @@ def other_branch(other_organization: Organization) -> Branch:
     return create_branch(
         organization=other_organization,
         code="RIVALBR",
-        name_ar="فرع المنافس",
-        name_en="Rival Branch",
+        name="فرع المنافس",
         business_day_start_time=time(9, 0),
     )
 
 
 @pytest.fixture
 def category(organization: Organization) -> ItemCategory:
-    return create_item_category(organization=organization, code="FOOD", name_ar="أغذية")
+    return create_item_category(organization=organization, code="FOOD", name="أغذية")
 
 
 @pytest.fixture
 def leaf_category(organization: Organization, category: ItemCategory) -> ItemCategory:
     return create_item_category(
-        organization=organization, code="MEAT", name_ar="لحوم", parent=category
+        organization=organization, code="MEAT", name="لحوم", parent=category
     )
 
 
 @pytest.fixture
 def other_category(other_organization: Organization) -> ItemCategory:
-    return create_item_category(organization=other_organization, code="FOOD", name_ar="أغذية")
+    return create_item_category(organization=other_organization, code="FOOD", name="أغذية")
 
 
 @pytest.fixture
 def carton(organization: Organization) -> PackageUnit:
-    return create_package_unit(organization=organization, code="CARTON", name_ar="كرتون")
+    return create_package_unit(organization=organization, code="CARTON", name="كرتون")
 
 
 @pytest.fixture
 def sack(organization: Organization) -> PackageUnit:
-    return create_package_unit(organization=organization, code="SACK", name_ar="كيس")
+    return create_package_unit(organization=organization, code="SACK", name="كيس")
 
 
 @pytest.fixture
@@ -130,7 +127,7 @@ def rice(
     return create_item(
         organization=organization,
         code="RICE-272",
-        name_ar="رز ٢٧٢",
+        name="رز ٢٧٢",
         category=leaf_category,
         item_type=ItemType.RAW_MATERIAL,
         base_unit=kilogram,
@@ -139,17 +136,17 @@ def rice(
 
 @pytest.fixture
 def main_store(branch: Branch) -> Warehouse:
-    return create_warehouse(branch=branch, code="MAIN", name_ar="المخزن الرئيسي")
+    return create_warehouse(branch=branch, code="MAIN", name="المخزن الرئيسي")
 
 
 @pytest.fixture
 def kitchen_store(branch: Branch) -> Warehouse:
-    return create_warehouse(branch=branch, code="KITCHEN", name_ar="مخزن المطبخ")
+    return create_warehouse(branch=branch, code="KITCHEN", name="مخزن المطبخ")
 
 
 @pytest.fixture
 def other_warehouse(other_branch: Branch) -> Warehouse:
-    return create_warehouse(branch=other_branch, code="MAIN", name_ar="مخزن المنافس")
+    return create_warehouse(branch=other_branch, code="MAIN", name="مخزن المنافس")
 
 
 def _user(username: str) -> User:

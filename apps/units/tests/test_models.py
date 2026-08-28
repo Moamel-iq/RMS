@@ -74,8 +74,7 @@ class TestDatabaseConstraints:
         with pytest.raises(IntegrityError), transaction.atomic():
             UnitOfMeasure.objects.create(
                 code="ZERO",
-                name_ar="صفر",
-                name_en="Zero",
+                name="صفر",
                 dimension=Dimension.MASS,
                 factor_to_base=Decimal("0"),
             )
@@ -85,8 +84,7 @@ class TestDatabaseConstraints:
         with pytest.raises(IntegrityError), transaction.atomic():
             UnitOfMeasure.objects.create(
                 code="NEG",
-                name_ar="سالب",
-                name_en="Negative",
+                name="سالب",
                 dimension=Dimension.MASS,
                 factor_to_base=Decimal("-1"),
             )
@@ -95,8 +93,7 @@ class TestDatabaseConstraints:
         with pytest.raises(IntegrityError), transaction.atomic():
             UnitOfMeasure.objects.create(
                 code="ODDBASE",
-                name_ar="أساس",
-                name_en="Odd base",
+                name="أساس",
                 dimension=Dimension.MASS,
                 factor_to_base=Decimal("2"),
                 is_base=True,
@@ -107,8 +104,7 @@ class TestDatabaseConstraints:
         with pytest.raises(IntegrityError), transaction.atomic():
             UnitOfMeasure.objects.create(
                 code="KG2",
-                name_ar="كيلو ثان",
-                name_en="Second kilo",
+                name="كيلو ثان",
                 dimension=Dimension.MASS,
                 factor_to_base=Decimal("1"),
                 is_base=True,
@@ -118,8 +114,7 @@ class TestDatabaseConstraints:
         with pytest.raises(IntegrityError), transaction.atomic():
             UnitOfMeasure.objects.create(
                 code="KG",
-                name_ar="مكرر",
-                name_en="Duplicate",
+                name="مكرر",
                 dimension=Dimension.MASS,
                 factor_to_base=Decimal("1"),
             )

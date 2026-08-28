@@ -3,11 +3,11 @@
 
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 {% block page %}
-  <section class="workspace-page" id="credit-term-detail">
-    <nav class="workspace-breadcrumb inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}"><a href="{% url 'procurement:credit_term_list' %}">{% translate "شروط الائتمان" %}</a><span aria-hidden="true">/</span><span aria-current="page">{{ term.name_ar }}</span></nav>
-    <div class="pagehead"><div><p class="pagehead__eyebrow">{{ term.supplier.code }} — {{ term.supplier.name_ar }}</p><h1 class="pagehead__title">{{ term.name_ar }}</h1><p class="pagehead__hint"><span class="chip">{{ term.get_status_display }}</span> · <bdi dir="ltr">v{{ term.version }}</bdi></p></div><div class="pagehead__actions">{% if can_edit %}<a class="btn btn--secondary" href="{% url 'procurement:credit_term_update' term.pk %}">{% translate "تعديل المسودة" %}</a>{% endif %}{% if can_activate %}<a class="btn btn--primary" href="{% url 'procurement:credit_term_activate' term.pk %}">{% translate "تفعيل" %}</a>{% endif %}</div></div>
-    <div class="formcard"><dl class="detailgrid">
-      <dt>{% translate "المورد" %}</dt><dd>{{ term.supplier.code }} — {{ term.supplier.name_ar }}</dd>
+  <section class="ui-page" id="credit-term-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}"><a href="{% url 'procurement:credit_term_list' %}">{% translate "شروط الائتمان" %}</a><span aria-hidden="true">/</span><span aria-current="page">{{ term.name }}</span></nav>
+    <div class="ui-page-header"><div><p class="ui-page-header__eyebrow">{{ term.supplier.code }} — {{ term.supplier.name }}</p><h1 class="ui-page-header__title">{{ term.name }}</h1><p class="ui-page-header__hint"><span class="ui-badge">{{ term.get_status_display }}</span> · <bdi dir="ltr">v{{ term.version }}</bdi></p></div><div class="ui-page-header__actions">{% if can_edit %}<a class="ui-button ui-button--secondary" href="{% url 'procurement:credit_term_update' term.pk %}">{% translate "تعديل المسودة" %}</a>{% endif %}{% if can_activate %}<a class="ui-button ui-button--primary" href="{% url 'procurement:credit_term_activate' term.pk %}">{% translate "تفعيل" %}</a>{% endif %}</div></div>
+    <div class="ui-card ui-form-card"><dl class="ui-detail-grid">
+      <dt>{% translate "المورد" %}</dt><dd>{{ term.supplier.code }} — {{ term.supplier.name }}</dd>
       <dt>{% translate "النسخة" %}</dt><dd><bdi dir="ltr">v{{ term.version }}</bdi></dd>
       <dt>{% translate "أيام الائتمان" %}</dt><dd>{% if term.net_days == 0 %}{% translate "عند الاستلام" %}{% else %}<bdi dir="ltr">{{ term.net_days }}</bdi>{% endif %}</dd>
       <dt>{% translate "ساري من" %}</dt><dd><bdi dir="ltr">{{ term.effective_from|date:"Y-m-d" }}</bdi></dd>
@@ -16,6 +16,6 @@
       <dt>{% translate "اعتمدها" %}</dt><dd>{{ term.approved_by.username|default:"—" }}</dd>
       <dt>{% translate "ملاحظات" %}</dt><dd>{{ term.notes|default:"—" }}</dd>
     </dl></div>
-    <div class="formactions"><a class="btn btn--secondary" href="{% url 'procurement:credit_term_history' term.pk %}" hx-get="{% url 'procurement:credit_term_history' term.pk %}" hx-target="#credit-term-detail" hx-swap="outerHTML" hx-push-url="true">{% translate "سجل النسخ" %}</a><a class="btn btn--ghost" href="{% url 'procurement:credit_term_list' %}">{% translate "رجوع" %}</a></div>
+    <div class="ui-form-actions"><a class="ui-button ui-button--secondary" href="{% url 'procurement:credit_term_history' term.pk %}" hx-get="{% url 'procurement:credit_term_history' term.pk %}" hx-target="#credit-term-detail" hx-swap="outerHTML" hx-push-url="true">{% translate "سجل النسخ" %}</a><a class="ui-button ui-button--ghost" href="{% url 'procurement:credit_term_list' %}">{% translate "رجوع" %}</a></div>
   </section>
 {% endblock %}

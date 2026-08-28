@@ -1,0 +1,19 @@
+{% load i18n %}
+<nav class="ui-mobile-modules" id="mobile-modules" aria-label="{% translate 'وحدات النظام على الهاتف' %}"
+     {% if navigation_oob %}hx-swap-oob="outerHTML:#mobile-modules"{% endif %}>
+  <ul class="ui-mobile-modules__list">
+    {% for module in nav_modules %}
+      <li>
+        <a class="ui-mobile-modules__item{% if module.key == active_module.key %} is-active{% endif %}{% if not module.available %} is-unavailable{% endif %}"
+           href="{% if module.available %}{% url module.url_name %}{% else %}{% url 'users:home' %}?module={{ module.key }}{% endif %}"
+           hx-get="{% if module.available %}{% url module.url_name %}{% else %}{% url 'users:home' %}?module={{ module.key }}{% endif %}"
+           hx-target="#main-content" hx-swap="innerHTML show:top" hx-push-url="true"
+           hx-indicator="#app-loading" hx-sync="#main-content:replace"
+           data-module-key="{{ module.key }}"
+           {% if module.key == active_module.key %}aria-current="page"{% endif %}>
+          <span aria-hidden="true">{{ module.icon }}</span><span>{{ module.label }}</span>
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+</nav>

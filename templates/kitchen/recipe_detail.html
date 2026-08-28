@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# The recipe workspace. Every panel is its own section so an operator can    #}
@@ -13,73 +13,73 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ recipe.code }} — {{ recipe.name_ar }}</h1>
-        <p class="pagehead__hint">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ recipe.code }} — {{ recipe.name }}</h1>
+        <p class="ui-page-header__subtitle">
           {{ recipe.get_recipe_type_display }}
-          {% if recipe.category %} · {{ recipe.category.name_ar }}{% endif %}
-          {% if not recipe.is_active %} · <span class="chip chip--off">{% translate "مؤرشفة" %}</span>{% endif %}
+          {% if recipe.category %} · {{ recipe.category.name }}{% endif %}
+          {% if not recipe.is_active %} · <span class="ui-badge ui-badge--neutral">{% translate "مؤرشفة" %}</span>{% endif %}
         </p>
       </div>
       {% if can_manage %}
-        <div class="pagehead__actions">
-          <a class="btn btn--ghost" href="{% url 'kitchen:recipe_update' recipe.pk %}">{% translate "تعديل الوصفة" %}</a>
-          <a class="btn btn--ghost" href="{% url 'kitchen:recipe_versions' recipe.pk %}">{% translate "سجل النسخ" %}</a>
-          <a class="btn btn--ghost" href="{% url 'kitchen:version_resolve' recipe.pk %}">{% translate "أي نسخة تسري؟" %}</a>
+        <div class="ui-page-header__actions">
+          <a class="ui-button ui-button--ghost" href="{% url 'kitchen:recipe_update' recipe.pk %}">{% translate "تعديل الوصفة" %}</a>
+          <a class="ui-button ui-button--ghost" href="{% url 'kitchen:recipe_versions' recipe.pk %}">{% translate "سجل النسخ" %}</a>
+          <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_resolve' recipe.pk %}">{% translate "أي نسخة تسري؟" %}</a>
           {% if not draft %}
-            <a class="btn btn--primary" href="{% url 'kitchen:version_create' recipe.pk %}">{% translate "فتح مسودة" %}</a>
+            <a class="ui-button ui-button--primary" href="{% url 'kitchen:version_create' recipe.pk %}">{% translate "فتح مسودة" %}</a>
           {% endif %}
         </div>
       {% endif %}
     </div>
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "بيانات الوصفة" %}</h2>
-      <dl class="formgrid">
-        <div><dt class="muted">{% translate "المؤسسة" %}</dt><dd>{{ recipe.organization.code }}</dd></div>
-        <div><dt class="muted">{% translate "الصنف الناتج" %}</dt>
-          <dd>{% if recipe.output_item %}<code>{{ recipe.output_item.code }}</code> {{ recipe.output_item.name_ar }}{% else %}{% translate "لا ينتج صنفاً مخزنياً" %}{% endif %}</dd></div>
-        <div><dt class="muted">{% translate "الفروع" %}</dt>
+      <dl class="ui-form-grid">
+        <div><dt class="ui-text-muted">{% translate "المؤسسة" %}</dt><dd>{{ recipe.organization.code }}</dd></div>
+        <div><dt class="ui-text-muted">{% translate "الصنف الناتج" %}</dt>
+          <dd>{% if recipe.output_item %}<code>{{ recipe.output_item.code }}</code> {{ recipe.output_item.name }}{% else %}{% translate "لا ينتج صنفاً مخزنياً" %}{% endif %}</dd></div>
+        <div><dt class="ui-text-muted">{% translate "الفروع" %}</dt>
           <dd>{% for branch in branches %}<code>{{ branch.code }}</code>{% if not forloop.last %}، {% endif %}{% empty %}{% translate "كل الفروع" %}{% endfor %}</dd></div>
-        <div><dt class="muted">{% translate "المصدر" %}</dt>
+        <div><dt class="ui-text-muted">{% translate "المصدر" %}</dt>
           <dd>{% if recipe.has_source %}{{ recipe.source_document }} · {% translate "ص" %}{{ recipe.source_page }}{% if recipe.source_reference %} · {{ recipe.source_reference }}{% endif %}{% else %}—{% endif %}</dd></div>
       </dl>
       {% if recipe.description_ar %}<p>{{ recipe.description_ar }}</p>{% endif %}
     </section>
 
     {% if not draft %}
-      <section class="formcard">
-        <p class="empty">{% translate "لا توجد مسودة نسخة بعد. افتح مسودة لتسجيل المكوّنات والطريقة والحصص." %}</p>
+      <section class="ui-form-card">
+        <p class="ui-table__empty">{% translate "لا توجد مسودة نسخة بعد. افتح مسودة لتسجيل المكوّنات والطريقة والحصص." %}</p>
       </section>
     {% else %}
 
-      <section class="formcard">
-        <div class="pagehead">
-          <div class="pagehead__copy">
+      <section class="ui-form-card">
+        <div class="ui-page-header">
+          <div class="ui-page-header__copy">
             <h2>{% translate "المسودة" %} — {% translate "نسخة" %} {{ draft.version_number }}</h2>
-            <p class="pagehead__hint">
-              <span class="chip chip--off">{% translate "مسودة" %}</span>
+            <p class="ui-page-header__subtitle">
+              <span class="ui-badge ui-badge--neutral">{% translate "مسودة" %}</span>
               {% translate "المكوّنات والطريقة والحصص تُحرَّر هنا. الإرسال للمراجعة والاعتماد والتفعيل على شاشة النسخة." %}
             </p>
           </div>
           {% if can_manage %}
-            <div class="pagehead__actions">
-              <a class="btn btn--ghost btn--sm" href="{% url 'kitchen:version_detail' draft.pk %}">{% translate "شاشة النسخة" %}</a>
-              <a class="btn btn--ghost btn--sm" href="{% url 'kitchen:version_update' draft.pk %}">{% translate "تعديل المسودة" %}</a>
+            <div class="ui-page-header__actions">
+              <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'kitchen:version_detail' draft.pk %}">{% translate "شاشة النسخة" %}</a>
+              <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'kitchen:version_update' draft.pk %}">{% translate "تعديل المسودة" %}</a>
               <form method="post" action="{% url 'kitchen:version_discard' draft.pk %}">
                 {% csrf_token %}
-                <button class="btn btn--ghost btn--sm" type="submit">{% translate "إلغاء المسودة" %}</button>
+                <button class="ui-button ui-button--ghost ui-button--sm" type="submit">{% translate "إلغاء المسودة" %}</button>
               </form>
             </div>
           {% endif %}
         </div>
-        <dl class="formgrid">
-          <div><dt class="muted">{% translate "حجم الدفعة" %}</dt><dd>{{ draft.batch_size }}</dd></div>
-          <div><dt class="muted">{% translate "الناتج المتوقع" %}</dt><dd>{{ draft.expected_output_quantity }} {{ draft.output_unit.code }}</dd></div>
-          <div><dt class="muted">{% translate "فاقد التحضير" %}</dt><dd>{{ draft.preparation_loss|default:"—" }}</dd></div>
-          <div><dt class="muted">{% translate "إنتاجية الطبخ" %}</dt><dd>{{ draft.cooking_yield|default:"—" }}</dd></div>
+        <dl class="ui-form-grid">
+          <div><dt class="ui-text-muted">{% translate "حجم الدفعة" %}</dt><dd>{{ draft.batch_size }}</dd></div>
+          <div><dt class="ui-text-muted">{% translate "الناتج المتوقع" %}</dt><dd>{{ draft.expected_output_quantity }} {{ draft.output_unit.code }}</dd></div>
+          <div><dt class="ui-text-muted">{% translate "فاقد التحضير" %}</dt><dd>{{ draft.preparation_loss|default:"—" }}</dd></div>
+          <div><dt class="ui-text-muted">{% translate "إنتاجية الطبخ" %}</dt><dd>{{ draft.cooking_yield|default:"—" }}</dd></div>
         </dl>
         {% if draft.instructions %}<p>{{ draft.instructions }}</p>{% endif %}
 
@@ -87,26 +87,26 @@
         <ul>
           {% for row in completeness %}
             <li>
-              {% if row.ok %}<span class="chip chip--on">✓</span>{% else %}<span class="chip chip--off">—</span>{% endif %}
+              {% if row.ok %}<span class="ui-badge ui-badge--success">✓</span>{% else %}<span class="ui-badge ui-badge--neutral">—</span>{% endif %}
               {{ row.label }}: {{ row.count }}
             </li>
           {% endfor %}
         </ul>
       </section>
 
-      <section class="formcard" id="lines-panel">
-        <div class="pagehead">
-          <div class="pagehead__copy">
+      <section class="ui-form-card" id="lines-panel">
+        <div class="ui-page-header">
+          <div class="ui-page-header__copy">
             <h2>{% translate "المكوّنات" %}</h2>
           </div>
           {% if can_manage %}
-            <div class="pagehead__actions">
-              <a class="btn btn--primary btn--sm" href="{% url 'kitchen:line_create' draft.pk %}">{% translate "إضافة مكوّن" %}</a>
+            <div class="ui-page-header__actions">
+              <a class="ui-button ui-button--primary ui-button--sm" href="{% url 'kitchen:line_create' draft.pk %}">{% translate "إضافة مكوّن" %}</a>
             </div>
           {% endif %}
         </div>
-        <div class="data-table-shell" tabindex="0">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
             <thead><tr>
               <th>#</th>
               <th>{% translate "الصنف" %}</th>
@@ -123,41 +123,41 @@
               {% for line in lines %}
                 <tr>
                   <td data-label="#">{{ line.line_order }}</td>
-                  <td data-label="{% translate 'الصنف' %}"><code>{{ line.item.code }}</code> {{ line.item.name_ar }}{% if line.is_optional %} <span class="chip chip--off">{% translate "اختياري" %}</span>{% endif %}</td>
+                  <td data-label="{% translate 'الصنف' %}"><code>{{ line.item.code }}</code> {{ line.item.name }}{% if line.is_optional %} <span class="ui-badge ui-badge--neutral">{% translate "اختياري" %}</span>{% endif %}</td>
                   <td data-label="{% translate 'الكمية' %}">{{ line.entered_quantity }} {% if line.entered_unit %}{{ line.entered_unit.code }}{% else %}{{ line.package_unit.code }}{% endif %}</td>
                   <td data-label="{% translate 'الكمية المعتمدة' %}">{{ line.base_quantity }} {{ line.item.base_unit.code }}</td>
                   <td data-label="{% translate 'كمية القياس' %}">{{ line.measured_quantity|default:"—" }}</td>
                   <td data-label="{% translate 'فاقد' %}">{{ line.loss_rate|default:"—" }}</td>
                   <td data-label="{% translate 'التصنيف' %}">{{ line.get_cost_class_display }}</td>
                   <td data-label="{% translate 'أساس القياس' %}">{{ line.get_measurement_basis_display }}</td>
-                  <td data-label="{% translate 'المصدر' %}">{% if line.has_source %}<span class="muted">{{ line.source_document }} · {% translate "ص" %}{{ line.source_page }}</span>{% else %}—{% endif %}</td>
+                  <td data-label="{% translate 'المصدر' %}">{% if line.has_source %}<span class="ui-text-muted">{{ line.source_document }} · {% translate "ص" %}{{ line.source_page }}</span>{% else %}—{% endif %}</td>
                   <td data-label="{% translate 'إجراءات' %}">
-                    <div class="rowactions">
+                    <div class="ui-table__actions">
                       {% if can_manage %}
-                        <a class="btn btn--ghost btn--sm" href="{% url 'kitchen:line_update' line.pk %}">{% translate "تعديل" %}</a>
-                        <a class="btn btn--ghost btn--sm" href="{% url 'kitchen:substitute_create' line.pk %}">{% translate "بديل" %}</a>
+                        <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'kitchen:line_update' line.pk %}">{% translate "تعديل" %}</a>
+                        <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'kitchen:substitute_create' line.pk %}">{% translate "بديل" %}</a>
                         <form method="post" action="{% url 'kitchen:line_delete' line.pk %}">
                           {% csrf_token %}
-                          <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                          <button class="ui-button ui-button--ghost ui-button--sm" type="submit">{% translate "حذف" %}</button>
                         </form>
-                      {% else %}<span class="muted">—</span>{% endif %}
+                      {% else %}<span class="ui-text-muted">—</span>{% endif %}
                     </div>
                   </td>
                 </tr>
                 {% for substitute in line.substitutes.all %}
                   <tr>
                     <td></td>
-                    <td colspan="8" class="muted">
+                    <td colspan="8" class="ui-text-muted">
                       ↳ {% translate "بديل" %} {{ substitute.priority }}: <code>{{ substitute.substitute_item.code }}</code>
-                      {{ substitute.substitute_item.name_ar }}
+                      {{ substitute.substitute_item.name }}
                       {% if substitute.reason %} — {{ substitute.reason }}{% endif %}
-                      {% if not substitute.is_active %} <span class="chip chip--off">{% translate "مؤرشف" %}</span>{% endif %}
+                      {% if not substitute.is_active %} <span class="ui-badge ui-badge--neutral">{% translate "مؤرشف" %}</span>{% endif %}
                     </td>
                     <td data-label="{% translate 'إجراءات' %}">
                       {% if can_manage %}
                         <form method="post" action="{% url 'kitchen:substitute_delete' substitute.pk %}">
                           {% csrf_token %}
-                          <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                          <button class="ui-button ui-button--ghost ui-button--sm" type="submit">{% translate "حذف" %}</button>
                         </form>
                       {% endif %}
                     </td>
@@ -171,20 +171,20 @@
         </div>
       </section>
 
-      <section class="formcard" id="steps-panel">
-        <div class="pagehead">
-          <div class="pagehead__copy">
+      <section class="ui-form-card" id="steps-panel">
+        <div class="ui-page-header">
+          <div class="ui-page-header__copy">
             <h2>{% translate "خطوات الطريقة" %}</h2>
-            <p class="pagehead__hint">{% translate "الخطوات توثيق تشغيلي. لا تغيّر أي كمية ولا أي كلفة." %}</p>
+            <p class="ui-page-header__subtitle">{% translate "الخطوات توثيق تشغيلي. لا تغيّر أي كمية ولا أي كلفة." %}</p>
           </div>
           {% if can_manage %}
-            <div class="pagehead__actions">
-              <a class="btn btn--primary btn--sm" href="{% url 'kitchen:step_create' draft.pk %}">{% translate "إضافة خطوة" %}</a>
+            <div class="ui-page-header__actions">
+              <a class="ui-button ui-button--primary ui-button--sm" href="{% url 'kitchen:step_create' draft.pk %}">{% translate "إضافة خطوة" %}</a>
             </div>
           {% endif %}
         </div>
-        <div class="data-table-shell" tabindex="0">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
             <thead><tr>
               <th>#</th>
               <th>{% translate "الخطوة" %}</th>
@@ -202,15 +202,15 @@
                   <td data-label="{% translate 'الخطوة' %}">
                     {{ step.instruction_ar }}
                     {% if step.checkpoint_ar %}
-                      <p class="muted">{% translate "تحقق" %}: {{ step.checkpoint_ar }}
-                        {% if step.is_critical %}<span class="chip chip--off">{% translate "حرجة" %}</span>{% endif %}</p>
+                      <p class="ui-text-muted">{% translate "تحقق" %}: {{ step.checkpoint_ar }}
+                        {% if step.is_critical %}<span class="ui-badge ui-badge--neutral">{% translate "حرجة" %}</span>{% endif %}</p>
                     {% endif %}
                   </td>
                   <td data-label="{% translate 'المرحلة' %}">{{ step.get_stage_display|default:"—" }}</td>
                   <td data-label="{% translate 'المدة' %}">{% if step.expected_duration %}{{ step.expected_duration }}{% else %}—{% endif %}</td>
                   <td data-label="{% translate 'الحرارة' %}">
                     {% if step.temperature_c %}{{ step.temperature_c }} °م
-                    {% elif step.heat_instruction_ar %}<span class="muted">{{ step.heat_instruction_ar }}</span>
+                    {% elif step.heat_instruction_ar %}<span class="ui-text-muted">{{ step.heat_instruction_ar }}</span>
                     {% else %}—{% endif %}
                   </td>
                   <td data-label="{% translate 'المكوّنات المرتبطة' %}">
@@ -219,23 +219,23 @@
                       {% if can_manage %}
                         <form method="post" action="{% url 'kitchen:step_unlink' link.pk %}" style="display:inline">
                           {% csrf_token %}
-                          <button class="btn btn--ghost btn--sm" type="submit">×</button>
+                          <button class="ui-button ui-button--ghost ui-button--sm" type="submit">×</button>
                         </form>
                       {% endif %}
                       {% if not forloop.last %}<br>{% endif %}
                     {% empty %}—{% endfor %}
                   </td>
-                  <td data-label="{% translate 'المصدر' %}">{% if step.has_source %}<span class="muted">{{ step.source_document }} · {% translate "ص" %}{{ step.source_page }}</span>{% else %}—{% endif %}</td>
+                  <td data-label="{% translate 'المصدر' %}">{% if step.has_source %}<span class="ui-text-muted">{{ step.source_document }} · {% translate "ص" %}{{ step.source_page }}</span>{% else %}—{% endif %}</td>
                   <td data-label="{% translate 'إجراءات' %}">
-                    <div class="rowactions">
+                    <div class="ui-table__actions">
                       {% if can_manage %}
-                        <a class="btn btn--ghost btn--sm" href="{% url 'kitchen:step_update' step.pk %}">{% translate "تعديل" %}</a>
-                        <a class="btn btn--ghost btn--sm" href="{% url 'kitchen:step_link' step.pk %}">{% translate "ربط مكوّن" %}</a>
+                        <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'kitchen:step_update' step.pk %}">{% translate "تعديل" %}</a>
+                        <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'kitchen:step_link' step.pk %}">{% translate "ربط مكوّن" %}</a>
                         <form method="post" action="{% url 'kitchen:step_delete' step.pk %}">
                           {% csrf_token %}
-                          <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                          <button class="ui-button ui-button--ghost ui-button--sm" type="submit">{% translate "حذف" %}</button>
                         </form>
-                      {% else %}<span class="muted">—</span>{% endif %}
+                      {% else %}<span class="ui-text-muted">—</span>{% endif %}
                     </div>
                   </td>
                 </tr>
@@ -247,20 +247,20 @@
         </div>
       </section>
 
-      <section class="formcard" id="servings-panel">
-        <div class="pagehead">
-          <div class="pagehead__copy">
+      <section class="ui-form-card" id="servings-panel">
+        <div class="ui-page-header">
+          <div class="ui-page-header__copy">
             <h2>{% translate "تعريفات الحصص" %}</h2>
-            <p class="pagehead__hint">{% translate "الحصة تقسّم الناتج. الطبق التجاري وصفة مستقلة، وليس ضِعف حصة." %}</p>
+            <p class="ui-page-header__subtitle">{% translate "الحصة تقسّم الناتج. الطبق التجاري وصفة مستقلة، وليس ضِعف حصة." %}</p>
           </div>
           {% if can_manage %}
-            <div class="pagehead__actions">
-              <a class="btn btn--primary btn--sm" href="{% url 'kitchen:serving_create' draft.pk %}">{% translate "إضافة حصة" %}</a>
+            <div class="ui-page-header__actions">
+              <a class="ui-button ui-button--primary ui-button--sm" href="{% url 'kitchen:serving_create' draft.pk %}">{% translate "إضافة حصة" %}</a>
             </div>
           {% endif %}
         </div>
-        <div class="data-table-shell" tabindex="0">
-          <table class="table responsive-table">
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
             <thead><tr>
               <th>{% translate "الرمز" %}</th>
               <th>{% translate "الاسم" %}</th>
@@ -275,23 +275,23 @@
               {% for serving in servings %}
                 <tr>
                   <td data-label="{% translate 'الرمز' %}"><code>{{ serving.code }}</code></td>
-                  <td data-label="{% translate 'الاسم' %}">{{ serving.name_ar }}</td>
+                  <td data-label="{% translate 'الاسم' %}">{{ serving.name }}</td>
                   <td data-label="{% translate 'الكمية' %}">{{ serving.serving_quantity }} {{ serving.serving_unit.code }}</td>
                   <td data-label="{% translate 'بوحدة الناتج' %}">{{ serving.base_quantity }} {{ draft.output_unit.code }}</td>
                   {# A conversion factor is a technical identity: period, never a #}
                   {# comma, and re-enterable exactly as shown (CLAUDE.md).        #}
                   <td data-label="{% translate 'نسبة الدفعة' %}"><code dir="ltr">{{ serving.factor_display }}</code></td>
-                  <td data-label="{% translate 'أساسية' %}">{% if serving.is_primary %}<span class="chip chip--on">{% translate "نعم" %}</span>{% else %}—{% endif %}</td>
-                  <td data-label="{% translate 'المصدر' %}">{% if serving.has_source %}<span class="muted">{{ serving.source_document }} · {% translate "ص" %}{{ serving.source_page }}</span>{% else %}—{% endif %}</td>
+                  <td data-label="{% translate 'أساسية' %}">{% if serving.is_primary %}<span class="ui-badge ui-badge--success">{% translate "نعم" %}</span>{% else %}—{% endif %}</td>
+                  <td data-label="{% translate 'المصدر' %}">{% if serving.has_source %}<span class="ui-text-muted">{{ serving.source_document }} · {% translate "ص" %}{{ serving.source_page }}</span>{% else %}—{% endif %}</td>
                   <td data-label="{% translate 'إجراءات' %}">
-                    <div class="rowactions">
+                    <div class="ui-table__actions">
                       {% if can_manage %}
-                        <a class="btn btn--ghost btn--sm" href="{% url 'kitchen:serving_update' serving.pk %}">{% translate "تعديل" %}</a>
+                        <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'kitchen:serving_update' serving.pk %}">{% translate "تعديل" %}</a>
                         <form method="post" action="{% url 'kitchen:serving_delete' serving.pk %}">
                           {% csrf_token %}
-                          <button class="btn btn--ghost btn--sm" type="submit">{% translate "حذف" %}</button>
+                          <button class="ui-button ui-button--ghost ui-button--sm" type="submit">{% translate "حذف" %}</button>
                         </form>
-                      {% else %}<span class="muted">—</span>{% endif %}
+                      {% else %}<span class="ui-text-muted">—</span>{% endif %}
                     </div>
                   </td>
                 </tr>

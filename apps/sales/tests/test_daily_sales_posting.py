@@ -110,8 +110,8 @@ def chart(
     delivery_cost_center: CostCenter,
 ) -> dict[str, str]:
     """The four accounts a sales journal needs, and their role mappings."""
-    for code, name_ar, name_en in _CHART:
-        create_account(organization=organization, code=code, name_ar=name_ar, name_en=name_en)
+    for code, name, name in _CHART:
+        create_account(organization=organization, code=code, name=name)
     mappings = {
         SALES_REVENUE: "4-01-01-001",
         SALES_DISCOUNT: "4-02-01-001",
@@ -141,8 +141,7 @@ def recipe_setup(organization: Organization) -> tuple[Recipe, RecipeVersion, Rec
 
     unit = UnitOfMeasure.objects.filter(code="KG").first() or UnitOfMeasure.objects.create(
         code="KG",
-        name_ar="كيلوغرام",
-        name_en="Kilogram",
+        name="كيلوغرام",
         dimension="MASS",
         factor_to_base=Decimal("1"),
         is_base=True,
@@ -150,7 +149,7 @@ def recipe_setup(organization: Organization) -> tuple[Recipe, RecipeVersion, Rec
     recipe = Recipe.objects.create(
         organization=organization,
         code="DEMO-MANDI",
-        name_ar="مندي",
+        name="مندي",
         recipe_type=RecipeType.PORTION,
     )
     # Walked through the kitchen's real lifecycle, one transition at a time,
@@ -175,7 +174,7 @@ def recipe_setup(organization: Organization) -> tuple[Recipe, RecipeVersion, Rec
     serving = RecipeServing.objects.create(
         version=version,
         code="WHOLE",
-        name_ar="حبة كاملة",
+        name="حبة كاملة",
         serving_quantity=Decimal("1.000000"),
         serving_unit=unit,
         base_quantity=Decimal("1.000000"),
@@ -220,7 +219,7 @@ def menu_item(
     item = create_menu_item(
         organization=organization,
         code="MENU-MANDI",
-        name_ar="مندي",
+        name="مندي",
         recipe=recipe,
         serving_code="WHOLE",
     )
@@ -239,7 +238,7 @@ def hall(organization: Organization, hall_cost_center: CostCenter) -> SalesChann
     return create_sales_channel(
         organization=organization,
         code="DINE-IN",
-        name_ar="الصالة",
+        name="الصالة",
         category=SalesChannelCategory.DINE_IN,
         cost_center=hall_cost_center,
         default_tender=TenderDestination.CASH,
@@ -251,7 +250,7 @@ def app_channel(organization: Organization, delivery_cost_center: CostCenter) ->
     return create_sales_channel(
         organization=organization,
         code="APPS",
-        name_ar="تطبيقات",
+        name="تطبيقات",
         category=SalesChannelCategory.DELIVERY_APPLICATION,
         cost_center=delivery_cost_center,
     )
@@ -260,7 +259,7 @@ def app_channel(organization: Organization, delivery_cost_center: CostCenter) ->
 @pytest.fixture
 def application(organization: Organization, branch: Branch) -> DeliveryApplication:
     app = create_delivery_application(
-        organization=organization, code="DEMO-APP", name_ar="تطبيق تجريبي"
+        organization=organization, code="DEMO-APP", name="تطبيق تجريبي"
     )
     set_application_branch_setting(application=app, branch=branch)
     create_delivery_agreement(
@@ -316,7 +315,7 @@ class TestResolutionHappensOnceAndRefusesRatherThanFallingBack:
         priceless = create_menu_item(
             organization=organization,
             code="MENU-NOPRICE",
-            name_ar="بلا سعر",
+            name="بلا سعر",
             recipe=recipe,
             serving_code="WHOLE",
         )
@@ -338,7 +337,7 @@ class TestResolutionHappensOnceAndRefusesRatherThanFallingBack:
         agreed to, against a real company.
         """
         bare = create_delivery_application(
-            organization=organization, code="DEMO-BARE", name_ar="بلا اتفاقية"
+            organization=organization, code="DEMO-BARE", name="بلا اتفاقية"
         )
         set_application_branch_setting(application=bare, branch=branch)
         with pytest.raises(ValidationError) as caught:
@@ -390,7 +389,7 @@ class TestADiscountProgrammeMustCoverTheLineItIsAppliedTo:
         self, organization: Organization, branch: Branch
     ) -> DeliveryApplication:
         other = create_delivery_application(
-            organization=organization, code="DEMO-OTHER", name_ar="تطبيق آخر"
+            organization=organization, code="DEMO-OTHER", name="تطبيق آخر"
         )
         set_application_branch_setting(application=other, branch=branch)
         create_delivery_agreement(
@@ -416,7 +415,7 @@ class TestADiscountProgrammeMustCoverTheLineItIsAppliedTo:
         program = create_discount_program(
             organization=organization,
             code="DEMO-THEIRS",
-            name_ar="عرض تطبيق واحد",
+            name="عرض تطبيق واحد",
             effective_from=JANUARY,
             discount_percent=Decimal("20"),
             restaurant_funded_share=Decimal("0"),
@@ -453,7 +452,7 @@ class TestADiscountProgrammeMustCoverTheLineItIsAppliedTo:
         program = create_discount_program(
             organization=organization,
             code="DEMO-ENDED",
-            name_ar="عرض منتهٍ",
+            name="عرض منتهٍ",
             effective_from=JANUARY,
             effective_to=datetime.date(2026, 4, 1),
             discount_percent=Decimal("10"),
@@ -481,7 +480,7 @@ class TestADiscountProgrammeMustCoverTheLineItIsAppliedTo:
         program = create_discount_program(
             organization=organization,
             code="DEMO-ELSEWHERE",
-            name_ar="عرض فرع آخر",
+            name="عرض فرع آخر",
             effective_from=JANUARY,
             discount_percent=Decimal("10"),
             branch=second_branch,
@@ -507,7 +506,7 @@ class TestADiscountProgrammeMustCoverTheLineItIsAppliedTo:
         program = create_discount_program(
             organization=organization,
             code="DEMO-APPSONLY",
-            name_ar="عرض قناة التطبيقات",
+            name="عرض قناة التطبيقات",
             effective_from=JANUARY,
             discount_percent=Decimal("10"),
             channel=app_channel,
@@ -539,7 +538,7 @@ class TestADiscountProgrammeMustCoverTheLineItIsAppliedTo:
         program = create_discount_program(
             organization=organization,
             code="DEMO-EXACT",
-            name_ar="عرض مطابق",
+            name="عرض مطابق",
             effective_from=JANUARY,
             discount_percent=Decimal("10"),
             branch=branch,
@@ -567,7 +566,7 @@ class TestADiscountProgrammeMustCoverTheLineItIsAppliedTo:
         program = create_discount_program(
             organization=organization,
             code="DEMO-RAMADAN",
-            name_ar="عرض رمضان",
+            name="عرض رمضان",
             effective_from=JANUARY,
             discount_percent=Decimal("10"),
         )
@@ -689,7 +688,7 @@ class TestTheApplicationJournalAndReceivable:
         program = create_discount_program(
             organization=organization,
             code="DEMO-APPPROMO",
-            name_ar="عرض التطبيق",
+            name="عرض التطبيق",
             effective_from=JANUARY,
             discount_percent=Decimal("20"),
             restaurant_funded_share=Decimal("0"),

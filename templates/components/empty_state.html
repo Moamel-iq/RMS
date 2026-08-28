@@ -1,12 +1,12 @@
 {% load i18n %}
 {% translate "لا توجد بيانات بعد" as default_empty_title %}
-<div class="empty-state">
-  <span class="empty-state__icon" aria-hidden="true">
+<div class="ui-empty" role="status">
+  <span class="ui-empty__icon" aria-hidden="true">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
       <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z"/><path d="m4 7.5 8 4.5 8-4.5"/><path d="M12 12v9"/>
     </svg>
   </span>
-  <strong class="empty-state__title">{{ title|default:default_empty_title }}</strong>
-  {% if description %}<span class="empty-state__description">{{ description }}</span>{% endif %}
-  {% if action_url and action_label %}<a class="btn btn--secondary" href="{{ action_url }}">{{ action_label }}</a>{% endif %}
+  <strong class="ui-empty__title">{{ title|default:default_empty_title }}</strong>
+  {% if description %}<span class="ui-empty__description">{{ description }}</span>{% endif %}
+  {% if action_url and action_label %}<a class="ui-button ui-button--secondary" href="{{ action_url }}">{{ action_label }}</a>{% endif %}
 </div>

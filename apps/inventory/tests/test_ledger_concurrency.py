@@ -50,23 +50,22 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
     from django.core.management import call_command
 
     call_command("seed_units", verbosity=0)
-    organization = create_organization(code="KM", name_ar="خان مندي", name_en="Khan Mandi")
+    organization = create_organization(code="KM", name="خان مندي")
     branch = create_branch(
         organization=organization,
         code="BUNOOK",
-        name_ar="البنوك",
-        name_en="Al-Bunook",
+        name="البنوك",
         business_day_start_time=time(9, 0),
     )
     open_fiscal_year(organization=organization, year=timezone.localdate().year)
 
-    root = create_item_category(organization=organization, code="FOOD", name_ar="أغذية")
-    leaf = create_item_category(organization=organization, code="MEAT", name_ar="لحوم", parent=root)
+    root = create_item_category(organization=organization, code="FOOD", name="أغذية")
+    leaf = create_item_category(organization=organization, code="MEAT", name="لحوم", parent=root)
     kilogram = UnitOfMeasure.objects.get(code="KG")
     rice = create_item(
         organization=organization,
         code="RICE-272",
-        name_ar="رز",
+        name="رز",
         category=leaf,
         item_type="RAW_MATERIAL",
         base_unit=kilogram,
@@ -74,12 +73,12 @@ def world(django_db_setup: Any, django_db_blocker: Any) -> dict[str, Any]:
     chicken = create_item(
         organization=organization,
         code="CHK",
-        name_ar="دجاج",
+        name="دجاج",
         category=leaf,
         item_type="RAW_MATERIAL",
         base_unit=kilogram,
     )
-    main = create_warehouse(branch=branch, code="MAIN", name_ar="الرئيسي")
+    main = create_warehouse(branch=branch, code="MAIN", name="الرئيسي")
 
     # No teardown, deliberately. `transaction=True` truncates every table
     # afterwards, and truncation is the ONLY way this data leaves: the ledger
@@ -317,7 +316,7 @@ class TestTheDatabaseHoldsTheLine:
         whose denormalised owner disagreed with its warehouse would be visible
         to one filter and invisible to another.
         """
-        stranger = create_organization(code="RIVAL", name_ar="منافس", name_en="Rival")
+        stranger = create_organization(code="RIVAL", name="منافس")
         with pytest.raises(IntegrityError), transaction.atomic():
             StockBalance.objects.create(
                 organization=stranger,

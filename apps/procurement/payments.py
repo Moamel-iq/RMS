@@ -27,6 +27,7 @@ designed** — the discipline that scoped the credit note, kept.
 from __future__ import annotations
 
 import datetime
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
@@ -55,6 +56,7 @@ from apps.core.models import AuditAction
 from apps.core.money import quantize_money
 from apps.core.services import record_audit_event, snapshot
 from apps.organizations.business_dates import resolve_business_day
+from apps.procurement.cycles import close_cycle_if_settled, reopen_cycle
 from apps.procurement.invoices import outstanding_amount
 from apps.procurement.models import (
     PaymentAllocation,
@@ -62,6 +64,7 @@ from apps.procurement.models import (
     SupplierInvoice,
     SupplierInvoiceStatus,
     SupplierPayment,
+    SupplierPaymentCycle,
     SupplierPaymentMethod,
     SupplierPaymentStatus,
 )
@@ -296,6 +299,67 @@ def delete_supplier_payment(*, payment: SupplierPayment) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Drafting a whole settlement at once
+# ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def draft_settlement(
+    *,
+    supplier: Supplier,
+    branch: Any,
+    created_by: User,
+    paid_at: datetime.date,
+    method: str,
+    allocations: Sequence[tuple[SupplierInvoice, Decimal]],
+    reference: str = "",
+    notes: str = "",
+) -> SupplierPayment:
+    """
+    Open one draft payment already pointed at the invoices a plan chose.
+
+    The settlement screen works out *which* invoices a sum pays; this turns
+    that answer into the ordinary document, through the ordinary services, so
+    a settlement drafted from a plan and one keyed by hand are the same record
+    with the same audit trail and the same posting path. There is no second
+    way to pay a supplier.
+
+    The payment's amount is the **sum of its allocations**, never a figure of
+    its own. A plan is bounded by what the invoices actually owe, so a
+    settlement built this way cannot exceed the open balance and cannot leave
+    an accidental advance standing. Paying more than is owed stays possible,
+    deliberately, and stays where it was: a payment keyed by hand, whose
+    remainder the operator meant.
+
+    Nothing is posted. The draft is confirmed on the payment screen by
+    somebody holding `post_supplier_payment`, which is the maker-checker
+    split this screen must not quietly collapse.
+    """
+    if not allocations:
+        raise ValidationError(_("لا توجد فواتير في هذه الخطة."), code="settlement_plan_is_empty")
+
+    total = quantize_money(sum((amount for _invoice, amount in allocations), start=ZERO))
+    payment = create_supplier_payment(
+        supplier=supplier,
+        branch=branch,
+        created_by=created_by,
+        paid_at=paid_at,
+        method=method,
+        amount=total,
+        reference=reference,
+        notes=notes,
+    )
+    # Oldest first, and re-sorted here rather than trusted from the caller:
+    # the allocation sequence is the order the payment reads in, and FIFO is
+    # the claim this screen makes about itself.
+    for invoice, amount in sorted(
+        allocations, key=lambda row: (row[0].invoice_date, row[0].number, row[0].pk)
+    ):
+        add_payment_allocation(payment=payment, invoice=invoice, allocated_amount=amount)
+    return payment
+
+
+# ---------------------------------------------------------------------------
 # Posting
 # ---------------------------------------------------------------------------
 
@@ -440,6 +504,13 @@ def post_supplier_payment(*, payment: SupplierPayment, actor: User) -> SupplierP
             "advance": format(remainder, "f"),
         },
     )
+
+    # A cycle whose every invoice is now settled closes here rather than on a
+    # schedule: the moment the last dinar lands is the moment the window is
+    # over, and the next invoice should open a new one. Asked of every cycle
+    # this payment touched, because one payment may finish more than one.
+    for cycle in _cycles_touched(locked):
+        close_cycle_if_settled(cycle)
     return locked
 
 
@@ -506,7 +577,30 @@ def reverse_supplier_payment(
         source_document_id=str(locked.public_id),
         metadata={"reversal_journal": reversal_journal.entry_number},
     )
+
+    # The debt is real again, so the window it fell in has to be open again.
+    # Refused where the supplier has since opened another: that is a genuine
+    # conflict, and the operator has to decide it rather than have two open
+    # windows appear silently.
+    for cycle in _cycles_touched(locked):
+        reopen_cycle(cycle)
     return locked
+
+
+def _cycles_touched(payment: SupplierPayment) -> list[SupplierPaymentCycle]:
+    """
+    The distinct cycles this payment's allocations landed in.
+
+    A payment settles the oldest debt first, and the oldest debt may sit in a
+    window that expired months ago — so one payment can finish two cycles, and
+    both have to be asked whether they are done.
+    """
+    seen: dict[int, SupplierPaymentCycle] = {}
+    for allocation in payment.allocations.select_related("invoice__cycle"):
+        cycle = allocation.invoice.cycle
+        if cycle is not None:
+            seen[cycle.pk] = cycle
+    return list(seen.values())
 
 
 def _require_no_downstream_dependency(payment: SupplierPayment) -> None:
@@ -568,6 +662,7 @@ __all__ = [
     "allocated_total",
     "create_supplier_payment",
     "delete_supplier_payment",
+    "draft_settlement",
     "paid_allocated_to",
     "payment_timeline",
     "post_supplier_payment",

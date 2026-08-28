@@ -3,14 +3,14 @@
 
 {% block pageactions %}
   {% if create_url %}
-    <a class="btn btn--primary" href="{{ create_url }}" hx-get="{% url 'inventory:package_unit_quick_add' %}" hx-target="#package-unit-dialog" hx-swap="innerHTML">{% translate "وحدة تعبئة سريعة" %}</a>
+    <a class="ui-button ui-button--primary" href="{{ create_url }}" hx-get="{% url 'inventory:package_unit_quick_add' %}" hx-target="#package-unit-dialog" hx-swap="innerHTML">{% translate "وحدة تعبئة سريعة" %}</a>
   {% endif %}
 {% endblock %}
 
 {% block toolbar %}
   {{ block.super }}
   <div hx-get="{{ request.path }}" hx-trigger="packageUnitCreated from:body" hx-target="#list-results" hx-swap="outerHTML" aria-hidden="true"></div>
-  <dialog class="inventory-dialog" id="package-unit-dialog" aria-label="{% translate 'وحدة تعبئة سريعة' %}" aria-modal="true"></dialog>
+  <dialog class="ui-modal" id="package-unit-dialog" aria-label="{% translate 'وحدة تعبئة سريعة' %}" aria-modal="true"></dialog>
 {% endblock %}
 
 {% block columns %}
@@ -29,8 +29,8 @@
   {% for unit in package_units %}
     <tr>
       <td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ unit.code }}</code></bdi></td>
-      <td data-label="{% translate 'الاسم' %}"><strong>{{ unit.name_ar }}</strong></td>
-      <td data-label="{% translate 'معامل التحويل' %}" class="muted">{% translate "يُحدَّد لكل صنف" %}</td>
+      <td data-label="{% translate 'الاسم' %}"><strong>{{ unit.name }}</strong></td>
+      <td data-label="{% translate 'معامل التحويل' %}" class="ui-text-muted">{% translate "يُحدَّد لكل صنف" %}</td>
       <td data-label="{% translate 'الحالة' %}">
         {% if unit.is_active %}
           {% translate "فعّالة" as status_label %}

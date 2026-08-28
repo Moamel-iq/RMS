@@ -392,7 +392,7 @@ class StandardRequirementsView(_ConsumptionReportView):
             row: dict[str, Any] = {
                 "batch": batch.number,
                 "business_date": batch.planned_business_date.isoformat(),
-                "recipe": f"{batch.recipe.code} — {batch.recipe.name_ar}",
+                "recipe": f"{batch.recipe.code} — {batch.recipe.name}",
                 "version": entry.version_label,
                 "path": entry.component_path,
                 "item": f"{entry.item_code} — {entry.item_name}",

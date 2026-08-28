@@ -85,7 +85,7 @@ class Command(SeedCommand):
             report += self._create(organization, payload)
 
             self.write("")
-            self.write(f"=== {organization.code} — {organization.name_ar} ===")
+            self.write(f"=== {organization.code} — {organization.name} ===")
             for line in report:
                 self.write(f"  {line}")
 
@@ -116,14 +116,14 @@ class Command(SeedCommand):
             item = self._item(organization, row["code"])
             unit = self._unit(row["base_unit"])
             if item.base_unit_id == unit.pk:
-                lines.append(f"= {item.code} {item.name_ar} — الوحدة {unit.code} أصلاً")
+                lines.append(f"= {item.code} {item.name} — الوحدة {unit.code} أصلاً")
                 continue
             before = item.base_unit.code
             try:
                 correct_unused_item_base_unit(item=item, base_unit=unit, reason=row["reason"])
             except ValidationError as error:
                 raise CommandError(f"{item.code}: {error.messages}") from error
-            lines.append(f"~ {item.code} {item.name_ar} — الوحدة {before} ← {unit.code}")
+            lines.append(f"~ {item.code} {item.name} — الوحدة {before} ← {unit.code}")
         return lines
 
     def _archive(self, organization: Organization, payload: dict[str, Any]) -> list[str]:
@@ -131,19 +131,18 @@ class Command(SeedCommand):
         for row in payload.get("archive", []):
             item = self._item(organization, row["code"])
             if not item.is_active:
-                lines.append(f"= {item.code} {item.name_ar} — مؤرشف أصلاً")
+                lines.append(f"= {item.code} {item.name} — مؤرشف أصلاً")
                 continue
             note = "\n".join(part for part in (item.notes, row["reason"]) if part)
             update_item(
                 item=item,
-                name_ar=item.name_ar,
-                name_en=item.name_en,
+                name=item.name,
                 category=item.category,
                 item_type=item.item_type,
                 notes=note,
                 is_active=False,
             )
-            lines.append(f"- {item.code} {item.name_ar} — أُرشف")
+            lines.append(f"- {item.code} {item.name} — أُرشف")
         return lines
 
     def _reclassify(self, organization: Organization, payload: dict[str, Any]) -> list[str]:
@@ -152,20 +151,19 @@ class Command(SeedCommand):
             item = self._item(organization, row["code"])
             wanted = row["item_type"]
             if item.item_type == wanted:
-                lines.append(f"= {item.code} {item.name_ar} — نوعه {wanted} أصلاً")
+                lines.append(f"= {item.code} {item.name} — نوعه {wanted} أصلاً")
                 continue
             before = item.item_type
             note = "\n".join(part for part in (item.notes, row.get("note_ar", "")) if part)
             update_item(
                 item=item,
-                name_ar=item.name_ar,
-                name_en=item.name_en,
+                name=item.name,
                 category=item.category,
                 item_type=wanted,
                 notes=note,
                 is_active=item.is_active,
             )
-            lines.append(f"~ {item.code} {item.name_ar} — النوع {before} ← {wanted}")
+            lines.append(f"~ {item.code} {item.name} — النوع {before} ← {wanted}")
         return lines
 
     def _create(self, organization: Organization, payload: dict[str, Any]) -> list[str]:
@@ -180,7 +178,7 @@ class Command(SeedCommand):
                 organization=organization, code=row["code"]
             ).first()
             if existing is not None:
-                lines.append(f"= {existing.code} {existing.name_ar} — موجود أصلاً")
+                lines.append(f"= {existing.code} {existing.name} — موجود أصلاً")
                 continue
             category = ItemCategory.objects.filter(
                 organization=organization, code=row["category"]
@@ -190,11 +188,11 @@ class Command(SeedCommand):
             item = create_item(
                 organization=organization,
                 code=row["code"],
-                name_ar=row["name_ar"],
+                name=row["name"],
                 category=category,
                 item_type=row["item_type"],
                 base_unit=self._unit(row["base_unit"]),
                 notes=row.get("notes_ar", ""),
             )
-            lines.append(f"+ {item.code} {item.name_ar} — {item.item_type} / {row['base_unit']}")
+            lines.append(f"+ {item.code} {item.name} — {item.item_type} / {row['base_unit']}")
         return lines

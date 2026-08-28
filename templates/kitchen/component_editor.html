@@ -11,25 +11,25 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="workspace-page">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">
+  <section class="ui-page">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">
           {{ recipe.code }} v{{ version.version_number }} — {% translate "الوصفات الفرعية" %}
         </h1>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% translate "وصفة فرعية غير مخزنية: تُمزج أثناء الإنتاج ولا توجد كرصيد. الوصفة التي تنتج صنفاً مخزنياً تُستهلك كسطر مكوّن على الصنف، لا هنا." %}
         </p>
       </div>
-      <div class="pagehead__actions">
-        <a class="btn btn--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:version_detail' version.pk %}">
           {% translate "تفاصيل النسخة" %}
         </a>
-        <a class="btn btn--ghost" href="{% url 'kitchen:component_tree' version.pk %}">
+        <a class="ui-button ui-button--ghost" href="{% url 'kitchen:component_tree' version.pk %}">
           {% translate "الشجرة" %}
         </a>
         {% if can_manage and version.is_draft %}
-          <a class="btn" href="{% url 'kitchen:component_create' version.pk %}">
+          <a class="ui-button" href="{% url 'kitchen:component_create' version.pk %}">
             {% translate "إضافة وصفة فرعية" %}
           </a>
         {% endif %}
@@ -38,19 +38,19 @@
 
     {% if not version.is_draft %}
       {# The notice draws its own edge; a card around it would double it. #}
-      <div class="alert" role="status">
+      <div class="ui-notice" role="status">
         <p>
           {% blocktranslate with status=version.get_status_display %}النسخة {{ status }} ومجمّدة: لا تُضاف وصفة فرعية ولا تُعدَّل ولا تُحذف. تبني خلطة أحدث يكون بنسخة أم جديدة.{% endblocktranslate %}
         </p>
       </div>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "الوصفات الفرعية في هذه النسخة" %}</h2>
       {% if components %}
-        <div class="data-table-shell" tabindex="0">
-          <table class="table responsive-table">
-            <caption class="visually-hidden">{% translate "الوصفات الفرعية" %}</caption>
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
+            <caption class="ui-visually-hidden">{% translate "الوصفات الفرعية" %}</caption>
             <thead>
               <tr>
                 <th scope="col">{% translate "الترتيب" %}</th>
@@ -68,7 +68,7 @@
                   <td data-label="{% translate 'الترتيب' %}">{{ component.line_order }}</td>
                   <td data-label="{% translate 'الوصفة الفرعية' %}">
                     <a href="{% url 'kitchen:version_detail' component.component_version_id %}">
-                      {{ component.component_recipe.code }} — {{ component.component_recipe.name_ar }}
+                      {{ component.component_recipe.code }} — {{ component.component_recipe.name }}
                     </a>
                   </td>
                   <td data-label="{% translate 'النسخة' %}">v{{ component.component_version.version_number }}</td>
@@ -76,20 +76,20 @@
                   {# Technical identity: period, never comma, rendered LTR. #}
                   <td data-label="{% translate 'المعامل' %}"><code dir="ltr">{{ component.multiplier_display }}</code></td>
                   <td data-label="{% translate 'ملاحظة' %}">{{ component.note|default:"—" }}</td>
-                  <td class="rowactions" data-label="{% translate 'إجراءات' %}">
+                  <td class="ui-table__actions" data-label="{% translate 'إجراءات' %}">
                     {% if can_manage and version.is_draft %}
-                      <a class="btn btn--ghost" href="{% url 'kitchen:component_update' component.pk %}">
+                      <a class="ui-button ui-button--ghost" href="{% url 'kitchen:component_update' component.pk %}">
                         {% translate "تعديل" %}
                       </a>
-                      <a class="btn btn--ghost" href="{% url 'kitchen:component_reorder' component.pk %}">
+                      <a class="ui-button ui-button--ghost" href="{% url 'kitchen:component_reorder' component.pk %}">
                         {% translate "ترتيب" %}
                       </a>
                       <form method="post" action="{% url 'kitchen:component_delete' component.pk %}">
                         {% csrf_token %}
-                        <button class="btn btn--ghost" type="submit">{% translate "حذف" %}</button>
+                        <button class="ui-button ui-button--ghost" type="submit">{% translate "حذف" %}</button>
                       </form>
                     {% else %}
-                      <span class="muted">—</span>
+                      <span class="ui-text-muted">—</span>
                     {% endif %}
                   </td>
                 </tr>
@@ -98,26 +98,26 @@
           </table>
         </div>
       {% else %}
-        <p class="empty">{% translate "لا تحتوي هذه النسخة على وصفات فرعية." %}</p>
+        <p class="ui-table__empty">{% translate "لا تحتوي هذه النسخة على وصفات فرعية." %}</p>
       {% endif %}
     </section>
 
     {% if version.is_draft %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "الوصفات الفرعية المتاحة" %}</h2>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% translate "قائمة تسهيل لا تحل محل التحقق: الخادم يعيد فحص كل قاعدة تحت قفل الرسم البياني، وأي إرسال مباشر لنسخة أخرى يُرفض هناك." %}
         </p>
-        <form class="toolbar" method="get"
+        <form class="ui-filter-bar" method="get"
               hx-get="{{ request.path }}"
               hx-target="#component-candidates"
               hx-select="#component-candidates"
               hx-swap="outerHTML"
-              hx-trigger="submit, keyup changed delay:300ms from:find input[name=q]">
-          <label class="formrow__label" for="component-search">{% translate "بحث" %}</label>
+              hx-trigger="submit, keyup changed delay:300ms from:#component-search, search from:#component-search">
+          <label class="ui-field__label" for="component-search">{% translate "بحث" %}</label>
           <input id="component-search" type="search" name="q" value="{{ search }}"
                  placeholder="{% translate 'رمز أو اسم' %}">
-          <button class="btn btn--ghost" type="submit">{% translate "بحث" %}</button>
+          <button class="ui-button ui-button--ghost" type="submit">{% translate "بحث" %}</button>
         </form>
 
         <div id="component-candidates">
@@ -125,13 +125,13 @@
             <ul>
               {% for candidate in candidates %}
                 <li>
-                  {{ candidate.recipe.code }} — {{ candidate.recipe.name_ar }}
+                  {{ candidate.recipe.code }} — {{ candidate.recipe.name }}
                   (v{{ candidate.version_number }} · {{ candidate.get_status_display }})
                 </li>
               {% endfor %}
             </ul>
           {% else %}
-            <p class="empty">
+            <p class="ui-table__empty">
               {% translate "لا توجد وصفة فرعية صالحة: غير مخزنية، ومعتمدة، وليست هذه الوصفة نفسها، ولم تُضف بعد." %}
             </p>
           {% endif %}
@@ -141,8 +141,8 @@
 
     {# The tree arrives as its own cards, so this region draws no edge: the  #}
     {# heading rides a page head and the swap target stays transparent.      #}
-    <div class="pagehead">
-      <div class="pagehead__copy">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
         <h2>{% translate "الشجرة" %}</h2>
       </div>
     </div>
@@ -153,7 +153,7 @@
          hx-select="#component-tree"
          hx-swap="innerHTML">
       {# Full-page fallback: without JavaScript this link is the whole route. #}
-      <a class="btn btn--ghost" href="{% url 'kitchen:component_tree' version.pk %}">
+      <a class="ui-button ui-button--ghost" href="{% url 'kitchen:component_tree' version.pk %}">
         {% translate "عرض الشجرة" %}
       </a>
     </div>

@@ -10,19 +10,19 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page workspace-form-page" id="kitchen-meal-form">
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }} — {{ type_label }}</h1>
-        <p class="pagehead__hint">{{ meal_statement }}</p>
+  <div class="ui-page ui-page--form" id="kitchen-meal-form">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }} — {{ type_label }}</h1>
+        <p class="ui-page-header__subtitle">{{ meal_statement }}</p>
       </div>
     </div>
 
-    <p class="banner" role="note">
+    <p class="ui-notice" role="note">
       {% translate "تُحسم نسخة الوصفة مرة واحدة من تاريخ الاستهلاك والفرع، وتُحفظ كما هي. تغيير الوصفة لاحقاً لا يعيد كتابة ما استُهلك." %}
     </p>
 
-    <form class="formcard"
+    <form class="ui-form-card"
           method="post"
           novalidate
           action="{{ request.path }}"
@@ -32,19 +32,19 @@
       {% csrf_token %}
 
       {% if form.non_field_errors %}
-        <div class="alert" role="alert">
+        <div class="ui-notice" role="alert">
           {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
         </div>
       {% endif %}
 
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
 
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "تسجيل" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "تسجيل" %}</button>
       </div>
     </form>
   </div>

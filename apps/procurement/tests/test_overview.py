@@ -70,7 +70,7 @@ def supplier(organization: Organization) -> Supplier:
     return create_supplier(
         organization=organization,
         code="OVERVIEW-SUP",
-        name_ar="مورد النظرة العامة",
+        name="مورد النظرة العامة",
         payment_terms_days=0,
     )
 
@@ -180,7 +180,7 @@ def test_the_supplier_share_is_the_concentration_risk(
     other = create_supplier(
         organization=organization,
         code="OVERVIEW-SUP-2",
-        name_ar="مورد ثانٍ",
+        name="مورد ثانٍ",
         payment_terms_days=0,
     )
     for number, amount, who in (

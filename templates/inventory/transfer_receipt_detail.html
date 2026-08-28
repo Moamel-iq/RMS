@@ -1,4 +1,4 @@
-{% extends "shell.html" %}
+{% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
 {# One arrival against a transfer. Two business dates when the two ends sit  #}
@@ -8,29 +8,29 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <section class="inventory-page inventory-detail-page" aria-labelledby="receipt-title">
-    <nav class="inventory-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <section class="ui-page ui-page--detail" aria-labelledby="receipt-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{{ back_url }}">{% translate "تفاصيل التحويل" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{% translate "استلام تحويل" %}</span>
     </nav>
-    <header class="pagehead inventory-document-hero">
+    <header class="ui-page-header ui-document-hero">
       <div>
-        <div class="inventory-detail-kicker">
+        <div class="ui-document-hero__meta">
           {% include "components/status_badge.html" with status=receipt.status label=receipt.get_status_display %}
           {% if receipt.receipt_number %}<code><bdi dir="ltr">{{ receipt.receipt_number }}</bdi></code>{% endif %}
         </div>
-        <h1 class="pagehead__title" id="receipt-title">{{ page_title }}</h1>
-        <p class="pagehead__hint">{% translate "سجل وصول الكميات إلى مخزن الوجهة وربطه بتحويل المصدر." %}</p>
+        <h1 class="ui-page-header__title" id="receipt-title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">{% translate "سجل وصول الكميات إلى مخزن الوجهة وربطه بتحويل المصدر." %}</p>
       </div>
-    <div class="rowactions">
-      <a class="btn btn--ghost" href="{{ back_url }}">{% translate "رجوع إلى التحويل" %}</a>
+    <div class="ui-actions">
+      <a class="ui-button ui-button--ghost" href="{{ back_url }}">{% translate "رجوع إلى التحويل" %}</a>
       {% if is_draft and can_prepare %}
         <form method="post" action="{% url 'inventory:transfer_receipt_delete' receipt.pk %}"
               data-confirm="{% translate 'سيُحذف استلام التحويل ومسودته نهائياً. هل تريد المتابعة؟' %}"
               data-confirm-title="{% translate 'حذف مسودة الاستلام' %}">
           {% csrf_token %}
-          <button class="btn btn--danger" type="submit">{% translate "حذف المسودة" %}</button>
+          <button class="ui-button ui-button--danger" type="submit">{% translate "حذف المسودة" %}</button>
         </form>
       {% endif %}
       {% if is_draft and can_post %}
@@ -38,15 +38,15 @@
               data-confirm="{% translate 'ستُثبت الكميات في مخزن الوجهة وتُرحّل القيود المرتبطة بالتحويل. هل تريد المتابعة؟' %}"
               data-confirm-title="{% translate 'ترحيل الاستلام' %}">
           {% csrf_token %}
-          <button class="btn btn--primary" type="submit">{% translate "ترحيل الاستلام" %}</button>
+          <button class="ui-button ui-button--primary" type="submit">{% translate "ترحيل الاستلام" %}</button>
         </form>
       {% endif %}
     </div>
     </header>
 
-  <dl class="factgrid" aria-label="{% translate 'بيانات الاستلام' %}">
+  <dl class="ui-definition-list" aria-label="{% translate 'بيانات الاستلام' %}">
     <div><dt>{% translate "رقم التحويل" %}</dt><dd><code><bdi dir="ltr">{{ transfer.transfer_number }}</bdi></code></dd></div>
-    <div><dt>{% translate "مخزن الوجهة" %}</dt><dd><code><bdi dir="ltr">{{ transfer.destination_warehouse.code }}</bdi></code> {{ transfer.destination_warehouse.name_ar }}</dd></div>
+    <div><dt>{% translate "مخزن الوجهة" %}</dt><dd><code><bdi dir="ltr">{{ transfer.destination_warehouse.code }}</bdi></code> {{ transfer.destination_warehouse.name }}</dd></div>
     <div><dt>{% translate "مرجع الإثبات" %}</dt><dd><bdi dir="ltr">{{ receipt.evidence_reference }}</bdi></dd></div>
     <div><dt>{% translate "أنشأه" %}</dt><dd>{{ receipt.created_by|default:"—" }}</dd></div>
     <div>
@@ -75,28 +75,28 @@
   </dl>
 
   {% if is_posted and can_reverse %}
-    <form class="formcard" method="post"
+    <form class="ui-card ui-form-card" method="post"
           action="{% url 'inventory:transfer_receipt_reverse' receipt.pk %}"
           data-confirm="{% translate 'سيُعكس الاستلام وتعود الكميات إلى البضاعة بالطريق. هل تريد المتابعة؟' %}"
           data-confirm-title="{% translate 'عكس الاستلام' %}">
       {% csrf_token %}
-      <div class="formgrid">
-        <div class="formrow">
-          <label class="formrow__label" for="reverse-reason">
+      <div class="ui-form-grid">
+        <div class="ui-field">
+          <label class="ui-field__label" for="reverse-reason">
             {% translate "عكس الاستلام — السبب" %}
           </label>
           <textarea id="reverse-reason" name="reason" rows="2" required></textarea>
         </div>
       </div>
-      <div class="formactions">
-        <button class="btn btn--danger" type="submit">{% translate "عكس الاستلام" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--danger" type="submit">{% translate "عكس الاستلام" %}</button>
       </div>
     </form>
   {% endif %}
 
-  <h2 class="section__title" id="receipt-lines-title">{% translate "الكميات المستلمة" %}</h2>
-  <div class="tablewrap responsive-table" aria-labelledby="receipt-lines-title">
-    <table class="table data-table">
+  <h2 class="ui-section-title" id="receipt-lines-title">{% translate "الكميات المستلمة" %}</h2>
+  <div class="ui-data-card ui-table-scroll" aria-labelledby="receipt-lines-title">
+    <table class="ui-table ui-table--responsive">
       <thead>
         <tr>
           <th scope="col">#</th>
@@ -116,7 +116,7 @@
             <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
             <td data-label="{% translate 'الصنف' %}">
               <code><bdi dir="ltr">{{ line.transfer_line.item.code }}</bdi></code>
-              {{ line.transfer_line.item.name_ar }}
+              {{ line.transfer_line.item.name }}
             </td>
             <td data-label="{% translate 'الدفعة' %}">
               {% if line.transfer_line.lot %}
@@ -142,17 +142,17 @@
   </div>
 
   {% if is_draft and can_prepare %}
-    <h2 class="section__title">{% translate "إضافة كمية مستلمة" %}</h2>
-    <form class="formcard" method="post">
+    <h2 class="ui-section-title">{% translate "إضافة كمية مستلمة" %}</h2>
+    <form class="ui-card ui-form-card" method="post">
       {% csrf_token %}
       {% include "components/form_error_summary.html" with form=line_form %}
-      <div class="formgrid">
+      <div class="ui-form-grid">
         {% for field in line_form %}
           {% include "settings/_field.html" with field=field %}
         {% endfor %}
       </div>
-      <div class="formactions">
-        <button class="btn btn--primary" type="submit">{% translate "إضافة" %}</button>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة" %}</button>
       </div>
     </form>
   {% endif %}

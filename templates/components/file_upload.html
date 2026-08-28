@@ -1,0 +1,12 @@
+{% load i18n %}
+<div class="ui-upload" data-file-upload>
+  <label class="ui-upload__dropzone" for="{{ field.id_for_label }}">
+    <span class="ui-upload__icon" aria-hidden="true">↑</span>
+    <strong>{{ label|default:field.label }}</strong>
+    <span>{% translate "اختر ملفاً أو اسحبه هنا" %}</span>
+    {{ field }}
+  </label>
+  {% if field.help_text %}<p class="ui-field__hint" id="{{ field.id_for_label }}_helptext">{{ field.help_text }}</p>{% endif %}
+  {% for error in field.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}
+  <div class="ui-upload__preview" data-file-preview hidden></div>
+</div>

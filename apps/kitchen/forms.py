@@ -142,8 +142,7 @@ class RecipeCategoryForm(ScopedForm, SourceProvenanceMixin):
         max_length=32,
         help_text=_("حروف إنجليزية كبيرة وأرقام. يُوحَّد تلقائياً ولا يمكن تغييره لاحقاً."),
     )
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     notes = forms.CharField(
         label=_("ملاحظات"), widget=forms.Textarea(attrs={"rows": 2}), required=False
     )
@@ -172,8 +171,7 @@ class RecipeForm(ScopedForm, SourceProvenanceMixin):
 
     organization = forms.ModelChoiceField(queryset=Organization.objects.none(), label=_("المؤسسة"))
     code = forms.CharField(label=_("الرمز"), max_length=32)
-    name_ar = forms.CharField(label=_("اسم الوصفة بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("اسم الوصفة بالعربية"), max_length=200)
     recipe_type = forms.ChoiceField(label=_("نوع الوصفة"), choices=RecipeType.choices)
     category = forms.ModelChoiceField(
         queryset=RecipeCategory.objects.none(), label=_("المجموعة"), required=False
@@ -466,8 +464,7 @@ class RecipeServingForm(ScopedForm, SourceProvenanceMixin):
     """
 
     code = forms.CharField(label=_("رمز الحصة"), max_length=32)
-    name_ar = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
-    name_en = forms.CharField(label=_("الاسم بالإنجليزية"), max_length=200, required=False)
+    name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     serving_quantity = forms.DecimalField(label=_("كمية الحصة"), min_value=0, decimal_places=6)
     serving_unit = forms.ModelChoiceField(
         queryset=UnitOfMeasure.objects.none(), label=_("وحدة الحصة")

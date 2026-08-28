@@ -175,7 +175,7 @@ class Command(SeedCommand):
         for organization in organizations:
             self.write("")
             self.write("=" * 72)
-            self.write(f"{organization.code} — {organization.name_ar}")
+            self.write(f"{organization.code} — {organization.name}")
             self.write("=" * 72)
             for section in self._sections(organization, date_from, date_to):
                 counted = self._render(section)

@@ -10,47 +10,47 @@
 {% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
 
 {% block page %}
-  <div class="workspace-page" id="sales-adjustment-detail">
-    <nav class="workspace-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+  <div class="ui-page" id="sales-adjustment-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
       <a href="{% url 'sales:adjustment_list' %}">{% translate "المرتجعات والإلغاءات" %}</a>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{{ adjustment.business_date|date:"Y-m-d" }}</span>
     </nav>
 
-    <div class="pagehead">
-      <div class="pagehead__copy">
-        <h1 class="pagehead__title">{{ page_title }}</h1>
-        <p class="pagehead__hint">
-          <span class="chip">{{ adjustment.get_status_display }}</span>
-          <span class="chip">{{ adjustment.get_reason_kind_display }}</span>
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">
+          <span class="ui-badge">{{ adjustment.get_status_display }}</span>
+          <span class="ui-badge">{{ adjustment.get_reason_kind_display }}</span>
           {% if adjustment.direct_stock_disposition != "NOT_APPLICABLE" %}
-            <span class="chip">{{ adjustment.get_direct_stock_disposition_display }}</span>
+            <span class="ui-badge">{{ adjustment.get_direct_stock_disposition_display }}</span>
           {% endif %}
           {% if adjustment.number %}<bdi dir="ltr"><code>{{ adjustment.number }}</code></bdi>{% endif %}
         </p>
       </div>
-      <div class="pagehead__actions">
+      <div class="ui-page-header__actions">
         {% if may_post %}
           <form method="post" action="{% url 'sales:adjustment_post' adjustment.pk %}"
                 data-confirm="{% translate 'سيُكتب قيد متوازن على حساب مردودات المبيعات، وقيود ذمم عاكسة لسطور التطبيقات. إيراد المبيعات لا يُمسّ. التصحيح بعدها يكون بالعكس.' %}"
                 data-confirm-title="{% translate 'تأكيد ترحيل التسوية' %}">
             {% csrf_token %}
-            <button class="btn btn--primary" type="submit">{% translate "ترحيل" %}</button>
+            <button class="ui-button ui-button--primary" type="submit">{% translate "ترحيل" %}</button>
           </form>
         {% endif %}
       </div>
     </div>
 
     {% if adjustment.status == "REVERSED" %}
-      <p class="banner banner--bad" role="note">
+      <p class="ui-notice ui-notice--error" role="note">
         {% blocktranslate with reason=adjustment.reversal_reason %}هذه التسوية معكوسة: {{ reason }}{% endblocktranslate %}
       </p>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "بيانات التسوية" %}</h2>
-      <dl class="deflist">
-        <div class="detailgrid__row">
+      <dl class="ui-definition-list">
+        <div class="ui-definition-list__row">
           <dt>{% translate "اليوم المصحَّح" %}</dt>
           <dd>
             <a href="{% url 'sales:day_detail' adjustment.sales_day.pk %}">
@@ -61,16 +61,16 @@
             </a>
           </dd>
         </div>
-        <div class="detailgrid__row">
+        <div class="ui-definition-list__row">
           <dt>{% translate "المستند" %}</dt>
           <dd><bdi dir="ltr"><code>{{ adjustment.evidence_reference }}</code></bdi></dd>
         </div>
-        <div class="detailgrid__row">
+        <div class="ui-definition-list__row">
           <dt>{% translate "السبب" %}</dt>
           <dd>{{ adjustment.reason }}</dd>
         </div>
         {% if adjustment.notes %}
-          <div class="detailgrid__row">
+          <div class="ui-definition-list__row">
             <dt>{% translate "ملاحظات" %}</dt>
             <dd>{{ adjustment.notes }}</dd>
           </div>
@@ -78,55 +78,55 @@
       </dl>
     </section>
 
-    <div class="statrow">
-      <div class="stat">
-        <span class="stat__label">{% translate "إجمالي المرتجع" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.gross|iqd }}</code></bdi></span>
+    <div class="ui-metric-grid">
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "إجمالي المرتجع" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.gross|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "خصم المطعم المرتجع" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.restaurant_discount|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "خصم المطعم المرتجع" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.restaurant_discount|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "خصم التطبيق" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.application_discount|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "خصم التطبيق" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.application_discount|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "العمولات المرتجعة" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.commission|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "العمولات المرتجعة" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.commission|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "نقد" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_cash|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "نقد" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.net_cash|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "بطاقات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_card|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "بطاقات" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.net_card|iqd }}</code></bdi></span>
       </div>
-      <div class="stat">
-        <span class="stat__label">{% translate "ذمم التطبيقات" %}</span>
-        <span class="stat__value"><bdi dir="ltr"><code>{{ totals.net_application|iqd }}</code></bdi></span>
+      <div class="ui-metric">
+        <span class="ui-metric__label">{% translate "ذمم التطبيقات" %}</span>
+        <span class="ui-metric__value"><bdi dir="ltr"><code>{{ totals.net_application|iqd }}</code></bdi></span>
       </div>
     </div>
 
-    <p class="banner" role="note">
+    <p class="ui-notice" role="note">
       {% translate "التسوية تُرحَّل إلى «مردودات المبيعات»، ولا تمسّ إيراد المبيعات إطلاقاً: الإيراد إجمالي، وكل حسم يجلس إلى جانبه مطالبةً قائمة بذاتها. خصم التطبيق مسجَّل هنا ولا يُرحَّل، تماماً كما لا يُرحَّل عند البيع." %}
     </p>
 
     {% if adjustment.reduces_theoretical_consumption %}
-      <p class="banner banner--ok" role="note">
+      <p class="ui-notice ui-notice--success" role="note">
         {% translate "إلغاء قبل التنفيذ: الطلب لم يُطبخ، فمكوّناته لم تخرج قط. هذه الكمية تُطرح من الاستهلاك النظري في المطبخ." %}
       </p>
     {% else %}
-      <p class="banner" role="note">
+      <p class="ui-notice" role="note">
         {% translate "لا يُطرح شيء من الاستهلاك النظري. الطعام طُبخ وخرجت مكوّناته فعلاً، وطرحه هنا يصنع فرقاً غير مفسّر بين الفعلي والنظري بمقدار المرتجع بالضبط — وهو الإشارة نفسها التي وُجد تقرير فروقات الاستخدام لكشفها. إتلاف الطعام المرتجع مستند هدر في دفتر المطبخ." %}
       </p>
     {% endif %}
 
-    <section class="formcard">
+    <section class="ui-form-card">
       <h2>{% translate "سطور التسوية" %}</h2>
-      <div class="data-table-shell">
-        <table class="table responsive-table">
+      <div class="ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
           <thead>
             <tr>
               <th scope="col">#</th>
@@ -140,7 +140,7 @@
               <th scope="col">{% translate "العمولة" %}</th>
               <th scope="col">{% translate "الصافي" %}</th>
               <th scope="col">{% translate "سبب السطر" %}</th>
-              {% if may_edit %}<th scope="col"><span class="sr-only">إجراءات</span></th>{% endif %}
+              {% if may_edit %}<th scope="col"><span class="ui-sr-only">إجراءات</span></th>{% endif %}
             </tr>
           </thead>
           <tbody>
@@ -149,12 +149,12 @@
                 <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
                 <td data-label="{% translate 'الصنف' %}">
                   <bdi dir="ltr"><code>{{ line.original_line.menu_item.code }}</code></bdi>
-                  {{ line.original_line.menu_item.name_ar }}
+                  {{ line.original_line.menu_item.name }}
                 </td>
-                <td data-label="{% translate 'القناة' %}">{{ line.original_line.channel.name_ar }}</td>
+                <td data-label="{% translate 'القناة' %}">{{ line.original_line.channel.name }}</td>
                 <td data-label="{% translate 'التطبيق' %}">
                   {% if line.original_line.delivery_application %}
-                    {{ line.original_line.delivery_application.name_ar }}
+                    {{ line.original_line.delivery_application.name }}
                   {% else %}—{% endif %}
                 </td>
                 <td data-label="{% translate 'الكمية المرتجعة' %}">
@@ -177,14 +177,14 @@
                   <td>
                     <form method="post" action="{% url 'sales:adjustment_line_delete' line.pk %}">
                       {% csrf_token %}
-                      <button class="btn btn--danger-quiet btn--sm" type="submit">{% translate "حذف" %}</button>
+                      <button class="ui-button ui-button--danger-ghost ui-button--sm" type="submit">{% translate "حذف" %}</button>
                     </form>
                   </td>
                 {% endif %}
               </tr>
             {% empty %}
               <tr>
-                <td colspan="{% if may_edit %}12{% else %}11{% endif %}" class="empty">
+                <td colspan="{% if may_edit %}12{% else %}11{% endif %}" class="ui-table__empty">
                   {% translate "لا توجد سطور بعد." %}
                 </td>
               </tr>
@@ -195,21 +195,21 @@
     </section>
 
     {% if line_form %}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "إضافة سطر" %}</h2>
-        <p class="pagehead__hint">
+        <p class="ui-page-header__subtitle">
           {% translate "تُحتسب المبالغ نسبةً من السطر الأصلي، ويُنسخ سعره كما هو ولا يُحلّ من جديد: السعر الذي باع الصحن هو الذي يُرجعها. لا يمكن أن تتجاوز التسويات المرحّلة ما باعه السطر كميةً أو قيمةً، وقاعدة البيانات نفسها ترفض ذلك." %}
         </p>
         <form method="post" novalidate>
           {% csrf_token %}
           {% include "components/form_error_summary.html" with form=line_form %}
-          <div class="formgrid">
+          <div class="ui-form-grid">
             {% for field in line_form %}
               {% include "settings/_field.html" with field=field %}
             {% endfor %}
           </div>
-          <div class="formactions">
-            <button class="btn btn--primary" type="submit">{% translate "إضافة السطر" %}</button>
+          <div class="ui-form-actions">
+            <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة السطر" %}</button>
           </div>
         </form>
       </section>
@@ -218,20 +218,20 @@
     {% if reversal_form %}
       {# A typed reason, not a hidden constant. The reversal reason is what the #}
       {# next reader has to work from, and it must not be blank.                #}
-      <section class="formcard">
+      <section class="ui-form-card">
         <h2>{% translate "عكس التسوية" %}</h2>
         <form method="post" novalidate
               action="{% url 'sales:adjustment_reverse' adjustment.pk %}"
               data-confirm="{% translate 'سيُضاف قيد عاكس وقيد ذمة عاكس. الأصل يبقى ظاهراً، ولا يُعدَّل ولا يُحذف.' %}"
               data-confirm-title="{% translate 'تأكيد عكس التسوية' %}">
           {% csrf_token %}
-          <div class="formgrid">
+          <div class="ui-form-grid">
             {% for field in reversal_form %}
               {% include "settings/_field.html" with field=field %}
             {% endfor %}
           </div>
-          <div class="formactions">
-            <button class="btn btn--danger-quiet" type="submit">{% translate "عكس" %}</button>
+          <div class="ui-form-actions">
+            <button class="ui-button ui-button--danger-ghost" type="submit">{% translate "عكس" %}</button>
           </div>
         </form>
       </section>
