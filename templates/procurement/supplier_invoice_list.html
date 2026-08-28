@@ -5,15 +5,12 @@
 
 {% block head %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'css/procurement-invoices.css' %}?v=20260828-1">
+  <link rel="stylesheet" href="{% static 'css/procurement-invoices.css' %}?v=20260828-2">
 {% endblock %}
 
 {% block page %}
   <section class="ui-page ui-purchase-invoices" aria-labelledby="purchase-invoices-title">
     <aside class="ui-purchase-notice" data-dismissible-notice aria-label="{% translate 'طريقة عمل فواتير المشتريات' %}">
-      <span class="ui-purchase-notice__mark" aria-hidden="true">
-        <svg width="22" height="22" viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6zM9 11h6M9 15h6M9 7h3"/></svg>
-      </span>
       <div>
         <strong>{% translate "فواتير المشتريات" %}</strong>
         <p>{% translate "استلام مباشر إلى المخزن الرئيسي وترحيل محاسبي في عملية واحدة." %}</p>
@@ -70,11 +67,10 @@
             <div class="ui-purchase-filterbar ui-no-print">
               <label class="ui-purchase-search" for="purchase-invoice-search">
                 <span class="ui-sr-only">{% translate "بحث" %}</span>
-                <svg width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
                 <input id="purchase-invoice-search" type="search" name="q" value="{{ search|default:'' }}"
                        placeholder="{% translate 'ابحث برقم الفاتورة أو المورد' %}" autocomplete="off">
               </label>
-              <label class="ui-purchase-select">
+              <label class="ui-purchase-select ui-purchase-select--status">
                 <span class="ui-sr-only">{% translate "الحالة" %}</span>
                 <select name="status" aria-label="{% translate 'الحالة' %}">
                   <option value="">{% translate "كل الحالات" %}</option>
@@ -83,7 +79,7 @@
                   {% endfor %}
                 </select>
               </label>
-              <label class="ui-purchase-select">
+              <label class="ui-purchase-select ui-purchase-select--warehouse">
                 <span class="ui-sr-only">{% translate "المخزن" %}</span>
                 <select name="warehouse" aria-label="{% translate 'المخزن' %}">
                   <option value="">{% translate "كل المخازن الرئيسية" %}</option>
@@ -103,10 +99,10 @@
 
             <div class="ui-purchase-list-meta">
               <h2 id="purchase-invoice-list-title" class="ui-sr-only">{% translate "قائمة فواتير المشتريات" %}</h2>
-              <span class="ui-purchase-result-count" role="status">
+              <span class="ui-purchase-result-count ui-sr-only" role="status">
                 <bdi dir="ltr">{{ page_obj.paginator.count }}</bdi> {% translate "فاتورة" %}
               </span>
-              <span class="ui-loading ui-purchase-loading" id="purchase-invoice-loading" role="status">
+              <span class="ui-loading ui-loading--inline ui-purchase-loading htmx-indicator" id="purchase-invoice-loading" role="status">
                 <span class="ui-loading__spinner" aria-hidden="true"></span>
                 {% translate "جارٍ تحديث الفواتير…" %}
               </span>

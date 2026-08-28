@@ -100,7 +100,7 @@ def test_shell_uses_the_new_primary_secondary_and_header_contract() -> None:
         encoding="utf-8"
     )
 
-    assert 'class="ui-app-shell"' in shell
+    assert 'class="ui-app-shell ui-app-shell--compact"' in shell
     assert 'class="ui-app-header"' in shell
     assert 'class="ui-primary-nav"' in primary
     assert 'class="ui-secondary-nav"' in secondary
@@ -158,3 +158,20 @@ def test_live_filter_forms_bind_every_control_without_first_match_selectors() ->
     assert ', change"' in shared_list
     assert 'hx-sync="closest form:replace"' in purchase
     assert 'hx-sync="closest form:replace"' in shared_list
+
+
+def test_approved_desktop_density_keeps_mobile_and_htmx_layout_safe() -> None:
+    design_system = (STATIC / "css" / "erp-design-system.css").read_text(encoding="utf-8")
+    purchase_css = (STATIC / "css" / "procurement-invoices.css").read_text(encoding="utf-8")
+    purchase = (TEMPLATES / "procurement" / "supplier_invoice_list.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Approved desktop density" in design_system
+    assert "@media screen and (min-width: 721px)" in design_system
+    assert ".ui-app-shell--compact .ui-content" in design_system
+    assert "padding: 19px 21px" in design_system
+    assert "@media (max-width: 720px)" in purchase_css
+    assert "display: flex" in purchase_css
+    assert "ui-loading--inline ui-purchase-loading htmx-indicator" in purchase
+    assert "ui-purchase-result-count ui-sr-only" in purchase
