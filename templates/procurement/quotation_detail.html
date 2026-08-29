@@ -5,7 +5,7 @@
 {# implies. The base unit price is derived on read and never stored — two    #}
 {# suppliers quoting different package sizes are only comparable there.      #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page">
@@ -33,10 +33,10 @@
         <dt>{% translate "صالح حتى" %}</dt><dd>{% if quotation.valid_until %}<span dir="ltr">{{ quotation.valid_until|date:"Y-m-d" }}</span>{% else %}—{% endif %}</dd>
         <dt>{% translate "مرجع الإثبات" %}</dt><dd>{{ quotation.evidence_reference|default:"—" }}</dd>
         {% if may_see_cost %}
-          <dt>{% translate "أجور النقل" %}</dt><dd><span dir="ltr">{{ quotation.freight_amount|stringformat:"f" }}</span></dd>
-          <dt>{% translate "رسوم أخرى" %}</dt><dd><span dir="ltr">{{ quotation.other_charges|stringformat:"f" }}</span></dd>
-          <dt>{% translate "إجمالي الأسطر" %}</dt><dd><span dir="ltr">{{ quotation.line_total|stringformat:"f" }}</span></dd>
-          <dt>{% translate "الإجمالي" %}</dt><dd><span dir="ltr">{{ quotation.total_amount|stringformat:"f" }}</span></dd>
+          <dt>{% translate "أجور النقل" %}</dt><dd><span dir="ltr">{{ quotation.freight_amount|money }}</span></dd>
+          <dt>{% translate "رسوم أخرى" %}</dt><dd><span dir="ltr">{{ quotation.other_charges|money }}</span></dd>
+          <dt>{% translate "إجمالي الأسطر" %}</dt><dd><span dir="ltr">{{ quotation.line_total|money }}</span></dd>
+          <dt>{% translate "الإجمالي" %}</dt><dd><span dir="ltr">{{ quotation.total_amount|money }}</span></dd>
         {% endif %}
       </dl>
       <p class="ui-text-muted">
@@ -66,13 +66,13 @@
             <tr>
               <td>{{ line.sequence }}</td>
               <td>{{ line.item.code }} — {{ line.item.name }}</td>
-              <td><span dir="ltr">{{ line.quantity|stringformat:"f" }}</span></td>
+              <td><span dir="ltr">{{ line.quantity|quantity }}</span></td>
               <td>{{ line.package_unit.name|default:"—" }}</td>
-              <td><span dir="ltr">{{ line.base_quantity|stringformat:"f" }}</span> {{ line.item.base_unit.code }}</td>
+              <td><span dir="ltr">{{ line.base_quantity|quantity }}</span> {{ line.item.base_unit.code }}</td>
               {% if may_see_cost %}
-                <td><span dir="ltr">{{ line.unit_price|stringformat:"f" }}</span></td>
-                <td><span dir="ltr">{{ line.line_total|stringformat:"f" }}</span></td>
-                <td><span dir="ltr">{{ line.base_unit_price|stringformat:"f" }}</span></td>
+                <td><span dir="ltr">{{ line.unit_price|money }}</span></td>
+                <td><span dir="ltr">{{ line.line_total|money }}</span></td>
+                <td><span dir="ltr">{{ line.base_unit_price|money }}</span></td>
               {% endif %}
               {% if may_edit %}
                 <td>

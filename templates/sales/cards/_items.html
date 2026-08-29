@@ -21,7 +21,7 @@
         {% for row in rows %}
           <tr>
             <td>{{ row.label }}<span class="ui-text-muted"><bdi dir="ltr">{{ row.code }}</bdi></span></td>
-            <td class="ui-table__numeric"><bdi dir="ltr">{{ row.quantity }}</bdi></td>
+            <td class="ui-table__numeric"><bdi dir="ltr">{{ row.quantity|quantity }}</bdi></td>
             <td class="ui-table__numeric"><bdi dir="ltr">{{ row.gross|iqd }}</bdi></td>
             <td class="ui-table__numeric"><bdi dir="ltr">{{ row.net|iqd }}</bdi></td>
             <td class="ui-table__numeric"><bdi dir="ltr">{{ row.share|unlocalize }}%</bdi></td>

@@ -147,11 +147,19 @@ TEMPLATES = [
         "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
+            "builtins": [
+                "apps.core.templatetags.money_tags",
+                "apps.core.templatetags.quantity_tags",
+            ],
             "context_processors": [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "django.template.context_processors.i18n",
+                # Before `shell`, and separate from it: `shell` returns nothing
+                # for an anonymous request, and the login page is exactly where
+                # the product has to name itself.
+                "apps.core.branding.branding",
                 "apps.core.context_processors.shell",
             ],
         },

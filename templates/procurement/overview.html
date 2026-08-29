@@ -6,7 +6,7 @@
 {% extends shell_base_template|default:"shell.html" %}
 {% load i18n l10n money_tags %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <div id="procurement-overview" class="ui-dashboard">

@@ -7,7 +7,7 @@ The counterpart to `money_tags`, and it exists for the same reason. Neither
 stores — `60.000` comes out `60.000000`, which reads as a precision the system
 does not have.
 
-    {{ line.accepted_base_quantity|quantity }}   -> 60.000
+    {{ line.accepted_base_quantity|quantity }}   -> 60.0
 
 Ungrouped and locale-independent. A quantity in a table sits beside a
 conversion factor and an item code, and Django would localise a Decimal under
@@ -17,17 +17,19 @@ re-entry (see the locale rule in CLAUDE.md).
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django import template
 
-from apps.core.quantity import QUANTITY_PLACES, ensure_decimal, quantize_quantity
+from apps.core.quantity import QUANTITY_ROUNDING, ensure_decimal
 
 register = template.Library()
 
 
 @register.filter(name="quantity")
 def quantity_filter(value: object) -> str:
-    """Stored quantity precision — three places, no thousands separator."""
+    """Operational quantity display — one decimal place, without grouping."""
     if value is None or value == "":
         return ""
-    amount = quantize_quantity(ensure_decimal(value))
-    return f"{amount:.{QUANTITY_PLACES}f}"
+    amount = ensure_decimal(value).quantize(Decimal("0.1"), rounding=QUANTITY_ROUNDING)
+    return f"{amount:.1f}"

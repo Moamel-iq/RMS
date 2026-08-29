@@ -282,12 +282,13 @@ class TestTheQuantityTemplateFilter:
     `60.000000` — a precision the system does not have.
     """
 
-    def test_it_renders_the_stored_three_places(self) -> None:
+    def test_it_renders_one_operational_display_place(self) -> None:
         from apps.core.templatetags.quantity_tags import quantity_filter
 
-        assert quantity_filter(Decimal("60.000")) == "60.000"
-        assert quantity_filter(Decimal("60")) == "60.000"
-        assert quantity_filter(Decimal("17.4")) == "17.400"
+        assert quantity_filter(Decimal("60.000")) == "60.0"
+        assert quantity_filter(Decimal("60")) == "60.0"
+        assert quantity_filter(Decimal("17.4")) == "17.4"
+        assert quantity_filter(Decimal("15.55")) == "15.6"
 
     def test_it_never_prints_six_places_the_way_printf_does(self) -> None:
         from apps.core.templatetags.quantity_tags import quantity_filter
@@ -297,7 +298,7 @@ class TestTheQuantityTemplateFilter:
         # point here is to pin the behaviour rather than to use it.
         printf = "%" + "f"
         assert printf % Decimal("60.000") == "60.000000"  # the bug being avoided
-        assert quantity_filter(Decimal("60.000")) == "60.000"
+        assert quantity_filter(Decimal("60.000")) == "60.0"
 
     def test_it_is_ungrouped_and_locale_independent(self) -> None:
         """
@@ -307,13 +308,13 @@ class TestTheQuantityTemplateFilter:
         """
         from apps.core.templatetags.quantity_tags import quantity_filter
 
-        assert quantity_filter(Decimal("60000.000")) == "60000.000"
+        assert quantity_filter(Decimal("60000.000")) == "60000.0"
 
     def test_it_rounds_the_way_the_kernel_does(self) -> None:
         from apps.core.templatetags.quantity_tags import quantity_filter
 
-        assert quantity_filter(Decimal("0.0005")) == "0.001"
-        assert quantity_filter(Decimal("-0.0005")) == "-0.001"
+        assert quantity_filter(Decimal("0.05")) == "0.1"
+        assert quantity_filter(Decimal("-0.05")) == "-0.1"
 
     def test_nothing_renders_as_nothing(self) -> None:
         from apps.core.templatetags.quantity_tags import quantity_filter
@@ -325,6 +326,6 @@ class TestTheQuantityTemplateFilter:
         """`ensure_decimal` is the gate; a float would already have lost digits."""
         from apps.core.templatetags.quantity_tags import quantity_filter
 
-        assert quantity_filter("17.4") == "17.400"
+        assert quantity_filter("17.4") == "17.4"
         with pytest.raises(ValidationError):
             quantity_filter(17.4)

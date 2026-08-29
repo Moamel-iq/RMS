@@ -34,6 +34,7 @@ from apps.sales import (
     adjustment_views,
     dashboard_views,
     day_views,
+    pos_import_views,
     receivable_views,
     report_views,
     settlement_views,
@@ -170,6 +171,42 @@ urlpatterns: list[URLPattern] = [
     # identical and four copies would be four chances to check the wrong
     # permission.
     path("days/", day_views.SalesDayListView.as_view(), name="day_list"),
+    path("pos-imports/", pos_import_views.PosSalesImportListView.as_view(), name="pos_import_list"),
+    path(
+        "pos-imports/new/",
+        pos_import_views.PosSalesImportCreateView.as_view(),
+        name="pos_import_create",
+    ),
+    path(
+        "pos-imports/<int:pk>/",
+        pos_import_views.PosSalesImportDetailView.as_view(),
+        name="pos_import_detail",
+    ),
+    path(
+        "pos-imports/<int:pk>/workflow/",
+        pos_import_views.PosSalesImportWorkflowView.as_view(),
+        name="pos_import_workflow",
+    ),
+    path(
+        "pos-imports/<int:pk>/confirm/",
+        pos_import_views.PosSalesImportCashierConfirmView.as_view(),
+        name="pos_import_confirm",
+    ),
+    path(
+        "pos-imports/<int:pk>/review/<int:step>/",
+        pos_import_views.PosSalesImportReviewStepView.as_view(),
+        name="pos_import_review_step",
+    ),
+    path(
+        "pos-imports/<int:pk>/return/",
+        pos_import_views.PosSalesImportReturnView.as_view(),
+        name="pos_import_return",
+    ),
+    path(
+        "pos-imports/<int:pk>/post/",
+        pos_import_views.PosSalesImportPostView.as_view(),
+        name="pos_import_post",
+    ),
     path("days/new/", day_views.SalesDayCreateView.as_view(), name="day_create"),
     path("days/<int:pk>/", day_views.SalesDayDetailView.as_view(), name="day_detail"),
     path(

@@ -55,7 +55,7 @@
           {% if item.inventory_item %}
             <bdi dir="ltr"><code>{{ item.inventory_item.code }}</code></bdi>
             {{ item.inventory_item.name }}
-            <span class="ui-text-muted">· <bdi dir="ltr">{{ item.direct_stock_base_quantity|floatformat:"-6" }} {{ item.inventory_item.base_unit.code }}</bdi></span>
+            <span class="ui-text-muted">· <bdi dir="ltr">{{ item.direct_stock_base_quantity|quantity }} {{ item.inventory_item.base_unit.code }}</bdi></span>
           {% else %}
             —
           {% endif %}

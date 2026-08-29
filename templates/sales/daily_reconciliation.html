@@ -11,7 +11,7 @@
 {% extends list_base_template|default:"shell.html" %}
 {% load i18n money_tags %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <div class="ui-page" id="daily-reconciliation">
@@ -116,7 +116,7 @@
           {# بمقدار المرتجع بالضبط.                                            #}
           <div class="ui-metric">
             <span class="ui-metric__label">{% translate "كمية الإلغاء قبل التنفيذ" %}</span>
-            <span class="ui-metric__value"><bdi dir="ltr"><code>{{ row.cancelled_quantity }}</code></bdi></span>
+            <span class="ui-metric__value"><bdi dir="ltr"><code>{{ row.cancelled_quantity|quantity }}</code></bdi></span>
           </div>
         </div>
 

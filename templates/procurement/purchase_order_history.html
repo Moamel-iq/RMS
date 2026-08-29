@@ -6,7 +6,7 @@
 {# of facts the snapshot and the live row already hold, and the copy is what #}
 {# goes stale.                                                               #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page">
@@ -71,11 +71,11 @@
                 <tr>
                   <td>{{ line.item_code }}</td>
                   {# Re-enterable exact values: never localised. #}
-                  <td><span dir="ltr">{{ line.ordered_quantity }}</span></td>
-                  <td><span dir="ltr">{{ line.ordered_base_quantity }}</span></td>
+                  <td><span dir="ltr">{{ line.ordered_quantity|quantity }}</span></td>
+                  <td><span dir="ltr">{{ line.ordered_base_quantity|quantity }}</span></td>
                   {% if may_see_cost %}
-                    <td><span dir="ltr">{{ line.unit_price }}</span></td>
-                    <td><span dir="ltr">{{ line.line_total }}</span></td>
+                    <td><span dir="ltr">{{ line.unit_price|money }}</span></td>
+                    <td><span dir="ltr">{{ line.line_total|money }}</span></td>
                   {% endif %}
                 </tr>
               {% endfor %}

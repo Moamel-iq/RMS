@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load i18n %}
-{% block title %}{% translate "خطأ في النظام" %} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{% translate "خطأ في النظام" %} · {{ brand_document }}{% endblock %}
 {% block content %}
   <main class="ui-standalone">
     <div class="ui-state ui-state--error" role="alert">

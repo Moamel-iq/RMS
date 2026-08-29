@@ -29,11 +29,11 @@
       <td data-label="{% translate 'الصنف' %}"><bdi dir="ltr"><code>{{ balance.item.code }}</code></bdi> {{ balance.item.name }}</td>
       <td data-label="{% translate 'الدفعة' %}">{% if balance.lot %}<bdi dir="ltr"><code>{{ balance.lot.code }}</code></bdi>{% else %}—{% endif %}</td>
       {# Technical values: a period, never a locale comma. #}
-      <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ balance.quantity|stringformat:"f" }}</code></bdi></td>
+      <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ balance.quantity|quantity }}</code></bdi></td>
       <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ balance.item.base_unit.code }}</bdi></td>
       {% if show_cost %}
-        <td data-label="{% translate 'متوسط الكلفة' %}"><bdi dir="ltr"><code>{{ balance.average_cost|stringformat:"f" }}</code></bdi></td>
-        <td data-label="{% translate 'القيمة' %}"><bdi dir="ltr"><code>{{ balance.value|stringformat:"f" }}</code></bdi></td>
+        <td data-label="{% translate 'متوسط الكلفة' %}"><bdi dir="ltr"><code>{{ balance.average_cost|money }}</code></bdi></td>
+        <td data-label="{% translate 'القيمة' %}"><bdi dir="ltr"><code>{{ balance.value|money }}</code></bdi></td>
       {% endif %}
     </tr>
   {% empty %}

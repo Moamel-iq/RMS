@@ -5,7 +5,7 @@
 {# button because dispatch is the moment value leaves a shelf and enters a   #}
 {# state nobody can sell from.                                               #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page ui-page--detail" aria-labelledby="dispatch-title">
@@ -64,7 +64,7 @@
             <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
             <td data-label="{% translate 'الصنف' %}"><code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name }}</td>
             <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
-            <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr">{{ line.base_quantity }}</bdi></td>
+            <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr">{{ line.base_quantity|quantity }}</bdi></td>
             <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ line.item.base_unit.code }}</bdi></td>
           </tr>
         {% empty %}

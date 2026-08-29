@@ -9,7 +9,7 @@
 {# ledger yet. Posting moves both together or neither, so there is no third  #}
 {# state for the screen to have to describe.                                 #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page">
@@ -58,8 +58,8 @@
             {# The posted figure once it exists: that is the one that reached #}
             {# both ledgers. Before then, what the lines currently say.       #}
             <span dir="ltr">
-              {% if receipt.posted_value %}{{ receipt.posted_value|stringformat:"f" }}
-              {% else %}{{ receipt.accepted_value|stringformat:"f" }}{% endif %}
+              {% if receipt.posted_value %}{{ receipt.posted_value|money }}
+              {% else %}{{ receipt.accepted_value|money }}{% endif %}
             </span>
           </dd>
         {% endif %}
@@ -99,9 +99,9 @@
                 <tr>
                   <td>{{ row.line.item.code }} — {{ row.line.item.name }}</td>
                   {# Re-enterable exact values: never localised. #}
-                  <td><span dir="ltr">{{ row.ordered|stringformat:"f" }}</span></td>
-                  <td><span dir="ltr">{{ row.received|stringformat:"f" }}</span></td>
-                  <td><span dir="ltr">{{ row.outstanding|stringformat:"f" }}</span></td>
+                  <td><span dir="ltr">{{ row.ordered|quantity }}</span></td>
+                  <td><span dir="ltr">{{ row.received|quantity }}</span></td>
+                  <td><span dir="ltr">{{ row.outstanding|quantity }}</span></td>
                 </tr>
               {% endfor %}
             </tbody>
@@ -137,17 +137,17 @@
             <tr>
               <td>{{ line.sequence }}</td>
               <td>{{ line.item.code }} — {{ line.item.name }}</td>
-              <td><span dir="ltr">{{ line.delivered_quantity|stringformat:"f" }}</span></td>
+              <td><span dir="ltr">{{ line.delivered_quantity|quantity }}</span></td>
               <td>{{ line.package_unit.name|default:"—" }}</td>
               <td>
-                <span dir="ltr">{{ line.delivered_base_quantity|stringformat:"f" }}</span>
+                <span dir="ltr">{{ line.delivered_base_quantity|quantity }}</span>
                 {{ line.item.base_unit.code }}
                 {% if line.measured_base_quantity %}
                   <span class="ui-badge">{% translate "موزون" %}</span>
                 {% endif %}
               </td>
-              <td><span dir="ltr">{{ line.accepted_base_quantity|stringformat:"f" }}</span></td>
-              <td><span dir="ltr">{{ line.rejected_base_quantity|stringformat:"f" }}</span></td>
+              <td><span dir="ltr">{{ line.accepted_base_quantity|quantity }}</span></td>
+              <td><span dir="ltr">{{ line.rejected_base_quantity|quantity }}</span></td>
               <td>
                 {% if line.quality_result == "ACCEPTED" %}
                   <span class="ui-badge ui-badge--success">{{ line.get_quality_result_display }}</span>
@@ -162,10 +162,10 @@
               </td>
               <td>{{ line.lot.code|default:"—" }}</td>
               {% if may_see_cost %}
-                <td><span dir="ltr">{{ line.unit_price|stringformat:"f" }}</span></td>
+                <td><span dir="ltr">{{ line.unit_price|money }}</span></td>
                 <td>
                   {% if line.posted_value is not None %}
-                    <span dir="ltr">{{ line.posted_value|stringformat:"f" }}</span>
+                    <span dir="ltr">{{ line.posted_value|money }}</span>
                     {% if line.inventory_account %}
                       <span class="ui-text-muted" dir="ltr">{{ line.inventory_account.code }}</span>
                     {% endif %}

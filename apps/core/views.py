@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import Q, QuerySet
@@ -30,9 +31,54 @@ from apps.core.permissions import VIEW_AUTOMATION_OUTBOX, VIEW_AUTOMATION_TASK
 from apps.core.selectors import AUDIT_PAGE_SIZE, audit_events
 from apps.organizations.authorization import organizations_with_organization_permission
 from apps.organizations.security_permissions import VIEW_AUDIT
+from config import __version__
 
 if TYPE_CHECKING:
     from apps.organizations.models import Organization
+
+
+class AboutView(LoginRequiredMixin, View):
+    """
+    حول النظام — what this software is, and who it belongs to.
+
+    Signed in, but no permission beyond that: every user is entitled to know
+    what they are using and which version, and a support call starts by
+    quoting it. It reads nothing sensitive — the organizations listed are the
+    ones the caller can already reach.
+    """
+
+    module_key = "home"
+    template_name = "core/about.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        import sys
+
+        import django
+
+        from apps.organizations.selectors import accessible_branches
+        from apps.users.models import User
+
+        # `LoginRequiredMixin` has already refused anonymity; the annotation
+        # is for the type checker, which cannot see that from here.
+        actor: User = request.user  # type: ignore[assignment]
+        organizations = {
+            branch.organization_id: branch.organization
+            for branch in accessible_branches(actor).select_related("organization")
+        }
+        return render(
+            request,
+            self.template_name,
+            {
+                "page_title": _("حول النظام"),
+                "version": __version__,
+                "django_version": django.get_version(),
+                "python_version": (
+                    f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+                ),
+                "time_zone": settings.TIME_ZONE,
+                "organizations": sorted(organizations.values(), key=lambda row: row.code),
+            },
+        )
 
 
 class ModuleViewMixin:

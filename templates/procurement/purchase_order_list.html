@@ -38,7 +38,7 @@
       <td>{% if row.expected_on %}<span dir="ltr">{{ row.expected_on|date:"Y-m-d" }}</span>{% else %}—{% endif %}</td>
       <td>{{ row.lines.count }}</td>
       {# A re-enterable exact value: never localised. #}
-      {% if may_see_cost %}<td><span dir="ltr">{{ row.total_amount|stringformat:"f" }}</span></td>{% endif %}
+      {% if may_see_cost %}<td><span dir="ltr">{{ row.total_amount|money }}</span></td>{% endif %}
       <td>
         {% if row.status == "ISSUED" %}
           <span class="ui-badge ui-badge--success">{{ row.get_status_display }}</span>

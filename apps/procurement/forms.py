@@ -13,6 +13,7 @@ from typing import Any, cast
 
 from django import forms
 from django.db.models import Q
+from django.forms import formset_factory
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -763,6 +764,9 @@ class SupplierInvoiceForm(forms.Form):
     invoice_date = forms.DateField(
         label=_("تاريخ الفاتورة"), widget=forms.DateInput(attrs={"type": "date"})
     )
+    business_date = forms.DateField(
+        label=_("التاريخ المحاسبي"), widget=forms.DateInput(attrs={"type": "date"})
+    )
     supplier_reference = forms.CharField(label=_("مرجع المورد"), max_length=200, required=False)
     currency_code = forms.ChoiceField(
         label=_("العملة"),
@@ -803,6 +807,9 @@ class SupplierInvoiceForm(forms.Form):
             # New actual freight is a structured charge with explicit direct
             # or landed-cost treatment, never an ambiguous header amount.
             del self.fields["freight_amount"]
+            today = timezone.localdate()
+            self.fields["invoice_date"].initial = today
+            self.fields["business_date"].initial = today
 
     def clean(self) -> dict[str, Any]:
         data: dict[str, Any] = super().clean() or {}
@@ -812,6 +819,39 @@ class SupplierInvoiceForm(forms.Form):
                 _("الفرع لا يتبع مؤسسة المورد."), code="organization_mismatch"
             )
         return data
+
+
+class SupplierInvoiceDraftLineForm(forms.Form):
+    """One inventory row entered before the supplier invoice exists."""
+
+    item = forms.ModelChoiceField(queryset=InventoryItem.objects.none(), label=_("الصنف"))
+    description = forms.CharField(label=_("البيان"), max_length=200, required=False)
+    quantity = forms.DecimalField(label=_("الكمية"), min_value=Decimal("0.001"), decimal_places=3)
+    unit_price = forms.DecimalField(label=_("سعر الوحدة"), min_value=0, decimal_places=6)
+    note = forms.CharField(label=_("ملاحظة"), max_length=200, required=False)
+
+    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        organization_ids = organizations_with_permission(
+            actor, CREATE_SUPPLIER_INVOICE
+        ).values_list("pk", flat=True)
+        self.fields["item"].queryset = (  # type: ignore[attr-defined]
+            InventoryItem.objects.filter(
+                organization_id__in=organization_ids,
+                is_active=True,
+            )
+            .select_related("base_unit")
+            .order_by("code")
+        )
+
+
+SupplierInvoiceDraftLineFormSet = formset_factory(
+    SupplierInvoiceDraftLineForm,
+    extra=1,
+    can_delete=True,
+    min_num=0,
+    validate_min=False,
+)
 
 
 class InvoiceInventoryLineForm(forms.Form):
@@ -1251,12 +1291,17 @@ class SettlementPlanForm(forms.Form):
     Confirming one of the settlement screen's plans, and nothing else.
 
     The plan is recomputed on the server from the same supplier and target
-    rather than trusted from the browser, so what posts is what the arithmetic
-    says — never a list of invoice ids a form could have been made to carry.
-    `expected_total` is the operator's side of that: the figure they were
-    shown. If a colleague settled an invoice while this screen was open the
-    recomputed plan will differ, and the settlement is refused rather than
-    quietly paying a different set of invoices than the one confirmed.
+    rather than trusted from the browser, so what is drafted is what the
+    arithmetic says — never a list of invoice ids a form could have been made
+    to carry.
+
+    `shown_open_total` is the operator's side of that: the open balance the
+    screen displayed when they read it. The three plans are a pure function of
+    the outstanding invoices and the target, so if that balance still matches,
+    the plan being confirmed is the plan that was shown. If a colleague
+    settled one of these invoices in the meantime the figure has moved, and
+    the screen says so and re-renders rather than quietly drafting a different
+    set of invoices than the one somebody agreed to.
     """
 
     supplier = forms.ModelChoiceField(queryset=Supplier.objects.none(), label=_("المورد"))
@@ -1267,7 +1312,7 @@ class SettlementPlanForm(forms.Form):
     method = forms.ChoiceField(label=_("طريقة الدفع"), choices=SupplierPaymentMethod.choices)
     plan = forms.ChoiceField(label=_("الخطة"), choices=())
     target = forms.DecimalField(label=_("المبلغ المستهدف"), min_value=Decimal("0"))
-    expected_total = forms.DecimalField(label=_("المبلغ المؤكَّد"), min_value=Decimal("0"))
+    shown_open_total = forms.DecimalField(label=_("الرصيد المعروض"), min_value=Decimal("0"))
     reference = forms.CharField(label=_("رقم الصك أو الحوالة"), max_length=64, required=False)
     notes = forms.CharField(label=_("ملاحظات"), required=False, widget=forms.Textarea)
 

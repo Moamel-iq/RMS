@@ -1,0 +1,7 @@
+{% extends "shell.html" %}
+{% block title %}مراجعة مبيعات POS · {{ brand_document }}{% endblock %}
+{% block page %}
+<div class="ui-page">
+  {% include "sales/partials/pos_import_workflow.html" %}
+</div>
+{% endblock %}

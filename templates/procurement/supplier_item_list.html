@@ -28,7 +28,7 @@
       </td>
       {% if may_see_cost %}
         {# A technical, re-enterable value: never localised. #}
-        <td>{% if row.last_quoted_price %}<span dir="ltr">{{ row.last_quoted_price|stringformat:"f" }}</span>{% else %}—{% endif %}</td>
+        <td>{% if row.last_quoted_price %}<span dir="ltr">{{ row.last_quoted_price|money }}</span>{% else %}—{% endif %}</td>
       {% endif %}
       <td>
         {% if row.lead_time_days is not None %}

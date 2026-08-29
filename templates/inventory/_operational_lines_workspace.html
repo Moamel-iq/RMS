@@ -39,14 +39,14 @@
                   {% if line.line_comment %}{{ line.line_comment }}{% else %}—{% endif %}
                 </td>
               {% endif %}
-              <td data-label="{% translate 'الكمية' %}"><code><bdi dir="ltr">{{ line.base_quantity|stringformat:"f" }}</bdi></code></td>
+              <td data-label="{% translate 'الكمية' %}"><code><bdi dir="ltr">{{ line.base_quantity|quantity }}</bdi></code></td>
               <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ line.item.base_unit.code }}</bdi></td>
               {% if show_cost %}
                 <td data-label="{% translate 'كلفة الوحدة' %}">
-                  {% if line.unit_cost %}<code><bdi dir="ltr">{{ line.unit_cost|stringformat:"f" }}</bdi></code>{% else %}<span class="ui-text-muted">{% translate "يُحسم عند الترحيل" %}</span>{% endif %}
+                  {% if line.unit_cost %}<code><bdi dir="ltr">{{ line.unit_cost|money }}</bdi></code>{% else %}<span class="ui-text-muted">{% translate "يُحسم عند الترحيل" %}</span>{% endif %}
                 </td>
                 <td data-label="{% translate 'القيمة' %}">
-                  {% if line.total_value %}<code><bdi dir="ltr">{{ line.total_value|stringformat:"f" }}</bdi></code>{% else %}—{% endif %}
+                  {% if line.total_value %}<code><bdi dir="ltr">{{ line.total_value|money }}</bdi></code>{% else %}—{% endif %}
                 </td>
                 <td data-label="{% translate 'حساب المخزون' %}">
                   {% if line.inventory_account %}<code><bdi dir="ltr">{{ line.inventory_account.code }}</bdi></code>{% else %}—{% endif %}
@@ -86,7 +86,7 @@
           <tfoot>
             <tr>
               <td colspan="6">{% translate "الإجمالي" %}</td>
-              <td><code><bdi dir="ltr">{{ total_value|stringformat:"f" }}</bdi></code></td>
+              <td><code><bdi dir="ltr">{{ total_value|money }}</bdi></code></td>
               <td colspan="{% if is_draft and can_prepare %}4{% else %}3{% endif %}"></td>
             </tr>
           </tfoot>

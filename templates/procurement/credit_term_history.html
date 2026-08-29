@@ -1,7 +1,7 @@
 {% extends base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 {% block page %}
   <section class="ui-page" id="credit-term-detail">
     <div class="ui-page-header"><div><p class="ui-page-header__eyebrow">{{ term.supplier.code }} — {{ term.supplier.name }}</p><h1 class="ui-page-header__title">{% translate "سجل نسخ شروط الائتمان" %}</h1><p class="ui-page-header__hint">{% translate "كل نسخة تبقى مقروءة لأن الفواتير التاريخية تشير إلى النسخة التي اعتُمدت عليها." %}</p></div></div>

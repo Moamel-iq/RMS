@@ -1,0 +1,61 @@
+{% extends "shell.html" %}
+{% load money_tags quantity_tags %}
+
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
+
+{% block page %}
+<div class="ui-page" id="pos-import-detail">
+  <nav class="ui-breadcrumb" aria-label="مسار الصفحة"><a href="{% url 'sales:pos_import_list' %}">استيراد مبيعات POS</a><span>/</span><span aria-current="page">{{ batch.business_date|date:"Y-m-d" }}</span></nav>
+  <header class="ui-page-header">
+    <div class="ui-page-header__copy">
+      <p class="ui-page-header__eyebrow">دفعة خارجية موحدة</p>
+      <h1 class="ui-page-header__title">{{ page_title }}</h1>
+      <p class="ui-page-header__subtitle">{{ batch.branch.name }} · {{ batch.files.count }} ملفات · {{ item_count }} صنفاً في تقرير الأصناف</p>
+    </div>
+    <div class="ui-page-header__actions">
+      <span class="ui-badge {% if batch.status == 'POSTED' %}ui-badge--success{% elif batch.status == 'DRAFT' or batch.status == 'RETURNED_TO_CASHIER' %}ui-badge--warning{% else %}ui-badge--info{% endif %}">{{ batch.get_status_display }}</span>
+      {% if may_confirm and batch.status == 'AWAITING_CASHIER' or may_confirm and batch.status == 'RETURNED_TO_CASHIER' %}<button class="ui-button ui-button--primary" hx-get="{% url 'sales:pos_import_workflow' batch.pk %}" hx-target="#pos-workflow-slot" hx-swap="innerHTML">تأكيد المبيعات</button>{% endif %}
+      {% if may_review and batch.status == 'AWAITING_ACCOUNTANT' or may_review and batch.status == 'ACCOUNTANT_REVIEW' or may_review and batch.status == 'READY_TO_POST' %}<button class="ui-button ui-button--primary" hx-get="{% url 'sales:pos_import_workflow' batch.pk %}" hx-target="#pos-workflow-slot" hx-swap="innerHTML">مراجعة وترحيل المبيعات</button>{% endif %}
+    </div>
+  </header>
+  <div id="pos-workflow-slot"></div>
+
+  {% if batch.return_reason %}<div class="ui-notice ui-notice--warning"><strong>سبب الإعادة:</strong> {{ batch.return_reason }}</div>{% endif %}
+
+  <div class="ui-metric-grid">
+    <div class="ui-metric"><span class="ui-metric__label">إجمالي البيع</span><span class="ui-metric__value"><bdi dir="ltr">{{ batch.total_sales|iqd }}</bdi></span></div>
+    <div class="ui-metric"><span class="ui-metric__label">إجمالي الكمية</span><span class="ui-metric__value"><bdi dir="ltr">{{ batch.total_quantity|quantity }}</bdi></span></div>
+    <div class="ui-metric"><span class="ui-metric__label">مبيعات التطبيقات</span><span class="ui-metric__value"><bdi dir="ltr">{{ batch.application_sales|iqd }}</bdi></span></div>
+    <div class="ui-metric"><span class="ui-metric__label">المصروف التشغيلي الحقيقي</span><span class="ui-metric__value"><bdi dir="ltr">{{ batch.operational_expenses|iqd }}</bdi></span></div>
+    <div class="ui-metric"><span class="ui-metric__label">صافي النقد</span><span class="ui-metric__value"><bdi dir="ltr">{{ batch.net_cash|iqd }}</bdi></span></div>
+  </div>
+
+  <section class="ui-form-card">
+    <h2>نتيجة المطابقة بين التقارير</h2>
+    <div class="ui-table-scroll"><table class="ui-table"><thead><tr><th>الفحص</th><th>النتيجة</th><th>القيم المقارنة</th></tr></thead><tbody>
+      {% for check in batch.checks %}<tr><td>{{ check.label }}</td><td><span class="ui-badge ui-badge--success">متطابق</span></td><td>{% for source, value in check.values.items %}<span class="ui-filter-chip">{{ source }}: <bdi dir="ltr">{{ value }}</bdi></span>{% endfor %}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  {% for warning in batch.warnings %}
+    <section class="ui-form-card"><h2>{{ warning.label }} <span class="ui-badge ui-badge--warning">{{ warning.count }}</span></h2><p class="ui-notice ui-notice--warning">تم حفظ المبيعات دون فقدان، لكن هذه الأسماء تحتاج ربطاً بأصناف النظام قبل استخدام الاستيراد للاستهلاك النظري وكلفة المواد.</p><div class="ui-active-filters">{% for item in warning.items %}<span class="ui-filter-chip">{{ item }}</span>{% endfor %}</div></section>
+  {% endfor %}
+
+  <section class="ui-form-card">
+    <h2>روابط أصناف POS <span class="ui-badge ui-badge--success">{{ mapped_item_count }}</span></h2>
+    <p class="ui-page-header__subtitle">تُستخدم المطابقة المباشرة والروابط المعتمدة تلقائياً في الاستيرادات اللاحقة.</p>
+    <div class="ui-table-scroll"><table class="ui-table"><thead><tr><th>اسم POS</th><th>صنف المنيو</th><th>نوع الربط</th></tr></thead><tbody>
+      {% for row in mapping_rows %}<tr><td>{{ row.source_name }}</td><td><bdi dir="ltr"><code>{{ row.menu_item.code }}</code></bdi> {{ row.menu_item.name }}</td><td><span class="ui-badge {% if row.kind == 'رابط معتمد' %}ui-badge--info{% else %}ui-badge--success{% endif %}">{{ row.kind }}</span></td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <div class="ui-detail-grid">
+    <section class="ui-form-card"><h2>المبيعات حسب نوع الطلب</h2><table class="ui-table"><thead><tr><th>النوع</th><th>المبلغ</th></tr></thead><tbody>{% for line in sale_types %}<tr><td>{{ line.name }}</td><td><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td></tr>{% endfor %}</tbody></table></section>
+    <section class="ui-form-card"><h2>التطبيقات</h2><table class="ui-table"><thead><tr><th>التطبيق</th><th>المبلغ</th></tr></thead><tbody>{% for line in applications %}<tr><td>{{ line.application }}</td><td><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td></tr>{% endfor %}</tbody></table></section>
+  </div>
+  <section class="ui-form-card"><h2>المصاريف التشغيلية فقط</h2><div class="ui-table-scroll"><table class="ui-table"><thead><tr><th>المستخدم</th><th>النوع</th><th>التفاصيل</th><th>المبلغ</th></tr></thead><tbody>{% for line in expenses %}<tr><td>{{ line.operator|default:"—" }}</td><td>{{ line.type }}</td><td>{{ line.details|default:"—" }}</td><td><bdi dir="ltr">{{ line.amount|money_full }}</bdi></td></tr>{% endfor %}</tbody></table></div></section>
+  <section class="ui-form-card"><h2>الملفات الأصلية المحفوظة</h2><ul>{% for file in batch.files.all %}<li>{{ file.original_name }} · {{ file.size|filesizeformat }} · <code dir="ltr">{{ file.checksum|slice:":12" }}…</code></li>{% endfor %}</ul></section>
+
+  <section class="ui-form-card"><h2>سجل الدورة</h2><div class="ui-detail-grid"><div><strong>رفع بواسطة</strong><p>{{ batch.created_by }} · {{ batch.created_at|date:"Y-m-d H:i" }}</p></div><div><strong>تأكيد الكاشير</strong><p>{% if batch.cashier_confirmed_by %}{{ batch.cashier_confirmed_by }} · {{ batch.cashier_confirmed_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}</p></div><div><strong>مراجعة المحاسب</strong><p>{% if batch.accountant_started_by %}{{ batch.accountant_started_by }} · الخطوة {{ batch.review_step }}/5{% else %}—{% endif %}</p></div><div><strong>مرجع الترحيل</strong><p>{{ batch.posting_reference|default:"—" }}</p></div></div></section>
+</div>
+{% endblock %}

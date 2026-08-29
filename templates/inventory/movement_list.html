@@ -46,9 +46,9 @@
       <td data-label="{% translate 'الصنف والمخزن' %}">
         <div class="ui-cell-stack"><span><bdi dir="ltr"><code>{{ movement.item.code }}</code></bdi> {{ movement.item.name }}</span><small><bdi dir="ltr"><code>{{ movement.warehouse.code }}</code></bdi> · {{ movement.warehouse.name }}</small></div>
       </td>
-      <td data-label="{% translate 'الكمية' %}"><bdi class="ui-numeric" dir="ltr">{{ movement.base_quantity|stringformat:"f" }}</bdi><small class="ui-text-muted"><bdi dir="ltr">{{ movement.item.base_unit.code }}</bdi></small></td>
-      <td data-label="{% translate 'الرصيد بعد الحركة' %}"><bdi class="ui-numeric" dir="ltr">{{ movement.quantity_after|stringformat:"f" }}</bdi><small class="ui-text-muted"><bdi dir="ltr">{{ movement.item.base_unit.code }}</bdi></small></td>
-      {% if show_cost %}<td data-label="{% translate 'القيمة' %}"><bdi class="ui-numeric" dir="ltr">{{ movement.inventory_value|stringformat:"f" }}</bdi><small class="ui-text-muted">{% translate "قيمة الحركة" %}</small></td>{% endif %}
+      <td data-label="{% translate 'الكمية' %}"><bdi class="ui-numeric" dir="ltr">{{ movement.base_quantity|quantity }}</bdi><small class="ui-text-muted"><bdi dir="ltr">{{ movement.item.base_unit.code }}</bdi></small></td>
+      <td data-label="{% translate 'الرصيد بعد الحركة' %}"><bdi class="ui-numeric" dir="ltr">{{ movement.quantity_after|quantity }}</bdi><small class="ui-text-muted"><bdi dir="ltr">{{ movement.item.base_unit.code }}</bdi></small></td>
+      {% if show_cost %}<td data-label="{% translate 'القيمة' %}"><bdi class="ui-numeric" dir="ltr">{{ movement.inventory_value|money }}</bdi><small class="ui-text-muted">{% translate "قيمة الحركة" %}</small></td>{% endif %}
       <td data-label="{% translate 'الأثر والترحيل' %}"><div class="ui-cell-stack"><bdi dir="ltr"><time datetime="{{ movement.effective_at|date:'c' }}">{{ movement.effective_at|date:"Y-m-d" }}</time></bdi><small><bdi dir="ltr">{{ movement.posted_at|date:"H:i" }} · #{{ movement.posted_sequence }}</bdi></small></div></td>
     </tr>
   {% empty %}

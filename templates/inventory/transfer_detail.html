@@ -8,7 +8,7 @@
 {# Buttons mirror the command layer's checks. A POST to a hidden action is   #}
 {# refused on its merits, not on its visibility.                             #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page ui-page--detail" aria-labelledby="transfer-title">
@@ -62,11 +62,11 @@
     <div><dt>{% translate "يوم العمل" %}</dt><dd><bdi dir="ltr">{{ transfer.business_date|date:"Y-m-d" }}</bdi></dd></div>
     <div><dt>{% translate "مرجع الإثبات" %}</dt><dd><bdi dir="ltr">{{ transfer.evidence_reference }}</bdi></dd></div>
     <div><dt>{% translate "أنشأه" %}</dt><dd>{{ transfer.created_by|default:"—" }}</dd></div>
-    <div><dt>{% translate "الكمية المُرسلة" %}</dt><dd><bdi dir="ltr">{{ dispatched_quantity }}</bdi></dd></div>
-    <div><dt>{% translate "المتبقي بالطريق" %}</dt><dd><bdi dir="ltr">{{ remaining_quantity }}</bdi></dd></div>
+    <div><dt>{% translate "الكمية المُرسلة" %}</dt><dd><bdi dir="ltr">{{ dispatched_quantity|quantity }}</bdi></dd></div>
+    <div><dt>{% translate "المتبقي بالطريق" %}</dt><dd><bdi dir="ltr">{{ remaining_quantity|quantity }}</bdi></dd></div>
     {% if show_cost %}
-      <div><dt>{% translate "القيمة المُرسلة" %}</dt><dd><bdi dir="ltr">{{ dispatched_value }}</bdi></dd></div>
-      <div><dt>{% translate "القيمة المتبقية" %}</dt><dd><bdi dir="ltr">{{ remaining_value }}</bdi></dd></div>
+      <div><dt>{% translate "القيمة المُرسلة" %}</dt><dd><bdi dir="ltr">{{ dispatched_value|money }}</bdi></dd></div>
+      <div><dt>{% translate "القيمة المتبقية" %}</dt><dd><bdi dir="ltr">{{ remaining_value|money }}</bdi></dd></div>
     {% endif %}
   </dl>
 
@@ -116,15 +116,15 @@
             <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
             <td data-label="{% translate 'الصنف' %}"><code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name }}</td>
             <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
-            <td data-label="{% translate 'المُرسل' %}"><bdi dir="ltr">{{ line.base_quantity }}</bdi></td>
+            <td data-label="{% translate 'المُرسل' %}"><bdi dir="ltr">{{ line.base_quantity|quantity }}</bdi></td>
             <td data-label="{% translate 'المستلم' %}"><bdi dir="ltr">{{ line.received_quantity|default_if_none:"—" }}</bdi></td>
             <td data-label="{% translate 'العجز' %}"><bdi dir="ltr">{{ line.shortage_quantity|default_if_none:"—" }}</bdi></td>
-            <td data-label="{% translate 'المتبقي' %}"><bdi dir="ltr">{{ line.remaining_quantity }}</bdi></td>
+            <td data-label="{% translate 'المتبقي' %}"><bdi dir="ltr">{{ line.remaining_quantity|quantity }}</bdi></td>
             <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ line.item.base_unit.code }}</bdi></td>
             {% if show_cost %}
               <td data-label="{% translate 'كلفة الإرسال' %}"><bdi dir="ltr">{{ line.unit_cost|default_if_none:"—" }}</bdi></td>
               <td data-label="{% translate 'القيمة المُرسلة' %}"><bdi dir="ltr">{{ line.total_value|default_if_none:"—" }}</bdi></td>
-              <td data-label="{% translate 'القيمة المتبقية' %}"><bdi dir="ltr">{{ line.remaining_value }}</bdi></td>
+              <td data-label="{% translate 'القيمة المتبقية' %}"><bdi dir="ltr">{{ line.remaining_value|money }}</bdi></td>
             {% endif %}
             {% if is_draft and can_prepare %}
               <td data-label="{% translate 'الإجراءات' %}">

@@ -10,7 +10,7 @@
 {# The links below lead there rather than duplicating the actions, so there   #}
 {# is exactly one place that approval happens and one place that shows it.    #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page">
@@ -77,7 +77,7 @@
         </div>
         <dl class="ui-form-grid">
           <div><dt class="ui-text-muted">{% translate "حجم الدفعة" %}</dt><dd>{{ draft.batch_size }}</dd></div>
-          <div><dt class="ui-text-muted">{% translate "الناتج المتوقع" %}</dt><dd>{{ draft.expected_output_quantity }} {{ draft.output_unit.code }}</dd></div>
+          <div><dt class="ui-text-muted">{% translate "الناتج المتوقع" %}</dt><dd>{{ draft.expected_output_quantity|quantity }} {{ draft.output_unit.code }}</dd></div>
           <div><dt class="ui-text-muted">{% translate "فاقد التحضير" %}</dt><dd>{{ draft.preparation_loss|default:"—" }}</dd></div>
           <div><dt class="ui-text-muted">{% translate "إنتاجية الطبخ" %}</dt><dd>{{ draft.cooking_yield|default:"—" }}</dd></div>
         </dl>
@@ -124,8 +124,8 @@
                 <tr>
                   <td data-label="#">{{ line.line_order }}</td>
                   <td data-label="{% translate 'الصنف' %}"><code>{{ line.item.code }}</code> {{ line.item.name }}{% if line.is_optional %} <span class="ui-badge ui-badge--neutral">{% translate "اختياري" %}</span>{% endif %}</td>
-                  <td data-label="{% translate 'الكمية' %}">{{ line.entered_quantity }} {% if line.entered_unit %}{{ line.entered_unit.code }}{% else %}{{ line.package_unit.code }}{% endif %}</td>
-                  <td data-label="{% translate 'الكمية المعتمدة' %}">{{ line.base_quantity }} {{ line.item.base_unit.code }}</td>
+                  <td data-label="{% translate 'الكمية' %}">{{ line.entered_quantity|quantity }} {% if line.entered_unit %}{{ line.entered_unit.code }}{% else %}{{ line.package_unit.code }}{% endif %}</td>
+                  <td data-label="{% translate 'الكمية المعتمدة' %}">{{ line.base_quantity|quantity }} {{ line.item.base_unit.code }}</td>
                   <td data-label="{% translate 'كمية القياس' %}">{{ line.measured_quantity|default:"—" }}</td>
                   <td data-label="{% translate 'فاقد' %}">{{ line.loss_rate|default:"—" }}</td>
                   <td data-label="{% translate 'التصنيف' %}">{{ line.get_cost_class_display }}</td>
@@ -276,8 +276,8 @@
                 <tr>
                   <td data-label="{% translate 'الرمز' %}"><code>{{ serving.code }}</code></td>
                   <td data-label="{% translate 'الاسم' %}">{{ serving.name }}</td>
-                  <td data-label="{% translate 'الكمية' %}">{{ serving.serving_quantity }} {{ serving.serving_unit.code }}</td>
-                  <td data-label="{% translate 'بوحدة الناتج' %}">{{ serving.base_quantity }} {{ draft.output_unit.code }}</td>
+                  <td data-label="{% translate 'الكمية' %}">{{ serving.serving_quantity|quantity }} {{ serving.serving_unit.code }}</td>
+                  <td data-label="{% translate 'بوحدة الناتج' %}">{{ serving.base_quantity|quantity }} {{ draft.output_unit.code }}</td>
                   {# A conversion factor is a technical identity: period, never a #}
                   {# comma, and re-enterable exactly as shown (CLAUDE.md).        #}
                   <td data-label="{% translate 'نسبة الدفعة' %}"><code dir="ltr">{{ serving.factor_display }}</code></td>

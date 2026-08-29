@@ -20,9 +20,9 @@
       <dd><code dir="ltr">{{ batch.stock_entry.business_date|date:"Y-m-d" }}</code></dd>
       {% if can_read_cost %}
         <dt>{% translate "قيمة المستهلك" %}</dt>
-        <dd><code dir="ltr">{{ batch.input_value }}</code></dd>
+        <dd><code dir="ltr">{{ batch.input_value|money }}</code></dd>
         <dt>{% translate "قيمة الناتج" %}</dt>
-        <dd><code dir="ltr">{{ batch.output_value }}</code></dd>
+        <dd><code dir="ltr">{{ batch.output_value|money }}</code></dd>
         <dt>{% translate "حفظ القيمة" %}</dt>
         <dd>
           {% if batch.input_value == batch.output_value %}
@@ -68,9 +68,9 @@
               <td>{{ movement.get_movement_type_display }}</td>
               <td>{{ movement.item.code }}</td>
               <td>{% if movement.lot_id %}<code dir="ltr">{{ movement.lot.code }}</code>{% else %}—{% endif %}</td>
-              <td><code dir="ltr">{{ movement.base_quantity }}</code></td>
+              <td><code dir="ltr">{{ movement.base_quantity|quantity }}</code></td>
               {% if can_read_cost %}
-                <td><code dir="ltr">{{ movement.inventory_value }}</code></td>
+                <td><code dir="ltr">{{ movement.inventory_value|money }}</code></td>
               {% endif %}
             </tr>
           {% endfor %}
@@ -97,9 +97,9 @@
             <tr>
               <td>{{ movement.item.code }}</td>
               <td>{% if movement.lot_id %}<code dir="ltr">{{ movement.lot.code }}</code>{% else %}—{% endif %}</td>
-              <td><code dir="ltr">{{ movement.base_quantity }}</code></td>
+              <td><code dir="ltr">{{ movement.base_quantity|quantity }}</code></td>
               {% if can_read_cost %}
-                <td><code dir="ltr">{{ movement.inventory_value }}</code></td>
+                <td><code dir="ltr">{{ movement.inventory_value|money }}</code></td>
               {% endif %}
             </tr>
           {% endfor %}

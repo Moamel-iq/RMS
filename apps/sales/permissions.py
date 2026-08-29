@@ -116,6 +116,11 @@ CLOSE_CASHIER_SHIFT = f"{APP_LABEL}.close_cashier_shift"
 APPROVE_CASHIER_CLOSING = f"{APP_LABEL}.approve_cashier_closing"
 SUBMIT_DAILY_FINANCIAL_CLOSE = f"{APP_LABEL}.submit_daily_financial_close"
 APPROVE_DAILY_FINANCIAL_CLOSE = f"{APP_LABEL}.approve_daily_financial_close"
+VIEW_POS_SALES_IMPORT = f"{APP_LABEL}.view_pos_sales_import"
+CONFIRM_POS_SALES_IMPORT = f"{APP_LABEL}.confirm_pos_sales_import"
+REVIEW_POS_SALES_IMPORT = f"{APP_LABEL}.review_pos_sales_import"
+POST_POS_SALES_IMPORT = f"{APP_LABEL}.post_pos_sales_import"
+RETURN_POS_SALES_IMPORT = f"{APP_LABEL}.return_pos_sales_import"
 
 
 # --- What is actually granted -----------------------------------------------
@@ -350,6 +355,31 @@ _TABLE: tuple[_Declared, ...] = (
         PermissionScope.BRANCH,
         frozenset({_OWNER, _ACCOUNTING_MANAGER, _MANAGER}),
     ),
+    _Declared(
+        VIEW_POS_SALES_IMPORT,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _ACCOUNTANT, _CASHIER}),
+    ),
+    _Declared(
+        CONFIRM_POS_SALES_IMPORT,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _MANAGER, _CASHIER}),
+    ),
+    _Declared(
+        REVIEW_POS_SALES_IMPORT,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _ACCOUNTANT}),
+    ),
+    _Declared(
+        POST_POS_SALES_IMPORT,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _ACCOUNTANT}),
+    ),
+    _Declared(
+        RETURN_POS_SALES_IMPORT,
+        PermissionScope.BRANCH,
+        frozenset({_OWNER, _ACCOUNTING_MANAGER, _ACCOUNTANT}),
+    ),
     # **Reversing** an approved shift is not here. It requires
     # `REVERSE_DAILY_SALES`, read off the already-migrated labels exactly as the
     # adjustment's reversal is: `close_cashier_shift` reads "Can open and close
@@ -421,6 +451,7 @@ __all__ = [
     "APPROVE_CASHIER_CLOSING",
     "APP_LABEL",
     "CLOSE_CASHIER_SHIFT",
+    "CONFIRM_POS_SALES_IMPORT",
     "CREATE_DAILY_SALES",
     "MANAGE_APPLICATION_SETTLEMENTS",
     "MANAGE_DELIVERY_APPLICATIONS",
@@ -431,11 +462,15 @@ __all__ = [
     "MANAGE_SALES_DISCOUNTS",
     "PERMISSION_SCOPE",
     "POST_DAILY_SALES",
+    "POST_POS_SALES_IMPORT",
     "REVERSE_DAILY_SALES",
+    "RETURN_POS_SALES_IMPORT",
+    "REVIEW_POS_SALES_IMPORT",
     "ROLE_PERMISSIONS",
     "SUBMIT_DAILY_SALES",
     "SUBMIT_DAILY_FINANCIAL_CLOSE",
     "VIEW_APPLICATION_RECEIVABLES",
+    "VIEW_POS_SALES_IMPORT",
     "VIEW_SALES",
     "VIEW_SALES_COST",
     "VIEW_SALES_REPORTS",

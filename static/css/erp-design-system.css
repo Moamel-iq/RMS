@@ -108,8 +108,12 @@
   .ui-sheet { inline-size: min(74rem, calc(100% - 2rem)); margin: var(--ui-space-5) auto; padding: clamp(1.5rem, 4vw, 3rem); border: 1px solid var(--ui-border); background: #fff; color: #111; box-shadow: var(--ui-shadow-sm); }
   .ui-sheet__head { display: grid; gap: var(--ui-space-5); padding-block-end: var(--ui-space-5); border-block-end: 2px solid #222; }
   .ui-sheet__identity { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--ui-space-5); }
+  /* Logo above, product name beneath it. The name is a caption, not a
+     headline: on an invoice the tenant's own letterhead is the prominent
+     identity, and the software that produced the sheet is a footnote to it. */
+  .ui-sheet__logo { display: grid; justify-items: center; gap: 0.4rem; max-inline-size: 12rem; }
   .ui-sheet__logo img { inline-size: 5rem; block-size: 5rem; object-fit: contain; }
-  .ui-sheet__wordmark { font-size: 1.25rem; font-weight: 800; }
+  .ui-sheet__wordmark { font-size: 0.8rem; font-weight: 700; color: #555; text-align: center; }
   .ui-sheet__titles { flex: 1; display: grid; gap: 0.3rem; }
   .ui-sheet__issuer, .ui-sheet__subtitle, .ui-sheet__period, .ui-sheet__stamp { color: #555; }
   .ui-sheet__issuer span { display: block; }
@@ -602,6 +606,27 @@
   .ui-secondary-nav__item.is-active .ui-secondary-nav__active-mark { opacity: 1; }
   .ui-app-main { min-inline-size: 0; margin-inline-start: var(--ui-sidebar-width); transition: margin-inline-start 220ms var(--ui-ease); }
   .ui-content { inline-size: min(100%, var(--ui-content-max)); min-block-size: calc(100vh - var(--ui-header-height)); margin-inline: auto; padding: clamp(1rem, 2.2vw, 2rem); }
+
+  /* The formal product name, at the foot of every screen. Quiet by design:
+     it is a statement of provenance, not a call to action, and it sits below
+     whatever the person actually came to do. Logical properties throughout,
+     so the one rule serves RTL and LTR. */
+  .ui-app-footer {
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    justify-content: space-between; gap: var(--ui-space-3);
+    margin-block-start: var(--ui-space-6);
+    padding-block: var(--ui-space-4);
+    border-block-start: 1px solid var(--ui-border);
+    color: var(--ui-text-muted); font-size: 0.8rem;
+  }
+  .ui-app-footer__product { margin: 0; }
+  .ui-app-footer__vendor { white-space: nowrap; }
+  .ui-app-footer__links { margin: 0; }
+  .ui-app-footer__links a { color: inherit; text-decoration: underline; text-underline-offset: 0.2em; }
+  .ui-app-footer__links a:hover { color: var(--ui-text); }
+
+  /* A bare list that is a list semantically and a stack visually. */
+  .ui-plain-list { margin: 0; padding-inline-start: 0; list-style: none; display: grid; gap: 0.35rem; }
   :root.nav-collapsed-pref .ui-navigation-drawer,
   .nav-collapsed .ui-navigation-drawer { translate: 110% 0; visibility: hidden; }
   :root.nav-collapsed-pref .ui-app-main,
@@ -1506,8 +1531,9 @@
     .ui-print-only, .ui-print-header, .ui-print-footer { display: block; }
     .ui-print-header { margin-block-end: 6mm; padding-block-end: 4mm; border-block-end: 1px solid #777; }
     .ui-print-header__identity { display: flex; align-items: flex-start; justify-content: space-between; gap: 7mm; }
+    .ui-print-header__logo { display: grid; justify-items: center; gap: 1.5mm; max-inline-size: 40mm; }
     .ui-print-header__logo img { max-inline-size: 22mm; max-block-size: 18mm; object-fit: contain; }
-    .ui-print-header__wordmark { font-size: 15pt; font-weight: 800; }
+    .ui-print-header__wordmark { font-size: 8pt; font-weight: 700; color: #555; text-align: center; }
     .ui-print-header__issuer { color: #333; }
     .ui-print-header__issuer span { display: block; }
     .ui-print-header__title { font-size: 15pt; font-weight: 800; }

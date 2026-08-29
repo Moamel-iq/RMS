@@ -9,7 +9,7 @@
 {% extends list_base_template|default:"shell.html" %}
 {% load i18n money_tags %}
 
-{% block title %}{% translate "التقرير المالي الشامل" %} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{% translate "التقرير المالي الشامل" %} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <div class="ui-page" id="accounting-income-statement">

@@ -566,6 +566,12 @@ MODULES: tuple[Module, ...] = (
                 active_prefixes=("/sales/days/", "/sales/day-lines/"),
             ),
             Section(
+                label=_("استيراد مبيعات POS"),
+                url_name="sales:pos_import_list",
+                available=True,
+                active_prefixes=("/sales/pos-imports/",),
+            ),
+            Section(
                 label=_("أصناف المنيو"),
                 url_name="sales:menu_item_list",
                 available=True,

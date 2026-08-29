@@ -53,7 +53,7 @@ from apps.accounting.services import (
     create_account_mapping,
     open_fiscal_year,
 )
-from apps.core.models import AuditEvent
+from apps.core.models import AuditAction, AuditEvent
 from apps.inventory.models import (
     InventoryItem,
     ItemType,
@@ -85,6 +85,8 @@ from apps.procurement.models import (
     GoodsReceipt,
     Supplier,
     SupplierInvoice,
+    SupplierInvoiceDraftLineIssue,
+    SupplierInvoiceDraftLineIssueStatus,
     SupplierInvoiceLine,
     SupplierInvoiceLineType,
     SupplierInvoiceStatus,
@@ -1774,6 +1776,215 @@ class TestReconciliation:
         assert len(problems) == 1
         assert problems[0].field == "journal_cites_unknown_invoice"
         assert JournalEntry.objects.count() == 2
+
+
+# ---------------------------------------------------------------------------
+# One-page draft entry and recoverable line errors
+# ---------------------------------------------------------------------------
+
+
+class TestOnePageDraftEntry:
+    @staticmethod
+    def payload(
+        *, grocery: Supplier, branch: Branch, rice: InventoryItem, second_quantity: str = "2.500"
+    ) -> dict[str, object]:
+        return {
+            "supplier": grocery.pk,
+            "branch": branch.pk,
+            "supplier_invoice_number": "WEB-001",
+            "invoice_date": "2026-03-10",
+            "business_date": "2026-03-10",
+            "supplier_reference": "DELIVERY-9",
+            "currency_code": "IQD",
+            "discount_amount": "500.000",
+            "notes": "مسودة من شاشة واحدة",
+            "lines-TOTAL_FORMS": "2",
+            "lines-INITIAL_FORMS": "0",
+            "lines-MIN_NUM_FORMS": "1",
+            "lines-MAX_NUM_FORMS": "1000",
+            "lines-0-item": str(rice.pk),
+            "lines-0-description": "رز للمطبخ",
+            "lines-0-quantity": "3.000",
+            "lines-0-unit_price": "1250.125000",
+            "lines-0-note": "",
+            "lines-1-item": str(rice.pk),
+            "lines-1-description": "رز احتياطي",
+            "lines-1-quantity": second_quantity,
+            "lines-1-unit_price": "1000.100000",
+            "lines-1-note": "",
+        }
+
+    def test_valid_header_and_multiple_lines_create_one_draft(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        rice: InventoryItem,
+        clerk: User,
+        client: Client,
+    ) -> None:
+        client.force_login(clerk)
+        response = client.post(
+            reverse("procurement:supplier_invoice_create"),
+            self.payload(grocery=grocery, branch=branch, rice=rice),
+        )
+        assert response.status_code == 302
+        invoice = SupplierInvoice.objects.get(supplier_invoice_number="WEB-001")
+        assert invoice.status == SupplierInvoiceStatus.DRAFT
+        assert invoice.lines.count() == 2
+        assert invoice.draft_line_issues.count() == 0
+        # Browser totals are advisory; these are authoritative Decimal values.
+        assert invoice.lines_total == Decimal("6250.625")
+        assert invoice.total_amount == Decimal("5750.625")
+
+    def test_invalid_line_is_preserved_while_valid_line_is_saved(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        rice: InventoryItem,
+        clerk: User,
+        client: Client,
+    ) -> None:
+        client.force_login(clerk)
+        response = client.post(
+            reverse("procurement:supplier_invoice_create"),
+            self.payload(
+                grocery=grocery,
+                branch=branch,
+                rice=rice,
+                second_quantity="-2.000",
+            ),
+        )
+        assert response.status_code == 302
+        invoice = SupplierInvoice.objects.get(supplier_invoice_number="WEB-001")
+        issue = invoice.draft_line_issues.get(status=SupplierInvoiceDraftLineIssueStatus.OPEN)
+        assert invoice.lines.count() == 1
+        assert issue.payload["quantity"] == "-2.000"
+        assert "quantity" in issue.errors
+        assert invoice.is_ready_to_post is False
+        assert AuditEvent.objects.filter(
+            action=AuditAction.CREATED,
+            target_type="procurement.SupplierInvoiceDraftLineIssue",
+            target_id=str(issue.pk),
+        ).exists()
+
+    def test_correcting_issue_adds_only_that_line_and_clears_the_blocker(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        rice: InventoryItem,
+        clerk: User,
+        client: Client,
+    ) -> None:
+        client.force_login(clerk)
+        client.post(
+            reverse("procurement:supplier_invoice_create"),
+            self.payload(
+                grocery=grocery,
+                branch=branch,
+                rice=rice,
+                second_quantity="-2.000",
+            ),
+        )
+        invoice = SupplierInvoice.objects.get(supplier_invoice_number="WEB-001")
+        issue = invoice.draft_line_issues.get(status=SupplierInvoiceDraftLineIssueStatus.OPEN)
+        response = client.post(
+            reverse(
+                "procurement:supplier_invoice_line_issue_update",
+                args=[invoice.pk, issue.pk],
+            ),
+            {
+                f"issue-{issue.pk}-item": rice.pk,
+                f"issue-{issue.pk}-receipt_line": "",
+                f"issue-{issue.pk}-base_quantity": "2.000",
+                f"issue-{issue.pk}-unit_price": "1000.100000",
+                f"issue-{issue.pk}-description": "رز احتياطي مصحح",
+                f"issue-{issue.pk}-note": "",
+            },
+            headers=HX,
+        )
+        assert response.status_code == 200
+        assert "<html" not in response.content.decode().lower()
+        invoice.refresh_from_db()
+        issue.refresh_from_db()
+        assert invoice.lines.count() == 2
+        assert issue.status == SupplierInvoiceDraftLineIssueStatus.RESOLVED
+        assert issue.resolved_line_id is not None
+        assert AuditEvent.objects.filter(
+            action=AuditAction.UPDATED,
+            target_type="procurement.SupplierInvoiceDraftLineIssue",
+            target_id=str(issue.pk),
+        ).exists()
+        assert (
+            SupplierInvoiceDraftLineIssue.objects.filter(
+                invoice=invoice, status=SupplierInvoiceDraftLineIssueStatus.OPEN
+            ).count()
+            == 0
+        )
+
+    def test_invalid_header_creates_no_invoice(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        rice: InventoryItem,
+        clerk: User,
+        client: Client,
+    ) -> None:
+        client.force_login(clerk)
+        payload = self.payload(grocery=grocery, branch=branch, rice=rice)
+        payload["supplier_invoice_number"] = ""
+        response = client.post(reverse("procurement:supplier_invoice_create"), payload)
+        assert response.status_code == 200
+        assert SupplierInvoice.objects.count() == 0
+
+    def test_other_organization_cannot_reach_a_line_issue(
+        self,
+        grocery: Supplier,
+        branch: Branch,
+        rice: InventoryItem,
+        clerk: User,
+        other_organization: Organization,
+        client: Client,
+    ) -> None:
+        client.force_login(clerk)
+        client.post(
+            reverse("procurement:supplier_invoice_create"),
+            self.payload(
+                grocery=grocery,
+                branch=branch,
+                rice=rice,
+                second_quantity="-2.000",
+            ),
+        )
+        invoice = SupplierInvoice.objects.get(supplier_invoice_number="WEB-001")
+        issue = invoice.draft_line_issues.get(status=SupplierInvoiceDraftLineIssueStatus.OPEN)
+        outsider = User.objects.create_user(username="issue-outsider", password=PASSWORD)
+        grant_organization_access(
+            user=outsider,
+            organization=other_organization,
+            role=Role.ACCOUNTANT,
+        )
+        client.force_login(outsider)
+        response = client.post(
+            reverse(
+                "procurement:supplier_invoice_line_issue_delete",
+                args=[invoice.pk, issue.pk],
+            )
+        )
+        assert response.status_code == 404
+        assert SupplierInvoiceDraftLineIssue.objects.filter(pk=issue.pk).exists()
+
+    def test_empty_form_has_inline_row_controls_and_htmx_submission(
+        self, clerk: User, client: Client
+    ) -> None:
+        client.force_login(clerk)
+        response = client.get(reverse("procurement:supplier_invoice_create"))
+        body = response.content.decode()
+        assert response.status_code == 200
+        assert "إنشاء مسودة الفاتورة" in body
+        assert 'id="invoice-line-template"' in body
+        assert 'id="add-invoice-line"' in body
+        assert 'hx-post="/procurement/invoices/new/"' in body
+        assert "procurement-invoice-editor.js" in body
 
 
 # ---------------------------------------------------------------------------

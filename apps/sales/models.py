@@ -3359,6 +3359,253 @@ class CashierTenderCount(TimeStampedModel):
         return self.counted_amount - self.expected_amount
 
 
+class PosSalesImportStatus(models.TextChoices):
+    """State of one external POS evidence bundle."""
+
+    DRAFT = "DRAFT", _("مسودة")
+    AWAITING_CASHIER = "AWAITING_CASHIER", _("بانتظار تأكيد الكاشير")
+    AWAITING_ACCOUNTANT = "AWAITING_ACCOUNTANT", _("بانتظار مراجعة المحاسب")
+    ACCOUNTANT_REVIEW = "ACCOUNTANT_REVIEW", _("قيد مراجعة المحاسب")
+    RETURNED_TO_CASHIER = "RETURNED_TO_CASHIER", _("معادة للكاشير")
+    READY_TO_POST = "READY_TO_POST", _("جاهزة للترحيل")
+    POSTED = "POSTED", _("مرحلة ومقفلة")
+    CANCELLED = "CANCELLED", _("ملغاة")
+    REVERSED = "REVERSED", _("معكوسة")
+
+
+class PosSalesImportBatch(TimeStampedModel):
+    """
+    One immutable daily bundle of the six reports exported by the external POS.
+
+    The detailed and summary reports overlap deliberately.  ``report_data``
+    stores every parsed fact once while the headline columns keep the daily
+    control figures indexable.  Importing this bundle does not post a journal
+    or consume stock; it is source evidence that can be mapped to a SalesDay
+    without ever counting a summary report as a second sale.
+    """
+
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="pos_sales_imports",
+        verbose_name=_("organization"),
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.PROTECT,
+        related_name="pos_sales_imports",
+        verbose_name=_("branch"),
+    )
+    business_date = models.DateField(_("business date"))
+    status = models.CharField(
+        _("status"),
+        max_length=24,
+        choices=PosSalesImportStatus.choices,
+        default=PosSalesImportStatus.DRAFT,
+    )
+    source_hash = models.CharField(_("source hash"), max_length=64)
+    total_sales = models.DecimalField(
+        _("total sales"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    application_sales = models.DecimalField(
+        _("application sales"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    reported_expenses = models.DecimalField(
+        _("reported POS expenses"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    operational_expenses = models.DecimalField(
+        _("operational expenses"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    net_cash = models.DecimalField(
+        _("net cash"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_PLACES
+    )
+    total_quantity = models.DecimalField(
+        _("total quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_PLACES
+    )
+    report_data = models.JSONField(_("parsed report data"), default=dict)
+    checks = models.JSONField(_("reconciliation checks"), default=list)
+    warnings = models.JSONField(_("warnings"), default=list)
+    review_step = models.PositiveSmallIntegerField(_("accountant review step"), default=0)
+    review_data = models.JSONField(_("accountant review evidence"), default=dict, blank=True)
+    cashier_confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="pos_sales_imports_confirmed",
+        null=True,
+        blank=True,
+        verbose_name=_("cashier confirmed by"),
+    )
+    cashier_confirmed_at = models.DateTimeField(_("cashier confirmed at"), null=True, blank=True)
+    accountant_started_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="pos_sales_imports_reviewed",
+        null=True,
+        blank=True,
+        verbose_name=_("accountant reviewer"),
+    )
+    accountant_started_at = models.DateTimeField(
+        _("accountant review started at"), null=True, blank=True
+    )
+    returned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="pos_sales_imports_returned",
+        null=True,
+        blank=True,
+        verbose_name=_("returned by"),
+    )
+    returned_at = models.DateTimeField(_("returned at"), null=True, blank=True)
+    return_reason = models.TextField(_("return reason"), blank=True)
+    linked_sales_day = models.OneToOneField(
+        SalesDay,
+        on_delete=models.PROTECT,
+        related_name="pos_import_batch",
+        null=True,
+        blank=True,
+        verbose_name=_("linked sales day"),
+    )
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="pos_sales_imports_posted",
+        null=True,
+        blank=True,
+        verbose_name=_("posted by"),
+    )
+    posted_at = models.DateTimeField(_("posted at"), null=True, blank=True)
+    posting_reference = models.CharField(_("posting reference"), max_length=64, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="pos_sales_imports_created",
+        verbose_name=_("created by"),
+    )
+
+    class Meta:
+        verbose_name = _("POS sales import")
+        verbose_name_plural = _("POS sales imports")
+        ordering = ["-business_date", "-created_at"]
+        permissions = [
+            ("view_pos_sales_import", _("Can view imported POS sales workflow")),
+            ("confirm_pos_sales_import", _("Can confirm imported POS sales as cashier")),
+            ("review_pos_sales_import", _("Can review imported POS sales as accountant")),
+            ("post_pos_sales_import", _("Can post and close imported POS sales")),
+            ("return_pos_sales_import", _("Can return imported POS sales to cashier")),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "source_hash"],
+                name="sales_pos_import_source_unique_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_sales__gte=0)
+                & Q(application_sales__gte=0)
+                & Q(reported_expenses__gte=0)
+                & Q(operational_expenses__gte=0)
+                & Q(total_quantity__gte=0),
+                name="sales_pos_import_totals_are_not_negative",
+            ),
+            models.CheckConstraint(
+                condition=Q(review_step__gte=0) & Q(review_step__lte=5),
+                name="sales_pos_import_review_step_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(posted_by__isnull=True, posted_at__isnull=True)
+                | Q(posted_by__isnull=False, posted_at__isnull=False),
+                name="sales_pos_import_posting_stamp_complete",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "branch", "business_date"],
+                name="sales_pos_import_day_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.branch.code} · {self.business_date.isoformat()} · {self.total_sales}"
+
+
+class PosSalesImportFile(TimeStampedModel):
+    """Original evidence file retained with its digest and detected report type."""
+
+    batch = models.ForeignKey(
+        PosSalesImportBatch,
+        on_delete=models.CASCADE,
+        related_name="files",
+        verbose_name=_("POS sales import"),
+    )
+    report_type = models.CharField(_("report type"), max_length=40)
+    original_name = models.CharField(_("original file name"), max_length=255)
+    file = models.FileField(_("file"), upload_to="sales/pos-imports/%Y/%m/")
+    checksum = models.CharField(_("checksum"), max_length=64)
+    size = models.PositiveBigIntegerField(_("size"))
+
+    class Meta:
+        verbose_name = _("POS sales import file")
+        verbose_name_plural = _("POS sales import files")
+        ordering = ["report_type"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["batch", "report_type"], name="sales_pos_import_file_type_unique"
+            )
+        ]
+
+
+class PosMenuItemMapping(TimeStampedModel):
+    """A persistent, reviewed alias from one POS label to one menu item."""
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="pos_menu_item_mappings",
+        verbose_name=_("organization"),
+    )
+    source_name = models.CharField(_("POS item name"), max_length=200)
+    normalized_source_name = models.CharField(_("normalized POS item name"), max_length=200)
+    menu_item = models.ForeignKey(
+        MenuItem,
+        on_delete=models.PROTECT,
+        related_name="pos_name_mappings",
+        verbose_name=_("menu item"),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="pos_menu_item_mappings_created",
+        verbose_name=_("created by"),
+    )
+
+    class Meta:
+        verbose_name = _("POS menu item mapping")
+        verbose_name_plural = _("POS menu item mappings")
+        ordering = ["source_name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "normalized_source_name"],
+                name="sales_pos_item_mapping_source_unique",
+            ),
+            models.CheckConstraint(
+                condition=~Q(source_name="") & ~Q(normalized_source_name=""),
+                name="sales_pos_item_mapping_names_not_empty",
+            ),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.menu_item_id and self.organization_id != self.menu_item.organization_id:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(
+                {"menu_item": _("The menu item belongs to another organization.")}
+            )
+
+    def __str__(self) -> str:
+        return f"{self.source_name} → {self.menu_item.name}"
+
+
 __all__ = [
     "CALCULATION_MAX_DIGITS",
     "CODE_PATTERN",
@@ -3388,6 +3635,10 @@ __all__ = [
     "MenuItemBranchSetting",
     "MenuPriceVersion",
     "PriceScope",
+    "PosSalesImportBatch",
+    "PosSalesImportFile",
+    "PosSalesImportStatus",
+    "PosMenuItemMapping",
     "ReceivableSource",
     "SalesAdjustment",
     "SalesAdjustmentLine",

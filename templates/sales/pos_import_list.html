@@ -1,0 +1,30 @@
+{% extends "settings/base_list.html" %}
+{% load i18n money_tags %}
+
+{% block columns %}
+  <th>تاريخ العمل</th><th>الفرع</th><th>إجمالي البيع</th><th>مبيعات التطبيقات</th><th>المصروف التشغيلي</th><th>الحالة</th><th>إجراء</th>
+{% endblock %}
+
+{% block toolbar %}
+<div class="ui-metric-grid">
+  <div class="ui-metric"><span class="ui-metric__label">عمليات معلقة</span><strong>{{ workflow_metrics.pending }}</strong></div>
+  <div class="ui-metric"><span class="ui-metric__label">بانتظار المحاسب</span><strong>{{ workflow_metrics.accountant }}</strong></div>
+  <div class="ui-metric"><span class="ui-metric__label">عمليات فيها فروقات</span><strong>{{ workflow_metrics.differences }}</strong></div>
+  <div class="ui-metric"><span class="ui-metric__label">مرحلة ومقفلة</span><strong>{{ workflow_metrics.posted }}</strong></div>
+</div>
+{{ block.super }}
+{% endblock %}
+
+{% block rows %}
+  {% for batch in batches %}
+  <tr>
+    <td data-label="تاريخ العمل"><bdi dir="ltr">{{ batch.business_date|date:"Y-m-d" }}</bdi></td>
+    <td data-label="الفرع">{{ batch.branch.name }}</td>
+    <td data-label="إجمالي البيع"><bdi dir="ltr">{{ batch.total_sales|iqd }}</bdi></td>
+    <td data-label="مبيعات التطبيقات"><bdi dir="ltr">{{ batch.application_sales|iqd }}</bdi></td>
+    <td data-label="المصروف التشغيلي"><bdi dir="ltr">{{ batch.operational_expenses|iqd }}</bdi></td>
+    <td data-label="الحالة"><span class="ui-badge {% if batch.status == 'POSTED' %}ui-badge--success{% elif batch.status == 'DRAFT' or batch.status == 'RETURNED_TO_CASHIER' %}ui-badge--warning{% else %}ui-badge--info{% endif %}">{{ batch.get_status_display }}</span></td>
+    <td data-label="إجراء"><a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'sales:pos_import_detail' batch.pk %}">فتح</a></td>
+  </tr>
+  {% empty %}<tr><td colspan="7" class="ui-table__empty">لم تُستورد أي دفعة POS بعد.</td></tr>{% endfor %}
+{% endblock %}
