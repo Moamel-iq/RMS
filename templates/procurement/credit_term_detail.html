@@ -1,7 +1,7 @@
 {% extends base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 {% block page %}
   <section class="ui-page" id="credit-term-detail">
     <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}"><a href="{% url 'procurement:credit_term_list' %}">{% translate "شروط الائتمان" %}</a><span aria-hidden="true">/</span><span aria-current="page">{{ term.name }}</span></nav>

@@ -64,7 +64,7 @@
           <div><dt>اسم المورد</dt><dd>{{ quote.supplier_name }}</dd></div>
           <div><dt>الهاتف</dt><dd><bdi dir="ltr">{{ quote.phone|default:"—" }}</bdi></dd></div>
           <div><dt>التاريخ</dt><dd>{{ quote.quote_date }}</dd></div>
-          <div><dt>الإجمالي</dt><dd class="ui-quote-summary__total">{{ quote.total_amount }} د.ع</dd></div>
+          <div><dt>الإجمالي</dt><dd class="ui-quote-summary__total">{{ quote.total_amount|money }} د.ع</dd></div>
           {% if quote.notes %}<div class="ui-definition-list__wide"><dt>ملاحظات</dt><dd>{{ quote.notes|linebreaksbr }}</dd></div>{% endif %}
         </dl>
       </aside>
@@ -73,7 +73,7 @@
     <article class="ui-data-card">
       <header class="ui-card__header">
         <div><h2 class="ui-card__title">الأصناف والأسعار</h2><p class="ui-card__subtitle">الكميات والأسعار المقدمة ضمن هذا العرض.</p></div>
-        <strong class="ui-card__value">{{ quote.total_amount }} د.ع</strong>
+        <strong class="ui-card__value">{{ quote.total_amount|money }} د.ع</strong>
       </header>
       <div class="ui-table-scroll">
         <table class="ui-table ui-table--responsive">
@@ -83,9 +83,9 @@
               <tr>
                 <td data-label="الصنف"><strong class="ui-table__primary">{{ line.item }}</strong></td>
                 <td data-label="الوحدة">{{ line.unit|default:"وحدة الأساس" }}</td>
-                <td class="ui-table__numeric" data-label="الكمية">{{ line.quantity }}</td>
-                <td class="ui-table__numeric" data-label="سعر الوحدة">{{ line.unit_price }}</td>
-                <td class="ui-table__numeric" data-label="الإجمالي"><strong>{{ line.line_total }}</strong></td>
+                <td class="ui-table__numeric" data-label="الكمية">{{ line.quantity|quantity }}</td>
+                <td class="ui-table__numeric" data-label="سعر الوحدة">{{ line.unit_price|money }}</td>
+                <td class="ui-table__numeric" data-label="الإجمالي"><strong>{{ line.line_total|money }}</strong></td>
                 <td data-label="ملاحظات">{{ line.notes|default:"—" }}</td>
                 <td data-label="الإجراءات">
                   {% if can_change %}
@@ -102,7 +102,7 @@
               <tr><td colspan="7" class="ui-table__empty"><div class="ui-empty ui-empty--compact"><span class="ui-empty__icon" aria-hidden="true">◇</span><h3 class="ui-empty__title">عرض دون أصناف</h3><p class="ui-empty__message">هذا عرض مستند فقط أو لم تُضف أصنافاً بعد.</p></div></td></tr>
             {% endfor %}
           </tbody>
-          {% if quote.lines.all %}<tfoot><tr><th colspan="4">إجمالي العرض</th><th class="ui-table__numeric">{{ quote.total_amount }}</th><th colspan="2"></th></tr></tfoot>{% endif %}
+          {% if quote.lines.all %}<tfoot><tr><th colspan="4">إجمالي العرض</th><th class="ui-table__numeric">{{ quote.total_amount|money }}</th><th colspan="2"></th></tr></tfoot>{% endif %}
         </table>
       </div>
     </article>

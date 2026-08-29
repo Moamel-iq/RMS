@@ -27,7 +27,7 @@
             <td data-label="{% translate 'السبب' %}">{{ row.label }}</td>
             <td data-label="{% translate 'الإجمالي المرتجع' %}"><bdi dir="ltr"><code>{{ row.gross|iqd }}</code></bdi></td>
             <td data-label="{% translate 'الصافي' %}"><bdi dir="ltr"><code>{{ row.net|iqd }}</code></bdi></td>
-            <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ row.quantity }}</code></bdi></td>
+            <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ row.quantity|quantity }}</code></bdi></td>
             <td data-label="{% translate 'عدد السطور' %}"><bdi dir="ltr"><code>{{ row.line_count }}</code></bdi></td>
             <td data-label="{% translate 'يخفض الاستهلاك النظري' %}">
               {% if row.reduces_consumption %}

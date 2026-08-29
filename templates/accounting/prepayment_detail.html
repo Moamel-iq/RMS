@@ -6,7 +6,7 @@
 {% extends list_base_template|default:"shell.html" %}
 {% load i18n money_tags %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page" id="accounting-prepayment-detail">

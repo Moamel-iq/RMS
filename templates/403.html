@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load i18n %}
-{% block title %}{% translate "غير مصرح" %} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{% translate "غير مصرح" %} · {{ brand_document }}{% endblock %}
 {% block content %}
   <main class="ui-standalone">
     {% url 'users:home' as back_url %}

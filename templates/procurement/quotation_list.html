@@ -39,7 +39,7 @@
       <td>{{ row.lines.count }}</td>
       {% if may_see_cost %}
         {# A re-enterable exact value: never localised. #}
-        <td><span dir="ltr">{{ row.total_amount|stringformat:"f" }}</span></td>
+        <td><span dir="ltr">{{ row.total_amount|money }}</span></td>
       {% endif %}
       <td>
         {% if row.status == "AWARDED" %}

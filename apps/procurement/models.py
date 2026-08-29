@@ -2363,6 +2363,13 @@ class SupplierInvoiceLineType(models.TextChoices):
     ACCOUNT = "ACCOUNT", _("مصروف أو حساب مباشر")
 
 
+class SupplierInvoiceDraftLineIssueStatus(models.TextChoices):
+    """Lifecycle of an invalid line captured while opening an invoice draft."""
+
+    OPEN = "OPEN", _("يحتاج تعديل")
+    RESOLVED = "RESOLVED", _("تم التصحيح")
+
+
 class SupplierInvoiceChargeCategory(models.TextChoices):
     """The closed commercial vocabulary for invoice-level actual costs."""
 
@@ -2761,7 +2768,11 @@ class SupplierInvoice(TimeStampedModel):
         property is deliberately only a UI hint.
         """
         lines = list(self.lines.all())
-        if self.status != SupplierInvoiceStatus.DRAFT or not lines:
+        if (
+            self.status != SupplierInvoiceStatus.DRAFT
+            or not lines
+            or self.draft_line_issues.filter(status="OPEN").exists()
+        ):
             return False
         return True
 
@@ -2978,6 +2989,88 @@ class SupplierInvoiceLine(TimeStampedModel):
         if self.account is not None:
             return f"{self.account.code} — {self.account.name}"
         return self.description  # pragma: no cover - a constraint refuses this row
+
+
+class SupplierInvoiceDraftLineIssue(TimeStampedModel):
+    """An entered invoice row that cannot yet become an accounting line.
+
+    Financial line constraints stay strict: this staging row keeps the user's
+    original strings and the exact field errors until the draft is corrected.
+    It has no monetary effect and is ignored by totals, stock and posting.
+    """
+
+    invoice = models.ForeignKey(
+        SupplierInvoice,
+        on_delete=models.CASCADE,
+        related_name="draft_line_issues",
+        verbose_name=_("invoice"),
+    )
+    public_id = models.UUIDField(_("public id"), default=uuid.uuid4, unique=True, editable=False)
+    sequence = models.PositiveIntegerField(_("sequence"))
+    payload = models.JSONField(_("entered values"), default=dict)
+    errors = models.JSONField(_("validation errors"), default=dict, blank=True)
+    status = models.CharField(
+        _("status"),
+        max_length=10,
+        choices=SupplierInvoiceDraftLineIssueStatus.choices,
+        default=SupplierInvoiceDraftLineIssueStatus.OPEN,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_supplier_invoice_line_issues",
+        verbose_name=_("created by"),
+    )
+    resolved_line = models.OneToOneField(
+        SupplierInvoiceLine,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="draft_issue",
+        verbose_name=_("resolved line"),
+    )
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="resolved_supplier_invoice_line_issues",
+        verbose_name=_("resolved by"),
+    )
+    resolved_at = models.DateTimeField(_("resolved at"), null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("supplier invoice draft line issue")
+        verbose_name_plural = _("supplier invoice draft line issues")
+        ordering = ["invoice", "sequence", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        status="OPEN",
+                        resolved_line__isnull=True,
+                        resolved_by__isnull=True,
+                        resolved_at__isnull=True,
+                    )
+                    | Q(
+                        status="RESOLVED",
+                        resolved_line__isnull=False,
+                        resolved_by__isnull=False,
+                        resolved_at__isnull=False,
+                    )
+                ),
+                name="procurement_invoice_line_issue_resolution_complete",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["invoice", "status", "sequence"],
+                name="sinv_issue_status_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.invoice} · {self.sequence} · {self.get_status_display()}"
 
 
 class SupplierInvoiceCharge(TimeStampedModel):

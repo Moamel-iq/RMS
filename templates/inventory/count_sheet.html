@@ -8,10 +8,10 @@
 {# the rule holds — a value that was never fetched cannot be leaked by a      #}
 {# hidden input, a data attribute, or somebody reading the page source.       #}
 {#                                                                            #}
-{# Do not add `{{ line.book_quantity }}` here. Do not switch this template    #}
+{# Do not add `{{ line.book_quantity|quantity }}` here. Do not switch this template    #}
 {# to the count's own line queryset. The review screen is a separate view.    #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page ui-page--detail" aria-labelledby="count-sheet-title">

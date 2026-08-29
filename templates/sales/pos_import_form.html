@@ -1,0 +1,44 @@
+{% extends "shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
+
+{% block page %}
+<div class="ui-page" id="pos-sales-import">
+  <nav class="ui-breadcrumb" aria-label="مسار الصفحة">
+    <a href="{% url 'sales:pos_import_list' %}">استيراد مبيعات POS</a><span aria-hidden="true">/</span><span aria-current="page">دفعة جديدة</span>
+  </nav>
+  <header class="ui-page-header">
+    <div class="ui-page-header__copy">
+      <p class="ui-page-header__eyebrow">المبيعات اليومية</p>
+      <h1 class="ui-page-header__title">{{ page_title }}</h1>
+      <p class="ui-page-header__subtitle">اختر التقارير الستة لنفس يوم العمل. يقرأ النظام التاريخ من داخل الملفات ويوقف العملية إذا اختلف أي مجموع.</p>
+    </div>
+  </header>
+
+  <p class="ui-notice" role="note">ملف المصاريف يحتوي أيضاً على مبالغ التطبيقات التي خرجت من صندوق POS؛ سيُفصل مجموع التطبيقات عن المصروف التشغيلي تلقائياً ولن يُحسب مرتين.</p>
+
+  <form class="ui-form-card" method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {% include "components/form_error_summary.html" with form=form %}
+    <div class="ui-form-grid">
+      {% include "settings/_field.html" with field=form.branch %}
+    </div>
+    <div class="ui-form-grid ui-form-grid--two">
+      {% for field in form %}
+        {% if field.name != "branch" %}
+          <div class="ui-field">
+            <label class="ui-field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}<div class="ui-field__errors">{{ field.errors }}</div>{% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <div class="ui-form-actions">
+      <button class="ui-button ui-button--primary" type="submit">استيراد التقارير الستة</button>
+      <a class="ui-button ui-button--ghost" href="{% url 'sales:pos_import_list' %}">إلغاء</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

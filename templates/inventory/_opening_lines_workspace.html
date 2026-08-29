@@ -32,11 +32,11 @@
               <td data-label="{% translate 'المخزن' %}"><code><bdi dir="ltr">{{ line.warehouse.code }}</bdi></code></td>
               <td data-label="{% translate 'الصنف' %}"><code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name }}</td>
               <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
-              <td data-label="{% translate 'الكمية' %}"><code><bdi dir="ltr">{{ line.base_quantity|stringformat:"f" }}</bdi></code></td>
+              <td data-label="{% translate 'الكمية' %}"><code><bdi dir="ltr">{{ line.base_quantity|quantity }}</bdi></code></td>
               <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ line.item.base_unit.code }}</bdi></td>
               {% if show_cost %}
-                <td data-label="{% translate 'كلفة الوحدة' %}"><code><bdi dir="ltr">{{ line.unit_cost|stringformat:"f" }}</bdi></code></td>
-                <td data-label="{% translate 'القيمة' %}"><code><bdi dir="ltr">{{ line.total_value|stringformat:"f" }}</bdi></code></td>
+                <td data-label="{% translate 'كلفة الوحدة' %}"><code><bdi dir="ltr">{{ line.unit_cost|money }}</bdi></code></td>
+                <td data-label="{% translate 'القيمة' %}"><code><bdi dir="ltr">{{ line.total_value|money }}</bdi></code></td>
                 <td data-label="{% translate 'حساب المراقبة' %}">
                   {% if line.inventory_account %}
                     <code><bdi dir="ltr">{{ line.inventory_account.code }}</bdi></code>
@@ -82,7 +82,7 @@
           <tfoot>
             <tr>
               <td colspan="7">{% translate "الإجمالي" %}</td>
-              <td><code><bdi dir="ltr">{{ total_value|stringformat:"f" }}</bdi></code></td>
+              <td><code><bdi dir="ltr">{{ total_value|money }}</bdi></code></td>
               <td colspan="{% if is_draft and can_prepare %}3{% else %}2{% endif %}"></td>
             </tr>
           </tfoot>

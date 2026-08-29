@@ -1,6 +1,6 @@
 {% extends base_template|default:"shell.html" %}
 {% load i18n money_tags %}
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 {% block page %}
 <section class="ui-page" id="recipe-cost-report">
   <nav class="ui-breadcrumb"><span>{% translate "التقارير" %}</span><span>/</span><span>{% translate "كلفة الوصفات" %}</span></nav>

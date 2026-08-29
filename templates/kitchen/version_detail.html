@@ -10,7 +10,7 @@
 {# POST, so a hand-made request to an action the operator never saw is        #}
 {# refused on its merits.                                                     #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page">
@@ -67,7 +67,7 @@
       <dl class="ui-form-grid">
         <div><dt class="ui-text-muted">{% translate "حجم الدفعة" %}</dt><dd>{{ version.batch_size }}</dd></div>
         <div><dt class="ui-text-muted">{% translate "الناتج المتوقع" %}</dt>
-          <dd>{{ version.expected_output_quantity }} {{ version.output_unit.code }}</dd></div>
+          <dd>{{ version.expected_output_quantity|quantity }} {{ version.output_unit.code }}</dd></div>
         <div><dt class="ui-text-muted">{% translate "يسري من" %}</dt>
           <dd>{% if version.effective_from %}<code dir="ltr">{{ version.effective_from|date:"Y-m-d" }}</code>{% else %}—{% endif %}</dd></div>
         <div><dt class="ui-text-muted">{% translate "حتى" %}</dt>
@@ -130,8 +130,8 @@
             {% for line in lines %}
               <tr>
                 <td data-label="{% translate 'الصنف' %}"><code>{{ line.item.code }}</code> {{ line.item.name }}</td>
-                <td data-label="{% translate 'الكمية المُدخلة' %}">{{ line.entered_quantity }} {% if line.entered_unit %}{{ line.entered_unit.code }}{% else %}{{ line.package_unit.code }}{% endif %}</td>
-                <td data-label="{% translate 'الكمية المعتمدة' %}">{{ line.base_quantity }} {{ line.item.base_unit.code }}</td>
+                <td data-label="{% translate 'الكمية المُدخلة' %}">{{ line.entered_quantity|quantity }} {% if line.entered_unit %}{{ line.entered_unit.code }}{% else %}{{ line.package_unit.code }}{% endif %}</td>
+                <td data-label="{% translate 'الكمية المعتمدة' %}">{{ line.base_quantity|quantity }} {{ line.item.base_unit.code }}</td>
                 <td data-label="{% translate 'تصنيف الكلفة' %}">{{ line.get_cost_class_display }}</td>
                 <td data-label="{% translate 'أساس القياس' %}">{{ line.get_measurement_basis_display }}</td>
                 <td data-label="{% translate 'البدائل' %}">
@@ -217,7 +217,7 @@
               <tr>
                 <td data-label="{% translate 'الرمز' %}"><code>{{ serving.code }}</code></td>
                 <td data-label="{% translate 'الاسم' %}">{{ serving.name }}</td>
-                <td data-label="{% translate 'الكمية' %}">{{ serving.serving_quantity }} {{ serving.serving_unit.code }}</td>
+                <td data-label="{% translate 'الكمية' %}">{{ serving.serving_quantity|quantity }} {{ serving.serving_unit.code }}</td>
                 {# A conversion factor is a technical identity: always a period. #}
                 <td data-label="{% translate 'معامل الدفعة' %}"><code dir="ltr">{{ serving.factor_display }}</code></td>
                 <td data-label="{% translate 'رئيسية' %}">{% if serving.is_primary %}✓{% else %}—{% endif %}</td>

@@ -11,7 +11,7 @@
 {% extends fragment_base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <div class="ui-page" id="production-preview">
@@ -58,10 +58,10 @@
             <span class="ui-badge">{{ preview.version.get_status_display }}</span>
           </dd>
           <dt>{% translate "المعامل" %}</dt>
-          <dd><code dir="ltr">{{ preview.multiplier|stringformat:"f" }}</code></dd>
+          <dd><code dir="ltr">{{ preview.multiplier|quantity }}</code></dd>
           <dt>{% translate "الناتج المتوقع" %}</dt>
           <dd>
-            <code dir="ltr">{{ preview.expected_output_quantity|stringformat:"f" }}</code>
+            <code dir="ltr">{{ preview.expected_output_quantity|quantity }}</code>
             {{ preview.output_unit_code }}
           </dd>
         </dl>
@@ -92,7 +92,7 @@
                 <td data-label="{% translate 'المصدر' %}"><span class="ui-text-muted" dir="ltr">{{ leaf.label_path }}</span></td>
                 <td data-label="{% translate 'الصنف' %}"><code>{{ leaf.line.item.code }}</code> {{ leaf.line.item.name }}</td>
                 <td data-label="{% translate 'المعامل التراكمي' %}"><code dir="ltr">{{ leaf.multiplier_display }}</code></td>
-                <td data-label="{% translate 'الكمية المخططة' %}"><strong dir="ltr">{{ quantity|stringformat:"f" }}</strong></td>
+                <td data-label="{% translate 'الكمية المخططة' %}"><strong dir="ltr">{{ quantity|quantity }}</strong></td>
                 <td data-label="{% translate 'الصنف اختياري' %}">{% if leaf.is_optional %}{% translate "نعم" %}{% else %}—{% endif %}</td>
               </tr>
             {% endfor %}

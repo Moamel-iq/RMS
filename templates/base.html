@@ -26,7 +26,7 @@
         }
       })(document.documentElement);
     </script>
-    <title>{% block title %}{% translate "نظام خان مندي" %}{% endblock %}</title>
+    <title>{% block title %}{{ brand_document }}{% endblock %}</title>
     <link rel="preload" href="{% static 'fonts/alexandria-arabic.woff2' %}" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="{% static 'fonts/alexandria-latin.woff2' %}" as="font" type="font/woff2" crossorigin>
     {# The authoritative, self-contained frontend stylesheet. #}
@@ -59,7 +59,11 @@
     <script src="{% static 'js/print-sheet.js' %}?v=20260826-ux-1" defer></script>
     {% block head %}{% endblock %}
   </head>
-  <body class="ui-body"{% if active_module %} data-module="{{ active_module.key }}"{% endif %}>
+  {# `data-brand-document` is how the shell script names the product when it #}
+  {# rewrites the tab title after an HTMX navigation. Emitted from the same   #}
+  {# context processor as everything else, so the name has one source and     #}
+  {# in-app navigation cannot drift back to an older one. #}
+  <body class="ui-body" data-brand-document="{{ brand_document }}"{% if active_module %} data-module="{{ active_module.key }}"{% endif %}>
     {% block content %}{% endblock %}
   </body>
 </html>

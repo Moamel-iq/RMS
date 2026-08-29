@@ -3,10 +3,9 @@
   <div class="ui-print-header__identity">
     <div class="ui-print-header__logo" data-part="logo">
       {% if print_logo %}
-        <img src="{% static print_logo %}" alt="{% translate 'شعار خان مندي' %}" width="96" height="96">
-      {% else %}
-        <span class="ui-print-header__wordmark">{% translate "خان مندي" %}</span>
+        <img src="{% static print_logo %}" alt="{{ brand_short }}" width="96" height="96">
       {% endif %}
+      <span class="ui-print-header__wordmark">{{ brand_document }}</span>
     </div>
     <div>
       <p class="ui-print-header__issuer" data-part="issuer">

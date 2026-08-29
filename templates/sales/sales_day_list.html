@@ -6,6 +6,11 @@
 {% extends "settings/base_list.html" %}
 {% load i18n %}
 
+{% block pageactions %}
+  <a class="ui-button ui-button--secondary" href="{% url 'sales:pos_import_create' %}">{% translate "استيراد تقارير POS" %}</a>
+  {% if create_url %}<a class="ui-button ui-button--primary" href="{{ create_url }}">{{ create_label }}</a>{% endif %}
+{% endblock %}
+
 {% block filters %}
   <label class="ui-field">
     <span class="ui-field__label">{% translate "الحالة" %}</span>

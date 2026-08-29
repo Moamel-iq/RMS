@@ -5,7 +5,7 @@
 {# in different branches — each side is dated by its own operating day, and  #}
 {# the page says so rather than showing one and hoping.                      #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page ui-page--detail" aria-labelledby="receipt-title">
@@ -70,7 +70,7 @@
       </div>
     {% endif %}
     {% if show_cost %}
-      <div><dt>{% translate "القيمة المستلمة" %}</dt><dd><bdi dir="ltr">{{ total_value }}</bdi></dd></div>
+      <div><dt>{% translate "القيمة المستلمة" %}</dt><dd><bdi dir="ltr">{{ total_value|money }}</bdi></dd></div>
     {% endif %}
   </dl>
 
@@ -123,7 +123,7 @@
                 <code><bdi dir="ltr">{{ line.transfer_line.lot.code }}</bdi></code>
               {% else %}—{% endif %}
             </td>
-            <td data-label="{% translate 'الكمية المستلمة' %}"><bdi dir="ltr">{{ line.base_quantity }}</bdi></td>
+            <td data-label="{% translate 'الكمية المستلمة' %}"><bdi dir="ltr">{{ line.base_quantity|quantity }}</bdi></td>
             <td data-label="{% translate 'الوحدة' %}"><bdi dir="ltr">{{ line.transfer_line.item.base_unit.code }}</bdi></td>
             {% if show_cost %}
               <td data-label="{% translate 'كلفة الوحدة' %}"><bdi dir="ltr">{{ line.unit_cost|default_if_none:"—" }}</bdi></td>

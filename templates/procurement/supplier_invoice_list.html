@@ -1,7 +1,7 @@
 {% extends "settings/base_list.html" %}
 {% load i18n static money_tags %}
 
-{% block title %}{% translate "فواتير المشتريات" %} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{% translate "فواتير المشتريات" %} · {{ brand_document }}{% endblock %}
 
 {% block head %}
   {{ block.super }}

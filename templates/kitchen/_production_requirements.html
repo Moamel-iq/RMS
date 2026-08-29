@@ -62,7 +62,7 @@
           <td><strong dir="ltr">{{ row.line.planned_display }}</strong></td>
           <td>
             {% if row.comparison.is_comparable %}
-              <code dir="ltr">{{ row.comparison.comparable_quantity|stringformat:"f" }}</code>
+              <code dir="ltr">{{ row.comparison.comparable_quantity|quantity }}</code>
             {% else %}
               <span class="ui-text-muted">—</span>
             {% endif %}

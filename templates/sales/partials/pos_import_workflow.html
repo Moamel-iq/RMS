@@ -1,0 +1,83 @@
+{% load money_tags %}
+<div class="pos-workflow-backdrop" id="pos-workflow-modal" role="dialog" aria-modal="true" aria-labelledby="pos-workflow-title">
+  <section class="pos-workflow">
+    <header class="pos-workflow__header">
+      <div>
+        <p class="ui-page-header__eyebrow">{{ batch.business_date|date:"Y-m-d" }} · {{ batch.branch.name }}</p>
+        <h2 id="pos-workflow-title">{% if step == 0 %}تأكيد المبيعات{% else %}مراجعة وترحيل المبيعات{% endif %}</h2>
+      </div>
+      <a class="ui-button ui-button--ghost ui-button--sm" href="{% url 'sales:pos_import_detail' batch.pk %}" aria-label="إغلاق">✕</a>
+    </header>
+
+    {% if step > 0 %}
+    <ol class="pos-stepper" aria-label="خطوات مراجعة المبيعات">
+      {% for number in steps %}
+      <li class="{% if number < step or number <= batch.review_step %}is-complete{% elif number == step %}is-current{% endif %}">
+        <span>{{ number }}</span><small>{% if number == 1 %}غير التطبيقات{% elif number == 2 %}ذمم التطبيقات{% elif number == 3 %}المصروفات{% elif number == 4 %}الصندوق{% else %}الإقفال{% endif %}</small>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+
+    <div class="pos-workflow__body">
+      {% if form.non_field_errors %}<div class="ui-notice ui-notice--danger">{{ form.non_field_errors }}</div>{% endif %}
+
+      {% if step == 0 %}
+        <div class="ui-metric-grid">
+          <div class="ui-metric"><span class="ui-metric__label">تاريخ المبيعات</span><strong>{{ batch.business_date|date:"Y-m-d" }}</strong></div>
+          <div class="ui-metric"><span class="ui-metric__label">إجمالي المبيعات</span><strong>{{ batch.total_sales|iqd }}</strong></div>
+          <div class="ui-metric"><span class="ui-metric__label">عدد الملفات</span><strong>{{ batch.files.count }}</strong></div>
+          <div class="ui-metric"><span class="ui-metric__label">إجمالي الكمية</span><strong>{{ batch.total_quantity }}</strong></div>
+        </div>
+        <h3>المبيعات حسب القناة</h3>
+        <table class="ui-table"><thead><tr><th>القناة</th><th>المبلغ</th></tr></thead><tbody>{% for row in channel_rows %}<tr><td>{{ row.name }}</td><td>{{ row.amount|iqd }}</td></tr>{% endfor %}</tbody></table>
+      {% elif step == 1 %}
+        <h3>مراجعة مبيعات غير التطبيقات</h3>
+        <table class="ui-table"><thead><tr><th>القناة</th><th>المبلغ المستورد</th><th>الفرق</th></tr></thead><tbody>{% for row in channel_rows %}{% if 'تطبيق' not in row.name %}<tr><td>{{ row.name }}</td><td>{{ row.amount|iqd }}</td><td><span class="ui-badge ui-badge--success">0 د.ع</span></td></tr>{% endif %}{% endfor %}</tbody></table>
+      {% elif step == 2 %}
+        <h3>مراجعة ذمم التطبيقات</h3>
+        <table class="ui-table"><thead><tr><th>التطبيق</th><th>الإجمالي</th><th>العمولة</th><th>صافي الذمة</th><th>العقد</th></tr></thead><tbody>{% for row in application_rows %}<tr><td>{{ row.name }}</td><td>{{ row.gross|iqd }}</td><td>{{ row.commission|iqd }}</td><td>{{ row.net|iqd }}</td><td>{% if row.agreement %}<span class="ui-badge ui-badge--success">فعّال</span>{% else %}<span class="ui-badge ui-badge--danger">مفقود</span>{% endif %}</td></tr>{% endfor %}</tbody></table>
+      {% elif step == 3 %}
+        <h3>توجيه المصروفات التشغيلية</h3>
+        <table class="ui-table"><thead><tr><th>المصروف</th><th>الوصف</th><th>المستخدم</th><th>المبلغ</th></tr></thead><tbody>{% for row in expense_rows %}<tr><td>{{ row.type }}</td><td>{{ row.details|default:"—" }}</td><td>{{ row.operator|default:"—" }}</td><td>{{ row.amount|iqd }}</td></tr>{% endfor %}</tbody></table>
+      {% elif step == 4 %}
+        <h3>تسوية صافي الصندوق</h3>
+        <div class="ui-metric-grid">
+          <div class="ui-metric"><span class="ui-metric__label">مبيعات غير التطبيقات</span><strong>{{ cash_summary.non_application_sales|iqd }}</strong></div>
+          <div class="ui-metric"><span class="ui-metric__label">المصروفات النقدية</span><strong>{{ batch.operational_expenses|iqd }}</strong></div>
+        </div>
+      {% else %}
+        <h3>المراجعة النهائية</h3>
+        <div class="ui-metric-grid">
+          <div class="ui-metric"><span class="ui-metric__label">إجمالي المبيعات</span><strong>{{ batch.total_sales|iqd }}</strong></div>
+          <div class="ui-metric"><span class="ui-metric__label">ذمم التطبيقات</span><strong>{{ batch.application_sales|iqd }}</strong></div>
+          <div class="ui-metric"><span class="ui-metric__label">كي كارد</span><strong>{{ cash_summary.qi_card_amount|iqd }}</strong></div>
+          <div class="ui-metric"><span class="ui-metric__label">المصروفات</span><strong>{{ batch.operational_expenses|iqd }}</strong></div>
+          <div class="ui-metric"><span class="ui-metric__label">الصندوق المتوقع</span><strong>{{ cash_summary.expected_cash|iqd }}</strong></div>
+          <div class="ui-metric"><span class="ui-metric__label">فرق الصندوق</span><strong>{{ cash_summary.cash_variance|iqd }}</strong></div>
+        </div>
+        {% if blockers %}<div class="ui-notice ui-notice--danger"><strong>متطلبات تمنع الترحيل:</strong><ul>{% for blocker in blockers %}<li>{{ blocker }}</li>{% endfor %}</ul></div>{% endif %}
+      {% endif %}
+
+      {% if batch.status == 'READY_TO_POST' and step == 5 %}
+        <form method="post" action="{% url 'sales:pos_import_post' batch.pk %}" hx-post="{% url 'sales:pos_import_post' batch.pk %}" hx-target="#pos-workflow-modal" hx-swap="outerHTML" hx-sync="this:replace">
+          {% csrf_token %}
+          <button class="ui-button ui-button--primary pos-workflow__primary" type="submit" {% if blockers %}disabled{% endif %}>الترحيل المحاسبي وإقفال المبيعات</button>
+        </form>
+      {% else %}
+        <form method="post" action="{% if step == 0 %}{% url 'sales:pos_import_confirm' batch.pk %}{% else %}{% url 'sales:pos_import_review_step' batch.pk step %}{% endif %}" hx-post="{% if step == 0 %}{% url 'sales:pos_import_confirm' batch.pk %}{% else %}{% url 'sales:pos_import_review_step' batch.pk step %}{% endif %}" hx-target="#pos-workflow-modal" hx-swap="outerHTML" hx-sync="this:replace" class="pos-workflow__form">
+          {% csrf_token %}
+          {{ form.as_p }}
+          <button class="ui-button ui-button--primary pos-workflow__primary" type="submit">{% if step == 0 %}تأكيد المبيعات{% elif step == 5 %}اعتماد المراجعة النهائية{% else %}اعتماد والمتابعة{% endif %}</button>
+        </form>
+      {% endif %}
+
+      {% if step > 0 and batch.status != 'POSTED' %}
+      <details class="pos-return"><summary>إعادة إلى الكاشير</summary><form method="post" action="{% url 'sales:pos_import_return' batch.pk %}" hx-post="{% url 'sales:pos_import_return' batch.pk %}" hx-target="#pos-workflow-modal" hx-swap="outerHTML">{% csrf_token %}{{ return_form.as_p }}<button class="ui-button ui-button--danger" type="submit">إعادة للمراجعة</button></form></details>
+      {% endif %}
+    </div>
+  </section>
+</div>
+<style>
+.pos-workflow-backdrop{position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.52);display:grid;place-items:center;padding:24px;direction:rtl}.pos-workflow{width:min(1040px,100%);max-height:92vh;overflow:auto;background:#fff;border-radius:18px;box-shadow:0 28px 80px rgba(15,23,42,.28);border:1px solid #dce3ef}.pos-workflow__header{display:flex;align-items:center;justify-content:space-between;padding:22px 26px;border-bottom:1px solid #e5eaf2}.pos-workflow__header h2{margin:4px 0 0}.pos-workflow__body{padding:24px 26px;display:grid;gap:20px}.pos-stepper{display:grid;grid-template-columns:repeat(5,1fr);list-style:none;margin:0;padding:18px 26px;border-bottom:1px solid #e5eaf2;background:#f8fafc}.pos-stepper li{display:flex;gap:8px;align-items:center;color:#7b8495}.pos-stepper li span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#e8edf5;font-weight:700}.pos-stepper li.is-current{color:#2563eb}.pos-stepper li.is-current span,.pos-stepper li.is-complete span{background:#2563eb;color:#fff}.pos-workflow__form{display:grid;gap:12px}.pos-workflow__form p{display:grid;gap:6px;margin:0}.pos-workflow__form input:not([type=checkbox]),.pos-workflow__form select,.pos-workflow__form textarea{width:100%;border:1px solid #d8deea;border-radius:10px;padding:10px 12px}.pos-workflow__primary{justify-self:start;min-width:230px}.pos-return{border-top:1px solid #e5eaf2;padding-top:16px}.pos-return summary{cursor:pointer;color:#b42318;font-weight:700}@media(max-width:720px){.pos-workflow-backdrop{padding:0;place-items:stretch}.pos-workflow{max-height:100vh;border-radius:0}.pos-stepper{grid-template-columns:repeat(5,46px);overflow-x:auto}.pos-stepper small{display:none}.pos-workflow__body,.pos-workflow__header{padding:16px}.pos-workflow__primary{width:100%}}
+</style>

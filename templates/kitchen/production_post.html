@@ -13,7 +13,7 @@
 {% extends fragment_base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <div class="ui-page ui-page--form" id="production-action">
@@ -57,7 +57,7 @@
               {% for row in plan.consumptions %}
                 <tr>
                   <td data-label="{% translate 'الصنف' %}">{{ row.item.code }} — {{ row.item.name }}</td>
-                  <td data-label="{% translate 'الكمية' %}"><code dir="ltr">{{ row.quantity }}</code> {{ row.item.base_unit.code }}</td>
+                  <td data-label="{% translate 'الكمية' %}"><code dir="ltr">{{ row.quantity|quantity }}</code> {{ row.item.base_unit.code }}</td>
                   <td data-label="{% translate 'اللوط' %}">{% if row.lot %}<code dir="ltr">{{ row.lot.code }}</code>{% else %}—{% endif %}</td>
                   <td data-label="{% translate 'الموقع' %}">{% if row.location %}<code dir="ltr">{{ row.location.code }}</code>{% else %}—{% endif %}</td>
                 </tr>
@@ -77,7 +77,7 @@
           <dt>{% translate "الناتج" %}</dt>
           <dd>
             {{ plan.output_item.code }} —
-            <code dir="ltr">{{ plan.output_quantity }}</code>
+            <code dir="ltr">{{ plan.output_quantity|quantity }}</code>
             {{ plan.output_item.base_unit.code }}
           </dd>
         </dl>

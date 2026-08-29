@@ -12,7 +12,7 @@
 {% extends list_base_template|default:"shell.html" %}
 {% load i18n money_tags %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <div class="ui-page" id="sales-menu-item-detail">
@@ -54,7 +54,7 @@
             <dt>{% translate "الكمية لكل وحدة مباعة" %}</dt>
             <dd>
               {% if item.inventory_item %}
-                <bdi dir="ltr">{{ item.direct_stock_base_quantity|floatformat:"-6" }} {{ item.inventory_item.base_unit.code }}</bdi>
+                <bdi dir="ltr">{{ item.direct_stock_base_quantity|quantity }} {{ item.inventory_item.base_unit.code }}</bdi>
               {% else %}—{% endif %}
             </dd>
           </div>

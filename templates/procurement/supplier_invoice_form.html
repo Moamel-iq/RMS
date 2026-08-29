@@ -1,26 +1,105 @@
 {% extends form_base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n static %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'css/procurement-invoice-editor.css' %}?v=20260828-2">
+  {% if is_create %}<script src="{% static 'js/procurement-invoice-editor.js' %}?v=20260828-2" defer></script>{% endif %}
+{% endblock %}
 {% block page %}
-  <section class="ui-page ui-page--form" aria-labelledby="supplier-invoice-form-title">
-    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}"><a href="{% url 'procurement:supplier_invoice_list' %}">{% translate "فواتير المشتريات" %}</a><span aria-hidden="true">/</span><span aria-current="page">{{ page_title }}</span></nav>
-    <div class="ui-page-header"><div><p class="ui-page-header__eyebrow">{% translate "المشتريات" %}</p><h1 class="ui-page-header__title" id="supplier-invoice-form-title">{{ page_title }}</h1><p class="ui-page-header__hint">{{ page_hint }}</p></div></div>
-    <form class="ui-card ui-form-card" method="post" novalidate
-          hx-post="{{ request.path }}" hx-target="closest .ui-page--form" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+  <section class="ui-page invoice-editor" aria-labelledby="supplier-invoice-form-title">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'procurement:supplier_invoice_list' %}">{% translate "فواتير المشتريات" %}</a>
+      <span aria-hidden="true">/</span><span aria-current="page">{{ page_title }}</span>
+    </nav>
+
+    <div class="ui-page-header invoice-editor__header">
+      <div>
+        <p class="ui-page-header__eyebrow">{% translate "المشتريات" %}</p>
+        <h1 class="ui-page-header__title" id="supplier-invoice-form-title">{{ page_title }}</h1>
+        <p class="ui-page-header__hint">{{ page_hint }}</p>
+      </div>
+      <a class="ui-button ui-button--ghost" href="{{ cancel_url }}">{% translate "رجوع" %}</a>
+    </div>
+
+    <div class="invoice-editor__draft-notice" role="note">
+      <span class="invoice-editor__notice-icon" aria-hidden="true">i</span>
+      <div><strong>{% translate "ستُنشأ كمسودة فقط" %}</strong><p>{% translate "الحفظ لا يعتمد الفاتورة ولا يرحّلها ولا ينشئ دفعة. يمكن مراجعة جميع البنود قبل الترحيل." %}</p></div>
+    </div>
+
+    <form class="invoice-editor__form" method="post" novalidate
+          hx-post="{{ request.path }}" hx-target=".invoice-editor" hx-swap="outerHTML"
+          hx-disabled-elt="find button[type=submit]" hx-sync="this:replace">
       {% csrf_token %}
       {% include "components/form_error_summary.html" with form=form %}
-      <div class="ui-form-grid">
-        {% for field in form.visible_fields %}
-          <div class="ui-field{% if field.errors %} ui-field--invalid{% endif %}">
-            <label class="ui-field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-            {{ field }}
-            {% if field.help_text %}<p class="ui-field__hint">{{ field.help_text }}</p>{% endif %}
-            {% for error in field.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}
+
+      <section class="ui-card invoice-editor__card" aria-labelledby="invoice-header-title">
+        <div class="invoice-editor__section-heading">
+          <div><span class="invoice-editor__step">1</span><div><h2 id="invoice-header-title">{% translate "بيانات الفاتورة" %}</h2><p>{% translate "هوية المورد والتواريخ التي ستُثبت على المسودة." %}</p></div></div>
+        </div>
+        <div class="invoice-editor__header-grid">
+          {% include "settings/_field.html" with field=form.supplier %}
+          {% include "settings/_field.html" with field=form.supplier_invoice_number %}
+          {% include "settings/_field.html" with field=form.branch %}
+          {% include "settings/_field.html" with field=form.invoice_date %}
+          {% include "settings/_field.html" with field=form.business_date %}
+          <div class="ui-field"><span class="ui-field__label">{% translate "مدة السداد" %}</span><output class="invoice-editor__readonly" id="invoice-payment-terms">{{ payment_terms_display|default:"—" }}</output></div>
+          <div class="ui-field"><span class="ui-field__label">{% translate "تاريخ الاستحقاق المتوقع" %}</span><output class="invoice-editor__readonly" id="invoice-due-date">{{ due_date_display|default:"—" }}</output></div>
+          {% include "settings/_field.html" with field=form.currency_code %}
+          {% include "settings/_field.html" with field=form.supplier_reference %}
+          {% include "settings/_field.html" with field=form.discount_amount %}
+          <div class="ui-field invoice-editor__notes-field">
+            <label class="ui-field__label" for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>{{ form.notes }}
+            {% for error in form.notes.errors %}<p class="ui-field__error">{{ error }}</p>{% endfor %}
           </div>
-        {% endfor %}
-      </div>
-      <div class="ui-form-actions"><button class="ui-button ui-button--primary" type="submit">{% translate "حفظ المسودة" %}</button><a class="ui-button ui-button--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a></div>
+        </div>
+      </section>
+
+      {% if is_create %}
+        <section class="ui-card invoice-editor__card" aria-labelledby="invoice-lines-title">
+          <div class="invoice-editor__section-heading invoice-editor__section-heading--lines">
+            <div><span class="invoice-editor__step">2</span><div><h2 id="invoice-lines-title">{% translate "أصناف الفاتورة" %}</h2><p>{% translate "أدخل الكمية بالوحدة الأساسية للصنف. يعاد احتساب كل القيم على الخادم عند الحفظ." %}</p></div></div>
+          </div>
+          {{ line_formset.management_form }}
+          {% if line_formset.non_form_errors %}<div class="ui-alert ui-alert--danger">{{ line_formset.non_form_errors }}</div>{% endif %}
+          <div class="ui-table-scroll invoice-editor__table-scroll" tabindex="0">
+            <table class="ui-table invoice-editor__lines-table">
+              <thead><tr><th>#</th><th>{% translate "الصنف" %}</th><th>{% translate "البيان" %}</th><th>{% translate "الكمية" %}</th><th>{% translate "الوحدة" %}</th><th>{% translate "سعر الوحدة" %}</th><th>{% translate "الإجمالي" %}</th><th><span class="sr-only">{% translate "إجراء" %}</span></th></tr></thead>
+              <tbody id="invoice-line-rows">
+                {% for line_form in line_formset %}
+                  <tr class="invoice-line-row{% if line_form.errors %} invoice-line-row--invalid{% endif %}" data-line-index="{{ forloop.counter0 }}">
+                    <td class="invoice-line-row__number">{{ forloop.counter }}</td>
+                    <td>{{ line_form.item }}{% for error in line_form.item.errors %}<span class="ui-field__error">{{ error }}</span>{% endfor %}</td>
+                    <td>{{ line_form.description }}{% for error in line_form.description.errors %}<span class="ui-field__error">{{ error }}</span>{% endfor %}</td>
+                    <td>{{ line_form.quantity }}{% for error in line_form.quantity.errors %}<span class="ui-field__error">{{ error }}</span>{% endfor %}</td>
+                    <td><output class="invoice-line-unit" data-line-unit>—</output></td>
+                    <td>{{ line_form.unit_price }}{% for error in line_form.unit_price.errors %}<span class="ui-field__error">{{ error }}</span>{% endfor %}</td>
+                    <td><output class="invoice-line-total" data-line-total>0</output></td>
+                    <td>{{ line_form.DELETE.as_hidden }}<input type="hidden" name="{{ line_form.note.html_name }}" value="{{ line_form.note.value|default_if_none:'' }}"><button class="invoice-line-remove" type="button" data-remove-line aria-label="{% translate 'حذف السطر' %}">×</button></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <button class="invoice-editor__add-line" type="button" id="add-invoice-line"><span aria-hidden="true">＋</span>{% translate "إضافة صنف" %}</button>
+        </section>
+
+        <template id="invoice-line-template">
+          <tr class="invoice-line-row" data-line-index="__prefix__">
+            <td class="invoice-line-row__number">__number__</td><td>{{ line_formset.empty_form.item }}</td><td>{{ line_formset.empty_form.description }}</td><td>{{ line_formset.empty_form.quantity }}</td><td><output class="invoice-line-unit" data-line-unit>—</output></td><td>{{ line_formset.empty_form.unit_price }}</td><td><output class="invoice-line-total" data-line-total>0</output></td><td>{{ line_formset.empty_form.DELETE.as_hidden }}<input type="hidden" name="{{ line_formset.empty_form.note.html_name }}" value=""><button class="invoice-line-remove" type="button" data-remove-line aria-label="{% translate 'حذف السطر' %}">×</button></td>
+          </tr>
+        </template>
+        {{ item_unit_map|json_script:"invoice-item-units" }}
+        {{ supplier_terms_map|json_script:"invoice-supplier-terms" }}
+
+        <section class="invoice-editor__footer-grid">
+          <div class="invoice-editor__control-note"><strong>{% translate "ضابط مالي" %}</strong><p>{% translate "أي سطر غير صالح سيبقى ظاهراً داخل المسودة بحالة «يحتاج تعديل»؛ لن يُحذف أو يُرحّل بصمت." %}</p></div>
+          <aside class="ui-card invoice-editor__totals" aria-labelledby="invoice-totals-title"><h2 id="invoice-totals-title">{% translate "ملخص الإجمالي" %}</h2><dl><dt>{% translate "إجمالي الأصناف" %}</dt><dd><output id="invoice-lines-total">0</output> <span>IQD</span></dd><dt>{% translate "الخصم" %}</dt><dd><output id="invoice-discount-total">0</output> <span>IQD</span></dd><dt>{% translate "صافي الفاتورة" %}</dt><dd><strong><output id="invoice-grand-total">0</output> <span>IQD</span></strong></dd></dl></aside>
+        </section>
+      {% endif %}
+
+      <div class="invoice-editor__actions"><a class="ui-button ui-button--ghost" href="{{ cancel_url }}">{% translate "إلغاء" %}</a><button class="ui-button ui-button--primary" type="submit">{% if is_create %}{% translate "إنشاء مسودة الفاتورة" %}{% else %}{% translate "حفظ التعديلات" %}{% endif %}</button></div>
     </form>
   </section>
 {% endblock %}

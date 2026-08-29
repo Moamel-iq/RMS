@@ -7,7 +7,7 @@
 {# it. Buttons mirror the command layer; a POST to a hidden action is refused #}
 {# on its merits, not on its visibility.                                      #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page ui-page--detail" aria-labelledby="count-title">
@@ -148,19 +148,19 @@
                   {% endif %}
                 </td>
                 <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
-                <td data-label="{% translate 'دفترياً' %}"><code><bdi dir="ltr">{{ line.book_quantity|stringformat:"f" }}</bdi></code></td>
+                <td data-label="{% translate 'دفترياً' %}"><code><bdi dir="ltr">{{ line.book_quantity|quantity }}</bdi></code></td>
                 <td data-label="{% translate 'معدوداً' %}">
                   {% if line.counted_quantity is not None %}
-                    <code><bdi dir="ltr">{{ line.counted_quantity|stringformat:"f" }}</bdi></code>
+                    <code><bdi dir="ltr">{{ line.counted_quantity|quantity }}</bdi></code>
                   {% else %}—{% endif %}
                 </td>
                 <td data-label="{% translate 'الفرق' %}">
                   {% if line.variance_quantity is not None %}
-                    <code><bdi dir="ltr">{{ line.variance_quantity|stringformat:"f" }}</bdi></code>
+                    <code><bdi dir="ltr">{{ line.variance_quantity|quantity }}</bdi></code>
                   {% else %}—{% endif %}
                 </td>
                 {% if show_cost %}
-                  <td data-label="{% translate 'متوسط الكلفة' %}"><code><bdi dir="ltr">{{ line.book_average|stringformat:"f" }}</bdi></code></td>
+                  <td data-label="{% translate 'متوسط الكلفة' %}"><code><bdi dir="ltr">{{ line.book_average|money }}</bdi></code></td>
                   <td data-label="{% translate 'كلفة معتمدة' %}">
                     {% if is_submitted and line in needs_cost %}
                       <input class="ui-table-input" type="text" dir="ltr" inputmode="decimal"
@@ -171,7 +171,7 @@
                         {% translate "صفر مؤكّد" %}
                       </label>
                     {% elif line.approved_unit_cost is not None %}
-                      <code><bdi dir="ltr">{{ line.approved_unit_cost|stringformat:"f" }}</bdi></code>
+                      <code><bdi dir="ltr">{{ line.approved_unit_cost|money }}</bdi></code>
                       {% if line.zero_cost_confirmed %}
                         <span class="ui-text-muted">{% translate "صفر مؤكّد" %}</span>
                       {% endif %}
@@ -179,7 +179,7 @@
                   </td>
                   <td data-label="{% translate 'قيمة الفرق' %}">
                     {% if line.variance_value is not None %}
-                      <code><bdi dir="ltr">{{ line.variance_value|stringformat:"f" }}</bdi></code>
+                      <code><bdi dir="ltr">{{ line.variance_value|money }}</bdi></code>
                     {% else %}—{% endif %}
                   </td>
                 {% endif %}

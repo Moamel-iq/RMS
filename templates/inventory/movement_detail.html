@@ -1,7 +1,7 @@
 {% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 {% block page %}
   <section class="ui-page ui-page--detail" aria-labelledby="movement-title">
     <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
@@ -20,9 +20,9 @@
     </header>
 
     <section class="ui-summary-grid" aria-label="{% translate 'ملخص الحركة' %}">
-      <article class="ui-summary-item"><span>{% translate "كمية الحركة" %}</span><strong><bdi dir="ltr">{{ movement.base_quantity|stringformat:"f" }} {{ movement.item.base_unit.code }}</bdi></strong></article>
-      <article class="ui-summary-item"><span>{% translate "الرصيد بعد الحركة" %}</span><strong><bdi dir="ltr">{{ movement.quantity_after|stringformat:"f" }} {{ movement.item.base_unit.code }}</bdi></strong><small>{% translate "قبل" %} <b><bdi dir="ltr">{{ movement.quantity_before|stringformat:"f" }}</bdi></b></small></article>
-      {% if show_cost %}<article class="ui-summary-item ui-summary-item--accent"><span>{% translate "قيمة الحركة" %}</span><strong><bdi dir="ltr">{{ movement.inventory_value|stringformat:"f" }}</bdi></strong><small>{% translate "كلفة الوحدة" %} <b><bdi dir="ltr">{{ movement.unit_cost|stringformat:"f" }}</bdi></b></small></article>{% endif %}
+      <article class="ui-summary-item"><span>{% translate "كمية الحركة" %}</span><strong><bdi dir="ltr">{{ movement.base_quantity|quantity }} {{ movement.item.base_unit.code }}</bdi></strong></article>
+      <article class="ui-summary-item"><span>{% translate "الرصيد بعد الحركة" %}</span><strong><bdi dir="ltr">{{ movement.quantity_after|quantity }} {{ movement.item.base_unit.code }}</bdi></strong><small>{% translate "قبل" %} <b><bdi dir="ltr">{{ movement.quantity_before|quantity }}</bdi></b></small></article>
+      {% if show_cost %}<article class="ui-summary-item ui-summary-item--accent"><span>{% translate "قيمة الحركة" %}</span><strong><bdi dir="ltr">{{ movement.inventory_value|money }}</bdi></strong><small>{% translate "كلفة الوحدة" %} <b><bdi dir="ltr">{{ movement.unit_cost|money }}</bdi></b></small></article>{% endif %}
     </section>
 
     <div class="ui-detail-grid">
@@ -48,12 +48,12 @@
       <section class="ui-card ui-form-card ui-detail-grid__wide" aria-labelledby="movement-balance-title">
         <header><h2 id="movement-balance-title">{% translate "أثر الرصيد" %}</h2><p>{% translate "الأرقام كما كانت قبل الترحيل وبعده، بوحدة أساس الصنف." %}</p></header>
         <div class="ui-before-after">
-          <div><span>{% translate "قبل" %}</span><strong><bdi dir="ltr">{{ movement.quantity_before|stringformat:"f" }}</bdi></strong></div><span class="ui-before-after__arrow" aria-hidden="true">←</span><div><span>{% translate "بعد" %}</span><strong><bdi dir="ltr">{{ movement.quantity_after|stringformat:"f" }}</bdi></strong></div>
+          <div><span>{% translate "قبل" %}</span><strong><bdi dir="ltr">{{ movement.quantity_before|quantity }}</bdi></strong></div><span class="ui-before-after__arrow" aria-hidden="true">←</span><div><span>{% translate "بعد" %}</span><strong><bdi dir="ltr">{{ movement.quantity_after|quantity }}</bdi></strong></div>
         </div>
         {% if show_cost %}
           <div class="ui-metric-grid">
-            <div><span>{% translate "القيمة قبل / بعد" %}</span><strong><bdi dir="ltr">{{ movement.value_before|stringformat:"f" }} → {{ movement.value_after|stringformat:"f" }}</bdi></strong></div>
-            <div><span>{% translate "المتوسط قبل / بعد" %}</span><strong><bdi dir="ltr">{{ movement.average_before|stringformat:"f" }} → {{ movement.average_after|stringformat:"f" }}</bdi></strong></div>
+            <div><span>{% translate "القيمة قبل / بعد" %}</span><strong><bdi dir="ltr">{{ movement.value_before|money }} → {{ movement.value_after|money }}</bdi></strong></div>
+            <div><span>{% translate "المتوسط قبل / بعد" %}</span><strong><bdi dir="ltr">{{ movement.average_before|money }} → {{ movement.average_after|money }}</bdi></strong></div>
           </div>
         {% endif %}
       </section>

@@ -10,7 +10,7 @@
 {% extends base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page" id="kitchen-batch-consumption">
@@ -74,7 +74,7 @@
               <span class="ui-badge ui-badge--danger">{% translate "غير مطابق" %}</span>
             {% endif %}
             {% translate "مجموع قيم حركات الإدخال = قيمة مدخلات الدفعة = قيمة ناتجها." %}
-            <bdi dir="ltr"><code>{{ report.input_movement_value }} = {{ batch.input_value }} = {{ batch.output_value }}</code></bdi>
+            <bdi dir="ltr"><code>{{ report.input_movement_value|money }} = {{ batch.input_value|money }} = {{ batch.output_value|money }}</code></bdi>
           </li>
         {% endif %}
       </ul>
@@ -125,14 +125,14 @@
                   {% endif %}
                 </td>
                 <td data-label="{% translate 'المُدخل' %}">
-                  <bdi dir="ltr"><code>{{ row.entered_quantity }} {{ row.entered_unit_code }}</code></bdi>
+                  <bdi dir="ltr"><code>{{ row.entered_quantity|quantity }} {{ row.entered_unit_code }}</code></bdi>
                 </td>
                 <td data-label="{% translate 'الكمية الأساسية' %}">
-                  <bdi dir="ltr"><code>{{ row.base_quantity }} {{ row.base_unit_code }}</code></bdi>
+                  <bdi dir="ltr"><code>{{ row.base_quantity|quantity }} {{ row.base_unit_code }}</code></bdi>
                 </td>
                 <td data-label="{% translate 'اللوطات والمواقع' %}">
                   {% for allocation in row.allocations %}
-                    <bdi dir="ltr"><code>{{ allocation.lot_code|default:"—" }} / {{ allocation.location_code|default:"—" }} : {{ allocation.base_quantity }}</code></bdi><br>
+                    <bdi dir="ltr"><code>{{ allocation.lot_code|default:"—" }} / {{ allocation.location_code|default:"—" }} : {{ allocation.base_quantity|quantity }}</code></bdi><br>
                   {% empty %}—{% endfor %}
                 </td>
                 {% if show_cost %}

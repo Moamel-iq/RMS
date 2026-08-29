@@ -131,6 +131,31 @@ class SettlementPlan:
 
 
 @dataclass(frozen=True)
+class InvoiceRow:
+    """One open invoice and the balance the plans were built from."""
+
+    invoice: SupplierInvoice
+    outstanding: Decimal
+
+
+@dataclass(frozen=True)
+class PlanRow:
+    """One plan and how far it lands from the target. Signed."""
+
+    plan: SettlementPlan
+    difference: Decimal
+
+
+@dataclass(frozen=True)
+class CycleInvoiceRow:
+    """One invoice in a cycle, and how it is sitting."""
+
+    invoice: SupplierInvoice
+    outstanding: Decimal
+    settled: Decimal
+
+
+@dataclass(frozen=True)
 class SettlementWorkspace:
     """
     Everything the settlement screen shows before anybody commits to anything.
@@ -143,12 +168,54 @@ class SettlementWorkspace:
 
     supplier: Supplier
     cycle: SupplierPaymentCycle | None
-    invoices: list[SupplierInvoice]
+    #: The open invoices and what each still owes, read once. The screen needs
+    #: both numbers on every row, and re-deriving the balance per invoice in a
+    #: template would put a query behind a table cell.
+    owings: list[Owing]
     open_total: Decimal
     minimum_percent: Decimal | None
     target: Decimal
     plans: list[SettlementPlan]
     on_date: datetime.date
+
+    @property
+    def invoices(self) -> list[SupplierInvoice]:
+        """The open invoices alone, oldest first."""
+        return [invoice for invoice, _owing in self.owings]
+
+    @property
+    def invoice_rows(self) -> list[InvoiceRow]:
+        """One row per open invoice, carrying the balance the plans used."""
+        return [InvoiceRow(invoice=invoice, outstanding=owing) for invoice, owing in self.owings]
+
+    @property
+    def plan_rows(self) -> list[PlanRow]:
+        """
+        Each plan beside its difference from the target.
+
+        Computed here rather than in the template because `difference_from`
+        takes the target as an argument, and a template cannot pass one — the
+        alternative was a filter whose whole job would be to call this.
+        """
+        return [
+            PlanRow(plan=plan, difference=plan.difference_from(self.target)) for plan in self.plans
+        ]
+
+    @property
+    def target_exact(self) -> str:
+        """
+        The target as an exact string, for the hidden field that posts it back.
+
+        Not `stringformat:"f"` in the template: Django's `%f` converts through
+        a binary float, and this figure is re-entered and compared rather than
+        merely read. `Decimal.__format__` is exact at any magnitude.
+        """
+        return format(self.target, "f")
+
+    @property
+    def open_total_exact(self) -> str:
+        """The displayed balance, exactly, for the drift check to compare."""
+        return format(self.open_total, "f")
 
     @property
     def days_remaining(self) -> int | None:
@@ -253,7 +320,6 @@ def workspace_for(
     on_date = on or timezone.localdate()
     cycle = collecting_cycle(supplier)
     owings = open_owings(supplier)
-    invoices = [invoice for invoice, _ in owings]
     running: Decimal = sum((owing for _, owing in owings), ZERO)
     open_total = quantize_money(running)
 
@@ -279,7 +345,7 @@ def workspace_for(
     return SettlementWorkspace(
         supplier=supplier,
         cycle=cycle,
-        invoices=invoices,
+        owings=owings,
         open_total=open_total,
         minimum_percent=minimum,
         target=wanted,
@@ -288,15 +354,16 @@ def workspace_for(
     )
 
 
-def cycle_invoice_rows(cycle: SupplierPaymentCycle) -> list[dict[str, object]]:
+def cycle_invoice_rows(cycle: SupplierPaymentCycle) -> list[CycleInvoiceRow]:
     """The cycle's invoices with what each still owes, for the detail panel."""
-    return [
-        {
-            "invoice": invoice,
-            "outstanding": outstanding_amount(invoice),
-            "settled": quantize_money(
-                (invoice.posted_amount or ZERO) - outstanding_amount(invoice)
-            ),
-        }
-        for invoice in cycle_invoices(cycle)
-    ]
+    rows: list[CycleInvoiceRow] = []
+    for invoice in cycle_invoices(cycle):
+        outstanding = outstanding_amount(invoice)
+        rows.append(
+            CycleInvoiceRow(
+                invoice=invoice,
+                outstanding=outstanding,
+                settled=quantize_money((invoice.posted_amount or ZERO) - outstanding),
+            )
+        )
+    return rows

@@ -175,3 +175,15 @@ def test_approved_desktop_density_keeps_mobile_and_htmx_layout_safe() -> None:
     assert "display: flex" in purchase_css
     assert "ui-loading--inline ui-purchase-loading htmx-indicator" in purchase
     assert "ui-purchase-result-count ui-sr-only" in purchase
+
+
+def test_numeric_templates_use_domain_filters_instead_of_six_decimal_printf() -> None:
+    violations: list[str] = []
+    for path in TEMPLATES.rglob("*.html"):
+        source = path.read_text(encoding="utf-8")
+        if re.search(r'{{[^}]+\|stringformat:"f"', source) or re.search(
+            r'{{[^}]+\|floatformat:"-6"', source
+        ):
+            violations.append(str(path.relative_to(ROOT)))
+
+    assert not violations, "legacy six-decimal rendering remains in:\n  " + "\n  ".join(violations)

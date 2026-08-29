@@ -9,7 +9,7 @@
 {% extends fragment_base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <div class="ui-page ui-page--form" id="production-action">
@@ -36,7 +36,7 @@
         <dd><code dir="ltr">{{ batch.number }}</code></dd>
         {% if can_read_cost %}
           <dt>{% translate "قيمة الناتج المرحّلة" %}</dt>
-          <dd><code dir="ltr">{{ batch.output_value }}</code></dd>
+          <dd><code dir="ltr">{{ batch.output_value|money }}</code></dd>
         {% endif %}
         <dt>{% translate "القيد المحاسبي" %}</dt>
         <dd>

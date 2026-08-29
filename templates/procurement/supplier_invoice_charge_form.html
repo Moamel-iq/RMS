@@ -1,7 +1,7 @@
 {% extends base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 {% block page %}
 <section class="ui-page ui-page--form" id="supplier-charge-form" aria-labelledby="charge-form-title">
   <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}"><a href="{% url 'procurement:supplier_invoice_list' %}">{% translate "فواتير المشتريات" %}</a><span aria-hidden="true">/</span><a href="{% url 'procurement:supplier_invoice_detail' invoice.pk %}"><bdi dir="ltr">{{ invoice.number|default:invoice.supplier_invoice_number }}</bdi></a><span aria-hidden="true">/</span><span aria-current="page">{{ page_title }}</span></nav>

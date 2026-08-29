@@ -31,9 +31,9 @@ from apps.supplier_quotes.api import router as supplier_quotes_router
 from config import __version__
 
 api = NinjaAPI(
-    title="Khan Mandi RMS API",
+    title="Jadwa RMS API",
     version="1.0.0",
-    description="Khan Mandi Restaurant Management System — internal API.",
+    description="Jadwa Restaurant Management System — internal API.",
     urls_namespace="api_v1",
     # Authenticated by default, so a new endpoint is private unless its author
     # says otherwise. The opposite default eventually ships something open.

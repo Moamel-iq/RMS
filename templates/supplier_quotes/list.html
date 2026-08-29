@@ -54,7 +54,7 @@
                 <td data-label="الهاتف"><bdi class="ui-nowrap" dir="ltr">{{ quote.phone|default:"—" }}</bdi></td>
                 <td data-label="التاريخ"><time datetime="{{ quote.quote_date|date:'Y-m-d' }}">{{ quote.quote_date }}</time></td>
                 <td data-label="الحالة"><span class="ui-badge{% if quote.status_label == 'عرض أصناف' %} ui-badge--success{% elif quote.status_label == 'مستند فقط' %} ui-badge--info{% else %} ui-badge--warning{% endif %}">{{ quote.status_label }}</span></td>
-                <td class="ui-table__numeric" data-label="الإجمالي">{{ quote.total_amount }} د.ع</td>
+                <td class="ui-table__numeric" data-label="الإجمالي">{{ quote.total_amount|money }} د.ع</td>
                 <td data-label="الإجراءات"><a class="ui-button ui-button--secondary ui-button--small" href="{% url 'supplier_quotes:detail' quote.pk %}">فتح</a></td>
               </tr>
             {% empty %}

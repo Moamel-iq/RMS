@@ -11,7 +11,7 @@
 {% extends base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page" id="kitchen-usage-variance">
@@ -119,11 +119,11 @@
                 </td>
                 <td data-label="{% translate 'الصنف' %}">{{ row.item_code }} — {{ row.item_name }}</td>
                 <td data-label="{% translate 'المخطط' %}">
-                  <bdi dir="ltr"><code>{{ row.planned_base_quantity }}</code></bdi>
+                  <bdi dir="ltr"><code>{{ row.planned_base_quantity|quantity }}</code></bdi>
                 </td>
                 <td data-label="{% translate 'الفعلي' %}">
                   {% if row.is_comparable %}
-                    <bdi dir="ltr"><code>{{ row.actual_base_quantity }}</code></bdi>
+                    <bdi dir="ltr"><code>{{ row.actual_base_quantity|quantity }}</code></bdi>
                   {% else %}—{% endif %}
                 </td>
                 <td data-label="{% translate 'الانحراف' %}">
@@ -257,7 +257,7 @@
                   <bdi dir="ltr"><code class="ui-badge">{{ source.status }}</code></bdi>
                 </td>
                 <td data-label="{% translate 'عدد المساهمات' %}"><bdi dir="ltr">{{ source.contribution_count }}</bdi></td>
-                <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ source.total_quantity }}</code></bdi></td>
+                <td data-label="{% translate 'الكمية' %}"><bdi dir="ltr"><code>{{ source.total_quantity|quantity }}</code></bdi></td>
               </tr>
             {% endfor %}
           </tbody>

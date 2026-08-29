@@ -1,7 +1,7 @@
 {% extends shell_base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{% translate "نظرة عامة" %} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{% translate "نظرة عامة" %} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   {% if active_module.key == "home" %}

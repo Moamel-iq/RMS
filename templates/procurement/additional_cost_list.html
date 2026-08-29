@@ -11,7 +11,7 @@
 {% extends form_base_template|default:"shell.html" %}
 {% load i18n %}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <div class="ui-page ui-page--list" id="procurement-additional-costs">
@@ -124,7 +124,7 @@
                 </td>
                 {% if show_cost %}
                   <td data-label="{% translate 'المبلغ' %}">
-                    <bdi dir="ltr"><code>{{ row.net_amount }}</code></bdi>
+                    <bdi dir="ltr"><code>{{ row.net_amount|money }}</code></bdi>
                   </td>
                 {% endif %}
                 <td data-label="{% translate 'تاريخ الفاتورة' %}">

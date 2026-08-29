@@ -1,0 +1,67 @@
+{% extends shell_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{# حول النظام — the one screen that states the product's formal identity.    #}
+{#                                                                           #}
+{# It names two separate things and must not blur them: the software, which  #}
+{# is Jadwa's, and the organizations running it, which are the customers'.   #}
+{# Everything on the left is the product; the build facts on the right are   #}
+{# what a support conversation actually needs quoted.                        #}
+
+{% block title %}{% translate "حول النظام" %} · {{ brand_document }}{% endblock %}
+
+{% block page %}
+  <section class="ui-page" id="about-system">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{{ brand_short }}</p>
+        <h1 class="ui-page-header__title">{% translate "حول النظام" %}</h1>
+        <p class="ui-page-header__hint">
+          {% translate "اسم المنتج ونسخته وما يعتمد عليه. اذكر هذه المعلومات عند طلب الدعم." %}
+        </p>
+      </div>
+    </div>
+
+    <div class="ui-detail-grid">
+      <section class="ui-card ui-form-card" aria-labelledby="about-product-title">
+        <h2 id="about-product-title">{% translate "المنتج" %}</h2>
+        <dl class="ui-definition-list">
+          <dt>{% translate "الاسم الرسمي" %}</dt>
+          <dd><bdi dir="ltr">{{ brand_full }}</bdi></dd>
+          <dt>{% translate "الاسم المختصر" %}</dt>
+          <dd><bdi dir="ltr">Jadwa RMS</bdi></dd>
+          <dt>{% translate "الاسم العربي" %}</dt>
+          <dd>{{ brand_sign_in }}</dd>
+          <dt>{% translate "الجهة المنتجة" %}</dt>
+          <dd>{% translate "شركة" %} <bdi dir="ltr">{{ brand_vendor }}</bdi></dd>
+        </dl>
+      </section>
+
+      <section class="ui-card ui-form-card" aria-labelledby="about-build-title">
+        <h2 id="about-build-title">{% translate "هذه النسخة" %}</h2>
+        <dl class="ui-definition-list">
+          <dt>{% translate "الإصدار" %}</dt>
+          <dd><bdi dir="ltr">{{ version }}</bdi></dd>
+          <dt>{% translate "المنصة" %}</dt>
+          <dd><bdi dir="ltr">Django {{ django_version }} · Python {{ python_version }}</bdi></dd>
+          <dt>{% translate "المنطقة الزمنية" %}</dt>
+          <dd><bdi dir="ltr">{{ time_zone }}</bdi></dd>
+        </dl>
+      </section>
+    </div>
+
+    {% if organizations %}
+      <section class="ui-card ui-form-card" aria-labelledby="about-tenants-title">
+        <h2 id="about-tenants-title">{% translate "المؤسسات التي تستخدم هذه النسخة" %}</h2>
+        <p class="ui-text-muted">
+          {% translate "هذه أسماء المؤسسات صاحبة البيانات، وهي غير اسم النظام: النظام جدوى، والبيانات لهذه المؤسسات." %}
+        </p>
+        <ul class="ui-plain-list">
+          {% for organization in organizations %}
+            <li><code><bdi dir="ltr">{{ organization.code }}</bdi></code> — {{ organization.name }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </section>
+{% endblock %}

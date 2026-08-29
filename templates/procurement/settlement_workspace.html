@@ -1,0 +1,392 @@
+{% extends shell_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{# تسديد الموردين — one supplier's open account, and the ways to settle it.  #}
+{#                                                                           #}
+{# The screen reads top to bottom in the order the decision is made: which   #}
+{# window is running and when it falls due, how much is owed and how much    #}
+{# was agreed to move by then, then which invoices a payment of that size    #}
+{# actually settles. The plans come last because they are the answer, not    #}
+{# the question.                                                             #}
+{#                                                                           #}
+{# It drafts; it does not pay. Every button here produces an ordinary        #}
+{# supplier payment with its allocations already on it, and the money leaves #}
+{# on the payment screen, under a separate permission.                       #}
+
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
+
+{% block page %}
+  <section class="ui-page" id="supplier-settlement">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{% translate "تسديد الموردين" %}</h1>
+        <p class="ui-page-header__hint">
+          {% translate "اختر المورد ليعرض النظام دورة السداد الجارية، والرصيد غير المسدَّد، والمبلغ المطلوب حسب الحد الأدنى المتفق عليه، ثم الفواتير التي يسدّدها ذلك المبلغ بالأقدم فالأقدم." %}
+        </p>
+      </div>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:supplier_payment_list' %}">
+          {% translate "دفعات الموردين" %}
+        </a>
+        <a class="ui-button ui-button--ghost" href="{% url 'procurement:report_payment_cycles' %}">
+          {% translate "تقرير دورات السداد" %}
+        </a>
+      </div>
+    </div>
+
+    {# --- choosing the supplier ------------------------------------------ #}
+    <form class="ui-card ui-form-card" method="get" action="{{ request.path }}">
+      <h2 class="ui-section-title">{% translate "المورد" %}</h2>
+      <div class="ui-form-grid">
+        <div class="ui-field" data-field>
+          <label class="ui-field__label" for="settlement-supplier">{% translate "المورد" %}</label>
+          <select id="settlement-supplier" name="supplier">
+            <option value="">{% translate "— اختر مورداً —" %}</option>
+            {% for row in suppliers %}
+              <option value="{{ row.pk }}"{% if supplier and row.pk == supplier.pk %} selected{% endif %}>
+                {{ row.code }} — {{ row.name }}
+              </option>
+            {% endfor %}
+          </select>
+          <p class="ui-field__hint">{% translate "الموردون الذين لهم فواتير مرحّلة فقط." %}</p>
+        </div>
+        {% if supplier %}
+          {# The manual amount reloads the screen so the three plans are #}
+          {# recomputed against it — never a fourth plan bolted on.      #}
+          <div class="ui-field" data-field>
+            <label class="ui-field__label" for="settlement-target">{% translate "مبلغ يدوي (اختياري)" %}</label>
+            <input id="settlement-target" name="target" type="text" inputmode="decimal"
+                   dir="ltr" value="{{ manual_target }}">
+            <p class="ui-field__hint">
+              {% translate "اتركه فارغاً ليُحتسب المبلغ من الحد الأدنى المتفق عليه." %}
+            </p>
+          </div>
+        {% endif %}
+      </div>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "عرض" %}</button>
+        {% if supplier %}
+          <a class="ui-button ui-button--ghost" href="{{ request.path }}?supplier={{ supplier.pk }}">
+            {% translate "إعادة الاحتساب بالحد الأدنى" %}
+          </a>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if not supplier %}
+      <div class="ui-card ui-form-card">
+        <p class="ui-text-muted">{% translate "اختر مورداً لعرض حسابه." %}</p>
+      </div>
+    {% else %}
+
+      {# --- the cycle, and what it asks for ----------------------------- #}
+      <div class="ui-detail-grid">
+        <section class="ui-card ui-form-card" aria-labelledby="settlement-cycle-title">
+          <h2 id="settlement-cycle-title">{% translate "دورة السداد الجارية" %}</h2>
+          <dl class="ui-definition-list">
+            <dt>{% translate "المورد" %}</dt>
+            <dd>{{ supplier.code }} — {{ supplier.name }}</dd>
+            <dt>{% translate "مهلة السداد" %}</dt>
+            <dd>
+              {% if workspace.cycle %}
+                <bdi dir="ltr">{{ workspace.cycle.payment_terms_days }}</bdi> {% translate "يوم" %}
+              {% elif supplier.payment_terms_days %}
+                <bdi dir="ltr">{{ supplier.payment_terms_days }}</bdi> {% translate "يوم" %}
+              {% else %}{% translate "عند الاستلام" %}{% endif %}
+            </dd>
+            {% if workspace.cycle %}
+              <dt>{% translate "بداية الدورة" %}</dt>
+              <dd><bdi dir="ltr">{{ workspace.cycle.opened_on|date:"Y-m-d" }}</bdi></dd>
+              <dt>{% translate "تاريخ الاستحقاق" %}</dt>
+              <dd><bdi dir="ltr">{{ workspace.cycle.due_date|date:"Y-m-d" }}</bdi></dd>
+              <dt>{% translate "الأيام المتبقية" %}</dt>
+              <dd>
+                {% if workspace.is_overdue %}
+                  <span class="ui-badge ui-badge--danger">
+                    {% blocktranslate with days=workspace.days_remaining %}متأخرة {{ days }} يوماً{% endblocktranslate %}
+                  </span>
+                {% else %}
+                  <strong><bdi dir="ltr">{{ workspace.days_remaining }}</bdi></strong>
+                {% endif %}
+              </dd>
+            {% else %}
+              <dt>{% translate "الدورة" %}</dt>
+              <dd class="ui-text-muted">{% translate "لا توجد دورة مفتوحة للفواتير الآن." %}</dd>
+            {% endif %}
+          </dl>
+        </section>
+
+        {% if may_see_cost %}
+          <section class="ui-card ui-form-card ui-total-card" aria-labelledby="settlement-target-title">
+            <h2 id="settlement-target-title">{% translate "المبلغ المطلوب تسديده" %}</h2>
+            <p class="ui-total-card__amount"><bdi dir="ltr">{{ workspace.target|money_full }}</bdi></p>
+            <dl class="ui-definition-list">
+              <dt>{% translate "إجمالي غير المسدَّد" %}</dt>
+              <dd><bdi dir="ltr">{{ workspace.open_total|money_full }}</bdi></dd>
+              <dt>{% translate "الحد الأدنى للسداد" %}</dt>
+              <dd>
+                {% if workspace.minimum_percent %}
+                  <bdi dir="ltr">{{ workspace.minimum_percent|floatformat:"-2" }}</bdi>٪
+                {% else %}
+                  <span class="ui-text-muted">{% translate "لم يُتفق على حد — المطلوب كامل الرصيد" %}</span>
+                {% endif %}
+              </dd>
+              {% if manual_target %}
+                <dt>{% translate "المصدر" %}</dt>
+                <dd><span class="ui-badge">{% translate "مبلغ يدوي" %}</span></dd>
+              {% endif %}
+            </dl>
+          </section>
+        {% endif %}
+      </div>
+
+      {# --- the open invoices, oldest first ------------------------------ #}
+      <section class="ui-card ui-form-card ui-lines-card" aria-labelledby="settlement-invoices-title">
+        <h2 id="settlement-invoices-title">{% translate "الفواتير المفتوحة" %}</h2>
+        <p class="ui-text-muted">
+          {% translate "بالأقدم فالأقدم — وهو ترتيب السداد نفسه. تظهر هنا فواتير كل الدورات غير المسدَّدة، لأن المال يسدّد أقدم دَين أولاً." %}
+        </p>
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
+            <thead>
+              <tr>
+                <th>{% translate "الفاتورة" %}</th>
+                <th>{% translate "تاريخ الفاتورة" %}</th>
+                <th>{% translate "الاستحقاق" %}</th>
+                <th>{% translate "الدورة" %}</th>
+                <th>{% translate "الحالة" %}</th>
+                {% if may_see_cost %}
+                  <th>{% translate "قيمة الفاتورة" %}</th>
+                  <th>{% translate "المتبقي" %}</th>
+                {% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in workspace.invoice_rows %}
+                {% with invoice=row.invoice %}
+                <tr>
+                  <td data-label="{% translate 'الفاتورة' %}">
+                    <a href="{% url 'procurement:supplier_invoice_detail' invoice.pk %}">
+                      <bdi dir="ltr">{{ invoice.number|default:invoice.supplier_invoice_number }}</bdi>
+                    </a>
+                  </td>
+                  <td data-label="{% translate 'تاريخ الفاتورة' %}"><bdi dir="ltr">{{ invoice.invoice_date|date:"Y-m-d" }}</bdi></td>
+                  <td data-label="{% translate 'الاستحقاق' %}"><bdi dir="ltr">{{ invoice.due_date|date:"Y-m-d" }}</bdi></td>
+                  <td data-label="{% translate 'الدورة' %}">
+                    {% if invoice.cycle %}<bdi dir="ltr">{{ invoice.cycle.sequence }}</bdi>{% else %}—{% endif %}
+                  </td>
+                  <td data-label="{% translate 'الحالة' %}">
+                    {% if invoice.cycle %}
+                      <span class="ui-badge">{{ invoice.cycle.get_status_display }}</span>
+                    {% else %}—{% endif %}
+                  </td>
+                  {% if may_see_cost %}
+                    <td data-label="{% translate 'قيمة الفاتورة' %}"><bdi dir="ltr">{{ invoice.posted_amount|money_full }}</bdi></td>
+                    <td data-label="{% translate 'المتبقي' %}"><strong><bdi dir="ltr">{{ row.outstanding|money_full }}</bdi></strong></td>
+                  {% endif %}
+                </tr>
+                {% endwith %}
+              {% empty %}
+                <tr><td colspan="7" data-empty-state>{% translate "لا توجد فواتير مفتوحة لهذا المورد." %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {# --- the plans ---------------------------------------------------- #}
+      {% if workspace.invoices and may_settle %}
+        <form class="ui-card ui-form-card" method="post" action="{{ request.path }}" novalidate id="settlement-form">
+          {% csrf_token %}
+          <h2 class="ui-section-title">{% translate "تأكيد التسديد" %}</h2>
+          {% include "components/form_error_summary.html" with form=form %}
+          <p class="ui-text-muted">
+            {% translate "املأ بيانات الدفعة ثم اختر إحدى الخطط أدناه. لا يخرج مال الآن: تُنشأ مسودة دفعة بالتخصيصات جاهزة، ويتم الترحيل من شاشة الدفعة بصلاحية منفصلة." %}
+          </p>
+
+          <input type="hidden" name="supplier" value="{{ supplier.pk }}">
+          {# Exact Decimal strings, not `stringformat:"f"` — that goes through #}
+          {# a binary float, and both figures are posted back and compared.    #}
+          <input type="hidden" name="target" value="{{ workspace.target_exact }}">
+          <input type="hidden" name="shown_open_total" value="{{ workspace.open_total_exact }}">
+
+          <div class="ui-form-grid">
+            {% include "settings/_field.html" with field=form.branch %}
+            {% include "settings/_field.html" with field=form.paid_at %}
+            {% include "settings/_field.html" with field=form.method %}
+            {% include "settings/_field.html" with field=form.reference %}
+          </div>
+          <details class="ui-disclosure"{% if form.notes.errors %} open{% endif %}>
+            <summary>{% translate "ملاحظات (اختياري)" %}</summary>
+            <div class="ui-form-grid">{% include "settings/_field.html" with field=form.notes %}</div>
+          </details>
+        </form>
+
+        <section aria-labelledby="settlement-plans-title">
+          <h2 class="ui-section-title" id="settlement-plans-title">{% translate "خطط التسديد" %}</h2>
+          <p class="ui-text-muted">
+            {% translate "المبلغ المستهدف نادراً ما يساوي مجموع عدد صحيح من الفواتير، فيعرض النظام الاحتمالات الصادقة بدل أن يختار واحداً بصمت." %}
+          </p>
+
+          {% for row in workspace.plan_rows %}
+            {% with plan=row.plan %}
+            <section class="ui-card ui-form-card" aria-labelledby="plan-{{ plan.kind }}-title">
+              <h3 id="plan-{{ plan.kind }}-title">{{ plan.label }}</h3>
+              <p class="ui-text-muted">{{ plan.description }}</p>
+
+              {% if plan.allocations %}
+                <dl class="ui-definition-list">
+                  <dt>{% translate "عدد الفواتير" %}</dt>
+                  <dd><bdi dir="ltr">{{ plan.invoice_count }}</bdi></dd>
+                  {% if may_see_cost %}
+                    <dt>{% translate "إجمالي الخطة" %}</dt>
+                    <dd><strong><bdi dir="ltr">{{ plan.total|money_full }}</bdi></strong></dd>
+                    <dt>{% translate "الفرق عن المستهدف" %}</dt>
+                    <dd>
+                      {# The sign is the message: over the target, short of #}
+                      {# it, or exactly on it. `bdi` keeps the minus on the  #}
+                      {# number rather than letting RTL move it.            #}
+                      {% if row.difference > 0 %}
+                        <span class="ui-badge ui-badge--warning">
+                          {% translate "يزيد" %} <bdi dir="ltr">{{ row.difference|money_full }}</bdi>
+                        </span>
+                      {% elif row.difference < 0 %}
+                        <span class="ui-badge">
+                          {% translate "ينقص" %} <bdi dir="ltr">{{ row.difference|money_full }}</bdi>
+                        </span>
+                      {% else %}
+                        <span class="ui-badge ui-badge--success">{% translate "مطابق تماماً" %}</span>
+                      {% endif %}
+                    </dd>
+                  {% endif %}
+                </dl>
+
+                {% if plan.splits_an_invoice %}
+                  <p class="ui-inline-feedback" role="status">
+                    {% translate "هذه الخطة تسدّد جزءاً من آخر فاتورة؛ يبقى المتبقي منها ديناً قائماً." %}
+                  </p>
+                {% endif %}
+
+                <div class="ui-table-scroll" tabindex="0">
+                  <table class="ui-table ui-table--responsive">
+                    <thead>
+                      <tr>
+                        <th>{% translate "الفاتورة" %}</th>
+                        <th>{% translate "التاريخ" %}</th>
+                        {% if may_see_cost %}
+                          <th>{% translate "المتبقي عليها" %}</th>
+                          <th>{% translate "المسدَّد من الخطة" %}</th>
+                        {% endif %}
+                        <th>{% translate "النوع" %}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for line in plan.allocations %}
+                        <tr>
+                          <td data-label="{% translate 'الفاتورة' %}">
+                            <bdi dir="ltr">{{ line.invoice.number|default:line.invoice.supplier_invoice_number }}</bdi>
+                          </td>
+                          <td data-label="{% translate 'التاريخ' %}"><bdi dir="ltr">{{ line.invoice.invoice_date|date:"Y-m-d" }}</bdi></td>
+                          {% if may_see_cost %}
+                            <td data-label="{% translate 'المتبقي عليها' %}"><bdi dir="ltr">{{ line.outstanding|money_full }}</bdi></td>
+                            <td data-label="{% translate 'المسدَّد من الخطة' %}"><strong><bdi dir="ltr">{{ line.amount|money_full }}</bdi></strong></td>
+                          {% endif %}
+                          <td data-label="{% translate 'النوع' %}">
+                            {% if line.is_partial %}
+                              <span class="ui-badge ui-badge--warning">{% translate "جزئي" %}</span>
+                            {% else %}
+                              <span class="ui-badge ui-badge--success">{% translate "كاملة" %}</span>
+                            {% endif %}
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="ui-form-actions">
+                  <button class="ui-button ui-button--primary" type="submit"
+                          form="settlement-form" name="plan" value="{{ plan.kind }}"
+                          data-confirm-title="{% translate 'تأكيد خطة التسديد' %}"
+                          data-confirm-subject="{{ supplier.name }} — {{ plan.label }}"
+                          data-confirm-amount="{{ plan.total|money_full }}"
+                          data-confirm-accept="{% translate 'إنشاء مسودة التسديد' %}"
+                          data-confirm="{% blocktranslate with count=plan.invoice_count %}ستُنشأ مسودة دفعة على {{ count }} فاتورة. لا يخرج المال إلا بترحيلها.{% endblocktranslate %}">
+                    {% blocktranslate with label=plan.label %}اعتماد {{ label }}{% endblocktranslate %}
+                  </button>
+                </div>
+              {% else %}
+                <p class="ui-text-muted" data-empty-state>
+                  {% translate "لا تنطبق هذه الخطة على المبلغ المستهدف: لا توجد فاتورة كاملة تقع تحته." %}
+                </p>
+              {% endif %}
+            </section>
+            {% endwith %}
+          {% endfor %}
+        </section>
+      {% elif workspace.invoices %}
+        <div class="ui-card ui-form-card">
+          <p class="ui-text-muted">{% translate "ليس لديك صلاحية تسجيل دفعات لهذا المورد. العرض فقط." %}</p>
+        </div>
+      {% endif %}
+
+      {# --- every unsettled window, for context -------------------------- #}
+      {% if cycles %}
+        <details class="ui-disclosure">
+          <summary>{% translate "كل دورات السداد غير المسدَّدة" %}</summary>
+          <div class="ui-disclosure__body">
+            <p class="ui-text-muted">
+              {% translate "المورد الذي تأخّر حسابه أشهراً يقف بدورة مستحقة عن كل شهر. الدورة تُقرّر متى يُستحق الدفع، لا أي فاتورة يقع عليها المبلغ." %}
+            </p>
+            {% for entry in cycles %}
+              <section class="ui-card ui-form-card">
+                <h3>
+                  {% blocktranslate with sequence=entry.cycle.sequence %}الدورة {{ sequence }}{% endblocktranslate %}
+                  <span class="ui-badge">{{ entry.cycle.get_status_display }}</span>
+                </h3>
+                <dl class="ui-definition-list">
+                  <dt>{% translate "بداية الدورة" %}</dt>
+                  <dd><bdi dir="ltr">{{ entry.cycle.opened_on|date:"Y-m-d" }}</bdi></dd>
+                  <dt>{% translate "تاريخ الاستحقاق" %}</dt>
+                  <dd><bdi dir="ltr">{{ entry.cycle.due_date|date:"Y-m-d" }}</bdi></dd>
+                  <dt>{% translate "الأيام المتبقية" %}</dt>
+                  <dd><bdi dir="ltr">{{ entry.days_remaining }}</bdi></dd>
+                </dl>
+                <div class="ui-table-scroll" tabindex="0">
+                  <table class="ui-table ui-table--responsive">
+                    <thead>
+                      <tr>
+                        <th>{% translate "الفاتورة" %}</th>
+                        {% if may_see_cost %}
+                          <th>{% translate "المسدَّد" %}</th>
+                          <th>{% translate "المتبقي" %}</th>
+                        {% endif %}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in entry.rows %}
+                        <tr>
+                          <td data-label="{% translate 'الفاتورة' %}">
+                            <a href="{% url 'procurement:supplier_invoice_detail' row.invoice.pk %}">
+                              <bdi dir="ltr">{{ row.invoice.number|default:row.invoice.supplier_invoice_number }}</bdi>
+                            </a>
+                          </td>
+                          {% if may_see_cost %}
+                            <td data-label="{% translate 'المسدَّد' %}"><bdi dir="ltr">{{ row.settled|money_full }}</bdi></td>
+                            <td data-label="{% translate 'المتبقي' %}"><bdi dir="ltr">{{ row.outstanding|money_full }}</bdi></td>
+                          {% endif %}
+                        </tr>
+                      {% empty %}
+                        <tr><td colspan="3" data-empty-state>{% translate "لا فواتير مرحّلة في هذه الدورة." %}</td></tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            {% endfor %}
+          </div>
+        </details>
+      {% endif %}
+    {% endif %}
+  </section>
+{% endblock %}

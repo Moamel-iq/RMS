@@ -1,0 +1,17 @@
+{% load i18n %}
+{# The formal name, once, at the bottom of every screen.                     #}
+{#                                                                           #}
+{# `ui-no-print` deliberately: a printed sheet already carries the wordmark   #}
+{# in its header, and a second copy at the foot of every page would compete  #}
+{# with the tenant's own letterhead on their invoice.                        #}
+<footer class="ui-app-footer ui-no-print">
+  <p class="ui-app-footer__product">
+    <bdi dir="ltr">{{ brand_full }}</bdi>
+    <span class="ui-app-footer__vendor">
+      — {% translate "من شركة" %} <bdi dir="ltr">{{ brand_vendor }}</bdi>
+    </span>
+  </p>
+  <p class="ui-app-footer__links">
+    <a href="{% url 'core:about' %}">{% translate "حول النظام" %}</a>
+  </p>
+</footer>

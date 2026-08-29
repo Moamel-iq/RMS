@@ -117,6 +117,7 @@ from apps.procurement.forms import (
     SupplierCreditTermForm,
     SupplierForm,
     SupplierInvoiceChargeForm,
+    SupplierInvoiceDraftLineFormSet,
     SupplierInvoiceForm,
     SupplierItemForm,
     SupplierPaymentForm,
@@ -126,16 +127,21 @@ from apps.procurement.forms import (
     SupplierReturnLineForm,
 )
 from apps.procurement.invoices import (
+    DraftInvoiceLineCommand,
     add_account_line,
     add_inventory_line,
     approve_supplier_invoice,
     create_supplier_invoice,
+    create_supplier_invoice_with_lines,
+    delete_draft_line_issue,
     invoice_timeline,
     outstanding_amount,
     post_supplier_invoice,
     remove_invoice_line,
+    resolve_draft_line_issue,
     return_supplier_invoice_to_draft,
     reverse_supplier_invoice,
+    update_draft_line_issue,
     update_supplier_invoice,
 )
 from apps.procurement.matching import (
@@ -162,6 +168,8 @@ from apps.procurement.models import (
     SupplierInvoiceChargeAllocationBasis,
     SupplierInvoiceChargeManualShare,
     SupplierInvoiceChargeTreatment,
+    SupplierInvoiceDraftLineIssue,
+    SupplierInvoiceDraftLineIssueStatus,
     SupplierInvoiceLine,
     SupplierInvoiceLineType,
     SupplierInvoicePosting,
@@ -2106,7 +2114,143 @@ class SupplierInvoiceCreateView(InventoryWriteView):
         "تُفتح كمسودة. عند الترحيل المباشر تدخل البضاعة إلى المخزن الرئيسي "
         "وتُنشأ الذمة والقيد معاً، من دون اعتماد أو سند استلام منفصل."
     )
-    success_message = _("تم إنشاء المسودة. أضف الأسطر ثم اعتمدها.")
+    success_message = _("تم إنشاء مسودة الفاتورة وحفظ أسطرها.")
+
+    line_prefix = "lines"
+
+    def build_line_formset(self, data: Any = None) -> Any:
+        kwargs: dict[str, Any] = {
+            "prefix": self.line_prefix,
+            "form_kwargs": {"actor": self.actor},
+        }
+        if data is not None:
+            kwargs["data"] = data
+        return SupplierInvoiceDraftLineFormSet(**kwargs)
+
+    def context(self, instance: Any, form: Any, line_formset: Any = None) -> dict[str, Any]:
+        context = super().context(instance, form)
+        formset = line_formset or self.build_line_formset()
+        items = (
+            formset.forms[0].fields["item"].queryset.select_related("base_unit")
+            if formset.forms
+            else []
+        )
+        suppliers = form.fields["supplier"].queryset
+        context.update(
+            {
+                "is_create": True,
+                "line_formset": formset,
+                "item_unit_map": {
+                    str(item.pk): (item.base_unit.name or item.base_unit.code) for item in items
+                },
+                "supplier_terms_map": {
+                    str(supplier.pk): supplier.payment_terms_days for supplier in suppliers
+                },
+            }
+        )
+        return context
+
+    @staticmethod
+    def _line_payload(form: Any) -> dict[str, str]:
+        return {
+            name: str(form.data.get(form.add_prefix(name), ""))
+            for name in ("item", "description", "quantity", "unit_price", "note")
+        }
+
+    def _line_commands(self, formset: Any) -> list[DraftInvoiceLineCommand]:
+        commands: list[DraftInvoiceLineCommand] = []
+        for position, line_form in enumerate(formset.forms, start=1):
+            if str(line_form.data.get(line_form.add_prefix("DELETE"), "")).lower() in {
+                "1",
+                "true",
+                "on",
+            }:
+                continue
+            payload = self._line_payload(line_form)
+            # Trigger field and cross-field validation independently. A bad
+            # row is still a command: the service persists its values/errors.
+            valid = line_form.is_valid()
+            data = line_form.cleaned_data if valid else {}
+            commands.append(
+                DraftInvoiceLineCommand(
+                    sequence=position,
+                    payload=payload,
+                    errors=(line_form.errors.get_json_data(escape_html=False) if not valid else {}),
+                    item=data.get("item"),
+                    quantity=data.get("quantity"),
+                    unit_price=data.get("unit_price"),
+                    description=data.get("description", ""),
+                    note=data.get("note", ""),
+                )
+            )
+        if not commands:
+            commands.append(
+                DraftInvoiceLineCommand(
+                    sequence=1,
+                    payload={
+                        "item": "",
+                        "description": "",
+                        "quantity": "",
+                        "unit_price": "",
+                        "note": "",
+                    },
+                    errors={
+                        "item": [
+                            {"message": str(_("أضف صنفاً واحداً على الأقل.")), "code": "required"}
+                        ]
+                    },
+                )
+            )
+        return commands
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return render(
+            request,
+            self.template_name,
+            self.context(None, self.build_form(None), self.build_line_formset()),
+        )
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        form = self.build_form(None, data=request.POST)
+        formset = self.build_line_formset(data=request.POST)
+        # Accessing forms validates and preserves every submitted row, but a
+        # row error deliberately does not block a valid header from becoming a
+        # draft.
+        if form.is_valid():
+            try:
+                self.authorize(None, form)
+                data = form.cleaned_data
+                self.created = create_supplier_invoice_with_lines(
+                    supplier=data["supplier"],
+                    branch=data["branch"],
+                    created_by=self.actor,
+                    supplier_invoice_number=data["supplier_invoice_number"],
+                    invoice_date=data["invoice_date"],
+                    business_date=data["business_date"],
+                    supplier_reference=data.get("supplier_reference", ""),
+                    currency_code=data["currency_code"],
+                    discount_amount=data.get("discount_amount"),
+                    notes=data.get("notes", ""),
+                    lines=self._line_commands(formset),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                issue_count = self.created.draft_line_issues.filter(status="OPEN").count()
+                if issue_count:
+                    messages.warning(
+                        request,
+                        _("أُنشئت المسودة وحُفظت الأسطر الصحيحة. توجد أسطر تحتاج إلى تعديل."),
+                    )
+                else:
+                    messages.success(request, self.success_message)
+                if self.is_htmx():
+                    response = HttpResponse(status=200)
+                    response["HX-Redirect"] = self.get_success_url()
+                    return response
+                return HttpResponseRedirect(self.get_success_url())
+        return render(request, self.template_name, self.context(None, form, formset))
 
     def authorize(self, instance: Any, form: Any) -> None:
         require_organization_permission(
@@ -2121,6 +2265,7 @@ class SupplierInvoiceCreateView(InventoryWriteView):
             created_by=self.actor,
             supplier_invoice_number=data["supplier_invoice_number"],
             invoice_date=data["invoice_date"],
+            business_date=data["business_date"],
             supplier_reference=data.get("supplier_reference", ""),
             currency_code=data["currency_code"],
             freight_amount=data.get("freight_amount"),
@@ -2145,6 +2290,13 @@ class SupplierInvoiceUpdateView(InventoryWriteView):
     page_hint = _("تُعدَّل بيانات المسودة فقط؛ المورد والفرع جزء من هوية الوثيقة ولا يتغيران.")
     success_message = _("تم تحديث مسودة الفاتورة.")
 
+    def context(self, instance: Any, form: Any) -> dict[str, Any]:
+        context = super().context(instance, form)
+        context["is_create"] = False
+        context["payment_terms_display"] = _("%(days)s يوم") % {"days": instance.payment_terms_days}
+        context["due_date_display"] = instance.due_date.isoformat()
+        return context
+
     def load(self) -> Any:
         invoice = resolve_supplier_invoice(self.actor, self.kwargs["pk"])
         if invoice.status != SupplierInvoiceStatus.DRAFT:
@@ -2157,6 +2309,7 @@ class SupplierInvoiceUpdateView(InventoryWriteView):
             "branch": instance.branch,
             "supplier_invoice_number": instance.supplier_invoice_number,
             "invoice_date": instance.invoice_date,
+            "business_date": instance.business_date,
             "supplier_reference": instance.supplier_reference,
             "currency_code": instance.currency_code,
             "freight_amount": instance.freight_amount,
@@ -2173,6 +2326,7 @@ class SupplierInvoiceUpdateView(InventoryWriteView):
             invoice=instance,
             supplier_invoice_number=data["supplier_invoice_number"],
             invoice_date=data["invoice_date"],
+            business_date=data["business_date"],
             supplier_reference=data.get("supplier_reference", ""),
             currency_code=data["currency_code"],
             freight_amount=data.get("freight_amount") or Decimal("0.000"),
@@ -2195,7 +2349,11 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
         return resolve_supplier_invoice(self.actor, self.kwargs["pk"])
 
     def context(
-        self, invoice: Any, item_form: Any = None, account_form: Any = None
+        self,
+        invoice: Any,
+        item_form: Any = None,
+        account_form: Any = None,
+        issue_forms: dict[int, Any] | None = None,
     ) -> dict[str, Any]:
         may_edit = has_organization_permission(
             self.actor, CREATE_SUPPLIER_INVOICE, invoice.organization
@@ -2241,6 +2399,30 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
                 entry.workspace_lines = entry.lines.select_related(
                     "account", "branch", "cost_center"
                 ).order_by("line_number")
+        open_issues = list(
+            invoice.draft_line_issues.filter(
+                status=SupplierInvoiceDraftLineIssueStatus.OPEN
+            ).order_by("sequence", "id")
+        )
+        for issue in open_issues:
+            payload = issue.payload or {}
+            issue.error_messages = [
+                entry.get("message", str(entry))
+                for entries in (issue.errors or {}).values()
+                for entry in entries
+            ]
+            issue.correction_form = (issue_forms or {}).get(issue.pk) or InvoiceInventoryLineForm(
+                actor=self.actor,
+                invoice=invoice,
+                prefix=f"issue-{issue.pk}",
+                initial={
+                    "item": payload.get("item") or None,
+                    "base_quantity": payload.get("quantity") or None,
+                    "unit_price": payload.get("unit_price") or None,
+                    "description": payload.get("description", ""),
+                    "note": payload.get("note", ""),
+                },
+            )
         return {
             # One hook, set once here, so all three render paths on this view —
             # the GET, the inventory-line POST and the account-line POST — answer
@@ -2249,9 +2431,18 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
                 "settings/_form_fragment.html" if self.is_htmx() else "shell.html"
             ),
             "invoice": invoice,
+            # The window this invoice fell into, and how long it has. An
+            # invoice raised mid-cycle does **not** get the full term of its
+            # own — it falls due with the cycle — and the screen has to say so
+            # or the person reading it will assume the term started today.
+            "cycle": invoice.cycle,
+            "cycle_days_remaining": (
+                cycle_days_remaining(invoice.cycle) if invoice.cycle_id else None
+            ),
             "lines": invoice.lines.select_related(
                 "item", "account", "cost_center", "receipt_line", "receipt_line__receipt"
             ).order_by("sequence"),
+            "draft_line_issues": open_issues,
             "charges": invoice.charges.select_related(
                 "direct_account", "cost_center", "created_by"
             ).order_by("line_order"),
@@ -2265,7 +2456,8 @@ class SupplierInvoiceDetailView(InventoryViewMixin, View):
                 self.actor, POST_SUPPLIER_INVOICE, invoice.organization
             )
             and invoice.status == SupplierInvoiceStatus.DRAFT
-            and invoice.is_ready_to_post,
+            and invoice.is_ready_to_post
+            and not open_issues,
             "may_reverse": has_organization_permission(
                 self.actor, REVERSE_SUPPLIER_INVOICE, invoice.organization
             )
@@ -2375,6 +2567,114 @@ class SupplierInvoiceLineDeleteView(InventoryViewMixin, View):
             messages.error(request, "؛ ".join(str(m) for m in error.messages))
         else:
             messages.success(request, _("تم حذف السطر."))
+        if self.is_htmx():
+            detail = SupplierInvoiceDetailView()
+            detail.request = request
+            return render(
+                request,
+                detail.template_name,
+                detail.context(resolve_supplier_invoice(self.actor, invoice.pk)),
+            )
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
+        )
+
+
+class SupplierInvoiceDraftLineIssueUpdateView(InventoryViewMixin, View):
+    """Correct one staged row without disturbing the invoice's valid lines."""
+
+    module_key = "procurement"
+    required_permission = CREATE_SUPPLIER_INVOICE
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        invoice = resolve_supplier_invoice(self.actor, self.kwargs["pk"])
+        require_organization_permission(self.actor, CREATE_SUPPLIER_INVOICE, invoice.organization)
+        try:
+            issue = SupplierInvoiceDraftLineIssue.objects.get(
+                pk=self.kwargs["issue_id"],
+                invoice=invoice,
+                status=SupplierInvoiceDraftLineIssueStatus.OPEN,
+            )
+        except SupplierInvoiceDraftLineIssue.DoesNotExist as error:
+            raise Http404 from error
+        prefix = f"issue-{issue.pk}"
+        form = InvoiceInventoryLineForm(
+            actor=self.actor,
+            invoice=invoice,
+            data=request.POST,
+            prefix=prefix,
+        )
+        if form.is_valid():
+            data = form.cleaned_data
+            try:
+                resolve_draft_line_issue(
+                    issue=issue,
+                    actor=self.actor,
+                    item=data["item"],
+                    base_quantity=data["base_quantity"],
+                    unit_price=data["unit_price"],
+                    description=data.get("description", ""),
+                    note=data.get("note", ""),
+                )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تم تصحيح السطر وإضافته إلى الفاتورة."))
+                return self._response(request, invoice)
+
+        payload = {
+            "item": str(request.POST.get(f"{prefix}-item", "")),
+            "description": str(request.POST.get(f"{prefix}-description", "")),
+            "quantity": str(request.POST.get(f"{prefix}-base_quantity", "")),
+            "unit_price": str(request.POST.get(f"{prefix}-unit_price", "")),
+            "note": str(request.POST.get(f"{prefix}-note", "")),
+        }
+        update_draft_line_issue(
+            issue=issue,
+            payload=payload,
+            errors=form.errors.get_json_data(escape_html=False),
+        )
+        detail = SupplierInvoiceDetailView()
+        detail.request = request
+        refreshed = resolve_supplier_invoice(self.actor, invoice.pk)
+        return render(
+            request,
+            detail.template_name,
+            detail.context(refreshed, issue_forms={issue.pk: form}),
+        )
+
+    def _response(self, request: HttpRequest, invoice: Any) -> HttpResponse:
+        if self.is_htmx():
+            detail = SupplierInvoiceDetailView()
+            detail.request = request
+            return render(
+                request,
+                detail.template_name,
+                detail.context(resolve_supplier_invoice(self.actor, invoice.pk)),
+            )
+        return HttpResponseRedirect(
+            reverse("procurement:supplier_invoice_detail", args=[invoice.pk])
+        )
+
+
+class SupplierInvoiceDraftLineIssueDeleteView(InventoryViewMixin, View):
+    module_key = "procurement"
+    required_permission = CREATE_SUPPLIER_INVOICE
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        invoice = resolve_supplier_invoice(self.actor, self.kwargs["pk"])
+        require_organization_permission(self.actor, CREATE_SUPPLIER_INVOICE, invoice.organization)
+        try:
+            issue = SupplierInvoiceDraftLineIssue.objects.get(
+                pk=self.kwargs["issue_id"],
+                invoice=invoice,
+                status=SupplierInvoiceDraftLineIssueStatus.OPEN,
+            )
+        except SupplierInvoiceDraftLineIssue.DoesNotExist as error:
+            raise Http404 from error
+        delete_draft_line_issue(issue=issue)
+        messages.success(request, _("تم حذف السطر غير المكتمل من المسودة."))
         if self.is_htmx():
             detail = SupplierInvoiceDetailView()
             detail.request = request
@@ -3484,7 +3784,12 @@ class SupplierSettlementView(InventoryViewMixin, View):
         if supplier is None:
             return context
 
-        raw_target = (self.request.GET.get("target") or "").strip()
+        # A rejected POST re-renders this screen, and the operator's own
+        # figure has to survive that: losing it would silently put the agreed
+        # share back and show plans for a number nobody asked about.
+        raw_target = (
+            self.request.GET.get("target") or self.request.POST.get("target") or ""
+        ).strip()
         target: Decimal | None = None
         if raw_target:
             try:
@@ -3513,6 +3818,7 @@ class SupplierSettlementView(InventoryViewMixin, View):
                 "supplier": supplier.pk,
                 "paid_at": timezone.localdate(),
                 "target": workspace.target,
+                "shown_open_total": workspace.open_total,
             },
         )
         return context
@@ -3534,25 +3840,27 @@ class SupplierSettlementView(InventoryViewMixin, View):
         # pays are the arithmetic's answer, and a posted form is not evidence
         # about anybody's balance.
         workspace = workspace_for(data["supplier"], target=data["target"])
-        chosen = next((plan for plan in workspace.plans if plan.kind == data["plan"]), None)
-        if chosen is None or not chosen.allocations:
-            form.add_error(None, _("لم تعد هذه الخطة قائمة. راجع الأرصدة وأعد الاختيار."))
-            return render(request, self.template_name, self.context(supplier, form=form))
-        if chosen.total != quantize_money(data["expected_total"]):
+        if workspace.open_total != quantize_money(data["shown_open_total"]):
             # Somebody settled one of these invoices while this screen stood
-            # open. Paying the recomputed set would settle invoices nobody
-            # confirmed, so the operator sees the new figures and decides.
+            # open. The plans are a function of the outstanding balances, so a
+            # moved balance means the plan confirmed is not the plan that would
+            # now be drafted — the operator sees the new figures and decides.
             form.add_error(
                 None,
                 _(
-                    "تغيّرت أرصدة الفواتير منذ عرض الخطة: المؤكَّد %(shown)s والمحتسب "
-                    "الآن %(now)s. راجع الأرقام وأعد التأكيد."
+                    "تغيّر رصيد المورد منذ عرض الخطة: كان %(shown)s وأصبح %(now)s. "
+                    "راجع الأرقام وأعد التأكيد."
                 )
                 % {
-                    "shown": money_display(data["expected_total"]),
-                    "now": money_display(chosen.total),
+                    "shown": money_display(data["shown_open_total"]),
+                    "now": money_display(workspace.open_total),
                 },
             )
+            return render(request, self.template_name, self.context(supplier, form=form))
+
+        chosen = next((plan for plan in workspace.plans if plan.kind == data["plan"]), None)
+        if chosen is None or not chosen.allocations:
+            form.add_error(None, _("لم تعد هذه الخطة قائمة. راجع الأرصدة وأعد الاختيار."))
             return render(request, self.template_name, self.context(supplier, form=form))
 
         try:

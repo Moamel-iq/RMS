@@ -336,7 +336,14 @@
     if (target?.id === "main-content") {
       closeMobileNavigation({ restoreFocus: false });
       const heading = target.querySelector("h1");
-      if (heading?.textContent.trim()) document.title = `${heading.textContent.trim()} · نظام خان مندي`;
+      /* The product name comes from the document, never from a literal here:
+         a script that spelled the brand itself would quietly outlive a
+         rename and restore the old name on every in-app navigation. */
+      const brand = document.body.dataset.brandDocument || "";
+      if (heading?.textContent.trim()) {
+        const heard = heading.textContent.trim();
+        document.title = brand ? `${heard} · ${brand}` : heard;
+      }
       window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
     }
     const errorSummary = target?.querySelector?.("[data-error-summary], .ui-error-summary");

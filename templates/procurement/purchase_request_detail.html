@@ -6,7 +6,7 @@
 {# link prefetch, and hiding a button is presentation — the view refuses    #}
 {# the same request whether or not it was rendered.                         #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page">
@@ -62,10 +62,10 @@
               <td>{{ line.sequence }}</td>
               <td>{{ line.item.code }} — {{ line.item.name }}</td>
               {# Technical, re-enterable values: never localised. #}
-              <td><span dir="ltr">{{ line.entered_quantity|stringformat:"f" }}</span></td>
+              <td><span dir="ltr">{{ line.entered_quantity|quantity }}</span></td>
               <td>{{ line.package_unit.name|default:"—" }}</td>
               <td>
-                <span dir="ltr">{{ line.base_quantity|stringformat:"f" }}</span>
+                <span dir="ltr">{{ line.base_quantity|quantity }}</span>
                 {{ line.item.base_unit.code }}
               </td>
               <td>{{ line.preferred_supplier.code|default:"—" }}</td>

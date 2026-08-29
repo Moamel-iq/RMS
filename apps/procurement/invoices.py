@@ -154,6 +154,8 @@ from apps.procurement.models import (
     SupplierInvoiceCharge,
     SupplierInvoiceChargeManualShare,
     SupplierInvoiceChargeTreatment,
+    SupplierInvoiceDraftLineIssue,
+    SupplierInvoiceDraftLineIssueStatus,
     SupplierInvoiceLine,
     SupplierInvoiceLineType,
     SupplierInvoicePosting,
@@ -173,6 +175,20 @@ SOURCE_DOCUMENT_TYPE = "PROCUREMENT_SUPPLIER_INVOICE"
 POSTING_RULE = "procurement-supplier-invoice-v1"
 
 DOCUMENT_TYPE = "SUPPLIER_INVOICE"
+
+
+@dataclass(frozen=True)
+class DraftInvoiceLineCommand:
+    """One browser row, valid or invalid, crossing into the draft service."""
+
+    sequence: int
+    payload: dict[str, str]
+    errors: dict[str, Any] = field(default_factory=dict)
+    item: InventoryItem | None = None
+    quantity: Decimal | None = None
+    unit_price: Decimal | None = None
+    description: str = ""
+    note: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +319,201 @@ def create_supplier_invoice(
         new_state=snapshot(invoice),
     )
     return invoice
+
+
+@transaction.atomic
+def create_supplier_invoice_with_lines(
+    *,
+    supplier: Supplier,
+    branch: Branch,
+    created_by: User,
+    supplier_invoice_number: str,
+    invoice_date: datetime.date,
+    business_date: datetime.date,
+    supplier_reference: str = "",
+    currency_code: str = "IQD",
+    discount_amount: Decimal | None = None,
+    notes: str = "",
+    lines: list[DraftInvoiceLineCommand],
+) -> SupplierInvoice:
+    """Create one draft and retain every submitted row, including failures."""
+
+    invoice = create_supplier_invoice(
+        supplier=supplier,
+        branch=branch,
+        created_by=created_by,
+        supplier_invoice_number=supplier_invoice_number,
+        invoice_date=invoice_date,
+        business_date=business_date,
+        supplier_reference=supplier_reference,
+        currency_code=currency_code,
+        discount_amount=discount_amount,
+        notes=notes,
+    )
+    for command in lines:
+        errors = command.errors
+        if not errors and command.item is not None:
+            try:
+                add_inventory_line(
+                    invoice=invoice,
+                    item=command.item,
+                    base_quantity=command.quantity or ZERO,
+                    unit_price=command.unit_price or ZERO,
+                    description=command.description,
+                    note=command.note,
+                )
+            except ValidationError as error:
+                errors = {
+                    "__all__": [
+                        {"message": str(message), "code": error.code or "invalid"}
+                        for message in error.messages
+                    ]
+                }
+            else:
+                continue
+        create_draft_line_issue(
+            invoice=invoice,
+            sequence=command.sequence,
+            payload=command.payload,
+            errors=errors
+            or {"item": [{"message": str(_("اختر صنفاً صالحاً.")), "code": "required"}]},
+            actor=created_by,
+        )
+    return SupplierInvoice.objects.get(pk=invoice.pk)
+
+
+@transaction.atomic
+def create_draft_line_issue(
+    *,
+    invoice: SupplierInvoice,
+    sequence: int,
+    payload: dict[str, str],
+    errors: dict[str, Any],
+    actor: User,
+) -> SupplierInvoiceDraftLineIssue:
+    """Persist an invalid browser row without giving it financial effect."""
+
+    locked = _require_draft(invoice)
+    issue = SupplierInvoiceDraftLineIssue(
+        invoice=locked,
+        sequence=sequence,
+        payload=payload,
+        errors=errors,
+        created_by=actor,
+    )
+    issue.full_clean()
+    issue.save()
+    record_audit_event(
+        action=AuditAction.CREATED,
+        target=issue,
+        branch=locked.branch,
+        new_state=snapshot(issue),
+    )
+    return issue
+
+
+@transaction.atomic
+def resolve_draft_line_issue(
+    *,
+    issue: SupplierInvoiceDraftLineIssue,
+    actor: User,
+    item: InventoryItem,
+    base_quantity: Decimal,
+    unit_price: Decimal,
+    description: str = "",
+    note: str = "",
+) -> SupplierInvoiceLine:
+    """Turn one open issue into one constrained line, atomically and audibly."""
+
+    invoice = _require_draft(issue.invoice)
+    locked = SupplierInvoiceDraftLineIssue.objects.select_for_update().get(
+        pk=issue.pk,
+        invoice=invoice,
+        status=SupplierInvoiceDraftLineIssueStatus.OPEN,
+    )
+    previous = snapshot(locked)
+    line = add_inventory_line(
+        invoice=invoice,
+        item=item,
+        base_quantity=base_quantity,
+        unit_price=unit_price,
+        description=description,
+        note=note,
+    )
+    locked.status = SupplierInvoiceDraftLineIssueStatus.RESOLVED
+    locked.resolved_line = line
+    locked.resolved_by = actor
+    locked.resolved_at = timezone.now()
+    locked.errors = {}
+    locked.full_clean()
+    locked.save(
+        update_fields=[
+            "status",
+            "resolved_line",
+            "resolved_by",
+            "resolved_at",
+            "errors",
+            "updated_at",
+        ]
+    )
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=locked,
+        branch=invoice.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return line
+
+
+@transaction.atomic
+def update_draft_line_issue(
+    *,
+    issue: SupplierInvoiceDraftLineIssue,
+    payload: dict[str, str],
+    errors: dict[str, Any],
+) -> SupplierInvoiceDraftLineIssue:
+    """Keep a failed correction exactly as entered for the next render."""
+
+    invoice = _require_draft(issue.invoice)
+    locked = SupplierInvoiceDraftLineIssue.objects.select_for_update().get(
+        pk=issue.pk,
+        invoice=invoice,
+        status=SupplierInvoiceDraftLineIssueStatus.OPEN,
+    )
+    previous = snapshot(locked)
+    locked.payload = payload
+    locked.errors = errors
+    locked.full_clean()
+    locked.save(update_fields=["payload", "errors", "updated_at"])
+    record_audit_event(
+        action=AuditAction.UPDATED,
+        target=locked,
+        branch=invoice.branch,
+        previous_state=previous,
+        new_state=snapshot(locked),
+    )
+    return locked
+
+
+@transaction.atomic
+def delete_draft_line_issue(*, issue: SupplierInvoiceDraftLineIssue) -> None:
+    """Remove a staging-only row; the append-only audit retains the fact."""
+
+    invoice = _require_draft(issue.invoice)
+    locked = SupplierInvoiceDraftLineIssue.objects.select_for_update().get(
+        pk=issue.pk,
+        invoice=invoice,
+        status=SupplierInvoiceDraftLineIssueStatus.OPEN,
+    )
+    previous = snapshot(locked)
+    record_audit_event(
+        action=AuditAction.DELETED,
+        target=locked,
+        branch=invoice.branch,
+        previous_state=previous,
+    )
+    locked.delete()
 
 
 @transaction.atomic
@@ -1503,8 +1714,18 @@ def post_supplier_invoice(*, invoice: SupplierInvoice, actor: User) -> SupplierI
     # invoice.  Direct posting does not expose or require a separate approval
     # step; this single command records the same actor and timestamp solely to
     # preserve the legacy audit constraint while transitioning DRAFT → POSTED.
-    locked.approved_by = actor
-    locked.approved_at = posted_at
+    #
+    # Only where there is not already one. An invoice that came through
+    # `approve_supplier_invoice` — the maker-checker path the guard above still
+    # admits, and which the API, the transition view and the demo seed all
+    # use — carries a real approval by a second person. Re-stamping it here
+    # replaced that person with the poster and moved the timestamp, and the
+    # immutability trigger refused the write outright: `posting_columns` does
+    # not admit `approved_by_id` or `approved_at`, so every properly approved
+    # invoice became unpostable.
+    if locked.approved_at is None:
+        locked.approved_by = actor
+        locked.approved_at = posted_at
     locked.posted_by = actor
     locked.posted_at = posted_at
     # A re-post is not a reversed invoice any more. The reversal it is

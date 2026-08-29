@@ -38,20 +38,20 @@
         <td><code dir="ltr">{{ row.quotation_number }}</code></td>
         <td>{{ row.package_code|default:row.base_unit_code }}</td>
         {# Technical, re-enterable values: never localised. #}
-        <td><span dir="ltr">{{ row.quoted_quantity|stringformat:"f" }}</span></td>
-        <td><span dir="ltr">{{ row.base_quantity|stringformat:"f" }}</span> {{ row.base_unit_code }}</td>
+        <td><span dir="ltr">{{ row.quoted_quantity|quantity }}</span></td>
+        <td><span dir="ltr">{{ row.base_quantity|quantity }}</span> {{ row.base_unit_code }}</td>
         {% if may_see_cost %}
-          <td><span dir="ltr">{{ row.quoted_unit_price|stringformat:"f" }}</span></td>
+          <td><span dir="ltr">{{ row.quoted_unit_price|money }}</span></td>
           <td>
-            <span dir="ltr">{{ row.base_unit_price|stringformat:"f" }}</span>
+            <span dir="ltr">{{ row.base_unit_price|money }}</span>
             {% if row.is_cheapest_base_unit %}
               <span class="ui-badge ui-badge--success">{% translate "الأرخص للوحدة" %}</span>
             {% endif %}
           </td>
-          <td><span dir="ltr">{{ row.charge_share|stringformat:"f" }}</span></td>
-          <td><span dir="ltr">{{ row.landed_total|stringformat:"f" }}</span></td>
+          <td><span dir="ltr">{{ row.charge_share|money }}</span></td>
+          <td><span dir="ltr">{{ row.landed_total|money }}</span></td>
           <td>
-            <span dir="ltr">{{ row.landed_base_unit_price|stringformat:"f" }}</span>
+            <span dir="ltr">{{ row.landed_base_unit_price|money }}</span>
             {% if row.is_cheapest_landed %}
               <span class="ui-badge ui-badge--success">{% translate "الأرخص بعد النقل" %}</span>
             {% endif %}
@@ -70,7 +70,7 @@
         </td>
         <td>
           {% if row.minimum_order_quantity is not None %}
-            <span dir="ltr">{{ row.minimum_order_quantity|stringformat:"f" }}</span>
+            <span dir="ltr">{{ row.minimum_order_quantity|quantity }}</span>
             {% if not row.meets_minimum_order %}
               <span class="ui-badge ui-badge--danger">{% translate "دون الحد" %}</span>
             {% endif %}

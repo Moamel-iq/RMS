@@ -5,7 +5,7 @@
 {# its status allows. The value-only lines carry no quantity at all, which is #}
 {# why the quantity column reads "—" rather than zero: nothing moved.        #}
 
-{% block title %}{{ page_title }} · {% translate "نظام خان مندي" %}{% endblock %}
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
   <section class="ui-page ui-page--detail" aria-labelledby="adjustment-title">
@@ -101,7 +101,7 @@
             <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
             <td data-label="{% translate 'الكمية' %}">
               {% if line.base_quantity %}
-                <code><bdi dir="ltr">{{ line.base_quantity|stringformat:"f" }}</bdi></code>
+                <code><bdi dir="ltr">{{ line.base_quantity|quantity }}</bdi></code>
                 <bdi dir="ltr">{{ line.item.base_unit.code }}</bdi>
               {% else %}
                 <span class="ui-text-muted">{% translate "بلا حركة كمية" %}</span>
@@ -113,7 +113,7 @@
             {% if show_cost %}
               <td data-label="{% translate 'كلفة الوحدة' %}">
                 {% if line.unit_cost is not None %}
-                  <code><bdi dir="ltr">{{ line.unit_cost|stringformat:"f" }}</bdi></code>
+                  <code><bdi dir="ltr">{{ line.unit_cost|money }}</bdi></code>
                   {% if line.zero_cost_confirmed %}
                     <span class="ui-text-muted">{% translate "صفر مؤكّد" %}</span>
                   {% endif %}
@@ -121,12 +121,12 @@
               </td>
               <td data-label="{% translate 'قيمة التعديل' %}">
                 {% if line.value_adjustment is not None %}
-                  <code><bdi dir="ltr">{{ line.value_adjustment|stringformat:"f" }}</bdi></code>
+                  <code><bdi dir="ltr">{{ line.value_adjustment|money }}</bdi></code>
                 {% else %}—{% endif %}
               </td>
               <td data-label="{% translate 'القيمة المرحّلة' %}">
                 {% if line.total_value is not None %}
-                  <code><bdi dir="ltr">{{ line.total_value|stringformat:"f" }}</bdi></code>
+                  <code><bdi dir="ltr">{{ line.total_value|money }}</bdi></code>
                 {% else %}—{% endif %}
               </td>
               <td data-label="{% translate 'حساب المخزون' %}">

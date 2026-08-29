@@ -171,6 +171,16 @@ urlpatterns = [
         views.SupplierInvoiceLineDeleteView.as_view(),
         name="supplier_invoice_line_delete",
     ),
+    path(
+        "invoices/<int:pk>/line-issues/<int:issue_id>/",
+        views.SupplierInvoiceDraftLineIssueUpdateView.as_view(),
+        name="supplier_invoice_line_issue_update",
+    ),
+    path(
+        "invoices/<int:pk>/line-issues/<int:issue_id>/delete/",
+        views.SupplierInvoiceDraftLineIssueDeleteView.as_view(),
+        name="supplier_invoice_line_issue_delete",
+    ),
     # Command routes, POST-only. There is no writable generic endpoint over a
     # posted invoice and there is deliberately not going to be (PRC-062).
     path(
