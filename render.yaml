@@ -9,16 +9,7 @@ services:
     plan: starter
     numInstances: 1
     healthCheckPath: /healthz/
-    # A database created by this same blueprint is still starting when the
-    # first deploy reaches this step, and `migrate` fails on a refused
-    # connection. Retrying is safe: a refused connection runs nothing, and
-    # a migration that did run is recorded and skipped on the next attempt.
-    preDeployCommand: >-
-      sh -c 'attempt=1; while [ $attempt -le 20 ]; do
-      python manage.py migrate --noinput && exit 0;
-      echo "database not reachable yet (attempt $attempt of 20); waiting 15s";
-      attempt=$((attempt + 1)); sleep 15;
-      done; echo "the database never became reachable"; exit 1'
+    preDeployCommand: python manage.py migrate --noinput
     disk:
       name: private-media
       mountPath: /var/data
