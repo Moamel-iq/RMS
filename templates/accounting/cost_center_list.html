@@ -1,0 +1,20 @@
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
+
+{% block page %}
+  <div class="ui-page ui-accounting-page" id="accounting-cost-centers">
+    <div class="ui-page-header ui-accounting-hero"><div class="ui-page-header__copy"><p class="ui-page-header__eyebrow">{% translate "التحليل الإداري" %}</p><h1 class="ui-page-header__title">{{ page_title }}</h1><p class="ui-page-header__subtitle">{{ page_hint }}</p></div><div class="ui-page-header__actions"><a class="ui-button ui-button--secondary" href="{% url 'accounting:general_ledger' %}">{% translate "دفتر الأستاذ" %}</a></div></div>
+
+    <form class="ui-filter-bar" method="get" hx-get="{% url 'accounting:cost_center_list' %}" hx-target="#accounting-cost-centers" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit, change, keyup changed delay:350ms from:#cost-center-search">
+      <div class="ui-search"><label class="ui-sr-only" for="cost-center-search">{% translate "بحث" %}</label><input id="cost-center-search" type="search" name="q" value="{{ search }}" placeholder="{% translate 'ابحث بالرمز أو الاسم…' %}" autocomplete="off"></div>
+      <label class="ui-field"><span class="ui-field__label">{% translate "المؤسسة" %}</span><select name="organization">{% for row in organizations %}<option value="{{ row.pk }}" {% if organization.pk == row.pk %}selected{% endif %}>{{ row.code }} — {{ row.name }}</option>{% endfor %}</select></label>
+    </form>
+
+    <section class="ui-data-card ui-accounting-table-card">
+      <div class="ui-card__header"><div><h2 class="ui-card__title">{% translate "المراكز" %}</h2><p class="ui-card__subtitle">{% translate "الحركة المدينة والدائنة من دفتر الأستاذ" %}</p></div><span class="ui-result-count">{{ centers|length }} {% translate "مركز" %}</span></div>
+      <div class="ui-table-scroll" tabindex="0"><table class="ui-table ui-table--responsive"><thead><tr><th>{% translate "الرمز" %}</th><th>{% translate "اسم المركز" %}</th><th>{% translate "سطور مرحّلة" %}</th><th>{% translate "مدين" %}</th><th>{% translate "دائن" %}</th><th>{% translate "صافي الحركة" %}</th><th>{% translate "الحالة" %}</th></tr></thead><tbody>{% for center in centers %}<tr><td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ center.code }}</code></bdi></td><td data-label="{% translate 'اسم المركز' %}"><strong>{{ center.name }}</strong></td><td data-label="{% translate 'سطور مرحّلة' %}">{{ center.posted_lines }}</td><td data-label="{% translate 'مدين' %}"><bdi dir="ltr">{{ center.posted_debit|money_full }}</bdi></td><td data-label="{% translate 'دائن' %}"><bdi dir="ltr">{{ center.posted_credit|money_full }}</bdi></td><td data-label="{% translate 'صافي الحركة' %}"><bdi dir="ltr">{{ center.net_movement|money_full }}</bdi></td><td data-label="{% translate 'الحالة' %}">{% if center.is_active %}<span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>{% else %}<span class="ui-badge ui-badge--neutral">{% translate "موقوف" %}</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="7" class="ui-table__empty">{% translate "لا توجد مراكز تكلفة مطابقة." %}</td></tr>{% endfor %}</tbody></table></div>
+    </section>
+  </div>
+{% endblock %}

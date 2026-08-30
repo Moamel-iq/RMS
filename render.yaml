@@ -3,7 +3,7 @@
 # your own Render account. No secret is stored in this file.
 services:
   - type: web
-    name: khan-mandi-rms-web
+    name: jadwa-rms-web
     runtime: docker
     region: frankfurt
     plan: starter
@@ -31,7 +31,7 @@ services:
       - key: DJANGO_DEBUG
         value: "false"
       - key: DJANGO_ALLOWED_HOSTS
-        value: khan-mandi-rms-web.onrender.com
+        value: jadwa-rms-web.onrender.com
       - key: DJANGO_USE_PROXY_SSL_HEADER
         value: "true"
       - key: DJANGO_SECURE_HSTS_SECONDS

@@ -16,6 +16,170 @@
     U+200c-200e, U+2010-2011, U+204f, U+2e41, U+fb50-fdff, U+fe70-fefc;
 }
 
+/* Accounting workspace ---------------------------------------------------
+ * One calm visual hierarchy for operational documents, reconciliation and
+ * statutory reports. Scoped to the module so no accounting density choice
+ * leaks into POS or inventory screens.
+ */
+@layer components {
+  body[data-module="accounting"] .ui-content {
+    background:
+      radial-gradient(circle at 92% 3%, color-mix(in srgb, var(--ui-blue-100) 52%, transparent), transparent 24rem),
+      var(--ui-app-bg);
+  }
+
+  body[data-module="accounting"] .ui-accounting-page,
+  body[data-module="accounting"] .ui-page {
+    gap: clamp(0.9rem, 1.5vw, 1.25rem);
+  }
+
+  body[data-module="accounting"] .ui-accounting-hero,
+  body[data-module="accounting"] .ui-page > .ui-page-header {
+    align-items: center;
+    min-block-size: 7.25rem;
+    padding: clamp(1.1rem, 2vw, 1.65rem);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius-lg);
+    background: color-mix(in srgb, var(--ui-surface) 96%, var(--ui-blue-50));
+    box-shadow: var(--ui-shadow-xs);
+  }
+
+  body[data-module="accounting"] .ui-accounting-hero .ui-page-header__subtitle,
+  body[data-module="accounting"] .ui-page > .ui-page-header .ui-page-header__subtitle {
+    max-inline-size: 76ch;
+    line-height: 1.75;
+  }
+
+  .ui-accounting-tabs {
+    inline-size: fit-content;
+    padding: 0.25rem;
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius-md);
+    background: var(--ui-surface);
+  }
+
+  .ui-accounting-tabs a {
+    min-block-size: 2.4rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-inline: 1rem;
+    border-radius: calc(var(--ui-radius-md) - 0.2rem);
+    color: var(--ui-text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+
+  .ui-accounting-tabs a:hover { color: var(--ui-blue-700); }
+  .ui-accounting-tabs a.is-active { background: var(--ui-blue-600); color: #fff; box-shadow: var(--ui-shadow-xs); }
+
+  .ui-accounting-shortcuts {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: var(--ui-space-3);
+  }
+
+  .ui-accounting-shortcuts > a {
+    min-inline-size: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--ui-space-3);
+    min-block-size: 4.5rem;
+    padding: var(--ui-space-3);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius-md);
+    background: var(--ui-surface);
+    color: var(--ui-text);
+    box-shadow: var(--ui-shadow-xs);
+    transition: border-color var(--ui-duration), box-shadow var(--ui-duration);
+  }
+
+  .ui-accounting-shortcuts > a:hover {
+    border-color: var(--ui-blue-300);
+    color: var(--ui-text);
+    box-shadow: var(--ui-shadow-sm);
+  }
+
+  .ui-accounting-shortcuts__icon {
+    flex: 0 0 auto;
+    inline-size: 2.25rem;
+    block-size: 2.25rem;
+    display: grid;
+    place-items: center;
+    border-radius: var(--ui-radius-sm);
+    background: var(--ui-blue-50);
+    color: var(--ui-blue-700);
+    font-family: var(--ui-font-numeric);
+    font-weight: 780;
+  }
+
+  .ui-accounting-shortcuts strong,
+  .ui-accounting-shortcuts small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ui-accounting-shortcuts strong { font-size: 0.72rem; }
+  .ui-accounting-shortcuts small { margin-block-start: 0.22rem; color: var(--ui-text-muted); font-size: 0.61rem; }
+
+  body[data-module="accounting"] .ui-accounting-kpis .ui-metric {
+    min-block-size: 7.6rem;
+    padding: var(--ui-space-4);
+  }
+
+  .ui-accounting-value--small { font-size: clamp(1rem, 0.9rem + 0.35vw, 1.3rem); }
+  .ui-accounting-table-card { overflow: hidden; }
+
+  body[data-module="accounting"] .ui-accounting-table-card .ui-table thead th,
+  body[data-module="accounting"] .ui-data-card .ui-table thead th {
+    background: color-mix(in srgb, var(--ui-blue-50) 68%, var(--ui-surface-muted));
+    color: var(--ui-text-soft);
+    font-size: 0.68rem;
+  }
+
+  body[data-module="accounting"] .ui-table tbody tr:hover td {
+    background: color-mix(in srgb, var(--ui-blue-50) 55%, var(--ui-surface));
+  }
+
+  .ui-account-tree__row--root td { font-weight: 720; }
+  .ui-account-tree__row--child td:first-child { padding-inline-start: calc(var(--ui-space-5) + 1rem); }
+  .ui-account-tree__spacer { display: inline-block; inline-size: 1.9rem; }
+  .ui-account-tree .ui-tree-toggle { margin-inline-end: 0.45rem; }
+
+  .ui-accounting-disclosure { overflow: hidden; }
+  .ui-accounting-disclosure > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ui-space-3);
+    padding: var(--ui-space-4) var(--ui-space-5);
+    color: var(--ui-text);
+    font-weight: 720;
+    cursor: pointer;
+    list-style: none;
+  }
+  .ui-accounting-disclosure > summary::-webkit-details-marker { display: none; }
+  .ui-accounting-disclosure[open] > summary { border-block-end: 1px solid var(--ui-border-soft); }
+
+  body[data-module="accounting"] .ui-report,
+  body[data-module="accounting"] .ui-sheet,
+  body[data-module="accounting"] .ui-form-card,
+  body[data-module="accounting"] .ui-card,
+  body[data-module="accounting"] .ui-data-card {
+    border-color: color-mix(in srgb, var(--ui-border) 88%, var(--ui-blue-100));
+  }
+
+  @media (max-width: 1250px) {
+    .ui-accounting-shortcuts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 760px) {
+    body[data-module="accounting"] .ui-accounting-hero { align-items: stretch; min-block-size: 0; padding: var(--ui-space-4); }
+    .ui-accounting-tabs { inline-size: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ui-accounting-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 480px) {
+    .ui-accounting-shortcuts { grid-template-columns: 1fr; }
+  }
+}
+
 /* Core automation, independent supplier offers, and printable statements. */
 @layer components {
   .ui-automation-filter { flex: 0 1 17rem; padding: var(--ui-space-3); }
@@ -108,11 +272,8 @@
   .ui-sheet { inline-size: min(74rem, calc(100% - 2rem)); margin: var(--ui-space-5) auto; padding: clamp(1.5rem, 4vw, 3rem); border: 1px solid var(--ui-border); background: #fff; color: #111; box-shadow: var(--ui-shadow-sm); }
   .ui-sheet__head { display: grid; gap: var(--ui-space-5); padding-block-end: var(--ui-space-5); border-block-end: 2px solid #222; }
   .ui-sheet__identity { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--ui-space-5); }
-  /* Logo above, product name beneath it. The name is a caption, not a
-     headline: on an invoice the tenant's own letterhead is the prominent
-     identity, and the software that produced the sheet is a footnote to it. */
-  .ui-sheet__logo { display: grid; justify-items: center; gap: 0.4rem; max-inline-size: 12rem; }
-  .ui-sheet__logo img { inline-size: 5rem; block-size: 5rem; object-fit: contain; }
+  .ui-sheet__logo { display: grid; justify-items: center; gap: 0.4rem; max-inline-size: 14rem; }
+  .ui-sheet__logo img { inline-size: 12rem; block-size: auto; object-fit: contain; }
   .ui-sheet__wordmark { font-size: 0.8rem; font-weight: 700; color: #555; text-align: center; }
   .ui-sheet__titles { flex: 1; display: grid; gap: 0.3rem; }
   .ui-sheet__issuer, .ui-sheet__subtitle, .ui-sheet__period, .ui-sheet__stamp { color: #555; }
@@ -526,16 +687,19 @@
     box-shadow: var(--ui-shadow-xs);
   }
   .ui-primary-nav { min-inline-size: 0; display: flex; align-items: center; gap: var(--ui-space-5); }
-  .ui-brand { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--ui-space-3); color: var(--ui-text); }
+  .ui-brand { flex: 0 0 auto; display: inline-flex; align-items: center; color: var(--ui-text); }
   .ui-brand:hover { color: var(--ui-text); }
-  .ui-brand__mark {
-    display: grid; place-items: center; inline-size: 2.45rem; block-size: 2.45rem;
-    border-radius: 0.8rem; background: var(--ui-blue-600); color: #fff; box-shadow: 0 7px 18px rgba(40, 98, 220, 0.25);
+  .ui-brand__asset {
+    display: grid; place-items: center; inline-size: 8.75rem; block-size: 2.35rem;
+    padding: 0.22rem 0.42rem; overflow: hidden; border: 1px solid rgba(11, 31, 58, 0.08);
+    border-radius: 0.62rem; background: #fff;
   }
-  .ui-brand--large .ui-brand__mark { inline-size: 3.25rem; block-size: 3.25rem; border-radius: 1rem; }
-  .ui-brand__mark svg { inline-size: 1.35rem; block-size: 1.35rem; fill: currentColor; }
-  .ui-brand__name { font-size: 1.02rem; font-weight: 800; white-space: nowrap; }
-  .ui-brand--large .ui-brand__name { font-size: 1.25rem; }
+  .ui-brand__logo { display: block; inline-size: 100%; block-size: 100%; object-fit: contain; }
+  .ui-brand--large .ui-brand__asset {
+    inline-size: min(23rem, 78vw); block-size: 5.35rem; padding: 0.65rem 1rem;
+    border-color: rgba(255, 255, 255, 0.22); border-radius: 1rem;
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);
+  }
   .ui-primary-nav__list {
     flex: 1; min-inline-size: 0; display: flex; align-items: center; gap: 0.25rem;
     padding: 0; list-style: none; overflow-x: auto; scrollbar-width: none;
@@ -632,7 +796,8 @@
   :root.nav-collapsed-pref .ui-app-main,
   .nav-collapsed .ui-app-main { margin-inline-start: 0; }
   .ui-navigation-backdrop { display: none; position: fixed; inset: 0; z-index: calc(var(--ui-z-drawer) - 1); border: 0; background: var(--ui-overlay); }
-  .ui-navigation-drawer__brand { display: flex; align-items: center; gap: var(--ui-space-3); color: var(--ui-text); font-weight: 800; }
+  .ui-navigation-drawer__brand { display: flex; align-items: center; color: var(--ui-text); font-weight: 800; }
+  .ui-navigation-drawer__brand .ui-brand__asset { inline-size: 9.5rem; block-size: 2.45rem; }
   .ui-menu { position: relative; }
   .ui-menu > summary { list-style: none; cursor: pointer; }
   .ui-menu > summary::-webkit-details-marker { display: none; }
@@ -693,7 +858,7 @@
     }
   }
   @media (max-width: 1380px) {
-    .ui-brand__name { display: none; }
+    .ui-brand__asset { inline-size: 7.5rem; }
     .ui-primary-nav { gap: var(--ui-space-3); }
     .ui-primary-nav__item { padding-inline: 0.72rem; }
     .ui-command-trigger { min-inline-size: 3rem; inline-size: 3rem; padding: 0; justify-content: center; }
@@ -703,7 +868,7 @@
     :root { --ui-header-height: 4rem; }
     .ui-app-header { grid-template-columns: 1fr auto; min-block-size: 4rem; padding-inline: var(--ui-space-3); --ui-header-height: 4rem; }
     .ui-primary-nav__list { display: none; }
-    .ui-brand__name { display: inline; }
+    .ui-brand__asset { inline-size: 8.75rem; }
     .ui-header-tools__nav-toggle { display: inline-grid; }
     .ui-scope-menu__text, .ui-account-menu__text, .ui-scope-menu__summary > .ui-menu__chevron, .ui-account-menu__summary > .ui-menu__chevron, .ui-count { display: none; }
     .ui-scope-menu__summary, .ui-account-menu__summary { inline-size: var(--ui-control-height); padding: 0; justify-content: center; }
@@ -723,7 +888,7 @@
   }
   @media (max-width: 620px) {
     .ui-app-header { gap: var(--ui-space-2); }
-    .ui-brand__name { display: none; }
+    .ui-brand__asset { inline-size: 6.4rem; block-size: 1.95rem; padding-inline: 0.3rem; }
     .ui-header-actions { gap: 0.25rem; }
     .ui-header-actions > .ui-print-menu, .ui-scope-menu { display: none; }
     .ui-content { padding: var(--ui-space-3); }
@@ -789,7 +954,7 @@
   .ui-auth { min-block-size: 100vh; display: grid; grid-template-columns: minmax(20rem, 0.9fr) minmax(28rem, 1.1fr); background: var(--ui-bg); }
   .ui-auth__intro { display: grid; align-content: space-between; gap: var(--ui-space-8); padding: clamp(2rem, 6vw, 6rem); background: linear-gradient(145deg, #121319 0%, #1b1c22 60%, #17356f 150%); color: #fff; }
   .ui-auth__intro .ui-brand { color: #fff; }
-  .ui-auth__intro .ui-brand__mark { fill: currentColor; }
+  .ui-auth__intro .ui-brand__asset { background: #fff; }
   .ui-auth__intro-copy { display: grid; gap: var(--ui-space-4); max-inline-size: 36rem; }
   .ui-auth__intro-copy h1 { font-size: clamp(2rem, 4vw, 3.5rem); line-height: 1.25; }
   .ui-auth__intro-copy > p:last-child { max-inline-size: 52ch; color: rgba(255, 255, 255, 0.72); }
@@ -1293,14 +1458,10 @@
       font-size: 0.625rem;
     }
 
-    .ui-app-shell--compact .ui-brand__mark {
-      inline-size: 2.25rem;
+    .ui-app-shell--compact .ui-brand__asset {
+      inline-size: 7.75rem;
       block-size: 2.25rem;
-      border-radius: 0.625rem;
-    }
-
-    .ui-app-shell--compact .ui-brand__name {
-      font-size: 0.875rem;
+      border-radius: 0.5rem;
     }
 
     .ui-app-shell--compact .ui-icon-button,
@@ -1532,7 +1693,7 @@
     .ui-print-header { margin-block-end: 6mm; padding-block-end: 4mm; border-block-end: 1px solid #777; }
     .ui-print-header__identity { display: flex; align-items: flex-start; justify-content: space-between; gap: 7mm; }
     .ui-print-header__logo { display: grid; justify-items: center; gap: 1.5mm; max-inline-size: 40mm; }
-    .ui-print-header__logo img { max-inline-size: 22mm; max-block-size: 18mm; object-fit: contain; }
+    .ui-print-header__logo img { max-inline-size: 40mm; max-block-size: 10mm; object-fit: contain; }
     .ui-print-header__wordmark { font-size: 8pt; font-weight: 700; color: #555; text-align: center; }
     .ui-print-header__issuer { color: #333; }
     .ui-print-header__issuer span { display: block; }

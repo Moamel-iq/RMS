@@ -20,6 +20,7 @@ from apps.accounting import (
     report_views,
     subledger_views,
     views,
+    workspace_views,
 )
 
 app_name = "accounting"
@@ -55,7 +56,22 @@ urlpatterns = [
         name="mapping_archive",
     ),
     # --- دليل الحسابات -------------------------------------------------------
-    path("accounts/", chart_views.ChartTreeView.as_view(), name="chart_tree"),
+    path("accounts/", workspace_views.ImportedChartTreeView.as_view(), name="chart_tree"),
+    path(
+        "accounts/operational/",
+        chart_views.ChartTreeView.as_view(),
+        name="operational_chart_tree",
+    ),
+    path(
+        "accounts/imported/",
+        workspace_views.ImportedChartTreeView.as_view(),
+        name="imported_chart_tree",
+    ),
+    path(
+        "accounts/imported/<int:pk>/children/",
+        workspace_views.ImportedChartChildrenView.as_view(),
+        name="imported_chart_children",
+    ),
     path("accounts/list/", chart_views.ChartListView.as_view(), name="chart_list"),
     path("accounts/new/", chart_views.AccountCreateView.as_view(), name="account_create"),
     path(
@@ -183,6 +199,18 @@ urlpatterns = [
         "supplier-liabilities/<int:pk>/",
         subledger_views.SupplierLiabilityDetailView.as_view(),
         name="supplier_liability_detail",
+    ),
+    # --- مساحات الإدارة المحاسبية ------------------------------------------
+    path("assets/", workspace_views.AssetOverviewView.as_view(), name="asset_overview"),
+    path(
+        "cost-centers/",
+        workspace_views.CostCenterListView.as_view(),
+        name="cost_center_list",
+    ),
+    path(
+        "additional-costs/",
+        workspace_views.AccountingAdditionalCostListView.as_view(),
+        name="additional_cost_list",
     ),
     # --- المصروفات -----------------------------------------------------------
     path("expenses/", expense_views.ExpenseVoucherListView.as_view(), name="expense_list"),

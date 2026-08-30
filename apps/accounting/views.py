@@ -369,7 +369,7 @@ class AccountMappingListView(AccountingListView):
     page_hint = _(
         "أي حساب يحمل كل دور، ومن أي تاريخ. الربط المستعمَل لا يُعدَّل — يُغلق نطاقه ويُنشأ إصدار جديد."
     )
-    search_fields = ("account_role__code", "account__code", "account__name_ar")
+    search_fields = ("account_role__code", "account__code", "account__name")
     search_placeholder = _("ابحث برمز الدور أو الحساب…")
     result_label = _("ربط")
     create_url_name = "accounting:mapping_create"

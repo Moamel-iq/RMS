@@ -1,14 +1,14 @@
-{% load i18n %}
+{% load i18n static %}
 <div class="ui-navigation-drawer" id="application-navigation" data-shell-nav>
   <div class="ui-navigation-drawer__head">
     <a class="ui-navigation-drawer__brand" href="{% url 'users:home' %}"
        hx-get="{% url 'users:home' %}" hx-target="#main-content"
        hx-swap="innerHTML show:top" hx-push-url="true"
        hx-indicator="#app-loading" hx-sync="#main-content:replace">
-      <span class="ui-brand__mark" aria-hidden="true">
-        <svg width="28" height="28" viewBox="0 0 40 40"><path d="M16 4h8v12h12v8H24v12h-8V24H4v-8h12z"/></svg>
+      <span class="ui-brand__asset" aria-hidden="true">
+        <img class="ui-brand__logo" src="{% static 'img/jadwa-rms-logo.svg' %}"
+             alt="" width="161" height="35">
       </span>
-      <span>{{ brand_short }}</span>
     </a>
     <button class="ui-icon-button ui-navigation-drawer__close" type="button" data-nav-toggle
             aria-controls="application-navigation" aria-expanded="false"

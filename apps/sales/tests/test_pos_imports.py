@@ -22,6 +22,7 @@ from apps.sales.pos_closing import (
     save_review_step,
     start_accountant_review,
 )
+from apps.sales.pos_import_forms import PosImportReviewStepForm
 from apps.sales.pos_imports import ParsedReport, normalize_name, reconcile
 from apps.users.models import User
 
@@ -178,3 +179,33 @@ def test_superuser_override_can_review_own_cashier_confirmation(branch: Any) -> 
 
     assert review.status == PosSalesImportStatus.ACCOUNTANT_REVIEW
     assert review.accountant_started_by == administrator
+
+
+@pytest.mark.django_db
+def test_expense_review_allows_account_and_cost_center_to_be_omitted(
+    branch: Any, cashier: User
+) -> None:
+    batch = _workflow_batch(branch, cashier)
+    batch.report_data = {
+        **batch.report_data,
+        "expenses": {
+            "lines": [
+                {
+                    "row": 9,
+                    "type": "مصروف تنظيف",
+                    "details": "مواد تنظيف يومية",
+                    "operator": "الكاشير",
+                    "amount": "5000.000",
+                    "application": "",
+                }
+            ]
+        },
+    }
+    batch.save(update_fields=["report_data", "updated_at"])
+
+    form = PosImportReviewStepForm({"approved": "on", "variance_reason": ""}, batch=batch, step=3)
+
+    assert form.is_valid(), form.errors
+    evidence = form.evidence()
+    assert evidence["routes"]["9"]["account_id"] is None
+    assert evidence["routes"]["9"]["cost_center_id"] is None

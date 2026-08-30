@@ -14,16 +14,17 @@
 {% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
-  <div id="accounting-dashboard" class="ui-page ui-page--list ui-dashboard">
-    <div class="ui-page-header">
+  <div id="accounting-dashboard" class="ui-page ui-page--list ui-dashboard ui-accounting-page">
+    <div class="ui-page-header ui-accounting-hero">
       <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{% translate "الإدارة المالية" %}</p>
         <h1 class="ui-page-header__title">{{ page_title }}</h1>
         <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
       <div class="ui-page-header__actions">
         <a class="ui-button ui-button--secondary" href="{% url 'accounting:trial_balance' %}">{% translate "ميزان المراجعة" %}</a>
-        <a class="ui-button ui-button--secondary" href="{% url 'accounting:journal_list' %}">{% translate "قيود اليومية" %}</a>
-        <a class="ui-button ui-button--primary" href="{% url 'accounting:chart_tree' %}">{% translate "دليل الحسابات" %}</a>
+        <a class="ui-button ui-button--secondary" href="{% url 'accounting:journal_list' %}">{% translate "سندات القيود" %}</a>
+        <a class="ui-button ui-button--primary" href="{% url 'accounting:chart_tree' %}">{% translate "الشجرة المحاسبية" %}</a>
       </div>
     </div>
 
@@ -48,6 +49,15 @@
     {% endif %}
 
     {% if organization and overview %}
+      <nav class="ui-accounting-shortcuts" aria-label="{% translate 'اختصارات المحاسبة' %}">
+        <a href="{% url 'accounting:chart_tree' %}"><span class="ui-accounting-shortcuts__icon">⌘</span><span><strong>{% translate "الشجرة المحاسبية" %}</strong><small>{% translate "دليل التشغيل ونسخة Excel" %}</small></span></a>
+        <a href="{% url 'accounting:asset_overview' %}"><span class="ui-accounting-shortcuts__icon">A</span><span><strong>{% translate "الأصول" %}</strong><small>{% translate "الأرصدة حتى تاريخ" %}</small></span></a>
+        <a href="{% url 'accounting:expense_list' %}"><span class="ui-accounting-shortcuts__icon">−</span><span><strong>{% translate "المصروفات" %}</strong><small>{% translate "المسودات والترحيل" %}</small></span></a>
+        <a href="{% url 'accounting:journal_list' %}"><span class="ui-accounting-shortcuts__icon">≡</span><span><strong>{% translate "سندات القيود" %}</strong><small>{% translate "الحركة المحاسبية" %}</small></span></a>
+        <a href="{% url 'accounting:cost_center_list' %}"><span class="ui-accounting-shortcuts__icon">◎</span><span><strong>{% translate "مراكز التكلفة" %}</strong><small>{% translate "تحليل الأقسام" %}</small></span></a>
+        <a href="{% url 'accounting:trial_balance' %}"><span class="ui-accounting-shortcuts__icon">✓</span><span><strong>{% translate "ميزان المراجعة" %}</strong><small>{% translate "المدين والدائن" %}</small></span></a>
+      </nav>
+
       {# One alert, and only while it is true. An unbalanced posted entry is   #}
       {# a kernel violation and outranks a missing period.                      #}
       {% if not overview.is_sound %}

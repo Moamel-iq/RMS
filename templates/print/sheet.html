@@ -35,9 +35,10 @@
       <div class="ui-sheet__identity">
         <div class="ui-sheet__logo" data-part="logo">
           {% if logo_path %}
-            <img src="{% static logo_path %}" alt="{{ brand_short }}" width="120" height="120">
+            <img src="{% static logo_path %}" alt="{{ brand_document }}" width="322" height="69">
+          {% else %}
+            <span class="ui-sheet__wordmark">{{ brand_document }}</span>
           {% endif %}
-          <span class="ui-sheet__wordmark">{{ brand_document }}</span>
         </div>
         <div class="ui-sheet__titles">
           <p class="ui-sheet__issuer" data-part="issuer">
