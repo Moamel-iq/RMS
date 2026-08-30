@@ -15,6 +15,7 @@ present and empty.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
@@ -54,6 +55,8 @@ from apps.accounting.views import AccountingViewMixin
 from apps.core.money import money_audit_with_currency, money_with_currency
 from apps.organizations.authorization import organizations_with_permission
 from apps.organizations.models import Organization
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -487,6 +490,11 @@ class DashboardCardView(AccountingViewMixin, View):
         try:
             payload = card.compute(organization)
         except Exception:  # noqa: BLE001 - one card failing must not blank the page
+            logger.exception(
+                "accounting_dashboard_card_failed card=%s organization=%s",
+                card.key,
+                organization.pk,
+            )
             payload = {
                 "value": _("تعذّر الحساب"),
                 "hint": _("حدث خطأ أثناء حساب هذه البطاقة."),

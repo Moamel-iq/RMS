@@ -178,14 +178,14 @@ def trial_balance(
         lines = lines.filter(entry__accounting_date__lte=up_to)
 
     rows = (
-        lines.values("account__code", "account__name_ar", "account__name_en")
+        lines.values("account__code", "account__name")
         .annotate(debits=Coalesce(Sum("debit"), _ZERO), credits=Coalesce(Sum("credit"), _ZERO))
         .order_by("account__code")
     )
     return [
         {
             "code": row["account__code"],
-            "name": row["account__name_ar"],
+            "name": row["account__name"],
             "debits": row["debits"],
             "credits": row["credits"],
             "balance": row["debits"] - row["credits"],

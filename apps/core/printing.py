@@ -43,7 +43,7 @@ from apps.core.templatetags.report_tags import render_value
 
 #: Where a deployment drops its letterhead. Absent, the sheet prints the
 #: organization's name instead — a missing image must never be a broken sheet.
-LOGO_RELATIVE_PATH = Path("img") / "logo.png"
+LOGO_RELATIVE_PATH = Path("img") / "jadwa-rms-logo.svg"
 
 
 def logo_static_path() -> str | None:

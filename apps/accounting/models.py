@@ -481,6 +481,74 @@ class Account(TimeStampedModel):
         return f"{self.code} — {self.name}"
 
 
+class ImportedChartAccount(TimeStampedModel):
+    """The approved account hierarchy imported from the reviewed workbook.
+
+    Only account codes, names and parent/leaf relationships are authoritative.
+    Period figures and workbook classification columns remain on the model for
+    migration compatibility, but are deliberately stored as blank/zero values.
+    The existing :class:`Account` register still carries posting relationships
+    so previously posted journals are never detached from their accounts.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="imported_chart_accounts",
+        verbose_name=_("organization"),
+    )
+    source_system = models.CharField(_("source system"), max_length=80)
+    source_code = models.CharField(_("source account code"), max_length=50)
+    name = models.CharField(_("name"), max_length=200)
+    statement_name = models.CharField(_("statement"), max_length=100, blank=True)
+    category = models.CharField(_("category"), max_length=100, blank=True)
+    currency = models.CharField(_("currency"), max_length=8, blank=True)
+    source_debit = models.DecimalField(
+        _("source debit"), max_digits=24, decimal_places=5, default=Decimal("0")
+    )
+    source_credit = models.DecimalField(
+        _("source credit"), max_digits=24, decimal_places=5, default=Decimal("0")
+    )
+    source_balance = models.DecimalField(
+        _("source balance"), max_digits=24, decimal_places=5, default=Decimal("0")
+    )
+    organizer = models.CharField(_("organizer"), max_length=100, blank=True)
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="children",
+        verbose_name=_("source parent account"),
+    )
+    is_leaf = models.BooleanField(_("source leaf"), default=False)
+    imported_at = models.DateTimeField(_("imported at"), default=timezone.now)
+
+    class Meta:
+        verbose_name = _("imported chart account")
+        verbose_name_plural = _("imported chart accounts")
+        ordering = ["organization__code", "source_system", "source_code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "source_system", "source_code"],
+                name="imported_chart_code_unique_per_source",
+            ),
+            models.CheckConstraint(
+                condition=~Q(source_code="") & ~Q(name=""),
+                name="imported_chart_identity_not_empty",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "source_system", "parent"],
+                name="imported_chart_tree_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.source_code} — {self.name}"
+
+
 class JournalEntryStatus(models.TextChoices):
     DRAFT = "DRAFT", _("مسودة")
     POSTED = "POSTED", _("مرحّل")

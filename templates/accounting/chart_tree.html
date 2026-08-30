@@ -13,13 +13,15 @@
 {% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
 {% block page %}
-  <div class="ui-page" id="accounting-chart-tree">
-    <div class="ui-page-header">
+  <div class="ui-page ui-accounting-page ui-accounting-chart" id="accounting-chart-tree">
+    <div class="ui-page-header ui-accounting-hero">
       <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{% translate "الهيكل المحاسبي" %}</p>
         <h1 class="ui-page-header__title">{{ page_title }}</h1>
         <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
       <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--secondary" href="{% url 'accounting:chart_tree' %}">{% translate "الشجرة المعتمدة" %}</a>
         <a class="ui-button ui-button--secondary" href="{% url 'accounting:chart_list' %}">{% translate "عرض كقائمة" %}</a>
         {% if may_manage %}
           <a class="ui-button ui-button--primary" href="{% url 'accounting:account_create' %}">{% translate "حساب جديد" %}</a>
@@ -28,7 +30,7 @@
     </div>
 
     <form class="ui-filter-bar" method="get"
-          hx-get="{% url 'accounting:chart_tree' %}"
+          hx-get="{% url 'accounting:operational_chart_tree' %}"
           hx-target="#accounting-chart-tree"
           hx-swap="outerHTML"
           hx-push-url="true"
@@ -53,8 +55,8 @@
       </span>
     </form>
 
-    <div class="ui-table-scroll">
-      <table class="ui-table ui-table--responsive" id="chart-tree-table">
+    <div class="ui-data-card ui-accounting-table-card ui-table-scroll">
+      <table class="ui-table ui-table--responsive ui-account-tree" id="chart-tree-table">
         <thead>
           <tr>
             <th>{% translate "الرمز" %}</th>

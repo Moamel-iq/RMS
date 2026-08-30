@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n static %}
 <nav class="ui-primary-nav" id="primary-navigation" aria-label="{% translate 'وحدات النظام' %}" data-primary-navigation
      {% if navigation_oob %}hx-swap-oob="outerHTML:#primary-navigation"{% endif %}>
   <a class="ui-brand" href="{% url 'users:home' %}" data-module-key="overview"
@@ -6,10 +6,10 @@
      hx-swap="innerHTML show:top" hx-push-url="true"
      hx-indicator="#app-loading" hx-sync="#main-content:replace"
      aria-label="{{ brand_short }} — {% translate 'الرئيسية' %}">
-    <span class="ui-brand__mark" aria-hidden="true">
-      <svg width="32" height="32" viewBox="0 0 40 40"><path d="M16 4h8v12h12v8H24v12h-8V24H4v-8h12z"/></svg>
+    <span class="ui-brand__asset" aria-hidden="true">
+      <img class="ui-brand__logo" src="{% static 'img/jadwa-rms-logo.svg' %}"
+           alt="" width="161" height="35">
     </span>
-    <span class="ui-brand__name">{{ brand_short }}</span>
   </a>
 
   <ul class="ui-primary-nav__list">

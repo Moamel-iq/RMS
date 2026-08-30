@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load i18n static %}
 
 {% block title %}{% translate "تسجيل الدخول" %} · {{ brand_document }}{% endblock %}
 
@@ -7,10 +7,10 @@
   <main class="ui-auth">
     <section class="ui-auth__intro" aria-label="{{ brand_sign_in }}">
       <a class="ui-brand ui-brand--large" href="{% url 'users:login' %}" aria-label="{{ brand_sign_in }}">
-        <svg class="ui-brand__mark" viewBox="0 0 36 36" aria-hidden="true">
-          <path d="m18 1 15 8.5-7.4 8.4L33 26.5 18 35 3 26.5l7.4-8.6L3 9.5 18 1Z"/>
-        </svg>
-        <span class="ui-brand__name">{{ brand_sign_in }}</span>
+        <span class="ui-brand__asset" aria-hidden="true">
+          <img class="ui-brand__logo" src="{% static 'img/jadwa-rms-logo.svg' %}"
+               alt="" width="322" height="69">
+        </span>
       </a>
       <div class="ui-auth__intro-copy">
         <p class="ui-auth__eyebrow">{% translate "إدارة المطعم من مكان واحد" %}</p>

@@ -1,0 +1,9 @@
+{% load i18n %}
+{% for account in children %}
+  <tr class="ui-account-tree__row ui-account-tree__row--child" data-parent="{{ parent.pk }}">
+    <td data-label="{% translate 'الرمز' %}">{% if account.child_count %}<button class="ui-tree-toggle" type="button" hx-get="{% url 'accounting:imported_chart_children' account.pk %}" hx-target="closest tr" hx-swap="afterend" aria-label="{% translate 'فتح الفروع' %}">+</button>{% else %}<span class="ui-account-tree__spacer" aria-hidden="true"></span>{% endif %}<bdi dir="ltr"><code>{{ account.source_code }}</code></bdi></td>
+    <td data-label="{% translate 'اسم الحساب' %}">{{ account.name }}</td>
+  </tr>
+{% empty %}
+  <tr data-parent="{{ parent.pk }}"><td colspan="2" class="ui-table__empty">{% translate "لا توجد حسابات فرعية." %}</td></tr>
+{% endfor %}

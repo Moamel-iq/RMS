@@ -1,0 +1,47 @@
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
+
+{% block page %}
+  <div class="ui-page ui-accounting-page ui-accounting-chart" id="accounting-imported-chart">
+    <div class="ui-page-header ui-accounting-hero">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{% translate "الهيكل المحاسبي" %}</p>
+        <h1 class="ui-page-header__title">{{ page_title }}</h1>
+        <p class="ui-page-header__subtitle">{{ page_hint }}</p>
+      </div>
+      <div class="ui-page-header__actions"><span class="ui-badge ui-badge--neutral">{{ account_count }} {% translate "حساب" %}</span></div>
+    </div>
+
+    <form class="ui-filter-bar" method="get"
+          hx-get="{% url 'accounting:chart_tree' %}"
+          hx-target="#accounting-imported-chart" hx-swap="outerHTML" hx-push-url="true"
+          hx-trigger="change" hx-indicator="#imported-chart-loading">
+      <label class="ui-field">
+        <span class="ui-field__label">{% translate "المؤسسة" %}</span>
+        <select name="organization">
+          {% for row in organizations %}<option value="{{ row.pk }}" {% if organization.pk == row.pk %}selected{% endif %}>{{ row.code }} — {{ row.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <span class="ui-loading htmx-indicator" id="imported-chart-loading" role="status">{% translate "جارٍ التحميل…" %}</span>
+    </form>
+
+    <section class="ui-data-card ui-accounting-table-card">
+      <div class="ui-card__header"><div><h2 class="ui-card__title">{% translate "الحسابات" %}</h2><p class="ui-card__subtitle">{% translate "الرمز واسم الحساب فقط" %}</p></div></div>
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive ui-account-tree">
+          <thead><tr><th>{% translate "الرمز" %}</th><th>{% translate "اسم الحساب" %}</th></tr></thead>
+          <tbody>
+            {% for account in roots %}
+              <tr class="ui-account-tree__row ui-account-tree__row--root">
+                <td data-label="{% translate 'الرمز' %}">{% if account.child_count %}<button class="ui-tree-toggle" type="button" hx-get="{% url 'accounting:imported_chart_children' account.pk %}" hx-target="closest tr" hx-swap="afterend" aria-label="{% translate 'فتح الفروع' %}">+</button>{% endif %}<bdi dir="ltr"><code>{{ account.source_code }}</code></bdi></td>
+                <td data-label="{% translate 'اسم الحساب' %}"><strong>{{ account.name }}</strong></td>
+              </tr>
+            {% empty %}<tr><td colspan="2" class="ui-table__empty">{% translate "لا توجد حسابات في الشجرة." %}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}

@@ -23,7 +23,7 @@ does not add Kubernetes, Redis, replicas, or autoscaling.
 2. Select **New > Blueprint**, choose the repository, and allow Render to read
    `render.yaml`.
 3. Confirm the shown resources before applying them:
-   - `khan-mandi-rms-web` on the paid Starter web plan;
+   - `jadwa-rms-web` on the paid Starter web plan;
    - `khan-mandi-rms-db` on the paid Basic 1 GB PostgreSQL plan;
    - `khan-mandi-rms-outbox`, scheduled every ten minutes.
 4. Apply the Blueprint. Render generates the Django secret key, provisions the

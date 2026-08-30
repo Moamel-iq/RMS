@@ -151,10 +151,10 @@ class ChartTreeView(AccountingViewMixin, View):
             "organizations": organizations,
             "roots": roots,
             "include_archived": include_archived,
-            "page_title": _("دليل الحسابات"),
+            "page_title": _("الشجرة المحاسبية"),
             "page_hint": _(
-                "الرمز يحمل المستوى: صنف، مجموعة، مجموعة فرعية، ثم حساب تفصيلي. "
-                "الحساب التفصيلي وحده يقبل القيود، ولا يُحذف حساب بعد إنشائه."
+                "شجرة التشغيل المرتبطة بالقيود الحالية. الرمز يحمل المستوى، والحساب "
+                "التفصيلي وحده يقبل الترحيل؛ ويمكن مراجعة نسخة Excel المستوردة بصورة منفصلة."
             ),
             "may_manage": bool(
                 organization is not None

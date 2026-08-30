@@ -69,6 +69,7 @@ class PosImportReviewStepForm(forms.Form):
 
         self.batch = batch
         self.step = step
+        self.expense_routes: list[dict[str, Any]] = []
         super().__init__(*args, **kwargs)
         if step == 2:
             self.fields["allocation_acknowledged"] = forms.BooleanField(
@@ -88,13 +89,27 @@ class PosImportReviewStepForm(forms.Form):
             for line in operational_expenses(batch):
                 key = str(line.get("row"))
                 self.fields[f"account_{key}"] = forms.ModelChoiceField(
-                    label=f"حساب: {line.get('type')}", queryset=accounts, required=True
+                    label=f"حساب: {line.get('type')}",
+                    queryset=accounts,
+                    required=False,
+                    empty_label="بدون حساب",
                 )
                 self.fields[f"cost_center_{key}"] = forms.ModelChoiceField(
-                    label=f"مركز كلفة: {line.get('type')}", queryset=centers, required=True
+                    label=f"مركز كلفة: {line.get('type')}",
+                    queryset=centers,
+                    required=False,
+                    empty_label="بدون مركز كلفة",
                 )
                 self.fields[f"notes_{key}"] = forms.CharField(
                     label=f"ملاحظات: {line.get('type')}", required=False, max_length=300
+                )
+                self.expense_routes.append(
+                    {
+                        "row": line,
+                        "account": self[f"account_{key}"],
+                        "cost_center": self[f"cost_center_{key}"],
+                        "notes": self[f"notes_{key}"],
+                    }
                 )
         elif step == 4:
             boxes = Cashbox.objects.filter(
@@ -161,9 +176,11 @@ class PosImportReviewStepForm(forms.Form):
             routes = {}
             for line in operational_expenses(self.batch):
                 key = str(line.get("row"))
+                account = self.cleaned_data.get(f"account_{key}")
+                cost_center = self.cleaned_data.get(f"cost_center_{key}")
                 routes[key] = {
-                    "account_id": self.cleaned_data[f"account_{key}"].pk,
-                    "cost_center_id": self.cleaned_data[f"cost_center_{key}"].pk,
+                    "account_id": account.pk if account is not None else None,
+                    "cost_center_id": cost_center.pk if cost_center is not None else None,
                     "notes": self.cleaned_data.get(f"notes_{key}", ""),
                     "amount": str(line.get("amount")),
                 }

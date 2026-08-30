@@ -139,12 +139,6 @@ def posting_blockers(batch: PosSalesImportBatch) -> list[str]:
         and existing_day != batch.linked_sales_day
     ):
         blockers.append("يوجد يوم مبيعات مرحّل أو معكوس لنفس الفرع والتاريخ.")
-    routes = (batch.review_data or {}).get("step_3", {}).get("routes", {})
-    for line in operational_expenses(batch):
-        route = routes.get(str(line.get("row")), {})
-        if not route.get("account_id") or not route.get("cost_center_id"):
-            blockers.append("توجد مصروفات بلا حساب مصروف أو مركز كلفة.")
-            break
     step4 = (batch.review_data or {}).get("step_4", {})
     if not step4.get("cashbox_id"):
         blockers.append("لم يُحدد صندوق النقد.")
@@ -598,16 +592,43 @@ def post_and_close_import(*, batch: PosSalesImportBatch, actor: Any) -> PosSales
     if cashbox is None:
         raise ValidationError("صندوق دفع المصروفات غير صالح.")
     expense_ids: list[int] = []
+    skipped_expenses: list[dict[str, Any]] = []
     for expense in operational_expenses(locked):
         route = step3.get(str(expense.get("row")), {})
+        account_id = route.get("account_id")
+        center_id = route.get("cost_center_id")
+        if not account_id:
+            skipped_expenses.append(
+                {
+                    "row": expense.get("row"),
+                    "type": expense.get("type"),
+                    "amount": str(expense.get("amount")),
+                    "reason": "no_account_selected",
+                }
+            )
+            continue
         account = Account.objects.filter(
-            pk=route.get("account_id"), organization=locked.organization, is_active=True
+            pk=account_id, organization=locked.organization, is_active=True
         ).first()
-        center = CostCenter.objects.filter(
-            pk=route.get("cost_center_id"), organization=locked.organization, is_active=True
-        ).first()
-        if account is None or center is None:
+        center = (
+            CostCenter.objects.filter(
+                pk=center_id, organization=locked.organization, is_active=True
+            ).first()
+            if center_id
+            else None
+        )
+        if account is None or (center_id and center is None):
             raise ValidationError("أحد توجيهات المصروفات لم يعد صالحاً.")
+        if account.requires_cost_center and center is None:
+            skipped_expenses.append(
+                {
+                    "row": expense.get("row"),
+                    "type": expense.get("type"),
+                    "amount": str(expense.get("amount")),
+                    "reason": "selected_account_requires_cost_center",
+                }
+            )
+            continue
         voucher = open_expense_voucher(
             branch=locked.branch,
             business_date=locked.business_date,
@@ -635,6 +656,7 @@ def post_and_close_import(*, batch: PosSalesImportBatch, actor: Any) -> PosSales
     review_data["posting"] = {
         "sales_day_id": day.pk,
         "expense_voucher_ids": expense_ids,
+        "skipped_expenses": skipped_expenses,
         "posted_at": timezone.now().isoformat(),
     }
     locked.review_data = review_data
@@ -652,7 +674,10 @@ def post_and_close_import(*, batch: PosSalesImportBatch, actor: Any) -> PosSales
         new_state=snapshot(locked),
         source_document_type="SALES.SALESDAY",
         source_document_id=str(day.public_id),
-        metadata={"expense_voucher_ids": expense_ids},
+        metadata={
+            "expense_voucher_ids": expense_ids,
+            "skipped_expenses": skipped_expenses,
+        },
     )
     return locked
 

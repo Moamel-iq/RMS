@@ -35,6 +35,7 @@ from apps.accounting.models import (
     AccountRole,
     CostCenter,
     FiscalYear,
+    ImportedChartAccount,
     JournalEntry,
     JournalLine,
     OrganizationAccountMapping,
@@ -201,6 +202,22 @@ class AccountAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     list_select_related = ("organization", "parent")
 
 
+@admin.register(ImportedChartAccount)
+class ImportedChartAccountAdmin(ReadOnlyAdminMixin, _ModelAdmin):
+    list_display = (
+        "source_code",
+        "name",
+        "parent",
+        "is_leaf",
+        "source_system",
+        "organization",
+    )
+    list_filter = ("source_system", "organization", "is_leaf")
+    search_fields = ("source_code", "name")
+    ordering = ("organization__code", "source_system", "source_code")
+    list_select_related = ("organization", "parent")
+
+
 @admin.register(CostCenter)
 class CostCenterAdmin(ReadOnlyAdminMixin, _ModelAdmin):
     list_display = ("code", "name", "organization", "is_active")
@@ -292,6 +309,6 @@ class AccountReportMappingAdmin(ReadOnlyAdminMixin, _ModelAdmin):
         "organization",
     )
     list_filter = ("statement_group", "presentation_section", "is_active", "organization")
-    search_fields = ("account__code", "account__name_ar", "account__name_en")
+    search_fields = ("account__code", "account__name")
     ordering = ("organization__code", "statement_group", "display_order")
     list_select_related = ("organization", "account")

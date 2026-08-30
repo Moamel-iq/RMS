@@ -1,0 +1,29 @@
+{% extends list_base_template|default:"shell.html" %}
+{% load i18n money_tags %}
+
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
+
+{% block page %}
+  <div class="ui-page ui-accounting-page" id="accounting-assets">
+    <div class="ui-page-header ui-accounting-hero">
+      <div class="ui-page-header__copy"><p class="ui-page-header__eyebrow">{% translate "الهيكل المحاسبي" %}</p><h1 class="ui-page-header__title">{{ page_title }}</h1><p class="ui-page-header__subtitle">{{ page_hint }}</p></div>
+      <div class="ui-page-header__actions"><a class="ui-button ui-button--secondary" href="{% url 'accounting:balance_sheet' %}">{% translate "الميزانية العمومية" %}</a><a class="ui-button ui-button--primary" href="{% url 'accounting:chart_tree' %}">{% translate "الشجرة المحاسبية" %}</a></div>
+    </div>
+
+    <form class="ui-filter-bar" method="get" hx-get="{% url 'accounting:asset_overview' %}" hx-target="#accounting-assets" hx-swap="outerHTML" hx-push-url="true" hx-trigger="change">
+      <label class="ui-field"><span class="ui-field__label">{% translate "المؤسسة" %}</span><select name="organization">{% for row in organizations %}<option value="{{ row.pk }}" {% if organization.pk == row.pk %}selected{% endif %}>{{ row.code }} — {{ row.name }}</option>{% endfor %}</select></label>
+      <label class="ui-field"><span class="ui-field__label">{% translate "حتى تاريخ" %}</span><input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}"></label>
+    </form>
+
+    <div class="ui-metric-grid ui-accounting-kpis">
+      <article class="ui-metric ui-metric--accent"><span class="ui-metric__label">{% translate "إجمالي أصول دفتر التشغيل" %}</span><strong class="ui-metric__value">{{ asset_total|money_full }}</strong><span class="ui-metric__meta">{% translate "من القيود المرحّلة" %}</span></article>
+      <article class="ui-metric"><span class="ui-metric__label">{% translate "حسابات أصول متحركة" %}</span><strong class="ui-metric__value">{{ active_count }}</strong><span class="ui-metric__meta">{% translate "برصيد غير صفري" %}</span></article>
+    </div>
+
+    <section class="ui-data-card ui-accounting-table-card">
+      <div class="ui-card__header"><div><h2 class="ui-card__title">{% translate "حسابات الأصول التشغيلية" %}</h2><p class="ui-card__subtitle">{% translate "الرصيد المباشر لكل حساب نهائي" %}</p></div></div>
+      <div class="ui-table-scroll" tabindex="0"><table class="ui-table ui-table--responsive"><thead><tr><th>{% translate "الرمز" %}</th><th>{% translate "الحساب" %}</th><th>{% translate "الرصيد" %}</th><th>{% translate "الحالة" %}</th><th></th></tr></thead><tbody>{% for row in rows %}<tr><td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ row.account.code }}</code></bdi></td><td data-label="{% translate 'الحساب' %}">{{ row.account.name }}</td><td data-label="{% translate 'الرصيد' %}"><strong><bdi dir="ltr">{{ row.balance|money_full }}</bdi></strong></td><td data-label="{% translate 'الحالة' %}">{% if row.balance %}<span class="ui-badge ui-badge--success">{% translate "متحرك" %}</span>{% else %}<span class="ui-badge ui-badge--neutral">{% translate "صفر" %}</span>{% endif %}</td><td class="ui-table__actions"><a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' row.account.pk %}">{% translate "فتح" %}</a></td></tr>{% empty %}<tr><td colspan="5" class="ui-table__empty">{% translate "لا توجد حسابات أصول تشغيلية." %}</td></tr>{% endfor %}</tbody></table></div>
+    </section>
+
+  </div>
+{% endblock %}
