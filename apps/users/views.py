@@ -10,20 +10,35 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.contrib import messages
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.views import LoginView as DjangoLoginView
 from django.contrib.auth.views import LogoutView as DjangoLogoutView
 from django.core.exceptions import ValidationError
 from django.db.models import Q, QuerySet
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
-from django.shortcuts import render
-from django.urls import reverse_lazy
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse, reverse_lazy
 from django.utils.translation import gettext_lazy as _
+from django.views import View
 from django.views.generic import CreateView, TemplateView, UpdateView
 
 from apps.core.build_status import BUILD_ITEMS, PHASE_LABEL
-from apps.core.views import FoundationFormViewMixin, FoundationListView, ModuleViewMixin
-from apps.organizations.security_permissions import MANAGE_USERS
+from apps.core.views import (
+    FoundationFormViewMixin,
+    FoundationListView,
+    FoundationViewMixin,
+    ModuleViewMixin,
+)
+from apps.organizations.authorization import organizations_with_organization_permission
+from apps.organizations.forms import EmployeeAccessForm
+from apps.organizations.security_permissions import MANAGE_ACCESS, MANAGE_USERS
+from apps.organizations.services import (
+    grant_branch_access,
+    grant_organization_access,
+    revoke_branch_access,
+    revoke_organization_access,
+)
 from apps.users.forms import LoginForm, UserAccountCreateForm, UserAccountUpdateForm
 from apps.users.home_dashboard import home_overview, readiness_share
 from apps.users.models import User
@@ -139,6 +154,122 @@ class UserCreateView(FoundationFormViewMixin, CreateView):
                 form.add_error(None, message)
             return self.form_invalid(form)
         return HttpResponseRedirect(self.get_success_url())
+
+
+class UserAccessView(FoundationViewMixin, View):
+    """
+    صلاحيات الموظف — the manager's direct control over one person's posts.
+
+    This replaced a two-person request-and-approve ceremony. The owner was the
+    only person who could grant anything, and every new storekeeper waited on
+    them; the manager is the person who actually knows which branch somebody
+    works, so the manager applies it and the audit log records who and when.
+
+    What a manager still cannot do is bounded in the service, not here:
+    `_require_access_administrator` refuses a self-grant, a staff or superuser
+    target, the OWNER role, and any change to a sitting owner's access. That
+    is what stops `manage_roles` plus `manage_access` from adding up to
+    unlimited authority.
+    """
+
+    module_key = "settings"
+    required_permission = MANAGE_ACCESS
+    template_name = "settings/user_access.html"
+
+    def employee(self) -> User:
+        """The target, resolved inside the caller's own reach — 404 otherwise."""
+        actor = _actor(self.request)
+        queryset = User.objects.exclude(is_staff=True).exclude(is_superuser=True)
+        if not actor.is_superuser:
+            organizations = organizations_with_organization_permission(actor, MANAGE_ACCESS)
+            queryset = queryset.filter(
+                Q(organization_memberships__organization__in=organizations)
+                | Q(branch_memberships__branch__organization__in=organizations)
+            ).distinct()
+        return get_object_or_404(queryset, pk=self.kwargs["pk"])
+
+    def context(self, employee: User, form: Any = None) -> dict[str, Any]:
+        actor = _actor(self.request)
+        organization_memberships = employee.organization_memberships.filter(is_active=True)
+        branch_memberships = employee.branch_memberships.filter(is_active=True)
+        if not actor.is_superuser:
+            organizations = organizations_with_organization_permission(actor, MANAGE_ACCESS)
+            organization_memberships = organization_memberships.filter(
+                organization__in=organizations
+            )
+            branch_memberships = branch_memberships.filter(branch__organization__in=organizations)
+        return {
+            "page_title": _("صلاحيات الموظف") + f" — {employee.username}",
+            "employee": employee,
+            "form": form or EmployeeAccessForm(actor=actor),
+            "organization_memberships": (
+                organization_memberships.select_related("organization").order_by(
+                    "organization__code"
+                )
+            ),
+            "branch_memberships": (
+                branch_memberships.select_related("branch", "branch__organization").order_by(
+                    "branch__organization__code", "branch__code"
+                )
+            ),
+        }
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return render(request, self.template_name, self.context(self.employee()))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        employee = self.employee()
+        actor = _actor(request)
+
+        if request.POST.get("revoke"):
+            return self._revoke(request, employee=employee, actor=actor)
+
+        form = EmployeeAccessForm(actor=actor, data=request.POST)
+        if form.is_valid():
+            try:
+                if form.branch is None:
+                    grant_organization_access(
+                        user=employee,
+                        organization=form.organization,
+                        role=form.cleaned_data["role"],
+                        actor=actor,
+                    )
+                else:
+                    grant_branch_access(
+                        user=employee,
+                        branch=form.branch,
+                        role=form.cleaned_data["role"],
+                        actor=actor,
+                    )
+            except ValidationError as error:
+                for message in error.messages:
+                    form.add_error(None, message)
+            else:
+                messages.success(request, _("تم إسناد الدور. يسري فوراً."))
+                return HttpResponseRedirect(reverse("users:user_access", args=[employee.pk]))
+        return render(request, self.template_name, self.context(employee, form))
+
+    def _revoke(self, request: HttpRequest, *, employee: User, actor: User) -> HttpResponse:
+        raw = str(request.POST.get("revoke", ""))
+        kind, _sep, key = raw.partition(":")
+        form = EmployeeAccessForm(actor=actor)
+        try:
+            if not key.isdigit():
+                raise ValidationError(_("نطاق غير صالح."), code="bad_scope")
+            pk = int(key)
+            if kind == EmployeeAccessForm.ORGANIZATION and pk in form.organizations:
+                revoke_organization_access(
+                    user=employee, organization=form.organizations[pk], actor=actor
+                )
+            elif kind == EmployeeAccessForm.BRANCH and pk in form.branches:
+                revoke_branch_access(user=employee, branch=form.branches[pk], actor=actor)
+            else:
+                raise ValidationError(_("نطاق غير صالح."), code="bad_scope")
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(m) for m in error.messages))
+        else:
+            messages.success(request, _("تم سحب الدور."))
+        return HttpResponseRedirect(reverse("users:user_access", args=[employee.pk]))
 
 
 class UserUpdateView(FoundationFormViewMixin, UpdateView):

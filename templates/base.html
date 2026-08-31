@@ -30,7 +30,7 @@
     <link rel="preload" href="{% static 'fonts/alexandria-arabic.woff2' %}" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="{% static 'fonts/alexandria-latin.woff2' %}" as="font" type="font/woff2" crossorigin>
     {# The authoritative, self-contained frontend stylesheet. #}
-    <link rel="stylesheet" href="{% static 'css/erp-design-system.css' %}?v=20260829-brand-1">
+    <link rel="stylesheet" href="{% static 'css/erp-design-system.css' %}?v=20260830-account-codes-1">
     {# htmx is vendored, not loaded from a CDN: no third-party request on a login page. #}
     <script>
       /* Inline rather than in ui-shell.js: that file only loads inside a
@@ -53,6 +53,8 @@
     {% if active_module %}<script src="{% static 'js/ui-shell.js' %}?v=20260828-shell-2" defer></script>{% endif %}
     {# Loaded once so HTMX navigation into Inventory also receives its guarded keyboard/table behaviour. #}
     {% if active_module %}<script src="{% static 'js/inventory-htmx.js' %}?v=20260828-ui-1" defer></script>{% endif %}
+    {# Keep tree handlers available when navigating into Accounting via HTMX. #}
+    {% if active_module %}<script src="{% static 'js/account-tree.js' %}?v=20260831-1" defer></script>{% endif %}
     {# Every select with enough options becomes a searchable combobox; the native control stays for the form. #}
     {% if active_module %}<script src="{% static 'js/searchable-select.js' %}?v=20260826-ux-1" defer></script>{% endif %}
     {# The print options belong to every screen, not only to the report sheets. #}

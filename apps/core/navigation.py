@@ -1042,11 +1042,6 @@ MODULES: tuple[Module, ...] = (
                 available=True,
             ),
             Section(label=_("الفروع"), url_name="organizations:branch_list", available=True),
-            Section(
-                label=_("صلاحيات الفروع"),
-                url_name="organizations:access_list",
-                available=True,
-            ),
             # The posts an organization defines, and what each may do (ADR-034).
             Section(
                 label=_("الأدوار والصلاحيات"),

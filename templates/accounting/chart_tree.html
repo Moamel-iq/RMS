@@ -69,13 +69,16 @@
         </thead>
         <tbody>
           {% for node in roots %}
-            <tr class="ui-report-row ui-report-row--root">
+            <tr class="ui-report-row ui-report-row--root" data-node-id="{{ node.account.pk }}">
               <td>
-                <button class="ui-tree-toggle" type="button"
+                <button class="ui-tree-toggle" type="button" data-account-tree-toggle data-node-id="{{ node.account.pk }}"
+                        data-label-open="{% translate 'افتح الفروع' %}" data-label-close="{% translate 'أغلق الفروع' %}"
                         hx-get="{% url 'accounting:chart_children' node.account.pk %}{% if include_archived %}?archived=1{% endif %}"
                         hx-target="closest tr"
                         hx-swap="afterend"
+                        hx-sync="this:drop"
                         hx-indicator="#chart-loading"
+                        aria-expanded="false"
                         aria-label="{% translate 'افتح الفروع' %}">+</button>
                 <code dir="ltr">{{ node.account.code }}</code>
               </td>

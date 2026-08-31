@@ -1,0 +1,126 @@
+{% extends shell_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{# صلاحيات الموظف — the manager's direct control over one person's posts.    #}
+{#                                                                           #}
+{# Current posts first, then the form that adds one. A manager arrives here  #}
+{# asking "what does this person have?" far more often than "give them       #}
+{# something", and the answer should not be below the fold.                  #}
+
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
+
+{% block page %}
+  <section class="ui-page" id="employee-access">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'users:user_list' %}">{% translate "المستخدمون" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ employee.username }}</span>
+    </nav>
+
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">{{ employee.get_full_name|default:employee.username }}</p>
+        <h1 class="ui-page-header__title">{% translate "صلاحيات الموظف" %}</h1>
+        <p class="ui-page-header__hint">
+          {% translate "ما تُسنده هنا يسري فوراً، ويُسجَّل باسمك ووقته في سجل التدقيق. دور المالك لا يُمنح من هنا." %}
+        </p>
+      </div>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="{% url 'users:user_update' employee.pk %}">
+          {% translate "بيانات الموظف" %}
+        </a>
+        <a class="ui-button ui-button--ghost" href="{% url 'organizations:role_list' %}">
+          {% translate "الأدوار" %}
+        </a>
+      </div>
+    </div>
+
+    <section class="ui-card ui-form-card" aria-labelledby="current-access-title">
+      <h2 id="current-access-title">{% translate "الأدوار الحالية" %}</h2>
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
+          <thead>
+            <tr>
+              <th>{% translate "النطاق" %}</th>
+              <th>{% translate "الدور" %}</th>
+              <th>{% translate "إجراء" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for membership in organization_memberships %}
+              <tr>
+                <td data-label="{% translate 'النطاق' %}">
+                  {{ membership.organization.name }}
+                  <span class="ui-badge">{% translate "كل الفروع" %}</span>
+                </td>
+                <td data-label="{% translate 'الدور' %}">{{ membership.role_label }}</td>
+                <td data-label="{% translate 'إجراء' %}">
+                  <form method="post" action="{{ request.path }}"
+                        data-confirm="{% translate 'سيفقد الموظف هذا الدور فوراً. هل تريد المتابعة؟' %}"
+                        data-confirm-title="{% translate 'سحب دور' %}"
+                        data-confirm-subject="{{ employee.username }} — {{ membership.organization.name }}"
+                        data-confirm-severity="danger"
+                        data-confirm-accept="{% translate 'سحب الدور' %}">
+                    {% csrf_token %}
+                    <button class="ui-button ui-button--ghost ui-button--small" type="submit"
+                            name="revoke" value="org:{{ membership.organization.pk }}">
+                      {% translate "سحب" %}
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+            {% for membership in branch_memberships %}
+              <tr>
+                <td data-label="{% translate 'النطاق' %}">
+                  {{ membership.branch.organization.name }} — {{ membership.branch.name }}
+                </td>
+                <td data-label="{% translate 'الدور' %}">{{ membership.role_label }}</td>
+                <td data-label="{% translate 'إجراء' %}">
+                  <form method="post" action="{{ request.path }}"
+                        data-confirm="{% translate 'سيفقد الموظف هذا الدور فوراً. هل تريد المتابعة؟' %}"
+                        data-confirm-title="{% translate 'سحب دور' %}"
+                        data-confirm-subject="{{ employee.username }} — {{ membership.branch.name }}"
+                        data-confirm-severity="danger"
+                        data-confirm-accept="{% translate 'سحب الدور' %}">
+                    {% csrf_token %}
+                    <button class="ui-button ui-button--ghost ui-button--small" type="submit"
+                            name="revoke" value="branch:{{ membership.branch.pk }}">
+                      {% translate "سحب" %}
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% empty %}
+              {% if not organization_memberships %}
+                <tr>
+                  <td colspan="3">
+                    {% translate "لا أدوار بعد" as empty_title %}
+                    {% translate "هذا الحساب لا يصل إلى شيء حتى تُسند له دوراً أدناه." as empty_description %}
+                    {% include "components/empty_state.html" with title=empty_title description=empty_description %}
+                  </td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <form class="ui-card ui-form-card" method="post" action="{{ request.path }}" novalidate>
+      {% csrf_token %}
+      <h2 class="ui-section-title">{% translate "إسناد دور" %}</h2>
+      {% include "components/form_error_summary.html" with form=form %}
+      <p class="ui-text-muted">
+        {% translate "اختر أين يعمل الموظف وبأي دور. «كل الفروع» تعني صلاحية على مستوى المؤسسة كلها." %}
+      </p>
+      <div class="ui-form-grid">
+        {% include "settings/_field.html" with field=form.scope %}
+        {% include "settings/_field.html" with field=form.role %}
+      </div>
+      <div class="ui-form-actions">
+        <button class="ui-button ui-button--primary" type="submit">{% translate "إسناد" %}</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

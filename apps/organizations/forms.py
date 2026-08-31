@@ -10,10 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 from django import forms
-from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
-from apps.organizations.models import AccessChangeAction, Branch, Organization, Role
+from apps.organizations.models import Branch, Organization, Role
 from apps.organizations.security_permissions import MANAGE_ACCESS, MANAGE_ORG_SETTINGS, MANAGE_ROLES
 from apps.users.models import User
 
@@ -92,116 +91,79 @@ class BranchForm(forms.ModelForm):
             self.fields["organization"].disabled = True
 
 
-class BranchMembershipForm(forms.Form):
-    """Grant one user access to one branch in one role."""
+class EmployeeAccessForm(forms.Form):
+    """
+    Put one employee in one post, at one branch or across the organization.
 
-    user = forms.ModelChoiceField(
-        queryset=User.objects.filter(is_active=True).order_by("username"),
-        label=_("المستخدم"),
-    )
-    branch = forms.ModelChoiceField(
-        queryset=Branch.objects.filter(is_active=True).order_by("code"),
-        label=_("الفرع"),
-    )
-    # The built-in posts and every organization's active custom posts
-    # (ADR-034). Computed per request: a post defined a minute ago must be
-    # grantable now, and a class-level tuple would be frozen at import.
+    The target is not a field: this form lives on that employee's own screen,
+    so the person is already chosen and offering a picker would invite the
+    manager to change somebody else by accident.
+
+    `scope` collapses "which organization" and "which branch" into one choice
+    because they are one question to the person answering it — *where does
+    this employee work* — and a two-field version lets you submit an
+    organization and a branch that disagree.
+    """
+
+    scope = forms.ChoiceField(choices=(), label=_("النطاق"))
     role = forms.ChoiceField(choices=(), label=_("الدور"))
 
-    def __init__(self, *args: Any, actor: User | None = None, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        user_queryset = User.objects.filter(
-            is_active=True,
-            is_staff=False,
-            is_superuser=False,
-        ).order_by("username")
-        self.fields["user"].queryset = user_queryset  # type: ignore[attr-defined]
-        if actor is not None and not actor.is_superuser:
-            from apps.organizations.authorization import organizations_with_organization_permission
+    #: `scope` values are `org:<pk>` or `branch:<pk>`.
+    ORGANIZATION = "org"
+    BRANCH = "branch"
 
-            organizations = organizations_with_organization_permission(actor, MANAGE_ACCESS)
-            self.fields["branch"].queryset = Branch.objects.filter(  # type: ignore[attr-defined]
-                is_active=True, organization__in=organizations
-            ).order_by("organization__code", "code")
-            # A target must already be visible in the manager's organization.
-            # Privileged accounts are never candidates for an ERP role grant.
-            self.fields["user"].queryset = (  # type: ignore[attr-defined]
-                user_queryset.filter(
-                    Q(organization_memberships__organization__in=organizations)
-                    | Q(branch_memberships__branch__organization__in=organizations)
-                )
-                .distinct()
-                .order_by("username")
-            )
+    def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.actor = actor
+        from apps.organizations.authorization import organizations_with_organization_permission
         from apps.organizations.roles import role_choices
 
-        choices = role_choices(
-            organizations if actor is not None and not actor.is_superuser else None
+        organizations = organizations_with_organization_permission(actor, MANAGE_ACCESS)
+        if actor.is_superuser:
+            organizations = Organization.objects.filter(is_active=True)
+        self.organizations = {org.pk: org for org in organizations}
+
+        branches = (
+            Branch.objects.filter(is_active=True, organization__in=organizations)
+            .select_related("organization")
+            .order_by("organization__code", "code")
         )
-        # OWNER is a security-sensitive post.  It is never granted through a
-        # direct form; the maker-checker workflow will own it in a follow-up
-        # migration.
-        self.fields["role"].choices = [choice for choice in choices if choice[0] != Role.OWNER]  # type: ignore[attr-defined]
+        self.branches = {branch.pk: branch for branch in branches}
 
+        scopes: list[tuple[str, Any]] = []
+        for org in organizations.order_by("code"):
+            scopes.append(
+                (f"{self.ORGANIZATION}:{org.pk}", _("%(name)s — كل الفروع") % {"name": org.name})
+            )
+        for branch in branches:
+            scopes.append(
+                (f"{self.BRANCH}:{branch.pk}", f"{branch.organization.name} — {branch.name}")
+            )
+        self.fields["scope"].choices = scopes  # type: ignore[attr-defined]
 
-class AccessChangeRequestForm(forms.Form):
-    """Collect an access proposal; the service applies it only after review."""
+        # OWNER is absent from the list rather than refused after the fact.
+        # `_require_access_administrator` refuses it anyway; leaving it out
+        # means the manager is never offered a post they cannot grant.
+        choices = role_choices(None if actor.is_superuser else organizations)
+        self.fields["role"].choices = [row for row in choices if row[0] != Role.OWNER]  # type: ignore[attr-defined]
 
-    organization = forms.ModelChoiceField(queryset=Organization.objects.none(), label=_("المؤسسة"))
-    branch = forms.ModelChoiceField(
-        queryset=Branch.objects.none(),
-        required=False,
-        label=_("الفرع"),
-        help_text=_("اتركه فارغاً للصلاحية على مستوى المؤسسة كلها."),
-    )
-    target_user = forms.ModelChoiceField(queryset=User.objects.none(), label=_("المستخدم"))
-    action = forms.ChoiceField(choices=AccessChangeAction.choices, label=_("الإجراء"))
-    requested_role = forms.ChoiceField(
-        choices=(),
-        required=False,
-        label=_("الدور المطلوب"),
-        help_text=_("يُستخدم عند المنح فقط. طلب المالك يكون على مستوى المؤسسة."),
-    )
-    reason = forms.CharField(label=_("سبب الطلب"), widget=forms.Textarea(attrs={"rows": 3}))
-
-    def __init__(self, *args: Any, actor: User | None = None, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        organizations = Organization.objects.none()
-        if actor is not None:
-            from apps.organizations.authorization import organizations_with_organization_permission
-
-            organizations = organizations_with_organization_permission(actor, MANAGE_ACCESS)
-        self.fields["organization"].queryset = organizations  # type: ignore[attr-defined]
-        self.fields["branch"].queryset = Branch.objects.filter(  # type: ignore[attr-defined]
-            is_active=True, organization__in=organizations
-        ).order_by("organization__code", "code")
-        self.fields["target_user"].queryset = User.objects.filter(  # type: ignore[attr-defined]
-            is_active=True, is_staff=False, is_superuser=False
-        ).order_by("username")
-        from apps.organizations.roles import role_choices
-
-        self.fields["requested_role"].choices = [  # type: ignore[attr-defined]
-            ("", _("— اختر الدور —")),
-            *role_choices(organizations),
-        ]
-
-    def clean(self) -> dict[str, Any]:
-        cleaned: dict[str, Any] = super().clean() or {}
-        organization = cleaned.get("organization")
-        branch = cleaned.get("branch")
-        action = cleaned.get("action")
-        role = cleaned.get("requested_role")
-        if (
-            organization is not None
-            and branch is not None
-            and branch.organization_id != organization.pk
-        ):
-            self.add_error("branch", _("الفرع لا يتبع المؤسسة المحددة."))
-        if action == AccessChangeAction.GRANT and not role:
-            self.add_error("requested_role", _("اختر الدور المطلوب للمنح."))
-        if action == AccessChangeAction.REVOKE:
-            cleaned["requested_role"] = ""
-        return cleaned
+    def clean_scope(self) -> str:
+        raw = str(self.cleaned_data["scope"])
+        kind, _sep, key = raw.partition(":")
+        if not key.isdigit():
+            raise forms.ValidationError(_("نطاق غير صالح."), code="bad_scope")
+        pk = int(key)
+        # Resolved against the caller's own scope, never fetched then checked:
+        # a submitted id must not be able to widen what this manager reaches.
+        if kind == self.ORGANIZATION and pk in self.organizations:
+            self.organization = self.organizations[pk]
+            self.branch = None
+        elif kind == self.BRANCH and pk in self.branches:
+            self.branch = self.branches[pk]
+            self.organization = self.branch.organization
+        else:
+            raise forms.ValidationError(_("نطاق غير صالح."), code="bad_scope")
+        return raw
 
 
 class RoleDefinitionForm(forms.Form):

@@ -29,14 +29,27 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     MANAGE_ORG_SETTINGS,
 )
 
-# Security administration is intentionally narrower than operational access.
-# Only the organization's accountable owner can change who holds authority.
-# Accounting managers may review the scoped audit trail but cannot grant
-# themselves or anyone else a wider post.
+# Security administration is narrower than operational access, and narrower
+# still than it looks: the manager runs the staff, and the owner runs the
+# organization.
+#
+# **The manager administers people.** They hire, they assign posts, and they
+# decide who works which branch — so they hold `manage_users`, `manage_access`
+# and `manage_roles`. Requiring the owner for every new storekeeper made the
+# owner a bottleneck on an everyday act, and the owner is not the person who
+# knows which shift somebody works.
+#
+# What a manager still cannot do is make an owner. `_require_access_change_actor`
+# refuses the OWNER role outright, refuses a manager changing their own access,
+# and refuses touching a sitting owner's. Those three are what keeps
+# `manage_roles` from being a route to unlimited authority: a manager may
+# define any post and grant any post, except the one that could remove them.
+#
+# Accounting managers may review the scoped audit trail and grant nothing.
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     Role.OWNER.value: frozenset(ALL_PERMISSIONS),
     Role.ACCOUNTING_MANAGER.value: frozenset({VIEW_AUDIT}),
-    Role.MANAGER.value: frozenset(),
+    Role.MANAGER.value: frozenset({MANAGE_USERS, MANAGE_ACCESS, MANAGE_ROLES}),
     Role.ACCOUNTANT.value: frozenset(),
     Role.PURCHASING.value: frozenset(),
     Role.STOREKEEPER.value: frozenset(),

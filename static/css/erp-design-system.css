@@ -141,6 +141,15 @@
   .ui-account-tree__row--child td:first-child { padding-inline-start: calc(var(--ui-space-5) + 1rem); }
   .ui-account-tree__spacer { display: inline-block; inline-size: 1.9rem; }
   .ui-account-tree .ui-tree-toggle { margin-inline-end: 0.45rem; }
+  .ui-account-tree__balance {
+    direction: ltr;
+    color: var(--ui-blue-700);
+    font-family: var(--ui-font-numeric);
+    font-variant-numeric: tabular-nums;
+    font-weight: 720;
+    text-align: end;
+    white-space: nowrap;
+  }
 
   .ui-accounting-disclosure { overflow: hidden; }
   .ui-accounting-disclosure > summary {
@@ -1174,6 +1183,14 @@
   .ui-table-input--note { inline-size: min(18rem, 100%); }
   .ui-table__cell { min-inline-size: 0; }
   .ui-table__cell--code { direction: ltr; font-family: var(--ui-font-numeric); }
+  .ui-account-code-simple {
+    color: var(--ui-text);
+    font-family: var(--ui-font-numeric);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums lining-nums;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+  }
   .ui-cell-stack { display: grid; gap: 0.18rem; min-inline-size: 0; }
   .ui-cell-stack > small { color: var(--ui-text-muted); }
   .ui-item-row { transition: background-color var(--ui-duration); }

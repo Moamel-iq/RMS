@@ -1,5 +1,5 @@
 {% extends list_base_template|default:"shell.html" %}
-{% load i18n %}
+{% load i18n money_tags %}
 
 {% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
@@ -28,17 +28,18 @@
     </form>
 
     <section class="ui-data-card ui-accounting-table-card">
-      <div class="ui-card__header"><div><h2 class="ui-card__title">{% translate "الحسابات" %}</h2><p class="ui-card__subtitle">{% translate "الرمز واسم الحساب فقط" %}</p></div></div>
+      <div class="ui-card__header"><div><h2 class="ui-card__title">{% translate "الحسابات" %}</h2><p class="ui-card__subtitle">{% translate "الرصيد ظاهر لكل حساب، وقيم ملف الاستيراد ما زالت مصفّرة كما اعتُمدت." %}</p></div></div>
       <div class="ui-table-scroll" tabindex="0">
         <table class="ui-table ui-table--responsive ui-account-tree">
-          <thead><tr><th>{% translate "الرمز" %}</th><th>{% translate "اسم الحساب" %}</th></tr></thead>
+          <thead><tr><th>{% translate "الرمز" %}</th><th>{% translate "اسم الحساب" %}</th><th>{% translate "الرصيد" %}</th></tr></thead>
           <tbody>
             {% for account in roots %}
-              <tr class="ui-account-tree__row ui-account-tree__row--root">
-                <td data-label="{% translate 'الرمز' %}">{% if account.child_count %}<button class="ui-tree-toggle" type="button" hx-get="{% url 'accounting:imported_chart_children' account.pk %}" hx-target="closest tr" hx-swap="afterend" aria-label="{% translate 'فتح الفروع' %}">+</button>{% endif %}<bdi dir="ltr"><code>{{ account.source_code }}</code></bdi></td>
+              <tr class="ui-account-tree__row ui-account-tree__row--root" data-node-id="{{ account.pk }}">
+                <td data-label="{% translate 'الرمز' %}">{% if account.child_count %}<button class="ui-tree-toggle" type="button" data-account-tree-toggle data-node-id="{{ account.pk }}" data-label-open="{% translate 'فتح الفروع' %}" data-label-close="{% translate 'إغلاق الفروع' %}" hx-get="{% url 'accounting:imported_chart_children' account.pk %}" hx-target="closest tr" hx-swap="afterend" hx-sync="this:drop" aria-expanded="false" aria-label="{% translate 'فتح الفروع' %}">+</button>{% endif %}<bdi dir="ltr"><code>{{ account.source_code }}</code></bdi></td>
                 <td data-label="{% translate 'اسم الحساب' %}"><strong>{{ account.name }}</strong></td>
+                <td class="ui-account-tree__balance" data-label="{% translate 'الرصيد' %}"><bdi dir="ltr">{{ account.source_balance|money_full }}</bdi></td>
               </tr>
-            {% empty %}<tr><td colspan="2" class="ui-table__empty">{% translate "لا توجد حسابات في الشجرة." %}</td></tr>{% endfor %}
+            {% empty %}<tr><td colspan="3" class="ui-table__empty">{% translate "لا توجد حسابات في الشجرة." %}</td></tr>{% endfor %}
           </tbody>
         </table>
       </div>

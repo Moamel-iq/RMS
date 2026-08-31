@@ -14,8 +14,6 @@ from apps.users.models import User
 LIST_URLS = (
     "organizations:organization_list",
     "organizations:branch_list",
-    "organizations:access_list",
-    "organizations:access_request_list",
     "organizations:role_list",
     "users:user_list",
     "units:unit_list",
@@ -51,6 +49,7 @@ def test_direct_page_has_one_shell(url_name: str) -> None:
     assert context["list_base_template"] == "shell.html"
     assert body.count('class="ui-app-header"') == 1
     assert body.count('id="main-content"') == 1
+    assert body.count("js/account-tree.js") == 1
     assert 'hx-target="#list-results"' in body
 
 

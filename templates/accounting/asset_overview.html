@@ -1,5 +1,5 @@
 {% extends list_base_template|default:"shell.html" %}
-{% load i18n money_tags %}
+{% load i18n money_tags accounting_tags %}
 
 {% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
@@ -21,8 +21,8 @@
     </div>
 
     <section class="ui-data-card ui-accounting-table-card">
-      <div class="ui-card__header"><div><h2 class="ui-card__title">{% translate "حسابات الأصول التشغيلية" %}</h2><p class="ui-card__subtitle">{% translate "الرصيد المباشر لكل حساب نهائي" %}</p></div></div>
-      <div class="ui-table-scroll" tabindex="0"><table class="ui-table ui-table--responsive"><thead><tr><th>{% translate "الرمز" %}</th><th>{% translate "الحساب" %}</th><th>{% translate "الرصيد" %}</th><th>{% translate "الحالة" %}</th><th></th></tr></thead><tbody>{% for row in rows %}<tr><td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code>{{ row.account.code }}</code></bdi></td><td data-label="{% translate 'الحساب' %}">{{ row.account.name }}</td><td data-label="{% translate 'الرصيد' %}"><strong><bdi dir="ltr">{{ row.balance|money_full }}</bdi></strong></td><td data-label="{% translate 'الحالة' %}">{% if row.balance %}<span class="ui-badge ui-badge--success">{% translate "متحرك" %}</span>{% else %}<span class="ui-badge ui-badge--neutral">{% translate "صفر" %}</span>{% endif %}</td><td class="ui-table__actions"><a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' row.account.pk %}">{% translate "فتح" %}</a></td></tr>{% empty %}<tr><td colspan="5" class="ui-table__empty">{% translate "لا توجد حسابات أصول تشغيلية." %}</td></tr>{% endfor %}</tbody></table></div>
+      <div class="ui-card__header"><div><h2 class="ui-card__title">{% translate "حسابات الأصول التشغيلية" %}</h2><p class="ui-card__subtitle">{% translate "رمز مختصر مطابق للشجرة المحاسبية، والرصيد المباشر لكل حساب نهائي" %}</p></div></div>
+      <div class="ui-table-scroll" tabindex="0"><table class="ui-table ui-table--responsive"><thead><tr><th>{% translate "الرمز" %}</th><th>{% translate "الحساب" %}</th><th>{% translate "الرصيد" %}</th><th>{% translate "الحالة" %}</th><th></th></tr></thead><tbody>{% for row in rows %}<tr><td data-label="{% translate 'الرمز' %}"><bdi dir="ltr"><code class="ui-account-code-simple" title="{% translate 'الرمز المحاسبي الأصلي' %}: {{ row.account.code }}">{{ row.account.code|simple_account_code }}</code></bdi></td><td data-label="{% translate 'الحساب' %}">{{ row.account.name }}</td><td data-label="{% translate 'الرصيد' %}"><strong><bdi dir="ltr">{{ row.balance|money_full }}</bdi></strong></td><td data-label="{% translate 'الحالة' %}">{% if row.balance %}<span class="ui-badge ui-badge--success">{% translate "متحرك" %}</span>{% else %}<span class="ui-badge ui-badge--neutral">{% translate "صفر" %}</span>{% endif %}</td><td class="ui-table__actions"><a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' row.account.pk %}">{% translate "فتح" %}</a></td></tr>{% empty %}<tr><td colspan="5" class="ui-table__empty">{% translate "لا توجد حسابات أصول تشغيلية." %}</td></tr>{% endfor %}</tbody></table></div>
     </section>
 
   </div>

@@ -17,7 +17,11 @@
       <td>{{ account.get_full_name|default:"—" }}</td>
       {# The phone is a credential and an identity; show it as stored. #}
       <td class="ui-table__numeric" dir="ltr">{{ account.phone|default:"—" }}</td>
-      <td class="ui-table__numeric">{{ account.branch_memberships.count }}</td>
+      {# Zero here is the thing a manager most often needs to act on: an #}
+      {# account that reaches nothing. So the count is the link.          #}
+      <td class="ui-table__numeric">
+        <a href="{% url 'users:user_access' account.pk %}">{{ account.branch_memberships.count }}</a>
+      </td>
       <td>
         {% if account.is_active %}
           <span class="ui-badge ui-badge--success">{% translate "فعّال" %}</span>
@@ -31,6 +35,7 @@
         {% endif %}
       </td>
       <td class="ui-table__actions">
+        <a class="ui-button ui-button--ghost ui-button--small" href="{% url 'users:user_access' account.pk %}">{% translate "الصلاحيات" %}</a>
         <a class="ui-button ui-button--ghost ui-button--small" href="{% url 'users:user_update' account.pk %}">{% translate "تعديل" %}</a>
       </td>
     </tr>
