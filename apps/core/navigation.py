@@ -131,6 +131,137 @@ MODULES: tuple[Module, ...] = (
         sections=(Section(label=_("نظرة عامة"), url_name="users:home", available=True),),
     ),
     Module(
+        key="sales",
+        label=_("المبيعات"),
+        icon_name="receipt",
+        phase=_("المرحلة ٤"),
+        # Checkpoint 7 — the module now opens on its own dashboard rather than
+        # on the menu. Until لوحة المبيعات existed the menu was the honest
+        # landing page, being the master everything else in Phase 4 is built
+        # on; a module whose landing page is a summary of its own documents is
+        # the shape every other module here has.
+        url_name="sales:dashboard",
+        available=True,
+        sections=(
+            # Checkpoint 7 — the twelfth and last entry. `_sections(...)` is
+            # empty for this module now: every section in the sidebar leads to
+            # a screen that exists, renders as a full page and as an htmx
+            # fragment, and is populated. There is no قريباً badge left in
+            # Sales.
+            Section(
+                label=_("لوحة المبيعات"),
+                url_name="sales:dashboard",
+                available=True,
+                active_prefixes=("/sales/dashboard/",),
+            ),
+            # Checkpoint 3 — the module's operational centre. One document per
+            # branch per business date, and the first Sales screen that reaches
+            # the ledger.
+            Section(
+                label=_("المبيعات اليومية"),
+                url_name="sales:day_list",
+                available=True,
+                active_prefixes=("/sales/days/", "/sales/day-lines/"),
+            ),
+            Section(
+                label=_("استيراد مبيعات POS"),
+                url_name="sales:pos_import_list",
+                available=True,
+                active_prefixes=("/sales/pos-imports/",),
+            ),
+            Section(
+                label=_("أصناف المنيو"),
+                url_name="sales:menu_item_list",
+                available=True,
+                active_prefixes=(
+                    "/sales/menu-items/",
+                    "/sales/menu-categories/",
+                    "/sales/menu-prices/",
+                ),
+            ),
+            Section(
+                label=_("قنوات البيع"),
+                url_name="sales:channel_list",
+                available=True,
+                active_prefixes=("/sales/channels/",),
+            ),
+            # Checkpoint 2 — three more entries promoted. The delivery master
+            # and the two contract screens travel together because they are
+            # useless apart: an application with no agreement refuses every
+            # sale it takes, and a discount that names no application cannot
+            # state who funds it.
+            Section(
+                label=_("تطبيقات التوصيل"),
+                url_name="sales:application_list",
+                available=True,
+                active_prefixes=("/sales/applications/",),
+            ),
+            Section(
+                label=_("العمولات والاتفاقيات"),
+                url_name="sales:agreement_list",
+                available=True,
+                active_prefixes=("/sales/agreements/",),
+            ),
+            Section(
+                label=_("الخصومات"),
+                url_name="sales:discount_list",
+                available=True,
+                active_prefixes=("/sales/discounts/",),
+            ),
+            # Checkpoint 4 — corrections against posted days. Promoted after
+            # the list and the detail both answered as a full page and as an
+            # htmx fragment; the line-delete prefix is listed so the sidebar
+            # still highlights the section while a draft is being edited.
+            Section(
+                label=_("المرتجعات والإلغاءات"),
+                url_name="sales:adjustment_list",
+                available=True,
+                active_prefixes=("/sales/adjustments/", "/sales/adjustment-lines/"),
+            ),
+            # Checkpoint 5 — the receivable ledger and the settlement that
+            # clears it. Two entries rather than one, because reading what a
+            # delivery company owes and agreeing its statement are different
+            # acts held by different permissions: the read is
+            # `view_application_receivables` and reaches a viewer, the
+            # settlement is `manage_application_settlements` and reaches
+            # neither a branch manager nor an accountant.
+            Section(
+                label=_("ذمم التطبيقات"),
+                url_name="sales:receivable_list",
+                available=True,
+                active_prefixes=("/sales/receivables/",),
+            ),
+            Section(
+                label=_("تسويات التطبيقات"),
+                url_name="sales:settlement_list",
+                available=True,
+                active_prefixes=(
+                    "/sales/settlements/",
+                    "/sales/settlement-allocations/",
+                    "/sales/settlement-adjustments/",
+                ),
+            ),
+            # Checkpoint 6 — the till and the report that reads everything the
+            # module has produced. Two entries rather than one, because closing
+            # a drawer and reading a reconciliation are different acts held by
+            # different permissions: the closing is `close_cashier_shift` /
+            # `approve_cashier_closing` at the branch, and the report is
+            # `view_sales_reports` and records nothing at all.
+            Section(
+                label=_("إقفال الكاشير"),
+                url_name="sales:shift_list",
+                available=True,
+                active_prefixes=("/sales/cashier-shifts/",),
+            ),
+            Section(
+                label=_("المطابقة اليومية"),
+                url_name="sales:report_daily_reconciliation",
+                available=True,
+                active_prefixes=("/sales/reports/daily-reconciliation/",),
+            ),
+        ),
+    ),
+    Module(
         key="inventory",
         label=_("المخزون"),
         icon_name="box",
@@ -533,137 +664,6 @@ MODULES: tuple[Module, ...] = (
         ),
     ),
     Module(
-        key="sales",
-        label=_("المبيعات"),
-        icon_name="receipt",
-        phase=_("المرحلة ٤"),
-        # Checkpoint 7 — the module now opens on its own dashboard rather than
-        # on the menu. Until لوحة المبيعات existed the menu was the honest
-        # landing page, being the master everything else in Phase 4 is built
-        # on; a module whose landing page is a summary of its own documents is
-        # the shape every other module here has.
-        url_name="sales:dashboard",
-        available=True,
-        sections=(
-            # Checkpoint 7 — the twelfth and last entry. `_sections(...)` is
-            # empty for this module now: every section in the sidebar leads to
-            # a screen that exists, renders as a full page and as an htmx
-            # fragment, and is populated. There is no قريباً badge left in
-            # Sales.
-            Section(
-                label=_("لوحة المبيعات"),
-                url_name="sales:dashboard",
-                available=True,
-                active_prefixes=("/sales/dashboard/",),
-            ),
-            # Checkpoint 3 — the module's operational centre. One document per
-            # branch per business date, and the first Sales screen that reaches
-            # the ledger.
-            Section(
-                label=_("المبيعات اليومية"),
-                url_name="sales:day_list",
-                available=True,
-                active_prefixes=("/sales/days/", "/sales/day-lines/"),
-            ),
-            Section(
-                label=_("استيراد مبيعات POS"),
-                url_name="sales:pos_import_list",
-                available=True,
-                active_prefixes=("/sales/pos-imports/",),
-            ),
-            Section(
-                label=_("أصناف المنيو"),
-                url_name="sales:menu_item_list",
-                available=True,
-                active_prefixes=(
-                    "/sales/menu-items/",
-                    "/sales/menu-categories/",
-                    "/sales/menu-prices/",
-                ),
-            ),
-            Section(
-                label=_("قنوات البيع"),
-                url_name="sales:channel_list",
-                available=True,
-                active_prefixes=("/sales/channels/",),
-            ),
-            # Checkpoint 2 — three more entries promoted. The delivery master
-            # and the two contract screens travel together because they are
-            # useless apart: an application with no agreement refuses every
-            # sale it takes, and a discount that names no application cannot
-            # state who funds it.
-            Section(
-                label=_("تطبيقات التوصيل"),
-                url_name="sales:application_list",
-                available=True,
-                active_prefixes=("/sales/applications/",),
-            ),
-            Section(
-                label=_("العمولات والاتفاقيات"),
-                url_name="sales:agreement_list",
-                available=True,
-                active_prefixes=("/sales/agreements/",),
-            ),
-            Section(
-                label=_("الخصومات"),
-                url_name="sales:discount_list",
-                available=True,
-                active_prefixes=("/sales/discounts/",),
-            ),
-            # Checkpoint 4 — corrections against posted days. Promoted after
-            # the list and the detail both answered as a full page and as an
-            # htmx fragment; the line-delete prefix is listed so the sidebar
-            # still highlights the section while a draft is being edited.
-            Section(
-                label=_("المرتجعات والإلغاءات"),
-                url_name="sales:adjustment_list",
-                available=True,
-                active_prefixes=("/sales/adjustments/", "/sales/adjustment-lines/"),
-            ),
-            # Checkpoint 5 — the receivable ledger and the settlement that
-            # clears it. Two entries rather than one, because reading what a
-            # delivery company owes and agreeing its statement are different
-            # acts held by different permissions: the read is
-            # `view_application_receivables` and reaches a viewer, the
-            # settlement is `manage_application_settlements` and reaches
-            # neither a branch manager nor an accountant.
-            Section(
-                label=_("ذمم التطبيقات"),
-                url_name="sales:receivable_list",
-                available=True,
-                active_prefixes=("/sales/receivables/",),
-            ),
-            Section(
-                label=_("تسويات التطبيقات"),
-                url_name="sales:settlement_list",
-                available=True,
-                active_prefixes=(
-                    "/sales/settlements/",
-                    "/sales/settlement-allocations/",
-                    "/sales/settlement-adjustments/",
-                ),
-            ),
-            # Checkpoint 6 — the till and the report that reads everything the
-            # module has produced. Two entries rather than one, because closing
-            # a drawer and reading a reconciliation are different acts held by
-            # different permissions: the closing is `close_cashier_shift` /
-            # `approve_cashier_closing` at the branch, and the report is
-            # `view_sales_reports` and records nothing at all.
-            Section(
-                label=_("إقفال الكاشير"),
-                url_name="sales:shift_list",
-                available=True,
-                active_prefixes=("/sales/cashier-shifts/",),
-            ),
-            Section(
-                label=_("المطابقة اليومية"),
-                url_name="sales:report_daily_reconciliation",
-                available=True,
-                active_prefixes=("/sales/reports/daily-reconciliation/",),
-            ),
-        ),
-    ),
-    Module(
         key="accounting",
         label=_("المحاسبة"),
         icon_name="ledger",
@@ -820,99 +820,19 @@ MODULES: tuple[Module, ...] = (
         ),
     ),
     Module(
-        key="hr",
-        label=_("الموارد البشرية"),
-        icon_name="people",
-        phase=_("المرحلة ٦"),
-        url_name="hr:overview",
+        key="insights",
+        label=_("التحليل الذكي"),
+        icon_name="chart",
+        phase=_("المرحلة ٨"),
+        url_name="insights:dashboard",
         available=True,
         sections=(
-            # The module opens on its summary; every deeper screen is reached
-            # from it. Matched by exact url name, so it never steals the active
-            # state from the list it links to.
             Section(
-                label=_("نظرة عامة"),
-                url_name="hr:overview",
+                label=_("لوحة التحليل"),
+                url_name="insights:dashboard",
                 available=True,
-                group=_("نظرة عامة"),
-            ),
-            Section(
-                label=_("الموظفون"),
-                url_name="hr:employee_list",
-                available=True,
-                active_prefixes=("hr:employee_",),
-            ),
-            Section(
-                label=_("العقود والأجور"),
-                url_name="hr:contract_list",
-                available=True,
-                active_prefixes=("hr:contract_",),
-            ),
-            Section(
-                label=_("الورديات"),
-                url_name="hr:shift_list",
-                available=True,
-                active_prefixes=("hr:shift_", "hr:employee_schedule", "hr:branch_schedule"),
-            ),
-            Section(
-                label=_("الحضور والانصراف"),
-                url_name="hr:attendance_list",
-                available=True,
-                active_prefixes=("hr:attendance_",),
-            ),
-            Section(
-                label=_("الإجازات والغياب"),
-                url_name="hr:leave_list",
-                available=True,
-                active_prefixes=("hr:leave_", "hr:absence_"),
-            ),
-            Section(
-                label=_("العمل الإضافي"),
-                url_name="hr:overtime_list",
-                available=True,
-                active_prefixes=("hr:overtime_",),
-            ),
-            Section(
-                label=_("الاستقطاعات"),
-                url_name="hr:deduction_list",
-                available=True,
-                active_prefixes=("hr:deduction_",),
-            ),
-            Section(
-                label=_("السلف"),
-                url_name="hr:advance_list",
-                available=True,
-                active_prefixes=("hr:advance_",),
-            ),
-            Section(
-                label=_("احتساب الرواتب"),
-                url_name="hr:payroll_list",
-                available=True,
-                active_prefixes=(
-                    "hr:payroll_list",
-                    "hr:payroll_create",
-                    "hr:payroll_detail",
-                    "hr:payroll_line",
-                    "hr:payroll_command",
-                ),
-            ),
-            Section(
-                label=_("اعتماد الرواتب"),
-                url_name="hr:payroll_approvals",
-                available=True,
-                active_prefixes=("hr:payroll_approvals",),
-            ),
-            Section(
-                label=_("صرف الرواتب"),
-                url_name="hr:payroll_payments",
-                available=True,
-                active_prefixes=("hr:payroll_payment", "hr:payroll_payments"),
-            ),
-            Section(
-                label=_("كشوف الموظفين"),
-                url_name="hr:statement_list",
-                available=True,
-                active_prefixes=("hr:statement_", "hr:employee_statement", "hr:payslip"),
+                active_prefixes=("insights:",),
+                icon_name="chart",
             ),
         ),
     ),
@@ -1029,6 +949,103 @@ MODULES: tuple[Module, ...] = (
         ),
     ),
     Module(
+        key="hr",
+        label=_("الموارد البشرية"),
+        icon_name="people",
+        phase=_("المرحلة ٦"),
+        url_name="hr:overview",
+        available=True,
+        sections=(
+            # The module opens on its summary; every deeper screen is reached
+            # from it. Matched by exact url name, so it never steals the active
+            # state from the list it links to.
+            Section(
+                label=_("نظرة عامة"),
+                url_name="hr:overview",
+                available=True,
+                group=_("نظرة عامة"),
+            ),
+            Section(
+                label=_("الموظفون"),
+                url_name="hr:employee_list",
+                available=True,
+                active_prefixes=("hr:employee_",),
+            ),
+            Section(
+                label=_("العقود والأجور"),
+                url_name="hr:contract_list",
+                available=True,
+                active_prefixes=("hr:contract_",),
+            ),
+            Section(
+                label=_("الورديات"),
+                url_name="hr:shift_list",
+                available=True,
+                active_prefixes=("hr:shift_", "hr:employee_schedule", "hr:branch_schedule"),
+            ),
+            Section(
+                label=_("الحضور والانصراف"),
+                url_name="hr:attendance_list",
+                available=True,
+                active_prefixes=("hr:attendance_",),
+            ),
+            Section(
+                label=_("الإجازات والغياب"),
+                url_name="hr:leave_list",
+                available=True,
+                active_prefixes=("hr:leave_", "hr:absence_"),
+            ),
+            Section(
+                label=_("العمل الإضافي"),
+                url_name="hr:overtime_list",
+                available=True,
+                active_prefixes=("hr:overtime_",),
+            ),
+            Section(
+                label=_("الاستقطاعات"),
+                url_name="hr:deduction_list",
+                available=True,
+                active_prefixes=("hr:deduction_",),
+            ),
+            Section(
+                label=_("السلف"),
+                url_name="hr:advance_list",
+                available=True,
+                active_prefixes=("hr:advance_",),
+            ),
+            Section(
+                label=_("احتساب الرواتب"),
+                url_name="hr:payroll_list",
+                available=True,
+                active_prefixes=(
+                    "hr:payroll_list",
+                    "hr:payroll_create",
+                    "hr:payroll_detail",
+                    "hr:payroll_line",
+                    "hr:payroll_command",
+                ),
+            ),
+            Section(
+                label=_("اعتماد الرواتب"),
+                url_name="hr:payroll_approvals",
+                available=True,
+                active_prefixes=("hr:payroll_approvals",),
+            ),
+            Section(
+                label=_("صرف الرواتب"),
+                url_name="hr:payroll_payments",
+                available=True,
+                active_prefixes=("hr:payroll_payment", "hr:payroll_payments"),
+            ),
+            Section(
+                label=_("كشوف الموظفين"),
+                url_name="hr:statement_list",
+                available=True,
+                active_prefixes=("hr:statement_", "hr:employee_statement", "hr:payslip"),
+            ),
+        ),
+    ),
+    Module(
         key="settings",
         label=_("الإعدادات"),
         icon_name="settings",
@@ -1042,11 +1059,6 @@ MODULES: tuple[Module, ...] = (
                 available=True,
             ),
             Section(label=_("الفروع"), url_name="organizations:branch_list", available=True),
-            Section(
-                label=_("صلاحيات الفروع"),
-                url_name="organizations:access_list",
-                available=True,
-            ),
             # The posts an organization defines, and what each may do (ADR-034).
             Section(
                 label=_("الأدوار والصلاحيات"),

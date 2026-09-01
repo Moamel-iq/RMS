@@ -184,6 +184,21 @@ class FoundationListView(FoundationViewMixin, ListView):
         context["search"] = self.request.GET.get("q", "")
         context["create_label"] = self.create_label
         context["create_url"] = reverse(self.create_url_name) if self.create_url_name else None
+        # Foundation lists participate in two different HTMX swaps. Primary
+        # and secondary navigation replace the complete ``#main-content``
+        # page, while search and pagination replace only ``#list-results``.
+        # Returning ``shell.html`` for either request nests a second app shell
+        # (header, navigation and all) inside the current page. Returning the
+        # table fragment for navigation has the opposite failure: the page
+        # heading and toolbar disappear. Keep the two response shapes explicit
+        # and let HtmxVaryMiddleware keep their cache entries separate.
+        context["htmx_list"] = True
+        if self.request.headers.get("HX-Request") != "true":
+            context["list_base_template"] = "shell.html"
+        elif self.request.headers.get("HX-Target") == "main-content":
+            context["list_base_template"] = "settings/_form_fragment.html"
+        else:
+            context["list_base_template"] = "settings/_list_fragment.html"
         return context
 
 

@@ -14,17 +14,12 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from apps.core.context import audit_context, get_correlation_id
 from apps.core.models import AuditAction
 from apps.core.services import record_audit_event, snapshot
 from apps.organizations.authorization import require_organization_permission
 from apps.organizations.models import (
-    AccessChangeAction,
-    AccessChangeRequest,
-    AccessChangeRequestStatus,
     Branch,
     BranchMembership,
     Organization,
@@ -66,9 +61,13 @@ def _require_access_administrator(
             code="privileged_target",
         )
     if role is not None and str(role) == Role.OWNER:
+        # The one post a manager may not hand out. `manage_roles` lets them
+        # define any post and `manage_access` lets them fill any post, so
+        # without this a manager could promote somebody — or be promoted — to
+        # the authority that can remove them. Owner is set by a superuser.
         raise ValidationError(
-            _("منح دور المالك يحتاج طلبًا واعتمادًا مستقلين ولا يتم مباشرة."),
-            code="owner_requires_approval",
+            _("دور المالك لا يُمنح من هذه الشاشة. يضبطه مسؤول النظام."),
+            code="owner_not_grantable_here",
         )
     # A current owner is equal to the actor's highest ordinary authority in
     # this organization.  Do not let one owner silently amend or remove
@@ -85,30 +84,8 @@ def _require_access_administrator(
         ).exists()
     ):
         raise ValidationError(
-            _("لا يمكن تعديل صلاحية مالك قائم من هذا المسار."),
+            _("لا يمكن تعديل صلاحية مالك قائم. يضبطها مسؤول النظام."),
             code="equal_or_higher_authority_target",
-        )
-
-
-def _require_access_change_requester(
-    *, actor: User, target: User, organization: Organization, branch: Branch | None = None
-) -> None:
-    """Validate the maker before an access change is even proposed."""
-    from apps.organizations.security_permissions import MANAGE_ACCESS
-
-    require_organization_permission(actor, MANAGE_ACCESS, organization)
-    if actor.pk == target.pk:
-        raise ValidationError(
-            _("لا يجوز للمستخدم طلب تغيير صلاحيته بنفسه."), code="self_access_change"
-        )
-    if target.is_staff or target.is_superuser:
-        raise ValidationError(
-            _("لا تُدار الحسابات الإدارية أو فائقة الصلاحية من هذه الشاشة."),
-            code="privileged_target",
-        )
-    if branch is not None and branch.organization_id != organization.pk:
-        raise ValidationError(
-            _("الفرع لا يتبع المؤسسة المحددة."), code="branch_organization_mismatch"
         )
 
 
@@ -325,34 +302,29 @@ def _apply_branch_access_revocation(*, user: User, branch: Branch) -> None:
 def grant_branch_access(
     *, user: User, branch: Branch, role: Role | str, actor: User | None = None
 ) -> BranchMembership:
-    """Trusted bootstrap helper; interactive changes must use a request.
-
-    Keeping the actor-less path supports fixtures and one-time migrations.  A
-    browser actor is never allowed to grant access directly, even to an
-    ordinary role: it must create an :class:`AccessChangeRequest` and another
-    authorized person must approve it.
     """
-    if actor is not None:
-        _require_access_change_requester(
-            actor=actor, target=user, organization=branch.organization, branch=branch
-        )
-        raise ValidationError(
-            _("تغيير الصلاحية يحتاج طلباً واعتماداً من مستخدم مستقل."),
-            code="access_change_requires_approval",
-        )
+    Put somebody in a post at one branch, immediately.
+
+    The manager administers the staff, so this applies rather than proposes.
+    `_require_access_administrator` is what keeps that safe: it demands
+    `manage_access` in this organization, refuses a self-grant, refuses a
+    staff or superuser target, refuses the OWNER role outright, and refuses to
+    touch a sitting owner's access.
+
+    `actor=None` remains the trusted path for fixtures, seeds and data
+    migrations, and is unchecked by design — there is no browser behind it.
+    """
+    _require_access_administrator(
+        actor=actor, target=user, organization=branch.organization, role=role
+    )
     return _apply_branch_access(user=user, branch=branch, role=role)
 
 
 def revoke_branch_access(*, user: User, branch: Branch, actor: User | None = None) -> None:
-    """Trusted bootstrap helper; see :func:`grant_branch_access`."""
-    if actor is not None:
-        _require_access_change_requester(
-            actor=actor, target=user, organization=branch.organization, branch=branch
-        )
-        raise ValidationError(
-            _("سحب الصلاحية يحتاج طلباً واعتماداً من مستخدم مستقل."),
-            code="access_change_requires_approval",
-        )
+    """Take somebody out of a branch post. Same guard as the grant."""
+    _require_access_administrator(
+        actor=actor, target=user, organization=branch.organization, role=None
+    )
     _apply_branch_access_revocation(user=user, branch=branch)
 
 
@@ -485,214 +457,17 @@ def _apply_organization_access_revocation(*, user: User, organization: Organizat
 def grant_organization_access(
     *, user: User, organization: Organization, role: Role | str, actor: User | None = None
 ) -> OrganizationMembership:
-    """Trusted bootstrap helper; interactive changes use maker-checker."""
-    if actor is not None:
-        _require_access_change_requester(actor=actor, target=user, organization=organization)
-        raise ValidationError(
-            _("تغيير الصلاحية يحتاج طلباً واعتماداً من مستخدم مستقل."),
-            code="access_change_requires_approval",
-        )
+    """Put somebody in a post across the whole organization, immediately."""
+    _require_access_administrator(actor=actor, target=user, organization=organization, role=role)
     return _apply_organization_access(user=user, organization=organization, role=role)
 
 
 def revoke_organization_access(
     *, user: User, organization: Organization, actor: User | None = None
 ) -> None:
-    """Trusted bootstrap helper; interactive changes use maker-checker."""
-    if actor is not None:
-        _require_access_change_requester(actor=actor, target=user, organization=organization)
-        raise ValidationError(
-            _("سحب الصلاحية يحتاج طلباً واعتماداً من مستخدم مستقل."),
-            code="access_change_requires_approval",
-        )
+    """Take somebody out of an organization-wide post. Same guard."""
+    _require_access_administrator(actor=actor, target=user, organization=organization, role=None)
     _apply_organization_access_revocation(user=user, organization=organization)
-
-
-def _current_access_snapshot(
-    *, user: User, organization: Organization, branch: Branch | None
-) -> dict[str, object]:
-    """Capture current active authority before a reviewer can change it."""
-    membership = (
-        BranchMembership.objects.filter(user=user, branch=branch, is_active=True).first()
-        if branch is not None
-        else OrganizationMembership.objects.filter(
-            user=user, organization=organization, is_active=True
-        ).first()
-    )
-    return snapshot(membership) if membership is not None else {}
-
-
-@transaction.atomic
-def request_access_change(
-    *,
-    actor: User,
-    target_user: User,
-    organization: Organization,
-    action: AccessChangeAction | str,
-    reason: str,
-    branch: Branch | None = None,
-    requested_role: Role | str = "",
-) -> AccessChangeRequest:
-    """Create, but never apply, an organization or branch access change."""
-    _require_access_change_requester(
-        actor=actor, target=target_user, organization=organization, branch=branch
-    )
-    action = AccessChangeAction(action)
-    reason = reason.strip()
-    if not reason:
-        raise ValidationError(_("طلب تغيير الصلاحية يحتاج سبباً."), code="reason_required")
-
-    role = ""
-    if action == AccessChangeAction.GRANT:
-        role = validate_role_key(requested_role, organization)
-        # Owners govern an organization, never an arbitrary individual branch.
-        if role == Role.OWNER and branch is not None:
-            raise ValidationError(
-                _("دور المالك يُطلب على مستوى المؤسسة وليس فرعاً منفرداً."),
-                code="owner_requires_organization_scope",
-            )
-
-    request = AccessChangeRequest(
-        organization=organization,
-        branch=branch,
-        target_user=target_user,
-        action=action,
-        requested_role=role,
-        previous_access=_current_access_snapshot(
-            user=target_user, organization=organization, branch=branch
-        ),
-        reason=reason,
-        requested_by=actor,
-    )
-    request.full_clean()
-    request.save()
-    with audit_context(actor=actor, correlation_id=get_correlation_id()):
-        record_audit_event(
-            action=AuditAction.SUBMITTED,
-            target=request,
-            branch=branch,
-            organization=organization,
-            new_state=snapshot(request),
-            reason=reason,
-            metadata={"access_action": action, "requested_role": role},
-        )
-    return request
-
-
-@transaction.atomic
-def decide_access_change(
-    *, request: AccessChangeRequest, actor: User, approve: bool, reason: str = ""
-) -> AccessChangeRequest:
-    """Independently approve or reject a pending access request.
-
-    The database row is locked before its status is checked, so two reviewers
-    cannot approve the same request and write competing access histories.
-    """
-    request = (
-        AccessChangeRequest.objects.select_for_update(of=("self",))
-        .select_related("organization", "branch", "target_user", "requested_by")
-        .get(pk=request.pk)
-    )
-    if request.status != AccessChangeRequestStatus.PENDING:
-        raise ValidationError(_("تم اتخاذ قرار في هذا الطلب بالفعل."), code="request_not_pending")
-    _require_access_change_requester(
-        actor=actor,
-        target=request.target_user,
-        organization=request.organization,
-        branch=request.branch,
-    )
-    if actor.pk in {request.requested_by_id, request.target_user_id}:
-        raise ValidationError(
-            _("لا يجوز لمنشئ الطلب أو المستفيد منه اعتماده أو رفضه."),
-            code="maker_cannot_check",
-        )
-    reason = reason.strip()
-    if not approve and not reason:
-        raise ValidationError(_("رفض الطلب يحتاج سبباً."), code="decision_reason_required")
-
-    before = snapshot(request)
-    with audit_context(actor=actor, correlation_id=get_correlation_id()):
-        if approve:
-            # The stubs type the nullable FK as ``Branch | None`` and cannot see
-            # that ``branch_id`` has already decided the scope: the branch calls
-            # below are only reached for a request that carries one.
-            if request.action == AccessChangeAction.GRANT:
-                if request.branch_id:
-                    _apply_branch_access(
-                        user=request.target_user,
-                        branch=request.branch,  # type: ignore[arg-type]
-                        role=request.requested_role,
-                    )
-                else:
-                    _apply_organization_access(
-                        user=request.target_user,
-                        organization=request.organization,
-                        role=request.requested_role,
-                    )
-            elif request.branch_id:
-                _apply_branch_access_revocation(user=request.target_user, branch=request.branch)  # type: ignore[arg-type]
-            else:
-                _apply_organization_access_revocation(
-                    user=request.target_user, organization=request.organization
-                )
-
-        request.status = (
-            AccessChangeRequestStatus.APPROVED if approve else AccessChangeRequestStatus.REJECTED
-        )
-        request.reviewed_by = actor
-        request.decided_at = timezone.now()
-        request.decision_reason = reason
-        request.full_clean()
-        request.save(
-            update_fields=["status", "reviewed_by", "decided_at", "decision_reason", "updated_at"]
-        )
-        record_audit_event(
-            action=AuditAction.APPROVED if approve else AuditAction.REJECTED,
-            target=request,
-            branch=request.branch,
-            organization=request.organization,
-            previous_state=before,
-            new_state=snapshot(request),
-            reason=reason,
-            metadata={
-                "access_action": request.action,
-                "requested_role": request.requested_role,
-            },
-        )
-    return request
-
-
-@transaction.atomic
-def cancel_access_change(
-    *, request: AccessChangeRequest, actor: User, reason: str
-) -> AccessChangeRequest:
-    """Let only the maker withdraw a still-pending request, with a record."""
-    request = AccessChangeRequest.objects.select_for_update().get(pk=request.pk)
-    if request.status != AccessChangeRequestStatus.PENDING:
-        raise ValidationError(_("لا يمكن إلغاء طلب تم اتخاذ قرار فيه."), code="request_not_pending")
-    if request.requested_by_id != actor.pk:
-        raise ValidationError(_("منشئ الطلب فقط يستطيع إلغاءه."), code="not_request_maker")
-    reason = reason.strip()
-    if not reason:
-        raise ValidationError(_("إلغاء الطلب يحتاج سبباً."), code="reason_required")
-    before = snapshot(request)
-    with audit_context(actor=actor, correlation_id=get_correlation_id()):
-        request.status = AccessChangeRequestStatus.CANCELLED
-        request.decided_at = timezone.now()
-        request.decision_reason = reason
-        request.full_clean()
-        request.save(update_fields=["status", "decided_at", "decision_reason", "updated_at"])
-        record_audit_event(
-            action=AuditAction.CANCELLED,
-            target=request,
-            branch=request.branch,
-            organization=request.organization,
-            previous_state=before,
-            new_state=snapshot(request),
-            reason=reason,
-            metadata={"access_action": request.action, "requested_role": request.requested_role},
-        )
-    return request
 
 
 @transaction.atomic

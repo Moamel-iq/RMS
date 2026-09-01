@@ -35,6 +35,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("sales/", include("apps.sales.urls")),
     path("accounting/", include("apps.accounting.urls")),
     path("hr/", include("apps.hr.urls")),
+    path("insights/", include("apps.insights.urls")),
     # This precedes Django's DEBUG media helper, so a guessed HR attachment
     # URL can never bypass EmployeeDocumentDownloadView's tenant and PII check.
     path(

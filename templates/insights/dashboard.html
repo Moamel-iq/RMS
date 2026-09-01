@@ -1,0 +1,197 @@
+{% extends shell_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{# التحليل الذكي — what the last analysis found, worst first.               #}
+{#                                                                          #}
+{# The run's own state is shown above the findings, not below them. An empty #}
+{# list means two opposite things — "we looked and it is clean" and "nobody  #}
+{# has looked" — and only the run panel can tell them apart.                 #}
+
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
+
+{% block page %}
+  <section class="ui-page" id="insights-dashboard">
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <h1 class="ui-page-header__title">{% translate "التحليل الذكي" %}</h1>
+        <p class="ui-page-header__hint">
+          {% translate "ملاحظات مستخرجة من بياناتك المرحّلة، مرتّبة بالأهم. كل رقم هنا له مصدر يمكن فتحه، ولا يُتخذ أي إجراء تلقائياً." %}
+        </p>
+      </div>
+    </div>
+
+    {# --- the run itself --------------------------------------------- #}
+    <section class="ui-card ui-form-card" aria-labelledby="insights-run-title">
+      <h2 id="insights-run-title">{% translate "آخر تحليل" %}</h2>
+      {% if latest_run %}
+        <dl class="ui-definition-list">
+          <dt>{% translate "انتهى" %}</dt>
+          <dd><bdi dir="ltr">{{ latest_run.finished_at|date:"Y-m-d H:i" }}</bdi></dd>
+          <dt>{% translate "الفترة المحلَّلة" %}</dt>
+          <dd>
+            <bdi dir="ltr">{{ latest_run.period_start|date:"Y-m-d" }}</bdi>
+            —
+            <bdi dir="ltr">{{ latest_run.period_end|date:"Y-m-d" }}</bdi>
+            <span class="ui-text-muted">{% translate "(نهاية غير شاملة)" %}</span>
+          </dd>
+          <dt>{% translate "النطاق" %}</dt>
+          <dd>
+            {{ latest_run.organization.name }}
+            {% if latest_run.branch %}— {{ latest_run.branch.name }}{% else %}
+              <span class="ui-badge">{% translate "كل الفروع" %}</span>
+            {% endif %}
+          </dd>
+        </dl>
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
+            <thead>
+              <tr>
+                <th>{% translate "الكاشف" %}</th>
+                <th>{% translate "النتيجة" %}</th>
+                <th>{% translate "التغطية" %}</th>
+                <th>{% translate "ملاحظات" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for outcome in outcomes %}
+                <tr>
+                  <td data-label="{% translate 'الكاشف' %}"><code><bdi dir="ltr">{{ outcome.detector_code }}</bdi></code></td>
+                  <td data-label="{% translate 'النتيجة' %}">
+                    {% if outcome.outcome == "SUCCEEDED" %}
+                      <span class="ui-badge ui-badge--success">{{ outcome.get_outcome_display }}</span>
+                    {% elif outcome.outcome == "SKIPPED" %}
+                      <span class="ui-badge">{{ outcome.get_outcome_display }}</span>
+                    {% else %}
+                      <span class="ui-badge ui-badge--danger">{{ outcome.get_outcome_display }}</span>
+                    {% endif %}
+                  </td>
+                  <td data-label="{% translate 'التغطية' %}">
+                    {% if outcome.coverage == "COMPLETE" %}
+                      <span class="ui-badge ui-badge--success">{{ outcome.get_coverage_display }}</span>
+                    {% elif outcome.coverage == "PARTIAL" %}
+                      <span class="ui-badge ui-badge--warning">{{ outcome.get_coverage_display }}</span>
+                    {% else %}
+                      <span class="ui-badge ui-badge--danger">{{ outcome.get_coverage_display }}</span>
+                    {% endif %}
+                  </td>
+                  <td data-label="{% translate 'ملاحظات' %}">
+                    {% if outcome.error_summary %}
+                      {{ outcome.error_summary }}
+                    {% else %}
+                      {% blocktranslate with seen=outcome.notes.items_seen evaluated=outcome.notes.items_evaluated %}قُورن {{ evaluated }} من {{ seen }} صنفاً{% endblocktranslate %}
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        {% translate "لم يُشغَّل أي تحليل بعد" as no_run_title %}
+        {% translate "شغّل الأمر run_insights لبدء أول تحليل. حتى ذلك الحين، خلوّ هذه الصفحة لا يعني أن كل شيء سليم." as no_run_description %}
+        {% include "components/empty_state.html" with title=no_run_title description=no_run_description %}
+      {% endif %}
+    </section>
+
+    {% if latest_run %}
+      {# --- headline counts ------------------------------------------- #}
+      <div class="ui-detail-grid">
+        <section class="ui-card ui-form-card ui-total-card">
+          <h2>{% translate "ملاحظات نشطة" %}</h2>
+          <p class="ui-total-card__amount"><bdi dir="ltr">{{ counts.active }}</bdi></p>
+          <dl class="ui-definition-list">
+            <dt>{% translate "عالية الخطورة" %}</dt>
+            <dd><bdi dir="ltr">{{ counts.high }}</bdi></dd>
+            <dt>{% translate "جرى الاطلاع عليها" %}</dt>
+            <dd><bdi dir="ltr">{{ counts.acknowledged }}</bdi></dd>
+            <dt>{% translate "بتغطية جزئية" %}</dt>
+            <dd><bdi dir="ltr">{{ counts.partial_confidence }}</bdi></dd>
+          </dl>
+        </section>
+      </div>
+
+      {# --- filters ---------------------------------------------------- #}
+      <form class="ui-card ui-form-card" method="get" action="{{ request.path }}"
+            hx-get="{{ request.path }}" hx-target="#insights-dashboard" hx-swap="outerHTML">
+        <div class="ui-form-grid">
+          <div class="ui-field" data-field>
+            <label class="ui-field__label" for="insights-severity">{% translate "الخطورة" %}</label>
+            <select id="insights-severity" name="severity">
+              <option value="">{% translate "الكل" %}</option>
+              {% for value, label in severities %}
+                <option value="{{ value }}"{% if selected_severity == value %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="ui-field" data-field>
+            <label class="ui-field__label" for="insights-status">{% translate "الحالة" %}</label>
+            <select id="insights-status" name="status">
+              <option value="">{% translate "الكل" %}</option>
+              {% for value, label in statuses %}
+                <option value="{{ value }}"{% if selected_status == value %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="ui-form-actions">
+          <button class="ui-button ui-button--primary" type="submit">{% translate "تصفية" %}</button>
+        </div>
+      </form>
+
+      {# --- the findings ------------------------------------------------ #}
+      <section class="ui-card ui-form-card ui-lines-card" aria-labelledby="insights-list-title">
+        <h2 id="insights-list-title">{% translate "الملاحظات" %}</h2>
+        <div class="ui-table-scroll" tabindex="0">
+          <table class="ui-table ui-table--responsive">
+            <thead>
+              <tr>
+                <th>{% translate "الخطورة" %}</th>
+                <th>{% translate "الملاحظة" %}</th>
+                <th>{% translate "المجال" %}</th>
+                <th>{% translate "النطاق" %}</th>
+                <th>{% translate "الثقة" %}</th>
+                <th>{% translate "الحالة" %}</th>
+                <th>{% translate "آخر رصد" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in insights %}
+                <tr>
+                  <td data-label="{% translate 'الخطورة' %}">
+                    {% if row.latest_severity == "CRITICAL" or row.latest_severity == "HIGH" %}
+                      <span class="ui-badge ui-badge--danger">{{ row.latest_severity }}</span>
+                    {% elif row.latest_severity == "MEDIUM" %}
+                      <span class="ui-badge ui-badge--warning">{{ row.latest_severity }}</span>
+                    {% else %}
+                      <span class="ui-badge">{{ row.latest_severity }}</span>
+                    {% endif %}
+                  </td>
+                  <td data-label="{% translate 'الملاحظة' %}">
+                    <a href="{% url 'insights:detail' row.public_id %}">{{ row.latest_title }}</a>
+                  </td>
+                  <td data-label="{% translate 'المجال' %}">{{ row.get_domain_display }}</td>
+                  <td data-label="{% translate 'النطاق' %}">{{ row.scope_key }}</td>
+                  <td data-label="{% translate 'الثقة' %}">
+                    {% if row.latest_coverage == "PARTIAL" %}
+                      <span class="ui-badge ui-badge--warning">{{ row.latest_confidence }}</span>
+                    {% else %}{{ row.latest_confidence }}{% endif %}
+                  </td>
+                  <td data-label="{% translate 'الحالة' %}"><span class="ui-badge">{{ row.status }}</span></td>
+                  <td data-label="{% translate 'آخر رصد' %}"><bdi dir="ltr">{{ row.last_seen_at|date:"Y-m-d" }}</bdi></td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="7">
+                    {% translate "لا ملاحظات نشطة" as empty_title %}
+                    {% translate "آخر تحليل لم يجد شرطاً قائماً ضمن ما استطاع تغطيته. راجع تغطية الكواشف أعلاه." as empty_description %}
+                    {% include "components/empty_state.html" with title=empty_title description=empty_description %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endif %}
+  </section>
+{% endblock %}

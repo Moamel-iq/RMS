@@ -50,7 +50,22 @@ def permission_for(url_name: str) -> str | None:
         return None
     view_class = getattr(match.func, "view_class", None)
     required = getattr(view_class, "required_permission", None)
-    return str(required) if required else None
+    if required:
+        return str(required)
+    # Django's own `PermissionRequiredMixin` spells it differently, and a view
+    # using it is every bit as gated. Reading only this project's name made
+    # those screens look ungated to the navigation, so their sections were
+    # offered to readers the view itself would refuse — a cashier was shown
+    # عروض الموردين المستقلة and got a 403 for taking the invitation.
+    #
+    # A view may name several; the first is enough here, because this is the
+    # courtesy filter and the view still enforces all of them.
+    declared = getattr(view_class, "permission_required", None)
+    if isinstance(declared, str):
+        return declared
+    if declared:
+        return str(next(iter(declared), "")) or None
+    return None
 
 
 @cache

@@ -75,15 +75,25 @@ class TestNavigationDefinition:
                     assert section.url_name is None
 
     def test_build_order_modules_are_present(self) -> None:
+        """
+        The rail carries exactly the modules the build order names.
+
+        An exact set rather than a subset, so a module added without a
+        decision shows up here as a failing test rather than as a new icon
+        somebody notices a week later.
+        """
         expected = {
             "home",
+            "sales",
             "inventory",
             "procurement",
             "kitchen",
-            "sales",
             "accounting",
-            "hr",
+            # Phase 8's read-only analysis layer. Sits between accounting and
+            # the reports it complements, per the owner's ordering.
+            "insights",
             "reports",
+            "hr",
             "settings",
         }
         assert set(MODULES_BY_KEY) == expected
