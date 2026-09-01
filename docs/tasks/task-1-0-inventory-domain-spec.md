@@ -222,6 +222,10 @@ as text. Consistent with `Organization`, `Branch`, and `CostCenter`
 Not the `C-GG-SS-AAA` account shape: an item code carries no hierarchy, and
 imposing one would force a re-code every time an item is re-categorised.
 
+The native registration screen allocates decimal codes per organization under
+an organization lock: `1`, then `2`, then `3`. Existing and integration-owned
+canonical codes remain valid; archived numeric codes are not reused.
+
 **Canonicalised before validation and storage:**
 
 ```python
@@ -1267,7 +1271,7 @@ is visible rather than quietly overwritten.
 
 | # | Decision | Resolution | Amended at approval? |
 |---|---|---|---|
-| 1 | Item-code format | `^[A-Z0-9][A-Z0-9._-]*$`, ≤32, unique per organization, manual **or** generated, reserved forever | **Yes** — canonicalised `strip().upper()` before validation and storage; whitespace-only refused |
+| 1 | Item-code format | `^[A-Z0-9][A-Z0-9._-]*$`, ≤32, unique per organization, native registration generates `1`, `2`, `3`…; integrations may retain canonical codes; reserved forever | **Yes** — canonicalised `strip().upper()` before validation and storage; whitespace-only refused |
 | 2 | Category hierarchy | Organization-owned, parent/child, depth ≤3, items on leaves only | **Yes** — six explicit guards added, including "a category with items cannot acquire children" and re-parent depth/cycle checks |
 | 3 | `ItemType` enum | Closed, **six** values | **Yes** — `FINISHED_GOOD` is **required**, meaning physically stored and countable output. It does **not** mean menu item; those remain separate domains |
 | 4 | Warehouse vs location | Warehouse branch-owned and owns valuation; location warehouse-owned, quantity only, deferred to 1.7 | **Yes** — closed `warehouse_type`: `PHYSICAL`, `PRODUCTION_WIP`, `IN_TRANSIT`; codes unique per branch |

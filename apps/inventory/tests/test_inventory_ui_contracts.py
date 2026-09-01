@@ -142,23 +142,24 @@ def test_item_list_exposes_active_filters_and_a_reset_destination(
     assert len(reset_links) == 1
 
 
-def test_invalid_item_form_has_a_linked_error_summary_and_required_cues(
+def test_invalid_item_form_has_a_linked_name_error_summary_and_no_code_input(
     manager: User, client_for: Callable[[User], Client]
 ) -> None:
     response = client_for(manager).post(reverse("inventory:item_create"), data={})
     body = response.content.decode()
 
     summaries = [tag for tag in _tags(body, "div") if "data-error-summary" in tag]
-    code_inputs = [tag for tag in _tags(body, "input") if tag.get("id") == "id_code"]
-    code_labels = [tag for tag in _tags(body, "label") if tag.get("for") == "id_code"]
-    error_links = [tag for tag in _tags(body, "a") if tag.get("href") == "#id_code"]
+    name_inputs = [tag for tag in _tags(body, "input") if tag.get("id") == "id_name"]
+    name_labels = [tag for tag in _tags(body, "label") if tag.get("for") == "id_name"]
+    error_links = [tag for tag in _tags(body, "a") if tag.get("href") == "#id_name"]
 
     assert response.status_code == 200
     assert len(summaries) == 1
     assert summaries[0].get("role") == "alert"
     assert summaries[0].get("tabindex") == "-1"
-    assert len(code_inputs) == len(code_labels) == 1
-    assert "required" in code_inputs[0]
+    assert len(name_inputs) == len(name_labels) == 1
+    assert "required" in name_inputs[0]
+    assert not [tag for tag in _tags(body, "input") if tag.get("id") == "id_code"]
     assert any("ui-field__required" in _class_tokens(tag) for tag in _tags(body, "span"))
     assert error_links
 

@@ -71,7 +71,6 @@ def test_registering_an_item_works_with_create_item_alone(
         reverse("inventory:item_create"),
         {
             "organization": organization.pk,
-            "code": "STK-9001",
             "name": "صنف المسجّل",
             "category": leaf_category.pk,
             "item_type": "RAW_MATERIAL",
@@ -80,4 +79,4 @@ def test_registering_an_item_works_with_create_item_alone(
         },
     )
     assert response.status_code in (302, 200), response.status_code
-    assert InventoryItem.objects.filter(organization=organization, code="STK-9001").exists()
+    assert InventoryItem.objects.filter(organization=organization, code="1").exists()

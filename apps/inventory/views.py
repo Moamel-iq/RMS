@@ -426,7 +426,19 @@ class ItemListView(InventoryListView):
         item_type = self.request.GET.get("item_type", "").strip()
         if item_type in ItemType.values:
             queryset = queryset.filter(item_type=item_type)
-        return queryset.order_by("code")
+        numeric_code = r"^[0-9]+$"
+        return queryset.annotate(
+            _code_kind=Case(
+                When(code__regex=numeric_code, then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            ),
+            _numeric_code_length=Case(
+                When(code__regex=numeric_code, then=Length("code")),
+                default=Value(0),
+                output_field=IntegerField(),
+            ),
+        ).order_by("_code_kind", "_numeric_code_length", "code")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -841,7 +853,6 @@ class ItemCreateView(InventoryWriteView):
     def perform(self, instance: Any, form: Any) -> None:
         create_item(
             organization=form.cleaned_data["organization"],
-            code=form.cleaned_data["code"],
             name=form.cleaned_data["name"],
             category=form.cleaned_data["category"],
             item_type=form.cleaned_data["item_type"],

@@ -31,11 +31,10 @@
       <section class="ui-form-section" aria-labelledby="item-identity-title">
         <div class="ui-form-section__title">
           <span class="ui-form-section" aria-hidden="true">1</span>
-          <div><h2 id="item-identity-title">{% translate "التعريف والملكية" %}</h2><p>{% translate "حدّد المؤسسة والرمز الثابت للصنف." %}</p></div>
+          <div><h2 id="item-identity-title">{% translate "التعريف والملكية" %}</h2><p>{% translate "حدّد المؤسسة؛ يُنشأ الرمز تلقائياً بالتسلسل." %}</p></div>
         </div>
         <div class="ui-form-grid">
           {% include "settings/_field.html" with field=form.organization %}
-          {% include "settings/_field.html" with field=form.code %}
         </div>
       </section>
 
@@ -45,7 +44,6 @@
           <div><h2 id="item-details-title">{% translate "بيانات الصنف" %}</h2><p>{% translate "الاسم والتصنيف ووحدة القياس التي تحفظ بها كل الكميات." %}</p></div>
         </div>
         <div class="ui-form-grid">
-          {% include "settings/_field.html" with field=form.name %}
           {% include "settings/_field.html" with field=form.name %}
           {% include "settings/_field.html" with field=form.category %}
           {% include "settings/_field.html" with field=form.item_type %}

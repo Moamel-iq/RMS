@@ -281,6 +281,15 @@ def update_package_unit(
 # ---------------------------------------------------------------------------
 
 
+def _next_inventory_item_code(organization: Organization) -> str:
+    """Return the next native numeric item code without reusing archived numbers."""
+    numeric_codes = InventoryItem.objects.filter(
+        organization=organization,
+        code__regex=r"^[0-9]+$",
+    ).values_list("code", flat=True)
+    return str(max((int(code) for code in numeric_codes), default=0) + 1)
+
+
 def _validate_category_is_leaf(category: ItemCategory) -> None:
     if category.children.exists():
         raise ValidationError(
@@ -294,7 +303,7 @@ def _validate_category_is_leaf(category: ItemCategory) -> None:
 def create_item(
     *,
     organization: Organization,
-    code: str,
+    code: str | None = None,
     name: str,
     category: ItemCategory,
     item_type: str,
@@ -305,7 +314,11 @@ def create_item(
     notes: str = "",
 ) -> InventoryItem:
     """Add an item to the master."""
-    if category.organization_id != organization.pk:
+    # Allocation and insert share the organization lock, so simultaneous
+    # registrations receive distinct sequential codes.
+    locked_organization = Organization.objects.select_for_update().get(pk=organization.pk)
+
+    if category.organization_id != locked_organization.pk:
         raise ValidationError(
             _("The category belongs to another organization."),
             code="category_organization_mismatch",
@@ -319,9 +332,12 @@ def create_item(
             params={"code": base_unit.code},
         )
 
+    resolved_code = (
+        _next_inventory_item_code(locked_organization) if code is None else _require_code(code)
+    )
     item = InventoryItem(
-        organization=organization,
-        code=_require_code(code),
+        organization=locked_organization,
+        code=resolved_code,
         name=name.strip(),
         category=category,
         item_type=item_type,

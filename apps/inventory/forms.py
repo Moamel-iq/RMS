@@ -233,7 +233,7 @@ class InventoryItemForm(ScopedForm):
     code = forms.CharField(
         label=_("الرمز"),
         max_length=32,
-        help_text=_("يُوحَّد تلقائياً إلى حروف كبيرة. لا يمكن تغييره لاحقاً."),
+        help_text=_("يُنشأ تلقائياً بالتسلسل ولا يمكن تغييره لاحقاً."),
     )
     name = forms.CharField(label=_("الاسم بالعربية"), max_length=200)
     category = forms.ModelChoiceField(
@@ -263,7 +263,16 @@ class InventoryItemForm(ScopedForm):
 
         categories = visible_categories(actor).filter(is_active=True, children__isnull=True)
         if instance is None:
-            self.fields["organization"].queryset = self.organization_choices()  # type: ignore[attr-defined]
+            organizations = self.organization_choices()
+            self.fields["organization"].queryset = organizations  # type: ignore[attr-defined]
+            if not self.is_bound and not self.initial.get("organization"):
+                available = list(organizations[:2])
+                if len(available) == 1:
+                    self.initial["organization"] = available[0]
+            # Codes are allocated by the service under the organization lock,
+            # so two registrations cannot claim the same next number.
+            self.fields.pop("code")
+            self.fields["name"].widget.attrs["data-inventory-autofocus"] = ""
             self.fields["base_unit"].queryset = UnitOfMeasure.objects.filter(  # type: ignore[attr-defined]
                 is_active=True
             ).order_by("code")

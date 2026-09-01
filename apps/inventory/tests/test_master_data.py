@@ -230,6 +230,29 @@ class TestCategoriesHoldItemsOrChildrenNeverBoth:
 
 
 class TestItemCode:
+    def test_native_codes_start_at_one_and_increment(
+        self,
+        organization: Organization,
+        leaf_category: ItemCategory,
+        kilogram: UnitOfMeasure,
+    ) -> None:
+        first = create_item(
+            organization=organization,
+            name="رز",
+            category=leaf_category,
+            item_type=ItemType.RAW_MATERIAL,
+            base_unit=kilogram,
+        )
+        second = create_item(
+            organization=organization,
+            name="طحين",
+            category=leaf_category,
+            item_type=ItemType.RAW_MATERIAL,
+            base_unit=kilogram,
+        )
+
+        assert [first.code, second.code] == ["1", "2"]
+
     def test_the_code_is_canonicalised(
         self,
         organization: Organization,

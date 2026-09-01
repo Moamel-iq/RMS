@@ -265,7 +265,7 @@ Four statuses carry a promise:
   all, which is worth recording rather than deleting.
 
 
-| INV-001 | Item code unique per organization; archived codes reserved | `UniqueConstraint(organization, code)` | `apps/inventory/tests/test_master_data.py::TestItemCode` | 1.1 | AT-008 | Done |
+| INV-001 | Item code unique per organization; native codes allocate `1`, `2`, `3`… under the organization lock; archived codes reserved | `UniqueConstraint(organization, code)` + `create_item` allocator | `apps/inventory/tests/test_master_data.py::TestItemCode` | 1.1 | AT-008 | Done |
 | INV-002 | A foreign organization's item cannot be injected | `_scoped_item` resolver | `apps/inventory/tests/test_screens_and_api.py::test_a_foreign_item_id_is_a_404`, `apps/inventory/tests/test_ledger.py::test_a_foreign_item_is_refused` | 1.1 | AT-008 | Done |
 | INV-003 | A foreign branch's warehouse is unreachable (404) | `resolve_warehouse` via Phase 0 authorization | `apps/inventory/tests/test_scope_and_permissions.py::test_a_foreign_branch_warehouse_is_a_404` | 1.1 | AT-008 | Done |
 | INV-004 | Base UoM dimension validated against the entered unit | Reuses `units.services._require_same_dimension` | — an item package is not a unit conversion (UOM-006), so no second dimension is entered to validate; `create_item` takes the base unit directly and `add_item_conversion` resolves to it | 1.1 | | Deferred |

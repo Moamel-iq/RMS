@@ -341,7 +341,6 @@ class TestItemWorkflow:
             reverse("inventory:item_create"),
             {
                 "organization": organization.pk,
-                "code": "bread-01",
                 "name": "صمون",
                 "category": leaf_category.pk,
                 "item_type": ItemType.FINISHED_GOOD,
@@ -353,9 +352,9 @@ class TestItemWorkflow:
         )
 
         assert response.status_code == 302
-        item = InventoryItem.objects.get(organization=organization, code="BREAD-01")
+        item = InventoryItem.objects.get(organization=organization, code="1")
         assert item.item_type == ItemType.FINISHED_GOOD
-        assert item.name == ""  # optional, by decision
+        assert item.name == "صمون"
 
     def test_expiry_without_lots_is_refused_in_the_form(
         self,
@@ -369,7 +368,6 @@ class TestItemWorkflow:
             reverse("inventory:item_create"),
             {
                 "organization": organization.pk,
-                "code": "MILK-01",
                 "name": "حليب",
                 "category": leaf_category.pk,
                 "item_type": ItemType.RAW_MATERIAL,
@@ -383,7 +381,7 @@ class TestItemWorkflow:
 
         assert response.status_code == 200
         assert "tracks_expiry" in response.context["form"].errors
-        assert not InventoryItem.objects.filter(code="MILK-01").exists()
+        assert not InventoryItem.objects.filter(organization=organization).exists()
 
     def test_the_category_selector_offers_leaves_only(
         self,
@@ -412,7 +410,6 @@ class TestItemWorkflow:
             reverse("inventory:item_create"),
             {
                 "organization": organization.pk,
-                "code": "MISFILED",
                 "name": "مصنّف خطأ",
                 "category": category.pk,
                 "item_type": ItemType.RAW_MATERIAL,
@@ -424,7 +421,7 @@ class TestItemWorkflow:
         )
 
         assert response.status_code == 200
-        assert not InventoryItem.objects.filter(code="MISFILED").exists()
+        assert not InventoryItem.objects.filter(organization=organization).exists()
 
     def test_the_base_unit_is_frozen_on_the_edit_screen(
         self, manager: User, client_for: Any, rice: InventoryItem
@@ -476,9 +473,12 @@ class TestItemWorkflow:
     def test_the_form_carries_no_account_and_no_negative_stock_flag(
         self, manager: User, client_for: Any
     ) -> None:
-        fields = client_for(manager).get(reverse("inventory:item_create")).context["form"].fields
+        response = client_for(manager).get(reverse("inventory:item_create"))
+        fields = response.context["form"].fields
         assert "inventory_account" not in fields
         assert "allows_negative_stock" not in fields
+        assert "code" not in fields
+        assert response.content.decode().count('name="name"') == 1
 
 
 # ---------------------------------------------------------------------------
