@@ -14,4 +14,12 @@ urlpatterns = [
     path("settings/users/", views.UserListView.as_view(), name="user_list"),
     path("settings/users/new/", views.UserCreateView.as_view(), name="user_create"),
     path("settings/users/<int:pk>/", views.UserUpdateView.as_view(), name="user_update"),
+    # The manager assigns posts here, on the employee's own file, and the
+    # change applies immediately. This replaced the request-and-approve
+    # ceremony that used to live at settings/access/.
+    path(
+        "settings/users/<int:pk>/access/",
+        views.UserAccessView.as_view(),
+        name="user_access",
+    ),
 ]

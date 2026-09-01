@@ -1,0 +1,233 @@
+{% extends shell_base_template|default:"shell.html" %}
+{% load i18n %}
+
+{# One finding, and everything a reader needs to disbelieve it.             #}
+{#                                                                          #}
+{# The order is deliberate: what was concluded, then the figures it was     #}
+{# concluded from, then the limitations, then the history. A recommendation #}
+{# read before its evidence is an instruction; read after it, it is an      #}
+{# argument the reader can reject.                                          #}
+{#                                                                          #}
+{# Evidence values are printed as escaped text. Never `|safe`: a detector   #}
+{# written next year could put anything in that JSON.                       #}
+
+{% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
+
+{% block page %}
+  <section class="ui-page" id="insight-detail">
+    <nav class="ui-breadcrumb" aria-label="{% translate 'مسار الصفحة' %}">
+      <a href="{% url 'insights:dashboard' %}">{% translate "التحليل الذكي" %}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ latest.title_ar }}</span>
+    </nav>
+
+    <div class="ui-page-header">
+      <div class="ui-page-header__copy">
+        <p class="ui-page-header__eyebrow">
+          {{ insight.get_domain_display }} · {{ insight.scope_key }}
+        </p>
+        <h1 class="ui-page-header__title">{{ latest.title_ar }}</h1>
+        <p class="ui-page-header__hint">
+          {% if latest.severity == "HIGH" or latest.severity == "CRITICAL" %}
+            <span class="ui-badge ui-badge--danger">{{ latest.get_severity_display }}</span>
+          {% else %}
+            <span class="ui-badge ui-badge--warning">{{ latest.get_severity_display }}</span>
+          {% endif %}
+          <span class="ui-badge">{% translate "الحالة" %}: {{ status }}</span>
+          <span class="ui-badge">{% translate "الثقة" %}: {{ latest.get_confidence_display }}</span>
+          {% if latest.coverage != "COMPLETE" %}
+            <span class="ui-badge ui-badge--warning">
+              {% translate "التغطية" %}: {{ latest.get_coverage_display }}
+            </span>
+          {% endif %}
+        </p>
+      </div>
+    </div>
+
+    {# --- what it says ------------------------------------------------ #}
+    <section class="ui-card ui-form-card" aria-labelledby="insight-narrative-title">
+      <h2 id="insight-narrative-title">{% translate "الملاحظة" %}</h2>
+      <p>{{ latest.narrative_ar }}</p>
+      <h3 class="ui-section-title">{% translate "التوصية" %}</h3>
+      <p class="ui-text-muted">{{ latest.recommendation_ar }}</p>
+    </section>
+
+    {# --- the figures behind it ---------------------------------------- #}
+    <section class="ui-card ui-form-card" aria-labelledby="insight-evidence-title">
+      <h2 id="insight-evidence-title">{% translate "الأدلة والاحتساب" %}</h2>
+      <p class="ui-text-muted">
+        <code><bdi dir="ltr">{{ latest.evidence.formula }}</bdi></code>
+        · {% translate "إصدار الكاشف" %} <bdi dir="ltr">{{ latest.detector_version }}</bdi>
+        · {% translate "إصدار الإعدادات" %} <bdi dir="ltr">{{ latest.settings_version }}</bdi>
+      </p>
+      <div class="ui-table-scroll" tabindex="0">
+        <table class="ui-table ui-table--responsive">
+          <tbody>
+            {% for section in evidence %}
+              <tr class="ui-table__group">
+                <th colspan="2"><code><bdi dir="ltr">{{ section.key }}</bdi></code></th>
+              </tr>
+              {% for name, value in section.rows %}
+                <tr>
+                  <td data-label="{% translate 'الحقل' %}"><code><bdi dir="ltr">{{ name }}</bdi></code></td>
+                  <td data-label="{% translate 'القيمة' %}"><bdi dir="ltr">{{ value }}</bdi></td>
+                </tr>
+              {% endfor %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if latest.evidence.source_references %}
+        <h3 class="ui-section-title">{% translate "المصادر" %}</h3>
+        <p class="ui-text-muted">
+          {% translate "الروابط تفتح السجل الأصلي، وكل منها يتحقق من صلاحيتك بنفسه." %}
+        </p>
+        <ul class="ui-plain-list">
+          {% for reference in latest.evidence.source_references %}
+            <li>
+              {% if reference.type == "inventory.item" %}
+                <a href="{% url 'inventory:item_list' %}?q={{ reference.label }}">
+                  <code><bdi dir="ltr">{{ reference.label }}</bdi></code>
+                </a>
+              {% elif reference.type == "inventory.warehouse" %}
+                <a href="{% url 'inventory:warehouse_list' %}?q={{ reference.label }}">
+                  <code><bdi dir="ltr">{{ reference.label }}</bdi></code>
+                </a>
+              {% else %}
+                <code><bdi dir="ltr">{{ reference.label }}</bdi></code>
+              {% endif %}
+              <span class="ui-text-muted">{{ reference.type }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </section>
+
+    {# --- what it could not see ---------------------------------------- #}
+    <details class="ui-disclosure">
+      <summary>{% translate "حدود هذه الملاحظة" %}</summary>
+      <div class="ui-disclosure__body">
+        <dl class="ui-definition-list">
+          <dt>{% translate "الفترة" %}</dt>
+          <dd>
+            <bdi dir="ltr">{{ latest.period_start|date:"Y-m-d" }}</bdi> —
+            <bdi dir="ltr">{{ latest.period_end|date:"Y-m-d" }}</bdi>
+            <span class="ui-text-muted">{% translate "(نهاية غير شاملة، بالتاريخ التشغيلي)" %}</span>
+          </dd>
+          <dt>{% translate "قطع المصدر" %}</dt>
+          <dd>
+            {% for key, value in latest.source_cutoffs.items %}
+              <code><bdi dir="ltr">{{ key }}={{ value }}</bdi></code>
+            {% endfor %}
+          </dd>
+          <dt>{% translate "فرق هوية المخزون" %}</dt>
+          <dd><bdi dir="ltr">{{ latest.evidence.identity_difference }}</bdi></dd>
+          <dt>{% translate "مصادر الاستهلاك النظري" %}</dt>
+          <dd>
+            {% for source in latest.evidence.theoretical_sources %}
+              <span class="ui-badge">{{ source }}</span>
+            {% endfor %}
+          </dd>
+        </dl>
+      </div>
+    </details>
+
+    {# --- actions ------------------------------------------------------- #}
+    {% if may_manage %}
+      <section class="ui-card ui-form-card" aria-labelledby="insight-actions-title">
+        <h2 id="insight-actions-title">{% translate "الإجراء" %}</h2>
+        {% if is_dismissed %}
+          <p class="ui-text-muted">
+            {% translate "صُرف النظر عن هذه الملاحظة، فلن يعيدها أي تحليل تلقائياً. إعادة الفتح قرار بشري." %}
+          </p>
+          <form method="post" action="{% url 'insights:reopen' insight.public_id %}">
+            {% csrf_token %}
+            <label class="ui-field">
+              <span class="ui-field__label">{% translate "سبب إعادة الفتح" %}</span>
+              <input type="text" name="reason" required>
+            </label>
+            <div class="ui-form-actions">
+              <button class="ui-button ui-button--primary" type="submit">{% translate "إعادة الفتح" %}</button>
+            </div>
+          </form>
+        {% else %}
+          <p class="ui-text-muted">
+            {% translate "الاطّلاع يُبقي الملاحظة نشطة ويسجّل أنك رأيتها. صرف النظر يوقف إعادتها تلقائياً ويحتاج سبباً." %}
+          </p>
+          <form method="post" action="{% url 'insights:acknowledge' insight.public_id %}">
+            {% csrf_token %}
+            <div class="ui-form-actions">
+              <button class="ui-button ui-button--primary" type="submit">{% translate "سجّل اطّلاعي" %}</button>
+            </div>
+          </form>
+          <form method="post" action="{% url 'insights:dismiss' insight.public_id %}"
+                data-confirm="{% translate 'لن يعيد النظام هذه الملاحظة تلقائياً بعد صرف النظر عنها.' %}"
+                data-confirm-title="{% translate 'صرف النظر عن ملاحظة' %}"
+                data-confirm-severity="danger"
+                data-confirm-accept="{% translate 'صرف النظر' %}">
+            {% csrf_token %}
+            <label class="ui-field">
+              <span class="ui-field__label">{% translate "سبب صرف النظر" %}</span>
+              <input type="text" name="reason" required>
+            </label>
+            <div class="ui-form-actions">
+              <button class="ui-button ui-button--ghost" type="submit">{% translate "صرف النظر" %}</button>
+            </div>
+          </form>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {# --- history ------------------------------------------------------- #}
+    <details class="ui-disclosure">
+      <summary>{% translate "سجل الرصد" %} ({{ observations|length }})</summary>
+      <div class="ui-disclosure__body ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
+          <thead>
+            <tr>
+              <th>{% translate "التاريخ" %}</th>
+              <th>{% translate "الخطورة" %}</th>
+              <th>{% translate "التغطية" %}</th>
+              <th>{% translate "الفترة" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in observations %}
+              <tr>
+                <td data-label="{% translate 'التاريخ' %}"><bdi dir="ltr">{{ row.observed_at|date:"Y-m-d H:i" }}</bdi></td>
+                <td data-label="{% translate 'الخطورة' %}">{{ row.get_severity_display }}</td>
+                <td data-label="{% translate 'التغطية' %}">{{ row.get_coverage_display }}</td>
+                <td data-label="{% translate 'الفترة' %}">
+                  <bdi dir="ltr">{{ row.period_start|date:"Y-m-d" }}</bdi> —
+                  <bdi dir="ltr">{{ row.period_end|date:"Y-m-d" }}</bdi>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="ui-disclosure">
+      <summary>{% translate "المسار الزمني" %}</summary>
+      <div class="ui-disclosure__body ui-table-scroll">
+        <table class="ui-table ui-table--responsive">
+          <tbody>
+            {% for event in timeline %}
+              <tr>
+                <td data-label="{% translate 'الحدث' %}">{{ event.get_event_type_display }}</td>
+                <td data-label="{% translate 'الوقت' %}"><bdi dir="ltr">{{ event.occurred_at|date:"Y-m-d H:i" }}</bdi></td>
+                <td data-label="{% translate 'المنفّذ' %}">
+                  {% if event.actor %}{{ event.actor.username }}{% else %}
+                    <span class="ui-text-muted">{% translate "النظام" %}</span>
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'السبب' %}">{{ event.reason|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+{% endblock %}

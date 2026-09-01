@@ -9,24 +9,17 @@ from django.core.exceptions import ValidationError
 from django.test import Client
 from django.urls import reverse
 
-from apps.core.models import AuditAction, AuditEvent
 from apps.organizations.authorization import OutOfScope
 from apps.organizations.models import (
-    AccessChangeAction,
-    AccessChangeRequestStatus,
     Branch,
-    BranchMembership,
     Organization,
-    OrganizationMembership,
     Role,
 )
 from apps.organizations.services import (
     create_branch,
     create_organization,
-    decide_access_change,
     grant_branch_access,
     grant_organization_access,
-    request_access_change,
 )
 from apps.users.forms import UserAccountCreateForm, UserAccountUpdateForm
 from apps.users.models import User
@@ -119,7 +112,7 @@ def test_direct_access_grant_refuses_self_owner_and_privileged_targets(
 
     with pytest.raises(ValidationError, match="نفسه"):
         grant_branch_access(user=owner, branch=branch, role=Role.CASHIER, actor=owner)
-    with pytest.raises(ValidationError, match="طلب"):
+    with pytest.raises(ValidationError, match="المالك"):
         grant_branch_access(user=target, branch=branch, role=Role.OWNER, actor=owner)
     with pytest.raises(ValidationError, match="الإدارية"):
         grant_branch_access(user=staff_target, branch=branch, role=Role.CASHIER, actor=owner)
@@ -131,61 +124,6 @@ def test_direct_access_grant_cannot_cross_organization_scope(
     target = User.objects.create_user(username="rival-target", password=PASSWORD)
     with pytest.raises(OutOfScope):
         grant_branch_access(user=target, branch=rival_branch, role=Role.CASHIER, actor=owner)
-
-
-def test_access_change_needs_an_independent_reviewer_and_is_scoped_and_audited(
-    owner: User, reviewer: User, organization: Organization, branch: Branch
-) -> None:
-    target = User.objects.create_user(username="new-cashier", password=PASSWORD)
-
-    request = request_access_change(
-        actor=owner,
-        target_user=target,
-        organization=organization,
-        branch=branch,
-        action=AccessChangeAction.GRANT,
-        requested_role=Role.CASHIER,
-        reason="تغطية وردية مسائية",
-    )
-    assert not BranchMembership.objects.filter(user=target, branch=branch, is_active=True).exists()
-    assert request.status == AccessChangeRequestStatus.PENDING
-
-    with pytest.raises(ValidationError, match="منشئ الطلب"):
-        decide_access_change(request=request, actor=owner, approve=True)
-
-    decide_access_change(request=request, actor=reviewer, approve=True)
-    request.refresh_from_db()
-    assert request.status == AccessChangeRequestStatus.APPROVED
-    assert request.reviewed_by == reviewer
-    assert BranchMembership.objects.filter(
-        user=target, branch=branch, role=Role.CASHIER, is_active=True
-    ).exists()
-    approval = AuditEvent.objects.get(
-        target_type="organizations.AccessChangeRequest",
-        target_id=str(request.pk),
-        action=AuditAction.APPROVED,
-    )
-    assert approval.organization == organization
-    assert approval.actor == reviewer
-
-
-def test_owner_request_is_organization_scoped_and_cannot_be_self_approved(
-    owner: User, reviewer: User, organization: Organization
-) -> None:
-    target = User.objects.create_user(username="new-owner", password=PASSWORD)
-    request = request_access_change(
-        actor=owner,
-        target_user=target,
-        organization=organization,
-        action=AccessChangeAction.GRANT,
-        requested_role=Role.OWNER,
-        reason="إضافة مالك مسؤول ثانٍ",
-    )
-
-    decide_access_change(request=request, actor=reviewer, approve=True)
-    assert OrganizationMembership.objects.filter(
-        user=target, organization=organization, role=Role.OWNER, is_active=True
-    ).exists()
 
 
 def test_account_forms_and_service_cannot_create_staff_users(

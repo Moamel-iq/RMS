@@ -29,7 +29,6 @@ PASSWORD = "pw-not-real-1234"
 FOUNDATION_LIST_URLS = [
     "organizations:organization_list",
     "organizations:branch_list",
-    "organizations:access_list",
     "users:user_list",
     "units:unit_list",
     "core:audit_list",
@@ -93,7 +92,7 @@ class TestScreensLiveInTheShell:
         """Not Django admin: the same primary, secondary, and header shell."""
         client.force_login(staff)
         body = client.get(reverse(url_name)).content.decode()
-        assert 'class="ui-app-shell"' in body
+        assert 'class="ui-app-shell ui-app-shell--compact"' in body
         assert 'class="ui-primary-nav"' in body
         assert 'class="ui-secondary-nav"' in body
         assert 'class="ui-app-header"' in body
@@ -115,6 +114,43 @@ class TestScreensLiveInTheShell:
         client.force_login(staff)
         response = client.get(reverse(url_name))
         assert response.context["active_module"].key == "settings"
+
+    @pytest.mark.parametrize("url_name", FOUNDATION_LIST_URLS)
+    def test_navigation_returns_one_page_fragment_without_a_nested_shell(
+        self, client: Client, staff: User, url_name: str
+    ) -> None:
+        """An HTMX navigation swap must never put a second header in the page."""
+        client.force_login(staff)
+        response = client.get(
+            reverse(url_name),
+            headers={"HX-Request": "true", "HX-Target": "main-content"},
+        )
+        body = response.content.decode()
+
+        assert response.status_code == 200
+        assert 'class="ui-page ui-page--list"' in body
+        assert 'class="ui-app-shell"' not in body
+        assert "<html" not in body
+        assert 'hx-swap-oob="outerHTML:' in body
+
+    @pytest.mark.parametrize("url_name", FOUNDATION_LIST_URLS)
+    def test_live_filter_returns_only_the_results_region(
+        self, client: Client, staff: User, url_name: str
+    ) -> None:
+        """Search and pagination update the table, not the whole settings page."""
+        client.force_login(staff)
+        response = client.get(
+            reverse(url_name),
+            {"q": "not-present"},
+            headers={"HX-Request": "true", "HX-Target": "list-results"},
+        )
+        body = response.content.decode()
+
+        assert response.status_code == 200
+        assert 'id="list-results"' in body
+        assert 'class="ui-page-header"' not in body
+        assert 'class="ui-app-shell"' not in body
+        assert "<html" not in body
 
 
 class TestOrganizationScreens:
@@ -331,26 +367,68 @@ class TestUserScreens:
 
 
 class TestAccessScreen:
+    """
+    صلاحيات الموظف — the manager assigns posts on the employee's own file.
+
+    This replaced a request-and-approve screen at `settings/access/`. The
+    coverage is deliberately the same two acts, because they are what the old
+    screen existed to do; only the route and the number of people required
+    have changed.
+    """
+
     def test_granting_access(self, client: Client, staff: User, branch: Branch) -> None:
         client.force_login(staff)
         target = User.objects.create_user(username="grantee", password=PASSWORD)
         grant_branch_access(user=target, branch=branch, role=Role.VIEWER)
+
         client.post(
-            reverse("organizations:access_list"),
-            {"user": target.pk, "branch": branch.pk, "role": Role.STOREKEEPER},
+            reverse("users:user_access", args=[target.pk]),
+            {"scope": f"branch:{branch.pk}", "role": Role.STOREKEEPER},
         )
-        assert BranchMembership.objects.filter(user=target, branch=branch, is_active=True).exists()
+
+        assert BranchMembership.objects.filter(
+            user=target, branch=branch, role=Role.STOREKEEPER, is_active=True
+        ).exists()
 
     def test_revoking_keeps_the_row(self, client: Client, staff: User, branch: Branch) -> None:
+        """Deactivated, never deleted: the audit trail names a row that stays."""
         client.force_login(staff)
         target = User.objects.create_user(username="revokee", password=PASSWORD)
         membership = grant_branch_access(user=target, branch=branch, role=Role.CASHIER)
 
-        client.post(reverse("organizations:access_list"), {"revoke": membership.pk})
+        client.post(
+            reverse("users:user_access", args=[target.pk]),
+            {"revoke": f"branch:{branch.pk}"},
+        )
 
         membership.refresh_from_db()
         assert membership.is_active is False
         assert AuditEvent.objects.filter(action=AuditAction.ACCESS_REVOKED).exists()
+
+    def test_the_owner_post_is_not_offered_and_not_accepted(
+        self, client: Client, staff: User, branch: Branch
+    ) -> None:
+        """
+        The one post this screen never hands out.
+
+        A manager holds `manage_roles` and `manage_access` together, so
+        without this they could promote somebody to the only authority able to
+        remove them. It is absent from the form's choices *and* refused by the
+        service, because a choice list is a courtesy and the service is the
+        gate.
+        """
+        target = User.objects.create_user(username="would-be-owner", password=PASSWORD)
+        grant_branch_access(user=target, branch=branch, role=Role.VIEWER)
+        client.force_login(staff)
+
+        client.post(
+            reverse("users:user_access", args=[target.pk]),
+            {"scope": f"branch:{branch.pk}", "role": Role.OWNER},
+        )
+
+        assert not BranchMembership.objects.filter(
+            user=target, branch=branch, role=Role.OWNER, is_active=True
+        ).exists()
 
 
 class TestAuditScreen:

@@ -17,32 +17,6 @@ urlpatterns = [
     path("branches/", views.BranchListView.as_view(), name="branch_list"),
     path("branches/new/", views.BranchCreateView.as_view(), name="branch_create"),
     path("branches/<int:pk>/", views.BranchUpdateView.as_view(), name="branch_update"),
-    path("access/", views.BranchAccessListView.as_view(), name="access_list"),
-    path(
-        "access/requests/",
-        views.AccessChangeRequestListView.as_view(),
-        name="access_request_list",
-    ),
-    path(
-        "access/requests/new/",
-        views.AccessChangeRequestCreateView.as_view(),
-        name="access_request_create",
-    ),
-    path(
-        "access/requests/<int:pk>/approve/",
-        views.AccessChangeRequestDecisionView.as_view(decision="approve"),
-        name="access_request_approve",
-    ),
-    path(
-        "access/requests/<int:pk>/reject/",
-        views.AccessChangeRequestDecisionView.as_view(decision="reject"),
-        name="access_request_reject",
-    ),
-    path(
-        "access/requests/<int:pk>/cancel/",
-        views.AccessChangeRequestDecisionView.as_view(decision="cancel"),
-        name="access_request_cancel",
-    ),
     # The posts an organization defines, and what each may do (ADR-034).
     path("roles/", role_views.RoleListView.as_view(), name="role_list"),
     path("roles/new/", role_views.RoleCreateView.as_view(), name="role_create"),
