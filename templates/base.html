@@ -52,7 +52,7 @@
     <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
     {% if active_module %}<script src="{% static 'js/ui-shell.js' %}?v=20260828-shell-2" defer></script>{% endif %}
     {# Loaded once so HTMX navigation into Inventory also receives its guarded keyboard/table behaviour. #}
-    {% if active_module %}<script src="{% static 'js/inventory-htmx.js' %}?v=20260828-ui-1" defer></script>{% endif %}
+    {% if active_module %}<script src="{% static 'js/inventory-htmx.js' %}?v=20260901-package-unit-1" defer></script>{% endif %}
     {# Keep tree handlers available when navigating into Accounting via HTMX. #}
     {% if active_module %}<script src="{% static 'js/account-tree.js' %}?v=20260831-1" defer></script>{% endif %}
     {# Every select with enough options becomes a searchable combobox; the native control stays for the form. #}

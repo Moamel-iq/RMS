@@ -31,7 +31,8 @@ from typing import TYPE_CHECKING, Any
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.db.models import Q, QuerySet, Sum
+from django.db.models import Case, IntegerField, Q, QuerySet, Sum, Value, When
+from django.db.models.functions import Length
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
@@ -385,7 +386,23 @@ class PackageUnitListView(InventoryListView):
     create_label = _("وحدة تعبئة جديدة")
 
     def scoped_queryset(self) -> QuerySet[Any]:
-        return visible_package_units(self.actor).order_by("code")
+        numeric_code = r"^[0-9]+$"
+        return (
+            visible_package_units(self.actor)
+            .annotate(
+                _code_kind=Case(
+                    When(code__regex=numeric_code, then=Value(0)),
+                    default=Value(1),
+                    output_field=IntegerField(),
+                ),
+                _numeric_code_length=Case(
+                    When(code__regex=numeric_code, then=Length("code")),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                ),
+            )
+            .order_by("_code_kind", "_numeric_code_length", "code")
+        )
 
 
 class ItemListView(InventoryListView):
@@ -689,8 +706,8 @@ class PackageUnitCreateView(InventoryWriteView):
     success_url_name = "inventory:package_unit_list"
     page_title = _("وحدة تعبئة جديدة")
     page_hint = _(
-        "لا معامل هنا. كرتونة الدجاج ليست كرتونة الزيت — المعامل يُسجَّل لكل صنف "
-        "في شاشة تحويلات وحدات الصنف."
+        "يُنشأ الرمز تلقائياً بالتسلسل لكل مؤسسة. لا معامل هنا؛ كرتونة الدجاج ليست "
+        "كرتونة الزيت — المعامل يُسجَّل لكل صنف في شاشة تحويلات وحدات الصنف."
     )
     success_message = _("تمت إضافة وحدة التعبئة.")
 
@@ -702,7 +719,6 @@ class PackageUnitCreateView(InventoryWriteView):
     def perform(self, instance: Any, form: Any) -> None:
         create_package_unit(
             organization=form.cleaned_data["organization"],
-            code=form.cleaned_data["code"],
             name=form.cleaned_data["name"],
         )
 
@@ -713,8 +729,8 @@ class PackageUnitQuickCreateView(InventoryViewMixin, View):
     required_permission = MANAGE_PACKAGE_UNITS
     template_name = "inventory/_package_unit_quick_form.html"
 
-    def form(self, data: Any = None) -> PackageUnitForm:
-        return PackageUnitForm(actor=self.actor, data=data)
+    def form(self, data: Any = None, *, initial: dict[str, Any] | None = None) -> PackageUnitForm:
+        return PackageUnitForm(actor=self.actor, data=data, initial=initial)
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         if request.headers.get("HX-Request") != "true":
@@ -730,14 +746,23 @@ class PackageUnitQuickCreateView(InventoryViewMixin, View):
         require_reachable_organization_permission(
             self.actor, MANAGE_PACKAGE_UNITS, form.cleaned_data["organization"]
         )
-        create_package_unit(
-            organization=form.cleaned_data["organization"],
-            code=form.cleaned_data["code"],
+        organization = form.cleaned_data["organization"]
+        created_unit = create_package_unit(
+            organization=organization,
             name=form.cleaned_data["name"],
         )
         if request.headers.get("HX-Request") == "true":
-            response = HttpResponse(status=204)
-            response["HX-Trigger"] = "packageUnitCreated"
+            # Replace the submitted form with a clean one so rapid entry can
+            # continue without closing and reopening the dialog.
+            response = render(
+                request,
+                self.template_name,
+                {
+                    "form": self.form(initial={"organization": organization}),
+                    "created_unit": created_unit,
+                },
+            )
+            response["HX-Trigger-After-Swap"] = "packageUnitCreated"
             return response
         messages.success(request, _("تمت إضافة وحدة التعبئة."))
         return HttpResponseRedirect(reverse("inventory:package_unit_list"))
