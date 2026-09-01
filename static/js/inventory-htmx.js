@@ -361,11 +361,6 @@
     if (event.target.matches?.("#package-unit-dialog")) lastDialogTrigger?.focus();
   }, true);
 
-  document.addEventListener("packageUnitCreated", () => {
-    document.querySelector("#package-unit-dialog")?.close();
-    showToast("تمت إضافة وحدة التعبئة بنجاح.");
-  });
-
   document.addEventListener("submit", (event) => {
     const form = event.target.closest(
       "[data-inventory-form], body[data-module='inventory'] form[method='post']",

@@ -372,8 +372,8 @@ guarantee: there is nowhere to write a universal conversion, so nobody can.
 | Field | Type | Notes |
 |---|---|---|
 | `organization` | FK PROTECT | |
-| `code` | Char(20) | Canonical uppercase, unique per organization |
-| `name_ar` / `name_en` | Char(100) | |
+| `code` | Char(32) | Stable identifier, unique per organization. Native creation allocates the next positive decimal code under an organization lock; integrations may retain explicit canonical codes |
+| `name` | Char(100) | Arabic display name |
 | `is_active` | Bool | |
 | `history` | `HistoricalRecords()` | |
 

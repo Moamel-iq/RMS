@@ -175,7 +175,7 @@ class PackageUnitForm(ScopedForm):
     code = forms.CharField(
         label=_("الرمز"),
         max_length=32,
-        help_text=_("مثل CARTON أو SACK. يُوحَّد تلقائياً ولا يمكن تغييره لاحقاً."),
+        help_text=_("هوية ثابتة لا يمكن تغييرها لاحقاً."),
     )
     name = forms.CharField(label=_("الاسم بالعربية"), max_length=100)
     is_active = forms.BooleanField(label=_("فعّالة"), required=False, initial=True)
@@ -186,7 +186,17 @@ class PackageUnitForm(ScopedForm):
         super().__init__(*args, actor=actor, **kwargs)
         self.instance = instance
         if instance is None:
-            self.fields["organization"].queryset = self.organization_choices()  # type: ignore[attr-defined]
+            organizations = self.organization_choices()
+            self.fields["organization"].queryset = organizations  # type: ignore[attr-defined]
+            if not self.is_bound and not self.initial.get("organization"):
+                available = list(organizations[:2])
+                if len(available) == 1:
+                    self.initial["organization"] = available[0]
+            # Native creation allocates the organization-scoped numeric code
+            # in the service at save time, where it can be concurrency-safe.
+            self.fields.pop("code")
+            self.fields.pop("is_active")
+            self.fields["name"].widget.attrs["data-inventory-autofocus"] = ""
         else:
             self.fields["code"].disabled = True
             self.fields["organization"].disabled = True

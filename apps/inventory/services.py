@@ -218,8 +218,19 @@ def update_item_category(
 # ---------------------------------------------------------------------------
 
 
+def _next_package_unit_code(organization: Organization) -> str:
+    """Return the next numeric package code without filling archived gaps."""
+    numeric_codes = PackageUnit.objects.filter(
+        organization=organization,
+        code__regex=r"^[0-9]+$",
+    ).values_list("code", flat=True)
+    return str(max((int(code) for code in numeric_codes), default=0) + 1)
+
+
 @transaction.atomic
-def create_package_unit(*, organization: Organization, code: str, name: str) -> PackageUnit:
+def create_package_unit(
+    *, organization: Organization, name: str, code: str | None = None
+) -> PackageUnit:
     """
     Add a package unit — carton, sack, tin.
 
@@ -227,9 +238,16 @@ def create_package_unit(*, organization: Organization, code: str, name: str) -> 
     recorded by `create_item_conversion`, per item, because a carton of
     chicken and a carton of oil share only the word.
     """
+    # Serialise allocation per organization.  Calculating MAX+1 without this
+    # lock lets two quick-entry requests choose the same code concurrently.
+    locked_organization = Organization.objects.select_for_update().get(pk=organization.pk)
+    resolved_code = (
+        _next_package_unit_code(locked_organization) if code is None else _require_code(code)
+    )
+
     package_unit = PackageUnit(
-        organization=organization,
-        code=_require_code(code),
+        organization=locked_organization,
+        code=resolved_code,
         name=name.strip(),
     )
     package_unit.full_clean()

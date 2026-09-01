@@ -35,6 +35,7 @@ from apps.inventory.services import (
     supersede_item_conversion,
     update_item,
     update_item_category,
+    update_package_unit,
 )
 from apps.organizations.models import Organization
 from apps.units.models import UnitOfMeasure
@@ -521,6 +522,54 @@ class TestPackageUnitsCarryNoFactor:
     def test_the_code_is_canonicalised(self, organization: Organization) -> None:
         unit = create_package_unit(organization=organization, code=" tin ", name="علبة")
         assert unit.code == "TIN"
+
+    def test_automatic_codes_start_at_one_and_increment(self, organization: Organization) -> None:
+        first = create_package_unit(organization=organization, code=None, name="كيس")
+        second = create_package_unit(organization=organization, code=None, name="كرتون")
+
+        assert [first.code, second.code] == ["1", "2"]
+
+    def test_automatic_code_sequences_are_independent_per_organization(
+        self, organization: Organization, other_organization: Organization
+    ) -> None:
+        first_here = create_package_unit(organization=organization, code=None, name="كيس")
+        first_there = create_package_unit(organization=other_organization, code=None, name="كيس")
+        second_here = create_package_unit(organization=organization, code=None, name="كرتون")
+        second_there = create_package_unit(organization=other_organization, code=None, name="كرتون")
+
+        assert [first_here.code, second_here.code] == ["1", "2"]
+        assert [first_there.code, second_there.code] == ["1", "2"]
+
+    def test_automatic_code_advances_past_an_explicit_numeric_code(
+        self, organization: Organization
+    ) -> None:
+        explicit = create_package_unit(organization=organization, code="1", name="كيس")
+        generated = create_package_unit(organization=organization, code=None, name="كرتون")
+
+        assert explicit.code == "1"
+        assert generated.code == "2"
+
+    def test_automatic_code_ignores_alpha_codes_and_never_reuses_an_archived_number(
+        self, organization: Organization
+    ) -> None:
+        create_package_unit(organization=organization, code="SACK", name="كيس")
+        first = create_package_unit(organization=organization, code=None, name="صندوق")
+        update_package_unit(package_unit=first, name=first.name, is_active=False)
+
+        second = create_package_unit(organization=organization, code=None, name="علبة")
+
+        assert first.code == "1"
+        assert second.code == "2"
+
+    def test_a_failed_create_does_not_consume_an_automatic_code(
+        self, organization: Organization
+    ) -> None:
+        with pytest.raises(ValidationError):
+            create_package_unit(organization=organization, code=None, name="")
+
+        created = create_package_unit(organization=organization, code=None, name="كيس")
+
+        assert created.code == "1"
 
 
 class TestItemConversions:

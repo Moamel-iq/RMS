@@ -1,23 +1,37 @@
 {% load i18n %}
-<form class="ui-quick-form" method="post" action="{% url 'inventory:package_unit_quick_add' %}" hx-post="{% url 'inventory:package_unit_quick_add' %}" hx-target="#package-unit-dialog" hx-swap="innerHTML" hx-disabled-elt="find button[type='submit']" aria-labelledby="package-unit-quick-title">
+<form class="ui-quick-form" method="post" action="{% url 'inventory:package_unit_quick_add' %}" hx-post="{% url 'inventory:package_unit_quick_add' %}" hx-target="#package-unit-dialog" hx-swap="innerHTML" hx-disabled-elt="find button[type='submit']" aria-labelledby="package-unit-quick-title" aria-describedby="package-unit-quick-description" data-inventory-form novalidate>
   {% csrf_token %}
-  <header>
+  <header class="ui-modal__header">
     <div>
       <p class="ui-eyebrow">{% translate "وحدات التعبئة" %}</p>
-      <h2 id="package-unit-quick-title">{% translate "إضافة سريعة" %}</h2>
-      <p>{% translate "أضف اسم العبوة ورمزها. معامل التحويل يُحدّد لاحقاً لكل صنف." %}</p>
+      <h2 class="ui-modal__title" id="package-unit-quick-title">{% translate "إضافة سريعة" %}</h2>
+      <p class="ui-modal__message" id="package-unit-quick-description">{% translate "أدخل اسم الوحدة واحفظ؛ سيبقى النموذج مفتوحاً لإضافة الوحدة التالية." %}</p>
     </div>
     <button class="ui-icon-button" type="button" data-close-dialog aria-label="{% translate 'إغلاق' %}">×</button>
   </header>
-  {% include "components/form_error_summary.html" with form=form %}
-  <div class="ui-form-grid">
-    {% include "settings/_field.html" with field=form.organization %}
-    {% include "settings/_field.html" with field=form.code %}
-    {% include "settings/_field.html" with field=form.name %}
-    {% include "settings/_field.html" with field=form.name %}
+  <div class="ui-modal__body">
+    {% if created_unit %}
+      <div class="ui-alert ui-alert--success" role="status" aria-live="polite">
+        <div class="ui-notice__copy">
+          <strong class="ui-notice__title">{% translate "تم حفظ وحدة التعبئة" %}</strong>
+          <span class="ui-notice__message">{{ created_unit.name }} — {% translate "الرمز" %} <bdi dir="ltr"><code>{{ created_unit.code }}</code></bdi>. {% translate "يمكنك إضافة الوحدة التالية الآن." %}</span>
+        </div>
+      </div>
+    {% endif %}
+    {% include "components/form_error_summary.html" with form=form %}
+    <div class="ui-alert ui-alert--info">
+      <div class="ui-notice__copy">
+        <strong class="ui-notice__title">{% translate "الرمز تلقائي" %}</strong>
+        <span class="ui-notice__message">{% translate "يُنشأ بالتسلسل لكل مؤسسة عند الحفظ: 1، ثم 2، ثم 3…" %}</span>
+      </div>
+    </div>
+    <div class="ui-form-grid">
+      {% include "settings/_field.html" with field=form.organization wide=True %}
+      {% include "settings/_field.html" with field=form.name wide=True %}
+    </div>
   </div>
-  <footer>
-    <button class="ui-button ui-button--secondary" type="button" data-close-dialog>{% translate "إلغاء" %}</button>
-    <button class="ui-button ui-button--primary" type="submit">{% translate "حفظ وحدة التعبئة" %}</button>
+  <footer class="ui-modal__actions">
+    <button class="ui-button ui-button--secondary" type="button" data-close-dialog>{% translate "إغلاق" %}</button>
+    <button class="ui-button ui-button--primary" type="submit" data-inventory-submit>{% translate "حفظ وإضافة أخرى" %}</button>
   </footer>
 </form>

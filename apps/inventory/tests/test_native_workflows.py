@@ -34,6 +34,7 @@ from apps.inventory.models import (
 )
 from apps.inventory.services import (
     create_item_conversion,
+    create_package_unit,
     ensure_in_transit_warehouse,
 )
 from apps.organizations.models import Branch, Organization
@@ -43,6 +44,8 @@ from apps.users.models import User
 from .conftest import TODAY
 
 pytestmark = pytest.mark.django_db
+
+HX = {"HX-Request": "true"}
 
 
 def _events_for(instance: Any) -> Any:
@@ -207,13 +210,78 @@ class TestCategoryWorkflow:
 
 
 class TestPackageUnitWorkflow:
-    def test_the_form_has_no_factor_field(self, manager: User, client_for: Any) -> None:
+    def test_the_create_form_has_neither_a_code_nor_a_factor_field(
+        self, manager: User, client_for: Any
+    ) -> None:
         """
         The absence is the guarantee. A field here would invite a universal
         carton factor, and there is no such thing.
         """
         response = client_for(manager).get(reverse("inventory:package_unit_create"))
-        assert "factor" not in response.context["form"].fields
+        fields = response.context["form"].fields
+
+        assert "code" not in fields
+        assert "factor" not in fields
+
+    def test_the_quick_form_has_one_name_and_no_code(self, manager: User, client_for: Any) -> None:
+        response = client_for(manager).get(reverse("inventory:package_unit_quick_add"), headers=HX)
+        body = response.content.decode()
+
+        assert response.status_code == 200
+        assert body.count('name="name"') == 1
+        assert 'name="code"' not in body
+
+    def test_quick_create_stays_open_with_a_fresh_form_and_created_unit(
+        self, manager: User, client_for: Any, organization: Organization
+    ) -> None:
+        response = client_for(manager).post(
+            reverse("inventory:package_unit_quick_add"),
+            {"organization": organization.pk, "name": "صينية"},
+            headers=HX,
+        )
+
+        created = PackageUnit.objects.get(organization=organization, code="1")
+        form = response.context["form"]
+        body = response.content.decode()
+
+        assert response.status_code == 200
+        assert response.headers["HX-Trigger-After-Swap"] == "packageUnitCreated"
+        assert response.context["created_unit"] == created
+        assert form.is_bound is False
+        assert str(form["organization"].value()) == str(organization.pk)
+        assert body.count('name="name"') == 1
+        assert 'name="code"' not in body
+        assert created.name in body
+
+        second_response = client_for(manager).post(
+            reverse("inventory:package_unit_quick_add"),
+            {"organization": organization.pk, "name": "كرتون"},
+            headers=HX,
+        )
+        assert second_response.status_code == 200
+        assert PackageUnit.objects.get(organization=organization, code="2").name == "كرتون"
+
+    def test_quick_create_validation_keeps_the_form_and_does_not_consume_a_code(
+        self, manager: User, client_for: Any, organization: Organization
+    ) -> None:
+        client = client_for(manager)
+        invalid = client.post(
+            reverse("inventory:package_unit_quick_add"),
+            {"organization": organization.pk, "name": ""},
+            headers=HX,
+        )
+
+        assert invalid.status_code == 200
+        assert invalid.context["form"].is_bound is True
+        assert invalid.context["form"].errors["name"]
+        assert not PackageUnit.objects.filter(organization=organization).exists()
+
+        client.post(
+            reverse("inventory:package_unit_quick_add"),
+            {"organization": organization.pk, "name": "كيس"},
+            headers=HX,
+        )
+        assert PackageUnit.objects.get(organization=organization).code == "1"
 
     def test_create_edit_and_archive(
         self, manager: User, client_for: Any, organization: Organization
@@ -222,9 +290,9 @@ class TestPackageUnitWorkflow:
 
         client.post(
             reverse("inventory:package_unit_create"),
-            {"organization": organization.pk, "code": "tray", "name": "صينية"},
+            {"organization": organization.pk, "name": "صينية"},
         )
-        unit = PackageUnit.objects.get(organization=organization, code="TRAY")
+        unit = PackageUnit.objects.get(organization=organization, code="1")
 
         client.post(
             reverse("inventory:package_unit_update", args=[unit.pk]),
@@ -238,6 +306,21 @@ class TestPackageUnitWorkflow:
         assert unit.is_active is False
         # Archived, never deleted: the code stays reserved.
         assert PackageUnit.objects.filter(pk=unit.pk).exists()
+
+    def test_the_list_orders_numeric_codes_numerically_before_alpha(
+        self, manager: User, client_for: Any, organization: Organization
+    ) -> None:
+        for code in ("10", "ALPHA", "2", "1"):
+            create_package_unit(organization=organization, code=code, name=f"عبوة {code}")
+
+        response = client_for(manager).get(reverse("inventory:package_unit_list"))
+
+        assert [unit.code for unit in response.context["package_units"]] == [
+            "1",
+            "2",
+            "10",
+            "ALPHA",
+        ]
 
 
 # ---------------------------------------------------------------------------

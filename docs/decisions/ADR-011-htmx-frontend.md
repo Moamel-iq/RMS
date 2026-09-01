@@ -52,10 +52,13 @@ Supporting choices made with it:
   English catalog cannot be produced and the UI is Arabic-only. This must be
   resolved before English is offered to users.
 - Every htmx endpoint must decide what it returns to a fragment request versus
-  a full page load. The pattern established in `apps/users/views.py` is:
-  re-render the fragment with HTTP 200 on validation failure (htmx does not
-  swap error responses by default), and return `HX-Redirect` on success so the
-  browser navigates rather than swapping a whole page into a form element.
+  a full page load. The default pattern established in `apps/users/views.py`
+  is: re-render the fragment with HTTP 200 on validation failure (htmx does
+  not swap error responses by default), and return `HX-Redirect` on success
+  so the browser navigates rather than swapping a whole page into a form
+  element. A deliberate same-context workflow, such as rapid repeated entry,
+  may instead return HTTP 200 with a fresh replacement fragment and an
+  after-swap event; it must retain a normal redirect fallback without htmx.
 
 ### Why not Django's LocaleMiddleware
 
