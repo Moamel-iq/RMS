@@ -13,8 +13,10 @@ services:
     # first deploy reaches this step, and `migrate` fails on a refused
     # connection. Retrying is safe: a refused connection runs nothing, and
     # a migration that did run is recorded and skipped on the next attempt.
+    # Render already invokes this value through `sh -c`; nesting another
+    # `sh -c` makes the full script look like an executable filename.
     preDeployCommand: >-
-      sh -c 'attempt=1; while [ $attempt -le 20 ]; do if python manage.py migrate --noinput; then python manage.py bootstrap_render_access; exit $?; fi; echo "database not reachable yet (attempt $attempt of 20); waiting 15s"; attempt=$((attempt + 1)); sleep 15; done; echo "the database never became reachable"; exit 1'
+      attempt=1; while [ $attempt -le 20 ]; do if python manage.py migrate --noinput; then python manage.py bootstrap_render_access; exit $?; fi; echo "database not reachable yet (attempt $attempt of 20); waiting 15s"; attempt=$((attempt + 1)); sleep 15; done; echo "the database never became reachable"; exit 1
     disk:
       name: private-media
       mountPath: /var/data
