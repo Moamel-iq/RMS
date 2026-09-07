@@ -221,6 +221,34 @@ ALL_PERMISSIONS: tuple[str, ...] = (
     IMPORT_SUPPLIER_ITEM,
 )
 
+# The deployed purchasing workspace deliberately exposes only the supplier,
+# invoice, return, settlement/payment and reporting work.  Earlier delivery
+# phases also registered a request → order → receipt workflow, but it is not
+# part of this restaurant's navigation or operating process.  Keep every
+# codename in ``ALL_PERMISSIONS`` so role synchronization can remove stale
+# grants safely; this smaller list is the authority that may be assigned to
+# a built-in or custom restaurant role.
+CONFIGURABLE_PERMISSIONS: tuple[str, ...] = (
+    VIEW_SUPPLIER,
+    MANAGE_SUPPLIERS,
+    VIEW_SUPPLIER_COST,
+    VIEW_SUPPLIER_INVOICE,
+    CREATE_SUPPLIER_INVOICE,
+    MANAGE_SUPPLIER_INVOICE_CHARGES,
+    APPROVE_SUPPLIER_INVOICE,
+    POST_SUPPLIER_INVOICE,
+    REVERSE_SUPPLIER_INVOICE,
+    VIEW_SUPPLIER_RETURN,
+    CREATE_SUPPLIER_RETURN,
+    POST_SUPPLIER_RETURN,
+    REVERSE_SUPPLIER_RETURN,
+    VIEW_SUPPLIER_PAYMENT,
+    CREATE_SUPPLIER_PAYMENT,
+    POST_SUPPLIER_PAYMENT,
+    REVERSE_SUPPLIER_PAYMENT,
+    VIEW_PROCUREMENT_REPORT,
+)
+
 PERMISSION_SCOPE: dict[str, PermissionScope] = {
     # The supplier master is organization property. One branch must not
     # reshape who the group buys from.
@@ -298,7 +326,15 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
 
 # --- Which role holds what --------------------------------------------------
 
-_FULL = frozenset(ALL_PERMISSIONS)
+_ENABLED = frozenset(CONFIGURABLE_PERMISSIONS)
+
+
+def _enabled(permission_names: frozenset[str]) -> frozenset[str]:
+    """Discard legacy purchasing workflow grants from a built-in post."""
+    return permission_names & _ENABLED
+
+
+_FULL = _ENABLED
 
 #: Chooses suppliers and needs to see what they charge. Maintains the master,
 #: because deciding who the organization buys from is the substance of the
@@ -497,12 +533,12 @@ _VIEWER = frozenset({VIEW_SUPPLIER, VIEW_PURCHASE_REQUEST})
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     Role.OWNER.value: _FULL,
-    Role.ACCOUNTING_MANAGER.value: _ACCOUNTING_MANAGER,
-    Role.MANAGER.value: _MANAGER,
-    Role.STOREKEEPER.value: _STOREKEEPER,
-    Role.PURCHASING.value: _PURCHASING,
-    Role.ACCOUNTANT.value: _ACCOUNTANT,
-    Role.VIEWER.value: _VIEWER,
+    Role.ACCOUNTING_MANAGER.value: _enabled(_ACCOUNTING_MANAGER),
+    Role.MANAGER.value: _enabled(_MANAGER),
+    Role.STOREKEEPER.value: _enabled(_STOREKEEPER),
+    Role.PURCHASING.value: _enabled(_PURCHASING),
+    Role.ACCOUNTANT.value: _enabled(_ACCOUNTANT),
+    Role.VIEWER.value: _enabled(_VIEWER),
     # A cashier handles takings, not purchasing.
     Role.CASHIER.value: frozenset(),
 }

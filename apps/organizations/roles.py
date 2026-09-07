@@ -149,7 +149,7 @@ def role_choices(organizations: Iterable[Organization] | None = None) -> list[tu
 
 def module_permission_names() -> set[str]:
     """
-    The acts the six modules declare — each module's own `ALL_PERMISSIONS`.
+    The acts enabled for configuration in the six modules.
 
     Not every permission row under those apps: Django also creates `add_`,
     `change_`, `delete_` and `view_` for every model, twelve hundred rows that
@@ -160,7 +160,9 @@ def module_permission_names() -> set[str]:
     names: set[str] = set()
     for app_label in CONFIGURABLE_APP_LABELS:
         module = import_module(f"apps.{app_label}.permissions")
-        names.update(getattr(module, "ALL_PERMISSIONS", ()))
+        names.update(
+            getattr(module, "CONFIGURABLE_PERMISSIONS", getattr(module, "ALL_PERMISSIONS", ()))
+        )
     return names
 
 
@@ -212,6 +214,35 @@ def sync_role_definition_group(definition: RoleDefinition) -> Group:
     return group
 
 
+def sync_custom_role_groups() -> int:
+    """Remove retired permissions from custom posts and rebuild their groups.
+
+    A role editor cannot assign a retired permission after it leaves the
+    configuration matrix.  Existing roles need the same treatment during a
+    deployment; otherwise an old hidden checkbox would continue to authorize
+    an inaccessible purchasing workflow.
+    """
+    retired: set[str] = set()
+    for app_label in CONFIGURABLE_APP_LABELS:
+        module = import_module(f"apps.{app_label}.permissions")
+        declared = set(getattr(module, "ALL_PERMISSIONS", ()))
+        enabled = set(getattr(module, "CONFIGURABLE_PERMISSIONS", declared))
+        retired.update(declared - enabled)
+
+    removed = 0
+    for definition in RoleDefinition.objects.prefetch_related("permissions").order_by("pk"):
+        stale = [
+            permission
+            for permission in definition.permissions.all()
+            if f"{permission.content_type.app_label}.{permission.codename}" in retired
+        ]
+        if stale:
+            definition.permissions.remove(*stale)
+            removed += len(stale)
+        sync_role_definition_group(definition)
+    return removed
+
+
 __all__ = [
     "CONFIGURABLE_APP_LABELS",
     "CUSTOM_PREFIX",
@@ -224,6 +255,7 @@ __all__ = [
     "resolve_permissions",
     "role_choices",
     "role_label",
+    "sync_custom_role_groups",
     "sync_role_definition_group",
     "validate_role_key",
 ]

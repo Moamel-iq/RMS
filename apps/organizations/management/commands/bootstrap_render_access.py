@@ -16,6 +16,7 @@ from apps.inventory.permissions import sync_role_groups as sync_inventory_role_g
 from apps.kitchen.permissions import sync_role_groups as sync_kitchen_role_groups
 from apps.organizations.models import Organization, Role
 from apps.organizations.permissions import sync_user_role_groups
+from apps.organizations.roles import sync_custom_role_groups
 from apps.organizations.security_permissions import sync_role_groups as sync_security_role_groups
 from apps.organizations.services import grant_organization_access
 from apps.procurement.permissions import sync_role_groups as sync_procurement_role_groups
@@ -76,6 +77,7 @@ class Command(BaseCommand):
 
         with transaction.atomic():
             _sync_builtin_role_groups()
+            sync_custom_role_groups()
             organization = Organization.objects.filter(
                 code=organization_code, is_active=True
             ).first()
