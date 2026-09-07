@@ -14,11 +14,7 @@ services:
     # connection. Retrying is safe: a refused connection runs nothing, and
     # a migration that did run is recorded and skipped on the next attempt.
     preDeployCommand: >-
-      sh -c 'attempt=1; while [ $attempt -le 20 ]; do
-      python manage.py migrate --noinput && exit 0;
-      echo "database not reachable yet (attempt $attempt of 20); waiting 15s";
-      attempt=$((attempt + 1)); sleep 15;
-      done; echo "the database never became reachable"; exit 1'
+      sh -c 'attempt=1; while [ $attempt -le 20 ]; do if python manage.py migrate --noinput; then python manage.py bootstrap_render_access; exit $?; fi; echo "database not reachable yet (attempt $attempt of 20); waiting 15s"; attempt=$((attempt + 1)); sleep 15; done; echo "the database never became reachable"; exit 1'
     disk:
       name: private-media
       mountPath: /var/data
@@ -46,6 +42,13 @@ services:
         value: "2"
       - key: DB_CONN_MAX_AGE
         value: "60"
+      # The username is safe to keep in the deployment configuration. The
+      # password is intentionally never committed; it is needed only if the
+      # account does not already exist on a new production database.
+      - key: RENDER_OWNER_USERNAME
+        value: moamel
+      - key: RENDER_OWNER_PASSWORD
+        sync: false
 
 databases:
   - name: khan-mandi-rms-db
