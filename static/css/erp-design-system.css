@@ -674,7 +674,10 @@
     .ui-command-trigger { min-inline-size: 3rem; inline-size: 3rem; padding: 0; justify-content: center; }
     .ui-command-trigger span, .ui-command-trigger kbd { display: none; }
   }
-  @media (max-width: 1320px) {
+  /* Keep the desktop navigation aligned with ui-shell.js (min-width: 1101px).
+     A 14-inch laptop commonly has a 1280px effective viewport at 100% zoom,
+     where the previous 1320px cutoff hid the module bar unnecessarily. */
+  @media (max-width: 1100px) {
     :root { --ui-header-height: 4rem; }
     .ui-app-header { grid-template-columns: 1fr auto; min-block-size: 4rem; padding-inline: var(--ui-space-3); --ui-header-height: 4rem; }
     .ui-primary-nav__list { display: none; }
