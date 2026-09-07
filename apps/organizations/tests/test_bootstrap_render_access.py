@@ -45,6 +45,16 @@ def test_bootstrap_repairs_existing_owner_and_is_idempotent(organization: Organi
     )
     assert owner.groups.filter(name="role:OWNER").exists()
     assert Group.objects.filter(name="role:STOREKEEPER").exists()
+    assert Group.objects.filter(
+        name="role:MANAGER",
+        permissions__content_type__app_label="organizations",
+        permissions__codename="manage_users",
+    ).exists()
+    assert Group.objects.filter(
+        name="role:OWNER",
+        permissions__content_type__app_label="insights",
+        permissions__codename="view_insight",
+    ).exists()
 
 
 def test_bootstrap_creates_owner_only_with_an_explicit_password(organization: Organization) -> None:

@@ -11,6 +11,7 @@ from django.db import transaction
 from apps.accounting.permissions import sync_role_groups as sync_accounting_role_groups
 from apps.core.permissions import sync_role_groups as sync_core_role_groups
 from apps.hr.permissions import sync_role_groups as sync_hr_role_groups
+from apps.insights.permissions import sync_role_groups as sync_insights_role_groups
 from apps.inventory.permissions import sync_role_groups as sync_inventory_role_groups
 from apps.kitchen.permissions import sync_role_groups as sync_kitchen_role_groups
 from apps.organizations.models import Organization, Role
@@ -35,6 +36,7 @@ def _sync_builtin_role_groups() -> None:
         sync_accounting_role_groups,
         sync_hr_role_groups,
         sync_supplier_quote_role_groups,
+        sync_insights_role_groups,
     ):
         sync()
 
