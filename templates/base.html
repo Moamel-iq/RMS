@@ -31,6 +31,11 @@
     <link rel="preload" href="{% static 'fonts/alexandria-latin.woff2' %}" as="font" type="font/woff2" crossorigin>
     {# The authoritative, self-contained frontend stylesheet. #}
     <link rel="stylesheet" href="{% static 'css/erp-design-system.css' %}?v=20260829-brand-1">
+    {# This workspace may be reached through an HTMX swap, after the document
+       head has already loaded. Its selectors are scoped to the invoice page,
+       so loading the sheet once here prevents an unstyled first visit without
+       affecting the rest of the application. #}
+    <link rel="stylesheet" href="{% static 'css/procurement-invoices.css' %}?v=20260907-1">
     {# htmx is vendored, not loaded from a CDN: no third-party request on a login page. #}
     <script>
       /* Inline rather than in ui-shell.js: that file only loads inside a

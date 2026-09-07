@@ -78,6 +78,17 @@ def test_base_loads_one_authoritative_design_system_and_local_arabic_fonts() -> 
         assert path.is_file() and path.stat().st_size > 0, path
 
 
+def test_purchase_invoice_workspace_styles_survive_in_app_navigation() -> None:
+    """A page-specific ``head`` block is not swapped by HTMX navigation."""
+    base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
+    invoices = (TEMPLATES / "procurement" / "supplier_invoice_list.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "css/procurement-invoices.css" in base
+    assert "css/procurement-invoices.css" not in invoices
+
+
 def test_retired_legacy_frontend_assets_are_physically_removed() -> None:
     remaining = [str(path.relative_to(ROOT)) for path in LEGACY_ASSETS if path.exists()]
     assert not remaining, "retired frontend assets still present:\n  " + "\n  ".join(remaining)

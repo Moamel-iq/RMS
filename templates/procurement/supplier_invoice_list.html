@@ -1,12 +1,7 @@
 {% extends "settings/base_list.html" %}
-{% load i18n static money_tags %}
+{% load i18n money_tags %}
 
 {% block title %}{% translate "فواتير المشتريات" %} · {{ brand_document }}{% endblock %}
-
-{% block head %}
-  {{ block.super }}
-  <link rel="stylesheet" href="{% static 'css/procurement-invoices.css' %}?v=20260828-2">
-{% endblock %}
 
 {% block page %}
   <section class="ui-page ui-purchase-invoices" aria-labelledby="purchase-invoices-title">
