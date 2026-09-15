@@ -119,6 +119,28 @@ def _aware_cutoff(cutoff_at: datetime.datetime) -> datetime.datetime:
     return cutoff_at
 
 
+def _validate_opening_warehouse(*, branch: Branch, warehouse: Warehouse) -> None:
+    """A warehouse-wide count may name one active, non-system warehouse only."""
+    if warehouse.branch_id != branch.pk:
+        raise ValidationError(
+            _("Warehouse %(code)s belongs to another branch."),
+            code="warehouse_branch_mismatch",
+            params={"code": warehouse.code},
+        )
+    if not warehouse.is_active:
+        raise ValidationError(
+            _("Warehouse %(code)s is archived."),
+            code="warehouse_inactive",
+            params={"code": warehouse.code},
+        )
+    if warehouse.is_system:
+        raise ValidationError(
+            _("Warehouse %(code)s is system-controlled and takes no opening balance."),
+            code="opening_into_system_warehouse",
+            params={"code": warehouse.code},
+        )
+
+
 # ---------------------------------------------------------------------------
 # Draft lifecycle
 # ---------------------------------------------------------------------------
@@ -129,11 +151,12 @@ def create_opening_document(
     *,
     organization: Organization,
     branch: Branch,
+    warehouse: Warehouse,
     cutoff_at: datetime.datetime,
     evidence_reference: str,
     narration: str = "",
 ) -> OpeningStockDocument:
-    """Start a draft opening for one branch, dated by one explicit cutoff."""
+    """Start a warehouse-wide draft opening, dated by one explicit cutoff."""
     if branch.organization_id != organization.pk:
         raise ValidationError(
             _("Branch %(code)s belongs to another organization."),
@@ -144,6 +167,7 @@ def create_opening_document(
         raise ValidationError(
             _("Branch %(code)s is closed."), code="branch_inactive", params={"code": branch.code}
         )
+    _validate_opening_warehouse(branch=branch, warehouse=warehouse)
     if not evidence_reference.strip():
         raise ValidationError(
             _("An opening needs its evidence reference — the signed count sheet."),
@@ -154,6 +178,7 @@ def create_opening_document(
     document = OpeningStockDocument(
         organization=organization,
         branch=branch,
+        warehouse=warehouse,
         cutoff_at=cutoff_at,
         business_date=business_date_for(branch, cutoff_at),
         evidence_reference=evidence_reference.strip(),
@@ -172,6 +197,7 @@ def create_opening_document(
 def update_opening_document(
     *,
     document: OpeningStockDocument,
+    warehouse: Warehouse | None = None,
     cutoff_at: datetime.datetime | None = None,
     evidence_reference: str | None = None,
     narration: str | None = None,
@@ -180,6 +206,21 @@ def update_opening_document(
     locked = OpeningStockDocument.objects.select_for_update().get(pk=document.pk)
     _require_status(locked, OpeningStockStatus.DRAFT, "not_a_draft")
     before = snapshot(locked)
+
+    if warehouse is not None and warehouse.pk != locked.warehouse_id:
+        _validate_opening_warehouse(branch=locked.branch, warehouse=warehouse)
+        # A pre-rule draft may have lines but no header warehouse.  It can be
+        # upgraded only when every historic line already names this same
+        # warehouse; otherwise the user must split or recreate the count.
+        header_is_being_backfilled = locked.warehouse_id is None
+        if locked.lines.exists() and (
+            not header_is_being_backfilled or locked.lines.exclude(warehouse=warehouse).exists()
+        ):
+            raise ValidationError(
+                _("Remove the document lines before changing its warehouse."),
+                code="opening_warehouse_change_has_lines",
+            )
+        locked.warehouse = warehouse
 
     if cutoff_at is not None:
         locked.cutoff_at = _aware_cutoff(cutoff_at)
@@ -234,9 +275,12 @@ def delete_opening_document(*, document: OpeningStockDocument, reason: str = "")
 class OpeningLineInput:
     """One requested line, before validation derives its base quantity."""
 
-    warehouse: Warehouse
     item: InventoryItem
     unit_cost: Decimal
+    #: UI entry derives this from the opening header. Kept as an optional
+    #: command input so a caller that names a different warehouse is rejected
+    #: explicitly instead of silently redirected.
+    warehouse: Warehouse | None = None
     lot: InventoryLot | None = None
     package_conversion: ItemPackageConversion | None = None
     entered_package_quantity: Decimal | None = None
@@ -245,25 +289,37 @@ class OpeningLineInput:
 
 
 def _validate_line_target(document: OpeningStockDocument, line: OpeningLineInput) -> None:
-    if line.warehouse.branch_id != document.branch_id:
+    warehouse = document.warehouse
+    if warehouse is None:
+        raise ValidationError(
+            _("Choose the warehouse in the opening header before adding items."),
+            code="opening_warehouse_required",
+        )
+    if line.warehouse is not None and line.warehouse.pk != warehouse.pk:
+        raise ValidationError(
+            _("All opening lines must belong to warehouse %(code)s."),
+            code="opening_line_warehouse_mismatch",
+            params={"code": warehouse.code},
+        )
+    if warehouse.branch_id != document.branch_id:
         raise ValidationError(
             _("Warehouse %(code)s belongs to another branch."),
             code="warehouse_branch_mismatch",
-            params={"code": line.warehouse.code},
+            params={"code": warehouse.code},
         )
-    if not line.warehouse.is_active:
+    if not warehouse.is_active:
         raise ValidationError(
             _("Warehouse %(code)s is archived."),
             code="warehouse_inactive",
-            params={"code": line.warehouse.code},
+            params={"code": warehouse.code},
         )
-    if line.warehouse.is_system:
+    if warehouse.is_system:
         # Nothing is in transit before the ledger starts; an opening balance
         # inside the system warehouse would be a claim with no dispatch.
         raise ValidationError(
             _("Warehouse %(code)s is system-controlled and takes no opening balance."),
             code="opening_into_system_warehouse",
-            params={"code": line.warehouse.code},
+            params={"code": warehouse.code},
         )
     if line.item.organization_id != document.organization_id:
         raise ValidationError(
@@ -415,6 +471,12 @@ def add_opening_line(*, document: OpeningStockDocument, line: OpeningLineInput) 
     locked = OpeningStockDocument.objects.select_for_update().get(pk=document.pk)
     _require_status(locked, OpeningStockStatus.DRAFT, "not_a_draft")
     _validate_line_target(locked, line)
+    warehouse = locked.warehouse
+    if warehouse is None:  # defensive for static analysis; validation above refuses it
+        raise ValidationError(
+            _("Choose the warehouse in the opening header before adding items."),
+            code="opening_warehouse_required",
+        )
 
     base_quantity = _derive_base_quantity(locked, line)
     if base_quantity <= ZERO:
@@ -434,7 +496,7 @@ def add_opening_line(*, document: OpeningStockDocument, line: OpeningLineInput) 
             code="line_value_not_positive",
         )
 
-    duplicate = locked.lines.filter(warehouse=line.warehouse, item=line.item, lot=line.lot).exists()
+    duplicate = locked.lines.filter(warehouse=warehouse, item=line.item, lot=line.lot).exists()
     if duplicate:
         raise ValidationError(
             _("This warehouse, item, and lot already have a line in this document."),
@@ -445,7 +507,7 @@ def add_opening_line(*, document: OpeningStockDocument, line: OpeningLineInput) 
     stored = OpeningStockLine(
         document=locked,
         sequence=(last.sequence + 1) if last is not None else 1,
-        warehouse=line.warehouse,
+        warehouse=warehouse,
         item=line.item,
         lot=line.lot,
         package_conversion=line.package_conversion,

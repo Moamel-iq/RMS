@@ -1820,6 +1820,17 @@ class OpeningStockDocument(TimeStampedModel):
         related_name="opening_stock_documents",
         verbose_name=_("branch"),
     )
+    #: An opening declares every counted position for one real warehouse.
+    #: It is nullable only so documents created before this rule can remain
+    #: auditable; all new drafts are required to choose a warehouse.
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="opening_stock_documents",
+        verbose_name=_("warehouse"),
+    )
 
     #: The immutable internal identity. THIS is the ledger's
     #: `source_document_id`; the human number below is presentation.
@@ -1995,13 +2006,18 @@ class OpeningStockDocument(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        label = self.document_number or str(self.public_id)
-        return f"{label} ({self.get_status_display()})"
+        return f"{self.display_number} ({self.get_status_display()})"
+
+    @property
+    def display_number(self) -> str:
+        """Human-facing reference; UUIDs are internal ledger identities."""
+        return self.document_number or str(_("مسودة"))
 
 
 class OpeningStockLine(TimeStampedModel):
     """
-    One counted position: a quantity of one item, in one warehouse, at a cost.
+    One counted position: a quantity of one item in its document's warehouse,
+    at a cost.
 
     `line_uid` is the stable identity the movement's `effect_key` is built
     from — `opening-line:<uid>` — so re-ordering lines in a draft can never
@@ -2411,8 +2427,12 @@ class InventoryMovementDocument(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        label = self.document_number or str(self.public_id)
-        return f"{label} ({self.get_status_display()})"
+        return f"{self.display_number} ({self.get_status_display()})"
+
+    @property
+    def display_number(self) -> str:
+        """Human-facing reference; UUIDs are internal ledger identities."""
+        return self.document_number or str(_("مسودة"))
 
     @property
     def source_document_type(self) -> str:
@@ -2864,8 +2884,12 @@ class StockTransfer(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        label = self.transfer_number or str(self.public_id)
-        return f"{label} ({self.get_status_display()})"
+        return f"{self.display_number} ({self.get_status_display()})"
+
+    @property
+    def display_number(self) -> str:
+        """Human-facing reference; UUIDs are internal ledger identities."""
+        return self.transfer_number or str(_("مسودة"))
 
     @property
     def source_branch_id(self) -> int:
@@ -3288,8 +3312,12 @@ class StockTransferReceipt(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        label = self.receipt_number or str(self.public_id)
-        return f"{label} ({self.get_status_display()})"
+        return f"{self.display_number} ({self.get_status_display()})"
+
+    @property
+    def display_number(self) -> str:
+        """Human-facing reference; UUIDs are internal ledger identities."""
+        return self.receipt_number or str(_("مسودة"))
 
 
 class StockTransferReceiptLine(TimeStampedModel):
@@ -3602,8 +3630,12 @@ class StockTransferShortage(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        label = self.shortage_number or str(self.public_id)
-        return f"{label} ({self.get_status_display()})"
+        return f"{self.display_number} ({self.get_status_display()})"
+
+    @property
+    def display_number(self) -> str:
+        """Human-facing reference; UUIDs are internal ledger identities."""
+        return self.shortage_number or str(_("مسودة"))
 
 
 class StockTransferShortageLine(TimeStampedModel):
@@ -4146,8 +4178,12 @@ class StockCount(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        label = self.count_number or str(self.public_id)
-        return f"{label} ({self.get_status_display()})"
+        return f"{self.display_number} ({self.get_status_display()})"
+
+    @property
+    def display_number(self) -> str:
+        """Human-facing reference; UUIDs are internal ledger identities."""
+        return self.count_number or str(_("مسودة"))
 
     @property
     def is_active(self) -> bool:
@@ -4562,8 +4598,12 @@ class InventoryAdjustmentDocument(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        label = self.document_number or str(self.public_id)
-        return f"{label} ({self.get_status_display()})"
+        return f"{self.display_number} ({self.get_status_display()})"
+
+    @property
+    def display_number(self) -> str:
+        """Human-facing reference; UUIDs are internal ledger identities."""
+        return self.document_number or str(_("مسودة"))
 
 
 class InventoryAdjustmentLine(TimeStampedModel):
@@ -5027,7 +5067,12 @@ class ImportBatch(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.batch_number or self.public_id} {self.kind} ({self.get_status_display()})"
+        return f"{self.display_number} {self.kind} ({self.get_status_display()})"
+
+    @property
+    def display_number(self) -> str:
+        """Human-facing reference; UUIDs are internal import identities."""
+        return self.batch_number or str(_("مسودة"))
 
     @property
     def is_terminal(self) -> bool:

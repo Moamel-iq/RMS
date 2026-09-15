@@ -26,7 +26,7 @@
           {% if count.count_number %}
             <bdi dir="ltr"><code>{{ count.count_number }}</code></bdi>
           {% else %}
-            <bdi dir="ltr"><code>{{ count.public_id|truncatechars:13 }}</code></bdi>
+            {% translate "مسودة" %}
           {% endif %}
         </a>
       </td>

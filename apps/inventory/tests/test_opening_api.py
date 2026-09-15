@@ -89,12 +89,12 @@ def _payload(
     payload: dict[str, Any] = {
         "organization_id": organization.pk,
         "branch_id": branch.pk,
+        "warehouse_id": warehouse.pk,
         "cutoff_at": CUTOFF,
         "evidence_reference": "COUNT-SHEET-9",
         "narration": "جرد افتتاحي",
         "lines": [
             {
-                "warehouse_id": warehouse.pk,
                 "item_id": item.pk,
                 "base_quantity": "100.000",
                 "unit_cost": "1500",
@@ -211,6 +211,7 @@ class TestDecimalsAndCostVisibility:
             actor=manager,
             organization=organization,
             branch=branch,
+            warehouse=main_store,
             cutoff_at=datetime.datetime(TEST_YEAR, 3, 15, 10, 0, tzinfo=BAGHDAD),
             evidence_reference="SHEET",
         )
@@ -280,6 +281,7 @@ class TestTenancyBoundary:
             actor=manager,
             organization=organization,
             branch=branch,
+            warehouse=main_store,
             cutoff_at=datetime.datetime(TEST_YEAR, 3, 15, 10, 0, tzinfo=BAGHDAD),
             evidence_reference="SHEET",
         )
@@ -308,7 +310,7 @@ class TestTenancyBoundary:
         )
         assert response.status_code == 404
 
-    def test_a_foreign_warehouse_in_a_line_is_a_404(
+    def test_a_foreign_warehouse_in_the_header_is_a_404(
         self,
         manager: User,
         client_for: Any,
@@ -322,7 +324,7 @@ class TestTenancyBoundary:
         response = _post(client_for(manager), OPENINGS_URL, payload)
         assert response.status_code == 404
 
-    def test_a_cross_branch_warehouse_is_refused_in_a_line(
+    def test_a_cross_branch_warehouse_is_refused_in_the_header(
         self,
         manager: User,
         client_for: Any,

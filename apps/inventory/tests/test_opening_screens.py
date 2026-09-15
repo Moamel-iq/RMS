@@ -95,6 +95,7 @@ def submitted(
         actor=manager,
         organization=organization,
         branch=branch,
+        warehouse=main_store,
         cutoff_at=CUTOFF,
         evidence_reference="SHEET-1",
     )
@@ -112,12 +113,39 @@ def submitted(
 
 
 class TestOpeningScreens:
+    def test_a_draft_opening_never_exposes_its_internal_uuid_in_the_screen(
+        self,
+        manager: User,
+        client_for: Any,
+        organization: Organization,
+        branch: Branch,
+        main_store: Warehouse,
+    ) -> None:
+        document = create_opening(
+            actor=manager,
+            organization=organization,
+            branch=branch,
+            warehouse=main_store,
+            cutoff_at=CUTOFF,
+            evidence_reference="SHEET-PRIVATE-ID",
+        )
+
+        page = client_for(manager).get(reverse("inventory:opening_detail", args=[document.pk]))
+
+        assert page.status_code == 200
+        html = page.content.decode()
+        assert str(document.public_id) not in html
+        assert "رصيد افتتاحي — مسودة" in html
+
+        listing = client_for(manager).get(reverse("inventory:opening_list"))
+        assert listing.status_code == 200
+        assert str(document.public_id) not in listing.content.decode()
+
     def test_opening_line_form_keeps_the_common_entry_short_and_clear(
         self, manager: User, branch: Branch, main_store: Warehouse, rice: InventoryItem
     ) -> None:
         form = OpeningLineForm(
             data={
-                "warehouse": main_store.pk,
                 "item": rice.pk,
                 "base_quantity": "",
                 "unit_cost": "1500",
@@ -127,6 +155,7 @@ class TestOpeningScreens:
         )
 
         assert form.is_valid() is False
+        assert "warehouse" not in form.fields
         assert form.errors["base_quantity"] == ["أدخل الكمية."]
 
     def test_an_opening_line_is_added_with_htmx_without_a_page_redirect(
@@ -143,6 +172,7 @@ class TestOpeningScreens:
             actor=manager,
             organization=organization,
             branch=branch,
+            warehouse=main_store,
             cutoff_at=CUTOFF,
             evidence_reference="HTMX-OPENING",
         )
@@ -150,7 +180,6 @@ class TestOpeningScreens:
         response = client_for(manager).post(
             reverse("inventory:opening_detail", args=[document.pk]),
             {
-                "warehouse": main_store.pk,
                 "item": rice.pk,
                 "lot_code": "",
                 "lot_expiry": "",
@@ -169,6 +198,7 @@ class TestOpeningScreens:
         assert 'id="opening-lines-workspace"' in body
         assert "أُضيف السطر." in body
         assert "hx-post" in body
+        assert 'name="warehouse"' not in body
 
     def test_the_full_lifecycle_through_the_screens(
         self,
@@ -186,6 +216,7 @@ class TestOpeningScreens:
             reverse("inventory:opening_create"),
             {
                 "branch": branch.pk,
+                "warehouse": main_store.pk,
                 "cutoff_at": "2026-03-15T10:00",
                 "evidence_reference": "SHEET-UI",
                 "narration": "",
@@ -199,7 +230,6 @@ class TestOpeningScreens:
         added = preparer.post(
             detail_url,
             {
-                "warehouse": main_store.pk,
                 "item": rice.pk,
                 "lot_code": "",
                 "package_conversion": "",
@@ -413,7 +443,6 @@ class TestALineFormRefusesRatherThanCrashes:
 
         form = OpeningLineForm(
             data={
-                "warehouse": main_store.pk,
                 "item": rice.pk,
                 "package_conversion": conversion.pk,
                 "entered_package_quantity": "1,5",

@@ -698,7 +698,7 @@ class PurchaseRequest(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return self.number or f"PR draft {self.public_id}"
+        return self.number or str(_("مسودة طلب شراء"))
 
     @property
     def is_editable(self) -> bool:
@@ -954,7 +954,7 @@ class SupplierQuotation(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return self.number or f"quotation {self.public_id}"
+        return self.number or str(_("مسودة عرض سعر"))
 
     @property
     def is_editable(self) -> bool:
@@ -1304,7 +1304,7 @@ class PurchaseOrder(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return self.number or f"PO draft {self.public_id}"
+        return self.number or str(_("مسودة أمر شراء"))
 
     @property
     def is_editable(self) -> bool:
@@ -1802,7 +1802,7 @@ class GoodsReceipt(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return self.number or f"GRN draft {self.public_id}"
+        return self.number or str(_("مسودة استلام"))
 
     @property
     def is_editable(self) -> bool:
@@ -3501,7 +3501,7 @@ class PurchaseMatch(TimeStampedModel):
     live_dependency = Q(status__in=("DRAFT", "READY"))
 
     def __str__(self) -> str:
-        return self.number or f"match {self.public_id}"
+        return self.number or str(_("مسودة مطابقة"))
 
     @property
     def is_editable(self) -> bool:

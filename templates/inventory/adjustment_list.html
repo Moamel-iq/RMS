@@ -26,7 +26,7 @@
           {% if adjustment.document_number %}
             <bdi dir="ltr"><code>{{ adjustment.document_number }}</code></bdi>
           {% else %}
-            <bdi dir="ltr"><code>{{ adjustment.public_id|truncatechars:13 }}</code></bdi>
+            {% translate "مسودة" %}
           {% endif %}
         </a>
       </td>

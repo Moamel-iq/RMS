@@ -552,6 +552,7 @@ source.
 | INV-278 | Bins claiming more than the warehouse holds is detected | `verify_locations` | `test_locations.py::test_planted_over_allocation_is_detected` | 1.7B | AT-007 | Done |
 | INV-279 | A system warehouse takes no locations | `create_location` | `test_locations.py::test_a_system_warehouse_takes_no_locations` | 1.7B | | Done |
 | INV-280 | A location holding stock cannot be archived | `update_location` | `test_locations.py::test_a_location_holding_stock_cannot_be_archived` | 1.7B | | Done |
+| INV-281 | An opening document names one warehouse and every new line inherits it | `OpeningStockDocument.warehouse`, `opening.add_opening_line` | `test_opening_screens.py::TestOpeningScreens::test_an_opening_line_is_added_with_htmx_without_a_page_redirect` | 1.3 | | Done |
 
 ## Phase 2 — Procurement and Accounts Payable
 

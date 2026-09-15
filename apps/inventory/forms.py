@@ -62,6 +62,7 @@ from apps.inventory.selectors import (
     visible_package_units,
 )
 from apps.organizations.authorization import (
+    accessible_warehouses,
     branches_with_permission,
     organizations_with_permission,
 )
@@ -606,6 +607,12 @@ class OpeningDocumentForm(ScopedForm):
     scope_permission = CREATE_OPENING_STOCK
 
     branch = forms.ModelChoiceField(queryset=Branch.objects.none(), label=_("الفرع"))
+    warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.none(),
+        label=_("المخزن"),
+        help_text=_("تُضاف كل أصناف هذا الرصيد إلى المخزن المحدد هنا."),
+        error_messages={"required": _("اختر المخزن.")},
+    )
     cutoff_at = forms.DateTimeField(
         label=_("لحظة الجرد"),
         widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
@@ -621,6 +628,20 @@ class OpeningDocumentForm(ScopedForm):
     def __init__(self, *args: Any, actor: User, **kwargs: Any) -> None:
         super().__init__(*args, actor=actor, **kwargs)
         self.fields["branch"].queryset = self.branch_choices()  # type: ignore[attr-defined]
+        self.fields["warehouse"].queryset = (  # type: ignore[attr-defined]
+            accessible_warehouses(actor)
+            .filter(is_active=True, is_system=False)
+            .select_related("branch")
+            .order_by("branch__code", "code")
+        )
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean()  # type: ignore[assignment]
+        branch = cleaned.get("branch")
+        warehouse = cleaned.get("warehouse")
+        if branch is not None and warehouse is not None and warehouse.branch_id != branch.pk:
+            self.add_error("warehouse", _("المخزن المختار يتبع فرعاً آخر."))
+        return cleaned
 
     def clean_narration(self) -> str:
         return str(self.cleaned_data.get("narration") or "")
@@ -648,11 +669,6 @@ class OpeningLineForm(ScopedForm):
 
     scope_permission = CREATE_OPENING_STOCK
 
-    warehouse = forms.ModelChoiceField(
-        queryset=Warehouse.objects.none(),
-        label=_("المخزن"),
-        error_messages={"required": _("اختر المخزن.")},
-    )
     item = forms.ModelChoiceField(
         queryset=InventoryItem.objects.none(),
         label=_("الصنف"),
@@ -694,16 +710,8 @@ class OpeningLineForm(ScopedForm):
 
     def __init__(self, *args: Any, actor: User, branch: Branch, **kwargs: Any) -> None:
         super().__init__(*args, actor=actor, **kwargs)
-        from apps.organizations.authorization import accessible_warehouses
-
-        warehouses = (
-            accessible_warehouses(actor).filter(branch=branch, is_system=False).order_by("code")
-        )
-        self.fields["warehouse"].queryset = warehouses  # type: ignore[attr-defined]
-        if not self.is_bound:
-            available_warehouses = list(warehouses[:2])
-            if len(available_warehouses) == 1:
-                self.fields["warehouse"].initial = available_warehouses[0]
+        # The document header owns the warehouse, so it deliberately is not a
+        # line-form field.
         self.fields["item"].queryset = (  # type: ignore[attr-defined]
             visible_items(actor)
             .filter(organization_id=branch.organization_id, is_active=True)

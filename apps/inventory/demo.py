@@ -751,6 +751,7 @@ def _opening(
         document = create_opening_document(
             organization=organization,
             branch=branch,
+            warehouse=warehouse,
             cutoff_at=_at(business_date, 8),
             evidence_reference=slug,
             narration="أرصدة افتتاحية تجريبية",

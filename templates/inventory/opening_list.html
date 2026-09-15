@@ -2,11 +2,12 @@
 {% load i18n %}
 
 {# Opening documents, newest first. The number appears only after posting;   #}
-{# a draft is identified by its immutable public id.                         #}
+{# the UUID stays internal, while a draft is shown simply as a draft.        #}
 
 {% block columns %}
   <th scope="col">{% translate "الرقم" %}</th>
   <th scope="col">{% translate "الفرع" %}</th>
+  <th scope="col">{% translate "المخزن" %}</th>
   <th scope="col">{% translate "يوم العمل" %}</th>
   <th scope="col">{% translate "الحالة" %}</th>
   <th scope="col">{% translate "المُعِدّ" %}</th>
@@ -27,11 +28,18 @@
           {% if document.document_number %}
             <bdi dir="ltr"><code>{{ document.document_number }}</code></bdi>
           {% else %}
-            <bdi dir="ltr"><code>{{ document.public_id|truncatechars:13 }}</code></bdi>
+            {% translate "مسودة" %}
           {% endif %}
         </a>
       </td>
       <td data-label="{% translate 'الفرع' %}"><bdi dir="ltr"><code>{{ document.branch.code }}</code></bdi></td>
+      <td data-label="{% translate 'المخزن' %}">
+        {% if document.warehouse %}
+          <bdi dir="ltr"><code>{{ document.warehouse.code }}</code></bdi>
+        {% else %}
+          <span class="ui-text-muted">{% translate "لم يُحدد بعد" %}</span>
+        {% endif %}
+      </td>
       <td data-label="{% translate 'يوم العمل' %}"><bdi dir="ltr"><time datetime="{{ document.business_date|date:'Y-m-d' }}">{{ document.business_date|date:"Y-m-d" }}</time></bdi></td>
       <td data-label="{% translate 'الحالة' %}">{% include "components/status_badge.html" with status=document.status label=document.get_status_display %}</td>
       <td data-label="{% translate 'المُعِدّ' %}">{{ document.created_by|default:"—" }}</td>
@@ -41,7 +49,7 @@
     </tr>
   {% empty %}
     <tr>
-      <td colspan="8" data-empty-state>
+      <td colspan="9" data-empty-state>
         {% if filter_query %}
           {% include "components/empty_state.html" with title=no_results_title description=no_results_description %}
         {% else %}
