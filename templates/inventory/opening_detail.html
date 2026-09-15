@@ -22,7 +22,7 @@
           {% if document.document_number %}<code><bdi dir="ltr">{{ document.document_number }}</bdi></code>{% endif %}
         </div>
         <h1 class="ui-page-header__title" id="opening-title">{{ page_title }}</h1>
-        <p class="ui-page-header__hint">{% translate "سجل الرصيد الابتدائي للفرع وما نتج عنه من أثر مخزني ومحاسبي." %}</p>
+        <p class="ui-page-header__hint">{% translate "سجل الرصيد الابتدائي لمخزن واحد وما نتج عنه من أثر مخزني ومحاسبي." %}</p>
       </div>
     <div class="ui-actions">
       <a class="ui-button ui-button--ghost" href="{{ back_url }}">{% translate "رجوع" %}</a>
@@ -57,6 +57,16 @@
 
     <dl class="ui-definition-list" aria-label="{% translate 'بيانات المستند' %}">
       <div><dt>{% translate "الفرع" %}</dt><dd><code><bdi dir="ltr">{{ document.branch.code }}</bdi></code> {{ document.branch.name }}</dd></div>
+      <div>
+        <dt>{% translate "المخزن" %}</dt>
+        <dd>
+          {% if document.warehouse %}
+            <code><bdi dir="ltr">{{ document.warehouse.code }}</bdi></code> {{ document.warehouse.name }}
+          {% else %}
+            <span class="ui-text-muted">{% translate "لم يُحدد بعد" %}</span>
+          {% endif %}
+        </dd>
+      </div>
       <div><dt>{% translate "يوم العمل" %}</dt><dd><bdi dir="ltr">{{ document.business_date|date:"Y-m-d" }}</bdi></dd></div>
       <div><dt>{% translate "مرجع الإثبات" %}</dt><dd><bdi dir="ltr">{{ document.evidence_reference }}</bdi></dd></div>
       <div><dt>{% translate "أنشأه" %}</dt><dd>{{ document.created_by|default:"—" }}</dd></div>

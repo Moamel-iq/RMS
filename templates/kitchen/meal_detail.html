@@ -69,7 +69,8 @@
           <dt>{% translate "يستبدل السجل" %}</dt>
           <dd>
             <a href="{% url 'kitchen:meal_detail' record.replaces_id %}">
-              <code dir="ltr">{{ record.replaces.public_id }}</code>
+              {{ record.replaces.get_meal_type_display }} — {{ record.replaces.recipe.name }}
+              <code dir="ltr">{{ record.replaces.consumed_on|date:"Y-m-d" }}</code>
             </a>
           </dd>
         {% endif %}

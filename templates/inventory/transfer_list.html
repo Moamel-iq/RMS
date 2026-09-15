@@ -1,9 +1,8 @@
 {% extends "settings/base_list.html" %}
 {% load i18n %}
 
-{# Transfers from either end. The number appears only at dispatch; a draft   #}
-{# is identified by its immutable public id, because a gapless sequence must #}
-{# not be burned by a draft somebody abandons.                               #}
+{# Transfers from either end. The number appears only at dispatch; the UUID  #}
+{# remains internal, so an unnumbered document is shown as a draft.          #}
 
 {% block columns %}
   <th scope="col">{% translate "الرقم" %}</th>
@@ -27,7 +26,7 @@
           {% if transfer.transfer_number %}
             <bdi dir="ltr"><code>{{ transfer.transfer_number }}</code></bdi>
           {% else %}
-            <bdi dir="ltr"><code>{{ transfer.public_id|truncatechars:13 }}</code></bdi>
+            {% translate "مسودة" %}
           {% endif %}
         </a>
       </td>

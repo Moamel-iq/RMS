@@ -375,6 +375,7 @@ def visible_opening_documents(actor: User) -> QuerySet[OpeningStockDocument]:
         .select_related(
             "organization",
             "branch",
+            "warehouse",
             "created_by",
             "submitted_by",
             "posted_by",
@@ -400,15 +401,32 @@ def create_opening(
     actor: User,
     organization: Organization,
     branch: Branch,
+    warehouse: Warehouse | None = None,
     cutoff_at: datetime.datetime,
     evidence_reference: str,
     narration: str = "",
 ) -> OpeningStockDocument:
     require_branch_permission(actor, CREATE_OPENING_STOCK, branch)
+    if warehouse is None:
+        # Compatibility for trusted command callers created before the header
+        # warehouse rule.  A branch with more than one regular warehouse must
+        # name one explicitly; silent selection would make a stocktake lie.
+        candidates = list(
+            Warehouse.objects.filter(branch=branch, is_active=True, is_system=False).order_by(
+                "code"
+            )[:2]
+        )
+        if len(candidates) != 1:
+            raise ValidationError(
+                _("Choose one warehouse for the opening document."),
+                code="opening_warehouse_required",
+            )
+        warehouse = candidates[0]
     with _acting_as(actor):
         return opening.create_opening_document(
             organization=organization,
             branch=branch,
+            warehouse=warehouse,
             cutoff_at=cutoff_at,
             evidence_reference=evidence_reference,
             narration=narration,
@@ -419,6 +437,7 @@ def update_opening(
     *,
     actor: User,
     document: OpeningStockDocument,
+    warehouse: Warehouse | None = None,
     cutoff_at: datetime.datetime | None = None,
     evidence_reference: str | None = None,
     narration: str | None = None,
@@ -427,6 +446,7 @@ def update_opening(
     with _acting_as(actor):
         return opening.update_opening_document(
             document=document,
+            warehouse=warehouse,
             cutoff_at=cutoff_at,
             evidence_reference=evidence_reference,
             narration=narration,

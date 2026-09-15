@@ -1407,6 +1407,7 @@ class OpeningCreateView(InventoryViewMixin, View):
                     actor=self.actor,
                     organization=branch.organization,
                     branch=branch,
+                    warehouse=form.cleaned_data["warehouse"],
                     cutoff_at=form.cleaned_data["cutoff_at"],
                     evidence_reference=form.cleaned_data["evidence_reference"],
                     narration=form.cleaned_data["narration"],
@@ -1469,6 +1470,7 @@ class OpeningDetailView(InventoryViewMixin, View):
             "is_submitted": document.status == OpeningStockStatus.SUBMITTED,
             "is_posted": document.status == OpeningStockStatus.POSTED,
             "can_prepare": can_prepare,
+            "has_document_warehouse": document.warehouse_id is not None,
             "can_post": (
                 can_post
                 and document.submitted_by_id is not None
@@ -1477,7 +1479,7 @@ class OpeningDetailView(InventoryViewMixin, View):
             "can_reverse": has_organization_permission(
                 self.actor, REVERSE_MOVEMENT, document.organization
             ),
-            "page_title": _("رصيد افتتاحي") + f" — {document}",
+            "page_title": _("رصيد افتتاحي") + f" — {document.display_number}",
             "back_url": reverse("inventory:opening_list"),
         }
 
@@ -1491,6 +1493,12 @@ class OpeningDetailView(InventoryViewMixin, View):
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         """Adding one line, from the embedded form."""
         document = self._document()
+        if document.warehouse_id is None:
+            feedback = str(_("اختر مخزن الرصيد الافتتاحي من تعديل الترويسة قبل إضافة الأصناف."))
+            if self.is_htmx():
+                return self._line_workspace(request, document, self._line_form(document), feedback)
+            messages.error(request, feedback)
+            return HttpResponseRedirect(reverse("inventory:opening_detail", args=[document.pk]))
         form = self._line_form(document, data=request.POST)
         if form.is_valid():
             item = form.cleaned_data["item"]
@@ -1506,7 +1514,6 @@ class OpeningDetailView(InventoryViewMixin, View):
                     actor=self.actor,
                     document=document,
                     line=OpeningLineInput(
-                        warehouse=form.cleaned_data["warehouse"],
                         item=item,
                         lot=lot,
                         package_conversion=form.cleaned_data["package_conversion"],
@@ -1561,6 +1568,7 @@ class OpeningUpdateView(InventoryViewMixin, View):
             actor=self.actor,
             initial={
                 "branch": document.branch,
+                "warehouse": document.warehouse,
                 "cutoff_at": document.cutoff_at,
                 "evidence_reference": document.evidence_reference,
                 "narration": document.narration,
@@ -1585,6 +1593,7 @@ class OpeningUpdateView(InventoryViewMixin, View):
                 update_opening(
                     actor=self.actor,
                     document=document,
+                    warehouse=form.cleaned_data["warehouse"],
                     cutoff_at=form.cleaned_data["cutoff_at"],
                     evidence_reference=form.cleaned_data["evidence_reference"],
                     narration=form.cleaned_data["narration"],
@@ -1785,7 +1794,7 @@ class OperationalDetailView(InventoryViewMixin, View):
             "can_reverse": has_warehouse_permission(
                 self.actor, REVERSE_MOVEMENT, document.warehouse
             ),
-            "page_title": f"{document.get_document_type_display()} — {document}",
+            "page_title": f"{document.get_document_type_display()} — {document.display_number}",
             "back_url": reverse(f"inventory:{self.document_type.lower()}_list"),
             "detail_url_name": f"inventory:{self.document_type.lower()}_detail",
             "line_delete_url_name": f"inventory:{self.document_type.lower()}_line_delete",
@@ -2566,7 +2575,7 @@ class StockCountDetailView(InventoryViewMixin, View):
                 "can_approve": has_branch_permission(self.actor, APPROVE_STOCK_COUNT, count.branch),
                 "can_reverse": has_branch_permission(self.actor, REVERSE_MOVEMENT, count.branch),
                 "is_own_count": count.conducted_by_id == self.actor.pk,
-                "page_title": f"{_('جرد')} — {count}",
+                "page_title": f"{_('جرد')} — {count.display_number}",
                 "back_url": reverse("inventory:count_list"),
             },
         )
@@ -2849,7 +2858,7 @@ class AdjustmentDetailView(InventoryViewMixin, View):
             "is_posted": document.status == InventoryDocumentStatus.POSTED,
             "can_post": has_branch_permission(self.actor, POST_ADJUSTMENT, document.branch),
             "can_reverse": has_branch_permission(self.actor, REVERSE_MOVEMENT, document.branch),
-            "page_title": f"{_('تسوية مخزنية')} — {document}",
+            "page_title": f"{_('تسوية مخزنية')} — {document.display_number}",
             "back_url": reverse("inventory:adjustment_list"),
         }
 

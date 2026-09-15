@@ -85,6 +85,7 @@ class Command(SeedCommand):
                 actor=actor,
                 organization=organization,
                 branch=branch,
+                warehouse=warehouse,
                 cutoff_at=cutoff,
                 evidence_reference="فواتير أهل الخير 3198 و MEN GROUP 73",
                 narration="رصيد افتتاحي بكميات الفواتير",

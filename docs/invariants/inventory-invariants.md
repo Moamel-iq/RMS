@@ -140,6 +140,7 @@ enforcement discipline: the service explains, the database holds.
 | Resolution never guesses | `resolve_default_account`, `resolve_inventory_account` | — (`account_role_unmapped` before any effect) |
 | Standing stock value cannot be re-homed by a mapping change | reclassification guard, both apps via the hook | — (apply-then-verify inside the transaction) |
 | One valuation key per opening document | duplicate check | `opening_line_valuation_key_unique` (`NULLS NOT DISTINCT`) |
+| An opening declares one real warehouse | header validation; lines inherit it | header FK (nullable only for historic documents) |
 | Opening lines are positive in quantity, cost, and value | line validation | three CHECK constraints |
 | An opening is the first movement for its keys | history check under the advisory locks | — (the locks make the check race-free) |
 | The submitter cannot post their own opening | `post_opening_document` | `opening_submitter_is_not_poster` |

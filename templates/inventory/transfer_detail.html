@@ -203,7 +203,7 @@
                 {% if receipt.receipt_number %}
                   <code><bdi dir="ltr">{{ receipt.receipt_number }}</bdi></code>
                 {% else %}
-                  <code><bdi dir="ltr">{{ receipt.public_id|truncatechars:13 }}</bdi></code>
+                  {% translate "مسودة" %}
                 {% endif %}
               </a>
             </td>

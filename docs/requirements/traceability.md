@@ -553,6 +553,7 @@ source.
 | INV-279 | A system warehouse takes no locations | `create_location` | `test_locations.py::test_a_system_warehouse_takes_no_locations` | 1.7B | | Done |
 | INV-280 | A location holding stock cannot be archived | `update_location` | `test_locations.py::test_a_location_holding_stock_cannot_be_archived` | 1.7B | | Done |
 | INV-281 | Native package-unit creation uses one Arabic name and allocates sequential numeric codes per organization; rapid entry resets and remains open after success | `create_package_unit` + `PackageUnitForm` + quick-entry HTMX fragment | `apps/inventory/tests/test_master_data.py::TestPackageUnitsCarryNoFactor`, `apps/inventory/tests/test_native_workflows.py::TestPackageUnitWorkflow` | 1.1 | | Done |
+| INV-282 | An opening document names one warehouse and every new line inherits it | `OpeningStockDocument.warehouse`, `opening.add_opening_line` | `test_opening_screens.py::TestOpeningScreens::test_an_opening_line_is_added_with_htmx_without_a_page_redirect` | 1.3 | | Done |
 
 ## Phase 2 — Procurement and Accounts Payable
 

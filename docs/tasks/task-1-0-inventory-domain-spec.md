@@ -1041,10 +1041,12 @@ drill-down; movement effect keys use the stable line identity
 `opening-line:<line uid>`, never the mutable line order.
 
 Requirements: a signed cutoff timestamp; source evidence (count sheet
-reference); approval by `inventory.post_opening_stock`; per line the item,
-warehouse, lot, quantity, unit cost, and total value; **one cutoff date for the
-whole document** — mixed opening dates are refused, because an "opening
-balance" spread across dates is not an opening balance.
+reference); approval by `inventory.post_opening_stock`; **one active,
+non-system warehouse in the document header**; per line the item, lot,
+quantity, unit cost, and total value; **one cutoff date for the whole
+document** — mixed opening dates are refused, because an "opening balance"
+spread across dates is not an opening balance. Every line inherits the header
+warehouse; a mixed-warehouse opening is represented by separate documents.
 
 Correction is by reversal of the whole document, never by editing a line.
 

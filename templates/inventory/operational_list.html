@@ -2,8 +2,8 @@
 {% load i18n %}
 
 {# Receipts, issues, or returns — one template, whichever route mounted it.  #}
-{# The number appears only after posting; a draft is identified by its       #}
-{# immutable public id.                                                      #}
+{# The number appears only after posting; its UUID stays internal and the   #}
+{# user sees the document as a draft until it receives its number.           #}
 
 {% block columns %}
   <th scope="col">{% translate "الرقم" %}</th>
@@ -27,7 +27,7 @@
           {% if document.document_number %}
             <bdi dir="ltr"><code>{{ document.document_number }}</code></bdi>
           {% else %}
-            <bdi dir="ltr"><code>{{ document.public_id|truncatechars:13 }}</code></bdi>
+            {% translate "مسودة" %}
           {% endif %}
         </a>
       </td>

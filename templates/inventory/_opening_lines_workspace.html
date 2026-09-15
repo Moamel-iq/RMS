@@ -11,7 +11,6 @@
         <thead>
           <tr>
             <th scope="col">#</th>
-            <th scope="col">{% translate "المخزن" %}</th>
             <th scope="col">{% translate "الصنف" %}</th>
             <th scope="col">{% translate "الدفعة" %}</th>
             <th scope="col">{% translate "الكمية" %}</th>
@@ -29,7 +28,6 @@
           {% for line in lines %}
             <tr>
               <td data-label="#"><bdi dir="ltr">{{ line.sequence }}</bdi></td>
-              <td data-label="{% translate 'المخزن' %}"><code><bdi dir="ltr">{{ line.warehouse.code }}</bdi></code></td>
               <td data-label="{% translate 'الصنف' %}"><code><bdi dir="ltr">{{ line.item.code }}</bdi></code> {{ line.item.name }}</td>
               <td data-label="{% translate 'الدفعة' %}">{% if line.lot %}<code><bdi dir="ltr">{{ line.lot.code }}</bdi></code>{% else %}—{% endif %}</td>
               <td data-label="{% translate 'الكمية' %}"><code><bdi dir="ltr">{{ line.base_quantity|quantity }}</bdi></code></td>
@@ -70,7 +68,7 @@
             </tr>
           {% empty %}
             <tr>
-              <td colspan="{% if show_cost %}11{% else %}8{% endif %}">
+              <td colspan="{% if show_cost %}10{% else %}7{% endif %}">
                 {% translate "لا توجد سطور في المستند" as empty_title %}
                 {% translate "أضف سطراً واحداً على الأقل قبل تقديم الرصيد الافتتاحي للاعتماد." as empty_description %}
                 {% include "components/empty_state.html" with title=empty_title description=empty_description %}
@@ -81,7 +79,7 @@
         {% if show_cost and lines %}
           <tfoot>
             <tr>
-              <td colspan="7">{% translate "الإجمالي" %}</td>
+              <td colspan="6">{% translate "الإجمالي" %}</td>
               <td><code><bdi dir="ltr">{{ total_value|money }}</bdi></code></td>
               <td colspan="{% if is_draft and can_prepare %}3{% else %}2{% endif %}"></td>
             </tr>
@@ -91,7 +89,7 @@
     </div>
   </section>
 
-  {% if is_draft and can_prepare %}
+  {% if is_draft and can_prepare and has_document_warehouse %}
     <form class="ui-card ui-form-card ui-line-form" method="post" action="{{ request.path }}" novalidate
           hx-post="{{ request.path }}" hx-target="#opening-lines-workspace" hx-swap="outerHTML"
           hx-disabled-elt="find button[type='submit']" hx-indicator="#opening-line-saving">
@@ -100,10 +98,9 @@
       {% include "components/form_error_summary.html" with form=line_form %}
 
       <p class="ui-line-form__intro">
-        {% translate "للتسجيل السريع: اختر المخزن والصنف، ثم أدخل الكمية وكلفة الوحدة." %}
+        {% translate "للتسجيل السريع: اختر الصنف، ثم أدخل الكمية وكلفة الوحدة. تُضاف السطور تلقائياً إلى مخزن المستند." %}
       </p>
       <div class="ui-form-grid ui-line-form__primary">
-        {% include "settings/_field.html" with field=line_form.warehouse %}
         {% include "settings/_field.html" with field=line_form.item %}
         {% include "settings/_field.html" with field=line_form.base_quantity %}
         {% include "settings/_field.html" with field=line_form.unit_cost %}
@@ -126,5 +123,9 @@
         <button class="ui-button ui-button--primary" type="submit">{% translate "إضافة السطر" %}</button>
       </div>
     </form>
+  {% elif is_draft and can_prepare %}
+    <p class="ui-inline-feedback" role="status">
+      {% translate "اختر مخزن الرصيد الافتتاحي من تعديل الترويسة قبل إضافة الأصناف." %}
+    </p>
   {% endif %}
 </div>

@@ -655,7 +655,6 @@ def read_movement(request: HttpRequest, movement_id: int) -> Any:
 
 
 class OpeningLineIn(Schema):
-    warehouse_id: int
     item_id: int
     #: Strings, both directions. JSON's only numeric type is binary floating
     #: point, and a unit cost that has been through one is a different cost.
@@ -692,6 +691,8 @@ class OpeningOut(Schema):
     organization_id: int
     branch_id: int
     branch_code: str
+    warehouse_id: int | None
+    warehouse_code: str | None
     cutoff_at: datetime.datetime
     business_date: datetime.date
     evidence_reference: str
@@ -715,6 +716,7 @@ class OpeningOut(Schema):
 class OpeningIn(Schema):
     organization_id: int
     branch_id: int
+    warehouse_id: int
     cutoff_at: datetime.datetime
     evidence_reference: str
     narration: str = ""
@@ -722,6 +724,7 @@ class OpeningIn(Schema):
 
 
 class OpeningPatch(Schema):
+    warehouse_id: int | None = None
     cutoff_at: datetime.datetime | None = None
     evidence_reference: str | None = None
     narration: str | None = None
@@ -746,9 +749,7 @@ def _line_input(actor: User, payload: OpeningLineIn) -> OpeningLineInput:
     domain service ever sees it.
     """
     from apps.inventory.models import InventoryLot, ItemPackageConversion
-    from apps.organizations.authorization import resolve_warehouse
 
-    warehouse = resolve_warehouse(actor, payload.warehouse_id)
     item = resolve_item(actor, payload.item_id)
 
     lot = None
@@ -769,7 +770,6 @@ def _line_input(actor: User, payload: OpeningLineIn) -> OpeningLineInput:
             )
 
     return OpeningLineInput(
-        warehouse=warehouse,
         item=item,
         lot=lot,
         package_conversion=conversion,
@@ -819,6 +819,8 @@ def _serialize_opening(document: Any, *, with_cost: bool, with_lines: bool) -> d
         "organization_id": document.organization_id,
         "branch_id": document.branch_id,
         "branch_code": document.branch.code,
+        "warehouse_id": document.warehouse_id,
+        "warehouse_code": document.warehouse.code if document.warehouse_id else None,
         "cutoff_at": document.cutoff_at,
         "business_date": document.business_date,
         "evidence_reference": document.evidence_reference,
@@ -871,10 +873,14 @@ def create_opening_endpoint(request: HttpRequest, payload: OpeningIn) -> Status[
     actor = _actor(request)
     organization = resolve_organization(actor, payload.organization_id)
     branch = resolve_branch(actor, payload.branch_id)
+    from apps.organizations.authorization import resolve_warehouse
+
+    warehouse = resolve_warehouse(actor, payload.warehouse_id)
     document = create_opening(
         actor=actor,
         organization=organization,
         branch=branch,
+        warehouse=warehouse,
         cutoff_at=payload.cutoff_at,
         evidence_reference=payload.evidence_reference,
         narration=payload.narration,
@@ -900,9 +906,15 @@ def read_opening(request: HttpRequest, document_id: int) -> Any:
 def patch_opening(request: HttpRequest, document_id: int, payload: OpeningPatch) -> Any:
     actor = _actor(request)
     document = resolve_opening_document(actor, document_id)
+    warehouse = None
+    if payload.warehouse_id is not None:
+        from apps.organizations.authorization import resolve_warehouse
+
+        warehouse = resolve_warehouse(actor, payload.warehouse_id)
     update_opening(
         actor=actor,
         document=document,
+        warehouse=warehouse,
         cutoff_at=payload.cutoff_at,
         evidence_reference=payload.evidence_reference,
         narration=payload.narration,
