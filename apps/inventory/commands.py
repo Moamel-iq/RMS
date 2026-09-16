@@ -98,9 +98,8 @@ from apps.organizations.models import Branch, Organization
 from apps.users.models import User
 
 #: Which permission each movement type needs at the warehouse it touches.
-#: Opening stock is absent on purpose: it is organization authority, checked
-#: separately, because it sets the ledger's starting point rather than moving
-#: goods that are already in it.
+#: An opening has a branch-scoped financial permission, so it is handled in
+#: ``_authorize_effects`` rather than pretending it is ordinary custody work.
 MOVEMENT_PERMISSION: dict[str, str] = {
     MovementType.RECEIPT: POST_RECEIPT,
     MovementType.TRANSFER_IN: POST_RECEIPT,
@@ -132,6 +131,7 @@ def _authorize_effects(actor: User, effects: Sequence[MovementInput]) -> None:
     """
     for effect in effects:
         if effect.movement_type == MovementType.OPENING:
+            require_branch_permission(actor, POST_OPENING_STOCK, effect.warehouse.branch)
             continue
         permission = MOVEMENT_PERMISSION.get(effect.movement_type)
         if permission is None:
@@ -159,14 +159,10 @@ def post_stock_movements(
     """
     Post stock effects on behalf of an authorized user.
 
-    Opening stock is the one movement type that needs **organization**
-    authority: it declares what the ledger starts from, which is an accounting
-    decision covering every branch at once, not a warehouse operation. Everything
-    else is answered at the warehouse the goods actually move through.
+    Opening stock is a financial act at the branch that owns its warehouse.
+    It uses ``post_opening_stock`` rather than an ordinary custody permission;
+    every other movement is answered at the warehouse it touches.
     """
-    if any(effect.movement_type == MovementType.OPENING for effect in effects):
-        require_organization_permission(actor, POST_OPENING_STOCK, organization)
-
     _authorize_effects(actor, effects)
 
     with _acting_as(actor):
@@ -355,12 +351,10 @@ def archive_inventory_role_mapping(
 # Opening stock documents (Task 1.3)
 # ---------------------------------------------------------------------------
 #
-# Preparing is branch work (`create_opening_stock` at the document's branch);
-# posting is organization authority (`post_opening_stock` through an
-# OrganizationMembership); reversal likewise (`reverse_movement` held through
-# an OrganizationMembership — undoing the ledger's starting point is not a
-# branch decision). Maker-checker is enforced in the domain service on the
-# recorded acts, so holding every permission changes nothing.
+# Preparing and accounting-posting are branch work (`create_opening_stock` and
+# `post_opening_stock` at the document's branch). Maker-checker is enforced in
+# the domain service on the recorded acts, so holding every permission changes
+# nothing.
 
 
 def visible_opening_documents(actor: User) -> QuerySet[OpeningStockDocument]:
@@ -500,11 +494,10 @@ def return_opening_to_draft(
 
 def post_opening(*, actor: User, document: OpeningStockDocument) -> OpeningStockDocument:
     """
-    Post to both ledgers. Organization authority — setting the ledger's
-    starting point covers every branch's figures at once — and maker-checker
-    on top of it: the submitter is refused whatever they hold.
+    Post to both ledgers at the document's branch, with maker-checker on top:
+    the submitter is refused whatever they hold.
     """
-    require_organization_permission(actor, POST_OPENING_STOCK, document.organization)
+    require_branch_permission(actor, POST_OPENING_STOCK, document.branch)
     with _acting_as(actor):
         return opening.post_opening_document(document=document)
 

@@ -31,9 +31,9 @@
           {% translate "تعديل الترويسة" %}
         </a>
         <form method="post" action="{% url 'inventory:opening_submit' document.pk %}"
-              data-confirm="{% translate 'سيُقفل تعديل السطور حتى إعادة المستند إلى المسودة. هل تريد تقديمه للاعتماد؟' %}">
+              data-confirm="{% translate 'سيُقفل تعديل السطور حتى إعادة المستند إلى المسودة. هل تريد إحالته للترحيل المحاسبي؟' %}">
           {% csrf_token %}
-          <button class="ui-button ui-button--primary" type="submit">{% translate "تقديم للاعتماد" %}</button>
+          <button class="ui-button ui-button--primary" type="submit">{% translate "إحالة للترحيل المحاسبي" %}</button>
         </form>
         <form method="post" action="{% url 'inventory:opening_delete' document.pk %}"
               data-confirm="{% translate 'سيُحذف مستند الرصيد الافتتاحي ومسودته نهائياً. هل تريد المتابعة؟' %}"
@@ -45,10 +45,10 @@
       {% if is_submitted and can_post %}
         <form method="post" action="{% url 'inventory:opening_post' document.pk %}"
               data-confirm="{% translate 'سيُرحّل المستند إلى دفتر المخزون والأستاذ العام، ولن يعود قابلاً للتعديل. هل تريد المتابعة؟' %}"
-              data-confirm-title="{% translate 'ترحيل الرصيد الافتتاحي' %}">
+              data-confirm-title="{% translate 'الترحيل المحاسبي للرصيد الافتتاحي' %}">
           {% csrf_token %}
           <button class="ui-button ui-button--primary" type="submit">
-            {% translate "ترحيل إلى الدفترين" %}
+            {% translate "ترحيل محاسبي" %}
           </button>
         </form>
       {% endif %}

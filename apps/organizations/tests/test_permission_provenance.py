@@ -30,7 +30,6 @@ from django.core.exceptions import PermissionDenied
 from apps.inventory.permissions import (
     MANAGE_ITEMS,
     OVERRIDE_NEGATIVE_STOCK,
-    POST_OPENING_STOCK,
     VIEW_ITEM,
 )
 from apps.organizations.authorization import (
@@ -236,11 +235,7 @@ class TestTheProvenanceRule:
 
 
 class TestOrganizationAuthorityProvenance:
-    """
-    The stronger scope, checked the same way. `post_opening_stock` and
-    `override_negative_stock` need an organization membership, and the role
-    that carries them must be *that* membership's role.
-    """
+    """Organization-wide authority requires an organization membership."""
 
     def test_a_branch_post_does_not_carry_organization_authority(
         self, khan_mandi: Organization, bunook: Branch
@@ -252,8 +247,6 @@ class TestOrganizationAuthorityProvenance:
         grant_organization_access(user=user, organization=khan_mandi, role=Role.VIEWER)
         user = _reload(user)
 
-        assert user.has_perm(POST_OPENING_STOCK)
-        assert not has_organization_permission(user, POST_OPENING_STOCK, khan_mandi)
         assert not has_organization_permission(user, OVERRIDE_NEGATIVE_STOCK, khan_mandi)
 
     def test_the_organization_post_carries_it(self, khan_mandi: Organization) -> None:
@@ -261,7 +254,7 @@ class TestOrganizationAuthorityProvenance:
         grant_organization_access(user=user, organization=khan_mandi, role=Role.ACCOUNTING_MANAGER)
         user = _reload(user)
 
-        assert has_organization_permission(user, POST_OPENING_STOCK, khan_mandi)
+        assert has_organization_permission(user, OVERRIDE_NEGATIVE_STOCK, khan_mandi)
 
 
 class TestRolesGranting:

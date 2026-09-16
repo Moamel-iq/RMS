@@ -198,7 +198,7 @@ And, correspondingly:
 
 | Question | Roles that may answer it |
 |---|---|
-| Organization *authority* (`post_opening_stock`, period acts) | the `OrganizationMembership` role in that organization, and nothing else |
+| Organization *authority* (period acts, negative-stock override) | the `OrganizationMembership` role in that organization, and nothing else |
 | Organization *master data* (item master, categories, packages, conversions) | any role held inside that organization, branch posts included |
 | Branch | the `BranchMembership` role at that branch, plus organization-wide roles over its owner |
 | Warehouse | the roles of memberships that actually cover that warehouse — a `SELECTED` membership that omits it contributes nothing |

@@ -1096,7 +1096,7 @@ authorization.
 | `inventory.view_stock` | Branch | |
 | `inventory.view_valuation` | Branch | **Yes** — exposes cost and margin |
 | `inventory.create_draft_movement` | Branch | |
-| `inventory.post_opening_stock` | Organization | **Yes** — sets the ledger's starting point |
+| `inventory.post_opening_stock` | Branch | **Yes** — posts the opening balance of one branch |
 | `inventory.post_receipt` | Warehouse | |
 | `inventory.post_issue` | Warehouse | |
 | `inventory.post_transfer` | Warehouse (both ends) | |
@@ -1122,7 +1122,7 @@ warehouse scope cannot silently lock out existing users.
 | **MANAGER** | `view_item`, `manage_categories`, `manage_items`, `manage_conversions`, `manage_warehouses`, `view_stock`, `view_valuation`, `create_draft_movement`, `post_receipt`, `post_issue`, `post_transfer`, `post_waste`, `conduct_stock_count`, `approve_stock_count`, `post_adjustment`, `reverse_movement` |
 | **STOREKEEPER** | `view_item`, `view_stock`, `create_draft_movement`, `post_receipt`, `post_issue`, `post_transfer`, `conduct_stock_count` |
 | **PURCHASING** | `view_item`, `view_stock`, `view_valuation` |
-| **ACCOUNTANT** | `view_item`, `view_stock`, `view_valuation` |
+| **ACCOUNTANT** | `view_item`, `view_stock`, `view_valuation`, `post_opening_stock` |
 | **VIEWER** | `view_item`, `view_stock` |
 
 The separations that matter, each deliberate:
@@ -1279,7 +1279,7 @@ is visible rather than quietly overwritten.
 | 8 | Backdated movements | Backdatable within an OPEN period; valuation follows posting order | **Yes** — three timestamps retained (`effective_at`, `posted_at`, `posted_sequence`); reports must name which cutoff they use; bare "as of" forbidden |
 | 9 | Negative-stock override | Organization-scoped permission + reason + actor + audit + exception report | **Yes** — **no permanent per-item flag.** Override is a per-posting exception. Reversals that decrease stock are **not** exempt |
 | 10 | Inventory account mapping | `AccountRole` + effective-dated `AccountMapping` in `apps/accounting`, a Task 1.3 prerequisite | **Yes** — resolver priority item → category → organization default → `account_role_unmapped`; **no `InventoryItem.inventory_account`** |
-| 11 | Opening cutoff and source | One cutoff per document; evidence; approval; reversal-only correction | No |
+| 11 | Opening cutoff and source | One cutoff per document; evidence; financial posting; reversal-only correction | No |
 | 12 | Count freeze | Warehouse-level `HARD_FREEZE`; blind count; approval separate from counting | **Yes** — maker-checker enforced (`approver_id != conductor_id`) even when one person holds both permissions; positive gains need an explicit unit cost where the average is zero or undefined |
 | 13 | `source_document_id` durability | Keep `varchar(64)` — already type-agnostic | **Yes** — normalise **centrally in the accounting service**; prefer the immutable internal UUID/PK, keep the human number separately |
 | 14 | Warehouse permission scope | Extend `BranchMembership` with `warehouse_scope_mode` (`ALL` / `SELECTED`) plus `BranchMembershipWarehouse` | **Yes** — no independent role-bearing `WarehouseMembership`; existing memberships default to `ALL` |

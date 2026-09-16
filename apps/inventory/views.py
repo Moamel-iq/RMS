@@ -1455,9 +1455,7 @@ class OpeningDetailView(InventoryViewMixin, View):
         )
         show_cost = may_see_cost(self.actor)
         can_prepare = has_branch_permission(self.actor, CREATE_OPENING_STOCK, document.branch)
-        can_post = has_organization_permission(
-            self.actor, POST_OPENING_STOCK, document.organization
-        )
+        can_post = has_branch_permission(self.actor, POST_OPENING_STOCK, document.branch)
         return {
             "document": document,
             "lines": lines,
@@ -1624,7 +1622,7 @@ class OpeningActionView(InventoryViewMixin, View):
         try:
             if self.action == "submit":
                 submit_opening(actor=self.actor, document=document)
-                messages.success(request, _("قُدّم المستند للاعتماد."))
+                messages.success(request, _("أُحيل المستند للترحيل المحاسبي."))
             elif self.action == "return":
                 return_opening_to_draft(
                     actor=self.actor, document=document, reason=request.POST.get("reason", "")

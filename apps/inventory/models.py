@@ -1785,7 +1785,7 @@ class InventoryDocumentSequence(models.Model):
 
 class OpeningStockStatus(models.TextChoices):
     DRAFT = "DRAFT", _("مسودة")
-    SUBMITTED = "SUBMITTED", _("مقدَّم")
+    SUBMITTED = "SUBMITTED", _("بانتظار الترحيل المحاسبي")
     POSTED = "POSTED", _("مرحّل")
     REVERSED = "REVERSED", _("معكوس")
 

@@ -937,7 +937,9 @@ def delete_opening_endpoint(request: HttpRequest, document_id: int) -> Status[No
     return Status(204, None)
 
 
-@router.post("/openings/{document_id}/submit/", response=OpeningOut, summary="Submit for posting")
+@router.post(
+    "/openings/{document_id}/submit/", response=OpeningOut, summary="Refer for accounting posting"
+)
 def submit_opening_endpoint(request: HttpRequest, document_id: int) -> Any:
     actor = _actor(request)
     document = resolve_opening_document(actor, document_id)

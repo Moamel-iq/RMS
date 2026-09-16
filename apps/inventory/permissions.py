@@ -204,10 +204,9 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     VIEW_STOCK: PermissionScope.BRANCH,
     VIEW_VALUATION: PermissionScope.BRANCH,
     CREATE_DRAFT_MOVEMENT: PermissionScope.BRANCH,
-    # Preparing a branch's opening list is branch work; POSTING it is the
-    # organization-authority act. The split is what lets a branch manager
-    # prepare and submit while only accounting authority sets the ledger's
-    # starting point.
+    # A warehouse-wide opening belongs to one branch. Preparing it and the
+    # accountant's final posting are therefore both answered at that branch;
+    # the roles, rather than an organization-wide gate, distinguish the two.
     CREATE_OPENING_STOCK: PermissionScope.BRANCH,
     # An opening import produces a draft for one branch, so it is answered
     # at that branch — the same scope as preparing the list by hand.
@@ -228,9 +227,10 @@ PERMISSION_SCOPE: dict[str, PermissionScope] = {
     POST_TRANSFER: PermissionScope.WAREHOUSE,
     POST_WASTE: PermissionScope.WAREHOUSE,
     CONDUCT_STOCK_COUNT: PermissionScope.WAREHOUSE,
-    # Setting the ledger's starting point, and overriding its central rule,
-    # are organization-level accounting decisions.
-    POST_OPENING_STOCK: PermissionScope.ORGANIZATION_AUTHORITY,
+    # The opening declares a starting balance for one warehouse in one branch.
+    # Its financial impact is still controlled by the accounting roles, but
+    # does not grant authority over another branch's opening.
+    POST_OPENING_STOCK: PermissionScope.BRANCH,
     OVERRIDE_NEGATIVE_STOCK: PermissionScope.ORGANIZATION_AUTHORITY,
 }
 
@@ -328,9 +328,10 @@ _STOREKEEPER = frozenset(
 #: arrived.
 _PURCHASING = frozenset({VIEW_ITEM, VIEW_STOCK, VIEW_VALUATION})
 
-#: Reads the figures. Posting opening stock is Accounting Manager authority —
-#: it sets the ledger's starting point — and so is applying an import.
-_ACCOUNTANT = frozenset({VIEW_ITEM, VIEW_STOCK, VIEW_VALUATION})
+#: An accountant reads valuation and may perform the financial posting of an
+#: opening at a branch they are assigned to. The domain's maker-checker still
+#: prevents the preparer from posting their own opening.
+_ACCOUNTANT = frozenset({VIEW_ITEM, VIEW_STOCK, VIEW_VALUATION, POST_OPENING_STOCK})
 
 #: Reads what exists, never what it cost.
 _VIEWER = frozenset({VIEW_ITEM, VIEW_STOCK})

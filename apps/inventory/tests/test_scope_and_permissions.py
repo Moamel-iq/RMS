@@ -272,12 +272,11 @@ class TestPermissionMap:
         ):
             assert scope_of(permission) is PermissionScope.ORGANIZATION_MASTER_DATA
 
-    def test_elevated_acts_need_real_organization_authority(self) -> None:
-        for permission in (
-            "inventory.post_opening_stock",
-            "inventory.override_negative_stock",
-        ):
-            assert scope_of(permission) is PermissionScope.ORGANIZATION_AUTHORITY
+    def test_opening_posting_is_branch_scoped_but_override_is_organization_authority(self) -> None:
+        assert scope_of("inventory.post_opening_stock") is PermissionScope.BRANCH
+        assert (
+            scope_of("inventory.override_negative_stock") is PermissionScope.ORGANIZATION_AUTHORITY
+        )
 
     def test_an_unknown_permission_is_a_programming_error(self) -> None:
         with pytest.raises(ValueError):
@@ -304,8 +303,8 @@ class TestPermissionMap:
             {"inventory.view_item", "inventory.view_stock", "inventory.view_valuation"}
         )
 
-    def test_a_normal_accountant_cannot_post_opening_stock(self) -> None:
-        assert "inventory.post_opening_stock" not in permissions_for_role(Role.ACCOUNTANT)
+    def test_an_accountant_can_post_opening_stock(self) -> None:
+        assert "inventory.post_opening_stock" in permissions_for_role(Role.ACCOUNTANT)
         assert "inventory.post_opening_stock" in permissions_for_role(Role.ACCOUNTING_MANAGER)
 
     def test_the_accounting_manager_performs_no_warehouse_operations(self) -> None:

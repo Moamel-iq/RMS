@@ -275,6 +275,27 @@ class TestOpeningScreens:
         response = client_for(manager).post(reverse("inventory:opening_post", args=[submitted.pk]))
         assert response.status_code == 403
 
+    def test_a_branch_accountant_can_perform_the_accounting_posting(
+        self,
+        client_for: Any,
+        submitted: OpeningStockDocument,
+        branch: Branch,
+        mapped: None,
+    ) -> None:
+        accountant = User.objects.create_user(
+            username="branch-accountant", password="pw-not-real-1234"
+        )
+        grant_branch_access(user=accountant, branch=branch, role=Role.ACCOUNTANT)
+        accountant = User.objects.get(pk=accountant.pk)
+
+        response = client_for(accountant).post(
+            reverse("inventory:opening_post", args=[submitted.pk])
+        )
+
+        assert response.status_code == 302
+        submitted.refresh_from_db()
+        assert submitted.status == OpeningStockStatus.POSTED
+
     def test_a_viewer_sees_the_document_without_cost_columns(
         self, viewer: User, client_for: Any, submitted: OpeningStockDocument
     ) -> None:

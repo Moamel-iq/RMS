@@ -31,8 +31,8 @@ against it.
 
 `submitted_by != posted_by`, enforced on the acts and backed by a database
 constraint. Holding both permissions changes nothing: the user who declared
-"these are the figures" cannot also be the user who declares "and they are
-approved".
+"these are the figures" cannot also be the user who performs their financial
+posting.
 """
 
 from __future__ import annotations
@@ -575,8 +575,8 @@ def replace_opening_lines(
 @transaction.atomic
 def submit_opening_document(*, document: OpeningStockDocument) -> OpeningStockDocument:
     """
-    Lock the draft for approval. The submitter is recorded and thereby
-    excluded from posting it.
+    Lock the draft for financial posting. The referring user is recorded and
+    thereby excluded from posting it.
     """
     locked = OpeningStockDocument.objects.select_for_update().get(pk=document.pk)
     _require_status(locked, OpeningStockStatus.DRAFT, "not_a_draft")
@@ -586,12 +586,14 @@ def submit_opening_document(*, document: OpeningStockDocument) -> OpeningStockDo
             _("Submitting needs a signed-in actor to record."), code="actor_required"
         )
     if not locked.lines.exists():
-        raise ValidationError(_("An empty opening cannot be submitted."), code="no_lines")
+        raise ValidationError(
+            _("An empty opening cannot be referred for financial posting."), code="no_lines"
+        )
 
     before = snapshot(locked)
     # The business date becomes authoritative here, with the branch settings
     # that produced it. Posting replays this snapshot instead of re-deriving,
-    # so changing the branch's cutoff afterwards cannot move an approved
+    # so changing the branch's cutoff afterwards cannot move a referred
     # document into a different accounting period (§B).
     day = resolve_business_day(locked.branch, locked.cutoff_at)
     locked.business_date = day.business_date
@@ -786,8 +788,8 @@ def post_opening_document(*, document: OpeningStockDocument) -> OpeningStockDocu
 
     # The business date was fixed at submission, with the branch settings that
     # produced it. Replayed here, never re-derived: a cutoff changed between
-    # submission and approval must not move an approved document into another
-    # period behind the approver's back (§B).
+    # submission and financial posting must not move a referred document into
+    # another period behind the poster's back (§B).
     if not locked.business_date_timezone or locked.business_day_start is None:
         raise ValidationError(  # pragma: no cover - the DB constraint refuses this state
             _("This document has no business-date snapshot. Return it to draft and resubmit."),
