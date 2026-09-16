@@ -200,7 +200,7 @@ class TestOpeningScreens:
         assert "hx-post" in body
         assert 'name="warehouse"' not in body
 
-    def test_the_full_lifecycle_through_the_screens(
+    def test_an_accounting_user_posts_a_draft_directly_through_the_screens(
         self,
         manager: User,
         accounting_manager: User,
@@ -242,12 +242,10 @@ class TestOpeningScreens:
         assert added.status_code == 302, added.content
         assert document.lines.count() == 1
 
-        submitted = preparer.post(reverse("inventory:opening_submit", args=[document.pk]))
-        assert submitted.status_code == 302
-        document.refresh_from_db()
-        assert document.status == OpeningStockStatus.SUBMITTED
-
         approver = client_for(accounting_manager)
+        before_posting = approver.get(detail_url).content.decode()
+        assert "ترحيل محاسبي" in before_posting
+        assert "إحالة للترحيل المحاسبي" not in before_posting
         posted = approver.post(reverse("inventory:opening_post", args=[document.pk]))
         assert posted.status_code == 302
         document.refresh_from_db()
@@ -275,26 +273,49 @@ class TestOpeningScreens:
         response = client_for(manager).post(reverse("inventory:opening_post", args=[submitted.pk]))
         assert response.status_code == 403
 
-    def test_a_branch_accountant_can_perform_the_accounting_posting(
+    def test_a_branch_accountant_can_post_a_draft_directly(
         self,
         client_for: Any,
-        submitted: OpeningStockDocument,
+        manager: User,
+        organization: Organization,
         branch: Branch,
+        main_store: Warehouse,
+        rice: InventoryItem,
         mapped: None,
     ) -> None:
+        document = create_opening(
+            actor=manager,
+            organization=organization,
+            branch=branch,
+            warehouse=main_store,
+            cutoff_at=CUTOFF,
+            evidence_reference="BRANCH-ACCOUNTANT",
+        )
+        add_opening_line(
+            actor=manager,
+            document=document,
+            line=OpeningLineInput(
+                warehouse=main_store,
+                item=rice,
+                base_quantity=Decimal("10"),
+                unit_cost=Decimal("1500"),
+            ),
+        )
         accountant = User.objects.create_user(
             username="branch-accountant", password="pw-not-real-1234"
         )
         grant_branch_access(user=accountant, branch=branch, role=Role.ACCOUNTANT)
         accountant = User.objects.get(pk=accountant.pk)
 
+        page = client_for(accountant).get(reverse("inventory:opening_detail", args=[document.pk]))
+        assert "ترحيل محاسبي" in page.content.decode()
         response = client_for(accountant).post(
-            reverse("inventory:opening_post", args=[submitted.pk])
+            reverse("inventory:opening_post", args=[document.pk])
         )
 
         assert response.status_code == 302
-        submitted.refresh_from_db()
-        assert submitted.status == OpeningStockStatus.POSTED
+        document.refresh_from_db()
+        assert document.status == OpeningStockStatus.POSTED
 
     def test_a_viewer_sees_the_document_without_cost_columns(
         self, viewer: User, client_for: Any, submitted: OpeningStockDocument

@@ -1785,7 +1785,7 @@ class InventoryDocumentSequence(models.Model):
 
 class OpeningStockStatus(models.TextChoices):
     DRAFT = "DRAFT", _("مسودة")
-    SUBMITTED = "SUBMITTED", _("بانتظار الترحيل المحاسبي")
+    SUBMITTED = "SUBMITTED", _("محال سابقاً للترحيل المحاسبي")
     POSTED = "POSTED", _("مرحّل")
     REVERSED = "REVERSED", _("معكوس")
 
@@ -1803,9 +1803,9 @@ class OpeningStockDocument(TimeStampedModel):
     metadata, assigned gaplessly at posting and never before, so an abandoned
     draft cannot burn a number.
 
-    Lifecycle: DRAFT → SUBMITTED → POSTED → REVERSED. Maker-checker is a rule
-    about the *acts*, not the permissions: the user who submitted cannot be
-    the user who posts, even holding both permissions.
+    Current lifecycle: DRAFT → POSTED → REVERSED. The SUBMITTED state remains
+    only for documents created under the former referral workflow; those keep
+    their maker-checker rule until posted or returned to draft.
     """
 
     organization = models.ForeignKey(
@@ -1850,15 +1850,14 @@ class OpeningStockDocument(TimeStampedModel):
     cutoff_at = models.DateTimeField(_("cutoff at"))
     #: Derived from the cutoff through the branch's timezone and operating-day
     #: start (ADR-008). On a DRAFT this is a preview, recalculated whenever the
-    #: cutoff changes. It becomes **authoritative at submission**, together
-    #: with the two snapshot fields below, and posting uses what was stored
-    #: rather than re-deriving: a branch whose cutoff is changed after a
-    #: document was submitted must not silently move that document into a
-    #: different accounting period.
+    #: cutoff changes. It becomes **authoritative at direct posting**,
+    #: together with the two snapshot fields below. A legacy submitted
+    #: document keeps the snapshot taken when it was referred.
     business_date = models.DateField(_("business date"))
     #: The branch settings the authoritative `business_date` was derived with.
-    #: Empty while the document is a DRAFT; set at submission; cleared again by
-    #: return-to-draft so a resubmission recalculates honestly.
+    #: Empty while the document is a DRAFT; set at direct posting. Legacy
+    #: submitted documents carry their existing snapshot until returned to
+    #: draft for correction.
     business_date_timezone = models.CharField(
         _("business date timezone"), max_length=64, blank=True
     )
@@ -1964,14 +1963,26 @@ class OpeningStockDocument(TimeStampedModel):
                 condition=~Q(document_number=""),
                 name="opening_number_unique_per_organization",
             ),
-            # Everything past DRAFT records who submitted and when.
+            # Only a legacy referred document has a submitter. Directly posted
+            # openings are intentionally permitted to have no submission.
             models.CheckConstraint(
-                condition=Q(status=OpeningStockStatus.DRAFT)
-                | (Q(submitted_by__isnull=False) & Q(submitted_at__isnull=False)),
+                condition=Q(
+                    status__in=[
+                        OpeningStockStatus.DRAFT,
+                        OpeningStockStatus.POSTED,
+                        OpeningStockStatus.REVERSED,
+                    ]
+                )
+                | (
+                    Q(status=OpeningStockStatus.SUBMITTED)
+                    & Q(submitted_by__isnull=False)
+                    & Q(submitted_at__isnull=False)
+                ),
                 name="opening_submitted_fields_present",
             ),
-            # ...and the business-date snapshot it was committed to, so a
-            # submitted document can never be posted against a re-derived date.
+            # Every non-draft has a stored business-date snapshot. A direct
+            # posting creates it in the same atomic operation; a legacy
+            # submitted document retains the snapshot it already held.
             models.CheckConstraint(
                 condition=Q(status=OpeningStockStatus.DRAFT)
                 | (~Q(business_date_timezone="") & Q(business_day_start__isnull=False)),

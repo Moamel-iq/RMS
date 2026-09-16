@@ -737,7 +737,7 @@ def _refuse_cost_center_accounts(*accounts: Account) -> None:
 @transaction.atomic
 def post_opening_document(*, document: OpeningStockDocument) -> OpeningStockDocument:
     """
-    Post a submitted opening to both ledgers, atomically.
+    Post a draft directly, or a legacy submitted opening, to both ledgers.
 
     One transaction produces the OPENING movements, the balances, the
     valuation layers, the gapless document number, the balanced journal, the
@@ -748,14 +748,21 @@ def post_opening_document(*, document: OpeningStockDocument) -> OpeningStockDocu
     locked = OpeningStockDocument.objects.select_for_update().get(pk=document.pk)
     if locked.status == OpeningStockStatus.POSTED:
         raise ValidationError(_("This opening is already posted."), code="already_posted")
-    _require_status(locked, OpeningStockStatus.SUBMITTED, "not_submitted")
+    if locked.status not in {OpeningStockStatus.DRAFT, OpeningStockStatus.SUBMITTED}:
+        raise ValidationError(
+            _("Only a draft or legacy submitted opening can be posted."),
+            code="not_ready_for_posting",
+        )
 
     actor = get_actor()
     if actor is None:
         raise ValidationError(
             _("Posting needs a signed-in actor to record."), code="actor_required"
         )
-    if locked.submitted_by_id == actor.pk:
+    # Submitted documents are from the former referral workflow and retain
+    # their maker-checker protection. A current DRAFT is posted directly by
+    # the authorized accounting user, so it has no submitter to compare.
+    if locked.status == OpeningStockStatus.SUBMITTED and locked.submitted_by_id == actor.pk:
         raise ValidationError(
             _("The user who submitted an opening cannot also post it."),
             code="submitter_cannot_post",
@@ -786,20 +793,25 @@ def post_opening_document(*, document: OpeningStockDocument) -> OpeningStockDocu
             ),
         )
 
-    # The business date was fixed at submission, with the branch settings that
-    # produced it. Replayed here, never re-derived: a cutoff changed between
-    # submission and financial posting must not move a referred document into
-    # another period behind the poster's back (§B).
-    if not locked.business_date_timezone or locked.business_day_start is None:
-        raise ValidationError(  # pragma: no cover - the DB constraint refuses this state
-            _("This document has no business-date snapshot. Return it to draft and resubmit."),
-            code="missing_business_date_snapshot",
+    # A current draft is posted in one accounting operation, so its business
+    # date snapshot is taken here. Legacy submitted documents replay their
+    # previously stored snapshot, preserving their historic accounting date.
+    if locked.status == OpeningStockStatus.DRAFT:
+        day = resolve_business_day(locked.branch, locked.cutoff_at)
+        locked.business_date = day.business_date
+        locked.business_date_timezone = day.timezone_name
+        locked.business_day_start = day.day_start
+    else:
+        if not locked.business_date_timezone or locked.business_day_start is None:
+            raise ValidationError(  # pragma: no cover - the DB constraint refuses this state
+                _("This document has no business-date snapshot. Return it to draft and resubmit."),
+                code="missing_business_date_snapshot",
+            )
+        locked.business_date = business_date_from_snapshot(
+            locked.cutoff_at,
+            timezone_name=locked.business_date_timezone,
+            day_start=locked.business_day_start,
         )
-    locked.business_date = business_date_from_snapshot(
-        locked.cutoff_at,
-        timezone_name=locked.business_date_timezone,
-        day_start=locked.business_day_start,
-    )
     period = resolve_period(organization=locked.organization, accounting_date=locked.business_date)
     validate_period_accepts_postings(period)
 
@@ -905,8 +917,8 @@ def post_opening_document(*, document: OpeningStockDocument) -> OpeningStockDocu
     )
     link_journal_entry(entry=stock_entry, journal=journal)
 
-    # Line-level traceability, written while the document is still SUBMITTED
-    # (the trigger freezes the lines the moment it turns POSTED).
+    # Line-level traceability is written before the document turns POSTED
+    # (the trigger freezes the lines at that transition).
     movement_by_key = {movement.effect_key: movement for movement in stock_entry.movements.all()}
     journal_line_by_account: dict[int, JournalLine] = {
         journal_line.account_id: journal_line
@@ -938,6 +950,8 @@ def post_opening_document(*, document: OpeningStockDocument) -> OpeningStockDocu
     locked.save(
         update_fields=[
             "business_date",
+            "business_date_timezone",
+            "business_day_start",
             "document_number",
             "stock_entry",
             "journal_entry",

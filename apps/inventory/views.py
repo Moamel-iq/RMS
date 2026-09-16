@@ -106,7 +106,6 @@ from apps.inventory.commands import (
     reverse_transfer_receipt,
     reverse_transfer_shortage,
     start_stock_count,
-    submit_opening,
     submit_stock_count,
     update_opening,
     visible_adjustments,
@@ -1469,10 +1468,16 @@ class OpeningDetailView(InventoryViewMixin, View):
             "is_posted": document.status == OpeningStockStatus.POSTED,
             "can_prepare": can_prepare,
             "has_document_warehouse": document.warehouse_id is not None,
-            "can_post": (
-                can_post
-                and document.submitted_by_id is not None
-                and document.submitted_by_id != self.actor.pk
+            # Accountants post current drafts directly. The maker-checker
+            # restriction remains only for documents from the legacy referral
+            # workflow, which have a SUBMITTED status and a recorded referrer.
+            "can_post": can_post
+            and (
+                document.status != OpeningStockStatus.SUBMITTED
+                or (
+                    document.submitted_by_id is not None
+                    and document.submitted_by_id != self.actor.pk
+                )
             ),
             "can_reverse": has_organization_permission(
                 self.actor, REVERSE_MOVEMENT, document.organization
@@ -1621,8 +1626,8 @@ class OpeningActionView(InventoryViewMixin, View):
         detail = reverse("inventory:opening_detail", args=[document.pk])
         try:
             if self.action == "submit":
-                submit_opening(actor=self.actor, document=document)
-                messages.success(request, _("أُحيل المستند للترحيل المحاسبي."))
+                post_opening(actor=self.actor, document=document)
+                messages.success(request, _("رُحّل الرصيد الافتتاحي إلى الدفترين."))
             elif self.action == "return":
                 return_opening_to_draft(
                     actor=self.actor, document=document, reason=request.POST.get("reason", "")

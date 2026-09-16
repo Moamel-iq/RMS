@@ -30,11 +30,6 @@
         <a class="ui-button ui-button--ghost" href="{% url 'inventory:opening_update' document.pk %}">
           {% translate "تعديل الترويسة" %}
         </a>
-        <form method="post" action="{% url 'inventory:opening_submit' document.pk %}"
-              data-confirm="{% translate 'سيُقفل تعديل السطور حتى إعادة المستند إلى المسودة. هل تريد إحالته للترحيل المحاسبي؟' %}">
-          {% csrf_token %}
-          <button class="ui-button ui-button--primary" type="submit">{% translate "إحالة للترحيل المحاسبي" %}</button>
-        </form>
         <form method="post" action="{% url 'inventory:opening_delete' document.pk %}"
               data-confirm="{% translate 'سيُحذف مستند الرصيد الافتتاحي ومسودته نهائياً. هل تريد المتابعة؟' %}"
               data-confirm-title="{% translate 'حذف المسودة' %}">
@@ -42,15 +37,17 @@
           <button class="ui-button ui-button--danger" type="submit">{% translate "حذف المسودة" %}</button>
         </form>
       {% endif %}
-      {% if is_submitted and can_post %}
-        <form method="post" action="{% url 'inventory:opening_post' document.pk %}"
-              data-confirm="{% translate 'سيُرحّل المستند إلى دفتر المخزون والأستاذ العام، ولن يعود قابلاً للتعديل. هل تريد المتابعة؟' %}"
-              data-confirm-title="{% translate 'الترحيل المحاسبي للرصيد الافتتاحي' %}">
-          {% csrf_token %}
-          <button class="ui-button ui-button--primary" type="submit">
-            {% translate "ترحيل محاسبي" %}
-          </button>
-        </form>
+      {% if can_post %}
+        {% if is_draft or is_submitted %}
+          <form method="post" action="{% url 'inventory:opening_post' document.pk %}"
+                data-confirm="{% translate 'سيُرحّل المستند إلى دفتر المخزون والأستاذ العام، ولن يعود قابلاً للتعديل. هل تريد المتابعة؟' %}"
+                data-confirm-title="{% translate 'الترحيل المحاسبي للرصيد الافتتاحي' %}">
+            {% csrf_token %}
+            <button class="ui-button ui-button--primary" type="submit">
+              {% translate "ترحيل محاسبي" %}
+            </button>
+          </form>
+        {% endif %}
       {% endif %}
     </div>
     </header>

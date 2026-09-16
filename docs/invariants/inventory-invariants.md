@@ -143,7 +143,7 @@ enforcement discipline: the service explains, the database holds.
 | An opening declares one real warehouse | header validation; lines inherit it | header FK (nullable only for historic documents) |
 | Opening lines are positive in quantity, cost, and value | line validation | three CHECK constraints |
 | An opening is the first movement for its keys | history check under the advisory locks | — (the locks make the check race-free) |
-| The submitter cannot post their own opening | `post_opening_document` | `opening_submitter_is_not_poster` |
+| A legacy referred opening cannot be posted by its referrer | `post_opening_document` | `opening_submitter_is_not_poster` |
 | A number exists exactly from the moment of posting | `_next_document_number` | `opening_numbered_iff_posted` + partial unique |
 | A posted document is immutable but for its reversal | status checks | trigger `inventory_opening_document_immutable` (allowlist) |
 | Lines freeze with their document | DRAFT-only line services | trigger `inventory_opening_line_frozen_with_document` |

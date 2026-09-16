@@ -418,6 +418,19 @@ class TestLineRules:
 
 
 class TestMakerChecker:
+    def test_an_accounting_user_can_post_a_draft_directly(
+        self,
+        draft: OpeningStockDocument,
+        rice_line: Any,
+        mapped: None,
+        accounting_manager: User,
+    ) -> None:
+        posted = post_opening(actor=accounting_manager, document=draft)
+
+        assert posted.status == OpeningStockStatus.POSTED
+        assert posted.posted_by == accounting_manager
+        assert posted.submitted_by is None
+
     def test_the_submitter_cannot_post_even_with_both_permissions(
         self,
         organization: Organization,

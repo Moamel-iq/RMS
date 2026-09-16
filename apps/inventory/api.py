@@ -77,7 +77,6 @@ from apps.inventory.commands import (
     reverse_transfer_receipt,
     reverse_transfer_shortage,
     start_stock_count,
-    submit_opening,
     submit_stock_count,
     update_adjustment,
     update_document,
@@ -938,13 +937,13 @@ def delete_opening_endpoint(request: HttpRequest, document_id: int) -> Status[No
 
 
 @router.post(
-    "/openings/{document_id}/submit/", response=OpeningOut, summary="Refer for accounting posting"
+    "/openings/{document_id}/submit/", response=OpeningOut, summary="Post an opening directly"
 )
 def submit_opening_endpoint(request: HttpRequest, document_id: int) -> Any:
     actor = _actor(request)
     document = resolve_opening_document(actor, document_id)
-    submitted = submit_opening(actor=actor, document=document)
-    return _serialize_opening(submitted, with_cost=may_see_cost(actor), with_lines=True)
+    posted = post_opening(actor=actor, document=document)
+    return _serialize_opening(posted, with_cost=may_see_cost(actor), with_lines=True)
 
 
 @router.post(

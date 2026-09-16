@@ -110,7 +110,7 @@ def _post(client: Client, url: str, payload: dict[str, Any] | None = None) -> An
 
 
 class TestLifecycleOverHttp:
-    def test_create_read_patch_submit_post_and_reverse(
+    def test_create_read_patch_direct_post_and_reverse(
         self,
         manager: User,
         accounting_manager: User,
@@ -138,11 +138,15 @@ class TestLifecycleOverHttp:
         assert patched.status_code == 200, patched.content
         assert patched.json()["evidence_reference"] == "COUNT-SHEET-10"
 
-        submitted = _post(preparer, f"{OPENINGS_URL}{document_id}/submit/")
-        assert submitted.status_code == 200, submitted.content
-        assert submitted.json()["status"] == OpeningStockStatus.SUBMITTED
+        posted = _post(approver, f"{OPENINGS_URL}{document_id}/post/")
+        assert posted.status_code == 200, posted.content
+        body = posted.json()
+        assert body["status"] == OpeningStockStatus.POSTED
+        assert body["document_number"].startswith("OPN-")
+        assert body["journal_entry_number"]
+        assert body["lines"][0]["inventory_account_code"] == "1-03-01-001"
 
-        # SUBMITTED refuses PATCH and DELETE — the lifecycle is the contract.
+        # A posted document refuses ordinary editing and deletion.
         refused = preparer.patch(
             f"{OPENINGS_URL}{document_id}/",
             data=json.dumps({"narration": "quiet edit"}),
@@ -152,30 +156,13 @@ class TestLifecycleOverHttp:
         assert refused.json()["code"] == "not_a_draft"
         assert preparer.delete(f"{OPENINGS_URL}{document_id}/").status_code == 409
 
-        returned = _post(
-            preparer,
-            f"{OPENINGS_URL}{document_id}/return-to-draft/",
-            {"reason": "one more warehouse"},
-        )
-        assert returned.status_code == 200
-        assert returned.json()["status"] == OpeningStockStatus.DRAFT
-
-        _post(preparer, f"{OPENINGS_URL}{document_id}/submit/")
-        posted = _post(approver, f"{OPENINGS_URL}{document_id}/post/")
-        assert posted.status_code == 200, posted.content
-        body = posted.json()
-        assert body["status"] == OpeningStockStatus.POSTED
-        assert body["document_number"].startswith("OPN-")
-        assert body["journal_entry_number"]
-        assert body["lines"][0]["inventory_account_code"] == "1-03-01-001"
-
         reversed_response = _post(
             approver, f"{OPENINGS_URL}{document_id}/reverse/", {"reason": "restated"}
         )
         assert reversed_response.status_code == 200, reversed_response.content
         assert reversed_response.json()["status"] == OpeningStockStatus.REVERSED
 
-    def test_the_submitter_is_refused_posting_over_http(
+    def test_the_legacy_submit_url_posts_directly_for_an_accountant(
         self,
         accounting_manager: User,
         client_for: Any,
@@ -188,10 +175,9 @@ class TestLifecycleOverHttp:
         client = client_for(accounting_manager)
         created = _post(client, OPENINGS_URL, _payload(organization, branch, main_store, rice))
         document_id = created.json()["id"]
-        _post(client, f"{OPENINGS_URL}{document_id}/submit/")
-        refused = _post(client, f"{OPENINGS_URL}{document_id}/post/")
-        assert refused.status_code == 422, refused.content
-        assert refused.json()["code"] == "submitter_cannot_post"
+        posted = _post(client, f"{OPENINGS_URL}{document_id}/submit/")
+        assert posted.status_code == 200, posted.content
+        assert posted.json()["status"] == OpeningStockStatus.POSTED
 
 
 class TestDecimalsAndCostVisibility:
