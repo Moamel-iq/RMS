@@ -15,6 +15,22 @@
         <h1 class="ui-page-header__title">{{ page_title }}</h1>
         <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
+      {% if may_open_fiscal_year and organization %}
+        <form class="ui-page-header__actions ui-inline-form" method="post"
+              action="{% url 'accounting:fiscal_year_open' %}"
+              data-confirm="{% translate 'سيُنشئ النظام 12 فترة شهرية مفتوحة لهذه السنة. هل تريد المتابعة؟' %}"
+              data-confirm-title="{% translate 'فتح سنة مالية' %}"
+              data-confirm-subject="{{ organization.name }}"
+              data-confirm-accept="{% translate 'فتح السنة' %}">
+          {% csrf_token %}
+          <input type="hidden" name="organization" value="{{ organization.pk }}">
+          <label class="ui-field">
+            <span class="ui-field__label">{% translate "السنة المالية" %}</span>
+            {{ open_fiscal_year_form.year }}
+          </label>
+          <button class="ui-button ui-button--primary" type="submit">{% translate "فتح سنة مالية" %}</button>
+        </form>
+      {% endif %}
     </div>
 
     <form class="ui-filter-bar" method="get"

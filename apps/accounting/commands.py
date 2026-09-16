@@ -60,6 +60,7 @@ from apps.accounting.models import (
     BankAccount,
     Cashbox,
     CostCenter,
+    FiscalYear,
     JournalEntry,
     JournalEntryStatus,
     ManualPostingPolicy,
@@ -68,6 +69,7 @@ from apps.accounting.models import (
     PresentationSection,
 )
 from apps.accounting.permissions import (
+    CLOSE_FISCAL_YEAR,
     CLOSE_PERIOD,
     CREATE_DRAFT,
     EDIT_DRAFT,
@@ -98,6 +100,7 @@ from apps.accounting.services import (
     create_account_mapping,
     create_draft,
     discard_draft,
+    open_fiscal_year,
     post_draft,
     reactivate_account,
     reopen_period,
@@ -906,6 +909,15 @@ def archive_account_role_mapping(
 # ---------------------------------------------------------------------------
 # Period commands
 # ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def open_accounting_fiscal_year(*, actor: User, organization_id: int, year: int) -> FiscalYear:
+    """Open one fiscal year and its twelve periods for an organization."""
+    organization = resolve_organization(actor, organization_id)
+    require_organization_permission(actor, CLOSE_FISCAL_YEAR, organization)
+    with _acting_as(actor):
+        return open_fiscal_year(organization=organization, year=year)
 
 
 @transaction.atomic

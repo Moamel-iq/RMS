@@ -961,11 +961,11 @@ CATALOGUE: tuple[Entry, ...] = (
     ),
     Entry(
         "accounting.close_fiscal_year",
-        "إغلاق السنة المالية وإعادة فتحها",
+        "فتح السنة المالية وإغلاقها وإعادة فتحها",
         section_ar="الفترات المحاسبية",
         kind="other",
         sensitive=True,
-        note_ar="أخطر إجراء في الوحدة؛ معرّف في النظام ولا تحرسه شاشة بعد",
+        note_ar="يفتح 12 فترة شهرية أو يغيّر حالة سنة كاملة؛ يُمنح لإدارة المحاسبة فقط",
     ),
     Entry(
         "hr.view_employee_workspace",

@@ -313,6 +313,11 @@ urlpatterns = [
     ),
     # --- الفترات المحاسبية ----------------------------------------------------
     path("periods/", period_views.PeriodListView.as_view(), name="period_list"),
+    path(
+        "periods/open-year/",
+        period_views.FiscalYearOpenView.as_view(),
+        name="fiscal_year_open",
+    ),
     path("periods/<int:pk>/", period_views.PeriodDetailView.as_view(), name="period_detail"),
     path(
         "periods/<int:pk>/precheck/",

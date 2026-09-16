@@ -150,15 +150,21 @@ def open_fiscal_year(*, organization: Organization, year: int) -> FiscalYear:
     `is_adjustment=True`; a thirteenth period would be a second calendar every
     report then has to decide whether to include.
     """
+    if FiscalYear.objects.filter(organization=organization, year=year).exists():
+        raise ValidationError(
+            _("السنة المالية %(year)s مفتوحة بالفعل.") % {"year": year},
+            code="fiscal_year_already_open",
+        )
+
     settings_row, _created = AccountingSettings.objects.get_or_create(organization=organization)
     start_month = settings_row.fiscal_year_start_month
 
-    first_start, _ = _month_span(year, start_month)
+    first_start, _first_end = _month_span(year, start_month)
     months = [
         ((year + (start_month - 1 + offset) // 12), (start_month - 1 + offset) % 12 + 1)
         for offset in range(12)
     ]
-    _, last_end = _month_span(*months[-1])
+    _last_start, last_end = _month_span(*months[-1])
 
     fiscal_year = FiscalYear(
         organization=organization, year=year, start_date=first_start, end_date=last_end

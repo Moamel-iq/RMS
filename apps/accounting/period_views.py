@@ -22,14 +22,17 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 
 from apps.accounting.commands import (
     close_accounting_period,
+    open_accounting_fiscal_year,
     reopen_accounting_period,
     soft_close_accounting_period,
 )
+from apps.accounting.forms import OpenFiscalYearForm
 from apps.accounting.models import AccountingPeriod, PeriodState
 from apps.accounting.period_services import (
     fiscal_year_summary,
@@ -37,6 +40,7 @@ from apps.accounting.period_services import (
     period_close_blockers,
 )
 from apps.accounting.permissions import (
+    CLOSE_FISCAL_YEAR,
     CLOSE_PERIOD,
     REOPEN_PERIOD,
     SOFT_CLOSE_PERIOD,
@@ -98,6 +102,13 @@ class PeriodListView(AccountingViewMixin, View):
                     organization
                     and has_organization_permission(self.actor, CLOSE_PERIOD, organization)
                 ),
+                "may_open_fiscal_year": bool(
+                    organization
+                    and has_organization_permission(self.actor, CLOSE_FISCAL_YEAR, organization)
+                ),
+                "open_fiscal_year_form": OpenFiscalYearForm(
+                    initial={"year": timezone.localdate().year}
+                ),
                 "page_title": _("الفترات المحاسبية"),
                 "page_hint": _(
                     "اثنتا عشرة فترة شهرية في السنة، ولا فترة ثالثة عشرة. الإقفال "
@@ -110,6 +121,49 @@ class PeriodListView(AccountingViewMixin, View):
                 ),
                 "inventory_ui": False,
             },
+        )
+
+
+class FiscalYearOpenView(AccountingViewMixin, View):
+    """Open one fiscal year from the periods workspace, with explicit authority."""
+
+    required_permission = VIEW_JOURNAL
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        raw_organization_id = request.POST.get("organization", "").strip()
+        organizations = organizations_with_permission(self.actor, VIEW_JOURNAL)
+        organization = (
+            organizations.filter(pk=int(raw_organization_id)).first()
+            if raw_organization_id.isdigit()
+            else None
+        )
+        if organization is None:
+            raise OutOfScope(_("Organization does not exist."))
+
+        form = OpenFiscalYearForm(request.POST)
+        if not form.is_valid():
+            for field_errors in form.errors.values():
+                for problem in field_errors:
+                    messages.error(request, str(problem))
+            return HttpResponseRedirect(
+                f"{reverse('accounting:period_list')}?organization={organization.pk}"
+            )
+
+        year = form.cleaned_data["year"]
+        try:
+            open_accounting_fiscal_year(
+                actor=self.actor, organization_id=organization.pk, year=year
+            )
+        except ValidationError as error:
+            messages.error(request, "؛ ".join(str(message) for message in error.messages))
+        else:
+            messages.success(
+                request,
+                _("فُتحت السنة المالية %(year)s وأنشئت 12 فترة شهرية مفتوحة.") % {"year": year},
+            )
+
+        return HttpResponseRedirect(
+            f"{reverse('accounting:period_list')}?organization={organization.pk}"
         )
 
 
@@ -215,6 +269,7 @@ class PeriodTransitionView(AccountingViewMixin, View):
 
 
 __all__ = [
+    "FiscalYearOpenView",
     "PeriodDetailView",
     "PeriodListView",
     "PeriodPrecheckView",

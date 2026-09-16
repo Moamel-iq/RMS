@@ -46,6 +46,19 @@ from apps.users.models import User
 _ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 
 
+class OpenFiscalYearForm(forms.Form):
+    """The one deliberate input needed to create a year and its 12 periods."""
+
+    year = forms.IntegerField(
+        label=_("السنة المالية"),
+        min_value=1900,
+        max_value=9999,
+        widget=forms.NumberInput(
+            attrs={"inputmode": "numeric", "min": "1900", "max": "9999", "dir": "ltr"}
+        ),
+    )
+
+
 class AccountMappingForm(forms.Form):
     """
     Map a role to a postable account, from a date.

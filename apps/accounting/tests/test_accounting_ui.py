@@ -13,6 +13,7 @@ somebody opened one. Both tests here assert on **content**:
 
 from __future__ import annotations
 
+import datetime
 import re
 from decimal import Decimal
 from typing import Any
@@ -21,7 +22,7 @@ import pytest
 from django.urls import reverse
 
 from apps.accounting.dashboard_views import CARDS
-from apps.accounting.models import Account
+from apps.accounting.models import Account, AccountingPeriod, FiscalYear, PeriodState
 from apps.accounting.services import post_entry
 from apps.accounting.validators import PostingLine
 from apps.organizations.models import Branch, Organization
@@ -123,3 +124,63 @@ def test_an_exported_cell_cannot_execute_as_a_formula(
         for cell in line.split(","):
             stripped = cell.strip().strip('"')
             assert not stripped.startswith(("=", "+", "@")), f"unneutralised cell: {cell!r}"
+
+
+def test_accounting_manager_can_open_a_fiscal_year_from_periods(
+    client_for: Any, accounting_manager: User, organization: Organization
+) -> None:
+    client = client_for(accounting_manager)
+
+    response = client.post(
+        reverse("accounting:fiscal_year_open"),
+        {"organization": organization.pk, "year": "2027"},
+    )
+
+    assert response.status_code == 302
+    assert response.url == f"{reverse('accounting:period_list')}?organization={organization.pk}"
+    fiscal_year = FiscalYear.objects.get(organization=organization, year=2027)
+    periods = list(fiscal_year.periods.order_by("period_number"))
+    assert len(periods) == 12
+    assert periods[0].start_date == datetime.date(2027, 1, 1)
+    assert periods[-1].end_date == datetime.date(2027, 12, 31)
+    assert all(period.state == PeriodState.OPEN for period in periods)
+
+
+def test_fiscal_year_open_is_not_offered_to_a_branch_manager(
+    client_for: Any, branch_manager: User, organization: Organization
+) -> None:
+    response = client_for(branch_manager).get(
+        reverse("accounting:period_list"), {"organization": organization.pk}
+    )
+
+    assert response.status_code == 200
+    assert "فتح سنة مالية" not in response.content.decode("utf-8")
+
+
+def test_branch_manager_cannot_open_a_fiscal_year_by_posting_the_route(
+    client_for: Any, branch_manager: User, organization: Organization
+) -> None:
+    response = client_for(branch_manager).post(
+        reverse("accounting:fiscal_year_open"),
+        {"organization": organization.pk, "year": "2027"},
+    )
+
+    assert response.status_code == 403
+    assert not FiscalYear.objects.filter(organization=organization, year=2027).exists()
+
+
+def test_opening_an_existing_fiscal_year_keeps_the_original_periods(
+    client_for: Any, accounting_manager: User, organization: Organization
+) -> None:
+    client = client_for(accounting_manager)
+
+    response = client.post(
+        reverse("accounting:fiscal_year_open"),
+        {"organization": organization.pk, "year": "2026"},
+        follow=True,
+    )
+
+    assert response.status_code == 200
+    assert FiscalYear.objects.filter(organization=organization, year=2026).count() == 1
+    assert AccountingPeriod.objects.filter(fiscal_year__organization=organization).count() == 12
+    assert "مفتوحة بالفعل" in response.content.decode("utf-8")
