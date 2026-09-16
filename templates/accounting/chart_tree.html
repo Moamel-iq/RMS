@@ -62,7 +62,6 @@
             <th>{% translate "الرمز" %}</th>
             <th>{% translate "الاسم" %}</th>
             <th>{% translate "الصنف" %}</th>
-            <th>{% translate "قابل للترحيل" %}</th>
             <th>{% translate "الرصيد" %}</th>
             <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
           </tr>
@@ -81,7 +80,6 @@
               </td>
               <td>{{ node.account.name }}</td>
               <td>{{ node.account.get_account_class_display }}</td>
-              <td>{% if node.account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
               <td><bdi dir="ltr">{{ node.balance|money_full }}</bdi></td>
               <td class="ui-table__actions">
                 <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
@@ -91,7 +89,7 @@
               </td>
             </tr>
           {% empty %}
-            <tr><td colspan="6" class="ui-table__empty">{% translate "لا يوجد دليل حسابات لهذه المؤسسة بعد." %}</td></tr>
+            <tr><td colspan="5" class="ui-table__empty">{% translate "لا يوجد دليل حسابات لهذه المؤسسة بعد." %}</td></tr>
           {% endfor %}
         </tbody>
       </table>

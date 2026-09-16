@@ -23,7 +23,6 @@
       {% if node.account.is_system %}<span class="ui-badge ui-badge--neutral">{% translate "نظامي" %}</span>{% endif %}
     </td>
     <td>{{ node.account.get_account_class_display }}</td>
-    <td>{% if node.account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
     <td><bdi dir="ltr">{{ node.balance|money_full }}</bdi></td>
     <td class="ui-table__actions">
       <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
@@ -34,6 +33,6 @@
   </tr>
 {% empty %}
   <tr class="ui-report-row ui-report-row--child">
-    <td colspan="6" class="ui-table__empty">{% translate "لا توجد حسابات تحت هذا المستوى." %}</td>
+    <td colspan="5" class="ui-table__empty">{% translate "لا توجد حسابات تحت هذا المستوى." %}</td>
   </tr>
 {% endfor %}

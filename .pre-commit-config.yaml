@@ -9,16 +9,24 @@ repos:
       # Vendored third-party assets are excluded so they stay byte-identical
       # to the upstream release and can be verified against it.
       - id: trailing-whitespace
+        # Windows Application Control may block pip's generated console .exe.
+        # The hook module is identical; invoking it through Python keeps the
+        # check available without weakening the guard.
+        entry: python -m pre_commit_hooks.trailing_whitespace_fixer
         exclude: ^static/vendor/
       - id: end-of-file-fixer
+        entry: python -m pre_commit_hooks.end_of_file_fixer
         exclude: ^static/vendor/
       - id: check-yaml
+        entry: python -m pre_commit_hooks.check_yaml
       - id: check-toml
       - id: check-added-large-files
       - id: check-merge-conflict
       - id: check-case-conflict
+        entry: python -m pre_commit_hooks.check_case_conflict
       # Secret handling.
       - id: detect-private-key
+        entry: python -m pre_commit_hooks.detect_private_key
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.2
@@ -39,7 +47,7 @@ repos:
 
       - id: mypy
         name: mypy
-        entry: .venv\\Scripts\\mypy.exe apps config tests
+        entry: .venv\\Scripts\\python.exe -m mypy apps config tests
         language: system
         types: [python]
         pass_filenames: false

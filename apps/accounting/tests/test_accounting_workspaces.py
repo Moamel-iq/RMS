@@ -54,7 +54,7 @@ def test_accounting_workspaces_render_for_authorized_user(
     tree_body = tree.content.decode()
     assert tree.status_code == 200
     assert "الدليل المحاسبي التشغيلي" in tree_body
-    assert "قابل للترحيل" in tree_body
+    assert "قابل للترحيل" not in tree_body
     assert "حساب جديد" in tree_body
     assert reverse("accounting:imported_chart_tree") in tree_body
     assert "الرمز واسم الحساب فقط" not in tree_body
