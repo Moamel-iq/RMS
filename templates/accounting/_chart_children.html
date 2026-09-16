@@ -27,6 +27,9 @@
     <td><bdi dir="ltr">{{ node.balance|money_full }}</bdi></td>
     <td class="ui-table__actions">
       <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
+      {% if may_manage %}
+        <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_update' node.account.pk %}">{% translate "تعديل" %}</a>
+      {% endif %}
     </td>
   </tr>
 {% empty %}

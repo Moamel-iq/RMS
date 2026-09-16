@@ -56,7 +56,7 @@ from apps.accounting.permissions import (
     MANAGE_REPORT_MAPPINGS,
     VIEW_CHART_OF_ACCOUNTS,
 )
-from apps.accounting.selectors import account_balance, account_balances, chart_tree
+from apps.accounting.selectors import account_balance, chart_balances, chart_tree
 from apps.accounting.views import (
     AccountingDetailView,
     AccountingListView,
@@ -131,7 +131,11 @@ class ChartTreeView(AccountingViewMixin, View):
             raise Http404(_("Organization does not exist."))
 
         include_archived = request.GET.get("archived") == "1"
-        balances = account_balances(organization=organization) if organization is not None else {}
+        balances = (
+            chart_balances(organization=organization, include_archived=include_archived)
+            if organization is not None
+            else {}
+        )
         roots = (
             _rows(
                 [
@@ -153,8 +157,8 @@ class ChartTreeView(AccountingViewMixin, View):
             "include_archived": include_archived,
             "page_title": _("الشجرة المحاسبية"),
             "page_hint": _(
-                "شجرة التشغيل المرتبطة بالقيود الحالية. الرمز يحمل المستوى، والحساب "
-                "التفصيلي وحده يقبل الترحيل؛ ويمكن مراجعة نسخة Excel المستوردة بصورة منفصلة."
+                "الدليل المحاسبي التشغيلي المرتبط بالقيود الحالية. أرصدة الحسابات "
+                "التجميعية هي مجموع حساباتها التفصيلية، والحساب التفصيلي وحده يقبل الترحيل."
             ),
             "may_manage": bool(
                 organization is not None
@@ -192,8 +196,16 @@ class ChartChildrenView(AccountingViewMixin, View):
             self.template_name,
             {
                 "parent": parent,
-                "children": _rows(children, account_balances(organization=parent.organization)),
+                "children": _rows(
+                    children,
+                    chart_balances(
+                        organization=parent.organization, include_archived=include_archived
+                    ),
+                ),
                 "include_archived": include_archived,
+                "may_manage": has_organization_permission(
+                    self.actor, MANAGE_CHART_OF_ACCOUNTS, parent.organization
+                ),
             },
         )
 

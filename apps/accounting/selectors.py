@@ -106,6 +106,39 @@ def account_balances(
     return {row["account_id"]: row["debits"] - row["credits"] for row in rows}
 
 
+def chart_balances(
+    *, organization: Organization, include_archived: bool = False
+) -> dict[int, Decimal]:
+    """
+    Ledger balances shown on the chart, including each group's descendants.
+
+    Journal lines always name a postable leaf.  A group account has no direct
+    movement of its own, but showing it as zero in the tree hides the money
+    that sits underneath it.  This view-only roll-up keeps the ledger's direct
+    account balances unchanged while making the chart reconcile visually with
+    the dashboard and statements.
+    """
+    accounts = Account.objects.filter(organization=organization)
+    if not include_archived:
+        accounts = accounts.filter(is_active=True)
+
+    by_code = dict(accounts.values_list("code", "pk"))
+    by_id = {account_id: code for code, account_id in by_code.items()}
+    rolled_up = {account_id: Decimal("0") for account_id in by_code.values()}
+
+    for account_id, balance in account_balances(organization=organization).items():
+        code = by_id.get(account_id)
+        if code is None:
+            continue
+        parts = code.split("-")
+        for depth in range(1, len(parts) + 1):
+            ancestor_id = by_code.get("-".join(parts[:depth]))
+            if ancestor_id is not None:
+                rolled_up[ancestor_id] += balance
+
+    return rolled_up
+
+
 @dataclass
 class ChartNode:
     """One account and the accounts filed under it."""

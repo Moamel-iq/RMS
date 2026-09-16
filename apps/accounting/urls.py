@@ -56,7 +56,7 @@ urlpatterns = [
         name="mapping_archive",
     ),
     # --- دليل الحسابات -------------------------------------------------------
-    path("accounts/", workspace_views.ImportedChartTreeView.as_view(), name="chart_tree"),
+    path("accounts/", chart_views.ChartTreeView.as_view(), name="chart_tree"),
     path(
         "accounts/operational/",
         chart_views.ChartTreeView.as_view(),

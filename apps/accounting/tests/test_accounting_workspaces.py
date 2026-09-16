@@ -45,22 +45,32 @@ def test_accounting_workspaces_render_for_authorized_user(
     call_command("import_accounting_chart", organization=organization.code, verbosity=0)
     client = client_for(superuser)
 
-    for route in (
-        "accounting:imported_chart_tree",
-        "accounting:asset_overview",
-        "accounting:cost_center_list",
-    ):
+    for route in ("accounting:asset_overview", "accounting:cost_center_list"):
         response = client.get(reverse(route), {"organization": organization.pk})
         assert response.status_code == 200
         assert 'dir="rtl"' in response.content.decode()
 
-    tree = client.get(
-        reverse("accounting:chart_tree"),
-        {"organization": organization.pk},
+    tree = client.get(reverse("accounting:chart_tree"), {"organization": organization.pk})
+    tree_body = tree.content.decode()
+    assert tree.status_code == 200
+    assert "الدليل المحاسبي التشغيلي" in tree_body
+    assert "قابل للترحيل" in tree_body
+    assert "حساب جديد" in tree_body
+    assert reverse("accounting:imported_chart_tree") in tree_body
+    assert "الرمز واسم الحساب فقط" not in tree_body
+
+    imported = client.get(
+        reverse("accounting:imported_chart_tree"), {"organization": organization.pk}
     )
-    assert "113" in tree.content.decode()
-    assert "الرمز واسم الحساب فقط" in tree.content.decode()
-    assert "مدين" not in tree.content.decode()
+    imported_body = imported.content.decode()
+    assert imported.status_code == 200
+    assert "دليل Excel المرجعي" in imported_body
+    assert "مرجع للرمز والاسم فقط" in imported_body
+
+    root = Account.objects.get(organization=organization, code="1")
+    children = client.get(reverse("accounting:chart_children", args=[root.pk]))
+    assert children.status_code == 200
+    assert "تعديل" in children.content.decode()
 
 
 def test_imported_chart_children_returns_small_htmx_fragment(

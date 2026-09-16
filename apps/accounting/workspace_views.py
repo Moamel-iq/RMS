@@ -53,7 +53,7 @@ def _organization_for(request: HttpRequest, actor: Any, permission: str) -> tupl
 
 
 class ImportedChartTreeView(AccountingViewMixin, View):
-    """The approved account hierarchy, stripped of workbook-period figures."""
+    """A read-only reference copy of the imported Excel account hierarchy."""
 
     required_permission = VIEW_CHART_OF_ACCOUNTS
     template_name = "accounting/imported_chart_tree.html"
@@ -86,10 +86,10 @@ class ImportedChartTreeView(AccountingViewMixin, View):
             .annotate(child_count=Count("children"))
             .order_by("source_code"),
             "account_count": rows.count(),
-            "page_title": _("الشجرة المحاسبية"),
+            "page_title": _("دليل Excel المرجعي"),
             "page_hint": _(
-                "الشجرة المعتمدة للحسابات. حُفظت الرموز والأسماء والهيكل فقط، "
-                "وجميع معلومات وأرصدة ملف الاستيراد مصفّرة."
+                "نسخة مرجعية مما ورد في ملف Excel فقط؛ لا تمثل الدليل التشغيلي "
+                "ولا أرصدته، ولا تُستخدم لإضافة أو تعديل الحسابات."
             ),
             "list_base_template": _base(request),
             "inventory_ui": False,

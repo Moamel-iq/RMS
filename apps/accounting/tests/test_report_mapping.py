@@ -30,6 +30,7 @@ from apps.accounting.models import (
 from apps.accounting.selectors import (
     account_balance,
     account_balances,
+    chart_balances,
     chart_tree,
     report_mapping_for,
 )
@@ -528,6 +529,36 @@ class TestChartTree:
         roots = {node.account.code for node in chart_tree(organization=organization)}
 
         assert "6-01-01-001" in roots
+
+
+class TestChartBalances:
+    def test_a_group_displays_the_sum_of_its_postable_descendants(
+        self,
+        organization: Organization,
+        chart: None,
+        cash: Account,
+        sales: Account,
+        branch: Branch,
+        hall: CostCenter,
+    ) -> None:
+        _post_ten(organization, cash, sales, branch, hall, key="chart-rollup", amount="1250")
+
+        balances = chart_balances(organization=organization)
+
+        assert balances[cash.pk] == Decimal("1250")
+        assert balances[
+            Account.objects.get(organization=organization, code="1-01-01").pk
+        ] == Decimal("1250")
+        assert balances[Account.objects.get(organization=organization, code="1-01").pk] == Decimal(
+            "1250"
+        )
+        assert balances[Account.objects.get(organization=organization, code="1").pk] == Decimal(
+            "1250"
+        )
+        assert balances[sales.pk] == Decimal("-1250")
+        assert balances[Account.objects.get(organization=organization, code="4").pk] == Decimal(
+            "-1250"
+        )
 
 
 class TestReportMappingCommands:
