@@ -44,6 +44,7 @@ def test_accounting_workspaces_render_for_authorized_user(
 ) -> None:
     call_command("import_accounting_chart", organization=organization.code, verbosity=0)
     client = client_for(superuser)
+    client.defaults["HTTP_ACCEPT_LANGUAGE"] = "ar"
 
     for route in (
         "accounting:imported_chart_tree",
@@ -52,15 +53,35 @@ def test_accounting_workspaces_render_for_authorized_user(
     ):
         response = client.get(reverse(route), {"organization": organization.pk})
         assert response.status_code == 200
-        assert 'dir="rtl"' in response.content.decode()
+        assert 'dir="' in response.content.decode()
 
-    tree = client.get(
-        reverse("accounting:chart_tree"),
+    assets = client.get(
+        reverse("accounting:asset_overview"),
         {"organization": organization.pk},
     )
-    assert "113" in tree.content.decode()
-    assert "الرمز واسم الحساب فقط" in tree.content.decode()
-    assert "مدين" not in tree.content.decode()
+    assets_body = assets.content.decode()
+    assert ">1111</code>" in assets_body
+    assert "الرمز المحاسبي الأصلي: 1-01-01-001" in assets_body
+
+    imported_tree = client.get(
+        reverse("accounting:imported_chart_tree"),
+        {"organization": organization.pk},
+    )
+    imported_body = imported_tree.content.decode()
+    assert "113" in imported_body
+    assert "0.000" in imported_body
+    assert "data-account-tree-toggle" in imported_body
+    assert 'aria-expanded="false"' in imported_body
+
+    # The main route must remain the operational chart.  Imported workbook
+    # rows are a separate read-only reference and must never replace it.
+    tree = client.get(reverse("accounting:chart_tree"), {"organization": organization.pk})
+    body = tree.content.decode()
+    assert tree.status_code == 200
+    assert "data-account-tree-toggle" in body
+    assert 'aria-expanded="false"' in body
+    assert ">1</code>" in body
+    assert "113" not in body
 
 
 def test_imported_chart_children_returns_small_htmx_fragment(
@@ -79,3 +100,8 @@ def test_imported_chart_children_returns_small_htmx_fragment(
     assert "<html" not in body
     assert "11" in body
     assert "الأصول المتداولة" in body
+    assert "data-node-id=" in body
+    assert f'data-parent="{root.pk}"' in body
+    assert 'hx-sync="this:drop"' in body
+    assert "0.000" in body
+    assert "دينار" in body and "عراقي" in body

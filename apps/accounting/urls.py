@@ -56,7 +56,10 @@ urlpatterns = [
         name="mapping_archive",
     ),
     # --- دليل الحسابات -------------------------------------------------------
-    path("accounts/", workspace_views.ImportedChartTreeView.as_view(), name="chart_tree"),
+    # The main chart must always be the live operational ledger.  The imported
+    # reference chart is intentionally kept on its own explicit route below;
+    # it contains workbook structure only and its values are zeroed.
+    path("accounts/", chart_views.ChartTreeView.as_view(), name="chart_tree"),
     path(
         "accounts/operational/",
         chart_views.ChartTreeView.as_view(),

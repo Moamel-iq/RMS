@@ -478,7 +478,7 @@ class TestChartTree:
         roots = chart_tree(organization=organization)
         assert {node.account.code for node in roots} == {"1", "2", "3", "4", "5", "6", "7", "8"}
 
-    def test_a_leaf_sits_under_its_code_prefix(
+    def test_a_leaf_sits_under_its_stored_parent(
         self, organization: Organization, chart: None
     ) -> None:
         roots = {node.account.code: node for node in chart_tree(organization=organization)}

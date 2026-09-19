@@ -8,7 +8,12 @@
 {# The balance column is derived from posted lines at request time. There is #}
 {# no stored balance anywhere in this module to disagree with the ledger.    #}
 {% extends list_base_template|default:"shell.html" %}
-{% load i18n money_tags %}
+{% load i18n static money_tags %}
+
+{% block head %}
+  {{ block.super }}
+  <script src="{% static 'js/account-tree.js' %}?v=20260919-1" defer></script>
+{% endblock %}
 
 {% block title %}{{ page_title }} · {{ brand_document }}{% endblock %}
 
@@ -21,7 +26,7 @@
         <p class="ui-page-header__subtitle">{{ page_hint }}</p>
       </div>
       <div class="ui-page-header__actions">
-        <a class="ui-button ui-button--secondary" href="{% url 'accounting:chart_tree' %}">{% translate "الشجرة المعتمدة" %}</a>
+        <a class="ui-button ui-button--secondary" href="{% url 'accounting:imported_chart_tree' %}">{% translate "دليل Excel مرجعي" %}</a>
         <a class="ui-button ui-button--secondary" href="{% url 'accounting:chart_list' %}">{% translate "عرض كقائمة" %}</a>
         {% if may_manage %}
           <a class="ui-button ui-button--primary" href="{% url 'accounting:account_create' %}">{% translate "حساب جديد" %}</a>
@@ -30,7 +35,7 @@
     </div>
 
     <form class="ui-filter-bar" method="get"
-          hx-get="{% url 'accounting:operational_chart_tree' %}"
+          hx-get="{% url 'accounting:chart_tree' %}"
           hx-target="#accounting-chart-tree"
           hx-swap="outerHTML"
           hx-push-url="true"
@@ -62,33 +67,35 @@
             <th>{% translate "الرمز" %}</th>
             <th>{% translate "الاسم" %}</th>
             <th>{% translate "الصنف" %}</th>
-            <th>{% translate "قابل للترحيل" %}</th>
             <th>{% translate "الرصيد" %}</th>
             <th scope="col"><span class="ui-sr-only">إجراءات</span></th>
           </tr>
         </thead>
         <tbody>
           {% for node in roots %}
-            <tr class="ui-report-row ui-report-row--root">
+            <tr class="ui-report-row ui-report-row--root" data-node-id="{{ node.account.pk }}">
               <td>
-                <button class="ui-tree-toggle" type="button"
+                <button class="ui-tree-toggle" type="button" data-account-tree-toggle data-node-id="{{ node.account.pk }}"
+                        data-label-open="{% translate 'افتح الفروع' %}" data-label-close="{% translate 'أغلق الفروع' %}"
                         hx-get="{% url 'accounting:chart_children' node.account.pk %}{% if include_archived %}?archived=1{% endif %}"
                         hx-target="closest tr"
                         hx-swap="afterend"
+                        hx-sync="this:drop"
                         hx-indicator="#chart-loading"
+                        aria-expanded="false"
                         aria-label="{% translate 'افتح الفروع' %}">+</button>
                 <code dir="ltr">{{ node.account.code }}</code>
               </td>
               <td>{{ node.account.name }}</td>
               <td>{{ node.account.get_account_class_display }}</td>
-              <td>{% if node.account.is_postable %}{% translate "نعم" %}{% else %}{% translate "لا" %}{% endif %}</td>
               <td><bdi dir="ltr">{{ node.balance|money_full }}</bdi></td>
               <td class="ui-table__actions">
                 <a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_detail' node.account.pk %}">{% translate "تفاصيل" %}</a>
+                {% if may_manage %}<a class="ui-button ui-button--secondary ui-button--sm" href="{% url 'accounting:account_update' node.account.pk %}">{% translate "تعديل" %}</a>{% endif %}
               </td>
             </tr>
           {% empty %}
-            <tr><td colspan="6" class="ui-table__empty">{% translate "لا يوجد دليل حسابات لهذه المؤسسة بعد." %}</td></tr>
+            <tr><td colspan="5" class="ui-table__empty">{% translate "لا يوجد دليل حسابات لهذه المؤسسة بعد." %}</td></tr>
           {% endfor %}
         </tbody>
       </table>

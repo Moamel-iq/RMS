@@ -93,6 +93,38 @@ def _rows(accounts: Any, balances: dict[int, Decimal]) -> list[dict[str, Any]]:
     ]
 
 
+def _roll_up_chart_balances(
+    accounts: list[Account], direct_balances: dict[int, Decimal]
+) -> dict[int, Decimal]:
+    """Give each account its own balance plus all balances beneath it."""
+
+    by_id = {account.pk: account for account in accounts}
+    balances = {account.pk: direct_balances.get(account.pk, Decimal("0")) for account in accounts}
+
+    for account in accounts:
+        amount = direct_balances.get(account.pk, Decimal("0"))
+        parent_id = account.parent_id
+        visited: set[int] = set()
+        while parent_id is not None and parent_id not in visited:
+            visited.add(parent_id)
+            parent = by_id.get(parent_id)
+            if parent is None:
+                break
+            balances[parent.pk] += amount
+            parent_id = parent.parent_id
+
+    return balances
+
+
+def _tree_accounts(*, organization: Any, include_archived: bool) -> list[Account]:
+    """Load every account visible in the current tree once for rollups."""
+
+    accounts = Account.objects.filter(organization=organization)
+    if not include_archived:
+        accounts = accounts.filter(is_active=True)
+    return list(accounts.order_by("code"))
+
+
 def _visible_accounts(actor: Any) -> QuerySet[Account]:
     """
     Every account in a chart this caller may read.
@@ -131,20 +163,22 @@ class ChartTreeView(AccountingViewMixin, View):
             raise Http404(_("Organization does not exist."))
 
         include_archived = request.GET.get("archived") == "1"
-        balances = account_balances(organization=organization) if organization is not None else {}
-        roots = (
-            _rows(
-                [
-                    node.account
-                    for node in chart_tree(
-                        organization=organization, include_archived=include_archived
-                    )
-                ],
-                balances,
-            )
+        tree = (
+            chart_tree(organization=organization, include_archived=include_archived)
             if organization is not None
             else []
         )
+        accounts = (
+            _tree_accounts(organization=organization, include_archived=include_archived)
+            if organization is not None
+            else []
+        )
+        balances = (
+            _roll_up_chart_balances(accounts, account_balances(organization=organization))
+            if organization is not None
+            else {}
+        )
+        roots = _rows([node.account for node in tree], balances) if organization is not None else []
 
         context = {
             "organization": organization,
@@ -182,18 +216,28 @@ class ChartChildrenView(AccountingViewMixin, View):
             raise OutOfScope(_("Account does not exist."))
 
         include_archived = request.GET.get("archived") == "1"
-        children = Account.objects.filter(parent=parent)
-        if not include_archived:
-            children = children.filter(is_active=True)
-        children = children.order_by("code")
+        accounts = _tree_accounts(
+            organization=parent.organization,
+            include_archived=include_archived,
+        )
+        children = [account for account in accounts if account.parent_id == parent.pk]
+        balances = _roll_up_chart_balances(
+            accounts,
+            account_balances(organization=parent.organization),
+        )
 
         return render(
             request,
             self.template_name,
             {
                 "parent": parent,
-                "children": _rows(children, account_balances(organization=parent.organization)),
+                "children": _rows(children, balances),
                 "include_archived": include_archived,
+                "may_manage": has_organization_permission(
+                    self.actor,
+                    MANAGE_CHART_OF_ACCOUNTS,
+                    parent.organization,
+                ),
             },
         )
 

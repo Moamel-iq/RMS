@@ -118,12 +118,13 @@ def chart_tree(*, organization: Organization, include_archived: bool = False) ->
     """
     The chart as a hierarchy, from one query, assembled in Python.
 
-    Assembled by **code prefix** rather than by walking `parent`, because the
-    code is what carries the level (ADR-014) and a recursive walk would be one
-    query per level per node for a tree that is only ever four deep. The parent
-    foreign key and the code agree — `create_account` derives one from the
-    other — so either would give the same shape; the prefix gives it without
-    asking the database again.
+    Assembled from the explicit `parent` relationship rather than by parsing
+    the account code.  The relationship is the source of truth for the tree:
+    it supports both the original dashed codes and the approved six-digit
+    numbering without making a display assumption about either format.
+
+    All accounts are loaded in one query, then linked in Python.  This keeps
+    the lazy UI free of recursive database queries.
 
     An account whose parent is filtered out — an active leaf under an archived
     group, which no constraint forbids — is returned as a root rather than
@@ -135,12 +136,14 @@ def chart_tree(*, organization: Organization, include_archived: bool = False) ->
     if not include_archived:
         accounts = accounts.filter(is_active=True)
 
-    nodes = {account.code: ChartNode(account=account) for account in accounts.order_by("code")}
+    nodes = {
+        account.pk: ChartNode(account=account)
+        for account in accounts.select_related("parent").order_by("code")
+    }
 
     roots: list[ChartNode] = []
-    for code, node in nodes.items():
-        parent_code = code.rsplit("-", 1)[0] if "-" in code else None
-        parent = nodes.get(parent_code) if parent_code is not None else None
+    for node in nodes.values():
+        parent = nodes.get(node.account.parent_id)
         if parent is None:
             roots.append(node)
         else:
