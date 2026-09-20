@@ -8,7 +8,7 @@ import pytest
 from django.core.management import call_command
 from django.urls import reverse
 
-from apps.accounting.models import Account, ImportedChartAccount
+from apps.accounting.models import Account, ImportedChartAccount, JournalLine
 
 pytestmark = pytest.mark.django_db
 
@@ -39,6 +39,27 @@ def test_imported_chart_is_idempotent_and_does_not_replace_live_chart(
     assert Account.objects.filter(organization=organization).count() == live_count
 
 
+def test_operational_chart_imports_the_approved_tree_without_activity(organization: Any) -> None:
+    call_command("import_operational_chart", organization=organization.code, verbosity=0)
+    call_command("import_operational_chart", organization=organization.code, verbosity=0)
+
+    accounts = Account.objects.filter(organization=organization)
+    assert accounts.count() == 110
+    assert set(accounts.filter(parent__isnull=True).values_list("code", flat=True)) == {
+        "100000",
+        "200000",
+        "300000",
+        "400000",
+        "500000",
+        "600000",
+        "700000",
+        "800000",
+    }
+    assert accounts.get(code="121210").parent.code == "121200"
+    assert accounts.get(code="121210").is_postable is True
+    assert not JournalLine.objects.filter(account__organization=organization).exists()
+
+
 def test_accounting_workspaces_render_for_authorized_user(
     organization: Any, chart: Any, superuser: Any, client_for: Any
 ) -> None:
@@ -58,9 +79,10 @@ def test_accounting_workspaces_render_for_authorized_user(
         reverse("accounting:chart_tree"),
         {"organization": organization.pk},
     )
-    assert "113" in tree.content.decode()
-    assert "الرمز واسم الحساب فقط" in tree.content.decode()
-    assert "مدين" not in tree.content.decode()
+    body = tree.content.decode()
+    assert "1-01-01-001" in body
+    assert "الرصيد" in body
+    assert "الرمز واسم الحساب فقط" not in body
 
 
 def test_imported_chart_children_returns_small_htmx_fragment(

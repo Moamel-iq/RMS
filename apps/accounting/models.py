@@ -30,15 +30,18 @@ from apps.core.money import MONEY_PLACES
 #: far beyond any plausible IQD figure and leaves the column comfortable.
 AMOUNT_MAX_DIGITS = MONEY_PLACES + 15
 
-#: Account code shapes, one per level of the C-GG-SS-AAA hierarchy (ADR-014).
-#: The code carries the level, so a detail account is recognisable without a
-#: separate field that could disagree with it.
+#: Legacy account-code shapes.  These remain valid for every existing
+#: installation that uses the original C-GG-SS-AAA numbering scheme.
 CLASS_CODE_PATTERN = r"^[1-9]$"
 GROUP_CODE_PATTERN = r"^[1-9]-[0-9]{2}$"
 SUBGROUP_CODE_PATTERN = r"^[1-9]-[0-9]{2}-[0-9]{2}$"
 DETAIL_CODE_PATTERN = r"^[1-9]-[0-9]{2}-[0-9]{2}-[0-9]{3}$"
 
-ANY_ACCOUNT_CODE_PATTERN = r"^[1-9](-[0-9]{2}(-[0-9]{2}(-[0-9]{3})?)?)?$"
+#: The operational Khan Mandi chart is a six-digit hierarchy such as
+#: ``100000`` → ``120000`` → ``121200`` → ``121210``.  Its parent relationship
+#: carries the level because trailing zeroes alone do not uniquely identify it.
+OPERATIONAL_ACCOUNT_CODE_PATTERN = r"^[1-9][0-9]{5}$"
+ANY_ACCOUNT_CODE_PATTERN = r"^(?:[1-9](-[0-9]{2}(-[0-9]{2}(-[0-9]{3})?)?)?|[1-9][0-9]{5})$"
 
 CODE_PATTERN = r"^[A-Z0-9][A-Z0-9_-]*$"
 
@@ -429,10 +432,13 @@ class Account(TimeStampedModel):
                 condition=Q(code__regex=ANY_ACCOUNT_CODE_PATTERN),
                 name="account_code_format",
             ),
-            # is_postable can never disagree with the code's level.
+            # Legacy code levels determine postability.  The six-digit
+            # operational chart has explicit parent links, so a six-digit
+            # node can validly be either a rollup or a posting account.
             models.CheckConstraint(
                 condition=(
-                    (Q(is_postable=True) & Q(code__regex=DETAIL_CODE_PATTERN))
+                    Q(code__regex=OPERATIONAL_ACCOUNT_CODE_PATTERN)
+                    | (Q(is_postable=True) & Q(code__regex=DETAIL_CODE_PATTERN))
                     | (Q(is_postable=False) & ~Q(code__regex=DETAIL_CODE_PATTERN))
                 ),
                 name="account_postable_iff_detail_code",

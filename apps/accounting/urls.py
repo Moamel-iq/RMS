@@ -56,7 +56,9 @@ urlpatterns = [
         name="mapping_archive",
     ),
     # --- دليل الحسابات -------------------------------------------------------
-    path("accounts/", workspace_views.ImportedChartTreeView.as_view(), name="chart_tree"),
+    # The primary workspace is always the live operational chart. The workbook
+    # reference remains available separately and never replaces it.
+    path("accounts/", chart_views.ChartTreeView.as_view(), name="chart_tree"),
     path(
         "accounts/operational/",
         chart_views.ChartTreeView.as_view(),
