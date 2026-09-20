@@ -204,9 +204,12 @@ def test_cost_summary_never_values_a_line_at_zero(
     """
     summary = cost_summary(accounting_manager, _scope(scenario["organization"]))
     assert summary.food_cost == ZERO
+    assert summary.total_net == Decimal("100000.000")
     assert summary.costed_lines == 0
     assert summary.uncosted_lines == 2
     assert summary.uncosted_gross == Decimal("100000.000")
+    assert summary.uncosted_net == Decimal("100000.000")
+    assert summary.non_stock_lines == 0
     assert summary.is_complete is False
 
 

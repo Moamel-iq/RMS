@@ -12,48 +12,63 @@
 <h2 class="ui-section-title">{{ card.label }}</h2>
 <div class="ui-metric-grid">
   <div class="ui-metric">
-    <span class="ui-metric__label">{% translate "كلفة الطعام" %}</span>
+    <span class="ui-metric__label">{% translate "إجمالي صافي المبيعات" %}</span>
+    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.total_net|iqd }}</code></bdi></span>
+  </div>
+  <div class="ui-metric">
+    <span class="ui-metric__label">{% translate "صافي المبيعات ذات كلفة موثّقة" %}</span>
+    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.costed_net|iqd }}</code></bdi></span>
+  </div>
+  <div class="ui-metric">
+    <span class="ui-metric__label">{% translate "صافي مبيعات تنتظر كلفة موثّقة" %}</span>
+    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.uncosted_net|iqd }}</code></bdi></span>
+  </div>
+  <div class="ui-metric">
+    <span class="ui-metric__label">{% translate "صافي بنود غير مخزنية" %}</span>
+    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.non_stock_net|iqd }}</code></bdi></span>
+  </div>
+</div>
+
+<div class="ui-metric-grid">
+  <div class="ui-metric">
+    <span class="ui-metric__label">{% translate "كلفة الطعام الموثّقة" %}</span>
     <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.food_cost|iqd }}</code></bdi></span>
   </div>
   <div class="ui-metric">
-    <span class="ui-metric__label">{% translate "صافي مبيعات مُكلَّفة" %}</span>
-    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.costed_net|iqd }}</code></bdi></span>
-  </div>
-  <div class="ui-metric ui-metric--accent">
-    <span class="ui-metric__label">{% translate "مجمل الربح" %}</span>
+    <span class="ui-metric__label">{% translate "مجمل الربح على المبيعات ذات الكلفة الموثّقة" %}</span>
     <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.gross_profit|iqd }}</code></bdi></span>
   </div>
   <div class="ui-metric">
-    <span class="ui-metric__label">{% translate "نسبة كلفة الطعام" %}</span>
+    <span class="ui-metric__label">{% translate "نسبة كلفة الطعام للمبيعات ذات الكلفة الموثّقة" %}</span>
     <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.food_cost_percent }}%</code></bdi></span>
   </div>
   <div class="ui-metric">
-    <span class="ui-metric__label">{% translate "نسبة الهامش" %}</span>
+    <span class="ui-metric__label">{% translate "نسبة الهامش للمبيعات ذات الكلفة الموثّقة" %}</span>
     <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.margin_percent }}%</code></bdi></span>
   </div>
 </div>
 
 <div class="ui-metric-grid">
   <div class="ui-metric">
-    <span class="ui-metric__label">{% translate "سطور مُكلَّفة" %}</span>
+    <span class="ui-metric__label">{% translate "سطور ذات كلفة موثّقة" %}</span>
     <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.costed_lines }}</code></bdi></span>
   </div>
   <div class="ui-metric">
-    <span class="ui-metric__label">{% translate "سطور بلا لقطة كلفة" %}</span>
+    <span class="ui-metric__label">{% translate "سطور تنتظر لقطة كلفة" %}</span>
     <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.uncosted_lines }}</code></bdi></span>
   </div>
   <div class="ui-metric">
-    <span class="ui-metric__label">{% translate "إجمالي السطور غير المكلّفة" %}</span>
-    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.uncosted_gross|iqd }}</code></bdi></span>
+    <span class="ui-metric__label">{% translate "سطور غير مخزنية" %}</span>
+    <span class="ui-metric__value"><bdi dir="ltr"><code>{{ summary.non_stock_lines }}</code></bdi></span>
   </div>
 </div>
 
 {% if summary.is_complete %}
   <p class="ui-page-header__subtitle">
-    {% translate "كل سطر مرحّل في هذه المدة له لقطة كلفة مجمّدة خلفه." %}
+    {% translate "كل سطر يحتاج كلفة مواد في هذه المدة له دليل كلفة مجمّد؛ البنود غير المخزنية معروضة منفصلة." %}
   </p>
 {% else %}
   <p class="ui-page-header__subtitle">
-    {% translate "النِسَب أعلاه محسوبة على السطور المكلّفة وحدها. السطر بلا لقطة كلفة لا يُكلَّف بصفر: تكليفه بصفر يخفض نسبة كلفة الطعام في الاتجاه الذي لا يسأل عنه أحد. لقطة الكلفة تُؤخذ من شاشة كلفة الوصفة والطبق." %}
+    {% translate "النِسَب أعلاه محسوبة على المبيعات ذات الكلفة الموثّقة وحدها. السطر بلا لقطة كلفة لا يُكلَّف بصفر، لأن ذلك يخفض نسبة كلفة الطعام بصورة غير صحيحة. صافي المبيعات الكامل معروض أعلاه، والبنود غير المخزنية منفصلة لأنها لا تستهلك مادة أو وصفة." %}
   </p>
 {% endif %}

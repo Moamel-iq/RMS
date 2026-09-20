@@ -640,6 +640,8 @@ class DashboardCostOut(Schema):
     organization_id: int
     date_from: str
     date_to: str
+    total_gross: str
+    total_net: str
     costed_gross: str
     costed_net: str
     food_cost: str
@@ -649,6 +651,10 @@ class DashboardCostOut(Schema):
     costed_lines: int
     uncosted_lines: int
     uncosted_gross: str
+    uncosted_net: str
+    non_stock_lines: int
+    non_stock_gross: str
+    non_stock_net: str
     is_complete: bool
 
 
@@ -1491,6 +1497,8 @@ def get_dashboard_cost(
         "organization_id": organization.pk,
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
+        "total_gross": str(cost.total_gross),
+        "total_net": str(cost.total_net),
         "costed_gross": str(cost.costed_gross),
         "costed_net": str(cost.costed_net),
         "food_cost": str(cost.food_cost),
@@ -1500,6 +1508,10 @@ def get_dashboard_cost(
         "costed_lines": cost.costed_lines,
         "uncosted_lines": cost.uncosted_lines,
         "uncosted_gross": str(cost.uncosted_gross),
+        "uncosted_net": str(cost.uncosted_net),
+        "non_stock_lines": cost.non_stock_lines,
+        "non_stock_gross": str(cost.non_stock_gross),
+        "non_stock_net": str(cost.non_stock_net),
         "is_complete": cost.is_complete,
     }
 

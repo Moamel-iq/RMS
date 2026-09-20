@@ -672,15 +672,17 @@ def reconciliation_summary(user: User, scope: DashboardScope) -> ReconciliationS
 @dataclass(frozen=True)
 class CostSummary:
     """
-    Food cost and margin over the lines that actually carry cost evidence.
+    Sales coverage, food cost and margin, without treating a missing cost as zero.
 
-    `uncosted_lines` and `uncosted_gross` sit beside every figure here on
-    purpose. A margin computed over part of the revenue and presented as if it
-    covered all of it is worse than no margin at all, and the failure is silent:
-    the percentage is simply lower than the truth, which is the direction that
-    never gets questioned.
+    ``total_net`` is every posted sale in the requested window. The costing
+    figures cover only rows with immutable evidence. Rows waiting for a recipe
+    cost snapshot remain separate from deliberately non-stock rows, so a food
+    margin never quietly gives either group a zero cost.
     """
 
+    total_gross: Decimal
+    total_restaurant_discount: Decimal
+    total_net: Decimal
     costed_gross: Decimal
     costed_restaurant_discount: Decimal
     costed_net: Decimal
@@ -688,7 +690,19 @@ class CostSummary:
     gross_profit: Decimal
     uncosted_lines: int
     uncosted_gross: Decimal
+    uncosted_restaurant_discount: Decimal
+    non_stock_lines: int
+    non_stock_gross: Decimal
+    non_stock_restaurant_discount: Decimal
     costed_lines: int
+
+    @property
+    def uncosted_net(self) -> Decimal:
+        return self.uncosted_gross - self.uncosted_restaurant_discount
+
+    @property
+    def non_stock_net(self) -> Decimal:
+        return self.non_stock_gross - self.non_stock_restaurant_discount
 
     @property
     def food_cost_percent(self) -> Decimal:
@@ -700,7 +714,7 @@ class CostSummary:
 
     @property
     def is_complete(self) -> bool:
-        """Whether every posted line in the window had a snapshot behind it."""
+        """Whether every costable line has immutable cost evidence."""
         return self.uncosted_lines == 0
 
 
@@ -746,8 +760,19 @@ def cost_summary(user: User, scope: DashboardScope) -> CostSummary:
             "direct_stock_fulfillment__cogs_value",
         )
     )
-    if not groups and not direct_rows:
-        return CostSummary(ZERO, ZERO, ZERO, ZERO, ZERO, 0, ZERO, 0)
+    totals = base_lines.aggregate(
+        gross=Sum("gross_amount"), restaurant_discount=Sum("restaurant_discount")
+    )
+    total_gross = totals["gross"] or ZERO
+    total_discount = totals["restaurant_discount"] or ZERO
+    # Kept as the stored value rather than a TextChoices member so this report
+    # remains readable against historical databases that predate the optional
+    # non-stock fulfilment route.
+    non_stock = base_lines.filter(fulfillment_source="NON_STOCK").aggregate(
+        lines=Count("id"),
+        gross=Sum("gross_amount"),
+        restaurant_discount=Sum("restaurant_discount"),
+    )
 
     serving_ids = {row["serving_id"] for row in groups}
     evidence: dict[int, tuple[list[datetime.date], list[Decimal]]] = {}
@@ -772,12 +797,14 @@ def cost_summary(user: User, scope: DashboardScope) -> CostSummary:
     costed_lines = 0
     uncosted_lines = 0
     uncosted_gross = ZERO
+    uncosted_discount = ZERO
 
     for row in groups:
         cost = _cost_at(evidence.get(row["serving_id"]), row["sales_day__business_date"])
         if cost is None:
             uncosted_lines += row["lines"]
             uncosted_gross += row["gross"] or ZERO
+            uncosted_discount += row["restaurant_discount"] or ZERO
             continue
         costed_lines += row["lines"]
         costed_gross += row["gross"] or ZERO
@@ -795,6 +822,7 @@ def cost_summary(user: User, scope: DashboardScope) -> CostSummary:
         if cost is None:
             uncosted_lines += 1
             uncosted_gross += direct_row["gross_amount"] or ZERO
+            uncosted_discount += direct_row["restaurant_discount"] or ZERO
             continue
         costed_lines += 1
         costed_gross += direct_row["gross_amount"] or ZERO
@@ -804,6 +832,9 @@ def cost_summary(user: User, scope: DashboardScope) -> CostSummary:
     costed_net = costed_gross - costed_discount
     quantized_cost = quantize_money(food_cost)
     return CostSummary(
+        total_gross=quantize_money(total_gross),
+        total_restaurant_discount=quantize_money(total_discount),
+        total_net=quantize_money(total_gross - total_discount),
         costed_gross=quantize_money(costed_gross),
         costed_restaurant_discount=quantize_money(costed_discount),
         costed_net=quantize_money(costed_net),
@@ -811,6 +842,10 @@ def cost_summary(user: User, scope: DashboardScope) -> CostSummary:
         gross_profit=quantize_money(costed_net) - quantized_cost,
         uncosted_lines=uncosted_lines,
         uncosted_gross=quantize_money(uncosted_gross),
+        uncosted_restaurant_discount=quantize_money(uncosted_discount),
+        non_stock_lines=non_stock["lines"] or 0,
+        non_stock_gross=quantize_money(non_stock["gross"] or ZERO),
+        non_stock_restaurant_discount=quantize_money(non_stock["restaurant_discount"] or ZERO),
         costed_lines=costed_lines,
     )
 
